@@ -288,6 +288,16 @@ public:
     // returns 0 for success otherwise error
     int recycle_deleted_instance();
 
+    int recycle_deleted_instance_data();
+
+    int recycle_deleted_instance_metadata();
+
+    int update_instance_recycled_state(InstanceRecycleState expected_state,
+                                       InstanceRecycleState target_state);
+
+    int update_instance_recycled_state(InstanceRecycleState expected_state,
+                                       InstanceRecycleState target_state, Transaction* txn);
+
     // scan and recycle expired indexes:
     // 1. dropped table, dropped mv
     // 2. half-successtable/index when create
@@ -430,6 +440,9 @@ public:
                                        const SnapshotPB& snapshot_pb);
 
 private:
+    // returns 0 for success otherwise error
+    int remove_instance_key();
+
     // returns 0 for success otherwise error
     int init_obj_store_accessors();
 

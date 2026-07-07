@@ -24,14 +24,127 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <tuple>
 
 #include "common/defer.h"
 #include "cpp/sync_point.h"
 #include "meta-service/meta_service.h"
+#include "meta-store/keys.h"
+#include "meta-store/mem_txn_kv.h"
+#include "rate-limiter/rate_limiter.h"
+#include "resource-manager/resource_manager.h"
+#include "snapshot/snapshot_manager.h"
 
 namespace doris::cloud {
 
 extern std::unique_ptr<MetaServiceProxy> get_meta_service(bool mock_resource_mgr);
+
+TEST(MetaServiceSnapshotTest, CheckInstanceRecycleCompletedForInstanceChain) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+    auto resource_mgr = std::make_shared<ResourceManager>(txn_kv);
+    auto rate_limiter = std::make_shared<RateLimiter>();
+    auto snapshot_manager = std::make_shared<SnapshotManager>(txn_kv);
+    MetaServiceImpl meta_service(txn_kv, resource_mgr, rate_limiter, snapshot_manager);
+
+    InstanceInfoPB original_instance;
+    original_instance.set_instance_id("original_instance");
+    original_instance.set_status(InstanceInfoPB::DELETED);
+    original_instance.set_successor_instance_id("middle_instance");
+    original_instance.set_recycled_state(
+            InstanceRecycleState::INSTANCE_RECYCLE_STATE_DATA_CLEANUP_COMPLETED);
+
+    InstanceInfoPB middle_instance;
+    middle_instance.set_instance_id("middle_instance");
+    middle_instance.set_status(InstanceInfoPB::DELETED);
+    middle_instance.set_original_instance_id(original_instance.instance_id());
+    middle_instance.set_successor_instance_id("tail_instance");
+    middle_instance.set_recycled_state(
+            InstanceRecycleState::INSTANCE_RECYCLE_STATE_DATA_CLEANUP_COMPLETED);
+
+    InstanceInfoPB tail_instance;
+    tail_instance.set_instance_id("tail_instance");
+    tail_instance.set_status(InstanceInfoPB::DELETED);
+    tail_instance.set_original_instance_id(original_instance.instance_id());
+    tail_instance.set_recycled_state(
+            InstanceRecycleState::INSTANCE_RECYCLE_STATE_DATA_CLEANUP_COMPLETED);
+
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    txn->put(instance_key({original_instance.instance_id()}),
+             original_instance.SerializeAsString());
+    txn->put(instance_key({middle_instance.instance_id()}), middle_instance.SerializeAsString());
+    txn->put(instance_key({tail_instance.instance_id()}), tail_instance.SerializeAsString());
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    bool finished = true;
+    std::string reason;
+    auto [code, msg] = meta_service.check_instance_recycle_completed(tail_instance.instance_id(),
+                                                                     finished, reason);
+    ASSERT_EQ(code, MetaServiceCode::OK) << msg;
+    ASSERT_FALSE(finished);
+    ASSERT_EQ(reason,
+              "instance has not completed recycling, instance_id=tail_instance, "
+              "recycled_state=INSTANCE_RECYCLE_STATE_DATA_CLEANUP_COMPLETED");
+
+    tail_instance.set_recycled_state(
+            InstanceRecycleState::INSTANCE_RECYCLE_STATE_CLEANUP_COMPLETED);
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    txn->put(instance_key({tail_instance.instance_id()}), tail_instance.SerializeAsString());
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    std::tie(code, msg) = meta_service.check_instance_recycle_completed(tail_instance.instance_id(),
+                                                                        finished, reason);
+    ASSERT_EQ(code, MetaServiceCode::OK) << msg;
+    ASSERT_FALSE(finished);
+    ASSERT_EQ(reason,
+              "referenced instance has not completed recycling, "
+              "predecessor_instance_id=original_instance, "
+              "recycled_state=INSTANCE_RECYCLE_STATE_DATA_CLEANUP_COMPLETED");
+
+    original_instance.set_recycled_state(
+            InstanceRecycleState::INSTANCE_RECYCLE_STATE_CLEANUP_COMPLETED);
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    txn->put(instance_key({original_instance.instance_id()}),
+             original_instance.SerializeAsString());
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    std::tie(code, msg) = meta_service.check_instance_recycle_completed(tail_instance.instance_id(),
+                                                                        finished, reason);
+    ASSERT_EQ(code, MetaServiceCode::OK) << msg;
+    ASSERT_FALSE(finished);
+    ASSERT_EQ(reason,
+              "referenced instance has not completed recycling, "
+              "predecessor_instance_id=middle_instance, "
+              "recycled_state=INSTANCE_RECYCLE_STATE_DATA_CLEANUP_COMPLETED");
+
+    middle_instance.set_recycled_state(
+            InstanceRecycleState::INSTANCE_RECYCLE_STATE_CLEANUP_COMPLETED);
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    txn->put(instance_key({middle_instance.instance_id()}), middle_instance.SerializeAsString());
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    std::tie(code, msg) = meta_service.check_instance_recycle_completed(tail_instance.instance_id(),
+                                                                        finished, reason);
+    ASSERT_EQ(code, MetaServiceCode::OK) << msg;
+    ASSERT_TRUE(finished);
+    ASSERT_EQ(reason,
+              "instance recycling has completed, instance_id=tail_instance, "
+              "recycled_state=INSTANCE_RECYCLE_STATE_CLEANUP_COMPLETED");
+
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    txn->remove(instance_key({tail_instance.instance_id()}));
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    finished = false;
+    std::tie(code, msg) = meta_service.check_instance_recycle_completed(tail_instance.instance_id(),
+                                                                        finished, reason);
+    ASSERT_EQ(code, MetaServiceCode::OK) << msg;
+    ASSERT_TRUE(finished);
+    ASSERT_EQ(reason,
+              "instance recycling is considered completed because the instance key does not "
+              "exist, instance_id=tail_instance");
+}
 
 TEST(MetaServiceSnapshotTest, DISABLED_BeginSnapshotTest) {
     auto meta_service = get_meta_service(true);

@@ -2562,6 +2562,9 @@ static std::pair<MetaServiceCode, std::string> drop_single_instance(const std::s
 
     instance->set_status(InstanceInfoPB::DELETED);
     instance->set_mtime(duration_cast<seconds>(system_clock::now().time_since_epoch()).count());
+    instance->set_recycled_state(INSTANCE_RECYCLE_STATE_CLEANUP_PENDING);
+    instance->set_recycled_state_update_time_ms(
+            duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count());
 
     std::string serialized = instance->SerializeAsString();
     if (serialized.empty()) {
@@ -2634,6 +2637,11 @@ static std::pair<MetaServiceCode, std::string> drop_instance_chain(
     for (auto& instance : predecessors) {
         instance.set_status(InstanceInfoPB::DELETED);
         instance.set_mtime(now);
+        if (!instance.has_recycled_state()) {
+            instance.set_recycled_state(INSTANCE_RECYCLE_STATE_CLEANUP_PENDING);
+            instance.set_recycled_state_update_time_ms(
+                    duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count());
+        }
         std::string serialized;
         if (!instance.SerializeToString(&serialized)) {
             std::string msg =
@@ -2645,8 +2653,13 @@ static std::pair<MetaServiceCode, std::string> drop_instance_chain(
         LOG(INFO) << "marking chain predecessor as DELETED, instance_id=" << instance.instance_id();
     }
 
-    tail_instance->set_status(InstanceInfoPB::DELETED);
     tail_instance->set_mtime(now);
+    if (!tail_instance->has_recycled_state()) {
+        tail_instance->set_recycled_state(INSTANCE_RECYCLE_STATE_CLEANUP_PENDING);
+        tail_instance->set_recycled_state_update_time_ms(
+                duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count());
+    }
+    tail_instance->set_status(InstanceInfoPB::DELETED);
     std::string serialized = tail_instance->SerializeAsString();
     if (serialized.empty()) {
         std::string msg = "failed to serialize";
@@ -2656,6 +2669,132 @@ static std::pair<MetaServiceCode, std::string> drop_instance_chain(
     LOG(INFO) << "drop instance_id=" << tail_instance_id << " and " << predecessors.size()
               << " predecessor instances, json=" << proto_to_json(*tail_instance);
     return {MetaServiceCode::OK, std::move(serialized)};
+}
+
+std::pair<MetaServiceCode, std::string> MetaServiceImpl::check_instance_recycle_completed(
+        const std::string& instance_id, bool& finished, std::string& reason) {
+    // Recycler preserves this invariant for an instance chain:
+    //
+    //   original A  ->  B  ->  tail C
+    //   cleanup:        A, B, and C reach CLEANUP_COMPLETED first
+    //   key removal:    C  ->  B  ->  A
+    //
+    // A missing target key is therefore a valid completion signal: the target and its whole
+    // chain have already passed cleanup before the key could be removed. If a chain successor key
+    // still exists, verify its state and walk the original-to-target links to check every
+    // predecessor.
+    reason.clear();
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        std::string msg = fmt::format("failed to create txn, err={}", err);
+        LOG(WARNING) << msg << " instance_id=" << instance_id;
+        return {MetaServiceCode::KV_TXN_CREATE_ERR, std::move(msg)};
+    }
+
+    std::string key = instance_key({instance_id});
+    std::string value;
+    err = txn->get(key, &value);
+    if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+        // The recycler only removes keys after cleanup is complete, so do not treat this as an
+        // incomplete or unknown state.
+        finished = true;
+        reason = fmt::format(
+                "instance recycling is considered completed because the instance key does not "
+                "exist, instance_id={}",
+                instance_id);
+        return {MetaServiceCode::OK, "OK"};
+    }
+    if (err != TxnErrorCode::TXN_OK) {
+        std::string msg =
+                fmt::format("failed to get instance, instance_id={}, err={}", instance_id, err);
+        LOG(WARNING) << msg;
+        return {MetaServiceCode::KV_TXN_GET_ERR, std::move(msg)};
+    }
+
+    InstanceInfoPB instance;
+    if (!instance.ParseFromString(value)) {
+        std::string msg = fmt::format("malformed instance info, key={}", hex(key));
+        LOG(WARNING) << msg;
+        return {MetaServiceCode::PROTOBUF_PARSE_ERR, std::move(msg)};
+    }
+
+    finished = instance.recycled_state() ==
+               InstanceRecycleState::INSTANCE_RECYCLE_STATE_CLEANUP_COMPLETED;
+    if (!finished) {
+        reason = fmt::format(
+                "instance has not completed recycling, instance_id={}, recycled_state={}",
+                instance_id, InstanceRecycleState_Name(instance.recycled_state()));
+        return {MetaServiceCode::OK, "OK"};
+    }
+
+    if (instance.original_instance_id().empty()) {
+        reason = fmt::format("instance recycling has completed, instance_id={}, recycled_state={}",
+                             instance_id, InstanceRecycleState_Name(instance.recycled_state()));
+        return {MetaServiceCode::OK, "OK"};
+    }
+
+    // Walk from the original instance to the queried instance through successor links. For a
+    // chain A -> B -> C queried by instance_id=C, the expected walk is:
+    //
+    //   predecessor=A --read/check--> B --read/check--> C
+    //       |                            |               |
+    //       +-- state incomplete ------> +-- state incomplete --> finished=false
+    //       |
+    //       +-- successor becomes empty before C ----------------> finished=false
+    //
+    // The loop stops only when the current id is empty or reaches the target. Each predecessor
+    // must be CLEANUP_COMPLETED before the walk can advance to its successor.
+    std::string predecessor_instance_id = instance.original_instance_id();
+    while (!predecessor_instance_id.empty() && predecessor_instance_id != instance_id) {
+        key = instance_key({predecessor_instance_id});
+        err = txn->get(key, &value);
+        if (err != TxnErrorCode::TXN_OK) {
+            std::string msg = fmt::format(
+                    "failed to get predecessor instance, instance_id={}, "
+                    "predecessor_instance_id={}, err={}",
+                    instance_id, predecessor_instance_id, err);
+            LOG(WARNING) << msg;
+            return {MetaServiceCode::KV_TXN_GET_ERR, std::move(msg)};
+        }
+
+        InstanceInfoPB predecessor_instance;
+        if (!predecessor_instance.ParseFromString(value)) {
+            std::string msg = fmt::format("malformed predecessor instance info, key={}", hex(key));
+            LOG(WARNING) << msg;
+            return {MetaServiceCode::PROTOBUF_PARSE_ERR, std::move(msg)};
+        }
+
+        finished = predecessor_instance.recycled_state() ==
+                   InstanceRecycleState::INSTANCE_RECYCLE_STATE_CLEANUP_COMPLETED;
+        if (!finished) {
+            reason = fmt::format(
+                    "referenced instance has not completed recycling, predecessor_instance_id={}, "
+                    "recycled_state={}",
+                    predecessor_instance.instance_id(),
+                    InstanceRecycleState_Name(predecessor_instance.recycled_state()));
+            return {MetaServiceCode::OK, "OK"};
+        }
+        predecessor_instance_id = predecessor_instance.successor_instance_id();
+    }
+
+    // The walk must reach the queried instance instead of ending at an empty successor:
+    //
+    //   valid:    A -> B -> C(target)   predecessor_instance_id == instance_id
+    //   broken:   A -> B -> ""          predecessor_instance_id != instance_id
+    //                     ^
+    //                     +-- the chain ended before reaching C, so finished=false
+    if (predecessor_instance_id != instance_id) {
+        finished = false;
+        reason = fmt::format(
+                "instance chain ends before reaching target, "
+                "instance_id={}",
+                instance_id);
+        return {MetaServiceCode::OK, "OK"};
+    }
+    reason = fmt::format("instance recycling has completed, instance_id={}, recycled_state={}",
+                         instance_id, InstanceRecycleState_Name(instance.recycled_state()));
+    return {MetaServiceCode::OK, "OK"};
 }
 
 void MetaServiceImpl::alter_instance(google::protobuf::RpcController* controller,
@@ -2686,6 +2825,12 @@ void MetaServiceImpl::alter_instance(google::protobuf::RpcController* controller
     switch (request->op()) {
     case AlterInstanceRequest::DROP: {
         ret = alter_instance(request, [&instance_id](Transaction* txn, InstanceInfoPB* instance) {
+            if (instance->status() == InstanceInfoPB::DELETED) {
+                std::string msg = "failed to drop instance, instance has already been recycled";
+                LOG(WARNING) << msg << " instance_id=" << instance_id;
+                return std::make_pair(MetaServiceCode::INVALID_ARGUMENT, std::move(msg));
+            }
+
             // check instance doesn't have any cluster.
             if (instance->clusters_size() != 0) {
                 std::string msg = "failed to drop instance, instance has clusters";

@@ -756,6 +756,12 @@ int InstanceRecycler::init_storage_vault_accessors() {
 }
 
 int InstanceRecycler::init() {
+    if (instance_info_.status() == InstanceInfoPB::DELETED &&
+        (instance_info_.recycled_state() == INSTANCE_RECYCLE_STATE_DATA_CLEANUP_COMPLETED ||
+         instance_info_.recycled_state() == INSTANCE_RECYCLE_STATE_CLEANUP_COMPLETED)) {
+        return 0;
+    }
+
     int ret = init_obj_store_accessors();
     if (ret != 0) {
         return ret;
@@ -854,6 +860,30 @@ int InstanceRecycler::recycle_deleted_instance() {
                      << "s, instance_id=" << instance_id_;
     };
 
+    switch (instance_info_.recycled_state()) {
+    case InstanceRecycleState::INSTANCE_RECYCLE_STATE_CLEANUP_PENDING:
+        ret = recycle_deleted_instance_data();
+        break;
+    case InstanceRecycleState::INSTANCE_RECYCLE_STATE_DATA_CLEANUP_COMPLETED:
+        ret = recycle_deleted_instance_metadata();
+        break;
+    case InstanceRecycleState::INSTANCE_RECYCLE_STATE_CLEANUP_COMPLETED:
+        ret = remove_instance_key();
+        break;
+    default:
+        LOG_WARNING("invalid instance recycle state")
+                .tag("instance_id", instance_id_)
+                .tag("recycled_state", instance_info_.recycled_state());
+        ret = -1;
+        break;
+    }
+
+    return ret;
+}
+
+int InstanceRecycler::recycle_deleted_instance_data() {
+    int ret = 0;
+
     // Step 1: Recycle tmp rowsets (contains ref count but txn is not committed)
     auto recycle_tmp_rowsets_with_mark_delete_enabled = [&]() -> int {
         int res = recycle_tmp_rowsets();
@@ -866,23 +896,21 @@ int InstanceRecycler::recycle_deleted_instance() {
         }
         return res;
     };
+
     if (recycle_tmp_rowsets_with_mark_delete_enabled() != 0) {
         LOG_WARNING("failed to recycle tmp rowsets").tag("instance_id", instance_id_);
-        ret = -1;
         return -1;
     }
 
     // Step 2: Recycle versioned rowsets in recycle space (already marked for deletion)
     if (recycle_versioned_rowsets() != 0) {
         LOG_WARNING("failed to recycle versioned rowsets").tag("instance_id", instance_id_);
-        ret = -1;
         return -1;
     }
 
     // Step 3: Recycle operation logs (can recycle logs not referenced by snapshots)
     if (recycle_operation_logs() != 0) {
         LOG_WARNING("failed to recycle operation logs").tag("instance_id", instance_id_);
-        ret = -1;
         return -1;
     }
 
@@ -890,7 +918,6 @@ int InstanceRecycler::recycle_deleted_instance() {
     bool has_snapshots = false;
     if (has_cluster_snapshots(&has_snapshots) != 0) {
         LOG(WARNING) << "check instance cluster snapshots failed, instance_id=" << instance_id_;
-        ret = -1;
         return -1;
     } else if (has_snapshots) {
         LOG(INFO) << "instance has cluster snapshots, skip recycling, instance_id=" << instance_id_;
@@ -904,17 +931,16 @@ int InstanceRecycler::recycle_deleted_instance() {
         bool has_unrecycled_rowsets = false;
         if (recycle_ref_rowsets(&has_unrecycled_rowsets) != 0) {
             LOG_WARNING("failed to recycle ref rowsets").tag("instance_id", instance_id_);
-            ret = -1;
             return -1;
         } else if (has_unrecycled_rowsets) {
             LOG_INFO("instance has referenced rowsets, skip recycling")
                     .tag("instance_id", instance_id_);
-            return ret;
+            return 0;
         }
     } else { // delete all remote data if snapshot is disabled
         for (auto& [_, accessor] : accessor_map_) {
             if (stopped()) {
-                return ret;
+                return 0;
             }
 
             LOG(INFO) << "begin to delete all objects in " << accessor->uri();
@@ -934,7 +960,17 @@ int InstanceRecycler::recycle_deleted_instance() {
         }
     }
 
-    // Check successor instance, if exists, skip deleting kv because successor instance may still need the data in kv
+    if (update_instance_recycled_state(
+                InstanceRecycleState::INSTANCE_RECYCLE_STATE_CLEANUP_PENDING,
+                InstanceRecycleState::INSTANCE_RECYCLE_STATE_DATA_CLEANUP_COMPLETED) != 0) {
+        return -1;
+    }
+
+    return 0;
+}
+
+int InstanceRecycler::recycle_deleted_instance_metadata() {
+    // Keep metadata until the successor instance finishes cleanup because it may still reference it.
     if (instance_info_.has_successor_instance_id() &&
         !instance_info_.successor_instance_id().empty()) {
         std::string key = instance_key(instance_info_.successor_instance_id());
@@ -944,22 +980,29 @@ int InstanceRecycler::recycle_deleted_instance() {
             LOG(WARNING) << "failed to create txn, instance_id=" << instance_id_
                          << " successor_instance_id=" << instance_info_.successor_instance_id()
                          << " err=" << err;
-            ret = -1;
             return -1;
         }
 
         std::string value;
         err = txn->get(key, &value);
         if (err == TxnErrorCode::TXN_OK) {
-            LOG(INFO) << "instance successor instance is still exist, skip deleting kv,"
-                      << " instance_id=" << instance_id_
-                      << " successor_instance_id=" << instance_info_.successor_instance_id();
-            return 0;
+            InstanceInfoPB successor_instance;
+            if (!successor_instance.ParseFromString(value)) {
+                LOG(WARNING) << "failed to parse successor instance, instance_id=" << instance_id_
+                             << " successor_instance_id=" << instance_info_.successor_instance_id();
+                return -1;
+            }
+            if (successor_instance.recycled_state() !=
+                InstanceRecycleState::INSTANCE_RECYCLE_STATE_CLEANUP_COMPLETED) {
+                LOG(INFO) << "successor instance has not completed cleanup, skip deleting kv,"
+                          << " instance_id=" << instance_id_
+                          << " successor_instance_id=" << instance_info_.successor_instance_id();
+                return 0;
+            }
         } else if (err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
             LOG(WARNING) << "failed to get successor instance, instance_id=" << instance_id_
                          << " successor_instance_id=" << instance_info_.successor_instance_id()
                          << " err=" << err;
-            ret = -1;
             return -1;
         }
     }
@@ -969,7 +1012,6 @@ int InstanceRecycler::recycle_deleted_instance() {
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
         LOG(WARNING) << "failed to create txn";
-        ret = -1;
         return -1;
     }
     LOG(INFO) << "begin to delete all kv, instance_id=" << instance_id_;
@@ -1020,33 +1062,190 @@ int InstanceRecycler::recycle_deleted_instance() {
     std::string versioned_log_key_start = versioned::log_key_prefix(instance_id_);
     std::string versioned_log_key_end = versioned::log_key_prefix(instance_id_ + '\x00');
     txn->remove(versioned_log_key_start, versioned_log_key_end);
-    err = txn->commit();
-    if (err != TxnErrorCode::TXN_OK) {
-        LOG(WARNING) << "failed to delete all kv, instance_id=" << instance_id_ << ", err=" << err;
-        ret = -1;
+
+    // Updating the recycle state also commits this transaction, making the metadata deletions
+    // and state transition atomic.
+    if (update_instance_recycled_state(
+                InstanceRecycleState::INSTANCE_RECYCLE_STATE_DATA_CLEANUP_COMPLETED,
+                InstanceRecycleState::INSTANCE_RECYCLE_STATE_CLEANUP_COMPLETED, txn.get()) != 0) {
+        return -1;
     }
 
-    if (ret == 0) {
-        // remove instance kv
-        // ATTN: MUST ensure that cloud platform won't regenerate the same instance id
-        err = txn_kv_->create_txn(&txn);
-        if (err != TxnErrorCode::TXN_OK) {
-            LOG(WARNING) << "failed to create txn";
-            ret = -1;
-            return ret;
+    return 0;
+}
+
+int InstanceRecycler::remove_instance_key() {
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        LOG(WARNING) << "failed to create txn";
+        return -1;
+    }
+
+    // Check that the original instance is complete before deleting any chain key. This ensures the
+    // whole chain has finished cleanup and prevents a missing key from reporting completion early.
+    //
+    //   A(original) -> B -> C
+    //        |
+    //        +-- not complete: keep all keys
+    //        +-- complete:     key removal may start
+    if (instance_info_.has_original_instance_id() &&
+        !instance_info_.original_instance_id().empty()) {
+        std::string value;
+        err = txn->get(instance_key({instance_info_.original_instance_id()}), &value);
+        if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+            LOG(INFO) << "original instance key is missing, skip deleting instance key"
+                      << ", instance_id=" << instance_id_
+                      << " original_instance_id=" << instance_info_.original_instance_id();
+            return 0;
         }
-        std::string key;
-        instance_key({instance_id_}, &key);
-        txn->atomic_add(system_meta_service_instance_update_key(), 1);
-        txn->remove(key);
-        err = txn->commit();
         if (err != TxnErrorCode::TXN_OK) {
-            LOG(WARNING) << "failed to delete instance kv, instance_id=" << instance_id_
+            LOG(WARNING) << "failed to get original instance, instance_id=" << instance_id_
+                         << " original_instance_id=" << instance_info_.original_instance_id()
                          << " err=" << err;
-            ret = -1;
+            return -1;
+        }
+
+        InstanceInfoPB original_instance;
+        if (!original_instance.ParseFromString(value)) {
+            LOG(WARNING) << "failed to parse original instance, instance_id=" << instance_id_
+                         << " original_instance_id=" << instance_info_.original_instance_id();
+            return -1;
+        }
+        if (original_instance.recycled_state() !=
+            InstanceRecycleState::INSTANCE_RECYCLE_STATE_CLEANUP_COMPLETED) {
+            LOG(INFO) << "original instance has not completed cleanup, skip deleting instance key"
+                      << ", instance_id=" << instance_id_
+                      << " original_instance_id=" << instance_info_.original_instance_id();
+            return 0;
         }
     }
-    return ret;
+
+    // Check that the successor key is gone before deleting the current key. This keeps key removal
+    // in tail-to-original order.
+    //
+    //   current B -> successor C
+    //                  |
+    //                  +-- C key exists: keep B key
+    //                  +-- C key gone:   B key may be removed
+    if (instance_info_.has_successor_instance_id() &&
+        !instance_info_.successor_instance_id().empty()) {
+        std::string value;
+        err = txn->get(instance_key({instance_info_.successor_instance_id()}), &value);
+        if (err == TxnErrorCode::TXN_OK) {
+            LOG(INFO) << "successor instance key still exists, skip deleting instance key"
+                      << ", instance_id=" << instance_id_
+                      << " successor_instance_id=" << instance_info_.successor_instance_id();
+            return 0;
+        }
+        if (err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+            LOG(WARNING) << "failed to get successor instance, instance_id=" << instance_id_
+                         << " successor_instance_id=" << instance_info_.successor_instance_id()
+                         << " err=" << err;
+            return -1;
+        }
+    }
+
+    txn->atomic_add(system_meta_service_instance_update_key(), 1);
+    txn->remove(instance_key({instance_id_}));
+    err = txn->commit();
+    if (err != TxnErrorCode::TXN_OK) {
+        LOG(WARNING) << "failed to delete instance kv, instance_id=" << instance_id_
+                     << " err=" << err;
+        return -1;
+    }
+    return 0;
+}
+
+int InstanceRecycler::update_instance_recycled_state(InstanceRecycleState expected_state,
+                                                     InstanceRecycleState target_state) {
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        LOG(WARNING) << "failed to create txn";
+        return -1;
+    }
+    return update_instance_recycled_state(expected_state, target_state, txn.get());
+}
+
+int InstanceRecycler::update_instance_recycled_state(InstanceRecycleState current_state,
+                                                     InstanceRecycleState target_state,
+                                                     Transaction* txn) {
+    const bool valid_transition = (current_state == INSTANCE_RECYCLE_STATE_CLEANUP_PENDING &&
+                                   target_state == INSTANCE_RECYCLE_STATE_DATA_CLEANUP_COMPLETED) ||
+                                  (current_state == INSTANCE_RECYCLE_STATE_DATA_CLEANUP_COMPLETED &&
+                                   target_state == INSTANCE_RECYCLE_STATE_CLEANUP_COMPLETED);
+
+    if (!valid_transition) {
+        LOG_WARNING("invalid instance recycled state transition")
+                .tag("instance_id", instance_id_)
+                .tag("current_state", InstanceRecycleState_Name(current_state))
+                .tag("target_state", InstanceRecycleState_Name(target_state));
+        return -1;
+    }
+
+    std::string key = instance_key({instance_id_});
+    std::string value;
+    TxnErrorCode err = txn->get(key, &value);
+    if (err != TxnErrorCode::TXN_OK) {
+        LOG_WARNING("failed to get instance when updating instance recycled state")
+                .tag("instance_id", instance_id_)
+                .tag("current_state", InstanceRecycleState_Name(current_state))
+                .tag("target_state", InstanceRecycleState_Name(target_state))
+                .tag("err", err);
+        return -1;
+    }
+
+    InstanceInfoPB instance;
+    if (!instance.ParseFromString(value)) {
+        LOG_WARNING("failed to parse InstanceInfoPB when updating instance recycled state")
+                .tag("instance_id", instance_id_)
+                .tag("current_state", InstanceRecycleState_Name(current_state))
+                .tag("target_state", InstanceRecycleState_Name(target_state));
+        return -1;
+    }
+    if (instance.status() != InstanceInfoPB::DELETED) {
+        LOG_WARNING("instance is not deleted when updating instance recycled state")
+                .tag("instance_id", instance_id_)
+                .tag("status", instance.status())
+                .tag("current_state", InstanceRecycleState_Name(current_state))
+                .tag("target_state", InstanceRecycleState_Name(target_state));
+        return -1;
+    }
+    if (instance.recycled_state() != current_state) {
+        LOG_WARNING("instance recycled state changed before update")
+                .tag("instance_id", instance_id_)
+                .tag("current_state", InstanceRecycleState_Name(instance.recycled_state()))
+                .tag("expected_state", InstanceRecycleState_Name(current_state))
+                .tag("target_state", InstanceRecycleState_Name(target_state));
+        return -1;
+    }
+
+    instance.set_recycled_state(target_state);
+    instance.set_recycled_state_update_time_ms(
+            duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count());
+    if (!instance.SerializeToString(&value)) {
+        LOG_WARNING("failed to serialize InstanceInfoPB when updating instance recycled state")
+                .tag("instance_id", instance_id_)
+                .tag("expected_state", InstanceRecycleState_Name(current_state))
+                .tag("target_state", InstanceRecycleState_Name(target_state));
+        return -1;
+    }
+
+    txn->atomic_add(system_meta_service_instance_update_key(), 1);
+    txn->put(key, value);
+    err = txn->commit();
+    if (err != TxnErrorCode::TXN_OK) {
+        LOG(WARNING) << "failed to commit fdb txn when updating instance recycled state, "
+                     << "instance_id=" << instance_id_ << ", err=" << err;
+        return -1;
+    }
+
+    instance_info_.Swap(&instance);
+    LOG_INFO("updated instance recycled state")
+            .tag("instance_id", instance_id_)
+            .tag("recycled_state", InstanceRecycleState_Name(target_state));
+    return 0;
 }
 
 int InstanceRecycler::check_rowset_exists(int64_t tablet_id, const std::string& rowset_id,
