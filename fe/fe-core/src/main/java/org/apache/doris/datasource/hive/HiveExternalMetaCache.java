@@ -582,7 +582,11 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
     }
 
     public void invalidatePartitionCache(ExternalTable dorisTable, String partitionName) {
-        partitionCacheCoordinator.invalidatePartitionCache(dorisTable, partitionName);
+        invalidatePartitionCache(dorisTable.getOrBuildNameMapping(), partitionName);
+    }
+
+    public void invalidatePartitionCache(NameMapping nameMapping, String partitionName) {
+        partitionCacheCoordinator.invalidatePartitionCache(nameMapping, partitionName);
     }
 
     /**
@@ -614,8 +618,7 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
     }
 
     private final class PartitionCacheCoordinator {
-        private void invalidatePartitionCache(ExternalTable dorisTable, String partitionName) {
-            NameMapping nameMapping = dorisTable.getOrBuildNameMapping();
+        private void invalidatePartitionCache(NameMapping nameMapping, String partitionName) {
             long catalogId = nameMapping.getCtlId();
 
             MetaCacheEntry<PartitionValueCacheKey, HivePartitionValues> partitionValuesEntry =
@@ -641,6 +644,13 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
             PartitionCacheKey partKey = new PartitionCacheKey(nameMapping, values);
             HivePartition partition = partitionEntry.getIfPresent(partKey);
             if (partition == null) {
+                // Partition metadata cache miss: the exact FileCacheKey cannot be rebuilt here because it
+                // needs the partition path and input format carried by HivePartition. A stale file listing
+                // for this partition may still exist though, because the file cache and partition cache are
+                // independent and evict separately. Fall back to a predicate-based invalidation keyed by
+                // table id + partition values so the stale file listing is not left behind.
+                fileEntry.invalidateIf(k -> k.isSameTable(tableId) && Objects.equals(k.getPartitionValues(), values));
+                partitionEntry.invalidateKey(partKey);
                 return;
             }
 
@@ -685,7 +695,7 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
                 List<String> modifiedPartNames,
                 List<String> newPartNames) {
             for (String partitionName : modifiedPartNames) {
-                invalidatePartitionCache(table, partitionName);
+                invalidatePartitionCache(table.getOrBuildNameMapping(), partitionName);
             }
 
             List<String> mergedPartNames = Lists.newArrayList(modifiedPartNames);
@@ -772,7 +782,7 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
                 nameToPartitionValues.remove(partitionName);
 
                 if (invalidPartitionCache) {
-                    invalidatePartitionCache(dorisTable, partitionName);
+                    invalidatePartitionCache(nameMapping, partitionName);
                 }
             }
 

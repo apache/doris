@@ -87,6 +87,70 @@ public class HiveMetaStoreCacheTest {
     }
 
     @Test
+    public void testInvalidatePartitionCacheClearsStaleFileCacheOnPartitionMiss() {
+        ThreadPoolExecutor executor = ThreadPoolManager.newDaemonFixedThreadPool(
+                1, 1, "refresh", 1, false);
+        ThreadPoolExecutor listExecutor = ThreadPoolManager.newDaemonFixedThreadPool(
+                1, 1, "file", 1, false);
+        try {
+            HiveExternalMetaCache cache = new HiveExternalMetaCache(executor, listExecutor);
+            cache.initCatalog(0, new HashMap<>());
+
+            MetaCacheEntry<HiveExternalMetaCache.FileCacheKey, HiveExternalMetaCache.FileCacheValue> fileCache =
+                    cache.entry(0, HiveExternalMetaCache.ENTRY_FILE,
+                            HiveExternalMetaCache.FileCacheKey.class,
+                            HiveExternalMetaCache.FileCacheValue.class);
+            MetaCacheEntry<HiveExternalMetaCache.PartitionValueCacheKey, HiveExternalMetaCache.HivePartitionValues>
+                    partitionValuesCache = cache.entry(0, HiveExternalMetaCache.ENTRY_PARTITION_VALUES,
+                            HiveExternalMetaCache.PartitionValueCacheKey.class,
+                            HiveExternalMetaCache.HivePartitionValues.class);
+
+            String dbName = "db";
+            String tbName = "tb";
+            NameMapping nameMapping = NameMapping.createForTest(dbName, tbName);
+            long catalogId = nameMapping.getCtlId();
+            long tableId = Util.genIdByName(dbName, tbName);
+
+            String targetPartName = "dt=2024-01-01";
+            List<String> targetValues = Collections.singletonList("2024-01-01");
+            String otherPartName = "dt=2024-01-02";
+            List<String> otherValues = Collections.singletonList("2024-01-02");
+
+            // The partition_values cache knows both partitions (name -> values), but the per-partition
+            // `partition` cache is intentionally NOT populated for the target partition, simulating an
+            // entry that was evicted or never loaded. In that state invalidatePartitionCache cannot build
+            // the exact FileCacheKey (which needs the partition path / input format).
+            Map<String, List<String>> nameToPartitionValues = new HashMap<>();
+            nameToPartitionValues.put(targetPartName, targetValues);
+            nameToPartitionValues.put(otherPartName, otherValues);
+            partitionValuesCache.put(new HiveExternalMetaCache.PartitionValueCacheKey(nameMapping, null),
+                    new HiveExternalMetaCache.HivePartitionValues(new HashMap<>(), nameToPartitionValues));
+
+            // Stale file listings exist for BOTH partitions.
+            HiveExternalMetaCache.FileCacheKey targetFileKey = new HiveExternalMetaCache.FileCacheKey(
+                    catalogId, tableId, "/wh/db/tb/" + targetPartName, "orc", targetValues);
+            HiveExternalMetaCache.FileCacheKey otherFileKey = new HiveExternalMetaCache.FileCacheKey(
+                    catalogId, tableId, "/wh/db/tb/" + otherPartName, "orc", otherValues);
+            fileCache.put(targetFileKey, new HiveExternalMetaCache.FileCacheValue());
+            fileCache.put(otherFileKey, new HiveExternalMetaCache.FileCacheValue());
+            Assertions.assertEquals(2, entrySize(fileCache));
+
+            // Partition-level refresh for the target partition. Even though its `partition` cache entry
+            // is missing, the stale file listing for that partition must still be invalidated.
+            cache.invalidatePartitionCache(nameMapping, targetPartName);
+
+            Assertions.assertNull(fileCache.getIfPresent(targetFileKey),
+                    "stale file cache for the refreshed partition must be cleared even on partition cache miss");
+            Assertions.assertNotNull(fileCache.getIfPresent(otherFileKey),
+                    "file cache for other partitions must NOT be affected");
+            Assertions.assertEquals(1, entrySize(fileCache));
+        } finally {
+            executor.shutdownNow();
+            listExecutor.shutdownNow();
+        }
+    }
+
+    @Test
     public void testDefaultSpecsFollowConfig() {
         ThreadPoolExecutor executor = ThreadPoolManager.newDaemonFixedThreadPool(
                 1, 1, "refresh", 1, false);
