@@ -23,6 +23,7 @@ import org.apache.doris.catalog.MysqlDb;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.infoschema.ExternalInfoSchemaDatabase;
 import org.apache.doris.datasource.infoschema.ExternalMysqlDatabase;
 import org.apache.doris.datasource.metacache.MetaCacheEntry;
@@ -95,6 +96,25 @@ public class ExternalDatabaseTest extends TestWithFeService {
 
         Assertions.assertNotNull(table);
         Assertions.assertEquals("tbl_base", db.getCachedTableNameByIdForTest(table.getId()));
+    }
+
+    @Test
+    public void testGetTableNullableByIdLoadsColdObjectEntry() throws Exception {
+        InspectableCatalog catalog = new InspectableCatalog();
+        InspectableDatabase db = new InspectableDatabase(catalog, 301L, "db1", "db1");
+        db.setInitializedForTest(true);
+        long tableId = Util.genIdByName(catalog.getName(), db.getFullName(), "tbl_base");
+        extractTableIdToName(db).put(tableId, "tbl_base");
+
+        Assertions.assertNull(db.getCachedTableForTest("tbl_base"));
+
+        TestExternalTable table = db.getTableNullable(tableId);
+
+        Assertions.assertNotNull(table);
+        Assertions.assertEquals(tableId, table.getId());
+        Assertions.assertEquals("tbl_base", table.getName());
+        Assertions.assertSame(table, db.getCachedTableForTest("tbl_base"));
+        Assertions.assertEquals(1, db.getBuildTableCallCount());
     }
 
     @Test
@@ -319,6 +339,13 @@ public class ExternalDatabaseTest extends TestWithFeService {
         Field tablesField = ExternalDatabase.class.getDeclaredField("tables");
         tablesField.setAccessible(true);
         return (MetaCacheEntry<String, TestExternalTable>) tablesField.get(db);
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<Long, String> extractTableIdToName(InspectableDatabase db) throws Exception {
+        Field idMapField = ExternalDatabase.class.getDeclaredField("tableIdToName");
+        idMapField.setAccessible(true);
+        return (Map<Long, String>) idMapField.get(db);
     }
 
     public static class DatabaseCatalogProvider implements TestExternalCatalog.TestCatalogProvider {
