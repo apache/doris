@@ -100,40 +100,36 @@ public class HiveMetaStoreCacheTest {
                     cache.entry(0, HiveExternalMetaCache.ENTRY_FILE,
                             HiveExternalMetaCache.FileCacheKey.class,
                             HiveExternalMetaCache.FileCacheValue.class);
-            MetaCacheEntry<HiveExternalMetaCache.PartitionValueCacheKey, HiveExternalMetaCache.HivePartitionValues>
-                    partitionValuesCache = cache.entry(0, HiveExternalMetaCache.ENTRY_PARTITION_VALUES,
-                            HiveExternalMetaCache.PartitionValueCacheKey.class,
-                            HiveExternalMetaCache.HivePartitionValues.class);
 
             String dbName = "db";
             String tbName = "tb";
             NameMapping nameMapping = NameMapping.createForTest(dbName, tbName);
             long catalogId = nameMapping.getCtlId();
             long tableId = Util.genIdByName(dbName, tbName);
+            long otherTableId = Util.genIdByName(dbName, "tb2");
 
             String targetPartName = "dt=2024-01-01";
             List<String> targetValues = Collections.singletonList("2024-01-01");
             String otherPartName = "dt=2024-01-02";
             List<String> otherValues = Collections.singletonList("2024-01-02");
 
-            // The partition_values cache knows both partitions (name -> values), but the per-partition
-            // `partition` cache is intentionally NOT populated for the target partition, simulating an
-            // entry that was evicted or never loaded. In that state invalidatePartitionCache cannot build
-            // the exact FileCacheKey (which needs the partition path / input format).
-            Map<String, List<String>> nameToPartitionValues = new HashMap<>();
-            nameToPartitionValues.put(targetPartName, targetValues);
-            nameToPartitionValues.put(otherPartName, otherValues);
-            partitionValuesCache.put(new HiveExternalMetaCache.PartitionValueCacheKey(nameMapping, null),
-                    new HiveExternalMetaCache.HivePartitionValues(new HashMap<>(), nameToPartitionValues));
-
-            // Stale file listings exist for BOTH partitions.
+            // Neither the `partition` cache nor the `partition_values` cache is populated for this table,
+            // simulating entries that were evicted or never loaded. invalidatePartitionCache must still
+            // clear the stale file listing: it derives the partition values from the partition name and
+            // cannot rebuild the exact FileCacheKey (which needs the partition path / input format).
             HiveExternalMetaCache.FileCacheKey targetFileKey = new HiveExternalMetaCache.FileCacheKey(
                     catalogId, tableId, "/wh/db/tb/" + targetPartName, "orc", targetValues);
-            HiveExternalMetaCache.FileCacheKey otherFileKey = new HiveExternalMetaCache.FileCacheKey(
+            // Same table, a different partition -> must be kept.
+            HiveExternalMetaCache.FileCacheKey otherPartFileKey = new HiveExternalMetaCache.FileCacheKey(
                     catalogId, tableId, "/wh/db/tb/" + otherPartName, "orc", otherValues);
+            // A different table that merely shares the same partition value names at a different location
+            // -> must be kept (the fallback is intentionally scoped by table id, not by values alone).
+            HiveExternalMetaCache.FileCacheKey otherTableFileKey = new HiveExternalMetaCache.FileCacheKey(
+                    catalogId, otherTableId, "/wh/db/tb2/" + targetPartName, "orc", targetValues);
             fileCache.put(targetFileKey, new HiveExternalMetaCache.FileCacheValue());
-            fileCache.put(otherFileKey, new HiveExternalMetaCache.FileCacheValue());
-            Assertions.assertEquals(2, entrySize(fileCache));
+            fileCache.put(otherPartFileKey, new HiveExternalMetaCache.FileCacheValue());
+            fileCache.put(otherTableFileKey, new HiveExternalMetaCache.FileCacheValue());
+            Assertions.assertEquals(3, entrySize(fileCache));
 
             // Partition-level refresh for the target partition. Even though its `partition` cache entry
             // is missing, the stale file listing for that partition must still be invalidated.
@@ -141,9 +137,11 @@ public class HiveMetaStoreCacheTest {
 
             Assertions.assertNull(fileCache.getIfPresent(targetFileKey),
                     "stale file cache for the refreshed partition must be cleared even on partition cache miss");
-            Assertions.assertNotNull(fileCache.getIfPresent(otherFileKey),
-                    "file cache for other partitions must NOT be affected");
-            Assertions.assertEquals(1, entrySize(fileCache));
+            Assertions.assertNotNull(fileCache.getIfPresent(otherPartFileKey),
+                    "file cache for other partitions of the same table must NOT be affected");
+            Assertions.assertNotNull(fileCache.getIfPresent(otherTableFileKey),
+                    "file cache for other tables sharing the same partition values must NOT be affected");
+            Assertions.assertEquals(2, entrySize(fileCache));
         } finally {
             executor.shutdownNow();
             listExecutor.shutdownNow();
