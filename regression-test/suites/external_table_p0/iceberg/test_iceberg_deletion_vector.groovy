@@ -126,7 +126,9 @@ suite("test_iceberg_deletion_vector", "p0,external") {
     }
 
     String sparkContainerName = findRequiredDockerContainer(
-            "Spark Iceberg", "icebergSparkContainer", "command -v spark-sql >/dev/null")
+            "Spark Iceberg", "icebergSparkContainer",
+            "command -v spark-sql >/dev/null && test -f /mnt/SUCCESS && " +
+                    "spark-sql -e \"SHOW NAMESPACES IN demo\" >/dev/null")
 
     def encodeBase64 = { String text ->
         return text.getBytes("UTF-8").encodeBase64().toString()
