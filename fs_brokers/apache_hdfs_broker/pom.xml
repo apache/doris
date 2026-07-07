@@ -70,7 +70,10 @@ under the License.
         <log4j2.version>2.18.0</log4j2.version>
         <project.scm.id>github</project.scm.id>
         <hadoop.version>3.3.6</hadoop.version>
-        <netty.version>4.1.65.Final</netty.version>
+        <!-- netty 4.1.135.Final: patch DNS resolver bug. old netty (<=4.1.134) let an
+             attacker poison the DNS cache with fake NS/CNAME records. fix = bump version.
+             CVE-2026-47691, CVE-2026-45674, CVE-2026-45673. -->
+        <netty.version>4.1.135.Final</netty.version>
         <gcs.version>hadoop2-2.2.15</gcs.version>
         <doris.hive.catalog.shade.version>1.0.1</doris.hive.catalog.shade.version>
     </properties>

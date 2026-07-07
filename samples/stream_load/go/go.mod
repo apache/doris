@@ -17,6 +17,10 @@
 
 module client
 
-go 1.18
+go 1.21
+
+// build with go 1.25.7 or newer. old go (1.23) had a crypto/tls bug:
+// attacker could skip the TLS cert check on a resumed handshake. CVE-2025-68121.
+toolchain go1.25.7
 
 require github.com/spf13/cast v1.5.0

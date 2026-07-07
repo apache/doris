@@ -35,7 +35,10 @@ under the License.
         <arrow.version>5.0.0</arrow.version>
         <jackson.version>2.13.3</jackson.version>
         <junit.version>4.11</junit.version>
-        <netty.version>4.1.77.Final</netty.version>
+        <!-- netty 4.1.135.Final: patch DNS resolver bug. old netty (<=4.1.134) let an
+             attacker poison the DNS cache with fake NS/CNAME records. fix = bump version.
+             CVE-2026-47691, CVE-2026-45674, CVE-2026-45673. -->
+        <netty.version>4.1.135.Final</netty.version>
     </properties>
 
     <dependencies>
