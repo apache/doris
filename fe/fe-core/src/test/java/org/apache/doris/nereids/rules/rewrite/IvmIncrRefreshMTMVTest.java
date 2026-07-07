@@ -52,7 +52,7 @@ import org.mockito.Mockito;
 import java.util.ArrayList;
 import java.util.Optional;
 
-class IvmIncrRefreshMtmvTest {
+class IvmIncrRefreshMTMVTest {
     private static final long MTMV_ID = 100L;
     private static final String SIGNATURE = "abc";
 
@@ -278,7 +278,7 @@ class IvmIncrRefreshMtmvTest {
         return mtmv;
     }
 
-    private static class RecordingRule extends IvmIncrRefreshMtmv {
+    private static class RecordingRule extends IvmIncrRefreshMTMV {
         private final RecordingDeltaRewriter rewriter;
 
         private RecordingRule(Plan deltaPlan) {

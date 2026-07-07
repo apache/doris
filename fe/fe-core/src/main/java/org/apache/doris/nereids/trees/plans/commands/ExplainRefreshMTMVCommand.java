@@ -48,7 +48,7 @@ import java.util.Set;
 /**
  * Explain MTMV refresh dry-run plans.
  */
-public class ExplainRefreshMtmvCommand extends Command implements NoForward {
+public class ExplainRefreshMTMVCommand extends Command implements NoForward {
     private final RefreshMTMVInfo refreshMTMVInfo;
     private final ExplainLevel level;
     private final boolean showPlanProcess;
@@ -56,7 +56,7 @@ public class ExplainRefreshMtmvCommand extends Command implements NoForward {
     /**
      * Creates an EXPLAIN REFRESH command for MTMV refresh planning.
      */
-    public ExplainRefreshMtmvCommand(RefreshMTMVInfo refreshMTMVInfo, ExplainLevel level,
+    public ExplainRefreshMTMVCommand(RefreshMTMVInfo refreshMTMVInfo, ExplainLevel level,
             boolean showPlanProcess) {
         super(PlanType.EXPLAIN_REFRESH_MTMV_COMMAND);
         this.refreshMTMVInfo = Objects.requireNonNull(refreshMTMVInfo, "refreshMTMVInfo can not be null");
@@ -152,7 +152,7 @@ public class ExplainRefreshMtmvCommand extends Command implements NoForward {
 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
-        return visitor.visitExplainRefreshMtmvCommand(this, context);
+        return visitor.visitExplainRefreshMTMVCommand(this, context);
     }
 
     @Override

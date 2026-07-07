@@ -47,7 +47,7 @@ import org.mockito.Mockito;
 
 import java.util.Collections;
 
-public class ExplainRefreshMtmvCommandTest {
+public class ExplainRefreshMTMVCommandTest {
     private final NereidsParser parser = new NereidsParser();
 
     // ---------- parse tests ----------
@@ -56,8 +56,8 @@ public class ExplainRefreshMtmvCommandTest {
     public void testParseExplainRefreshIncrementalOverview() {
         LogicalPlan plan = extractLogicalPlan("EXPLAIN REFRESH MATERIALIZED VIEW db1.mv1 INCREMENTAL");
 
-        Assertions.assertInstanceOf(ExplainRefreshMtmvCommand.class, plan);
-        ExplainRefreshMtmvCommand explain = (ExplainRefreshMtmvCommand) plan;
+        Assertions.assertInstanceOf(ExplainRefreshMTMVCommand.class, plan);
+        ExplainRefreshMTMVCommand explain = (ExplainRefreshMTMVCommand) plan;
         Assertions.assertEquals(ExplainLevel.NORMAL, explain.getLevel());
     }
 
@@ -66,8 +66,8 @@ public class ExplainRefreshMtmvCommandTest {
         LogicalPlan plan = extractLogicalPlan(
                 "EXPLAIN LOGICAL PLAN REFRESH MATERIALIZED VIEW db1.mv1 INCREMENTAL");
 
-        Assertions.assertInstanceOf(ExplainRefreshMtmvCommand.class, plan);
-        ExplainRefreshMtmvCommand explain = (ExplainRefreshMtmvCommand) plan;
+        Assertions.assertInstanceOf(ExplainRefreshMTMVCommand.class, plan);
+        ExplainRefreshMTMVCommand explain = (ExplainRefreshMTMVCommand) plan;
         Assertions.assertEquals(ExplainLevel.REWRITTEN_PLAN, explain.getLevel());
     }
 
@@ -76,8 +76,8 @@ public class ExplainRefreshMtmvCommandTest {
         LogicalPlan plan = extractLogicalPlan(
                 "EXPLAIN PHYSICAL PLAN REFRESH MATERIALIZED VIEW db1.mv1 INCREMENTAL");
 
-        Assertions.assertInstanceOf(ExplainRefreshMtmvCommand.class, plan);
-        ExplainRefreshMtmvCommand explain = (ExplainRefreshMtmvCommand) plan;
+        Assertions.assertInstanceOf(ExplainRefreshMTMVCommand.class, plan);
+        ExplainRefreshMTMVCommand explain = (ExplainRefreshMTMVCommand) plan;
         Assertions.assertEquals(ExplainLevel.OPTIMIZED_PLAN, explain.getLevel());
     }
 
@@ -86,8 +86,8 @@ public class ExplainRefreshMtmvCommandTest {
         LogicalPlan plan = extractLogicalPlan(
                 "EXPLAIN LOGICAL PLAN PROCESS REFRESH MATERIALIZED VIEW db1.mv1 INCREMENTAL");
 
-        Assertions.assertInstanceOf(ExplainRefreshMtmvCommand.class, plan);
-        ExplainRefreshMtmvCommand explain = (ExplainRefreshMtmvCommand) plan;
+        Assertions.assertInstanceOf(ExplainRefreshMTMVCommand.class, plan);
+        ExplainRefreshMTMVCommand explain = (ExplainRefreshMTMVCommand) plan;
         Assertions.assertEquals(ExplainLevel.REWRITTEN_PLAN, explain.getLevel());
         Assertions.assertTrue(explain.showPlanProcess());
     }
@@ -97,8 +97,8 @@ public class ExplainRefreshMtmvCommandTest {
         LogicalPlan plan = extractLogicalPlan(
                 "EXPLAIN ALL PLAN REFRESH MATERIALIZED VIEW db1.mv1 INCREMENTAL");
 
-        Assertions.assertInstanceOf(ExplainRefreshMtmvCommand.class, plan);
-        ExplainRefreshMtmvCommand explain = (ExplainRefreshMtmvCommand) plan;
+        Assertions.assertInstanceOf(ExplainRefreshMTMVCommand.class, plan);
+        ExplainRefreshMTMVCommand explain = (ExplainRefreshMTMVCommand) plan;
         Assertions.assertEquals(ExplainLevel.ALL_PLAN, explain.getLevel());
     }
 
@@ -107,8 +107,8 @@ public class ExplainRefreshMtmvCommandTest {
         LogicalPlan plan = extractLogicalPlan(
                 "EXPLAIN DISTRIBUTED PLAN REFRESH MATERIALIZED VIEW db1.mv1 INCREMENTAL");
 
-        Assertions.assertInstanceOf(ExplainRefreshMtmvCommand.class, plan);
-        ExplainRefreshMtmvCommand explain = (ExplainRefreshMtmvCommand) plan;
+        Assertions.assertInstanceOf(ExplainRefreshMTMVCommand.class, plan);
+        ExplainRefreshMTMVCommand explain = (ExplainRefreshMTMVCommand) plan;
         Assertions.assertEquals(ExplainLevel.DISTRIBUTED_PLAN, explain.getLevel());
     }
 
@@ -117,8 +117,8 @@ public class ExplainRefreshMtmvCommandTest {
         LogicalPlan plan = extractLogicalPlan(
                 "EXPLAIN REFRESH MATERIALIZED VIEW db1.mv1 INCREMENTAL");
 
-        Assertions.assertInstanceOf(ExplainRefreshMtmvCommand.class, plan);
-        ExplainRefreshMtmvCommand explain = (ExplainRefreshMtmvCommand) plan;
+        Assertions.assertInstanceOf(ExplainRefreshMTMVCommand.class, plan);
+        ExplainRefreshMTMVCommand explain = (ExplainRefreshMTMVCommand) plan;
         Assertions.assertEquals(ExplainLevel.NORMAL, explain.getLevel());
     }
 
@@ -127,8 +127,8 @@ public class ExplainRefreshMtmvCommandTest {
         LogicalPlan plan = extractLogicalPlan(
                 "EXPLAIN REFRESH MATERIALIZED VIEW db1.mv1 COMPLETE");
 
-        Assertions.assertInstanceOf(ExplainRefreshMtmvCommand.class, plan);
-        ExplainRefreshMtmvCommand explain = (ExplainRefreshMtmvCommand) plan;
+        Assertions.assertInstanceOf(ExplainRefreshMTMVCommand.class, plan);
+        ExplainRefreshMTMVCommand explain = (ExplainRefreshMTMVCommand) plan;
         Assertions.assertEquals(ExplainLevel.NORMAL, explain.getLevel());
     }
 
@@ -262,7 +262,7 @@ public class ExplainRefreshMtmvCommandTest {
 
         try (MockedStatic<Env> mockedEnv = mockEnvWithMtmv(mtmv)) {
             Assertions.assertThrows(org.apache.doris.nereids.exceptions.AnalysisException.class,
-                    () -> new ExplainRefreshMtmvCommand(
+                    () -> new ExplainRefreshMTMVCommand(
                             new RefreshMTMVInfo(new TableNameInfo("internal", "db1", "mv1"),
                                     Collections.emptyList(), RefreshMode.PARTITIONS),
                             ExplainLevel.NORMAL, false).run(new ConnectContext(), executor));
@@ -294,7 +294,7 @@ public class ExplainRefreshMtmvCommandTest {
         return new RecordingExplainCommand(info, level, manager);
     }
 
-    private static class RecordingExplainCommand extends ExplainRefreshMtmvCommand {
+    private static class RecordingExplainCommand extends ExplainRefreshMTMVCommand {
         private final IvmRefreshManager manager;
         private LogicalPlan explainedCommand;
         private ConnectContext explainConnectContext;

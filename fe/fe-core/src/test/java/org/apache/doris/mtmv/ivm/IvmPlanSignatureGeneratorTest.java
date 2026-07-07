@@ -23,7 +23,7 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
-import org.apache.doris.nereids.rules.rewrite.IvmNormalizeMtmv;
+import org.apache.doris.nereids.rules.rewrite.IvmNormalizeMTMV;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
@@ -433,7 +433,7 @@ class IvmPlanSignatureGeneratorTest extends IvmDeltaTestBase {
     private IvmPlanSignature signatureForPlan(Plan root) {
         ConnectContext ctx = newConnectContext();
         JobContext jobContext = newJobContextForRoot(root, ctx);
-        new IvmNormalizeMtmv().rewriteRoot(root, jobContext);
+        new IvmNormalizeMTMV().rewriteRoot(root, jobContext);
         IvmRewriteResult rewriteResult = jobContext.getCascadesContext().getIvmRewriteResult().get();
         return rewriteResult.getPlanSignature();
     }

@@ -48,7 +48,7 @@ import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.properties.PhysicalProperties;
-import org.apache.doris.nereids.rules.rewrite.IvmNormalizeMtmv;
+import org.apache.doris.nereids.rules.rewrite.IvmNormalizeMTMV;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -201,7 +201,7 @@ abstract class IvmDeltaTestBase {
     protected PlanBundle normalizeAggPlan(LogicalAggregate<? extends Plan> agg) {
         ConnectContext connectContext = newConnectContext();
         JobContext jobContext = newJobContextForRoot(agg, connectContext);
-        Plan normalizedPlan = new IvmNormalizeMtmv().rewriteRoot(agg, jobContext);
+        Plan normalizedPlan = new IvmNormalizeMTMV().rewriteRoot(agg, jobContext);
         IvmRewriteResult rewriteResult = jobContext.getCascadesContext().getIvmRewriteResult().get();
         return new PlanBundle(connectContext, normalizedPlan, rewriteResult);
     }

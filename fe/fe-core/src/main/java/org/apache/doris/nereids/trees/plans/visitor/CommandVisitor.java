@@ -145,7 +145,7 @@ import org.apache.doris.nereids.trees.plans.commands.EmptyCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExecuteActionCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainDictionaryCommand;
-import org.apache.doris.nereids.trees.plans.commands.ExplainRefreshMtmvCommand;
+import org.apache.doris.nereids.trees.plans.commands.ExplainRefreshMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExportCommand;
 import org.apache.doris.nereids.trees.plans.commands.GrantResourcePrivilegeCommand;
 import org.apache.doris.nereids.trees.plans.commands.GrantRoleCommand;
@@ -331,7 +331,7 @@ public interface CommandVisitor<R, C> {
         return visitCommand(explainDictionary, context);
     }
 
-    default R visitExplainRefreshMtmvCommand(ExplainRefreshMtmvCommand explainRefreshMtmv, C context) {
+    default R visitExplainRefreshMTMVCommand(ExplainRefreshMTMVCommand explainRefreshMtmv, C context) {
         return visitCommand(explainRefreshMtmv, context);
     }
 

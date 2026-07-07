@@ -765,7 +765,7 @@ import org.apache.doris.nereids.trees.plans.commands.ExecuteActionCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.commands.ExplainDictionaryCommand;
-import org.apache.doris.nereids.trees.plans.commands.ExplainRefreshMtmvCommand;
+import org.apache.doris.nereids.trees.plans.commands.ExplainRefreshMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExportCommand;
 import org.apache.doris.nereids.trees.plans.commands.GrantResourcePrivilegeCommand;
 import org.apache.doris.nereids.trees.plans.commands.GrantRoleCommand;
@@ -1882,7 +1882,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 refreshPolicy.allowFallback);
         return ParserUtils.withOrigin(ctx.explain(), () -> {
             Pair<ExplainLevel, Boolean> explainInfo = parseExplain(ctx.explain());
-            return new ExplainRefreshMtmvCommand(
+            return new ExplainRefreshMTMVCommand(
                     refreshMTMVInfo, explainInfo.first, explainInfo.second);
         });
     }

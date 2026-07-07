@@ -51,8 +51,8 @@ import org.apache.doris.nereids.rules.analysis.ReplaceExpressionByChildOutput;
 import org.apache.doris.nereids.rules.analysis.SubqueryToApply;
 import org.apache.doris.nereids.rules.analysis.VariableToLiteral;
 import org.apache.doris.nereids.rules.rewrite.AdjustNullable;
-import org.apache.doris.nereids.rules.rewrite.IvmIncrRefreshMtmv;
-import org.apache.doris.nereids.rules.rewrite.IvmNormalizeMtmv;
+import org.apache.doris.nereids.rules.rewrite.IvmIncrRefreshMTMV;
+import org.apache.doris.nereids.rules.rewrite.IvmNormalizeMTMV;
 import org.apache.doris.nereids.rules.rewrite.MergeFilters;
 import org.apache.doris.nereids.rules.rewrite.SemiJoinCommute;
 import org.apache.doris.nereids.rules.rewrite.SimplifyAggGroupBy;
@@ -222,8 +222,8 @@ public class Analyzer extends AbstractBatchJobExecutor {
                     // merge normal filter and hidden column filter
                     new MergeFilters()
             ),
-            custom(RuleType.IVM_NORMALIZE_MTMV, IvmNormalizeMtmv::new),
-            custom(RuleType.IVM_INCR_REFRESH_MTMV, IvmIncrRefreshMtmv::new),
+            custom(RuleType.IVM_NORMALIZE_MTMV, IvmNormalizeMTMV::new),
+            custom(RuleType.IVM_INCR_REFRESH_MTMV, IvmIncrRefreshMTMV::new),
             // for cte: analyze producer -> analyze consumer -> rewrite consumer -> rewrite producer,
             // in order to ensure cte consumer had right nullable attribute, need adjust nullable at analyze phase.
             custom(RuleType.ADJUST_NULLABLE, () -> new AdjustNullable(true))

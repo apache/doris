@@ -42,7 +42,7 @@ import java.util.Optional;
 /**
  * Rewrites an internal IVM refresh INSERT query into the incremental delta query.
  */
-public class IvmIncrRefreshMtmv implements CustomRewriter {
+public class IvmIncrRefreshMTMV implements CustomRewriter {
     @Override
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
         StatementContext statementContext = jobContext.getCascadesContext().getStatementContext();
