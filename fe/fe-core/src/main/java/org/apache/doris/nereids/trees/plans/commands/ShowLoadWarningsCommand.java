@@ -29,7 +29,9 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.util.HttpURLUtil;
 import org.apache.doris.common.util.NetUtils;
+import org.apache.doris.httpv2.client.InternalHttpClientProvider;
 import org.apache.doris.load.loadv2.LoadManager;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.trees.expressions.And;
@@ -58,9 +60,9 @@ import org.apache.logging.log4j.Logger;
 import java.io.BufferedReader;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.net.HttpURLConnection;
 import java.net.MalformedURLException;
 import java.net.URL;
-import java.net.URLConnection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
@@ -234,13 +236,14 @@ public class ShowLoadWarningsCommand extends ShowCommand {
 
         List<List<String>> rows = Lists.newArrayList();
         try {
-            URLConnection urlConnection = url.openConnection();
+            HttpURLConnection urlConnection = HttpURLUtil.getInternalConnection(url.toString(),
+                    InternalHttpClientProvider.Target.BE);
             urlConnection.setRequestProperty("Auth-Token", Env.getCurrentEnv().getTokenManager().acquireToken());
             InputStream inputStream = urlConnection.getInputStream();
             try (BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream))) {
                 int limit = 100;
-                while (reader.ready() && limit > 0) {
-                    String line = reader.readLine();
+                String line;
+                while ((line = reader.readLine()) != null && limit > 0) {
                     rows.add(Lists.newArrayList("-1", FeConstants.null_string, line));
                     limit--;
                 }

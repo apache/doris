@@ -43,6 +43,7 @@ import org.apache.doris.common.Triple;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.httpv2.client.InternalHttpClientProvider;
 import org.apache.doris.httpv2.rest.manager.HttpUtils;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.nereids.trees.plans.commands.CancelWarmUpJobCommand;
@@ -1072,7 +1073,7 @@ public class CacheHotspotManager extends MasterDaemon {
                 String url = "http://"
                         + NetUtils.getHostPortInAccessibleFormat(be.getHost(), be.getHttpPort())
                         + "/api/warmup_event_driven_stats";
-                String json = HttpUtils.doGet(url, authHeaders, 5000);
+                String json = HttpUtils.doInternalGet(url, authHeaders, 5000, InternalHttpClientProvider.Target.BE);
                 return Pair.of(cluster, json);
             });
         }

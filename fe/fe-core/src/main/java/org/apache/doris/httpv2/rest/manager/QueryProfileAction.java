@@ -29,6 +29,7 @@ import org.apache.doris.common.profile.ProfileManager;
 import org.apache.doris.common.profile.ProfileManager.ProfileElement;
 import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.util.NetUtils;
+import org.apache.doris.httpv2.client.InternalHttpClientProvider;
 import org.apache.doris.httpv2.controller.BaseController.ActionAuthorizationInfo;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.httpv2.rest.RestBaseController;
@@ -134,9 +135,11 @@ public class QueryProfileAction extends RestBaseController {
             try {
                 String data = null;
                 if (method == HttpMethod.GET) {
-                    data = HttpUtils.parseResponse(HttpUtils.doGet(url, header));
+                    data = HttpUtils.parseResponse(HttpUtils.doInternalGet(url, header,
+                            InternalHttpClientProvider.Target.FE));
                 } else if (method == HttpMethod.POST) {
-                    data = HttpUtils.parseResponse(HttpUtils.doPost(url, header, null));
+                    data = HttpUtils.parseResponse(HttpUtils.doInternalPost(url, header, null,
+                            InternalHttpClientProvider.Target.FE));
                 }
                 if (!Strings.isNullOrEmpty(data) && !data.equals("{}")) {
                     dataList.add(data);
@@ -349,7 +352,7 @@ public class QueryProfileAction extends RestBaseController {
                     continue;
                 }
                 String url = HttpUtils.concatUrl(ipPort, httpPath, arguments);
-                String responseJson = HttpUtils.doGet(url, header);
+                String responseJson = HttpUtils.doInternalGet(url, header, InternalHttpClientProvider.Target.FE);
                 JsonObject jObj = JsonParser.parseString(responseJson).getAsJsonObject();
                 int code = jObj.get("code").getAsInt();
                 if (code == HttpUtils.REQUEST_SUCCESS_CODE) {

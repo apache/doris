@@ -28,6 +28,9 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.PatternMatcherWrapper;
+import org.apache.doris.common.util.HttpURLUtil;
+import org.apache.doris.common.util.NetUtils;
+import org.apache.doris.httpv2.client.InternalHttpClientProvider;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -46,8 +49,7 @@ import org.json.JSONArray;
 import java.io.BufferedReader;
 import java.io.InputStream;
 import java.io.InputStreamReader;
-import java.net.URL;
-import java.net.URLConnection;
+import java.net.HttpURLConnection;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -126,10 +128,11 @@ public class ShowConfigCommand extends Command implements NoForward {
             Backend backend = systemInfoService.getBackend(beId);
             String host = backend.getHost();
             int httpPort = backend.getHttpPort();
-            String urlString = String.format("http://%s:%d/api/show_config", host, httpPort);
+            String urlString = String.format("http://%s/api/show_config",
+                    NetUtils.getHostPortInAccessibleFormat(host, httpPort));
             try {
-                URL url = new URL(urlString);
-                URLConnection urlConnection = url.openConnection();
+                HttpURLConnection urlConnection = HttpURLUtil.getInternalConnection(urlString,
+                        InternalHttpClientProvider.Target.BE);
                 urlConnection.setRequestProperty("Auth-Token", Env.getCurrentEnv().getTokenManager().acquireToken());
                 InputStream inputStream = urlConnection.getInputStream();
                 BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream));

@@ -34,6 +34,8 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.httpv2.client.InternalHttpClientProvider;
+import org.apache.doris.httpv2.client.InternalHttpClientProviderFactory;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.query.QueryStatsUtil;
 import org.apache.doris.system.Backend;
@@ -216,10 +218,13 @@ public class TabletsProcDir implements ProcDirInterface {
                         String host = (be == null ? Backend.DUMMY_IP : be.getHost());
                         int port = (be == null ? 0 : be.getHttpPort());
                         String hostPort = NetUtils.getHostPortInAccessibleFormat(host, port);
-                        String metaUrl = String.format("http://" + hostPort + "/api/meta/header/%d", tabletId);
+                        String metaUrl = InternalHttpClientProviderFactory.getProvider().normalizeInternalUrl(
+                                String.format("http://" + hostPort + "/api/meta/header/%d", tabletId),
+                                InternalHttpClientProvider.Target.BE);
                         tabletInfo.add(metaUrl);
-                        String compactionUrl = String.format(
-                                "http://" + hostPort + "/api/compaction/show?tablet_id=%d", tabletId);
+                        String compactionUrl = InternalHttpClientProviderFactory.getProvider().normalizeInternalUrl(
+                                String.format("http://" + hostPort + "/api/compaction/show?tablet_id=%d", tabletId),
+                                InternalHttpClientProvider.Target.BE);
                         tabletInfo.add(compactionUrl);
                         tabletInfo.add(tablet.getCooldownReplicaId());
                         if (replica.getCooldownMetaId() == null) {

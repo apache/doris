@@ -23,6 +23,8 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.NetUtils;
+import org.apache.doris.httpv2.client.InternalHttpClientProvider;
+import org.apache.doris.httpv2.client.InternalHttpClientProviderFactory;
 import org.apache.doris.httpv2.controller.BaseController;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.httpv2.exception.UnauthorizedException;
@@ -292,7 +294,10 @@ public class RestBaseController extends BaseController {
 
             HttpEntity<Object> entity = new HttpEntity<>(body, headers);
 
-            RestTemplate restTemplate = new RestTemplate();
+            RestTemplate restTemplate = InternalHttpClientProviderFactory.getProvider()
+                    .getRestTemplate(InternalHttpClientProvider.Target.FE);
+            redirectUrl = InternalHttpClientProviderFactory.getProvider()
+                    .normalizeInternalUrl(redirectUrl, InternalHttpClientProvider.Target.FE);
 
             ResponseEntity<Object> responseEntity;
             switch (method) {

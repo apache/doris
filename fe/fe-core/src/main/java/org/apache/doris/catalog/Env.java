@@ -122,6 +122,7 @@ import org.apache.doris.ha.BDBHA;
 import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.ha.HAProtocol;
 import org.apache.doris.ha.MasterInfo;
+import org.apache.doris.httpv2.client.InternalHttpClientProvider;
 import org.apache.doris.httpv2.entity.ResponseBody;
 import org.apache.doris.httpv2.meta.MetaBaseAction;
 import org.apache.doris.httpv2.rest.RestApiStatusCode;
@@ -1468,7 +1469,8 @@ public class Env {
                 try {
                     String url = "http://" + NetUtils
                             .getHostPortInAccessibleFormat(rightHelperNode.getHost(), Config.http_port) + "/check";
-                    HttpURLConnection conn = HttpURLUtil.getConnectionWithNodeIdent(url);
+                    HttpURLConnection conn = HttpURLUtil.getInternalConnectionWithNodeIdent(url,
+                            InternalHttpClientProvider.Target.FE);
                     conn.setConnectTimeout(2 * 1000);
                     conn.setReadTimeout(2 * 1000);
                     String clusterIdString = conn.getHeaderField(MetaBaseAction.CLUSTER_ID);
@@ -1566,7 +1568,8 @@ public class Env {
                 String url = "http://" + NetUtils.getHostPortInAccessibleFormat(helperNode.getHost(), Config.http_port)
                         + "/role?host=" + selfNode.getHost()
                         + "&port=" + selfNode.getPort();
-                HttpURLConnection conn = HttpURLUtil.getConnectionWithNodeIdent(url);
+                HttpURLConnection conn = HttpURLUtil.getInternalConnectionWithNodeIdent(url,
+                        InternalHttpClientProvider.Target.FE);
                 if (conn.getResponseCode() != 200) {
                     LOG.warn("failed to get fe node type from helper node: {}. response code: {}", helperNode,
                             conn.getResponseCode());

@@ -31,7 +31,7 @@ import java.util.Collections;
 public class OssHttpServerTlsProvider implements HttpServerTlsProvider {
     @Override
     public void customize(ConfigurableJettyWebServerFactory factory) {
-        if (Config.enable_tls && TlsProtocolSet.isProtocolIncluded(TlsProtocolSet.Protocol.HTTP)) {
+        if (TlsProtocolSet.isHttpTlsActive()) {
             throw new UnsupportedOperationException("FE HTTP TLS requires TLS module");
         }
         if (!Config.enable_https) {

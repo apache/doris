@@ -21,6 +21,7 @@ import org.apache.doris.cluster.ClusterGuard;
 import org.apache.doris.cluster.ClusterGuardException;
 import org.apache.doris.cluster.ClusterGuardFactory;
 import org.apache.doris.common.Pair;
+import org.apache.doris.httpv2.client.InternalHttpClientProvider;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.httpv2.rest.RestBaseController;
 import org.apache.doris.httpv2.rest.manager.HttpUtils;
@@ -124,7 +125,7 @@ public class ClusterGuardAction extends RestBaseController {
             String nodeKey = ipPort.first + ":" + ipPort.second;
             String url = HttpUtils.concatUrl(ipPort, httpPath, arguments);
             try {
-                String resp = HttpUtils.doPost(url, header, null);
+                String resp = HttpUtils.doInternalPost(url, header, null, InternalHttpClientProvider.Target.FE);
                 JsonObject jsonObj = JsonParser.parseString(resp).getAsJsonObject();
                 int code = jsonObj.get("code").getAsInt();
                 if (code == HttpUtils.REQUEST_SUCCESS_CODE) {

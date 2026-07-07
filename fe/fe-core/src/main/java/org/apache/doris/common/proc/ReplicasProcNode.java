@@ -30,6 +30,8 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.httpv2.client.InternalHttpClientProvider;
+import org.apache.doris.httpv2.client.InternalHttpClientProviderFactory;
 import org.apache.doris.statistics.query.QueryStatsUtil;
 import org.apache.doris.system.Backend;
 
@@ -112,8 +114,12 @@ public class ReplicasProcNode implements ProcNodeInterface {
             String host = (be == null ? Backend.DUMMY_IP : be.getHost());
             int port = (be == null ? 0 : be.getHttpPort());
             String hostPort = NetUtils.getHostPortInAccessibleFormat(host, port);
-            String metaUrl = String.format("http://" + hostPort + "/api/meta/header/%d", tabletId);
-            String compactionUrl = String.format("http://" + hostPort + "/api/compaction/show?tablet_id=%d", tabletId);
+            String metaUrl = InternalHttpClientProviderFactory.getProvider().normalizeInternalUrl(
+                    String.format("http://" + hostPort + "/api/meta/header/%d", tabletId),
+                    InternalHttpClientProvider.Target.BE);
+            String compactionUrl = InternalHttpClientProviderFactory.getProvider().normalizeInternalUrl(
+                    String.format("http://" + hostPort + "/api/compaction/show?tablet_id=%d", tabletId),
+                    InternalHttpClientProvider.Target.BE);
 
             String path = "";
             if (be != null) {
