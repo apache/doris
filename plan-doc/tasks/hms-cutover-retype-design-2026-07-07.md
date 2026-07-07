@@ -92,7 +92,7 @@ Covered by `hms-event-pipeline-findings-2026-07-07.md`. Thin fe-core role-aware 
 
 ## 5. Internal phase ordering (hard-sequenced)
 
-1. **Connector SPI additions (dormant)** — 4.1 auth+props, 4.2 read-SPI, 4.3 MVCC/sys, 4.4 sibling-SPI + gateway delegation, 4.5 read-ACID wiring + write pre-checks + BIND_BROKER + engine-map. Each lands as an independent dormant commit. *Constraints:* sibling-SPI before iceberg-on-hms routing; MVCC capability declaration before the flip or iceberg/hudi lose MVCC.
+1. **Connector SPI additions (dormant)** — 4.1 auth+props, 4.2 read-SPI, **4.2a per-column stats SPI (D1=preserve)**, 4.3 MVCC/sys, 4.4 sibling-SPI + gateway delegation, 4.5 read-ACID wiring + write pre-checks + BIND_BROKER + engine-map. Each lands as an independent dormant commit. *Constraints:* sibling-SPI before iceberg-on-hms routing; MVCC capability declaration before the flip or iceberg/hudi lose MVCC.
 2. **Coupling-site capability seams (dormant)** — 4.6 add the connector capabilities/SPI methods + the PluginDriven arms beside each HMS arm (still dormant — HMS tables aren't PluginDriven yet).
 3. **Event pipeline Model B (dormant driver + plugin SPI)** — 4.7, ready so the poller keeps flowing at the flip.
 4. **THE FLIP (atomic commit)** — §2.B, including neutralizing the event/cache gates + dead translator arms + `HmsGsonCompatReplayTest`.
@@ -103,14 +103,15 @@ Covered by `hms-event-pipeline-findings-2026-07-07.md`. Thin fe-core role-aware 
 
 ---
 
-## 6. Open decisions (require sign-off before regime-A implementation)
+## 6. Decisions — LOCKED (user sign-off 2026-07-07)
 
-See the companion Chinese write-up. Summary + recommendation:
+- **D1 — Hive metadata statistics fast-path → PRESERVE via new SPI (option b).** Add a `ConnectorStatisticsOps.getColumnStatistics(session, handle, colName)` SPI returning a neutral column-stat DTO (count/ndv/numNulls/dataSize/avgSize) + a `PluginDrivenExternalTable.getColumnStatistic` override. The hive connector ports `getHiveColumnStats`/`setStatData` (no-scan HMS/spark col-stats, query-planning fast path, `enable_fetch_iceberg_stats`-gated for the iceberg sibling); the iceberg connector ports `getIcebergColumnStats`. Table-level rowCount stays via `getTableStatistics` regardless. *(Chosen over dropping-for-parity: the no-ANALYZE fast path is kept high-value for hive.)* **⇒ this pulls the per-column stats SPI into the regime-A build-out (§4.2a).**
+- **D2 — Cache ownership → CONNECTOR-OWNED (option a).** Retire the fe-core `HiveExternalMetaCache`/hudi/iceberg-on-hms meta caches; the connector owns scan-side caching (paimon/iceberg-native precedent). Delete the route/loader `instanceof HMSExternalCatalog` sites (`ExternalMetaCacheRouteResolver:66`, `HiveExternalMetaCache:203/274`, `IcebergExternalMetaCache:234`) + the partition-cache-inconsistency self-heal moves connector-side (or is dropped — decide at implementation). This is the largest catalog-adjacent structural item; it lands with the flip set.
+- **D3 — Iceberg-on-HMS delivery → BUILD SIBLING SPI BEFORE THE FLIP (option a), no regression.** The cross-plugin sibling-connector SPI (§4.4) is a hard precondition and must land dormant before the flip so existing iceberg-on-HMS tables keep working. If it slips, the flip slips (no fail-loud-reject regression).
+- **D4 — PR shape (decide at flip time).** two-PR split (paimon: revertable flip + mechanical delete) vs one squash (iceberg). **Leaning two-PR;** confirm at the flip.
 
-- **D1 — Hive metadata statistics fast-path.** Legacy has a no-scan HMS/spark column-stats fast path (`getColumnStatistic` for query planning, default-gated) + `HMSAnalysisTask` metadata ANALYZE. The generic path is SQL-only. **Options:** (a) **drop** for parity with the iceberg-native flip (which already dropped it), rely on ANALYZE-collected stats; (b) add a `ConnectorStatisticsOps.getColumnStatistics` SPI to preserve it. **Recommend (a)** unless the no-ANALYZE fast path is deemed high-value for hive users. (Table-level rowCount is preserved regardless via `getTableStatistics`.)
-- **D2 — Cache ownership.** Legacy fe-core owns `HiveExternalMetaCache`/hudi/iceberg-on-hms meta caches. **Options:** (a) **connector-owned** scan-side caching, retire the fe-core caches + delete the route/loader `instanceof` sites (architecture-consistent; paimon/iceberg-native precedent); (b) keep fe-core caches with engine/capability-keyed routing + a connector metastore SPI for loaders. **Recommend (a).**
-- **D3 — Iceberg-on-HMS delivery vs flip timing.** The sibling-connector SPI (4.4) is substantial and is a hard precondition. **Options:** (a) **build it before the flip** → no regression; (b) at the flip, **fail-loud-reject** iceberg-on-HMS tables and deliver delegation later → a **functional regression** for existing iceberg-on-HMS tables. **Recommend (a)** (no regression).
-- **D4 — PR shape (decide at flip time).** two-PR split (paimon: revertable flip + mechanical delete) vs one squash (iceberg). **Recommend two-PR.**
+### §4.2a — Per-column statistics SPI (from D1=preserve)
+- Add `ConnectorStatisticsOps.getColumnStatistics(session, handle, colName)` → neutral column-stat DTO. `PluginDrivenExternalTable.getColumnStatistic` override consults it (query-planning cache-miss fast path). Hive connector ports the HMS/spark col-stats read (incl. partition-level col stats `getHivePartitionColumnStats` for the ANALYZE metadata path); iceberg connector ports `getIcebergColumnStats` behind `enable_fetch_iceberg_stats`. This also gives `HMSAnalysisTask`'s metadata fast path a home (revisit whether `ExternalAnalysisTask` consults the new SPI vs SQL-only FULL analyze — the DTO makes preserving the metadata path feasible).
 
 ---
 

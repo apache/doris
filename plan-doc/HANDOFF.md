@@ -24,19 +24,23 @@
 
 ---
 
-# 🚀 下个 session 任务 = **执行翻闸（把 HMS 目录/表改造成通用类）**
+# 🚀 下个 session 任务 = **实现翻闸前的"休眠期"连接器 SPI 补齐（设计文档第 4/5 章 阶段 1）**
 
-翻闸是全项目最大最险的一块，是解锁一切（格式委派/事件/删旧类）的**真正关口**。样板 = P5 paimon（`P5-paimon-migration.md`）、P6 iceberg（`P6-iceberg-migration.md` + `P6.6-iceberg-flip-blockers-tasklist.md`），机制相同、但 HMS 因**异构（三格式）+ 事件管道 + 写链 + DLA** 而更大。
+**本 session 已完成（recon + 设计 + 签字）**：针对"HMS 目录/表 retype 到通用类"的聚焦 code-grounded 侦察（`wf_e0586006-60f`：8 维读者 + 完整性/排序两个 critic，全 HEAD 核对）→ 落地权威设计文档 **`hms-cutover-retype-design-2026-07-07.md`（起步必读 #1）**。核心结论：翻闸是**一次原子、整库同时生效**的切换（靠类身份 `instanceof PluginDriven*` 分派，非运行时开关），前置一大批**休眠期**连接器补齐，末尾一次**循环依赖单元**的机械删除。**已 HEAD 证实**：`HiveConnectorProvider.getType()=="hms"` 已存在；`createSiblingConnector` 全树 0 处（跨插件兄弟 SPI 真缺）；GSON `registerSubtype` HMS 三处（catalog:366/db:447/table:471）；`buildTableInternal` 按**目录级** `SUPPORTS_MVCC_SNAPSHOT` 选基类/Mvcc 子类；`PhysicalPlanTranslator` `:808` PluginDriven 臂先于 `:818` HMS 臂命中。
 
-**开工方式（守纪律，别一上来写代码）**：先做一轮**针对"HMS 目录/表 retype 到通用类"的 code-grounded 侦察 + 设计文档**——把旧 `HMSExternalCatalog`/`HMSExternalTable` 提供的每项能力（元数据 init、schema、分区、统计、DLA 分派、MVCC、系统表、事件、写/DDL）逐项映射到连接器 SPI，标出缺口（跨插件兄弟连接器 SPI、事件 Model-B 驱动 + 结构性变更 SPI、GSON `registerCompatibleSubtype` 兼容、按表 MVCC 能力），并把翻闸拆成**内部有序阶段**（连接器补齐→加 `"hms"` 进 `SPI_READY_TYPES`→GSON 兼容→删旧类→ACID/事件/异构 e2e 硬门 R-002）。**每个开放决策先中文讲背景+示例+推荐、不引任务代号，请用户签字**再实现。
+**已签字决策（2026-07-07，设计文档 §6）**：
+- **D1 统计 = 保留免扫描列统计**（新增 `ConnectorStatisticsOps.getColumnStatistics` SPI + Hive/Iceberg 各实现；表级行数照旧）——**列统计 SPI 进入休眠期补齐清单（§4.2a）**。
+- **D2 缓存 = 连接器自持**（退休 fe-core 的 Hive/hudi/iceberg 元数据缓存，删 route/loader 的 `instanceof` 站点；随翻闸集落地）。
+- **D3 混合 Iceberg 表 = 翻闸前先做好跨插件委派，无倒退**（兄弟连接器 SPI §4.4 是硬前置，滑期则翻闸顺延，不走 fail-loud 拒绝）。
+- **D4 打包**（翻闸时再定）：倾向两 PR（可回滚翻闸 + 机械删除）。
 
-翻闸内部要覆盖的特性清单（把旧"6 子批"当**特性 inventory** 用，但**不再当作翻闸前的独立步骤**）见 `P7-cutover-scope-map-2026-07-06.md`（其 A–F 分解仍是有用的能力地图；**其"翻闸前可独立落地"的排序前提已被本 session 校正**）。
+**下一步 = 开始休眠期补齐（设计文档 §5 阶段 1，每子步一个独立休眠 commit，线上零影响）**。推荐**首个 commit = §4.1 Hive 连接器 Kerberos 认证器 + 属性校验对齐**（自包含 BLOCKER，有 `IcebergConnector` 现成模板 `:162-177,783-821`，测试门清晰）。其余子步：§4.2 读侧 SPI（`partition_columns`/`listPartitions`/`getTableStatistics`/视图/capabilities）、§4.2a 列统计 SPI、§4.3 MVCC/系统表 + freshness-aware `getTableSnapshot`、§4.4 兄弟 SPI + 网关委派、§4.5 读-ACID 收尾 + 写前检查 + `BIND_BROKER_NAME` 搬家 + engine-map。**翻闸集（原子）/删除单元/硬门 见设计文档 §2/§5/§7，勿在翻闸前动**。
 
 ## 开场要点（承接）
-1. **先读两份 findings 文档 + 本文顶部 🎯 段**。剩余 HMS 迁移 ≈ 一次翻闸；B/C/D 是它的侧面，非独立前置步。
-2. **已提交勿回炒**：P7.1 / P7.3(`0b19506acfe`) / A(`0923077fe67`) 全休眠；replay-CCE fix(`a6dc782d816`) 已合。
-3. **纪律**：先 code-grounded recon → 设计文档 → 用户签字该阶段专属决策 → 实现 → 独立 commit → 更新本 HANDOFF。上下文超 30% 找干净节点交接。**path-whitelist `git add`，严禁 `-A`**。
-4. **硬门 = ACID/事件/异构集成测试**（R-002 最大风险，需 live 路径，勿静默跳过——Rule 12）。full-ACID **写**继续硬拒；full-ACID + insert-only **读**在范围（已落地插件侧）。
+1. **先读设计文档 `hms-cutover-retype-design-2026-07-07.md`（权威计划）+ 两份 findings + 本文顶部 🎯 段**。剩余 HMS 迁移 = 一次原子翻闸 + 前置休眠补齐 + 末尾循环删除。
+2. **已提交勿回炒**：P7.1 / P7.3(`0b19506acfe`) / 按表 scan seam(`0923077fe67`) 全休眠；replay-CCE fix(`a6dc782d816`) 已合；设计文档 commit `5bfc55f6d59`。
+3. **纪律**：设计已签字 → **现在进入实现**：每子步独立休眠 commit（fresh recompile 杜绝 stale `.class`）→ 更新本 HANDOFF。上下文超 30% 找干净节点交接。**path-whitelist `git add`，严禁 `-A`**。铁律见 🧠 起步必读 #3（fe-core 不加 `if(format)`/`instanceof HMSExternal*`/`switch(dlaType)`；不解析属性；跨插件 pin TCCL）。
+4. **硬门 = ACID/事件/异构集成测试 + Kerberos-HMS 冒烟**（R-002 最大风险，需 live 路径，勿静默跳过——Rule 12）。full-ACID **写**继续硬拒；full-ACID + insert-only **读**在范围（已落地插件侧）。
 
 ---
 
@@ -57,7 +61,7 @@
 
 # 🧠 起步必读
 
-1. **两份 findings 文档**（`iceberg-on-hms-delegation-findings-2026-07-07.md` + `hms-event-pipeline-findings-2026-07-07.md`）+ 本文顶部 🎯/🚀。
+1. **权威计划 = `hms-cutover-retype-design-2026-07-07.md`**（原子翻闸模型 + 休眠补齐清单 §4 + 能力孪生图 + 阶段序 §5 + 已签字决策 §6 + 硬门 §7；全 recon 明细在 `tool-results/w0bg9i509.output`）。再读**两份 findings 文档**（`iceberg-on-hms-delegation-findings-2026-07-07.md` + `hms-event-pipeline-findings-2026-07-07.md`）+ 本文顶部 🎯/🚀。
 2. **样板**：`P5-paimon-migration.md`（翻闸+删 legacy 全流程）；`P6-iceberg-migration.md` + `P6.6-iceberg-flip-blockers-tasklist.md`（净室复审 + 能力孪生审计 + GSON replay 范式）。委派/缝模板 = A 的设计文档 `P7.4-scan-provider-per-table-seam-design.md`。特性地图 = `P7-cutover-scope-map-2026-07-06.md`（排序前提已校正）。
 3. **铁律**：fe-core 不得新增 `if(hive/iceberg/hudi)`/`instanceof HMSExternal*`/`switch(dlaType)`/引擎名判别（翻闸靠"表类=通用类 + 网关按句柄委派"，不靠在 `PhysicalPlanTranslator` 加分支）；fe-core 不解析属性（memory `catalog-spi-no-property-parsing-in-fecore`）；通用 SPI 节点 connector-agnostic（memory `catalog-spi-plugindriven-no-source-specific-code`）；跨插件/跨边界 pin TCCL（memory `catalog-spi-plugin-tccl-classloader-gotcha`，事件轮询后台线程 R-010 亦需）；history_schema_info nested 名 lowercase（memory）。
 4. **memory 相关项**：`handoff-discipline-per-phase`、`clean-room-adversarial-review-pref`、`ask-user-explain-in-chinese-first`、`session-handoff-at-30pct-context`、`doris-build-verify-gotchas`、`catalog-spi-fe-core-test-infra`、`catalog-spi-tracking-issue`。
