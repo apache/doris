@@ -232,7 +232,7 @@ public class DataDescription {
         putAnalysisMapIfNonNull(FileFormatProperties.PROP_FORMAT, fileFormat);
         putAnalysisMapIfNonNull(FileFormatProperties.PROP_COMPRESS_TYPE, compressType);
 
-        columnsNameToLowerCase(fileFieldNames);
+        fileFieldNamesToLowerCase(fileFieldNames);
         columnsNameToLowerCase(columnsFromPath);
 
         this.isHadoopLoad = isHadoopLoad;
@@ -298,7 +298,7 @@ public class DataDescription {
         putAnalysisMapIfNonNull(FileFormatProperties.PROP_FORMAT, fileFormat);
         putAnalysisMapIfNonNull(FileFormatProperties.PROP_COMPRESS_TYPE, compressType);
 
-        columnsNameToLowerCase(fileFieldNames);
+        fileFieldNamesToLowerCase(fileFieldNames);
         columnsNameToLowerCase(columnsFromPath);
     }
 
@@ -653,10 +653,16 @@ public class DataDescription {
         }
     }
 
+    private void fileFieldNamesToLowerCase(List<String> columns) {
+        if (Util.isCasePreservingFormat(analysisMap.get(FileFormatProperties.PROP_FORMAT))) {
+            return;
+        }
+        columnsNameToLowerCase(columns);
+    }
+
     // Change all the columns name to lower case, because Doris column is case-insensitive.
     private void columnsNameToLowerCase(List<String> columns) {
-        if (columns == null || columns.isEmpty()
-                || Util.isCasePreservingFormat(analysisMap.get(FileFormatProperties.PROP_FORMAT))) {
+        if (columns == null || columns.isEmpty()) {
             return;
         }
         for (int i = 0; i < columns.size(); i++) {
