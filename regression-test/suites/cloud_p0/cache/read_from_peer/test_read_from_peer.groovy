@@ -152,6 +152,7 @@ suite('test_read_from_peer', 'docker') {
             // file """store_sales.dat.gz"""
 
             time 10000 // limit inflight 10s
+            retryIfHttpError true
             setFeAddr cluster.getAllFrontends().get(0).host, cluster.getAllFrontends().get(0).httpPort
 
             check { res, exception, startTime, endTime ->
