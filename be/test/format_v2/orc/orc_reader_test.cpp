@@ -17,6 +17,7 @@
 
 #include "format_v2/orc/orc_reader.h"
 
+#include <cctz/time_zone.h>
 #include <gtest/gtest.h>
 #include <unistd.h>
 
@@ -53,6 +54,7 @@
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type/data_type_varbinary.h"
 #include "core/data_type/primitive_type.h"
+#include "core/value/timestamptz_value.h"
 #include "exprs/vectorized_fn_call.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
@@ -3929,6 +3931,33 @@ uint64_t get_orc_stripe_count(const std::string& file_path) {
     return reader->getNumberOfStripes();
 }
 
+struct OrcStripeLayout {
+    uint64_t offset = 0;
+    uint64_t length = 0;
+};
+
+std::vector<OrcStripeLayout> get_orc_stripe_layout(const std::string& file_path) {
+    std::ifstream in(file_path, std::ios::binary | std::ios::ate);
+    const auto file_size = in.tellg();
+    in.seekg(0);
+    std::vector<char> data(static_cast<size_t>(file_size));
+    in.read(data.data(), file_size);
+
+    ::orc::ReaderOptions options;
+    options.setMemoryPool(*::orc::getDefaultPool());
+    auto input_stream = std::make_unique<MemoryInputStream>(data.data(), data.size());
+    auto reader = ::orc::createReader(std::move(input_stream), options);
+
+    std::vector<OrcStripeLayout> layout;
+    const auto stripe_count = reader->getNumberOfStripes();
+    layout.reserve(stripe_count);
+    for (uint64_t i = 0; i < stripe_count; ++i) {
+        const auto stripe = reader->getStripe(i);
+        layout.push_back({.offset = stripe->getOffset(), .length = stripe->getLength()});
+    }
+    return layout;
+}
+
 Block build_file_block(const std::vector<format::ColumnDefinition>& schema) {
     Block block;
     for (const auto& field : schema) {
@@ -3989,14 +4018,33 @@ protected:
     std::unique_ptr<format::orc::OrcReader> create_reader_for_path(
             const std::string& file_path, RuntimeProfile* profile = nullptr,
             std::shared_ptr<io::IOContext> io_ctx = nullptr,
-            std::optional<format::GlobalRowIdContext> global_rowid_context = std::nullopt) const {
+            std::optional<format::GlobalRowIdContext> global_rowid_context = std::nullopt,
+            bool enable_mapping_timestamp_tz = false) const {
         auto system_properties = std::make_shared<io::FileSystemProperties>();
         system_properties->system_type = TFileType::FILE_LOCAL;
         auto file_description = std::make_unique<io::FileDescription>();
         file_description->path = file_path;
         file_description->file_size = static_cast<int64_t>(std::filesystem::file_size(file_path));
         return std::make_unique<format::orc::OrcReader>(system_properties, file_description, io_ctx,
-                                                        profile, global_rowid_context);
+                                                        profile, global_rowid_context,
+                                                        enable_mapping_timestamp_tz);
+    }
+
+    // Builds a reader whose FileDescription carries the split byte window
+    // [range_start_offset, range_start_offset + range_size). A negative range_size means the
+    // whole file (unset sentinel), matching how FE leaves the range unspecified.
+    std::unique_ptr<format::orc::OrcReader> create_reader_with_range(
+            const std::string& file_path, int64_t range_start_offset, int64_t range_size,
+            RuntimeProfile* profile = nullptr) const {
+        auto system_properties = std::make_shared<io::FileSystemProperties>();
+        system_properties->system_type = TFileType::FILE_LOCAL;
+        auto file_description = std::make_unique<io::FileDescription>();
+        file_description->path = file_path;
+        file_description->file_size = static_cast<int64_t>(std::filesystem::file_size(file_path));
+        file_description->range_start_offset = range_start_offset;
+        file_description->range_size = range_size;
+        return std::make_unique<format::orc::OrcReader>(system_properties, file_description,
+                                                        nullptr, profile, std::nullopt);
     }
 
     std::filesystem::path _test_dir;
@@ -5172,6 +5220,217 @@ TEST_F(NewOrcReaderTest, SargConjunctPrunesStripesByStatistics) {
     EXPECT_EQ(reader->reader_statistics().filtered_row_groups, 1);
     EXPECT_EQ(reader->reader_statistics().filtered_row_groups_by_min_max, 1);
     EXPECT_EQ(reader->reader_statistics().filtered_group_rows, 200);
+}
+
+// A split window covering only the first stripe must return exactly that stripe's rows.
+TEST_F(NewOrcReaderTest, SplitRangeSelectsOnlyFirstStripe) {
+    const auto multi_stripe_file_path = (_test_dir / "split_first_stripe.orc").string();
+    write_multi_stripe_orc_int_file(multi_stripe_file_path);
+    ASSERT_EQ(get_orc_stripe_count(multi_stripe_file_path), 2);
+    const auto layout = get_orc_stripe_layout(multi_stripe_file_path);
+    ASSERT_EQ(layout.size(), 2);
+
+    // Window [stripe0.offset, stripe1.offset) covers only the first stripe.
+    auto reader =
+            create_reader_with_range(multi_stripe_file_path, static_cast<int64_t>(layout[0].offset),
+                                     static_cast<int64_t>(layout[1].offset - layout[0].offset));
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    ASSERT_EQ(schema.size(), 2);
+
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->non_predicate_columns = {field_projection(0)};
+    ASSERT_TRUE(reader->open(request).ok());
+
+    bool eof = false;
+    std::vector<int32_t> result_ids;
+    while (!eof) {
+        Block block = build_file_block({schema[0]});
+        size_t rows = 0;
+        ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+        if (rows == 0) {
+            continue;
+        }
+        const auto& ids_nullable =
+                assert_cast<const ColumnNullable&>(*block.get_by_position(0).column);
+        const auto& ids = assert_cast<const ColumnInt32&>(ids_nullable.get_nested_column());
+        for (size_t row = 0; row < rows; ++row) {
+            result_ids.push_back(ids.get_element(row));
+        }
+    }
+    ASSERT_EQ(result_ids.size(), 200);
+    EXPECT_EQ(result_ids.front(), 1);
+    EXPECT_EQ(result_ids.back(), 200);
+}
+
+TEST_F(NewOrcReaderTest, SplitRangeSelectsOnlySecondStripe) {
+    const auto multi_stripe_file_path = (_test_dir / "split_second_stripe.orc").string();
+    write_multi_stripe_orc_int_file(multi_stripe_file_path);
+    ASSERT_EQ(get_orc_stripe_count(multi_stripe_file_path), 2);
+    const auto layout = get_orc_stripe_layout(multi_stripe_file_path);
+    ASSERT_EQ(layout.size(), 2);
+
+    // Window [stripe1.offset, stripe1.offset + stripe1.length) covers only the second stripe.
+    auto reader =
+            create_reader_with_range(multi_stripe_file_path, static_cast<int64_t>(layout[1].offset),
+                                     static_cast<int64_t>(layout[1].length));
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    ASSERT_EQ(schema.size(), 2);
+
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->non_predicate_columns = {field_projection(0)};
+    ASSERT_TRUE(reader->open(request).ok());
+
+    bool eof = false;
+    std::vector<int32_t> result_ids;
+    while (!eof) {
+        Block block = build_file_block({schema[0]});
+        size_t rows = 0;
+        ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+        if (rows == 0) {
+            continue;
+        }
+        const auto& ids_nullable =
+                assert_cast<const ColumnNullable&>(*block.get_by_position(0).column);
+        const auto& ids = assert_cast<const ColumnInt32&>(ids_nullable.get_nested_column());
+        for (size_t row = 0; row < rows; ++row) {
+            result_ids.push_back(ids.get_element(row));
+        }
+    }
+    ASSERT_EQ(result_ids.size(), 200);
+    EXPECT_EQ(result_ids.front(), 1000);
+    EXPECT_EQ(result_ids.back(), 1199);
+}
+
+// A SARG that prunes the first stripe must not count the out-of-split first stripe in the
+// filtered statistics: only the in-split stripe is considered, so nothing is pruned.
+TEST_F(NewOrcReaderTest, SplitRangeWithSargStaysWithinSplit) {
+    const auto multi_stripe_file_path = (_test_dir / "split_sarg_within.orc").string();
+    write_multi_stripe_orc_int_file(multi_stripe_file_path);
+    ASSERT_EQ(get_orc_stripe_count(multi_stripe_file_path), 2);
+    const auto layout = get_orc_stripe_layout(multi_stripe_file_path);
+    ASSERT_EQ(layout.size(), 2);
+
+    // Restrict to the second stripe (ids 1000..1199). id > 500 keeps every in-split row.
+    auto reader =
+            create_reader_with_range(multi_stripe_file_path, static_cast<int64_t>(layout[1].offset),
+                                     static_cast<int64_t>(layout[1].length));
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    ASSERT_EQ(schema.size(), 2);
+
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->predicate_columns = {field_projection(0)};
+    request->conjuncts.push_back(
+            VExprContext::create_shared(std::make_shared<NullableInt32GreaterThanExpr>(0, 500)));
+    ASSERT_TRUE(reader->open(request).ok());
+
+    bool eof = false;
+    std::vector<int32_t> result_ids;
+    while (!eof) {
+        Block block = build_file_block(schema);
+        size_t rows = 0;
+        ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+        if (rows == 0) {
+            continue;
+        }
+        const auto& ids_nullable =
+                assert_cast<const ColumnNullable&>(*block.get_by_position(0).column);
+        const auto& ids = assert_cast<const ColumnInt32&>(ids_nullable.get_nested_column());
+        for (size_t row = 0; row < rows; ++row) {
+            result_ids.push_back(ids.get_element(row));
+        }
+    }
+    ASSERT_EQ(result_ids.size(), 200);
+    EXPECT_EQ(result_ids.front(), 1000);
+    EXPECT_EQ(result_ids.back(), 1199);
+    // The out-of-split first stripe must not be counted as filtered.
+    EXPECT_EQ(reader->reader_statistics().filtered_row_groups, 0);
+    EXPECT_EQ(reader->reader_statistics().filtered_row_groups_by_min_max, 0);
+    EXPECT_EQ(reader->reader_statistics().filtered_group_rows, 0);
+}
+
+TEST_F(NewOrcReaderTest, SplitRangeCoveringNoStripeReturnsNoRows) {
+    const auto multi_stripe_file_path = (_test_dir / "split_no_stripe.orc").string();
+    write_multi_stripe_orc_int_file(multi_stripe_file_path);
+    ASSERT_EQ(get_orc_stripe_count(multi_stripe_file_path), 2);
+    const auto layout = get_orc_stripe_layout(multi_stripe_file_path);
+    ASSERT_EQ(layout.size(), 2);
+
+    // A one-byte window just before the first stripe covers no stripe offset.
+    const int64_t window_start =
+            layout[0].offset > 0 ? static_cast<int64_t>(layout[0].offset) - 1 : 0;
+    auto reader = create_reader_with_range(multi_stripe_file_path, window_start, 1);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    ASSERT_EQ(schema.size(), 2);
+
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->non_predicate_columns = {field_projection(0)};
+    ASSERT_TRUE(reader->open(request).ok());
+
+    bool eof = false;
+    size_t total_rows = 0;
+    while (!eof) {
+        Block block = build_file_block({schema[0]});
+        size_t rows = 0;
+        ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+        total_rows += rows;
+    }
+    EXPECT_EQ(total_rows, 0);
+    EXPECT_TRUE(eof);
+}
+
+TEST_F(NewOrcReaderTest, WholeFileWhenRangeSizeNegative) {
+    const auto multi_stripe_file_path = (_test_dir / "split_whole_file.orc").string();
+    write_multi_stripe_orc_int_file(multi_stripe_file_path);
+    ASSERT_EQ(get_orc_stripe_count(multi_stripe_file_path), 2);
+
+    // range_size == -1 is the unset sentinel: the reader must scan the whole file.
+    auto reader = create_reader_with_range(multi_stripe_file_path, 0, -1);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    ASSERT_EQ(schema.size(), 2);
+
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->non_predicate_columns = {field_projection(0)};
+    ASSERT_TRUE(reader->open(request).ok());
+
+    bool eof = false;
+    std::vector<int32_t> result_ids;
+    while (!eof) {
+        Block block = build_file_block({schema[0]});
+        size_t rows = 0;
+        ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+        if (rows == 0) {
+            continue;
+        }
+        const auto& ids_nullable =
+                assert_cast<const ColumnNullable&>(*block.get_by_position(0).column);
+        const auto& ids = assert_cast<const ColumnInt32&>(ids_nullable.get_nested_column());
+        for (size_t row = 0; row < rows; ++row) {
+            result_ids.push_back(ids.get_element(row));
+        }
+    }
+    ASSERT_EQ(result_ids.size(), 400);
+    EXPECT_EQ(result_ids.front(), 1);
+    EXPECT_EQ(result_ids.back(), 1199);
 }
 
 TEST_F(NewOrcReaderTest, ClosePublishesReaderStatisticsToRuntimeProfile) {
@@ -7701,6 +7960,7 @@ TEST_F(NewOrcReaderTest, ReadPrimitiveTypesWithNulls) {
     write_primitive_orc_file(primitive_file_path);
     auto reader = create_reader_for_path(primitive_file_path);
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    state.set_timezone("UTC");
     ASSERT_TRUE(reader->init(&state).ok());
 
     std::vector<format::ColumnDefinition> schema;
@@ -7820,6 +8080,74 @@ TEST_F(NewOrcReaderTest, ReadPrimitiveTypesWithNulls) {
     EXPECT_EQ(schema[0].type->to_string(*block.get_by_position(0).column, NULL_ROW), "NULL");
     EXPECT_EQ(schema[11].type->to_string(*block.get_by_position(11).column, NULL_ROW), "NULL");
     EXPECT_EQ(schema[15].type->to_string(*block.get_by_position(15).column, NULL_ROW), "NULL");
+}
+
+TEST_F(NewOrcReaderTest, TimestampInstantWithoutMappingUsesSessionTimezone) {
+    const auto primitive_file_path = (_test_dir / "timestamp_instant_datetime.orc").string();
+    write_primitive_orc_file(primitive_file_path);
+    auto reader = create_reader_for_path(primitive_file_path);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    state.set_timezone("Asia/Shanghai");
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    ASSERT_EQ(schema.size(), 16);
+    ASSERT_EQ(remove_nullable(schema[13].type)->get_primitive_type(), TYPE_DATETIMEV2);
+
+    Block block = build_file_block({schema[13]});
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->non_predicate_columns = {field_projection(13)};
+    ASSERT_TRUE(reader->open(request).ok());
+
+    size_t rows = 0;
+    bool eof = false;
+    ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+    EXPECT_FALSE(eof);
+    ASSERT_EQ(rows, PRIMITIVE_ROW_COUNT);
+    EXPECT_EQ(schema[13].type->to_string(*block.get_by_position(0).column, 0),
+              "1970-01-01 08:00:02.345678");
+    EXPECT_EQ(schema[13].type->to_string(*block.get_by_position(0).column, 2),
+              "2021-01-01 08:00:01.654321");
+}
+
+TEST_F(NewOrcReaderTest, TimestampInstantWithMappingReadsTimestampTz) {
+    const auto primitive_file_path = (_test_dir / "timestamp_instant_tz.orc").string();
+    write_primitive_orc_file(primitive_file_path);
+    auto reader = create_reader_for_path(primitive_file_path, nullptr, nullptr, std::nullopt, true);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    state.set_timezone("Asia/Shanghai");
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    ASSERT_EQ(schema.size(), 16);
+    ASSERT_EQ(remove_nullable(schema[13].type)->get_primitive_type(), TYPE_TIMESTAMPTZ);
+    ASSERT_EQ(remove_nullable(schema[13].type)->get_scale(), 6);
+
+    Block block = build_file_block({schema[13]});
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->non_predicate_columns = {field_projection(13)};
+    ASSERT_TRUE(reader->open(request).ok());
+
+    size_t rows = 0;
+    bool eof = false;
+    ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+    EXPECT_FALSE(eof);
+    ASSERT_EQ(rows, PRIMITIVE_ROW_COUNT);
+
+    const auto& timestamp_nullable =
+            assert_cast<const ColumnNullable&>(*block.get_by_position(0).column);
+    const auto& timestamp_values =
+            assert_cast<const ColumnTimeStampTz&>(timestamp_nullable.get_nested_column());
+    EXPECT_FALSE(timestamp_nullable.is_null_at(0));
+    EXPECT_TRUE(timestamp_nullable.is_null_at(NULL_ROW));
+    EXPECT_EQ(timestamp_values.get_element(0).to_string(state.timezone_obj(), 6),
+              "1970-01-01 08:00:02.345678+08:00");
+    EXPECT_EQ(timestamp_values.get_element(2).to_string(state.timezone_obj(), 6),
+              "2021-01-01 08:00:01.654321+08:00");
+    EXPECT_EQ(timestamp_values.get_element(0).to_string(cctz::utc_time_zone(), 6),
+              "1970-01-01 00:00:02.345678+00:00");
 }
 
 TEST_F(NewOrcReaderTest, ReadsProjectedColumnIntoRequestedBlockPosition) {

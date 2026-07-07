@@ -65,8 +65,10 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
+#include "core/data_type/data_type_timestamptz.h"
 #include "core/data_type_serde/data_type_serde.h"
 #include "core/types.h"
+#include "core/value/timestamptz_value.h"
 #include "core/value/vdatetime_value.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vliteral.h"
@@ -999,9 +1001,11 @@ struct OrcReaderScanState {
 OrcReader::OrcReader(std::shared_ptr<io::FileSystemProperties>& system_properties,
                      std::unique_ptr<io::FileDescription>& file_description,
                      std::shared_ptr<io::IOContext> io_ctx, RuntimeProfile* profile,
-                     std::optional<format::GlobalRowIdContext> global_rowid_context)
+                     std::optional<format::GlobalRowIdContext> global_rowid_context,
+                     bool enable_mapping_timestamp_tz)
         : FileReader(system_properties, file_description, io_ctx, profile),
-          _global_rowid_context(std::move(global_rowid_context)) {}
+          _global_rowid_context(std::move(global_rowid_context)),
+          _enable_mapping_timestamp_tz(enable_mapping_timestamp_tz) {}
 
 OrcReader::~OrcReader() = default;
 
@@ -1188,8 +1192,14 @@ DataTypePtr OrcReader::_convert_to_doris_type(const ::orc::Type& type) const {
         data_type = std::make_shared<DataTypeDateV2>();
         break;
     case ::orc::TypeKind::TIMESTAMP:
-    case ::orc::TypeKind::TIMESTAMP_INSTANT:
         data_type = std::make_shared<DataTypeDateTimeV2>(6);
+        break;
+    case ::orc::TypeKind::TIMESTAMP_INSTANT:
+        if (_enable_mapping_timestamp_tz) {
+            data_type = std::make_shared<DataTypeTimeStampTz>(6);
+        } else {
+            data_type = std::make_shared<DataTypeDateTimeV2>(6);
+        }
         break;
     case ::orc::TypeKind::DECIMAL:
         data_type = std::make_shared<DataTypeDecimal<TYPE_DECIMAL128I>>(
@@ -1419,6 +1429,11 @@ Status OrcReader::open(std::shared_ptr<format::FileScanRequest> request) {
 
     RETURN_IF_ERROR(_init_search_argument_from_local_filters());
 
+    // Seed the split byte range so this scanner only reads its own stripes. When SARG
+    // pruning applies, _apply_current_stripe_range() overwrites this with the (already
+    // split-constrained) stripe ranges; otherwise this seeded range governs selection.
+    _apply_split_range();
+
     RETURN_IF_ERROR(_select_stripe_ranges_by_statistics());
     if (_state->stripe_pruning_applied && _state->selected_stripe_ranges.empty()) {
         _eof = true;
@@ -1565,6 +1580,33 @@ Status OrcReader::_init_search_argument_from_local_filters() {
     return Status::OK();
 }
 
+void OrcReader::_split_byte_window(uint64_t* start, uint64_t* end) const {
+    const int64_t range_start = _file_description->range_start_offset;
+    const int64_t range_size = _file_description->range_size;
+    DORIS_CHECK(range_start >= 0);
+    *start = static_cast<uint64_t>(range_start);
+    if (range_size < 0) {
+        // Unset sentinel: read the whole file.
+        *end = std::numeric_limits<uint64_t>::max();
+        return;
+    }
+    DORIS_CHECK(range_size <= std::numeric_limits<int64_t>::max() - range_start);
+    const int64_t range_end = range_start + range_size;
+    DORIS_CHECK(range_end >= range_start);
+    *end = static_cast<uint64_t>(range_end);
+}
+
+void OrcReader::_apply_split_range() {
+    uint64_t start = 0;
+    uint64_t end = std::numeric_limits<uint64_t>::max();
+    _split_byte_window(&start, &end);
+    if (start == 0 && end == std::numeric_limits<uint64_t>::max()) {
+        // Whole file: keep ORC library defaults and avoid uint64 overflow on (start + length).
+        return;
+    }
+    _state->row_reader_options.range(start, end - start);
+}
+
 // ORC RowReader ranges are continuous, so non-adjacent surviving stripes are
 // compacted into separate ranges.
 Status OrcReader::_select_stripe_ranges_by_statistics() {
@@ -1588,12 +1630,31 @@ Status OrcReader::_select_stripe_ranges_by_statistics() {
         return Status::InternalError("Failed to evaluate ORC search argument: {}", e.what());
     }
 
+    // Only stripes whose offset falls in this split's byte window belong to this scanner
+    // (matching ORC's own inclusion test). getNeedReadStripes() ignores the range, so
+    // out-of-split stripes must be excluded here and must NOT be counted in the filtered
+    // statistics (they are handled by other splits).
+    uint64_t split_start = 0;
+    uint64_t split_end = std::numeric_limits<uint64_t>::max();
+    _split_byte_window(&split_start, &split_end);
+
     std::vector<uint64_t> selected_stripes;
     selected_stripes.reserve(stripe_count);
     int64_t filtered_stripes = 0;
     int64_t filtered_rows = 0;
     int64_t filtered_bytes = 0;
     for (uint64_t stripe_index = 0; stripe_index < stripe_count; ++stripe_index) {
+        uint64_t stripe_offset = 0;
+        try {
+            stripe_offset = _state->reader->getStripe(stripe_index)->getOffset();
+        } catch (const std::exception& e) {
+            return Status::InternalError("Failed to read ORC stripe info: {}", e.what());
+        }
+        if (stripe_offset < split_start || stripe_offset >= split_end) {
+            // Belongs to another split; do not select or count it.
+            continue;
+        }
+
         bool drop = false;
         if (stripe_index < sarg_needed_stripes.size() && sarg_needed_stripes[stripe_index] == 0) {
             drop = true;
@@ -1939,7 +2000,10 @@ Status OrcReader::_decode_column(const ::orc::Type& file_type, const ::orc::Type
         return _decode_timestamp_column(batch, _state->timezone_obj, nested_column, rows,
                                         selected_rows);
     case ::orc::TypeKind::TIMESTAMP_INSTANT:
-        return _decode_timestamp_column(batch, cctz::utc_time_zone(), nested_column, rows,
+        if (_enable_mapping_timestamp_tz) {
+            return _decode_timestamp_tz_column(batch, nested_column, rows, selected_rows);
+        }
+        return _decode_timestamp_column(batch, _state->timezone_obj, nested_column, rows,
                                         selected_rows);
     case ::orc::TypeKind::LIST:
         return _decode_list_column(file_type, selected_type, batch, nested_column, rows,
@@ -1977,6 +2041,31 @@ Status OrcReader::_decode_timestamp_column(const ::orc::ColumnVectorBatch& batch
         auto& value =
                 reinterpret_cast<DateV2Value<DateTimeV2ValueType>&>(data[old_data_size + row]);
         value.from_unixtime(orc_batch->data[source_row], timezone);
+        value.set_microsecond(cast_set<uint64_t>(orc_batch->nanoseconds[source_row] / 1000));
+    }
+    return Status::OK();
+}
+
+Status OrcReader::_decode_timestamp_tz_column(const ::orc::ColumnVectorBatch& batch,
+                                              MutableColumnPtr& nested_column, size_t rows,
+                                              const std::vector<size_t>* selected_rows) const {
+    const auto* orc_batch = dynamic_cast<const ::orc::TimestampVectorBatch*>(&batch);
+    if (orc_batch == nullptr) {
+        return Status::InternalError("Unexpected ORC timestamp batch type {}", batch.toString());
+    }
+    auto& data = assert_cast<ColumnTimeStampTz&>(*nested_column).get_data();
+    const size_t old_data_size = data.size();
+    const auto output_rows = decode_row_count(rows, selected_rows);
+    data.resize(old_data_size + output_rows);
+    static const auto utc_time_zone = cctz::utc_time_zone();
+    for (size_t row = 0; row < output_rows; ++row) {
+        const auto source_row = source_row_at(row, selected_rows);
+        if (is_null_at(batch, source_row)) {
+            data[old_data_size + row] = TimestampTzValue {};
+            continue;
+        }
+        auto& value = data[old_data_size + row];
+        value.from_unixtime(orc_batch->data[source_row], utc_time_zone);
         value.set_microsecond(cast_set<uint64_t>(orc_batch->nanoseconds[source_row] / 1000));
     }
     return Status::OK();

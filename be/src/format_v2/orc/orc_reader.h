@@ -44,7 +44,8 @@ public:
     OrcReader(std::shared_ptr<io::FileSystemProperties>& system_properties,
               std::unique_ptr<io::FileDescription>& file_description,
               std::shared_ptr<io::IOContext> io_ctx, RuntimeProfile* profile,
-              std::optional<format::GlobalRowIdContext> global_rowid_context = std::nullopt);
+              std::optional<format::GlobalRowIdContext> global_rowid_context = std::nullopt,
+              bool enable_mapping_timestamp_tz = false);
     ~OrcReader() override;
 
     static format::ColumnDefinition row_position_column_definition();
@@ -113,6 +114,13 @@ private:
     Status _configure_row_reader_projection();
     bool _can_apply_orc_lazy_callback() const;
     Status _init_search_argument_from_local_filters();
+    // Translate the split's byte range (_file_description->range_start_offset/range_size)
+    // into an ORC [start, end) window. A negative range_size (unset sentinel) yields the
+    // whole file: {0, UINT64_MAX}.
+    void _split_byte_window(uint64_t* start, uint64_t* end) const;
+    // Seed row_reader_options with the split byte window so each split only reads its own
+    // stripes. Skips the call for a whole-file window to keep ORC library defaults.
+    void _apply_split_range();
     Status _select_stripe_ranges_by_statistics();
     void _apply_current_stripe_range();
     Status _advance_to_next_stripe_range(bool* advanced);
@@ -128,6 +136,9 @@ private:
                                     const cctz::time_zone& timezone,
                                     MutableColumnPtr& nested_column, size_t rows,
                                     const std::vector<size_t>* selected_rows) const;
+    Status _decode_timestamp_tz_column(const ::orc::ColumnVectorBatch& batch,
+                                       MutableColumnPtr& nested_column, size_t rows,
+                                       const std::vector<size_t>* selected_rows) const;
     Status _decode_list_column(const ::orc::Type& file_type, const ::orc::Type& selected_type,
                                const ::orc::ColumnVectorBatch& batch,
                                MutableColumnPtr& nested_column, size_t rows,
@@ -178,6 +189,7 @@ private:
     std::unique_ptr<OrcReaderScanState> _state;
     OrcProfile _orc_profile; // RuntimeProfile counters
     std::optional<format::GlobalRowIdContext> _global_rowid_context;
+    bool _enable_mapping_timestamp_tz = false;
 };
 
 } // namespace doris::format::orc
