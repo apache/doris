@@ -25,11 +25,7 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
-import org.apache.doris.nereids.trees.expressions.functions.agg.GroupConcat;
-import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctCount;
-import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctGroupConcat;
-import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctSum;
-import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
+import org.apache.doris.nereids.trees.expressions.functions.agg.SupportMultiDistinct;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 
@@ -42,6 +38,9 @@ import java.util.Optional;
  * count(distinct A) over(...)
  * =>
  * multi_distinct_count(A) over(...)
+ *
+ * The same rewrite applies to every distinct aggregate that implements SupportMultiDistinct
+ * (count, sum, group_concat, array_agg, collect_list, ...).
  */
 
 public class DistinctWindowExpression extends OneRewriteRuleFactory {
@@ -85,17 +84,11 @@ public class DistinctWindowExpression extends OneRewriteRuleFactory {
     }
 
     private Optional<AggregateFunction> convertToMultiDistinctFunction(AggregateFunction func) {
-        if (func.isDistinct()) {
-            if (func instanceof Count) {
-                if (func.arity() != 1) {
-                    throw new AnalysisException("COUNT with DISTINCT only support 1 parameter in analytic function");
-                }
-                return Optional.of(new MultiDistinctCount(false, func.child(0)));
-            } else if (func instanceof Sum) {
-                return Optional.of(new MultiDistinctSum(false, ((Sum) func).child()));
-            } else if (func instanceof GroupConcat) {
-                return Optional.of(new MultiDistinctGroupConcat(false, func.children()));
+        if (func.isDistinct() && func instanceof SupportMultiDistinct) {
+            if (func instanceof Count && func.arity() != 1) {
+                throw new AnalysisException("COUNT with DISTINCT only support 1 parameter in analytic function");
             }
+            return Optional.of(((SupportMultiDistinct) func).convertToMultiDistinct());
         }
         return Optional.empty();
     }

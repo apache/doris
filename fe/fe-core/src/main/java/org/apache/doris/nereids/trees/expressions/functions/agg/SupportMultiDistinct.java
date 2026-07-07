@@ -22,4 +22,16 @@ package org.apache.doris.nereids.trees.expressions.functions.agg;
  * */
 public interface SupportMultiDistinct {
     AggregateFunction convertToMultiDistinct();
+
+    /**
+     * Validate that this distinct function can actually be rewritten to its multi-distinct form
+     * for its current argument types, throwing a user-facing AnalysisException otherwise.
+     *
+     * <p>Only invoked when the multi-distinct rewrite is required (more than one distinct
+     * argument in the same aggregate). The default is a no-op; functions whose BE multi-distinct
+     * implementation supports only a subset of the types their signature advertises (e.g.
+     * array_agg / collect_list, backed by a hash-set that cannot hold complex/object values)
+     * override this to reject the unsupported types up front instead of failing at BE runtime.
+     */
+    default void checkSupportMultiDistinct() {}
 }

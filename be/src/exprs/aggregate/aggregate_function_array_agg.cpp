@@ -18,7 +18,6 @@
 #include "exprs/aggregate/aggregate_function_array_agg.h"
 
 #include "common/exception.h"
-#include "common/status.h"
 #include "core/call_on_type_index.h"
 #include "exprs/aggregate/aggregate_function_collect.h"
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
@@ -27,7 +26,8 @@
 namespace doris {
 
 template <PrimitiveType T>
-AggregateFunctionPtr do_create_agg_function_collect(bool distinct, const DataTypes& argument_types,
+AggregateFunctionPtr do_create_agg_function_collect(bool distinct, const std::string& name,
+                                                    const DataTypes& argument_types,
                                                     const bool result_is_nullable,
                                                     const AggregateFunctionAttr& attr) {
     if (distinct) {
@@ -35,9 +35,18 @@ AggregateFunctionPtr do_create_agg_function_collect(bool distinct, const DataTyp
             throw Exception(ErrorCode::INTERNAL_ERROR,
                             "unexpected type for array_agg distinct, please check the input");
         } else {
+            // array_agg keeps NULL elements, so multi_distinct_array_agg must preserve a single
+            // NULL when the input contains nulls. Feed the nullable column straight to the
+            // aggregate (create_ignore_nullable, no null-skipping wrapper) and let the ShowNull
+            // collect function record whether a null was seen; the Set still dedups the values.
+            if (argument_types[0]->is_nullable()) {
+                return creator_without_type::create_ignore_nullable<AggregateFunctionCollect<
+                        AggregateFunctionCollectSetData<T, false>, false, true>>(
+                        argument_types, result_is_nullable, attr, name);
+            }
             return creator_without_type::create<
                     AggregateFunctionCollect<AggregateFunctionCollectSetData<T, false>, false>>(
-                    argument_types, result_is_nullable, attr);
+                    argument_types, result_is_nullable, attr, name);
         }
     }
     if (argument_types[0]->is_nullable()) {
@@ -47,7 +56,7 @@ AggregateFunctionPtr do_create_agg_function_collect(bool distinct, const DataTyp
     } else {
         return creator_without_type::create<
                 AggregateFunctionCollect<AggregateFunctionCollectListData<T, false>, false>>(
-                argument_types, result_is_nullable, attr);
+                argument_types, result_is_nullable, attr, name);
     }
 }
 
@@ -60,14 +69,14 @@ AggregateFunctionPtr create_aggregate_function_array_agg(const std::string& name
     AggregateFunctionPtr agg_fn;
     auto call = [&](const auto& type) -> bool {
         using DispatcType = std::decay_t<decltype(type)>;
-        agg_fn = do_create_agg_function_collect<DispatcType::PType>(distinct, argument_types,
+        agg_fn = do_create_agg_function_collect<DispatcType::PType>(distinct, name, argument_types,
                                                                     result_is_nullable, attr);
         return true;
     };
 
     if (!dispatch_switch_all(argument_types[0]->get_primitive_type(), call)) {
         // We do not care what the real type is.
-        agg_fn = do_create_agg_function_collect<INVALID_TYPE>(distinct, argument_types,
+        agg_fn = do_create_agg_function_collect<INVALID_TYPE>(distinct, name, argument_types,
                                                               result_is_nullable, attr);
     }
     return agg_fn;

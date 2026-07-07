@@ -18,12 +18,14 @@
 package org.apache.doris.nereids.trees.expressions.functions.agg;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
 import org.apache.doris.nereids.types.coercion.FollowToAnyDataType;
@@ -111,6 +113,20 @@ public class CollectList extends NotNullableAggregateFunction
             return new MultiDistinctCollectList(children.get(0));
         } else {
             return new MultiDistinctCollectList(children.get(0), children.get(1));
+        }
+    }
+
+    @Override
+    public void checkSupportMultiDistinct() {
+        // multi_distinct_collect_list dedups through a hash-set (AggregateFunctionCollectSetData)
+        // that only supports scalar/string element types; complex/object types (array, map,
+        // struct, json, variant, bitmap, hll, ...) would fail with an internal error at BE runtime.
+        DataType argType = child(0).getDataType();
+        if (argType.isOnlyMetricType()) {
+            throw new AnalysisException(
+                    "collect_list(distinct) does not support type " + argType + " when it is "
+                            + "rewritten to multi_distinct_collect_list (multiple distinct "
+                            + "aggregates in one query)");
         }
     }
 }

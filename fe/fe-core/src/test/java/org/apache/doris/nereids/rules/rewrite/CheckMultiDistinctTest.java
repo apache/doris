@@ -32,6 +32,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.CollectList;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupConcat;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
+import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
@@ -129,5 +130,42 @@ public class CheckMultiDistinctTest {
         AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
                 () -> applyCheckMultiDistinct(root));
         Assertions.assertTrue(exception.getMessage().contains("can't support multi distinct"));
+    }
+
+    @Test
+    public void testArrayAggDistinctComplexTypeThrows() {
+        // array_agg(distinct <array-typed>) plus a second distinct argument forces the
+        // multi-distinct rewrite; the set-based BE path can't dedup complex element types, so
+        // CheckMultiDistinct must reject it up front with a user-facing error.
+        ArrayLiteral arrayArg = new ArrayLiteral(ImmutableList.of(new IntegerLiteral(1)));
+        List<NamedExpression> outputs = Lists.newArrayList(
+                new Alias(new ArrayAgg(true, arrayArg), "array_agg_distinct_arr"),
+                new Alias(new Count(true, id), "count_distinct_id"));
+        Plan root = buildAgg(outputs);
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> applyCheckMultiDistinct(root));
+        Assertions.assertTrue(exception.getMessage().contains("does not support type"));
+    }
+
+    @Test
+    public void testCollectListDistinctComplexTypeThrows() {
+        ArrayLiteral arrayArg = new ArrayLiteral(ImmutableList.of(new IntegerLiteral(1)));
+        List<NamedExpression> outputs = Lists.newArrayList(
+                new Alias(new CollectList(true, arrayArg), "collect_distinct_arr"),
+                new Alias(new Count(true, id), "count_distinct_id"));
+        Plan root = buildAgg(outputs);
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> applyCheckMultiDistinct(root));
+        Assertions.assertTrue(exception.getMessage().contains("does not support type"));
+    }
+
+    @Test
+    public void testSingleDistinctComplexTypeAllowed() {
+        // With only one distinct argument the multi-distinct rewrite does not fire (the distinct
+        // arg is pushed into the group-by key), so complex-typed array_agg(distinct) is fine.
+        ArrayLiteral arrayArg = new ArrayLiteral(ImmutableList.of(new IntegerLiteral(1)));
+        List<NamedExpression> outputs = Lists.newArrayList(
+                new Alias(new ArrayAgg(true, arrayArg), "array_agg_distinct_arr"));
+        Assertions.assertDoesNotThrow(() -> applyCheckMultiDistinct(buildAgg(outputs)));
     }
 }

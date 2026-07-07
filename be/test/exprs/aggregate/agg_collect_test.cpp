@@ -27,6 +27,7 @@
 #include "common/logging.h"
 #include "core/arena.h"
 #include "core/column/column_array.h"
+#include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type.h"
@@ -51,6 +52,7 @@ class IColumn;
 namespace doris {
 
 void register_aggregate_function_collect_list(AggregateFunctionSimpleFactory& factory);
+void register_aggregate_function_array_agg(AggregateFunctionSimpleFactory& factory);
 
 class VAggCollectTest : public testing::Test {
 public:
@@ -381,6 +383,109 @@ TEST_F(AggregateFunctionCollectTest, test_collect_set_aint64_with_max_size) {
     execute(Block({ColumnHelper::create_column_with_name<DataTypeInt64>({1, 2, 3, 4, 3}),
                    ColumnHelper::create_column_with_name<DataTypeInt32>({3, 3, 3, 3, 3})}),
             ColumnWithTypeAndName(std::move(array_column), array_data_type, "column"));
+}
+
+// Regression test for the multi_distinct_array_agg NULL path. collect_set drops nulls, but
+// array_agg keeps a single NULL element, so multi_distinct_array_agg must preserve one NULL even
+// though it dedups through a Set that cannot store null. The result-array order is unspecified
+// (Set iteration), so we only assert on the element count and the number of nulls.
+TEST_F(VAggCollectTest, test_multi_distinct_array_agg_preserves_null) {
+    AggregateFunctionSimpleFactory factory = AggregateFunctionSimpleFactory::instance();
+    register_aggregate_function_array_agg(factory);
+
+    auto nested_type = std::make_shared<DataTypeInt64>();
+    DataTypes arg_types = {make_nullable(nested_type)};
+    auto agg = factory.get("multi_distinct_array_agg", arg_types, nullptr, false, -1);
+    ASSERT_NE(agg, nullptr);
+
+    Arena arena;
+
+    auto build_input = [&](const std::vector<int64_t>& vals, bool with_null) -> MutableColumnPtr {
+        auto col = make_nullable(nested_type)->create_column();
+        for (auto v : vals) {
+            col->insert_data(reinterpret_cast<const char*>(&v), sizeof(v));
+        }
+        if (with_null) {
+            col->insert_default(); // appends a NULL
+        }
+        return col;
+    };
+
+    auto add_all = [&](AggregateDataPtr place, const MutableColumnPtr& col) {
+        const IColumn* columns[1] = {col.get()};
+        for (size_t i = 0; i < col->size(); ++i) {
+            agg->add(place, columns, i, arena);
+        }
+    };
+
+    auto count_nulls = [&](const ColumnArray& arr) -> size_t {
+        const auto& nullable = assert_cast<const ColumnNullable&>(arr.get_data());
+        size_t n = 0;
+        for (size_t i = 0; i < nullable.size(); ++i) {
+            n += nullable.is_null_at(i) ? 1 : 0;
+        }
+        return n;
+    };
+
+    auto insert_and_check = [&](AggregateDataPtr place, size_t expect_size, size_t expect_nulls) {
+        auto result = ColumnArray::create(make_nullable(nested_type)->create_column());
+        agg->insert_result_into(place, result->assert_mutable_ref());
+        ASSERT_EQ(result->size(), 1);
+        EXPECT_EQ(result->get_offsets()[0], expect_size);
+        EXPECT_EQ(count_nulls(*result), expect_nulls);
+    };
+
+    // place1: values {5, 5} plus a NULL -> distinct {5} + one NULL => array size 2, one null.
+    std::unique_ptr<char[]> mem1(new char[agg->size_of_data()]);
+    AggregateDataPtr place1 = mem1.get();
+    agg->create(place1);
+    add_all(place1, build_input({5, 5}, true));
+    insert_and_check(place1, 2, 1);
+
+    // Serialize/deserialize must carry has_null across the wire.
+    ColumnString buf;
+    VectorBufferWriter writer(buf);
+    agg->serialize(place1, writer);
+    writer.commit();
+    std::unique_ptr<char[]> mem2(new char[agg->size_of_data()]);
+    AggregateDataPtr place2 = mem2.get();
+    agg->create(place2);
+    VectorBufferReader reader(buf.get_data_at(0));
+    agg->deserialize(place2, reader, arena);
+    insert_and_check(place2, 2, 1);
+
+    // Merge a non-null place {7} into the deserialized {5}+null -> {5,7}+null => size 3, one null.
+    std::unique_ptr<char[]> mem3(new char[agg->size_of_data()]);
+    AggregateDataPtr place3 = mem3.get();
+    agg->create(place3);
+    add_all(place3, build_input({7}, false));
+    agg->merge(place2, place3, arena);
+    insert_and_check(place2, 3, 1);
+
+    agg->destroy(place1);
+    agg->destroy(place2);
+    agg->destroy(place3);
+}
+
+// The multi-distinct rewrite emits BE functions named multi_distinct_collect_list /
+// multi_distinct_array_agg; if either is not registered, the multi-phase plan fails at runtime with
+// "Agg Function ... is not implemented". Guard the registration for the common element types.
+TEST_F(VAggCollectTest, test_multi_distinct_functions_are_registered) {
+    AggregateFunctionSimpleFactory factory = AggregateFunctionSimpleFactory::instance();
+    register_aggregate_function_array_agg(factory);
+
+    std::vector<DataTypePtr> element_types = {
+            std::make_shared<DataTypeInt32>(), std::make_shared<DataTypeInt64>(),
+            std::make_shared<DataTypeString>()};
+    for (const auto& elem : element_types) {
+        for (bool nullable : {false, true}) {
+            DataTypes args = {nullable ? make_nullable(elem) : elem};
+            EXPECT_NE(factory.get("multi_distinct_collect_list", args, nullptr, false, -1), nullptr)
+                    << "multi_distinct_collect_list not registered for " << args[0]->get_name();
+            EXPECT_NE(factory.get("multi_distinct_array_agg", args, nullptr, false, -1), nullptr)
+                    << "multi_distinct_array_agg not registered for " << args[0]->get_name();
+        }
+    }
 }
 
 } // namespace doris

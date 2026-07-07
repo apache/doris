@@ -53,6 +53,9 @@ struct AggregateFunctionCollectSetData {
     using Set = doris::flat_hash_set<ElementType>;
     Set data_set;
     Int64 max_size = -1;
+    // Only used by the ShowNull collect variant (multi_distinct_array_agg): the Set cannot store
+    // a null element, so we remember whether any null was seen and emit a single NULL on output.
+    bool has_null = false;
 
     AggregateFunctionCollectSetData(const DataTypes& argument_types) {}
 
@@ -109,7 +112,10 @@ struct AggregateFunctionCollectSetData {
         }
     }
 
-    void reset() { data_set.clear(); }
+    void reset() {
+        data_set.clear();
+        has_null = false;
+    }
 };
 
 template <PrimitiveType T, bool HasLimit>
@@ -122,6 +128,9 @@ struct AggregateFunctionCollectSetData<T, HasLimit> {
     using Set = doris::flat_hash_set<ElementType>;
     Set data_set;
     Int64 max_size = -1;
+    // Only used by the ShowNull collect variant (multi_distinct_array_agg): the Set cannot store
+    // a null element, so we remember whether any null was seen and emit a single NULL on output.
+    bool has_null = false;
 
     AggregateFunctionCollectSetData(const DataTypes& argument_types) {}
 
@@ -177,7 +186,10 @@ struct AggregateFunctionCollectSetData<T, HasLimit> {
         }
     }
 
-    void reset() { data_set.clear(); }
+    void reset() {
+        data_set.clear();
+        has_null = false;
+    }
 };
 
 template <PrimitiveType T, bool HasLimit>
@@ -391,9 +403,10 @@ struct AggregateFunctionCollectListData<T, HasLimit> {
     void insert_result_into(IColumn& to) const { to.insert_range_from(*column_data, 0, size()); }
 };
 
-template <typename Data, bool HasLimit>
+template <typename Data, bool HasLimit, bool ShowNull = false>
 class AggregateFunctionCollect final
-        : public IAggregateFunctionDataHelper<Data, AggregateFunctionCollect<Data, HasLimit>, true>,
+        : public IAggregateFunctionDataHelper<
+                  Data, AggregateFunctionCollect<Data, HasLimit, ShowNull>, true>,
           VarargsExpression,
           NotNullableAggregateFunction {
     static constexpr bool ENABLE_ARENA =
@@ -402,25 +415,36 @@ class AggregateFunctionCollect final
             std::is_same_v<Data, AggregateFunctionCollectSetData<TYPE_VARCHAR, HasLimit>>;
 
 public:
-    AggregateFunctionCollect(const DataTypes& argument_types_)
-            : IAggregateFunctionDataHelper<Data, AggregateFunctionCollect<Data, HasLimit>, true>(
-                      {argument_types_}),
+    AggregateFunctionCollect(std::string name, const DataTypes& argument_types_)
+            : IAggregateFunctionDataHelper<Data, AggregateFunctionCollect<Data, HasLimit, ShowNull>,
+                                           true>({argument_types_}),
+              _name(std::move(name)),
               return_type(std::make_shared<DataTypeArray>(make_nullable(argument_types_[0]))) {}
 
-    std::string get_name() const override {
-        if constexpr (std::is_same_v<AggregateFunctionCollectListData<Data::PType, HasLimit>,
-                                     Data>) {
-            return "collect_list";
-        } else {
-            return "collect_set";
-        }
-    }
+    std::string get_name() const override { return _name; }
 
     DataTypePtr get_return_type() const override { return return_type; }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena& arena) const override {
         auto& data = this->data(place);
+        if constexpr (ShowNull) {
+            // The nullable column is fed in directly (no null-skipping wrapper) so that
+            // multi_distinct_array_agg can preserve a NULL element like array_agg does.
+            const auto& nullable =
+                    assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(*columns[0]);
+            if (nullable.is_null_at(row_num)) {
+                data.has_null = true;
+                return;
+            }
+            const IColumn& nested = nullable.get_nested_column();
+            if constexpr (ENABLE_ARENA) {
+                data.add(nested, row_num, arena);
+            } else {
+                data.add(nested, row_num);
+            }
+            return;
+        }
         if constexpr (HasLimit) {
             if (data.max_size == -1) {
                 data.max_size =
@@ -448,15 +472,26 @@ public:
         } else {
             data.merge(rhs_data);
         }
+        if constexpr (ShowNull) {
+            data.has_null |= rhs_data.has_null;
+        }
     }
 
     void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
         this->data(place).write(buf);
+        if constexpr (ShowNull) {
+            buf.write_binary(this->data(place).has_null);
+        }
     }
 
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
                      Arena&) const override {
         this->data(place).read(buf);
+        if constexpr (ShowNull) {
+            bool has_null = false;
+            buf.read_binary(has_null);
+            this->data(place).has_null = has_null;
+        }
     }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
@@ -465,10 +500,17 @@ public:
         auto* col_null = assert_cast<ColumnNullable*>(&to_nested_col);
         this->data(place).insert_result_into(col_null->get_nested_column());
         col_null->get_null_map_data().resize_fill(col_null->get_nested_column().size(), 0);
+        if constexpr (ShowNull) {
+            if (this->data(place).has_null) {
+                col_null->get_nested_column().insert_default();
+                col_null->get_null_map_data().push_back(1);
+            }
+        }
         to_arr.get_offsets().push_back(to_nested_col.size());
     }
 
 private:
+    std::string _name;
     DataTypePtr return_type;
 };
 
