@@ -193,7 +193,8 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
 
         cols = tbl.getRowBinlogMeta().getSchema(true).stream().map(Column::getName).collect(Collectors.toList());
         Assert.assertEquals(2, cols.indexOf("v2"));
-        Assert.assertEquals(3, cols.indexOf(Column.BINLOG_LSN_COL));
+        Assert.assertEquals(3, cols.indexOf(Column.BINLOG_TSO_COL));
+        Assert.assertEquals(4, cols.indexOf(Column.BINLOG_LSN_COL));
         Assert.assertFalse(cols.contains(Column.generateBeforeColName("v2")));
 
         // multiple add column clauses in one ALTER
@@ -205,7 +206,8 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
         cols = tbl.getRowBinlogMeta().getSchema(true).stream().map(Column::getName).collect(Collectors.toList());
         Assert.assertEquals(3, cols.indexOf("v3"));
         Assert.assertEquals(4, cols.indexOf("v4"));
-        Assert.assertEquals(5, cols.indexOf(Column.BINLOG_LSN_COL));
+        Assert.assertEquals(5, cols.indexOf(Column.BINLOG_TSO_COL));
+        Assert.assertEquals(6, cols.indexOf(Column.BINLOG_LSN_COL));
         Assert.assertFalse(cols.contains(Column.generateBeforeColName("v3")));
         Assert.assertFalse(cols.contains(Column.generateBeforeColName("v4")));
 
@@ -217,7 +219,8 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
         cols = tbl.getRowBinlogMeta().getSchema(true).stream().map(Column::getName).collect(Collectors.toList());
         Assert.assertEquals(5, cols.indexOf("v5"));
         Assert.assertEquals(6, cols.indexOf("v6"));
-        Assert.assertEquals(7, cols.indexOf(Column.BINLOG_LSN_COL));
+        Assert.assertEquals(7, cols.indexOf(Column.BINLOG_TSO_COL));
+        Assert.assertEquals(8, cols.indexOf(Column.BINLOG_LSN_COL));
         Assert.assertFalse(cols.contains(Column.generateBeforeColName("v5")));
         Assert.assertFalse(cols.contains(Column.generateBeforeColName("v6")));
 
@@ -228,7 +231,8 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
 
         cols = tbl.getRowBinlogMeta().getSchema(true).stream().map(Column::getName).collect(Collectors.toList());
         Assert.assertFalse(cols.contains("v6"));
-        Assert.assertEquals(6, cols.indexOf(Column.BINLOG_LSN_COL));
+        Assert.assertEquals(6, cols.indexOf(Column.BINLOG_TSO_COL));
+        Assert.assertEquals(7, cols.indexOf(Column.BINLOG_LSN_COL));
     }
 
     @Test

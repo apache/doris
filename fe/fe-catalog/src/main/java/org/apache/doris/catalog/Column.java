@@ -81,8 +81,8 @@ public class Column implements GsonPostProcessable {
 
     // columns for binlog schema
     // explicit columns
+    public static final String BINLOG_TSO_COL = "__DORIS_BINLOG_TSO__";
     public static final String BINLOG_LSN_COL = "__DORIS_BINLOG_LSN__";
-    public static final String BINLOG_TIMESTAMP_COL = "__DORIS_BINLOG_TSO__";
     // implicit columns
     public static final String BINLOG_OPERATION_COL = "__DORIS_BINLOG_OP__";
     public static final String BINLOG_BEFORE_PREFIX = "__BEFORE__";

@@ -68,9 +68,9 @@ public class OlapTableRowBinlogSchemaTest {
                 tableWithoutBefore.getRowBinlogMeta().getSchema(true).stream().map(Column::getName)
                         .collect(Collectors.toList());
         Assertions.assertFalse(tableWithoutBeforeColumns.contains(Column.generateBeforeColName("v1")));
-        Assertions.assertEquals(tableWithoutBeforeColumns.indexOf(Column.BINLOG_LSN_COL), 2);
-        Assertions.assertEquals(tableWithoutBeforeColumns.indexOf(Column.BINLOG_OPERATION_COL), 3);
-        Assertions.assertEquals(tableWithoutBeforeColumns.indexOf(Column.BINLOG_TIMESTAMP_COL), 4);
+        Assertions.assertEquals(tableWithoutBeforeColumns.indexOf(Column.BINLOG_TSO_COL), 2);
+        Assertions.assertEquals(tableWithoutBeforeColumns.indexOf(Column.BINLOG_LSN_COL), 3);
+        Assertions.assertEquals(tableWithoutBeforeColumns.indexOf(Column.BINLOG_OPERATION_COL), 4);
         Assertions.assertEquals(tableWithoutBeforeColumns.size(), 5);
         Column afterColumnWithoutBefore = tableWithoutBefore.getRowBinlogMeta().getSchema(true).stream()
                 .filter(column -> column.getName().equals("v1"))
@@ -87,9 +87,9 @@ public class OlapTableRowBinlogSchemaTest {
         List<String> tableWithBeforeColumns =
                 rowBinlogSchemaWithBefore.stream().map(Column::getName).collect(Collectors.toList());
         Assertions.assertTrue(tableWithBeforeColumns.contains(Column.generateBeforeColName("v1")));
-        Assertions.assertEquals(tableWithBeforeColumns.indexOf(Column.BINLOG_LSN_COL), 3);
-        Assertions.assertEquals(tableWithBeforeColumns.indexOf(Column.BINLOG_OPERATION_COL), 4);
-        Assertions.assertEquals(tableWithBeforeColumns.indexOf(Column.BINLOG_TIMESTAMP_COL), 5);
+        Assertions.assertEquals(tableWithBeforeColumns.indexOf(Column.BINLOG_TSO_COL), 3);
+        Assertions.assertEquals(tableWithBeforeColumns.indexOf(Column.BINLOG_LSN_COL), 4);
+        Assertions.assertEquals(tableWithBeforeColumns.indexOf(Column.BINLOG_OPERATION_COL), 5);
         Assertions.assertEquals(tableWithBeforeColumns.size(), 6);
         Column afterColumnWithBefore = rowBinlogSchemaWithBefore.stream()
                 .filter(column -> column.getName().equals("v1"))

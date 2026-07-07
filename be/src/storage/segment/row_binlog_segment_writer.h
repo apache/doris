@@ -96,7 +96,9 @@ private:
 
     uint32_t _normal_col_start_id = 0;
     uint32_t _before_col_start_id = 0;
-    uint32_t _binlog_col_start_id = 0;
+    uint32_t _binlog_tso_col_id = 0;
+    uint32_t _binlog_lsn_col_id = 0;
+    uint32_t _binlog_op_col_id = 0;
 
     std::unique_ptr<RowBinlogSourceDataWriter> _source_data_writer;
     std::unique_ptr<HistoricalRowRetriever> _historical_data_writer;

@@ -215,14 +215,14 @@ inline void enable_row_binlog(TCreateTabletReq* request, int32_t row_binlog_sche
     }
 
     row_binlog_schema.columns.push_back(create_tablet_column(
+            {BINLOG_TSO_COL, TPrimitiveType::BIGINT, false, true, TAggregationType::NONE, true}));
+    row_binlog_schema.__set_binlog_tso_idx(row_binlog_schema.columns.size() - 1);
+    row_binlog_schema.columns.push_back(create_tablet_column(
             {BINLOG_LSN_COL, TPrimitiveType::BIGINT, false, true, TAggregationType::NONE}));
     row_binlog_schema.__set_binlog_lsn_idx(row_binlog_schema.columns.size() - 1);
     row_binlog_schema.columns.push_back(create_tablet_column(
             {BINLOG_OP_COL, TPrimitiveType::BIGINT, false, true, TAggregationType::NONE}));
     row_binlog_schema.__set_binlog_op_idx(row_binlog_schema.columns.size() - 1);
-    row_binlog_schema.columns.push_back(create_tablet_column(
-            {BINLOG_TSO_COL, TPrimitiveType::BIGINT, false, true, TAggregationType::NONE, true}));
-    row_binlog_schema.__set_binlog_tso_idx(row_binlog_schema.columns.size() - 1);
     request->__set_row_binlog_schema(row_binlog_schema);
 }
 

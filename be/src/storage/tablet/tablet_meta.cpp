@@ -432,14 +432,14 @@ void TabletMeta::init_schema_from_thrift(const TTabletSchema& tablet_schema,
     tablet_schema_pb->set_num_short_key_columns(tablet_schema.short_key_column_count);
     tablet_schema_pb->set_num_rows_per_row_block(config::default_num_rows_per_column_file_block);
     tablet_schema_pb->set_sequence_col_idx(tablet_schema.sequence_col_idx);
+    if (tablet_schema.__isset.binlog_tso_idx) {
+        tablet_schema_pb->set_binlog_tso_col_idx(tablet_schema.binlog_tso_idx);
+    }
     if (tablet_schema.__isset.binlog_lsn_idx) {
         tablet_schema_pb->set_binlog_lsn_col_idx(tablet_schema.binlog_lsn_idx);
     }
     if (tablet_schema.__isset.binlog_op_idx) {
         tablet_schema_pb->set_binlog_op_col_idx(tablet_schema.binlog_op_idx);
-    }
-    if (tablet_schema.__isset.binlog_tso_idx) {
-        tablet_schema_pb->set_binlog_tso_col_idx(tablet_schema.binlog_tso_idx);
     }
     auto p_seq_map = tablet_schema_pb->mutable_seq_map(); // ColumnGroupsPB
     for (auto& it : tablet_schema.seq_map) {              // std::vector< ::doris::TColumnGroup>

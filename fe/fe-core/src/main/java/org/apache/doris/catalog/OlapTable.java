@@ -2453,15 +2453,15 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
             tableRowBinlogSchema.addAll(beforeColumns);
         }
 
+        tableRowBinlogSchema.add(new ColumnDef(Column.BINLOG_TSO_COL,
+                ScalarType.createType(PrimitiveType.BIGINT), false, AggregateType.NONE, true, -1,
+                ColumnDef.DefaultValue.NOT_SET, "doris binlog tso column", false).toColumn());
         tableRowBinlogSchema.add(new ColumnDef(Column.BINLOG_LSN_COL, ScalarType.createType(PrimitiveType.BIGINT),
                 false, AggregateType.NONE, false, -1, ColumnDef.DefaultValue.NOT_SET,
                 "doris binlog lsn column", false).toColumn());
         tableRowBinlogSchema.add(new ColumnDef(Column.BINLOG_OPERATION_COL,
                 ScalarType.createType(PrimitiveType.BIGINT), false, AggregateType.NONE, false, -1,
                 ColumnDef.DefaultValue.NOT_SET, "doris binlog operation column", false).toColumn());
-        tableRowBinlogSchema.add(new ColumnDef(Column.BINLOG_TIMESTAMP_COL,
-                ScalarType.createType(PrimitiveType.BIGINT), false, AggregateType.NONE, true, -1,
-                ColumnDef.DefaultValue.NOT_SET, "doris binlog timestamp column", false).toColumn());
 
         for (Column column : tableRowBinlogSchema) {
             if (!column.isKey()) {

@@ -1023,7 +1023,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
         Slot timestampSlot = null;
         Slot opSlot = null;
         for (Slot slot : scan.getOutput()) {
-            if (slot.getName().equals(Column.BINLOG_TIMESTAMP_COL)) {
+            if (slot.getName().equals(Column.BINLOG_TSO_COL)) {
                 timestampSlot = slot;
             }
             if (slot.getName().equals(Column.BINLOG_OPERATION_COL)) {
