@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.alter.AlterOpType;
+import org.apache.doris.analysis.ColumnPath;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
@@ -42,6 +43,7 @@ import java.util.Set;
  */
 public class DropColumnOp extends AlterTableOp {
     private String colName;
+    private ColumnPath columnPath;
     private String rollupName;
 
     private Map<String, String> properties;
@@ -50,14 +52,23 @@ public class DropColumnOp extends AlterTableOp {
      * DropColumnOp
      */
     public DropColumnOp(String colName, String rollupName, Map<String, String> properties) {
+        this(ColumnPath.fromDotName(colName), rollupName, properties);
+    }
+
+    public DropColumnOp(ColumnPath columnPath, String rollupName, Map<String, String> properties) {
         super(AlterOpType.SCHEMA_CHANGE);
-        this.colName = colName;
+        this.colName = columnPath.getLeafName();
+        this.columnPath = columnPath;
         this.rollupName = rollupName;
         this.properties = properties;
     }
 
     public String getColName() {
         return colName;
+    }
+
+    public ColumnPath getColumnPath() {
+        return columnPath;
     }
 
     public String getRollupName() {
@@ -171,7 +182,7 @@ public class DropColumnOp extends AlterTableOp {
     @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
-        sb.append("DROP COLUMN `").append(colName).append("`");
+        sb.append("DROP COLUMN ").append(columnPath.toSql());
         if (rollupName != null) {
             sb.append(" FROM `").append(rollupName).append("`");
         }

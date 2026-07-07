@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.alter.AlterOpType;
+import org.apache.doris.analysis.ColumnPath;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeNameFormat;
@@ -33,16 +34,26 @@ import java.util.Map;
  */
 public class RenameColumnOp extends AlterTableOp {
     private String colName;
+    private ColumnPath columnPath;
     private String newColName;
 
     public RenameColumnOp(String colName, String newColName) {
+        this(ColumnPath.fromDotName(colName), newColName);
+    }
+
+    public RenameColumnOp(ColumnPath columnPath, String newColName) {
         super(AlterOpType.RENAME);
-        this.colName = colName;
+        this.colName = columnPath.getLeafName();
+        this.columnPath = columnPath;
         this.newColName = newColName;
     }
 
     public String getColName() {
         return colName;
+    }
+
+    public ColumnPath getColumnPath() {
+        return columnPath;
     }
 
     public String getNewColName() {
@@ -83,7 +94,7 @@ public class RenameColumnOp extends AlterTableOp {
 
     @Override
     public String toSql() {
-        return "RENAME COLUMN " + colName + " " + newColName;
+        return "RENAME COLUMN " + columnPath.toSql() + " " + newColName;
     }
 
     @Override

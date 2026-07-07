@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.analysis.ColumnPath;
 import org.apache.doris.analysis.StmtType;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
@@ -36,6 +37,7 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.InternalDatabaseUtil;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.info.AddColumnOp;
@@ -52,6 +54,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.DropPartitionFieldOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropRollupOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropTagOp;
 import org.apache.doris.nereids.trees.plans.commands.info.EnableFeatureOp;
+import org.apache.doris.nereids.trees.plans.commands.info.ModifyColumnCommentOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyColumnOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyEngineOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyTablePropertiesOp;
@@ -115,10 +118,6 @@ public class AlterTableCommand extends Command implements ForwardWithSync {
         if (ops == null || ops.isEmpty()) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_ALTER_OPERATION);
         }
-        for (AlterTableOp op : ops) {
-            op.setTableName(tbl);
-            op.validate(ctx);
-        }
         String ctlName = tbl.getCtl();
         String dbName = tbl.getDb();
         String tableName = tbl.getTbl();
@@ -129,11 +128,46 @@ public class AlterTableCommand extends Command implements ForwardWithSync {
         if (tableIf.isTemporary()) {
             throw new AnalysisException("Do not support alter temporary table[" + tableName + "]");
         }
+        checkNestedColumnPathSupported(tableIf, ops);
+        for (AlterTableOp op : ops) {
+            op.setTableName(tbl);
+            op.validate(ctx);
+        }
         if (tableIf instanceof OlapTable) {
             rewriteAlterOpForOlapTable(ctx, (OlapTable) tableIf);
         } else {
             checkExternalTableOperationAllow(tableIf);
         }
+    }
+
+    static void checkNestedColumnPathSupported(TableIf table, List<AlterTableOp> alterTableOps)
+            throws AnalysisException {
+        if (table instanceof IcebergExternalTable) {
+            return;
+        }
+        for (AlterTableOp alterTableOp : alterTableOps) {
+            ColumnPath columnPath = getNestedColumnPath(alterTableOp);
+            if (columnPath != null) {
+                throw new AnalysisException("Nested column path is only supported for Iceberg tables: "
+                        + columnPath.getFullPath());
+            }
+        }
+    }
+
+    private static ColumnPath getNestedColumnPath(AlterTableOp alterTableOp) {
+        ColumnPath columnPath = null;
+        if (alterTableOp instanceof AddColumnOp) {
+            columnPath = ((AddColumnOp) alterTableOp).getColumnPath();
+        } else if (alterTableOp instanceof DropColumnOp) {
+            columnPath = ((DropColumnOp) alterTableOp).getColumnPath();
+        } else if (alterTableOp instanceof RenameColumnOp) {
+            columnPath = ((RenameColumnOp) alterTableOp).getColumnPath();
+        } else if (alterTableOp instanceof ModifyColumnOp) {
+            columnPath = ((ModifyColumnOp) alterTableOp).getColumnPath();
+        } else if (alterTableOp instanceof ModifyColumnCommentOp) {
+            columnPath = ((ModifyColumnCommentOp) alterTableOp).getColumnPath();
+        }
+        return columnPath != null && columnPath.isNested() ? columnPath : null;
     }
 
     private void rewriteAlterOpForOlapTable(ConnectContext ctx, OlapTable table) throws UserException {
@@ -242,6 +276,7 @@ public class AlterTableCommand extends Command implements ForwardWithSync {
                     || alterTableOp instanceof DropColumnOp
                     || alterTableOp instanceof RenameColumnOp
                     || alterTableOp instanceof ModifyColumnOp
+                    || (alterTableOp instanceof ModifyColumnCommentOp && table instanceof IcebergExternalTable)
                     || alterTableOp instanceof ReorderColumnsOp
                     || alterTableOp instanceof ModifyEngineOp
                     || alterTableOp instanceof ModifyTablePropertiesOp

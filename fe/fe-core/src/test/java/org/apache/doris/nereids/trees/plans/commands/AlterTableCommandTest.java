@@ -17,7 +17,12 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.info.TableNameInfo;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionFieldOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterTableOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropPartitionFieldOp;
@@ -26,13 +31,17 @@ import org.apache.doris.nereids.trees.plans.commands.info.ReplacePartitionFieldO
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
 public class AlterTableCommandTest {
+    private final NereidsParser parser = new NereidsParser();
+
     @Test
     void testEnableFeatureOp() {
         List<AlterTableOp> ops = new ArrayList<>();
@@ -154,5 +163,34 @@ public class AlterTableCommandTest {
         Assertions.assertEquals(
                 "ALTER TABLE `internal`.`db`.`test` REPLACE PARTITION KEY bucket(16, id) WITH truncate(5, code) AS code_trunc",
                 alterTableCommand.toSql());
+    }
+
+    @Test
+    void testRejectNestedColumnPathForNonIcebergTable() {
+        TableIf table = Mockito.mock(TableIf.class);
+        for (String sql : Arrays.asList(
+                "ALTER TABLE t ADD COLUMN s.c STRING NULL",
+                "ALTER TABLE t MODIFY COLUMN s.a BIGINT",
+                "ALTER TABLE t MODIFY COLUMN s.a COMMENT 'nested comment'",
+                "ALTER TABLE t DROP COLUMN s.c",
+                "ALTER TABLE t RENAME COLUMN s.c TO c2")) {
+            AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                    () -> AlterTableCommand.checkNestedColumnPathSupported(table, parseAlter(sql).getOps()));
+            Assertions.assertTrue(exception.getMessage()
+                    .contains("Nested column path is only supported for Iceberg tables"));
+        }
+    }
+
+    @Test
+    void testAllowNestedColumnPathForIcebergTable() throws AnalysisException {
+        IcebergExternalTable table = Mockito.mock(IcebergExternalTable.class);
+        AlterTableCommand.checkNestedColumnPathSupported(table,
+                parseAlter("ALTER TABLE t ADD COLUMN s.c STRING NULL").getOps());
+    }
+
+    private AlterTableCommand parseAlter(String sql) {
+        Plan plan = parser.parseSingle(sql);
+        Assertions.assertInstanceOf(AlterTableCommand.class, plan);
+        return (AlterTableCommand) plan;
     }
 }

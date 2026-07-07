@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource;
 
+import org.apache.doris.analysis.ColumnPath;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
@@ -1523,6 +1524,12 @@ public abstract class ExternalCatalog
 
     @Override
     public void addColumn(TableIf dorisTable, Column column, ColumnPosition position) throws UserException {
+        addColumn(dorisTable, ColumnPath.of(column.getName()), column, position);
+    }
+
+    @Override
+    public void addColumn(TableIf dorisTable, ColumnPath columnPath, Column column, ColumnPosition position)
+            throws UserException {
         makeSureInitialized();
         Preconditions.checkState(dorisTable instanceof ExternalTable, dorisTable.getName());
         ExternalTable externalTable = (ExternalTable) dorisTable;
@@ -1531,11 +1538,11 @@ public abstract class ExternalCatalog
         }
         try {
             long updateTime = System.currentTimeMillis();
-            metadataOps.addColumn(externalTable, column, position, updateTime);
+            metadataOps.addColumn(externalTable, columnPath, column, position, updateTime);
             logRefreshExternalTable(externalTable, updateTime);
         } catch (Exception e) {
             LOG.warn("Failed to add column {} to table {}.{} in catalog {}",
-                    column.getName(), externalTable.getDbName(), externalTable.getName(), getName(), e);
+                    columnPath.getFullPath(), externalTable.getDbName(), externalTable.getName(), getName(), e);
             throw e;
         }
     }
@@ -1561,6 +1568,11 @@ public abstract class ExternalCatalog
 
     @Override
     public void dropColumn(TableIf dorisTable, String columnName) throws UserException {
+        dropColumn(dorisTable, ColumnPath.of(columnName));
+    }
+
+    @Override
+    public void dropColumn(TableIf dorisTable, ColumnPath columnPath) throws UserException {
         makeSureInitialized();
         Preconditions.checkState(dorisTable instanceof ExternalTable, dorisTable.getName());
         ExternalTable externalTable = (ExternalTable) dorisTable;
@@ -1569,17 +1581,22 @@ public abstract class ExternalCatalog
         }
         try {
             long updateTime = System.currentTimeMillis();
-            metadataOps.dropColumn(externalTable, columnName, updateTime);
+            metadataOps.dropColumn(externalTable, columnPath, updateTime);
             logRefreshExternalTable(externalTable, updateTime);
         } catch (Exception e) {
             LOG.warn("Failed to drop column {} from table {}.{} in catalog {}",
-                    columnName, externalTable.getDbName(), externalTable.getName(), getName(), e);
+                    columnPath.getFullPath(), externalTable.getDbName(), externalTable.getName(), getName(), e);
             throw e;
         }
     }
 
     @Override
     public void renameColumn(TableIf dorisTable, String oldName, String newName) throws UserException {
+        renameColumn(dorisTable, ColumnPath.of(oldName), newName);
+    }
+
+    @Override
+    public void renameColumn(TableIf dorisTable, ColumnPath columnPath, String newName) throws UserException {
         makeSureInitialized();
         Preconditions.checkState(dorisTable instanceof ExternalTable, dorisTable.getName());
         ExternalTable externalTable = (ExternalTable) dorisTable;
@@ -1588,17 +1605,23 @@ public abstract class ExternalCatalog
         }
         try {
             long updateTime = System.currentTimeMillis();
-            metadataOps.renameColumn(externalTable, oldName, newName, updateTime);
+            metadataOps.renameColumn(externalTable, columnPath, newName, updateTime);
             logRefreshExternalTable(externalTable, updateTime);
         } catch (Exception e) {
-            LOG.warn("Failed to rename column {} to {} in table {}.{} in catalog {}",
-                    oldName, newName, externalTable.getDbName(), externalTable.getName(), getName(), e);
+            LOG.warn("Failed to rename column {} to {} in table {}.{} in catalog {}", columnPath.getFullPath(),
+                    newName, externalTable.getDbName(), externalTable.getName(), getName(), e);
             throw e;
         }
     }
 
     @Override
     public void modifyColumn(TableIf dorisTable, Column column, ColumnPosition columnPosition) throws UserException {
+        modifyColumn(dorisTable, ColumnPath.of(column.getName()), column, columnPosition);
+    }
+
+    @Override
+    public void modifyColumn(TableIf dorisTable, ColumnPath columnPath, Column column, ColumnPosition columnPosition)
+            throws UserException {
         makeSureInitialized();
         Preconditions.checkState(dorisTable instanceof ExternalTable, dorisTable.getName());
         ExternalTable externalTable = (ExternalTable) dorisTable;
@@ -1607,11 +1630,30 @@ public abstract class ExternalCatalog
         }
         try {
             long updateTime = System.currentTimeMillis();
-            metadataOps.modifyColumn(externalTable, column, columnPosition, updateTime);
+            metadataOps.modifyColumn(externalTable, columnPath, column, columnPosition, updateTime);
             logRefreshExternalTable(externalTable, updateTime);
         } catch (Exception e) {
             LOG.warn("Failed to modify column {} in table {}.{} in catalog {}",
-                    column.getName(), externalTable.getDbName(), externalTable.getName(), getName(), e);
+                    columnPath.getFullPath(), externalTable.getDbName(), externalTable.getName(), getName(), e);
+            throw e;
+        }
+    }
+
+    @Override
+    public void modifyColumnComment(TableIf dorisTable, ColumnPath columnPath, String comment) throws UserException {
+        makeSureInitialized();
+        Preconditions.checkState(dorisTable instanceof ExternalTable, dorisTable.getName());
+        ExternalTable externalTable = (ExternalTable) dorisTable;
+        if (metadataOps == null) {
+            throw new DdlException("Modify column comment operation is not supported for catalog: " + getName());
+        }
+        try {
+            long updateTime = System.currentTimeMillis();
+            metadataOps.modifyColumnComment(externalTable, columnPath, comment, updateTime);
+            logRefreshExternalTable(externalTable, updateTime);
+        } catch (Exception e) {
+            LOG.warn("Failed to modify column comment {} in table {}.{} in catalog {}",
+                    columnPath.getFullPath(), externalTable.getDbName(), externalTable.getName(), getName(), e);
             throw e;
         }
     }

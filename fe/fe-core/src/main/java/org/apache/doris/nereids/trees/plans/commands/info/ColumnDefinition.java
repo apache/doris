@@ -207,8 +207,15 @@ public class ColumnDefinition {
      * toSql
      */
     public String toSql() {
+        return toSql("`" + name + "`");
+    }
+
+    /**
+     * Convert this column definition to SQL with a caller-provided column name.
+     */
+    public String toSql(String columnNameSql) {
         StringBuilder sb = new StringBuilder();
-        sb.append("`").append(name).append("` ");
+        sb.append(columnNameSql).append(" ");
         sb.append(type.toSql()).append(" ");
 
         if (aggType != null && aggType != AggregateType.NONE) {

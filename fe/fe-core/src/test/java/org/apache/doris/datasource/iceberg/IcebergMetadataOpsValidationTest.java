@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.iceberg;
 
+import org.apache.doris.analysis.ColumnPath;
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.MapType;
@@ -24,10 +25,12 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.catalog.info.ColumnPosition;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.datasource.ExternalCatalog;
 
+import org.apache.iceberg.Schema;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.SupportsNamespaces;
 import org.apache.iceberg.types.Types;
@@ -182,6 +185,87 @@ public class IcebergMetadataOpsValidationTest {
         invokeValidateForModifyComplexColumn(column, currentCol);
     }
 
+    @Test
+    public void testResolveNestedColumnPathSupportsStructArrayElementAndMapValue() throws Throwable {
+        Schema schema = nestedSchema();
+        Assert.assertTrue(ops.resolveNestedColumnPath(schema, ColumnPath.fromDotName("s"), "add").isStructType());
+        Assert.assertTrue(ops.resolveNestedColumnPath(schema, ColumnPath.fromDotName("arr.element"), "add")
+                .isStructType());
+        Assert.assertTrue(ops.resolveNestedColumnPath(schema, ColumnPath.fromDotName("m.value"), "add")
+                .isStructType());
+    }
+
+    @Test
+    public void testResolveNestedColumnPathUsesCaseInsensitiveCanonicalIcebergPath() throws Throwable {
+        Schema schema = mixedCaseNestedSchema();
+        Assert.assertEquals("Info.Metric",
+                ops.getCanonicalColumnPath(schema, ColumnPath.fromDotName("info.metric"), "modify"));
+        Assert.assertEquals("Events.element.Score",
+                ops.getCanonicalColumnPath(schema, ColumnPath.fromDotName("events.element.score"), "modify"));
+        Assert.assertEquals("Attrs.value.Code",
+                ops.getCanonicalColumnPath(schema, ColumnPath.fromDotName("attrs.value.code"), "modify"));
+        Assert.assertEquals("Info.Label",
+                ops.getPositionReferencePath(schema, ColumnPath.fromDotName("Info.NewField"),
+                        new ColumnPosition("label"), "add"));
+    }
+
+    @Test
+    public void testResolveNestedColumnPathRejectsMapKey() {
+        assertUserException(() -> ops.resolveNestedColumnPath(nestedSchema(), ColumnPath.fromDotName("m.key.x"),
+                        "modify"),
+                "Cannot modify MAP key nested column");
+    }
+
+    @Test
+    public void testResolveNestedColumnPathRejectsPrimitiveParent() {
+        assertUserException(() -> ops.resolveNestedColumnPath(nestedSchema(), ColumnPath.fromDotName("id.x"),
+                        "modify"),
+                "Cannot resolve nested field under primitive column path");
+    }
+
+    @Test
+    public void testGetPositionReferencePathForNestedColumn() {
+        Assert.assertEquals("s.a", ops.getPositionReferencePath(ColumnPath.fromDotName("s.new_col"),
+                new ColumnPosition("a")));
+        Assert.assertEquals("arr.element.x", ops.getPositionReferencePath(
+                ColumnPath.fromDotName("arr.element.new_col"), new ColumnPosition("x")));
+        Assert.assertEquals("m.value.v", ops.getPositionReferencePath(
+                ColumnPath.fromDotName("m.value.new_col"), new ColumnPosition("v")));
+        Assert.assertEquals("id", ops.getPositionReferencePath(ColumnPath.fromDotName("new_col"),
+                new ColumnPosition("id")));
+    }
+
+    @Test
+    public void testValidateNestedStructFieldSupportsStructArrayElementAndMapValueFields() throws Throwable {
+        Schema schema = nestedSchema();
+        Assert.assertTrue(ops.validateNestedStructField(schema, ColumnPath.fromDotName("s.a"), "drop")
+                .isPrimitiveType());
+        Assert.assertTrue(ops.validateNestedStructField(schema, ColumnPath.fromDotName("arr.element.x"), "drop")
+                .isPrimitiveType());
+        Assert.assertTrue(ops.validateNestedStructField(schema, ColumnPath.fromDotName("m.value.v"), "rename")
+                .isPrimitiveType());
+    }
+
+    @Test
+    public void testValidateNestedStructFieldRejectsArrayElementAndMapValuePseudoFields() {
+        assertUserException(() -> ops.validateNestedStructField(nestedSchema(), ColumnPath.fromDotName("arr.element"),
+                        "drop"),
+                "Parent column path 'arr' is not a struct");
+        assertUserException(() -> ops.validateNestedStructField(nestedSchema(), ColumnPath.fromDotName("m.value"),
+                        "rename"),
+                "Parent column path 'm' is not a struct");
+    }
+
+    @Test
+    public void testValidateNestedStructFieldRejectsMapKeyAndMissingField() {
+        assertUserException(() -> ops.validateNestedStructField(nestedSchema(), ColumnPath.fromDotName("m.key.k"),
+                        "drop"),
+                "Cannot drop MAP key nested column");
+        assertUserException(() -> ops.validateNestedStructField(nestedSchema(), ColumnPath.fromDotName("s.missing"),
+                        "rename"),
+                "Column path does not exist in Iceberg schema");
+    }
+
     private void invokeValidateForModifyColumn(Column column, NestedField currentCol) throws Throwable {
         invokeValidationMethod(validateForModifyColumnMethod, column, currentCol);
     }
@@ -211,5 +295,30 @@ public class IcebergMetadataOpsValidationTest {
     @FunctionalInterface
     private interface ThrowingRunnable {
         void run() throws Throwable;
+    }
+
+    private Schema nestedSchema() {
+        return new Schema(
+                Types.NestedField.optional(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "s", Types.StructType.of(
+                        Types.NestedField.optional(3, "a", Types.IntegerType.get()))),
+                Types.NestedField.optional(4, "arr", Types.ListType.ofOptional(5,
+                        Types.StructType.of(Types.NestedField.optional(6, "x", Types.IntegerType.get())))),
+                Types.NestedField.optional(7, "m", Types.MapType.ofOptional(8, 9,
+                        Types.StringType.get(),
+                        Types.StructType.of(Types.NestedField.optional(10, "v", Types.IntegerType.get())))));
+    }
+
+    private Schema mixedCaseNestedSchema() {
+        return new Schema(
+                Types.NestedField.optional(1, "Id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "Info", Types.StructType.of(
+                        Types.NestedField.optional(3, "Metric", Types.IntegerType.get()),
+                        Types.NestedField.optional(4, "Label", Types.StringType.get()))),
+                Types.NestedField.optional(5, "Events", Types.ListType.ofOptional(6,
+                        Types.StructType.of(Types.NestedField.optional(7, "Score", Types.IntegerType.get())))),
+                Types.NestedField.optional(8, "Attrs", Types.MapType.ofOptional(9, 10,
+                        Types.StringType.get(),
+                        Types.StructType.of(Types.NestedField.optional(11, "Code", Types.IntegerType.get())))));
     }
 }
