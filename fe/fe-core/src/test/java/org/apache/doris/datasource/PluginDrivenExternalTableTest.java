@@ -169,16 +169,33 @@ public class PluginDrivenExternalTableTest {
 
     /**
      * Builds a CALLS_REAL_METHODS PluginDrivenExternalTable whose connector declares exactly
-     * {@code capabilities}, to exercise the capability-helper methods over the real connector chain.
+     * {@code capabilities} connector-wide and whose cached schema emits no per-table capability marker, to
+     * exercise the capability-helper methods over the real connector chain.
      */
     private static PluginDrivenExternalTable pluginTableWithCapabilities(Set<ConnectorCapability> capabilities) {
+        return pluginTableWithCapabilities(capabilities, Collections.emptyMap());
+    }
+
+    /**
+     * Builds a CALLS_REAL_METHODS PluginDrivenExternalTable whose connector declares {@code capabilities}
+     * connector-wide AND whose cached schema emits {@code perTableProps} as its raw table-property map (carrying
+     * the {@code connector.per-table-capabilities} marker for heterogeneous connectors like hive). Exercises the
+     * additive connector-wide-OR-per-table resolution in {@code hasScanCapability}. makeSureInitialized is
+     * stubbed to a no-op (no Env-backed init in a unit test).
+     */
+    private static PluginDrivenExternalTable pluginTableWithCapabilities(
+            Set<ConnectorCapability> capabilities, Map<String, String> perTableProps) {
         Connector connector = Mockito.mock(Connector.class);
         Mockito.when(connector.getCapabilities()).thenReturn(capabilities);
         PluginDrivenExternalCatalog catalog = Mockito.mock(PluginDrivenExternalCatalog.class);
         Mockito.when(catalog.getConnector()).thenReturn(connector);
+        PluginDrivenSchemaCacheValue scv = Mockito.mock(PluginDrivenSchemaCacheValue.class);
+        Mockito.when(scv.getTableProperties()).thenReturn(perTableProps);
         PluginDrivenExternalTable table =
                 Mockito.mock(PluginDrivenExternalTable.class, Mockito.CALLS_REAL_METHODS);
         Deencapsulation.setField(table, "catalog", catalog);
+        Mockito.doNothing().when(table).makeSureInitialized();
+        Mockito.doReturn(Optional.of(scv)).when(table).getSchemaCacheValue();
         return table;
     }
 
@@ -218,6 +235,36 @@ public class PluginDrivenExternalTableTest {
                 EnumSet.of(ConnectorCapability.SUPPORTS_TOPN_LAZY_MATERIALIZE)).supportsNestedColumnPrune());
         Assertions.assertFalse(pluginTableWithCapabilities(
                 EnumSet.noneOf(ConnectorCapability.class)).supportsNestedColumnPrune());
+    }
+
+    @Test
+    public void scanCapabilityHonorsPerTableMarkerWhenConnectorWideAbsent() {
+        // WHY: a heterogeneous connector (hive) cannot declare Top-N lazy / nested-column-prune connector-wide
+        // because eligibility is per-table file-format gated (orc/parquet only) — blanket-declaring would
+        // over-admit a text/json table (a correctness bug for nested prune). It emits the capability name only
+        // for eligible tables via the connector.per-table-capabilities schema marker; the helper must honor that
+        // additively even when the connector-wide set is EMPTY. MUTATION: dropping the per-table marker read ->
+        // a flipped orc/parquet hive table silently loses the optimization -> red here.
+        Map<String, String> topnMarker = Collections.singletonMap(
+                ConnectorTableSchema.PER_TABLE_CAPABILITIES_KEY,
+                ConnectorCapability.SUPPORTS_TOPN_LAZY_MATERIALIZE.name());
+        Assertions.assertTrue(pluginTableWithCapabilities(
+                EnumSet.noneOf(ConnectorCapability.class), topnMarker).supportsTopNLazyMaterialize());
+        // The marker is capability-specific: a Top-N marker must NOT enable nested-column pruning.
+        Assertions.assertFalse(pluginTableWithCapabilities(
+                EnumSet.noneOf(ConnectorCapability.class), topnMarker).supportsNestedColumnPrune());
+        // A multi-value marker enables exactly the listed capabilities.
+        Map<String, String> bothMarker = Collections.singletonMap(
+                ConnectorTableSchema.PER_TABLE_CAPABILITIES_KEY,
+                ConnectorCapability.SUPPORTS_TOPN_LAZY_MATERIALIZE.name() + ","
+                        + ConnectorCapability.SUPPORTS_NESTED_COLUMN_PRUNE.name());
+        Assertions.assertTrue(pluginTableWithCapabilities(
+                EnumSet.noneOf(ConnectorCapability.class), bothMarker).supportsTopNLazyMaterialize());
+        Assertions.assertTrue(pluginTableWithCapabilities(
+                EnumSet.noneOf(ConnectorCapability.class), bothMarker).supportsNestedColumnPrune());
+        // An empty / absent marker leaves both off (the plain-hive text-table case).
+        Assertions.assertFalse(pluginTableWithCapabilities(
+                EnumSet.noneOf(ConnectorCapability.class), Collections.emptyMap()).supportsTopNLazyMaterialize());
     }
 
     @Test

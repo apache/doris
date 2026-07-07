@@ -53,6 +53,10 @@ public class HiveConnectorMetadataSchemaTest {
 
     private static final String PARQUET_INPUT_FORMAT =
             "org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat";
+    private static final String ORC_INPUT_FORMAT =
+            "org.apache.hadoop.hive.ql.io.orc.OrcInputFormat";
+    private static final String TEXT_INPUT_FORMAT =
+            "org.apache.hadoop.mapred.TextInputFormat";
 
     private ConnectorTableSchema schemaOf(HmsTableInfo tableInfo) {
         HiveConnectorMetadata metadata = new HiveConnectorMetadata(
@@ -73,6 +77,19 @@ public class HiveConnectorMetadataSchemaTest {
                 .columns(Arrays.asList(col("id", "INT"), col("name", "STRING")))
                 .partitionKeys(Arrays.asList(col("year", "INT"), col("region", "STRING")))
                 .parameters(Collections.emptyMap());
+    }
+
+    private static HmsTableInfo.Builder unpartitionedTable(String inputFormat) {
+        return HmsTableInfo.builder()
+                .dbName("db").tableName("t")
+                .inputFormat(inputFormat)
+                .columns(Arrays.asList(col("id", "INT"), col("name", "STRING")))
+                .partitionKeys(Collections.emptyList())
+                .parameters(Collections.emptyMap());
+    }
+
+    private static String perTableCapabilities(ConnectorTableSchema schema) {
+        return schema.getProperties().get(ConnectorTableSchema.PER_TABLE_CAPABILITIES_KEY);
     }
 
     @Test
@@ -122,6 +139,43 @@ public class HiveConnectorMetadataSchemaTest {
                 .build();
         ConnectorTableSchema schema = schemaOf(tableInfo);
         Assertions.assertFalse(schema.getProperties().containsKey("partition_columns"));
+    }
+
+    @Test
+    public void testTopNLazyCapabilityMarkerEmittedForParquetAndOrc() {
+        // WHY: Top-N lazy materialize is orc/parquet-only in legacy hive (HMSExternalTable.supportedHiveTopNLazyTable).
+        // The connector-wide SUPPORTS_TOPN_LAZY_MATERIALIZE cannot express that for a heterogeneous hive catalog, so
+        // the connector emits it per-table; fe-core (PluginDrivenExternalTable.supportsTopNLazyMaterialize) enables the
+        // optimization only for tables carrying this marker. MUTATION: not emitting it -> orc/parquet hive tables lose
+        // Top-N lazy materialization.
+        Assertions.assertEquals("SUPPORTS_TOPN_LAZY_MATERIALIZE",
+                perTableCapabilities(schemaOf(unpartitionedTable(PARQUET_INPUT_FORMAT).build())));
+        Assertions.assertEquals("SUPPORTS_TOPN_LAZY_MATERIALIZE",
+                perTableCapabilities(schemaOf(unpartitionedTable(ORC_INPUT_FORMAT).build())));
+    }
+
+    @Test
+    public void testTopNLazyCapabilityMarkerAbsentForText() {
+        // A text hive table is not Top-N-lazy eligible in legacy; emitting the marker would over-enable it.
+        Assertions.assertNull(perTableCapabilities(schemaOf(unpartitionedTable(TEXT_INPUT_FORMAT).build())));
+    }
+
+    @Test
+    public void testTopNLazyCapabilityMarkerAbsentForView() {
+        // A view is excluded even when its SD carries a parquet input format, mirroring legacy
+        // supportedHiveTopNLazyTable which returns false for a view BEFORE the format check.
+        ConnectorTableSchema schema = schemaOf(
+                unpartitionedTable(PARQUET_INPUT_FORMAT).tableType("VIRTUAL_VIEW").build());
+        Assertions.assertNull(perTableCapabilities(schema));
+    }
+
+    @Test
+    public void testTopNLazyCapabilityMarkerAbsentForIcebergOnHms() {
+        // An iceberg-on-HMS table (table_type=ICEBERG) is served by the iceberg connector after the cutover; the
+        // hive connector must NOT claim Top-N for it even though its data files are parquet (detect() != HIVE).
+        ConnectorTableSchema schema = schemaOf(unpartitionedTable(PARQUET_INPUT_FORMAT)
+                .parameters(Collections.singletonMap("table_type", "ICEBERG")).build());
+        Assertions.assertNull(perTableCapabilities(schema));
     }
 
     @Test

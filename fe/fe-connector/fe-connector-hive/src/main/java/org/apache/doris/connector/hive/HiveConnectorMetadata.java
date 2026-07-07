@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector.hive;
 
+import org.apache.doris.connector.api.ConnectorCapability;
 import org.apache.doris.connector.api.ConnectorColumn;
 import org.apache.doris.connector.api.ConnectorMetadata;
 import org.apache.doris.connector.api.ConnectorSession;
@@ -91,6 +92,19 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
     // a hive `string` partition column is widened to varchar(65533) for legacy parity. Paimon hardcodes the
     // identical 65533.
     private static final int MAX_VARCHAR_LENGTH = 65533;
+
+    // Hive input formats eligible for Top-N lazy materialization, replicating legacy
+    // HMSExternalTable.SUPPORTED_HIVE_TOPN_LAZY_FILE_FORMATS (parquet/orc only). The match is on the EXACT
+    // input-format class (not a substring), so a HoodieParquetInputFormatBase hive table — which contains
+    // "parquet" but is not a Top-N-lazy format in legacy — is correctly excluded.
+    private static final String MAPRED_PARQUET_INPUT_FORMAT =
+            "org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat";
+    private static final String ORC_INPUT_FORMAT =
+            "org.apache.hadoop.hive.ql.io.orc.OrcInputFormat";
+
+    // HMS table type for a view, mirroring legacy HMSExternalTable.isView (which keyed off the view text flags);
+    // a Hive view carries tableType VIRTUAL_VIEW.
+    private static final String VIRTUAL_VIEW_TABLE_TYPE = "VIRTUAL_VIEW";
 
     private final HmsClient hmsClient;
     private final Map<String, String> properties;
@@ -191,6 +205,20 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
         if (!partitionKeys.isEmpty()) {
             tableProperties.put(PARTITION_COLUMNS_PROPERTY, partitionKeys.stream()
                     .map(ConnectorColumn::getName).collect(Collectors.joining(",")));
+        }
+
+        // Per-table scan capabilities that the generic fe-core consumer refines the connector-wide capability
+        // set with. Top-N lazy materialization is orc/parquet-only in hive (legacy
+        // HMSExternalTable.supportedHiveTopNLazyTable), which the connector-wide SUPPORTS_TOPN_LAZY_MATERIALIZE
+        // cannot express for a heterogeneous hive catalog; emit it per-table so fe-core enables the optimization
+        // only for eligible tables and never for text/csv/json/view/hudi.
+        List<String> perTableCapabilities = new ArrayList<>();
+        if (supportsHiveTopNLazyMaterialize(tableInfo)) {
+            perTableCapabilities.add(ConnectorCapability.SUPPORTS_TOPN_LAZY_MATERIALIZE.name());
+        }
+        if (!perTableCapabilities.isEmpty()) {
+            tableProperties.put(ConnectorTableSchema.PER_TABLE_CAPABILITIES_KEY,
+                    String.join(",", perTableCapabilities));
         }
 
         return new ConnectorTableSchema(tableName, allColumns, formatType, tableProperties);
@@ -659,6 +687,29 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
             return "HIVE_TEXT";
         }
         return "HIVE";
+    }
+
+    /**
+     * Whether {@code tableInfo} is a plain-hive orc/parquet base table eligible for Top-N lazy materialization,
+     * replicating legacy {@code HMSExternalTable.supportedHiveTopNLazyTable} plus the {@code getDlaType()==HIVE}
+     * guard the legacy consumer ({@code MaterializeProbeVisitor}) applied: a view is excluded, an
+     * iceberg/hudi-on-HMS table is excluded (those are served by their own connector, which declares the
+     * capability connector-wide after the cutover), and only the parquet/orc input formats qualify.
+     */
+    private boolean supportsHiveTopNLazyMaterialize(HmsTableInfo tableInfo) {
+        if (isView(tableInfo)) {
+            return false;
+        }
+        if (HiveTableFormatDetector.detect(tableInfo) != HiveTableType.HIVE) {
+            return false;
+        }
+        String inputFormat = tableInfo.getInputFormat();
+        return MAPRED_PARQUET_INPUT_FORMAT.equals(inputFormat) || ORC_INPUT_FORMAT.equals(inputFormat);
+    }
+
+    /** Whether the HMS table is a view (tableType VIRTUAL_VIEW), mirroring legacy {@code HMSExternalTable.isView}. */
+    private static boolean isView(HmsTableInfo tableInfo) {
+        return VIRTUAL_VIEW_TABLE_TYPE.equalsIgnoreCase(tableInfo.getTableType());
     }
 
     private static HmsTypeMapping.Options buildTypeMappingOptions(Map<String, String> props) {

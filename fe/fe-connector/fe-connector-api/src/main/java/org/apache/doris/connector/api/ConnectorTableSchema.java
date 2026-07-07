@@ -51,6 +51,24 @@ public final class ConnectorTableSchema {
      */
     public static final String SHOW_SORT_CLAUSE_KEY = "show.sort-clause";
 
+    /**
+     * Reserved property key carrying a CSV of {@link ConnectorCapability#name()} values that THIS specific
+     * table supports, refining the connector-wide {@link Connector#getCapabilities()} set per-table.
+     *
+     * <p>A uniform-format connector (e.g. iceberg — every table orc/parquet) declares a scan capability for all
+     * its tables connector-wide. A heterogeneous connector (e.g. hive — orc/parquet/text/json/csv/view/hudi in
+     * one catalog) whose eligibility is per-table file-format gated cannot: Top-N lazy materialization and
+     * nested-column pruning are orc/parquet-only, and blanket-declaring them connector-wide would over-admit a
+     * text/json table (a correctness bug for nested-column pruning, which reads NULL leaves without field ids).
+     * Such a connector instead emits the capability name here, per-table, computed from that table's format.</p>
+     *
+     * <p>fe-core reads it ADDITIVELY (a capability counts as supported if it is in the connector-wide set OR in
+     * this per-table list) from the already-cached schema — no remote round-trip and no file-format inspection
+     * in fe-core. Single-format connectors never emit it and are unaffected. Stripped from the user-facing
+     * SHOW CREATE TABLE PROPERTIES(...) block.</p>
+     */
+    public static final String PER_TABLE_CAPABILITIES_KEY = "connector.per-table-capabilities";
+
     private final String tableName;
     private final List<ConnectorColumn> columns;
     private final String tableFormatType;

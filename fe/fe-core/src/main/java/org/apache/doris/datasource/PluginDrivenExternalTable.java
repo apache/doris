@@ -127,33 +127,61 @@ public class PluginDrivenExternalTable extends ExternalTable {
     }
 
     /**
-     * Returns whether the underlying connector's file-scan tables support Top-N lazy materialization.
-     * The nereids Top-N lazy-materialize probe consults this (in place of the legacy exact-class
-     * {@code SUPPORT_RELATION_TYPES} membership) to enable lazy materialization for a flipped plugin table.
+     * Returns whether THIS table supports Top-N lazy materialization. The nereids Top-N lazy-materialize probe
+     * consults this (in place of the legacy exact-class {@code SUPPORT_RELATION_TYPES} membership) to enable
+     * lazy materialization for a flipped plugin table. Resolved per-table via {@link #hasScanCapability}: a
+     * uniform-format connector (iceberg) declares it connector-wide, a heterogeneous connector (hive) emits it
+     * only for its orc/parquet tables — so a hive text/csv/json/view table is correctly excluded, as it was in
+     * legacy {@code MaterializeProbeVisitor}.
      */
     public boolean supportsTopNLazyMaterialize() {
-        if (!(catalog instanceof PluginDrivenExternalCatalog)) {
-            return false;
-        }
-        Connector connector = ((PluginDrivenExternalCatalog) catalog).getConnector();
-        return connector != null
-                && connector.getCapabilities().contains(ConnectorCapability.SUPPORTS_TOPN_LAZY_MATERIALIZE);
+        return hasScanCapability(ConnectorCapability.SUPPORTS_TOPN_LAZY_MATERIALIZE);
     }
 
     /**
-     * Returns whether the underlying connector's file-scan tables support nested-column pruning (reading only
-     * the accessed STRUCT/ARRAY/MAP sub-fields). The nereids nested-column-prune probe
-     * ({@code LogicalFileScan.supportPruneNestedColumn}) consults this (in place of the legacy exact-class
-     * {@code IcebergExternalTable} arm) to enable pruning for a flipped plugin table, and the
-     * {@code SlotTypeReplacer} name-to-field-id rewrite is gated on the same capability.
+     * Returns whether THIS table supports nested-column pruning (reading only the accessed STRUCT/ARRAY/MAP
+     * sub-fields). The nereids nested-column-prune probe ({@code LogicalFileScan.supportPruneNestedColumn})
+     * consults this (in place of the legacy exact-class {@code IcebergExternalTable} arm) to enable pruning for a
+     * flipped plugin table, and the {@code SlotTypeReplacer} name-to-field-id rewrite is gated on the same
+     * answer. Resolved per-table via {@link #hasScanCapability} for the same reason as Top-N: legacy gated it on
+     * the per-table file format (parquet/orc only), which a connector-wide capability cannot express for a
+     * heterogeneous hive catalog.
      */
     public boolean supportsNestedColumnPrune() {
+        return hasScanCapability(ConnectorCapability.SUPPORTS_NESTED_COLUMN_PRUNE);
+    }
+
+    /**
+     * Whether this table supports a per-table-refinable scan-planning capability, resolved connector-wide OR
+     * per-table. A uniform-format connector (iceberg — every table orc/parquet) declares the capability for all
+     * its tables via {@link Connector#getCapabilities()}; a heterogeneous connector (hive) whose eligibility is
+     * per-table file-format gated instead emits the capability name per-table in the
+     * {@link ConnectorTableSchema#PER_TABLE_CAPABILITIES_KEY} schema marker, read here from the already-cached
+     * schema (no remote round-trip). The two sources are additive, so single-format connectors never emit the
+     * marker and behave exactly as before. fe-core never inspects the file format — the connector decides which
+     * of its tables qualify by emitting (or not) the capability name.
+     */
+    private boolean hasScanCapability(ConnectorCapability capability) {
         if (!(catalog instanceof PluginDrivenExternalCatalog)) {
             return false;
         }
         Connector connector = ((PluginDrivenExternalCatalog) catalog).getConnector();
-        return connector != null
-                && connector.getCapabilities().contains(ConnectorCapability.SUPPORTS_NESTED_COLUMN_PRUNE);
+        if (connector == null) {
+            return false;
+        }
+        if (connector.getCapabilities().contains(capability)) {
+            return true;
+        }
+        String csv = rawTableProperties().get(ConnectorTableSchema.PER_TABLE_CAPABILITIES_KEY);
+        if (csv == null || csv.isEmpty()) {
+            return false;
+        }
+        for (String name : csv.split(",")) {
+            if (name.trim().equals(capability.name())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -517,8 +545,10 @@ public class PluginDrivenExternalTable extends ExternalTable {
      * FE-internal schema-control keys ({@code partition_columns} / {@code primary_keys}, emitted by
      * the connector so {@link #initSchema()} can derive the partition columns) and the SHOW CREATE
      * render-hint keys ({@code show.location} / {@code show.partition-clause} / {@code show.sort-clause},
-     * rendered as the LOCATION / PARTITION BY / ORDER BY clauses via {@link #getShowLocation()} etc.) are
-     * stripped — they are not user-facing options and must not leak into the rendered PROPERTIES(...).
+     * rendered as the LOCATION / PARTITION BY / ORDER BY clauses via {@link #getShowLocation()} etc.) and the
+     * per-table capability marker ({@code connector.per-table-capabilities}, consumed by {@link
+     * #supportsTopNLazyMaterialize()} / {@link #supportsNestedColumnPrune()}) are stripped — they are not
+     * user-facing options and must not leak into the rendered PROPERTIES(...).
      */
     public Map<String, String> getTableProperties() {
         Map<String, String> raw = rawTableProperties();
@@ -528,7 +558,8 @@ public class PluginDrivenExternalTable extends ExternalTable {
             if ("partition_columns".equals(key) || "primary_keys".equals(key)
                     || ConnectorTableSchema.SHOW_LOCATION_KEY.equals(key)
                     || ConnectorTableSchema.SHOW_PARTITION_CLAUSE_KEY.equals(key)
-                    || ConnectorTableSchema.SHOW_SORT_CLAUSE_KEY.equals(key)) {
+                    || ConnectorTableSchema.SHOW_SORT_CLAUSE_KEY.equals(key)
+                    || ConnectorTableSchema.PER_TABLE_CAPABILITIES_KEY.equals(key)) {
                 continue;
             }
             result.put(entry.getKey(), entry.getValue());
