@@ -80,6 +80,16 @@ under the License.
             <version>${project.version}</version>
         </dependency>
 
+        <!-- Supplies the plugin-side HMS Kerberos parser (HmsMetaStoreProperties.kerberos() via
+             MetaStoreProviders.bindForType("hms")) + transitively fe-kerberos, for
+             HiveConnector.buildPluginAuthenticator; bundled child-first by plugin-zip.xml's runtime
+             dependencySet. -->
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-connector-metastore-hms</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
         <dependency>
             <groupId>org.apache.logging.log4j</groupId>
             <artifactId>log4j-api</artifactId>
