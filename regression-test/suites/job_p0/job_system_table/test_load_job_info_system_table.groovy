@@ -62,13 +62,13 @@ suite("test_load_job_info_system_table", "p0") {
         USER,
         COMMENT,
         FIRST_ERROR_MSG
-    FROM 
-        information_schema.load_jobs
-    WHERE 
+    FROM
+        information_schema.loads
+    WHERE
         LABEL = '${label}'
     """
 
     log.info("Result size: ${res.size()}")
-    assertTrue(res.size() > 0, "Job should appear in load_jobs system table after ${label} insert")
+    assertTrue(res.size() > 0, "Job should appear in loads system table after ${label} insert")
 }
 

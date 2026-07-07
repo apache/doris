@@ -5520,19 +5520,19 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 } catch (Exception e) {
                     LOG.warn("Failed to get load jobs for database: {}", dbName, e);
                 }
+            }
 
-                // Append Stream Load records from the FE StreamLoadRecordMgr cache.
-                // These are historical, completed Stream Load records populated by BE polling.
-                // Rows are only visible after FE has pulled them, gated by the same
-                // enable_stream_load_record / fetch_stream_load_record_interval_second config as
-                // SHOW STREAM LOAD.
-                try {
-                    jobInfos.addAll(Env.getCurrentEnv().getStreamLoadRecordMgr()
-                            .getStreamLoadJobsForLoadJobs(dbId, db.getFullName()));
-                } catch (Exception e) {
-                    LOG.warn("Failed to get stream load records for information_schema.load_jobs,"
-                            + " database: {}", dbName, e);
-                }
+            // Append Stream Load records for information_schema.loads by reading BE RocksDB
+            // stream-load-record stores on demand. This deliberately does NOT use the FE periodic
+            // cache (fetch_stream_load_record_interval_second) that SHOW STREAM LOAD relies on, so
+            // a SELECT sees freshly completed Stream Load records without waiting for a pull cycle.
+            // Records already carry their own db/table, so this is done once across all databases
+            // rather than per-database.
+            try {
+                jobInfos.addAll(Env.getCurrentEnv().getStreamLoadRecordMgr()
+                        .getStreamLoadJobsFromBackends());
+            } catch (Exception e) {
+                LOG.warn("Failed to read stream load records for information_schema.loads", e);
             }
             if (LOG.isDebugEnabled()) {
                 LOG.debug("load job infos: {}", jobInfos);

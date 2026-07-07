@@ -708,8 +708,11 @@ public class SchemaTable extends Table {
                                     .column("COMPUTE_GROUP", ScalarType.createStringType())
                                     .build())
             )
-            .put("load_jobs",
-                    new SchemaTable(SystemIdGenerator.getNextId(), "load_jobs", TableType.SCHEMA,
+            // Unified import task view. Covers Broker Load, Insert Into Select, Stream Load, etc.
+            // The user-visible name is "loads"; the internal thrift schema table type is still
+            // SCH_LOAD_JOBS for historical reasons and is intentionally left unchanged.
+            .put("loads",
+                    new SchemaTable(SystemIdGenerator.getNextId(), "loads", TableType.SCHEMA,
                             builder().column("JOB_ID", ScalarType.createStringType())
                                     .column("LABEL", ScalarType.createStringType())
                                     .column("STATE", ScalarType.createStringType())
