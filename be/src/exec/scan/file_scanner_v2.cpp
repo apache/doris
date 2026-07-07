@@ -30,6 +30,7 @@
 #include "common/cast_set.h"
 #include "common/config.h"
 #include "common/consts.h"
+#include "common/metrics/doris_metrics.h"
 #include "common/status.h"
 #include "core/assert_cast.h"
 #include "core/block/column_with_type_and_name.h"
@@ -229,6 +230,18 @@ Status FileScannerV2::TEST_rewrite_slot_refs_to_global_index(
         VExprSPtr* expr,
         const std::unordered_map<int32_t, format::GlobalIndex>& slot_id_to_global_index) {
     return rewrite_slot_refs_to_global_index(expr, slot_id_to_global_index);
+}
+
+FileScannerV2::RealtimeCounterDeltas FileScannerV2::TEST_collect_realtime_counter_deltas(
+        const io::FileReaderStats& file_reader_stats,
+        const io::FileCacheStatistics& file_cache_statistics,
+        UncachedReaderBytesStorage uncached_reader_bytes_storage, int64_t* last_read_bytes,
+        int64_t* last_read_rows, int64_t* last_bytes_read_from_local,
+        int64_t* last_bytes_read_from_remote) {
+    return _collect_realtime_counter_deltas(file_reader_stats, file_cache_statistics,
+                                            uncached_reader_bytes_storage, last_read_bytes,
+                                            last_read_rows, last_bytes_read_from_local,
+                                            last_bytes_read_from_remote);
 }
 #endif
 
@@ -748,10 +761,110 @@ void FileScannerV2::update_realtime_counters() {
     if (_file_reader_stats == nullptr) {
         return;
     }
-    const int64_t bytes_read = _file_reader_stats->read_bytes;
+    DORIS_CHECK(_file_cache_statistics != nullptr);
+    const int64_t bytes_read = cast_set<int64_t>(_file_reader_stats->read_bytes);
+    auto* local_state = static_cast<FileScanLocalState*>(_local_state);
+    const auto file_type =
+            _current_range.__isset.file_type
+                    ? _current_range.file_type
+                    : (_params != nullptr && _params->__isset.file_type ? _params->file_type
+                                                                        : TFileType::FILE_LOCAL);
+    const auto deltas = _collect_realtime_counter_deltas(
+            *_file_reader_stats, *_file_cache_statistics, _uncached_reader_bytes_storage(file_type),
+            &_last_read_bytes, &_last_read_rows, &_last_bytes_read_from_local,
+            &_last_bytes_read_from_remote);
+
+    COUNTER_UPDATE(local_state->_scan_bytes, deltas.scan_bytes);
+    COUNTER_UPDATE(local_state->_scan_rows, deltas.scan_rows);
+
+    _state->get_query_ctx()->resource_ctx()->io_context()->update_scan_rows(deltas.scan_rows);
+    _state->get_query_ctx()->resource_ctx()->io_context()->update_scan_bytes(deltas.scan_bytes);
+    _state->get_query_ctx()->resource_ctx()->io_context()->update_scan_bytes_from_local_storage(
+            deltas.scan_bytes_from_local_storage);
+    _state->get_query_ctx()->resource_ctx()->io_context()->update_scan_bytes_from_remote_storage(
+            deltas.scan_bytes_from_remote_storage);
+
     COUNTER_SET(_file_read_bytes_counter, bytes_read);
     COUNTER_SET(_file_read_calls_counter, cast_set<int64_t>(_file_reader_stats->read_calls));
     COUNTER_SET(_file_read_time_counter, cast_set<int64_t>(_file_reader_stats->read_time_ns));
+
+    DorisMetrics::instance()->query_scan_bytes->increment(deltas.scan_bytes);
+    DorisMetrics::instance()->query_scan_rows->increment(deltas.scan_rows);
+    DorisMetrics::instance()->query_scan_bytes_from_local->increment(
+            deltas.scan_bytes_from_local_storage);
+    DorisMetrics::instance()->query_scan_bytes_from_remote->increment(
+            deltas.scan_bytes_from_remote_storage);
+}
+
+FileScannerV2::RealtimeCounterDeltas FileScannerV2::_collect_realtime_counter_deltas(
+        const io::FileReaderStats& file_reader_stats,
+        const io::FileCacheStatistics& file_cache_statistics,
+        UncachedReaderBytesStorage uncached_reader_bytes_storage, int64_t* last_read_bytes,
+        int64_t* last_read_rows, int64_t* last_bytes_read_from_local,
+        int64_t* last_bytes_read_from_remote) {
+    DORIS_CHECK(last_read_bytes != nullptr);
+    DORIS_CHECK(last_read_rows != nullptr);
+    DORIS_CHECK(last_bytes_read_from_local != nullptr);
+    DORIS_CHECK(last_bytes_read_from_remote != nullptr);
+
+    const int64_t read_bytes = cast_set<int64_t>(file_reader_stats.read_bytes);
+    const int64_t read_rows = cast_set<int64_t>(file_reader_stats.read_rows);
+    const int64_t bytes_read_from_local = file_cache_statistics.bytes_read_from_local;
+    const int64_t bytes_read_from_remote = file_cache_statistics.bytes_read_from_remote;
+    DORIS_CHECK(read_bytes >= *last_read_bytes);
+    DORIS_CHECK(read_rows >= *last_read_rows);
+    DORIS_CHECK(bytes_read_from_local >= *last_bytes_read_from_local);
+    DORIS_CHECK(bytes_read_from_remote >= *last_bytes_read_from_remote);
+
+    RealtimeCounterDeltas deltas;
+    deltas.scan_rows = read_rows - *last_read_rows;
+    deltas.scan_bytes = read_bytes - *last_read_bytes;
+    // Peer cache is a known cache source, but it is not remote object storage.
+    const bool has_cache_source_stats = file_cache_statistics.num_local_io_total != 0 ||
+                                        file_cache_statistics.num_remote_io_total != 0 ||
+                                        file_cache_statistics.num_peer_io_total != 0 ||
+                                        bytes_read_from_local != 0 || bytes_read_from_remote != 0 ||
+                                        file_cache_statistics.bytes_read_from_peer != 0;
+    if (!has_cache_source_stats) {
+        switch (uncached_reader_bytes_storage) {
+        case UncachedReaderBytesStorage::LOCAL:
+            deltas.scan_bytes_from_local_storage = deltas.scan_bytes;
+            break;
+        case UncachedReaderBytesStorage::REMOTE:
+            deltas.scan_bytes_from_remote_storage = deltas.scan_bytes;
+            break;
+        case UncachedReaderBytesStorage::NONE:
+            break;
+        }
+    } else {
+        deltas.scan_bytes_from_local_storage = bytes_read_from_local - *last_bytes_read_from_local;
+        deltas.scan_bytes_from_remote_storage =
+                bytes_read_from_remote - *last_bytes_read_from_remote;
+    }
+
+    *last_read_bytes = read_bytes;
+    *last_read_rows = read_rows;
+    *last_bytes_read_from_local = bytes_read_from_local;
+    *last_bytes_read_from_remote = bytes_read_from_remote;
+    return deltas;
+}
+
+FileScannerV2::UncachedReaderBytesStorage FileScannerV2::_uncached_reader_bytes_storage(
+        TFileType::type file_type) {
+    switch (file_type) {
+    case TFileType::FILE_LOCAL:
+        return UncachedReaderBytesStorage::LOCAL;
+    case TFileType::FILE_STREAM:
+        return UncachedReaderBytesStorage::NONE;
+    case TFileType::FILE_BROKER:
+    case TFileType::FILE_S3:
+    case TFileType::FILE_HDFS:
+    case TFileType::FILE_NET:
+    case TFileType::FILE_HTTP:
+        return UncachedReaderBytesStorage::REMOTE;
+    }
+    DORIS_CHECK(false) << "unknown file type: " << file_type;
+    return UncachedReaderBytesStorage::NONE;
 }
 
 void FileScannerV2::_collect_profile_before_close() {

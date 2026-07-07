@@ -355,7 +355,8 @@ protected:
     std::unique_ptr<format::parquet::ParquetReader> create_reader(
             int64_t range_start_offset = 0, int64_t range_size = -1,
             RuntimeProfile* profile = nullptr,
-            std::optional<format::GlobalRowIdContext> global_rowid_context = std::nullopt) const {
+            std::optional<format::GlobalRowIdContext> global_rowid_context = std::nullopt,
+            std::shared_ptr<io::IOContext> io_ctx = nullptr) const {
         auto system_properties = std::make_shared<io::FileSystemProperties>();
         system_properties->system_type = TFileType::FILE_LOCAL;
         auto file_description = std::make_unique<io::FileDescription>();
@@ -363,8 +364,9 @@ protected:
         file_description->file_size = static_cast<int64_t>(std::filesystem::file_size(_file_path));
         file_description->range_start_offset = range_start_offset;
         file_description->range_size = range_size;
-        return std::make_unique<format::parquet::ParquetReader>(
-                system_properties, file_description, nullptr, profile, global_rowid_context);
+        return std::make_unique<format::parquet::ParquetReader>(system_properties, file_description,
+                                                                std::move(io_ctx), profile,
+                                                                global_rowid_context);
     }
 
     std::shared_ptr<format::FileScanRequest> open_all_row_groups(
@@ -674,6 +676,45 @@ TEST_F(ParquetScanTest, AggregateMinMaxSupportsNestedSingleLeafProjection) {
     ASSERT_EQ(result.columns.size(), 1);
     EXPECT_EQ(result.columns[0].min_value.get<TYPE_INT>(), 1);
     EXPECT_EQ(result.columns[0].max_value.get<TYPE_INT>(), 11);
+}
+
+TEST_F(ParquetScanTest, AggregateCountOnStructRecordsSelectedRowsRead) {
+    write_struct_parquet_file(_file_path);
+    io::FileReaderStats file_reader_stats;
+    auto io_ctx = std::make_shared<io::IOContext>();
+    io_ctx->file_reader_stats = &file_reader_stats;
+    auto reader = create_reader(0, -1, nullptr, std::nullopt, io_ctx);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+    open_all_row_groups(reader.get());
+
+    format::FileAggregateRequest aggregate_request;
+    aggregate_request.agg_type = TPushAggOp::COUNT;
+    aggregate_request.columns.push_back({.projection = field_projection(0)});
+    format::FileAggregateResult result;
+    ASSERT_TRUE(reader->get_aggregate_result(aggregate_request, &result).ok());
+    EXPECT_EQ(result.count, 4);
+    EXPECT_EQ(file_reader_stats.read_rows, 4);
+}
+
+TEST_F(ParquetScanTest, AggregateCountOnStructReturnsEndOfFileWhenStopped) {
+    write_struct_parquet_file(_file_path);
+    io::FileReaderStats file_reader_stats;
+    auto io_ctx = std::make_shared<io::IOContext>();
+    io_ctx->file_reader_stats = &file_reader_stats;
+    auto reader = create_reader(0, -1, nullptr, std::nullopt, io_ctx);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+    open_all_row_groups(reader.get());
+    io_ctx->should_stop = true;
+
+    format::FileAggregateRequest aggregate_request;
+    aggregate_request.agg_type = TPushAggOp::COUNT;
+    aggregate_request.columns.push_back({.projection = field_projection(0)});
+    format::FileAggregateResult result;
+    const auto status = reader->get_aggregate_result(aggregate_request, &result);
+    EXPECT_TRUE(status.is<ErrorCode::END_OF_FILE>()) << status;
+    EXPECT_EQ(file_reader_stats.read_rows, 0);
 }
 
 TEST_F(ParquetScanTest, AggregateRejectsRepeatedMissingStatisticsAndInvalidRequests) {

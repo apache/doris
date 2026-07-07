@@ -340,6 +340,7 @@ Status DelimitedTextReader::get_block(Block* file_block, size_t* rows, bool* eof
 
     const size_t rows_before_filter = *rows;
     update_counter(_text_profile.rows_read_before_filter, rows_before_filter);
+    _record_scan_rows(cast_set<int64_t>(rows_before_filter));
 
     MaterializedReaderFilterProfile filter_profile;
     filter_profile.delete_conjunct_filter_time = _text_profile.delete_conjunct_filter_time;
@@ -350,7 +351,6 @@ Status DelimitedTextReader::get_block(Block* file_block, size_t* rows, bool* eof
     RETURN_IF_ERROR(apply_materialized_reader_filters(_request.get(), _io_ctx.get(), file_block,
                                                       rows, &filter_profile));
     update_counter(_text_profile.rows_returned, *rows);
-    _reader_statistics.read_rows += *rows;
     *eof = _line_reader_eof && *rows == 0;
     _eof = *eof;
     return Status::OK();
@@ -390,7 +390,7 @@ Status DelimitedTextReader::get_aggregate_result(const FileAggregateRequest& req
     result->columns.clear();
     update_counter(_text_profile.rows_read_before_filter, count);
     update_counter(_text_profile.rows_returned, count);
-    _reader_statistics.read_rows += count;
+    _record_scan_rows(count);
     _eof = true;
     return Status::OK();
 }
