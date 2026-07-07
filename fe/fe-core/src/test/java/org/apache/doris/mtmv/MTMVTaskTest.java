@@ -43,7 +43,6 @@ import org.apache.doris.mtmv.ivm.IvmPlanSignatureGenerator;
 import org.apache.doris.mtmv.ivm.IvmRefreshManager;
 import org.apache.doris.mtmv.ivm.IvmRefreshResult;
 import org.apache.doris.mtmv.ivm.IvmRewriteResult;
-import org.apache.doris.mtmv.MTMVAnalyzeQueryInfo;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.commands.UpdateMvByPartitionCommand;
@@ -116,7 +115,7 @@ public class MTMVTaskTest {
 
         Mockito.when(mtmvRefreshInfo.getRefreshMethod()).thenReturn(RefreshMethod.COMPLETE);
 
-        Mockito.when(mtmv.hasCompleteRefreshSnapshot()).thenReturn(true);
+        Mockito.when(mtmv.hasRefreshSnapshot()).thenReturn(true);
     }
 
     @After
@@ -162,7 +161,7 @@ public class MTMVTaskTest {
     @Test
     public void testCalculateNeedRefreshPartitionsSystemIncompleteRefreshSnapshot() throws AnalysisException, JobException {
         Mockito.when(mtmvRefreshInfo.getRefreshMethod()).thenReturn(RefreshMethod.AUTO);
-        Mockito.when(mtmv.hasCompleteRefreshSnapshot()).thenReturn(false);
+        Mockito.when(mtmv.hasRefreshSnapshot()).thenReturn(false);
 
         MTMVTaskContext context = new MTMVTaskContext(MTMVTaskTriggerMode.SYSTEM);
         MTMVTask task = new MTMVTask(mtmv, relation, context);
@@ -177,7 +176,7 @@ public class MTMVTaskTest {
     @Test
     public void testCalculateNeedRefreshPartitionsManualPartitionsIncompleteRefreshSnapshot()
             throws AnalysisException, JobException {
-        Mockito.when(mtmv.hasCompleteRefreshSnapshot()).thenReturn(false);
+        Mockito.when(mtmv.hasRefreshSnapshot()).thenReturn(false);
 
         MTMVTaskContext context = MTMVTaskContext.of(MTMVTaskTriggerMode.MANUAL, Lists.newArrayList(poneName),
                 RefreshMode.PARTITIONS, false, null);
@@ -402,7 +401,6 @@ public class MTMVTaskTest {
     public void testExecuteIvmAttemptFallsBackToCompleteForPlanSignatureMismatchInAutoMode() throws Exception {
         Mockito.when(mtmv.isIvm()).thenReturn(true);
         Mockito.when(mtmv.getName()).thenReturn("test_mv");
-        IvmPlanSignature currentSignature = new IvmPlanSignature("canonical", "new");
         MTMVTask task = new MTMVTask(mtmv, relation, new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL));
 
         try (MockedConstruction<IvmRefreshManager> ignored = Mockito.mockConstruction(IvmRefreshManager.class,
