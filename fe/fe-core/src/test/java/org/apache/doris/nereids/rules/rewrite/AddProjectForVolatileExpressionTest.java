@@ -292,23 +292,17 @@ public class AddProjectForVolatileExpressionTest implements MemoPatternMatchSupp
                 .getPlan();
         Assertions.assertEquals(join, root);
     }
+
     private JavaUdf javaUdf(FunctionVolatility volatility, VolatileIdentity volatileIdentity) {
         return javaUdf(volatility, volatileIdentity, new IntegerLiteral(1));
     }
 
     private JavaUdf javaUdf(FunctionVolatility volatility, VolatileIdentity volatileIdentity,
             Expression... arguments) {
-        return new JavaUdf("java_fn", 1, "db1", org.apache.doris.catalog.Function.BinaryType.JAVA_UDF,
+        return new JavaUdf("java_fn", 1, "db1", TFunctionBinaryType.JAVA_UDF,
                 FunctionSignature.ret(IntegerType.INSTANCE).args(
                         Collections.nCopies(arguments.length, IntegerType.INSTANCE).toArray(new IntegerType[0])),
                 NullableMode.ALWAYS_NULLABLE, volatility, volatileIdentity,
                 null, "evaluate", null, null, "", false, 360, arguments);
-    }
-
-    private JavaUdf javaUdf(FunctionVolatility volatility, VolatileIdentity volatileIdentity) {
-        return new JavaUdf("java_fn", 1, "db1", TFunctionBinaryType.JAVA_UDF,
-                FunctionSignature.ret(IntegerType.INSTANCE).args(IntegerType.INSTANCE),
-                NullableMode.ALWAYS_NULLABLE, volatility, volatileIdentity,
-                null, "evaluate", null, null, "", false, 360, new IntegerLiteral(1));
     }
 }
