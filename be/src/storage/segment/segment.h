@@ -217,14 +217,12 @@ public:
 
     // get the column reader by tablet column, return NOT_FOUND if not found reader in this segment
     Status get_column_reader(const TabletColumn& col, std::shared_ptr<ColumnReader>* column_reader,
-                             OlapReaderStatistics* stats,
-                             const io::IOContext* io_ctx = nullptr,
+                             OlapReaderStatistics* stats, const io::IOContext* io_ctx = nullptr,
                              std::optional<Field> const_value = std::nullopt);
 
     // get the column reader by column unique id, return NOT_FOUND if not found reader in this segment
     Status get_column_reader(int32_t col_uid, std::shared_ptr<ColumnReader>* column_reader,
-                             OlapReaderStatistics* stats,
-                             const io::IOContext* io_ctx = nullptr,
+                             OlapReaderStatistics* stats, const io::IOContext* io_ctx = nullptr,
                              std::optional<Field> const_value = std::nullopt);
 
     Status traverse_column_meta_pbs(const std::function<void(const ColumnMetaPB&)>& visitor);

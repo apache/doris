@@ -907,8 +907,8 @@ Status Segment::new_column_iterator(const TabletColumn& tablet_column,
 
     // init iterator by unique id
     std::shared_ptr<ColumnReader> reader;
-    RETURN_IF_ERROR(
-            get_column_reader(unique_id, &reader, opt->stats, &opt->io_ctx, std::move(const_value)));
+    RETURN_IF_ERROR(get_column_reader(unique_id, &reader, opt->stats, &opt->io_ctx,
+                                      std::move(const_value)));
     if (reader == nullptr) {
         return Status::InternalError("column reader is nullptr, unique_id={}", unique_id);
     }
@@ -968,8 +968,8 @@ Status Segment::get_column_reader(int32_t col_uid, std::shared_ptr<ColumnReader>
         return Status::Error<ErrorCode::NOT_FOUND, false>("column not found in segment, col_uid={}",
                                                           col_uid);
     }
-    return _column_reader_cache->get_column_reader(col_uid, column_reader, stats,
-                                                   source_io_ctx, std::move(const_value));
+    return _column_reader_cache->get_column_reader(col_uid, column_reader, stats, source_io_ctx,
+                                                   std::move(const_value));
 }
 
 Status Segment::traverse_column_meta_pbs(const std::function<void(const ColumnMetaPB&)>& visitor) {
@@ -999,8 +999,8 @@ Status Segment::get_column_reader(const TabletColumn& col,
         return _column_reader_cache->get_path_column_reader(col_uid, relative_path, column_reader,
                                                             stats, nullptr, source_io_ctx);
     }
-    return _column_reader_cache->get_column_reader(col_uid, column_reader, stats,
-                                                   source_io_ctx, std::move(const_value));
+    return _column_reader_cache->get_column_reader(col_uid, column_reader, stats, source_io_ctx,
+                                                   std::move(const_value));
 }
 
 Status Segment::new_index_iterator(const TabletColumn& tablet_column, const TabletIndex* index_meta,
