@@ -112,7 +112,8 @@ Status ColumnReaderCache::get_column_reader(int32_t col_uid,
 
     // Lookup column meta by uid via ColumnMetaAccessor. If not initialized or not found, return NOT_FOUND.
     ColumnMetaPB meta;
-    Status st_meta = _accessor->get_column_meta_by_uid(*footer_pb_shared, col_uid, &meta);
+    Status st_meta = _accessor->get_column_meta_by_uid(*footer_pb_shared, col_uid, &meta, stats,
+                                                       source_io_ctx);
     if (st_meta.is<ErrorCode::NOT_FOUND>()) {
         *column_reader = nullptr;
         return st_meta;
@@ -130,7 +131,7 @@ Status ColumnReaderCache::get_column_reader(int32_t col_uid,
         // subcolumn layout, sparse columns and external meta.
         std::unique_ptr<VariantColumnReader> variant_reader(new VariantColumnReader());
         RETURN_IF_ERROR(variant_reader->init(opts, _accessor, footer_pb_shared, col_uid, _num_rows,
-                                             _file_reader));
+                                             _file_reader, stats, source_io_ctx));
         reader.reset(variant_reader.release());
         VLOG_DEBUG << "insert cache (variant): uid=" << col_uid << " col_id=" << meta.column_id();
     } else {
@@ -185,7 +186,8 @@ Status ColumnReaderCache::get_path_column_reader(int32_t col_uid, PathInData rel
     std::shared_ptr<ColumnReader> path_reader;
     auto* vreader = static_cast<VariantColumnReader*>(variant_column_reader.get());
     Status st = vreader->create_path_reader(relative_path, opts, _accessor, *footer_pb_shared,
-                                            _file_reader, _num_rows, &path_reader);
+                                            _file_reader, _num_rows, &path_reader, stats,
+                                            source_io_ctx);
     if (st.is<ErrorCode::NOT_FOUND>()) {
         *column_reader = nullptr;
         return st;

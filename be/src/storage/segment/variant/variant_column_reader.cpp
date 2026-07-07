@@ -255,7 +255,7 @@ Status VariantColumnReader::_create_hierarchical_reader(
         HierarchicalDataIterator::ReadType read_type, const io::IOContext* io_ctx) {
     // make sure external meta is loaded otherwise can't find any meta data for extracted columns
     // TODO(lhy): this will load all external meta if not loaded, and memory will be consumed.
-    RETURN_IF_ERROR(load_external_meta_once());
+    RETURN_IF_ERROR(load_external_meta_once(stats, io_ctx));
 
     stats->variant_subtree_hierarchical_iter_count++;
     // After external meta is loaded, protect reads from `_statistics` and
@@ -430,11 +430,11 @@ Status VariantColumnReader::_build_read_plan_flat_leaves(
         ColumnReaderCache* column_reader_cache, PathToBinaryColumnCache* binary_column_cache_ptr) {
     // make sure external meta is loaded otherwise can't find any meta data for extracted columns
     // TODO(lhy): this will load all external meta if not loaded, and memory will be consumed.
-    RETURN_IF_ERROR(load_external_meta_once());
+    DCHECK(opts != nullptr);
+    RETURN_IF_ERROR(load_external_meta_once(opts->stats, &opts->io_ctx));
 
     std::shared_lock<std::shared_mutex> lock(_subcolumns_meta_mutex);
 
-    DCHECK(opts != nullptr);
     int32_t col_uid =
             target_col.unique_id() >= 0 ? target_col.unique_id() : target_col.parent_unique_id();
     auto relative_path = target_col.path_info_ptr()->copy_pop_front();
@@ -1153,7 +1153,8 @@ Status VariantColumnReader::new_iterator(ColumnIteratorUPtr* iterator,
 
 Status VariantColumnReader::init(const ColumnReaderOptions& opts, ColumnMetaAccessor* accessor,
                                  const std::shared_ptr<SegmentFooterPB>& footer, int32_t column_uid,
-                                 uint64_t num_rows, io::FileReaderSPtr file_reader) {
+                                 uint64_t num_rows, io::FileReaderSPtr file_reader,
+                                 OlapReaderStatistics* stats, const io::IOContext* source_io_ctx) {
     _nested_group_read_provider = create_nested_group_read_provider();
 
     // init sub columns
@@ -1164,7 +1165,8 @@ Status VariantColumnReader::init(const ColumnReaderOptions& opts, ColumnMetaAcce
     ColumnMetaPB self_column_pb;
     {
         // Locate root column meta by unique id; this hides inline vs external CMO layout.
-        RETURN_IF_ERROR(accessor->get_column_meta_by_uid(*footer, column_uid, &self_column_pb));
+        RETURN_IF_ERROR(accessor->get_column_meta_by_uid(*footer, column_uid, &self_column_pb,
+                                                         stats, source_io_ctx));
         // root column
         // root subcolumn is ColumnVariant::MostCommonType which is jsonb
         DataTypePtr root_type =
@@ -1395,36 +1397,37 @@ Status VariantColumnReader::create_reader_from_external_meta(const std::string& 
                                                              const ColumnReaderOptions& opts,
                                                              const io::FileReaderSPtr& file_reader,
                                                              uint64_t num_rows,
-                                                             std::shared_ptr<ColumnReader>* out) {
+                                                             std::shared_ptr<ColumnReader>* out,
+                                                             OlapReaderStatistics* stats,
+                                                             const io::IOContext* source_io_ctx) {
     if (!_ext_meta_reader || !_ext_meta_reader->available()) {
         return Status::Error<ErrorCode::NOT_FOUND, false>("no external variant meta");
     }
     ColumnMetaPB meta;
-    RETURN_IF_ERROR(_ext_meta_reader->lookup_meta_by_path(path, &meta));
+    RETURN_IF_ERROR(_ext_meta_reader->lookup_meta_by_path(path, &meta, stats, source_io_ctx));
     return ColumnReader::create(opts, meta, num_rows, file_reader, out);
 }
 
-Status VariantColumnReader::create_path_reader(const PathInData& relative_path,
-                                               const ColumnReaderOptions& opts,
-                                               ColumnMetaAccessor* accessor,
-                                               const SegmentFooterPB& footer,
-                                               const io::FileReaderSPtr& file_reader,
-                                               uint64_t num_rows,
-                                               std::shared_ptr<ColumnReader>* out) {
+Status VariantColumnReader::create_path_reader(
+        const PathInData& relative_path, const ColumnReaderOptions& opts,
+        ColumnMetaAccessor* accessor, const SegmentFooterPB& footer,
+        const io::FileReaderSPtr& file_reader, uint64_t num_rows,
+        std::shared_ptr<ColumnReader>* out, OlapReaderStatistics* stats,
+        const io::IOContext* source_io_ctx) {
     // 1) Try inline subcolumn meta if available (footer_ordinal >= 0)
     const auto* node = get_subcolumn_meta_by_path(relative_path);
     if (node != nullptr && node->data.footer_ordinal >= 0) {
         // leaf node, get the column meta by footer ordinal
         const int32_t column_ordinal = node->data.footer_ordinal;
         ColumnMetaPB meta;
-        RETURN_IF_ERROR(
-                accessor->get_column_meta_by_column_ordinal_id(footer, column_ordinal, &meta));
+        RETURN_IF_ERROR(accessor->get_column_meta_by_column_ordinal_id(
+                footer, column_ordinal, &meta, stats, source_io_ctx));
         return ColumnReader::create(opts, meta, num_rows, file_reader, out);
     }
 
     // 2) Try external meta layout (if available)
     Status st = create_reader_from_external_meta(relative_path.get_path(), opts, file_reader,
-                                                 num_rows, out);
+                                                 num_rows, out, stats, source_io_ctx);
     if (st.is<ErrorCode::NOT_FOUND>()) {
         // 3) Try nested group readers (array-of-objects / nested search paths).
         // relative_path is already popped of the variant root, so it can directly match
@@ -1443,18 +1446,20 @@ Status VariantColumnReader::create_path_reader(const PathInData& relative_path,
     return st;
 }
 
-Status VariantColumnReader::load_external_meta_once() {
+Status VariantColumnReader::load_external_meta_once(OlapReaderStatistics* stats,
+                                                    const io::IOContext* source_io_ctx) {
     if (!_ext_meta_reader || !_ext_meta_reader->available()) {
         return Status::OK();
     }
     // Ensure only one writer can populate `_subcolumns_meta_info` / `_statistics`
     // while readers of these structures hold shared locks.
     std::unique_lock<std::shared_mutex> lock(_subcolumns_meta_mutex);
-    VariantStatistics* stats = variant_util::should_record_variant_path_stats(
-                                       _tablet_schema->column_by_uid(_root_unique_id))
-                                       ? _statistics.get()
-                                       : nullptr;
-    return _ext_meta_reader->load_all_once(_subcolumns_meta_info.get(), stats);
+    VariantStatistics* variant_stats = variant_util::should_record_variant_path_stats(
+                                               _tablet_schema->column_by_uid(_root_unique_id))
+                                               ? _statistics.get()
+                                               : nullptr;
+    return _ext_meta_reader->load_all_once(_subcolumns_meta_info.get(), variant_stats, stats,
+                                           source_io_ctx);
 }
 
 TabletIndexes VariantColumnReader::find_subcolumn_tablet_indexes(const TabletColumn& column,

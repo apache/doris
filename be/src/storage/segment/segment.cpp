@@ -808,11 +808,12 @@ Status Segment::_create_column_meta_once(OlapReaderStatistics* stats,
     return _create_column_meta_once_call.call([this, stats, source_io_ctx] {
         std::shared_ptr<SegmentFooterPB> footer_pb_shared;
         RETURN_IF_ERROR(_get_segment_footer(footer_pb_shared, stats, source_io_ctx));
-        return _create_column_meta(*footer_pb_shared);
+        return _create_column_meta(*footer_pb_shared, stats, source_io_ctx);
     });
 }
 
-Status Segment::_create_column_meta(const SegmentFooterPB& footer) {
+Status Segment::_create_column_meta(const SegmentFooterPB& footer, OlapReaderStatistics* stats,
+                                    const io::IOContext* source_io_ctx) {
     // Initialize column meta accessor which internally maintains uid -> column_ordinal mapping.
     _column_meta_accessor = std::make_unique<ColumnMetaAccessor>();
     RETURN_IF_ERROR(_column_meta_accessor->init(footer, _file_reader));
@@ -820,11 +821,15 @@ Status Segment::_create_column_meta(const SegmentFooterPB& footer) {
     if (config::enable_adaptive_batch_size) {
         // Cache raw_data_bytes per column uid for adaptive batch size prediction.
         // This runs under call_once, so no thread-safety concerns.
-        auto st = _column_meta_accessor->traverse_metas(footer, [this](const ColumnMetaPB& meta) {
-            if (meta.has_unique_id() && meta.unique_id() != -1 && meta.has_raw_data_bytes()) {
-                _column_uid_to_raw_bytes[meta.unique_id()] = meta.raw_data_bytes();
-            }
-        });
+        auto st = _column_meta_accessor->traverse_metas(
+                footer,
+                [this](const ColumnMetaPB& meta) {
+                    if (meta.has_unique_id() && meta.unique_id() != -1 &&
+                        meta.has_raw_data_bytes()) {
+                        _column_uid_to_raw_bytes[meta.unique_id()] = meta.raw_data_bytes();
+                    }
+                },
+                stats, source_io_ctx);
 
         if (!st.ok()) {
             LOG(WARNING) << "Failed to traverse column metas to cache raw_data_bytes, error: "
@@ -978,7 +983,7 @@ Status Segment::traverse_column_meta_pbs(const std::function<void(const ColumnMe
     RETURN_IF_ERROR(_create_column_meta_once(&dummy_stats));
     std::shared_ptr<SegmentFooterPB> footer_pb_shared;
     RETURN_IF_ERROR(_get_segment_footer(footer_pb_shared, &dummy_stats));
-    return _column_meta_accessor->traverse_metas(*footer_pb_shared, visitor);
+    return _column_meta_accessor->traverse_metas(*footer_pb_shared, visitor, &dummy_stats);
 }
 
 Status Segment::get_column_reader(const TabletColumn& col,
@@ -1078,8 +1083,9 @@ Status Segment::new_index_iterator(const TabletColumn& tablet_column, const Tabl
 
 Status Segment::lookup_row_key(const Slice& key, const TabletSchema* latest_schema,
                                bool with_seq_col, bool with_rowid, RowLocation* row_location,
-                               OlapReaderStatistics* stats, std::string* encoded_seq_value) {
-    RETURN_IF_ERROR(load_pk_index_and_bf(stats));
+                               OlapReaderStatistics* stats, std::string* encoded_seq_value,
+                               const io::IOContext* io_ctx) {
+    RETURN_IF_ERROR(load_pk_index_and_bf(stats, io_ctx));
     bool has_seq_col = latest_schema->has_sequence_col();
     bool has_rowid = !latest_schema->cluster_key_uids().empty();
     size_t seq_col_length = 0;

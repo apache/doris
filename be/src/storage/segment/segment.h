@@ -143,7 +143,8 @@ public:
 
     Status lookup_row_key(const Slice& key, const TabletSchema* latest_schema, bool with_seq_col,
                           bool with_rowid, RowLocation* row_location, OlapReaderStatistics* stats,
-                          std::string* encoded_seq_value = nullptr);
+                          std::string* encoded_seq_value = nullptr,
+                          const io::IOContext* io_ctx = nullptr);
 
     Status read_key_by_rowid(uint32_t row_id, std::string* key);
 
@@ -252,7 +253,8 @@ private:
     Status _parse_footer(std::shared_ptr<SegmentFooterPB>& footer,
                          OlapReaderStatistics* stats = nullptr,
                          const io::IOContext* io_ctx = nullptr);
-    Status _create_column_meta(const SegmentFooterPB& footer);
+    Status _create_column_meta(const SegmentFooterPB& footer, OlapReaderStatistics* stats = nullptr,
+                               const io::IOContext* io_ctx = nullptr);
     Status _load_pk_bloom_filter(OlapReaderStatistics* stats,
                                  const io::IOContext* io_ctx = nullptr);
 

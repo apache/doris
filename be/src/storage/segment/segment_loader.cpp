@@ -75,7 +75,7 @@ Status SegmentLoader::load_segment(const BetaRowsetSharedPtr& rowset, int64_t se
     segment_v2::SegmentSharedPtr segment;
     RETURN_IF_ERROR(rowset->load_segment(segment_id, index_load_stats, &segment, io_ctx));
     if (need_load_pk_index_and_bf) {
-        RETURN_IF_ERROR(segment->load_pk_index_and_bf(index_load_stats));
+        RETURN_IF_ERROR(segment->load_pk_index_and_bf(index_load_stats, io_ctx));
     }
     if (use_cache && !config::disable_segment_cache) {
         // memory of SegmentCache::CacheValue will be handled by SegmentCache

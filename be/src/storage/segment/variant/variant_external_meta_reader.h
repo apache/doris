@@ -52,7 +52,9 @@ public:
     bool available() const { return _key_reader != nullptr; }
 
     // Lookup a single ColumnMetaPB by relative path. Returns NOT_FOUND if missing/unavailable.
-    Status lookup_meta_by_path(const std::string& rel_path, ColumnMetaPB* out_meta) const;
+    Status lookup_meta_by_path(const std::string& rel_path, ColumnMetaPB* out_meta,
+                               OlapReaderStatistics* stats = nullptr,
+                               const io::IOContext* source_io_ctx = nullptr) const;
 
     // Check whether there exists any key in external meta that starts with `prefix`.
     // This performs a lower_bound (seek_at_or_after) on the sorted key column
@@ -60,10 +62,14 @@ public:
     Status has_prefix(const std::string& prefix, bool* out) const;
 
     // Ensure external metas are loaded exactly once and merged into provided structures.
-    Status load_all_once(SubcolumnColumnMetaInfo* out_meta_tree, VariantStatistics* out_stats);
+    Status load_all_once(SubcolumnColumnMetaInfo* out_meta_tree, VariantStatistics* out_stats,
+                         OlapReaderStatistics* stats = nullptr,
+                         const io::IOContext* source_io_ctx = nullptr);
 
     // Load and merge all external metas without call-once guard.
-    Status load_all(SubcolumnColumnMetaInfo* out_meta_tree, VariantStatistics* out_stats);
+    Status load_all(SubcolumnColumnMetaInfo* out_meta_tree, VariantStatistics* out_stats,
+                    OlapReaderStatistics* stats = nullptr,
+                    const io::IOContext* source_io_ctx = nullptr);
 
 private:
     // helpers

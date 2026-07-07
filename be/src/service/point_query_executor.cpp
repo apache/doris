@@ -43,6 +43,7 @@
 #include "exprs/vexpr_fwd.h"
 #include "exprs/vslot_ref.h"
 #include "io/cache/remote_scan_cache_write_limiter.h"
+#include "io/io_common.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/result_block_buffer.h"
@@ -486,6 +487,10 @@ Status PointQueryExecutor::_lookup_row_key() {
         std::shared_lock rlock(_tablet->get_header_lock());
         specified_rowsets = _tablet->get_rowset_by_ids(nullptr);
     }
+    io::IOContext io_ctx;
+    io_ctx.reader_type = ReaderType::READER_QUERY;
+    io_ctx.file_cache_stats = &_profile_metrics.read_stats.file_cache_stats;
+    io_ctx.remote_scan_cache_write_limiter = _remote_scan_cache_write_limiter.get();
     std::vector<std::unique_ptr<SegmentCacheHandle>> segment_caches(specified_rowsets.size());
     for (size_t i = 0; i < _row_read_ctxs.size(); ++i) {
         RowLocation location;
@@ -504,7 +509,7 @@ Status PointQueryExecutor::_lookup_row_key() {
         st = (_tablet->lookup_row_key(_row_read_ctxs[i]._primary_key, nullptr, false,
                                       specified_rowsets, &location, INT32_MAX /*rethink?*/,
                                       segment_caches, rowset_ptr.get(), false, nullptr,
-                                      &_profile_metrics.read_stats));
+                                      &_profile_metrics.read_stats, nullptr, &io_ctx));
         if (st.is<ErrorCode::KEY_NOT_FOUND>()) {
             continue;
         }

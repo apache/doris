@@ -187,7 +187,9 @@ public:
 
     Status init(const ColumnReaderOptions& opts, ColumnMetaAccessor* accessor,
                 const std::shared_ptr<SegmentFooterPB>& footer, int32_t column_uid,
-                uint64_t num_rows, io::FileReaderSPtr file_reader);
+                uint64_t num_rows, io::FileReaderSPtr file_reader,
+                OlapReaderStatistics* stats = nullptr,
+                const io::IOContext* source_io_ctx = nullptr);
 
     Status new_iterator(ColumnIteratorUPtr* iterator, const TabletColumn* col,
                         const StorageReadOptions* opt) override;
@@ -249,7 +251,9 @@ public:
     Status create_path_reader(const PathInData& relative_path, const ColumnReaderOptions& opts,
                               ColumnMetaAccessor* accessor, const SegmentFooterPB& footer,
                               const io::FileReaderSPtr& file_reader, uint64_t num_rows,
-                              std::shared_ptr<ColumnReader>* out);
+                              std::shared_ptr<ColumnReader>* out,
+                              OlapReaderStatistics* stats = nullptr,
+                              const io::IOContext* source_io_ctx = nullptr);
 
     // Try create a ColumnReader from externalized meta (path -> ColumnMetaPB bytes) if present.
     // Only used internally by create_path_reader. External callers should not rely
@@ -257,10 +261,13 @@ public:
     Status create_reader_from_external_meta(const std::string& path,
                                             const ColumnReaderOptions& opts,
                                             const io::FileReaderSPtr& file_reader,
-                                            uint64_t num_rows, std::shared_ptr<ColumnReader>* out);
+                                            uint64_t num_rows, std::shared_ptr<ColumnReader>* out,
+                                            OlapReaderStatistics* stats = nullptr,
+                                            const io::IOContext* source_io_ctx = nullptr);
 
     // Ensure external meta is loaded only once across concurrent callers.
-    Status load_external_meta_once();
+    Status load_external_meta_once(OlapReaderStatistics* stats = nullptr,
+                                   const io::IOContext* source_io_ctx = nullptr);
 
     // Determine whether `path` is a strict prefix of any existing subcolumn path.
     // Consider three sources:
