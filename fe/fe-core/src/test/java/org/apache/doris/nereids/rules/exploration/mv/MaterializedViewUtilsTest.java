@@ -256,7 +256,7 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
         connectContext.getSessionVariable().setDisableNereidsRules(
                 "OLAP_SCAN_PARTITION_PRUNE"
                 + ",PRUNE_EMPTY_PARTITION"
-                + ",ELIMINATE_GROUP_BY_KEY_BY_UNIFORM"
+                + ",ELIMINATE_GROUP_BY_KEY_BY_UNIFORM" + ",ELIMINATE_GROUP_BY_KEY"
                 + ",ELIMINATE_CONST_JOIN_CONDITION"
                 + ",CONSTANT_PROPAGATION"
         );
