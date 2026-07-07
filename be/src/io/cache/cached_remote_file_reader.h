@@ -86,6 +86,12 @@ private:
                                 size_t& size, std::unique_ptr<char[]>& buffer,
                                 ReadStatistics& stats, const IOContext* io_ctx);
 
+    /// Read local cache only when downloaded blocks fully cover the request; otherwise read remote
+    /// data directly without writing file cache.
+    Status _read_remote_only_on_cache_miss(size_t offset, Slice result, size_t bytes_req,
+                                           bool is_dryrun, size_t* bytes_read,
+                                           ReadStatistics& stats, const IOContext* io_ctx);
+
     void _update_stats(const ReadStatistics& stats, FileCacheStatistics* state,
                        FileCacheReadType read_type) const;
 

@@ -35,6 +35,11 @@ enum class ReaderType : uint8_t {
 
 namespace io {
 
+enum class FileCacheMissPolicy : uint8_t {
+    READ_THROUGH_AND_WRITE_BACK = 0,
+    REMOTE_ONLY_ON_MISS = 1,
+};
+
 struct FileReaderStats {
     size_t read_calls = 0;
     size_t read_bytes = 0;
@@ -104,6 +109,7 @@ struct IOContext {
     bool is_dryrun = false;
     // if `is_warmup` == true, this I/O request is from a warm up task
     bool is_warmup {false};
+    FileCacheMissPolicy file_cache_miss_policy = FileCacheMissPolicy::READ_THROUGH_AND_WRITE_BACK;
 };
 
 } // namespace io
