@@ -82,6 +82,11 @@ public final class HiveConnectorProperties {
     public static final String TEXT_COMPRESSION_UNCOMPRESSED = "uncompressed";
     public static final String TEXT_COMPRESSION_PLAIN = "plain";
 
+    // Session variable gating the OpenX-JSON "read the whole JSON row into one CSV column" mode (legacy
+    // SessionVariable.read_hive_json_in_one_column). Byte-identical to the fe-core session-var name; it is
+    // surfaced through ConnectorSession.getSessionProperties() (VariableMgr dumps all visible vars).
+    public static final String SESSION_READ_HIVE_JSON_IN_ONE_COLUMN = "read_hive_json_in_one_column";
+
     /**
      * Bucket algorithm string produced by {@code CreateTableInfoToConnectorRequestConverter} for a
      * random (non-hash) distribution. Hive external tables only support hash bucketing.

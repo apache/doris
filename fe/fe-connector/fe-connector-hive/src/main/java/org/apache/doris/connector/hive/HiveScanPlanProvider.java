@@ -113,7 +113,8 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
         }
 
         HiveFileFormat fileFormat = HiveFileFormat.detect(
-                hiveHandle.getInputFormat(), hiveHandle.getSerializationLib());
+                hiveHandle.getInputFormat(), hiveHandle.getSerializationLib(),
+                readHiveJsonInOneColumn(session), hiveHandle.isFirstColumnString());
         long targetSplitSize = getTargetSplitSize(session);
         boolean splittable = fileFormat.isSplittable();
 
@@ -240,7 +241,8 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
 
         // File format type
         HiveFileFormat fileFormat = HiveFileFormat.detect(
-                hiveHandle.getInputFormat(), hiveHandle.getSerializationLib());
+                hiveHandle.getInputFormat(), hiveHandle.getSerializationLib(),
+                readHiveJsonInOneColumn(session), hiveHandle.isFirstColumnString());
         props.put(PROP_FILE_FORMAT_TYPE, fileFormat.getFormatName());
 
         // Partition key column names
@@ -257,8 +259,11 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
             }
         }
 
-        // Text format properties (if applicable)
-        if (fileFormat == HiveFileFormat.TEXT || fileFormat == HiveFileFormat.JSON) {
+        // Text format properties (delimiters / enclose / escape / null_format / is_json) for every non-columnar
+        // format — TEXT (hive text serde), CSV (OpenCSV serde) and JSON. BE reads these from the hive.text.*
+        // props regardless of the resolved TFileFormatType, so all three families must emit them.
+        if (fileFormat == HiveFileFormat.TEXT || fileFormat == HiveFileFormat.CSV
+                || fileFormat == HiveFileFormat.JSON) {
             Map<String, String> textProps = HiveTextProperties.extract(
                     hiveHandle.getSerializationLib(),
                     hiveHandle.getSdParameters(),
@@ -267,6 +272,16 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
         }
 
         return props;
+    }
+
+    /**
+     * Reads the {@code read_hive_json_in_one_column} session flag (default false) from the connector session —
+     * the same channel the write path uses for {@code hive_text_compression}. The engine dumps every visible
+     * session variable into {@code getSessionProperties()}, so no extra plumbing is needed.
+     */
+    private static boolean readHiveJsonInOneColumn(ConnectorSession session) {
+        return Boolean.parseBoolean(session.getSessionProperties()
+                .getOrDefault(HiveConnectorProperties.SESSION_READ_HIVE_JSON_IN_ONE_COLUMN, "false"));
     }
 
     /**
@@ -308,10 +323,12 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
             for (int i = 0; i < partKeyNames.size() && i < values.size(); i++) {
                 partValues.put(partKeyNames.get(i), values.get(i));
             }
-            HiveFileFormat partFormat = HiveFileFormat.detect(
-                    part.getInputFormat(), part.getSerializationLib());
+            // Per-partition file format is not carried to BE (the whole scan node reads with the single
+            // table-level format resolved in planScan/getScanNodeProperties); leave it null so planScan falls
+            // back to the table format, matching the unpartitioned case. Detecting it per partition here would
+            // also fail-loud spuriously if one partition carried an unusual serde the table itself does not.
             result.add(new PartitionScanInfo(
-                    part.getLocation(), partValues, partFormat));
+                    part.getLocation(), partValues, null));
         }
         return result;
     }

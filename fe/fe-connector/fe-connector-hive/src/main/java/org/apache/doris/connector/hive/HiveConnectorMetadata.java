@@ -215,6 +215,7 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
                 .partitionKeyNames(partKeyNames)
                 .sdParameters(tableInfo.getSdParameters())
                 .tableParameters(tableInfo.getParameters())
+                .firstColumnIsString(firstColumnIsString(tableInfo))
                 .build();
         return Optional.of(handle);
     }
@@ -1100,6 +1101,21 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
     /** Whether the HMS table is a view (tableType VIRTUAL_VIEW), mirroring legacy {@code HMSExternalTable.isView}. */
     private static boolean isView(HmsTableInfo tableInfo) {
         return VIRTUAL_VIEW_TABLE_TYPE.equalsIgnoreCase(tableInfo.getTableType());
+    }
+
+    /**
+     * Whether the table's first (data) column is a {@code STRING}, reproducing legacy
+     * {@code HMSExternalTable.firstColumnIsString} ({@code isScalarType(PrimitiveType.STRING)} — {@code STRING}
+     * only, NOT {@code varchar}/{@code char}). Stamped onto the handle so the read-format detector can apply the
+     * OpenX-JSON {@code read_hive_json_in_one_column} gate without a second metastore fetch. A table with no data
+     * columns degrades to {@code false} (the OpenX one-column mode is nonsensical there).
+     */
+    private static boolean firstColumnIsString(HmsTableInfo tableInfo) {
+        List<ConnectorColumn> columns = tableInfo.getColumns();
+        if (columns == null || columns.isEmpty()) {
+            return false;
+        }
+        return "STRING".equals(columns.get(0).getType().getTypeName());
     }
 
     private static HmsTypeMapping.Options buildTypeMappingOptions(Map<String, String> props) {

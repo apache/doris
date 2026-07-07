@@ -1477,6 +1477,9 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             case "orc":
                 return TFileFormatType.FORMAT_ORC;
             case "text":
+                // Hive text serde family (LazySimpleSerDe / MultiDelimitSerDe): the BE text reader honors hive
+                // collection/map delimiters, \N nulls and hive escaping — distinct from the flat CSV reader.
+                return TFileFormatType.FORMAT_TEXT;
             case "csv":
                 return TFileFormatType.FORMAT_CSV_PLAIN;
             case "json":

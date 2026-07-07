@@ -32,15 +32,23 @@ import java.util.Map;
  */
 public final class HiveTextProperties {
 
-    // SerDe library class names
+    // SerDe library class names. Must stay in sync with HiveFileFormat's detection set: every serde the
+    // detector classifies as TEXT/CSV/JSON needs a branch here, or its text params (delimiters etc.) are
+    // dropped and BE reads with defaults.
     public static final String HIVE_TEXT_SERDE =
             "org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe";
+    // MultiDelimitSerDe exists under two package names across Hive versions; both read as FORMAT_TEXT.
     public static final String HIVE_MULTI_DELIMIT_SERDE =
             "org.apache.hadoop.hive.contrib.serde2.MultiDelimitSerDe";
+    public static final String HIVE_MULTI_DELIMIT_SERDE_SERDE2 =
+            "org.apache.hadoop.hive.serde2.MultiDelimitSerDe";
     public static final String HIVE_OPEN_CSV_SERDE =
             "org.apache.hadoop.hive.serde2.OpenCSVSerde";
     public static final String HIVE_JSON_SERDE =
             "org.apache.hive.hcatalog.data.JsonSerDe";
+    // Legacy hive-2 JSON serde; legacy fe-core maps it to FORMAT_JSON like the hcatalog one.
+    public static final String LEGACY_HIVE_JSON_SERDE =
+            "org.apache.hadoop.hive.serde2.JsonSerDe";
     public static final String OPENX_JSON_SERDE =
             "org.openx.data.jsonserde.JsonSerDe";
 
@@ -80,12 +88,14 @@ public final class HiveTextProperties {
         if (serDeLib == null) {
             return result;
         }
-        if (HIVE_TEXT_SERDE.equals(serDeLib) || HIVE_MULTI_DELIMIT_SERDE.equals(serDeLib)) {
-            extractTextSerDeProps(sdParams, result,
-                    HIVE_MULTI_DELIMIT_SERDE.equals(serDeLib));
+        boolean multiDelimit = HIVE_MULTI_DELIMIT_SERDE.equals(serDeLib)
+                || HIVE_MULTI_DELIMIT_SERDE_SERDE2.equals(serDeLib);
+        if (HIVE_TEXT_SERDE.equals(serDeLib) || multiDelimit) {
+            extractTextSerDeProps(sdParams, result, multiDelimit);
         } else if (HIVE_OPEN_CSV_SERDE.equals(serDeLib)) {
             extractCsvSerDeProps(sdParams, result);
-        } else if (HIVE_JSON_SERDE.equals(serDeLib) || OPENX_JSON_SERDE.equals(serDeLib)) {
+        } else if (HIVE_JSON_SERDE.equals(serDeLib) || LEGACY_HIVE_JSON_SERDE.equals(serDeLib)
+                || OPENX_JSON_SERDE.equals(serDeLib)) {
             extractJsonSerDeProps(serDeLib, result);
         } else {
             return result;
