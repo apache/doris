@@ -1,6 +1,6 @@
 # HMS cutover §4.1 — Hive connector Kerberos authenticator: implementation notes (2026-07-07)
 
-> First dormant commit of the cutover build-out (design doc `hms-cutover-retype-design-2026-07-07.md` §4.1). Design fully specified + drafted + verified against HEAD; **BLOCKED on one architecture decision** (metastore-parser module home, §3 below). Apply verbatim once decided. Provenance: lead recon + drafting subagent `a419cb99c60a3537d`.
+> **✅ DONE — landed dormant in commit `e63b03fb490`.** First dormant commit of the cutover build-out (design doc `hms-cutover-retype-design-2026-07-07.md` §4.1). **Decision on §3 = option (C): new neutral `fe-connector-metastore-hms` module** (user sign-off 2026-07-07). Verified: fe-connector-metastore-hms + fe-connector-hive BUILD SUCCESS, `HiveConnectorPluginAuthenticatorTest` 5/5, 0 checkstyle (both modules). Provenance: lead recon + drafting subagent `a419cb99c60a3537d`, build-out subagent `ae17052f2b14afa31`. The remaining sections are the as-built record.
 
 ## 1. The blocker (verified)
 After the flip, `HiveConnector` gets a `DefaultConnectorContext` whose `executeAuthenticated` = `authSupplier.get().execute(task)` with `authSupplier = () -> NOOP_AUTH` (2-arg ctor, `DefaultConnectorContext.java:100-101,164-166`; `NOOP_AUTH.execute` runs `task.call()` directly). The HMS metastore RPC runs via `ThriftHmsClient` whose `authAction = context::executeAuthenticated` (`HiveConnector.java:105`) → **SIMPLE auth for a Kerberos HMS = silent security downgrade.**

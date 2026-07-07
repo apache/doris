@@ -34,7 +34,10 @@
 - **D3 混合 Iceberg 表 = 翻闸前先做好跨插件委派，无倒退**（兄弟连接器 SPI §4.4 是硬前置，滑期则翻闸顺延，不走 fail-loud 拒绝）。
 - **D4 打包**（翻闸时再定）：倾向两 PR（可回滚翻闸 + 机械删除）。
 
-**下一步 = 开始休眠期补齐（设计文档 §5 阶段 1，每子步一个独立休眠 commit，线上零影响）**。推荐**首个 commit = §4.1 Hive 连接器 Kerberos 认证器 + 属性校验对齐**（自包含 BLOCKER，有 `IcebergConnector` 现成模板 `:162-177,783-821`，测试门清晰）。其余子步：§4.2 读侧 SPI（`partition_columns`/`listPartitions`/`getTableStatistics`/视图/capabilities）、§4.2a 列统计 SPI、§4.3 MVCC/系统表 + freshness-aware `getTableSnapshot`、§4.4 兄弟 SPI + 网关委派、§4.5 读-ACID 收尾 + 写前检查 + `BIND_BROKER_NAME` 搬家 + engine-map。**翻闸集（原子）/删除单元/硬门 见设计文档 §2/§5/§7，勿在翻闸前动**。
+**休眠期补齐进行中（设计文档 §5 阶段 1，每子步一个独立休眠 commit，线上零影响）**：
+- **✅ §4.1 DONE（commit `e63b03fb490`）**：Hive 连接器插件侧 Kerberos 认证器（翻闸后注入 context 是 NOOP/SIMPLE，加密 HMS 会静默降级——修法=只替换给 `ThriftHmsClient` 的 `AuthAction` 走插件 UGI `doAs`，**不套 iceberg 的 TcclPinningConnectorContext**，因 `ThriftHmsClient.doAs` 已 pin SYSTEM 类加载器且 hadoop+fe-kerberos 是 child-first→插件认证器与插件 RPC 同一 UGI 副本）。**决策 C 签字**：新建中立 `fe-connector-metastore-hms` 模块（HMS 解析器原只在 iceberg/paimon 元数据模块各一份；中立 API/SPI 已存在）。全绿 5/5 + 0 checkstyle。详见 `hms-cutover-kerberos-auth-impl-notes-2026-07-07.md`。**残留**：写链 HDFS Kerberos（`HiveWritePlanProvider`/committer 直用 `context.executeAuthenticated`，仍 NOOP）留到写翻闸补；真 KDC 冒烟归 R-002 硬门。
+- **下一步 = §4.2 读侧 SPI**（`HiveConnectorMetadata` 目前是 read-mostly 骨架）：⛔`partition_columns` 发射（不发→分区表被当无分区读，建议给 `ConnectorTableSchema` 加一等 `partitionColumnNames` 字段 + 连接器侧做 STRING→varchar(65535) 强转）、⛔`listPartitions`/`getTableStatistics`（HMS 参数行数 + file-list 估算兜底 + dataSize）/`buildTableDescriptor`/`listSupportedSysTables`/`viewExists`+`getViewDefinition`（Presto-view base64）/`getCapabilities`（含 `SUPPORTS_MVCC_SNAPSHOT`；但 TOPN/NESTED_PRUNE 需**按表 format 门**非目录级 flag，见完整性 critic）、UNKNOWN-format fail-loud 对齐、read_hive_json_in_one_column serde 细节（决定复刻或记录变更）。
+- 后续子步：§4.2a 列统计 SPI（**D1=保留**，新增 `getColumnStatistics`）、§4.3 MVCC/系统表 + freshness-aware `getTableSnapshot`、§4.4 兄弟 SPI + 网关委派、§4.5 读-ACID 收尾 + 写前检查 + `BIND_BROKER_NAME` 搬家 + engine-map。**翻闸集（原子）/删除单元/硬门 见设计文档 §2/§5/§7，勿在翻闸前动**。
 
 ## 开场要点（承接）
 1. **先读设计文档 `hms-cutover-retype-design-2026-07-07.md`（权威计划）+ 两份 findings + 本文顶部 🎯 段**。剩余 HMS 迁移 = 一次原子翻闸 + 前置休眠补齐 + 末尾循环删除。
