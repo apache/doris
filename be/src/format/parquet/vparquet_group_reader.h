@@ -91,6 +91,7 @@ public:
         // ParquetReader::set_fill_columns(xxx, xxx) will set these two members
         std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
                 fill_partition_columns;
+        std::unordered_map<std::string, bool> partition_value_is_null;
         std::unordered_map<std::string, VExprContextSPtr> fill_missing_columns;
 
         phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>>

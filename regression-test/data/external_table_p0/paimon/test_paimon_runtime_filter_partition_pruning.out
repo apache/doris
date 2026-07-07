@@ -95,6 +95,12 @@
 -- !null_partition_4 --
 1	\N	100.0
 
+-- !null_int_partition_column --
+6	Null Int	\N
+
+-- !null_timestamp_partition_column --
+6	Null Timestamp	\N
+
 -- !runtime_filter_partition_pruning_decimal1 --
 2
 
@@ -191,3 +197,8 @@
 -- !null_partition_4 --
 1	\N	100.0
 
+-- !null_int_partition_column --
+6	Null Int	\N
+
+-- !null_timestamp_partition_column --
+6	Null Timestamp	\N
