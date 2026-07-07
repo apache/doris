@@ -87,6 +87,7 @@ import java.util.ArrayList;
 import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.regex.Pattern;
@@ -462,7 +463,7 @@ public class PaimonUtil {
             try {
                 String partitionValue = serializePartitionValue(partitionType.getFields().get(i).type(),
                         partitionValuesArray[i], timeZone);
-                partitionInfoMap.put(partitionKeys.get(i), partitionValue);
+                partitionInfoMap.put(partitionKeys.get(i).toLowerCase(Locale.ROOT), partitionValue);
             } catch (UnsupportedOperationException e) {
                 LOG.warn("Failed to serialize table {} partition value for key {}: {}", table.name(),
                         partitionKeys.get(i), e.getMessage());
@@ -487,6 +488,16 @@ public class PaimonUtil {
                     return null;
                 }
                 return value.toString();
+            case FLOAT:
+                if (value == null) {
+                    return null;
+                }
+                return Float.toString((Float) value);
+            case DOUBLE:
+                if (value == null) {
+                    return null;
+                }
+                return Double.toString((Double) value);
             // case binary:
             // case varbinary: should not supported, because if return string with utf8,
             // the data maybe be corrupted

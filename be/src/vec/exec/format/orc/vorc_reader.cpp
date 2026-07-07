@@ -84,6 +84,7 @@
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_struct.h"
 #include "vec/exec/format/orc/orc_file_reader.h"
+#include "vec/exec/format/table/partition_column_filler.h"
 #include "vec/exec/format/table/transactional_hive_common.h"
 #include "vec/exec/scan/file_scanner.h"
 #include "vec/exprs/vbloom_predicate.h"
@@ -1067,6 +1068,18 @@ Status OrcReader::set_fill_columns(
         const std::unordered_map<std::string, VExprContextSPtr>& missing_columns) {
     SCOPED_RAW_TIMER(&_statistics.set_fill_column_time);
 
+    _lazy_read_ctx.partition_value_is_null.clear();
+    if (_scan_range.__isset.columns_from_path_is_null) {
+        DORIS_CHECK(_scan_range.__isset.columns_from_path_keys);
+        DORIS_CHECK(_scan_range.columns_from_path_keys.size() ==
+                    _scan_range.columns_from_path_is_null.size());
+        for (size_t i = 0; i < _scan_range.columns_from_path_keys.size(); ++i) {
+            _lazy_read_ctx.partition_value_is_null.emplace(
+                    _scan_range.columns_from_path_keys[i],
+                    _scan_range.columns_from_path_is_null[i]);
+        }
+    }
+
     // std::unordered_map<column_name, std::pair<col_id, slot_id>>
     std::unordered_map<std::string, std::pair<uint32_t, int>> predicate_table_columns;
     // visit_slot for lazy mat.
@@ -1383,23 +1396,12 @@ Status OrcReader::_fill_partition_columns(
         auto col_ptr = block->get_by_position((*_col_name_to_block_idx)[kv.first])
                                .column->assume_mutable();
         const auto& [value, slot_desc] = kv.second;
-        auto _text_serde = slot_desc->get_data_type_ptr()->get_serde();
-        Slice slice(value.data(), value.size());
-        uint64_t num_deserialized = 0;
-        if (_text_serde->deserialize_column_from_fixed_json(*col_ptr, slice, rows,
-                                                            &num_deserialized,
-                                                            _text_formatOptions) != Status::OK()) {
-            return Status::InternalError("Failed to fill partition column: {}={}",
-                                         slot_desc->col_name(), value);
-        }
-        if (num_deserialized != rows) {
-            return Status::InternalError(
-                    "Failed to fill partition column: {}={} ."
-                    "Number of rows expected to be written : {}, number of rows actually "
-                    "written : "
-                    "{}",
-                    slot_desc->col_name(), value, num_deserialized, rows);
-        }
+        auto null_it = _lazy_read_ctx.partition_value_is_null.find(kv.first);
+        RETURN_IF_ERROR(fill_partition_column_from_path_value(
+                *col_ptr, *slot_desc, value, rows,
+                null_it != _lazy_read_ctx.partition_value_is_null.end(),
+                null_it != _lazy_read_ctx.partition_value_is_null.end() && null_it->second,
+                _text_formatOptions));
     }
     return Status::OK();
 }

@@ -31,6 +31,7 @@ import org.apache.doris.qe.SessionVariable;
 import org.apache.paimon.data.BinaryRow;
 import org.apache.paimon.io.DataFileMeta;
 import org.apache.paimon.stats.SimpleStats;
+import org.apache.paimon.table.Table;
 import org.apache.paimon.table.source.DataSplit;
 import org.apache.paimon.table.source.RawFile;
 import org.junit.Assert;
@@ -63,7 +64,11 @@ public class PaimonScanNodeTest {
         TupleDescriptor desc = new TupleDescriptor(new TupleId(3));
         PaimonScanNode paimonScanNode = new PaimonScanNode(new PlanNodeId(1), desc, false, sv, ScanContext.EMPTY);
 
-        paimonScanNode.setSource(new PaimonSource());
+        PaimonSource source = Mockito.spy(new PaimonSource());
+        Table paimonTable = Mockito.mock(Table.class);
+        Mockito.doReturn(paimonTable).when(source).getPaimonTable();
+        Mockito.when(paimonTable.partitionKeys()).thenReturn(Collections.emptyList());
+        paimonScanNode.setSource(source);
 
         DataFileMeta dfm1 = DataFileMeta.forAppend("f1.parquet", 64 * 1024 * 1024, 1, SimpleStats.EMPTY_STATS, 1, 1, 1,
                 Collections.emptyList(), null, null, null, null);

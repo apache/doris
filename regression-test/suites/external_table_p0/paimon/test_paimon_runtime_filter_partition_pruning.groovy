@@ -252,6 +252,18 @@ suite("test_paimon_runtime_filter_partition_pruning", "p0,external,doris,externa
             qt_null_partition_4 """
                 select * from null_str_partition_table where category is null;
             """
+            qt_null_int_partition_column """
+                select id, name, partition_key
+                from int_partitioned
+                where partition_key is null
+                order by id;
+            """
+            qt_null_timestamp_partition_column """
+                select id, name, partition_key
+                from timestamp_partitioned
+                where partition_key is null
+                order by id;
+            """
         }
 
         try {
@@ -267,5 +279,4 @@ suite("test_paimon_runtime_filter_partition_pruning", "p0,external,doris,externa
         }
     }
 }
-
 

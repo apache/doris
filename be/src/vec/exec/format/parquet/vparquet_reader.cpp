@@ -466,6 +466,17 @@ Status ParquetReader::set_fill_columns(
                 partition_columns,
         const std::unordered_map<std::string, VExprContextSPtr>& missing_columns) {
     _lazy_read_ctx.fill_partition_columns = partition_columns;
+    _lazy_read_ctx.partition_value_is_null.clear();
+    if (_scan_range.__isset.columns_from_path_is_null) {
+        DORIS_CHECK(_scan_range.__isset.columns_from_path_keys);
+        DORIS_CHECK(_scan_range.columns_from_path_keys.size() ==
+                    _scan_range.columns_from_path_is_null.size());
+        for (size_t i = 0; i < _scan_range.columns_from_path_keys.size(); ++i) {
+            _lazy_read_ctx.partition_value_is_null.emplace(
+                    _scan_range.columns_from_path_keys[i],
+                    _scan_range.columns_from_path_is_null[i]);
+        }
+    }
     _lazy_read_ctx.fill_missing_columns = missing_columns;
 
     // std::unordered_map<column_name, std::pair<col_id, slot_id>>
