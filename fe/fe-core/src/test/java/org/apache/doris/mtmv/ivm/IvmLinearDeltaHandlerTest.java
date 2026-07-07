@@ -226,8 +226,6 @@ class IvmLinearDeltaHandlerTest extends IvmDeltaTestBase {
         Mockito.when(mtmv.getInsertedColumnNames()).thenReturn(ImmutableList.of("id"));
 
         LogicalOlapScan scan = buildScan();
-        IvmRefreshContext ctx = new IvmRefreshContext(mtmv, new ConnectContext(), null);
-        TestableIvmLinearDeltaHandler handler = new TestableIvmLinearDeltaHandler();
         Command command = new IvmRefreshManager().buildInsertCommand(
                 new LogicalProject<>(ImmutableList.of((NamedExpression) scan.getOutput().get(0)), scan), mtmv);
 
