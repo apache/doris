@@ -83,7 +83,8 @@ Status _get_segment_column_iterator(const BetaRowsetSharedPtr& rowset, uint32_t 
                                     std::unique_ptr<segment_v2::ColumnIterator>* column_iterator,
                                     OlapReaderStatistics* stats,
                                     const io::IOContext* input_io_ctx = nullptr) {
-    RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(rowset, segment_cache_handle, true));
+    RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(rowset, segment_cache_handle, true,
+                                                             false, stats, input_io_ctx));
     // find segment
     auto it = std::find_if(
             segment_cache_handle->get_segments().begin(),

@@ -42,6 +42,7 @@
 #include "exprs/vexpr_context.h"
 #include "exprs/vexpr_fwd.h"
 #include "exprs/vslot_ref.h"
+#include "io/cache/remote_scan_cache_write_limiter.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/result_block_buffer.h"
@@ -280,6 +281,19 @@ PointQueryExecutor::~PointQueryExecutor() {
     _row_read_ctxs.clear();
 }
 
+void PointQueryExecutor::_init_remote_scan_cache_write_limiter() {
+    const auto& query_options = _reusable->runtime_state()->query_options();
+    const bool initialize_remote_scan_cache_write_limiter =
+            config::is_cloud_mode() && config::enable_file_cache &&
+            query_options.__isset.file_cache_query_limit_bytes &&
+            query_options.file_cache_query_limit_bytes >= 0 &&
+            query_options.query_type == TQueryType::SELECT;
+    if (initialize_remote_scan_cache_write_limiter) {
+        _remote_scan_cache_write_limiter = std::make_unique<io::RemoteScanCacheWriteLimiter>(
+                _reusable->runtime_state()->query_id(), query_options.file_cache_query_limit_bytes);
+    }
+}
+
 Status PointQueryExecutor::init(const PTabletKeyLookupRequest* request,
                                 PTabletKeyLookupResponse* response) {
     SCOPED_TIMER(&_profile_metrics.init_ns);
@@ -345,6 +359,7 @@ Status PointQueryExecutor::init(const PTabletKeyLookupRequest* request,
                                                *_tablet->tablet_schema(), 1));
         }
     }
+    _init_remote_scan_cache_write_limiter();
     // Set timezone from request for functions like from_unixtime()
     if (request->has_time_zone() && !request->time_zone().empty()) {
         _reusable->runtime_state()->set_timezone(request->time_zone());
@@ -528,10 +543,14 @@ Status PointQueryExecutor::_lookup_row_data() {
             // fill block by row store
             if (_reusable->rs_column_uid() != -1) {
                 bool use_row_cache = !config::disable_storage_row_cache;
+                io::IOContext io_ctx;
+                io_ctx.reader_type = ReaderType::READER_QUERY;
+                io_ctx.file_cache_stats = &_profile_metrics.read_stats.file_cache_stats;
+                io_ctx.remote_scan_cache_write_limiter = _remote_scan_cache_write_limiter.get();
                 RETURN_IF_ERROR(_tablet->lookup_row_data(
                         _row_read_ctxs[i]._primary_key, _row_read_ctxs[i]._row_location.value(),
                         *(_row_read_ctxs[i]._rowset_ptr), _profile_metrics.read_stats, value,
-                        use_row_cache));
+                        use_row_cache, &io_ctx));
                 // serialize value to block, currently only jsonb row format
                 RETURN_IF_ERROR(JsonbSerializeUtil::jsonb_to_columns(
                         _reusable->get_data_type_serdes(), value.data(), value.size(),
@@ -555,10 +574,14 @@ Status PointQueryExecutor::_lookup_row_data() {
                 BetaRowsetSharedPtr rowset = std::static_pointer_cast<BetaRowset>(
                         _tablet->get_rowset(row_loc.rowset_id));
                 SegmentCacheHandle segment_cache;
+                io::IOContext io_ctx;
+                io_ctx.reader_type = ReaderType::READER_QUERY;
+                io_ctx.file_cache_stats = &_read_stats.file_cache_stats;
+                io_ctx.remote_scan_cache_write_limiter = _remote_scan_cache_write_limiter.get();
                 {
                     SCOPED_TIMER(&_profile_metrics.load_segment_data_stage_ns);
-                    RETURN_IF_ERROR(
-                            SegmentLoader::instance()->load_segments(rowset, &segment_cache, true));
+                    RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(
+                            rowset, &segment_cache, true, false, &_read_stats, &io_ctx));
                 }
                 // find segment
                 auto it = std::find_if(segment_cache.get_segments().cbegin(),
@@ -576,7 +599,7 @@ Status PointQueryExecutor::_lookup_row_data() {
                     SlotDescriptor* slot = _reusable->tuple_desc()->slots()[pos];
                     StorageReadOptions storage_read_options;
                     storage_read_options.stats = &_read_stats;
-                    storage_read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
+                    storage_read_options.io_ctx = io_ctx;
                     RETURN_IF_ERROR(segment->seek_and_read_by_rowid(*_tablet->tablet_schema(), slot,
                                                                     row_ids, column,
                                                                     storage_read_options, iter));
