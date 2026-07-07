@@ -85,10 +85,18 @@ public class SpiSwitchingFileSystem implements FileSystem {
         if (testDelegate != null) {
             return testDelegate;
         }
-        LocationPath lp = LocationPath.of(uri, storagePropertiesMap);
-        StorageProperties sp = lp.getStorageProperties();
+        LocationPath locationPath = LocationPath.of(uri, storagePropertiesMap);
+        return forLocationPath(locationPath, uri);
+    }
+
+    @VisibleForTesting
+    FileSystem forLocationPath(LocationPath locationPath, String originalUri) throws IOException {
+        if (testDelegate != null) {
+            return testDelegate;
+        }
+        StorageProperties sp = locationPath.getStorageProperties();
         if (sp == null) {
-            throw new IOException("No StorageProperties found for path: " + uri);
+            throw new IOException("No StorageProperties found for path: " + originalUri);
         }
         try {
             return cache.computeIfAbsent(sp, props -> {
@@ -114,84 +122,94 @@ public class SpiSwitchingFileSystem implements FileSystem {
 
     @Override
     public boolean exists(Location location) throws IOException {
-        Location normalizedLocation = normalizeLocation(location);
-        return forLocation(normalizedLocation).exists(normalizedLocation);
+        ResolvedLocation resolvedLocation = resolveLocation(location);
+        return resolvedLocation.fileSystem.exists(resolvedLocation.location);
     }
 
     @Override
     public void mkdirs(Location location) throws IOException {
-        Location normalizedLocation = normalizeLocation(location);
-        forLocation(normalizedLocation).mkdirs(normalizedLocation);
+        ResolvedLocation resolvedLocation = resolveLocation(location);
+        resolvedLocation.fileSystem.mkdirs(resolvedLocation.location);
     }
 
     @Override
     public void delete(Location location, boolean recursive) throws IOException {
-        Location normalizedLocation = normalizeLocation(location);
-        forLocation(normalizedLocation).delete(normalizedLocation, recursive);
+        ResolvedLocation resolvedLocation = resolveLocation(location);
+        resolvedLocation.fileSystem.delete(resolvedLocation.location, recursive);
     }
 
     @Override
     public void rename(Location src, Location dst) throws IOException {
-        Location normalizedSrc = normalizeLocation(src);
+        ResolvedLocation resolvedSrc = resolveLocation(src);
         Location normalizedDst = normalizeLocation(dst);
-        forLocation(normalizedSrc).rename(normalizedSrc, normalizedDst);
+        resolvedSrc.fileSystem.rename(resolvedSrc.location, normalizedDst);
     }
 
     @Override
     public FileIterator list(Location location) throws IOException {
-        Location normalizedLocation = normalizeLocation(location);
-        return forLocation(normalizedLocation).list(normalizedLocation);
+        ResolvedLocation resolvedLocation = resolveLocation(location);
+        return resolvedLocation.fileSystem.list(resolvedLocation.location);
     }
 
     @Override
     public List<FileEntry> listFiles(Location dir) throws IOException {
-        Location normalizedDir = normalizeLocation(dir);
-        return forLocation(normalizedDir).listFiles(normalizedDir);
+        ResolvedLocation resolvedDir = resolveLocation(dir);
+        return resolvedDir.fileSystem.listFiles(resolvedDir.location);
     }
 
     @Override
     public List<FileEntry> listFilesRecursive(Location dir) throws IOException {
-        Location normalizedDir = normalizeLocation(dir);
-        return forLocation(normalizedDir).listFilesRecursive(normalizedDir);
+        ResolvedLocation resolvedDir = resolveLocation(dir);
+        return resolvedDir.fileSystem.listFilesRecursive(resolvedDir.location);
     }
 
     @Override
     public Set<String> listDirectories(Location dir) throws IOException {
-        Location normalizedDir = normalizeLocation(dir);
-        return forLocation(normalizedDir).listDirectories(normalizedDir);
+        ResolvedLocation resolvedDir = resolveLocation(dir);
+        return resolvedDir.fileSystem.listDirectories(resolvedDir.location);
     }
 
     @Override
     public void renameDirectory(Location src, Location dst, Runnable whenSrcNotExists)
             throws IOException {
-        Location normalizedSrc = normalizeLocation(src);
+        ResolvedLocation resolvedSrc = resolveLocation(src);
         Location normalizedDst = normalizeLocation(dst);
-        forLocation(normalizedSrc).renameDirectory(normalizedSrc, normalizedDst, whenSrcNotExists);
+        resolvedSrc.fileSystem.renameDirectory(resolvedSrc.location, normalizedDst, whenSrcNotExists);
     }
 
     @Override
     public DorisInputFile newInputFile(Location location) throws IOException {
-        Location normalizedLocation = normalizeLocation(location);
-        return forLocation(normalizedLocation).newInputFile(normalizedLocation);
+        ResolvedLocation resolvedLocation = resolveLocation(location);
+        return resolvedLocation.fileSystem.newInputFile(resolvedLocation.location);
     }
 
     @Override
     public DorisInputFile newInputFile(Location location, long length) throws IOException {
-        Location normalizedLocation = normalizeLocation(location);
-        return forLocation(normalizedLocation).newInputFile(normalizedLocation, length);
+        ResolvedLocation resolvedLocation = resolveLocation(location);
+        return resolvedLocation.fileSystem.newInputFile(resolvedLocation.location, length);
     }
 
     @Override
     public DorisOutputFile newOutputFile(Location location) throws IOException {
-        Location normalizedLocation = normalizeLocation(location);
-        return forLocation(normalizedLocation).newOutputFile(normalizedLocation);
+        ResolvedLocation resolvedLocation = resolveLocation(location);
+        return resolvedLocation.fileSystem.newOutputFile(resolvedLocation.location);
     }
 
     @Override
     public GlobListing globListWithLimit(Location path, String startAfter, long maxBytes,
             long maxFiles) throws IOException {
-        Location normalizedPath = normalizeLocation(path);
-        return forLocation(normalizedPath).globListWithLimit(normalizedPath, startAfter, maxBytes, maxFiles);
+        ResolvedLocation resolvedPath = resolveLocation(path);
+        return resolvedPath.fileSystem.globListWithLimit(resolvedPath.location, startAfter, maxBytes, maxFiles);
+    }
+
+    private ResolvedLocation resolveLocation(Location location) throws IOException {
+        if (testDelegate != null) {
+            return new ResolvedLocation(location, testDelegate);
+        }
+        LocationPath locationPath = LocationPath.of(location.uri(), storagePropertiesMap);
+        return new ResolvedLocation(
+                Location.of(locationPath.getNormalizedLocation()),
+                forLocationPath(locationPath, location.uri()));
     }
 
     private Location normalizeLocation(Location location) {
@@ -223,6 +241,16 @@ public class SpiSwitchingFileSystem implements FileSystem {
         }
         if (firstError != null) {
             throw firstError;
+        }
+    }
+
+    private static class ResolvedLocation {
+        private final Location location;
+        private final FileSystem fileSystem;
+
+        private ResolvedLocation(Location location, FileSystem fileSystem) {
+            this.location = location;
+            this.fileSystem = fileSystem;
         }
     }
 }

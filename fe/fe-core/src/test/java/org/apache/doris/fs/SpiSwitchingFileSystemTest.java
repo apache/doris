@@ -17,6 +17,7 @@
 
 package org.apache.doris.fs;
 
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.property.storage.BrokerProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
@@ -117,19 +118,39 @@ public class SpiSwitchingFileSystemTest {
         spiFs.delete(source, true);
         Assert.assertEquals("s3://my-bucket/path/to/source", delegate.location.uri());
         Assert.assertEquals("s3://my-bucket/path/to/source", delegate.selectedLocation);
+        Assert.assertEquals(StorageProperties.Type.OSS, delegate.selectedStorageType);
 
         spiFs.listFiles(source);
         Assert.assertEquals("s3://my-bucket/path/to/source", delegate.location.uri());
         Assert.assertEquals("s3://my-bucket/path/to/source", delegate.selectedLocation);
+        Assert.assertEquals(StorageProperties.Type.OSS, delegate.selectedStorageType);
 
         spiFs.rename(source, dest);
         Assert.assertEquals("s3://my-bucket/path/to/source", delegate.location.uri());
         Assert.assertEquals("s3://my-bucket/path/to/dest", delegate.destLocation.uri());
         Assert.assertEquals("s3://my-bucket/path/to/source", delegate.selectedLocation);
+        Assert.assertEquals(StorageProperties.Type.OSS, delegate.selectedStorageType);
 
         spiFs.newOutputFile(dest);
         Assert.assertEquals("s3://my-bucket/path/to/dest", delegate.location.uri());
         Assert.assertEquals("s3://my-bucket/path/to/dest", delegate.selectedLocation);
+        Assert.assertEquals(StorageProperties.Type.OSS, delegate.selectedStorageType);
+    }
+
+    @Test
+    public void testOssBucketEndpointPathSelectsOssWhenS3IsAlsoConfigured()
+            throws IOException, UserException {
+        RecordingFileSystem delegate = new RecordingFileSystem();
+        SpiSwitchingFileSystem spiFs = new RecordingSwitchingFileSystem(
+                delegate, createOssAndS3StorageProperties());
+
+        Location source = Location.of("oss://my-bucket.oss-cn-beijing-internal.aliyuncs.com/path/to/source");
+
+        spiFs.delete(source, true);
+
+        Assert.assertEquals("s3://my-bucket/path/to/source", delegate.location.uri());
+        Assert.assertEquals("s3://my-bucket/path/to/source", delegate.selectedLocation);
+        Assert.assertEquals(StorageProperties.Type.OSS, delegate.selectedStorageType);
     }
 
     // -----------------------------------------------------------------------
@@ -281,6 +302,26 @@ public class SpiSwitchingFileSystemTest {
         return storageProperties;
     }
 
+    private static Map<StorageProperties.Type, StorageProperties> createOssAndS3StorageProperties()
+            throws UserException {
+        Map<String, String> origProps = new HashMap<>();
+        origProps.put(StorageProperties.FS_OSS_SUPPORT, "true");
+        origProps.put("oss.endpoint", "oss-cn-beijing-internal.aliyuncs.com");
+        origProps.put("oss.access_key", "oss-ak");
+        origProps.put("oss.secret_key", "oss-sk");
+        origProps.put(StorageProperties.FS_S3_SUPPORT, "true");
+        origProps.put("s3.endpoint", "s3.us-east-1.amazonaws.com");
+        origProps.put("s3.access_key", "s3-ak");
+        origProps.put("s3.secret_key", "s3-sk");
+        origProps.put("s3.region", "us-east-1");
+
+        Map<StorageProperties.Type, StorageProperties> storageProperties = new HashMap<>();
+        for (StorageProperties storageProperty : StorageProperties.createAll(origProps)) {
+            storageProperties.put(storageProperty.getType(), storageProperty);
+        }
+        return storageProperties;
+    }
+
     private static class RecordingSwitchingFileSystem extends SpiSwitchingFileSystem {
         private final RecordingFileSystem delegate;
 
@@ -291,14 +332,16 @@ public class SpiSwitchingFileSystemTest {
         }
 
         @Override
-        public FileSystem forPath(String uri) {
-            delegate.selectedLocation = uri;
+        FileSystem forLocationPath(LocationPath locationPath, String originalUri) {
+            delegate.selectedLocation = locationPath.getNormalizedLocation();
+            delegate.selectedStorageType = locationPath.getStorageProperties().getType();
             return delegate;
         }
     }
 
     private static class RecordingFileSystem extends StubFileSystem {
         private String selectedLocation;
+        private StorageProperties.Type selectedStorageType;
         private Location location;
         private Location destLocation;
 
