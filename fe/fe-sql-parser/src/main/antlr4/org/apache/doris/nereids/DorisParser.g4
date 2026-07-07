@@ -211,8 +211,8 @@ createMaterializedViewStatement
     ;
 
 refreshMaterializedViewStatement
-    : explain REFRESH MATERIALIZED VIEW mvName=multipartIdentifier INCREMENTAL
-                                                                                                #explainRefreshIvm
+    : explain REFRESH MATERIALIZED VIEW mvName=multipartIdentifier refreshPolicy
+                                                                                                #explainRefreshMtmv
     | REFRESH MATERIALIZED VIEW mvName=multipartIdentifier
         (partitionSpec | refreshPolicy)                                                         #refreshMTMV
     ;

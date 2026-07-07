@@ -78,22 +78,16 @@ suite("test_ivm_explain_refresh") {
         EXPLAIN SHAPE PLAN REFRESH MATERIALIZED VIEW test_ivm_explain_refresh_mv INCREMENTAL
     """)
 
-    def overviewPlan = sql """
-        EXPLAIN REFRESH MATERIALIZED VIEW test_ivm_explain_refresh_mv INCREMENTAL
-    """
-    assertTrue(overviewPlan.toString().contains("IVM_NORMALIZED_PLAN"))
-    assertTrue(overviewPlan.toString().contains("IVM_DELTA_PLAN"))
-
     explain {
         sql "REFRESH MATERIALIZED VIEW test_ivm_explain_refresh_mv INCREMENTAL"
         contains "PLAN FRAGMENT 0"
         contains "__DORIS_IVM_ROW_ID_COL__"
-        contains "VRESULT SINK"
+        contains "OLAP TABLE SINK"
     }
 
     explain {
         sql "ANALYZED PLAN REFRESH MATERIALIZED VIEW test_ivm_explain_refresh_mv INCREMENTAL"
-        contains "LogicalResultSink"
+        contains "LogicalOlapTableSink"
     }
 
     explain {
@@ -106,11 +100,21 @@ suite("test_ivm_explain_refresh") {
 
     explain {
         sql "LOGICAL PLAN REFRESH MATERIALIZED VIEW test_ivm_explain_refresh_mv INCREMENTAL"
-        contains "LogicalResultSink"
+        contains "LogicalOlapTableSink"
     }
 
     explain {
         sql "PHYSICAL PLAN REFRESH MATERIALIZED VIEW test_ivm_explain_refresh_mv INCREMENTAL"
-        contains "PhysicalResultSink"
+        contains "PhysicalOlapTableSink"
+    }
+
+    explain {
+        sql "REFRESH MATERIALIZED VIEW test_ivm_explain_refresh_mv COMPLETE"
+        contains "PLAN FRAGMENT 0"
+    }
+
+    explain {
+        sql "ANALYZED PLAN REFRESH MATERIALIZED VIEW test_ivm_explain_refresh_mv COMPLETE"
+        contains "LogicalOlapTableSink"
     }
 }

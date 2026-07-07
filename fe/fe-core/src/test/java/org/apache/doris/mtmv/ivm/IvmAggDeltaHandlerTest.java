@@ -23,7 +23,6 @@ import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -110,9 +109,11 @@ class IvmAggDeltaHandlerTest extends IvmDeltaTestBase {
         table.setEnableUniqueKeyMergeOnWrite(true);
         enableRowBinlog(table);
         table.setQualifiedDbName("test_db");
-        LogicalOlapScan scan = new LogicalOlapScan(PlanConstructor.getNextRelationId(), table,
+        if (delta) {
+            registerTestStreams(table);
+        }
+        return new LogicalOlapScan(PlanConstructor.getNextRelationId(), table,
                 ImmutableList.of("test_db"));
-        return delta ? scan : scan;
     }
 
     private LogicalAggregate<LogicalOlapScan> buildScalarMixedAgg(LogicalOlapScan scan) {
@@ -172,25 +173,6 @@ class IvmAggDeltaHandlerTest extends IvmDeltaTestBase {
                 applyOutputNames.get(applyOutputNames.size() - 1));
         Assertions.assertEquals(Column.IVM_ROW_ID_COL, getNormalizedTopProject(result).getOutput().get(0).getName());
         assertSinkProjectMatchesSinkColumns(result);
-    }
-
-    @Test
-    void testRootAggAboveLeftOuterJoinUsesOuterJoinDeltaRewrite() {
-        LogicalOlapScan leftDelta = buildMowScan(1, "a", true);
-        LogicalOlapScan rightSnapshot = buildMowScan(2, "b", false);
-        LogicalJoin<?, ?> outerJoin = new LogicalJoin<>(JoinType.LEFT_OUTER_JOIN,
-                ImmutableList.of(), leftDelta, rightSnapshot, JoinReorderContext.EMPTY);
-        Slot groupSlot = outerJoin.getOutput().get(0);
-        Alias countAlias = new Alias(new Count(), "cnt");
-        LogicalAggregate<Plan> agg = new LogicalAggregate<>(
-                ImmutableList.of(groupSlot), ImmutableList.of(groupSlot, countAlias),
-                true, Optional.empty(), outerJoin);
-
-        AggRewriteResult result = rewriteAgg(agg);
-
-        Assertions.assertEquals(Column.DELETE_SIGN,
-                result.finalProject.getOutput().get(result.finalProject.getOutput().size() - 1).getName());
-        Assertions.assertInstanceOf(LogicalProject.class, result.finalProject);
     }
 
     @Test

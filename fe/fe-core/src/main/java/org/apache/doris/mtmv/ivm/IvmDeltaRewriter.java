@@ -25,12 +25,10 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.catalog.stream.OlapTableStream;
 import org.apache.doris.catalog.stream.OlapTableStreamWrapper;
-import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.info.TableNameInfoUtils;
 import org.apache.doris.mtmv.MTMVPartitionUtil;
 import org.apache.doris.mtmv.ivm.agg.IvmAggMeta;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.CTEId;
@@ -333,7 +331,7 @@ public class IvmDeltaRewriter {
             allScans.add(scan);
             TableNameInfo tableNameInfo = IvmRefreshContext.toTableNameInfo(scan);
             if (tableNameInfo == null) {
-                throw new AnalysisException(
+                throw new IvmException(IvmFailureReason.PLAN_REWRITE_FAILED,
                         "IVM: failed to resolve base table for scan: " + scan.getTable().getName());
             }
             tableNames.add(tableNameInfo);
@@ -424,24 +422,7 @@ public class IvmDeltaRewriter {
 
     private LogicalOlapTableStreamScan createStreamScan(LogicalOlapScan scan, long mvId) {
         OlapTable originTable = (OlapTable) scan.getTable();
-        OlapTableStream stream = getStreamOrNull(scan, originTable, mvId);
-        if (stream == null) {
-            // In production the stream must exist; only FE unit tests may lack a stream.
-            if (FeConstants.runningUnitTest) {
-                return new LogicalOlapTableStreamScan(
-                        StatementScopeIdGenerator.newRelationId(),
-                        originTable,
-                        scan.getQualifier(),
-                        scan.getSelectedPartitionIds(),
-                        scan.getSelectedTabletIds(),
-                        scan.getHints(),
-                        scan.getTableSample(),
-                        scan.getOperativeSlots()
-                ).withIncrementalScan(true);
-            }
-            throw new AnalysisException("IVM: stream not found for base table "
-                    + originTable.getName());
-        }
+        OlapTableStream stream = getStream(originTable, mvId);
         OlapTableStreamWrapper streamWrapper = new OlapTableStreamWrapper(
                 stream, originTable, scan.getSelectedPartitionIds());
         return new LogicalOlapTableStreamScan(
@@ -488,26 +469,29 @@ public class IvmDeltaRewriter {
                 projects.add(new Alias(oldSlot.getExprId(),
                         new NullLiteral(oldSlot.getDataType()), oldSlot.getName()));
             } else {
-                throw new AnalysisException("IVM: stream scan missing column "
-                        + oldSlot.getName() + " for table " + oldScan.getTable().getName());
+                throw new IvmException(IvmFailureReason.STREAM_UNSUPPORTED,
+                        "IVM: stream scan missing column "
+                                + oldSlot.getName() + " for table " + oldScan.getTable().getName());
             }
         }
 
         return new LogicalProject<>(projects, streamScan);
     }
 
-    private OlapTableStream getStreamOrNull(LogicalOlapScan scan, OlapTable originTable, long mvId) {
+    private OlapTableStream getStream(OlapTable originTable, long mvId) {
         String streamName = IvmUtil.streamName(mvId, originTable.getName());
         String dbName = originTable.getQualifiedDbName();
         try {
             TableIf streamTable = Env.getCurrentInternalCatalog().getDbOrAnalysisException(dbName)
                     .getTableOrAnalysisException(streamName);
             if (!(streamTable instanceof OlapTableStream)) {
-                return null;
+                throw new IvmException(IvmFailureReason.STREAM_UNSUPPORTED,
+                        "IVM: stream " + streamName + " is not an OlapTableStream");
             }
             return (OlapTableStream) streamTable;
         } catch (Exception e) {
-            return null;
+            throw new IvmException(IvmFailureReason.STREAM_UNSUPPORTED,
+                    "IVM: stream not found for base table " + originTable.getName(), e);
         }
     }
 
