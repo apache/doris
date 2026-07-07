@@ -1788,7 +1788,7 @@ TEST(IcebergV2ReaderTest, IcebergTableReaderAppliesPositionDeleteFile) {
     std::filesystem::remove_all(test_dir);
 }
 
-TEST(IcebergV2ReaderTest, IcebergTableReaderMergesDeletionVectorAndPositionDeleteFiles) {
+TEST(IcebergV2ReaderTest, IcebergTableReaderIgnoresPositionDeleteFilesWhenDeletionVectorPresent) {
     const auto test_dir =
             std::filesystem::temp_directory_path() / "doris_iceberg_delete_files_merge_test";
     std::filesystem::remove_all(test_dir);
@@ -1831,7 +1831,7 @@ TEST(IcebergV2ReaderTest, IcebergTableReaderMergesDeletionVectorAndPositionDelet
                         make_iceberg_position_delete_file(position_delete_path)}));
     ASSERT_TRUE(reader.prepare_split(split_options).ok());
 
-    EXPECT_EQ(read_iceberg_ids(&reader, projected_columns), std::vector<int32_t>({2, 3, 5}));
+    EXPECT_EQ(read_iceberg_ids(&reader, projected_columns), std::vector<int32_t>({2, 3, 4, 5}));
 
     ASSERT_TRUE(reader.close().ok());
     std::filesystem::remove_all(test_dir);

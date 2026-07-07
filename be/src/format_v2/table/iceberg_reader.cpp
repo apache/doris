@@ -360,16 +360,17 @@ Status IcebergTableReader::_init_delete_predicates(const TTableFormatFileDesc& t
             equality_delete_files.push_back(delete_file);
         }
     }
-    // `_delete_rows != nullptr` means DeleteVector is parsed
+    // `_delete_rows != nullptr` means a deletion vector is parsed. Per Iceberg scan planning,
+    // position delete files apply only when there is no deletion vector for the data file.
     if (_delete_rows != nullptr) {
         _position_delete_rows_storage = *_delete_rows;
         _delete_rows = &_position_delete_rows_storage;
+        position_delete_files.clear();
     }
-    // Combine position delete rows from both deletion vector and position delete files, and
-    // initialize equality delete predicates. Position delete files contain row positions of
-    // deleted rows, which can be directly added to `_delete_rows`. Equality delete files contain
-    // values of deleted rows, which require reading the files and building predicates for later
-    // filtering.
+    // Initialize position and equality delete predicates. Position delete files contain row
+    // positions of deleted rows, which can be directly added to `_delete_rows`. Equality delete
+    // files contain values of deleted rows, which require reading the files and building
+    // predicates for later filtering.
     if (!position_delete_files.empty()) {
         RETURN_IF_ERROR(_init_position_delete_rows(position_delete_files));
     }
