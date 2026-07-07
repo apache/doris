@@ -20,6 +20,7 @@ package org.apache.doris.connector.hive;
 import org.apache.doris.connector.api.ConnectorCapability;
 import org.apache.doris.connector.api.ConnectorColumn;
 import org.apache.doris.connector.api.ConnectorMetadata;
+import org.apache.doris.connector.api.ConnectorPartitionInfo;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.ConnectorTableSchema;
 import org.apache.doris.connector.api.ConnectorTableStatistics;
@@ -711,6 +712,85 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
                 .build();
         return Optional.of(new FilterApplicationResult<>(
                 newHandle, constraint.getExpression(), false));
+    }
+
+    // ========== ConnectorTableOps: partition listing ==========
+
+    /**
+     * Lists a partitioned table's partition display names (e.g. {@code "year=2024/month=01"}), taken
+     * straight from the metastore's {@code get_partition_names}. Byte-parity with legacy
+     * {@code HiveExternalMetaCache.loadPartitionValues}, whose hot partition-pruning path listed NAMES ONLY
+     * (no per-partition metadata round-trip). An unpartitioned table lists nothing (the metastore has no
+     * partitions; the guard mirrors {@code PaimonConnectorMetadata.collectPartitions}, avoiding a pointless
+     * RPC).
+     */
+    @Override
+    public List<String> listPartitionNames(ConnectorSession session, ConnectorTableHandle handle) {
+        return collectPartitionNames((HiveTableHandle) handle);
+    }
+
+    /**
+     * Lists all partitions with metadata. The {@code filter} is intentionally ignored: legacy hive
+     * materialized its full partition view and pruned FE-side (mirrors {@code PaimonConnectorMetadata} /
+     * {@code MaxComputeConnectorMetadata}).
+     *
+     * <p>{@code lastModifiedMillis} is deliberately left {@link ConnectorPartitionInfo#UNKNOWN} (-1):
+     * reading each partition's {@code transient_lastDdlTime} requires a {@code get_partitions_by_names}
+     * round-trip that legacy's per-query partition-view path did NOT pay (it read only partition names),
+     * so filling it here would regress every partitioned-hive query. Legacy fetched per-partition modify
+     * time only at MTMV-refresh time; that freshness path is rewired connector-side in the MVCC/MTMV step
+     * (until then a hive MTMV base table's per-partition freshness is UNKNOWN, harmless while hive is
+     * dormant). {@code rowCount}/{@code sizeBytes}/{@code fileCount} are likewise UNKNOWN — hive does not
+     * declare {@code SUPPORTS_PARTITION_STATS} (legacy SHOW PARTITIONS lists names only).</p>
+     */
+    @Override
+    public List<ConnectorPartitionInfo> listPartitions(ConnectorSession session,
+            ConnectorTableHandle handle, Optional<ConnectorExpression> filter) {
+        HiveTableHandle hiveHandle = (HiveTableHandle) handle;
+        List<String> partKeyNames = hiveHandle.getPartitionKeyNames();
+        List<String> partitionNames = collectPartitionNames(hiveHandle);
+        List<ConnectorPartitionInfo> result = new ArrayList<>(partitionNames.size());
+        for (String partitionName : partitionNames) {
+            result.add(new ConnectorPartitionInfo(partitionName,
+                    toPartitionValueMap(partitionName, partKeyNames),
+                    Collections.emptyMap()));
+        }
+        return result;
+    }
+
+    /**
+     * Shared partition-name lister backing {@link #listPartitionNames} and {@link #listPartitions}. Returns
+     * the metastore's rendered partition names ({@code key=value/...}); an unpartitioned table (no partition
+     * keys) lists nothing without touching the metastore.
+     */
+    private List<String> collectPartitionNames(HiveTableHandle handle) {
+        List<String> partKeyNames = handle.getPartitionKeyNames();
+        if (partKeyNames == null || partKeyNames.isEmpty()) {
+            return Collections.emptyList();
+        }
+        // -1 = "all partitions": ThriftHmsClient maps it to an unbounded HMS listing (no silent cap),
+        // matching legacy's default (Config.max_hive_list_partition_num = -1).
+        return hmsClient.listPartitionNames(handle.getDbName(), handle.getTableName(), -1);
+    }
+
+    /**
+     * Parses a rendered partition name ({@code key1=v1/key2=v2}) into a remote-key -&gt; value map, unescaping
+     * each value via {@link HiveWriteUtils#toPartitionValues} (the byte-faithful port of legacy
+     * {@code HiveUtil.toPartitionValues}). Keyed by the handle's remote partition-column names in schema
+     * order, which is how {@code PluginDrivenExternalTable.getNameToPartitionItems} reads the values back.
+     * Returns an empty map when the parsed value arity does not match the partition-key arity (defensive; a
+     * malformed name is logged-and-skipped by the fe-core partition-item builder).
+     */
+    private static Map<String, String> toPartitionValueMap(String partitionName, List<String> partKeyNames) {
+        List<String> values = HiveWriteUtils.toPartitionValues(partitionName);
+        if (partKeyNames == null || values.size() != partKeyNames.size()) {
+            return Collections.emptyMap();
+        }
+        Map<String, String> valueMap = new LinkedHashMap<>();
+        for (int i = 0; i < partKeyNames.size(); i++) {
+            valueMap.put(partKeyNames.get(i), values.get(i));
+        }
+        return valueMap;
     }
 
     // ========== ConnectorSchemaOps: DDL writes (create/drop database) ==========
