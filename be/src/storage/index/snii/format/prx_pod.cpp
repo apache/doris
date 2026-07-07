@@ -377,7 +377,7 @@ Status decode_payload(Slice plain, std::vector<std::vector<uint32_t>>* out) {
     out->reserve(doc_count);
     for (uint32_t d = 0; d < doc_count; ++d) {
         uint32_t pos_count = 0;
-        RETURN_IF_ERROR(src.get_varint32(&pos_count));
+        RETURN_IF_ERROR(src.get_varint32_fast(&pos_count));
         std::vector<uint32_t> doc;
         doc.reserve(pos_count);
         uint32_t prev = 0;
@@ -649,19 +649,15 @@ Status decode_payload_csr(Slice plain, std::vector<uint32_t>* pos_flat,
     uint64_t total_pos = 0;
     for (uint32_t d = 0; d < doc_count; ++d) {
         uint32_t pos_count = 0;
-        RETURN_IF_ERROR(src.get_varint32(&pos_count));
+        RETURN_IF_ERROR(src.get_varint32_fast(&pos_count));
         total_pos += pos_count;
         if (total_pos > kMaxWindowPositions) {
             return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
                     "prx: position count exceeds sane cap");
         }
-        uint32_t prev = 0;
-        for (uint32_t i = 0; i < pos_count; ++i) {
-            uint32_t delta = 0;
-            RETURN_IF_ERROR(src.get_varint32(&delta));
-            prev = (i == 0) ? delta : prev + delta;
-            pos_flat->push_back(prev);
-        }
+        // Tight inline prefix-sum decode (single-byte fast path) -- see
+        // decode_delta_run. Shared with the selective reader below.
+        RETURN_IF_ERROR(src.decode_delta_run(pos_count, pos_flat));
         pos_off->push_back(static_cast<uint32_t>(pos_flat->size()));
     }
     if (!src.eof())
@@ -689,7 +685,7 @@ Status decode_payload_csr_selective(Slice plain, std::span<const uint32_t> doc_o
     uint64_t total_pos = 0;
     for (uint32_t d = 0; d < doc_count; ++d) {
         uint32_t pos_count = 0;
-        RETURN_IF_ERROR(src.get_varint32(&pos_count));
+        RETURN_IF_ERROR(src.get_varint32_fast(&pos_count));
         total_pos += pos_count;
         if (total_pos > kMaxWindowPositions) {
             return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
@@ -706,13 +702,12 @@ Status decode_payload_csr_selective(Slice plain, std::span<const uint32_t> doc_o
             RETURN_IF_ERROR(src.skip_varints(pos_count));
             continue;
         }
-        uint32_t prev = 0;
-        for (uint32_t i = 0; i < pos_count; ++i) {
-            uint32_t delta = 0;
-            RETURN_IF_ERROR(src.get_varint32(&delta));
-            prev = (i == 0) ? delta : prev + delta;
-            pos_flat->push_back(prev);
-        }
+        // Selected doc: decode its `pos_count` ascending position deltas with a
+        // tight inline prefix-sum decoder (single-byte fast path, no per-value
+        // get_varint32/Status call chain). This is the CPU hotspot for narrowed
+        // phrase/phrase-prefix candidate sets, where each selected doc's varint
+        // run dominates after non-selected docs are skipped.
+        RETURN_IF_ERROR(src.decode_delta_run(pos_count, pos_flat));
         pos_off->push_back(static_cast<uint32_t>(pos_flat->size()));
         ++next_doc;
     }

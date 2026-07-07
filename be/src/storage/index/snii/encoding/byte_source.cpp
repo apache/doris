@@ -78,13 +78,60 @@ Status ByteSource::get_varint32(uint32_t* v) {
     return Status::OK();
 }
 
+Status ByteSource::decode_delta_run(size_t count, std::vector<uint32_t>* out) {
+    const uint8_t* const begin = s_.data();
+    const uint8_t* const end = begin + s_.size();
+    const uint8_t* p = begin + pos_;
+    out->reserve(out->size() + count);
+    uint32_t running = 0;
+    for (size_t i = 0; i < count; ++i) {
+        if (p >= end) {
+            return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                    "byte_source: delta run past end");
+        }
+        uint32_t b = *p++;
+        uint64_t delta = b & 0x7FU;
+        if (b >= 0x80) { // multi-byte (rare for position deltas)
+            uint32_t shift = 7;
+            for (;;) {
+                if (p >= end) {
+                    return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                            "byte_source: delta run past end");
+                }
+                b = *p++;
+                delta |= static_cast<uint64_t>(b & 0x7FU) << shift;
+                if ((b & 0x80) == 0) {
+                    break;
+                }
+                shift += 7;
+                if (shift > 28) { // a 32-bit value fits in <= 5 bytes (35 bits)
+                    if (b > 0x0F) {
+                        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                                "byte_source: delta varint32 overflow");
+                    }
+                    break;
+                }
+            }
+        }
+        running += static_cast<uint32_t>(delta);
+        out->push_back(running);
+    }
+    pos_ = static_cast<size_t>(p - begin);
+    return Status::OK();
+}
+
 Status ByteSource::skip_varints(size_t count) {
     const uint8_t* const begin = s_.data();
     const uint8_t* const end = begin + s_.size();
     const uint8_t* p = begin + pos_;
     // Each varint ends at the first byte whose continuation bit (0x80) is clear.
     // Scanning for `count` such terminators skips the values with one branch per
-    // byte -- no shift/accumulate/store and no per-value bounds Status.
+    // byte -- no shift/accumulate/store and no per-value bounds Status. (A SIMD
+    // bulk terminator-count was tried and reverted: the skipped position runs
+    // between selected docs are almost always 1-3 varints -- far below a 16-byte
+    // block -- so the vector path never amortized, and the larger body stopped
+    // this function from inlining into the CSR reader, a net CPU regression on
+    // the httplogs/agentlogs phrase-prefix profiles.)
     for (size_t k = 0; k < count; ++k) {
         while (p < end && (*p & 0x80) != 0) {
             ++p;
