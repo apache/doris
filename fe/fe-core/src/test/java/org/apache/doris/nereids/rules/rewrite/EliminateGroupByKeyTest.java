@@ -99,12 +99,15 @@ class EliminateGroupByKeyTest extends TestWithFeService implements MemoPatternMa
 
     @Test
     void testEliminateByUniform() {
+        // Uniform-based elimination is now handled by EliminateGroupByKeyByUniform.
+        // EliminateGroupByKey only handles FD-based elimination.
         PlanChecker.from(connectContext)
                 .analyze("select count(name) from t1 where id = 1 group by name, id")
-                .customRewrite(new EliminateGroupByKey())
+                .customRewrite(new EliminateGroupByKeyByUniform())
                 .printlnTree()
                 .matches(logicalAggregate().when(agg ->
-                        agg.getGroupByExpressions().size() == 1 && agg.getGroupByExpressions().get(0).toSql().equals("name")));
+                        agg.getGroupByExpressions().size() == 1
+                                && agg.getGroupByExpressions().get(0).toSql().equals("name")));
     }
 
     @Test
@@ -200,6 +203,50 @@ class EliminateGroupByKeyTest extends TestWithFeService implements MemoPatternMa
                                         e -> e instanceof Alias
                                                 && e.child(0) instanceof AnyValue)));
         dropConstraint("alter table t1 drop constraint pk2");
+    }
+
+    @Test
+    void testEliminateByPkWithOutputNeededProductionPath() throws Exception {
+        // Production path: same query through .rewrite() (RuleType.ELIMINATE_GROUP_BY_KEY)
+        // instead of .customRewrite() (RuleType.TEST_REWRITE).
+        // Use cross join so the aggregate cannot be constant-folded away.
+        // Use alias on name to force a Project above the Aggregate, which is
+        // the entry point that EliminateGroupByKey.visitLogicalProject needs.
+        addConstraint("alter table t1 add constraint pk2 primary key (id)");
+        PlanChecker.from(connectContext)
+                .analyze("select t1.id, t1.name as n, count(*) from t1 as t1"
+                        + " cross join t1 as t2 group by t1.id, t1.name")
+                .rewrite()
+                .printlnTree()
+                .matches(logicalAggregate().when(agg ->
+                        agg.getGroupByExpressions().size() == 1
+                                && agg.getGroupByExpressions().get(0).toSql().equals("id")
+                                && agg.getOutputExpressions().stream().anyMatch(
+                                        e -> e instanceof Alias
+                                                && e.child(0) instanceof AnyValue)));
+        dropConstraint("alter table t1 drop constraint pk2");
+    }
+
+    @Test
+    void testEliminateByPkDisabled() throws Exception {
+        // Verify that disable_nereids_rules=ELIMINATE_GROUP_BY_KEY prevents the rule
+        // from eliminating the FD-redundant group-by key.
+        // Use cross join so the aggregate cannot be constant-folded away.
+        addConstraint("alter table t1 add constraint pk2 primary key (id)");
+        try {
+            connectContext.getSessionVariable()
+                    .setDisableNereidsRules("PRUNE_EMPTY_PARTITION,ELIMINATE_GROUP_BY_KEY");
+            PlanChecker.from(connectContext)
+                    .analyze("select t1.id, t1.name, count(*) from t1 as t1"
+                            + " cross join t1 as t2 group by t1.id, t1.name")
+                    .rewrite()
+                    .printlnTree()
+                    .matches(logicalAggregate().when(agg ->
+                            agg.getGroupByExpressions().size() == 2));
+        } finally {
+            connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
+            dropConstraint("alter table t1 drop constraint pk2");
+        }
     }
 
     @Test

@@ -2952,6 +2952,20 @@ public class PreMaterializedViewRewriterTest extends SqlTestBase {
         Assertions.assertTrue(PreMaterializedViewRewriter.needPreRewrite(cascadesContext));
     }
 
+    /**
+     * Test pre-materialized view rewrite need pre-rewrite when ELIMINATE_GROUP_BY_KEY applied
+     * */
+    @Test
+    public void testNeedPreRewriteForEliminateGroupByKey() {
+        CascadesContext cascadesContext = MemoTestUtils.createCascadesContext("select T1.id from T1");
+        StatementContext statementContext = cascadesContext.getConnectContext().getStatementContext();
+        statementContext.setForceRecordTmpPlan(true);
+        statementContext.ruleSetApplied(RuleType.ELIMINATE_GROUP_BY_KEY);
+        statementContext.getPlannerHooks().add(InitMaterializationContextHook.INSTANCE);
+        statementContext.getTmpPlanForMvRewrite().add(cascadesContext.getRewritePlan());
+        Assertions.assertTrue(PreMaterializedViewRewriter.needPreRewrite(cascadesContext));
+    }
+
     private void checkIfEquals(String originalSql, List<String> equivalentSqlList) {
         // init original cascades context
         CascadesContext originalCascadesContext = initOriginal(originalSql);
