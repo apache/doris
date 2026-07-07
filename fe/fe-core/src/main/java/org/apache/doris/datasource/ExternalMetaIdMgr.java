@@ -18,7 +18,6 @@
 package org.apache.doris.datasource;
 
 import org.apache.doris.catalog.Env;
-import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.event.MetastoreEventsProcessor;
 
 import com.google.common.base.Preconditions;
@@ -115,11 +114,14 @@ public class ExternalMetaIdMgr {
             handleMetaIdMapping(mapping, ctlMetaIdMgr);
         }
         if (log.isFromHmsEvent()) {
-            CatalogIf<?> catalogIf = Env.getCurrentEnv().getCatalogMgr().getCatalog(log.getCatalogId());
+            // Propagate the master's synced-event-id cursor to this FE, keyed by catalogId only
+            // (the log already carries it). Never cast the live catalog to HMSExternalCatalog:
+            // once an HMS catalog is served by a generic PluginDrivenExternalCatalog, that cast
+            // would throw ClassCastException and abort edit-log replay, wedging FE startup.
+            CatalogIf<?> catalogIf = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogId);
             if (catalogIf != null) {
                 MetastoreEventsProcessor metastoreEventsProcessor = Env.getCurrentEnv().getMetastoreEventsProcessor();
-                metastoreEventsProcessor.updateMasterLastSyncedEventId(
-                            (HMSExternalCatalog) catalogIf, log.getLastSyncedEventId());
+                metastoreEventsProcessor.updateMasterLastSyncedEventId(catalogId, log.getLastSyncedEventId());
             }
         }
     }

@@ -322,8 +322,8 @@ public class MetastoreEventsProcessor extends MasterDaemon {
         return masterLastSyncedEventIdMap.getOrDefault(hmsExternalCatalog.getId(), -1L);
     }
 
-    public void updateMasterLastSyncedEventId(HMSExternalCatalog hmsExternalCatalog, long eventId) {
-        masterLastSyncedEventIdMap.put(hmsExternalCatalog.getId(), eventId);
+    public void updateMasterLastSyncedEventId(long catalogId, long eventId) {
+        masterLastSyncedEventIdMap.put(catalogId, eventId);
     }
 
     private void refreshCatalogForMaster(HMSExternalCatalog hmsExternalCatalog) {

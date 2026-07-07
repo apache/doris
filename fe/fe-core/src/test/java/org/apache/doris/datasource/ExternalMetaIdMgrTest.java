@@ -17,8 +17,13 @@
 
 package org.apache.doris.datasource;
 
+import org.apache.doris.catalog.Env;
+import org.apache.doris.datasource.hive.event.MetastoreEventsProcessor;
+
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 public class ExternalMetaIdMgrTest {
 
@@ -71,6 +76,62 @@ public class ExternalMetaIdMgrTest {
         Assertions.assertEquals(-1L, mgr.getDbId(1L, "db1"));
         Assertions.assertEquals(-1L, mgr.getTblId(1L, "db1", "tbl1"));
         Assertions.assertNotEquals(-1L, mgr.getPartitionId(1L, "db1", "tbl1", "p1"));
+    }
+
+    /**
+     * An HMS-event id-mapping log carries the master's synced-event-id cursor and is replayed on
+     * every FE. Once an HMS catalog is served by a generic (non-{@code HMSExternalCatalog}) catalog
+     * class, replay must still propagate that cursor keyed by {@code catalogId} without casting the
+     * live catalog to {@code HMSExternalCatalog} — that cast would throw {@link ClassCastException}
+     * and abort edit-log replay, wedging FE startup.
+     */
+    @Test
+    public void testReplayHmsEventCursorDoesNotRequireHmsCatalogType() {
+        final long catalogId = 7L;
+        final long lastSyncedEventId = 42L;
+
+        CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
+        // A live catalog that is NOT an HMSExternalCatalog (mirrors the post-cutover generic catalog);
+        // doReturn avoids stubbing the wildcard-generic return type of getCatalog(long).
+        Mockito.doReturn(Mockito.mock(CatalogIf.class)).when(catalogMgr).getCatalog(catalogId);
+        MetastoreEventsProcessor processor = Mockito.mock(MetastoreEventsProcessor.class);
+        Env env = new TestingEnv(catalogMgr, processor);
+
+        MetaIdMappingsLog log = new MetaIdMappingsLog();
+        log.setCatalogId(catalogId);
+        log.setFromHmsEvent(true);
+        log.setLastSyncedEventId(lastSyncedEventId);
+
+        try (MockedStatic<Env> envMockedStatic = Mockito.mockStatic(Env.class)) {
+            envMockedStatic.when(Env::getCurrentEnv).thenReturn(env);
+
+            // Before the fix this threw ClassCastException on the (HMSExternalCatalog) cast.
+            Assertions.assertDoesNotThrow(() -> new ExternalMetaIdMgr().replayMetaIdMappingsLog(log));
+
+            // The cursor is propagated keyed by catalogId, not by casting the live catalog.
+            Mockito.verify(processor).updateMasterLastSyncedEventId(catalogId, lastSyncedEventId);
+        }
+    }
+
+    private static final class TestingEnv extends Env {
+        private final CatalogMgr catalogMgr;
+        private final MetastoreEventsProcessor metastoreEventsProcessor;
+
+        private TestingEnv(CatalogMgr catalogMgr, MetastoreEventsProcessor metastoreEventsProcessor) {
+            super(true);
+            this.catalogMgr = catalogMgr;
+            this.metastoreEventsProcessor = metastoreEventsProcessor;
+        }
+
+        @Override
+        public CatalogMgr getCatalogMgr() {
+            return catalogMgr;
+        }
+
+        @Override
+        public MetastoreEventsProcessor getMetastoreEventsProcessor() {
+            return metastoreEventsProcessor;
+        }
     }
 
 }
