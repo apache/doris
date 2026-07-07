@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector.spi;
 
+import org.apache.doris.connector.api.Connector;
 import org.apache.doris.connector.api.ConnectorHttpSecurityHook;
 import org.apache.doris.filesystem.properties.StorageProperties;
 
@@ -104,6 +105,44 @@ public interface ConnectorContext {
      */
     default ConnectorMetaInvalidator getMetaInvalidator() {
         return ConnectorMetaInvalidator.NOOP;
+    }
+
+    /**
+     * Builds a <em>sibling</em> connector of another catalog type on top of this same catalog's context, for a
+     * heterogeneous "gateway" connector that serves more than one table format from a single catalog and must
+     * delegate some tables to another format's connector (e.g. a Hive-metastore catalog whose Iceberg-registered
+     * tables are served by the Iceberg connector).
+     *
+     * <p>The engine builds the sibling through the same connector factory it uses for a top-level catalog, so the
+     * sibling's concrete class is loaded by <em>that type's own plugin classloader</em> — never co-packaged into
+     * the caller's plugin (a duplicate native stack, e.g. a second AWS SDK, would poison shared JVM state). The
+     * returned connector shares THIS context (same catalog id, authentication, and storage), so the sibling reuses
+     * the caller's metastore/storage/credentials without re-deriving them.
+     *
+     * <p>fe-core stays connector-agnostic: this is a generic "give me a connector of type {@code catalogType} with
+     * these {@code properties}" factory. The caller (the gateway connector) is responsible for synthesizing the
+     * sibling's {@code properties} — the engine does not parse or translate them.
+     *
+     * <p><b>Cross-plugin type safety.</b> Because the sibling lives in a different (child-first) classloader, it is
+     * type-compatible with the caller ONLY through the parent-first SPI interfaces ({@link Connector},
+     * {@code ConnectorMetadata}, {@code ConnectorTableHandle}, …). The caller MUST hold the result as the bare
+     * {@link Connector} interface and MUST NOT cast it — or any object it produces — to a concrete connector type,
+     * or it will {@code ClassCastException} across the loader split.
+     *
+     * <p><b>Lifecycle.</b> The engine tracks and closes only a catalog's <em>primary</em> connector; a sibling built
+     * here is owned by the caller, which MUST forward {@link Connector#close()} to it from its own {@code close()}.
+     *
+     * <p>The default returns {@code null} (no sibling support), so every connector that is not a gateway — and the
+     * no-op default context — is unaffected.
+     *
+     * @param catalogType the sibling connector's type (e.g. {@code "iceberg"}); resolved by the same provider set
+     *                    the engine uses for top-level catalogs
+     * @param properties  the sibling connector's fully-synthesized catalog properties (caller-owned)
+     * @return the sibling connector, or {@code null} when no provider matches {@code catalogType} (or the engine has
+     *         no connector factory wired — e.g. the default context)
+     */
+    default Connector createSiblingConnector(String catalogType, Map<String, String> properties) {
+        return null;
     }
 
     /**

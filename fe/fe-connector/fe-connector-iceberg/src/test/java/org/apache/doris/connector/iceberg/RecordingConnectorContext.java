@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector.iceberg;
 
+import org.apache.doris.connector.api.Connector;
 import org.apache.doris.connector.spi.ConnectorBrokerAddress;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorMetaInvalidator;
@@ -144,6 +145,18 @@ final class RecordingConnectorContext implements ConnectorContext {
         hiveConfResourcesCalled = true;
         lastHiveConfResourcesArg = resources;
         return hiveConfResources;
+    }
+
+    /** The type the wrapper forwarded to {@link #createSiblingConnector} (proves the decorator delegates it). */
+    String lastSiblingType;
+    /** The properties the wrapper forwarded to {@link #createSiblingConnector}. */
+    Map<String, String> lastSiblingProps;
+
+    @Override
+    public Connector createSiblingConnector(String catalogType, Map<String, String> properties) {
+        lastSiblingType = catalogType;
+        lastSiblingProps = properties;
+        return null;
     }
 
     @Override

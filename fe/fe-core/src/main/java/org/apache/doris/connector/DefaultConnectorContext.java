@@ -25,6 +25,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.EnvUtils;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.util.LocationPath;
+import org.apache.doris.connector.api.Connector;
 import org.apache.doris.connector.api.ConnectorHttpSecurityHook;
 import org.apache.doris.connector.spi.ConnectorBrokerAddress;
 import org.apache.doris.connector.spi.ConnectorContext;
@@ -149,6 +150,18 @@ public class DefaultConnectorContext implements ConnectorContext {
     @Override
     public ConnectorMetaInvalidator getMetaInvalidator() {
         return new ExternalMetaCacheInvalidator(catalogId);
+    }
+
+    @Override
+    public Connector createSiblingConnector(String catalogType, Map<String, String> properties) {
+        // Build the sibling through the SAME factory the engine uses for a top-level catalog, so the sibling's
+        // concrete class is loaded by that type's own plugin classloader (child-first) — never co-packaged into
+        // the gateway's plugin. Passing `this` lets the sibling reuse this catalog's id/auth/storage suppliers
+        // (correct for e.g. iceberg-on-HMS, which shares the HMS catalog's metastore + storage + credentials).
+        // Returns null when no provider matches the type (or the plugin manager is not initialized); the
+        // gateway caller null-checks and fails loud with its own (connector-specific) message — fe-core stays
+        // connector-agnostic and does no property parsing here.
+        return ConnectorFactory.createConnector(catalogType, properties, this);
     }
 
     @Override

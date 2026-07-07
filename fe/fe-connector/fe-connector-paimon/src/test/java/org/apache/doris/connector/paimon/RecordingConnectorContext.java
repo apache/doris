@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector.paimon;
 
+import org.apache.doris.connector.api.Connector;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.filesystem.properties.StorageProperties;
 
@@ -47,6 +48,19 @@ final class RecordingConnectorContext implements ConnectorContext {
     boolean hiveConfResourcesCalled;
     /** The {@code resources} string the connector passed to {@link #loadHiveConfResources}. */
     String lastHiveConfResourcesArg;
+
+    // ---- sibling-connector seam hook (proves the decorator delegates createSiblingConnector) ----
+    /** The type the wrapper forwarded to {@link #createSiblingConnector}. */
+    String lastSiblingType;
+    /** The properties the wrapper forwarded to {@link #createSiblingConnector}. */
+    Map<String, String> lastSiblingProps;
+
+    @Override
+    public Connector createSiblingConnector(String catalogType, Map<String, String> properties) {
+        lastSiblingType = catalogType;
+        lastSiblingProps = properties;
+        return null;
+    }
 
     // ---- C2: getStorageProperties hook (FE-bound fe-filesystem storage props) ----
     /** Storage properties the fake returns from {@link #getStorageProperties()} (default: none). */

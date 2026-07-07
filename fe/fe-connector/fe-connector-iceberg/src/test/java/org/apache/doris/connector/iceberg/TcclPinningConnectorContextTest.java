@@ -27,6 +27,8 @@ import java.io.IOException;
 import java.net.URL;
 import java.net.URLClassLoader;
 import java.security.PrivilegedExceptionAction;
+import java.util.Collections;
+import java.util.Map;
 
 /**
  * Verifies the split-brain guard {@link TcclPinningConnectorContext} adds to the iceberg write/DDL/procedure
@@ -119,6 +121,16 @@ public class TcclPinningConnectorContextTest {
         ctx.loadHiveConfResources("a,b");
         Assertions.assertTrue(delegate.hiveConfResourcesCalled, "loadHiveConfResources must reach the delegate");
         Assertions.assertEquals("a,b", delegate.lastHiveConfResourcesArg);
+
+        // createSiblingConnector is a non-auth engine-service method: the decorator must forward it to the raw
+        // delegate (else a wrapped gateway context would return the SPI default null, masking a real sibling as
+        // "provider missing"). Assert the type + props reach the delegate unchanged.
+        Map<String, String> siblingProps = Collections.singletonMap("iceberg.catalog.type", "hms");
+        ctx.createSiblingConnector("iceberg", siblingProps);
+        Assertions.assertEquals("iceberg", delegate.lastSiblingType,
+                "createSiblingConnector type must reach the delegate (decorator is an exhaustive pass-through)");
+        Assertions.assertSame(siblingProps, delegate.lastSiblingProps,
+                "createSiblingConnector properties must reach the delegate unchanged");
     }
 
     @Test
