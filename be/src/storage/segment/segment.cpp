@@ -445,20 +445,6 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
         if (pruned) {
             auto options_with_pruned_predicates = read_options;
             options_with_pruned_predicates.column_predicates = pruned_predicates;
-            std::set<uint32_t> cols_with_pred_after_prune;
-            for (const auto& pred : pruned_predicates) {
-                cols_with_pred_after_prune.insert(pred->column_id());
-            }
-            for (const auto& pred : read_options.column_predicates) {
-                const auto pred_cid = pred->column_id();
-                // Key columns may still be required by key range seeks even if the segment zone
-                // map proves their predicates always true. Only mark non-key columns as safe for
-                // the no-need-read path.
-                if (!read_options.tablet_schema->column(pred_cid).is_key() &&
-                    !cols_with_pred_after_prune.contains(pred_cid)) {
-                    options_with_pruned_predicates.zonemap_always_true_pred_cols.insert(pred_cid);
-                }
-            }
             //because column_predicates is changed, we need to rebuild col_id_to_predicates so that inverted index will not go through it.
             options_with_pruned_predicates.col_id_to_predicates.clear();
             for (auto pred : options_with_pruned_predicates.column_predicates) {
@@ -469,6 +455,16 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
                 }
                 options_with_pruned_predicates.col_id_to_predicates[pred->column_id()]
                         ->add_column_predicate(SingleColumnBlockPredicate::create_unique(pred));
+            }
+            for (const auto& pred : read_options.column_predicates) {
+                const auto pred_cid = pred->column_id();
+                // Key columns may still be required by key range seeks even if the segment zone
+                // map proves their predicates always true. Only mark non-key columns as safe for
+                // the no-need-read path.
+                if (!read_options.tablet_schema->column(pred_cid).is_key() &&
+                    !options_with_pruned_predicates.col_id_to_predicates.contains(pred_cid)) {
+                    options_with_pruned_predicates.zonemap_always_true_pred_cols.insert(pred_cid);
+                }
             }
             return iter->get()->init(options_with_pruned_predicates);
         }

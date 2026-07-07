@@ -1464,16 +1464,17 @@ bool SegmentIterator::_need_read_data(ColumnId cid) {
     if (unique_id < 0) {
         unique_id = column.parent_unique_id();
     }
-    // A non-key column can skip data reads when its predicates have already been fully resolved:
-    // either by an index, or by the segment zone map proving all predicates on this column are
-    // always true and removing them before iterator initialization. Key columns must remain
-    // readable for short-key range seeks.
+    // A column can skip data reads when its predicates have already been fully resolved.
+    // zonemap_always_true_pred_cols is produced only for non-key columns because key columns
+    // must remain readable for short-key range seeks.
     const bool used_by_common_expr =
             cid < _is_common_expr_column.size() && _is_common_expr_column[cid];
+    const bool zonemap_always_true_filter_column =
+            _opts.zonemap_always_true_pred_cols.contains(cid);
+    DCHECK(!zonemap_always_true_filter_column || !column.is_key());
     const bool no_need_read_filter_column =
             (_need_read_data_indices.contains(cid) && !_need_read_data_indices[cid]) ||
-            (_opts.zonemap_always_true_pred_cols.contains(cid) && !column.is_key() &&
-             !used_by_common_expr);
+            (zonemap_always_true_filter_column && !used_by_common_expr);
     if ((no_need_read_filter_column && !_output_columns.contains(unique_id)) ||
         (no_need_read_filter_column && _output_columns.count(unique_id) == 1 &&
          _opts.push_down_agg_type_opt == TPushAggOp::COUNT_ON_INDEX)) {
