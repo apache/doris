@@ -40,6 +40,11 @@ enum class ReaderType : uint8_t {
 
 namespace io {
 
+enum class FileCacheMissPolicy : uint8_t {
+    READ_THROUGH_AND_WRITE_BACK = 0,
+    REMOTE_ONLY_ON_MISS = 1,
+};
+
 struct FileReaderStats {
     size_t read_calls = 0;
     size_t read_bytes = 0;
@@ -188,6 +193,7 @@ struct IOContext {
     int64_t predicate_filtered_rows = 0;
     // if true, bypass peer read / peer-vs-S3 race and read directly from remote storage
     bool bypass_peer_read {false};
+    FileCacheMissPolicy file_cache_miss_policy = FileCacheMissPolicy::READ_THROUGH_AND_WRITE_BACK;
 };
 
 } // namespace io
