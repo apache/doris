@@ -54,11 +54,31 @@ public class RestBaseControllerTest {
         Assert.assertEquals("http://be-host:8040/api/db%2Ftbl/_stream_load", redirectUrl);
     }
 
+    @Test
+    public void testBuildRedirectUrlToBackendForcesHttpEvenWhenRequestIsHttps() {
+        // BE's stream-load listener never terminates TLS, so the redirect must stay "http"
+        // even though the client reached this FE over "https".
+        HttpServletRequest request = Mockito.mock(HttpServletRequest.class);
+        Mockito.when(request.getScheme()).thenReturn("https");
+        Mockito.when(request.getHeader("Authorization")).thenReturn(null);
+
+        TestRestController controller = new TestRestController();
+        String redirectUrl = controller.buildRedirectUrlToBackendForTest(request,
+                new TNetworkAddress("be-host", 8040), "/api/db/tbl/_stream_load", "k=v");
+
+        Assert.assertEquals("http://be-host:8040/api/db/tbl/_stream_load?k=v", redirectUrl);
+    }
+
     // Expose the protected helper so the redirect URL can be verified directly.
     private static class TestRestController extends RestBaseController {
         private String buildRedirectUrlForTest(HttpServletRequest request, TNetworkAddress addr,
                 String requestPath, String queryString) {
             return buildRedirectUrl(request, addr, requestPath, queryString);
+        }
+
+        private String buildRedirectUrlToBackendForTest(HttpServletRequest request, TNetworkAddress addr,
+                String requestPath, String queryString) {
+            return buildRedirectUrlToBackend(request, addr, requestPath, queryString);
         }
     }
 }

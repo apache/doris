@@ -34,10 +34,25 @@ import javax.net.ssl.SSLContext;
 import javax.net.ssl.TrustManagerFactory;
 
 /**
- * Utility for creating SSL-aware HTTP clients for internal FE-to-FE communication.
+ * Utility for creating SSL-aware HTTP clients for internal FE communication, including
+ * FE-to-FE calls.
  *
- * <p>Builds an {@link SSLContext} from the configured CA truststore once and caches it.
- * Hostname verification is disabled for IP-based intra-cluster connections.
+ * <p>Builds an {@link SSLContext} that trusts this FE's own HTTPS keystore
+ * ({@code Config.key_store_path}) once and caches it. That keystore is the config surface
+ * that actually defines what certificate the FE HTTPS listener presents, so it is the correct
+ * trust anchor here — unlike {@code Config.mysql_ssl_default_ca_certificate}, which is a
+ * separate, independently-configured trust store scoped to MySQL wire-protocol SSL and is not
+ * guaranteed to share a CA with FE HTTPS.
+ *
+ * <p>This is correct for loopback clients (e.g. the audit log stream loader, which always
+ * targets 127.0.0.1) and for genuine FE-to-FE calls, as long as every FE node in the cluster is
+ * provisioned with the same {@code key_store_path} certificate — the expected Doris internal-
+ * HTTPS deployment model (one shared cert for the cluster, mirroring how MySQL SSL already
+ * assumes one shared CA/cert pair rather than per-node identities). A cluster that instead issues
+ * a distinct certificate per FE node would need a real CA-based trust store instead of this
+ * pinned-leaf model.
+ *
+ * <p>Hostname verification is disabled for IP-based intra-cluster connections.
  * Certificate rotation requires a FE restart.
  */
 public class InternalHttpsUtils {
@@ -46,7 +61,7 @@ public class InternalHttpsUtils {
     private static final Logger LOG = LogManager.getLogger(InternalHttpsUtils.class);
 
     /**
-     * Returns the cached SSLContext, building it from the configured truststore on first call.
+     * Returns the cached SSLContext, building it from the FE's own HTTPS keystore on first call.
      */
     public static SSLContext getSslContext() {
         if (cachedSslContext == null) {
@@ -61,12 +76,9 @@ public class InternalHttpsUtils {
 
     private static SSLContext buildSslContext() {
         try {
-            // The same CA signs all Doris TLS certs (FE HTTPS + MySQL SSL), so mysql_ssl_default_ca_certificate
-            // is the correct trust anchor for FE-to-FE HTTPS. Hostname verification is skipped for IP-based comms.
-            KeyStore trustStore = KeyStore.getInstance(Config.ssl_trust_store_type);
-            try (InputStream stream = Files.newInputStream(
-                    Paths.get(Config.mysql_ssl_default_ca_certificate))) {
-                trustStore.load(stream, Config.mysql_ssl_default_ca_certificate_password.toCharArray());
+            KeyStore trustStore = KeyStore.getInstance(Config.key_store_type);
+            try (InputStream stream = Files.newInputStream(Paths.get(Config.key_store_path))) {
+                trustStore.load(stream, Config.key_store_password.toCharArray());
             }
 
             TrustManagerFactory tmf = TrustManagerFactory.getInstance(
@@ -77,11 +89,11 @@ public class InternalHttpsUtils {
             sslContext.init(null, tmf.getTrustManagers(), null);
             return sslContext;
         } catch (Exception e) {
-            LOG.error("Failed to build SSLContext from truststore: {}",
-                    Config.mysql_ssl_default_ca_certificate, e);
+            LOG.error("Failed to build SSLContext from FE HTTPS keystore: {}",
+                    Config.key_store_path, e);
             throw new RuntimeException(
-                    "Failed to build SSLContext from truststore: "
-                            + Config.mysql_ssl_default_ca_certificate, e);
+                    "Failed to build SSLContext from FE HTTPS keystore: "
+                            + Config.key_store_path, e);
         }
     }
 
