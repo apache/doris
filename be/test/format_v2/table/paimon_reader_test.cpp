@@ -45,12 +45,15 @@
 #include "exec/common/endian.h"
 #include "format/format_common.h"
 #include "format_v2/column_data.h"
+#include "format_v2/jni/paimon_jni_reader.h"
 #include "gen_cpp/ExternalTableSchema_types.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "io/io_common.h"
 #include "roaring/roaring.hh"
+#include "runtime/exec_env.h"
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
+#include "storage/options.h"
 
 namespace doris::format {
 namespace {
@@ -299,6 +302,39 @@ TFileRangeDesc make_paimon_range_without_reader_type(TFileFormatType::type forma
     return range;
 }
 
+TFileScanRangeParams make_paimon_jni_scan_params() {
+    TFileScanRangeParams scan_params;
+    scan_params.__set_serialized_table("serialized-paimon-table");
+    scan_params.__set_paimon_predicate("serialized-paimon-predicate");
+    return scan_params;
+}
+
+std::map<std::string, std::string> build_paimon_jni_scanner_params(
+        TFileScanRangeParams* scan_params, RuntimeState* state) {
+    paimon::PaimonJniReader reader;
+    reader.TEST_set_scan_params(scan_params);
+    reader.TEST_set_runtime_state(state);
+    reader.TEST_set_current_range(make_paimon_jni_range());
+    std::map<std::string, std::string> params;
+    EXPECT_TRUE(reader.TEST_build_scanner_params(&params).ok());
+    return params;
+}
+
+class ScopedExecEnvStorePaths {
+public:
+    explicit ScopedExecEnvStorePaths(std::vector<StorePath> store_paths) {
+        _current = &const_cast<std::vector<StorePath>&>(ExecEnv::GetInstance()->store_paths());
+        _previous = *_current;
+        *_current = std::move(store_paths);
+    }
+
+    ~ScopedExecEnvStorePaths() { *_current = std::move(_previous); }
+
+private:
+    std::vector<StorePath>* _current = nullptr;
+    std::vector<StorePath> _previous;
+};
+
 // Scenario: PaimonReader shares Hudi's history-schema annotation path. A split whose schema id
 // resolves to a historical schema should use field-id mapping and annotate array/map children so
 // TableColumnMapper can match evolved physical Parquet columns by id instead of by the old names.
@@ -531,6 +567,50 @@ TEST(PaimonHybridReaderTest, DispatchesNativeThenJniSplitToMatchingReader) {
     EXPECT_NE(std::string::npos, status.to_string().find("missing serialized_table"));
 
     ASSERT_TRUE(reader.close().ok());
+}
+
+TEST(PaimonJniReaderTest, BuildScannerParamsKeepsExplicitIOManagerTempDir) {
+    auto scan_params = make_paimon_jni_scan_params();
+    scan_params.__set_paimon_options({
+            {"doris.enable_jni_io_manager", "true"},
+            {"doris.jni_io_manager.tmp_dir", "/tmp/explicit-paimon-spill"},
+            {"doris.jni_io_manager.impl_class", "org.example.CustomIOManager"},
+    });
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    state.set_exec_env(ExecEnv::GetInstance());
+
+    auto params = build_paimon_jni_scanner_params(&scan_params, &state);
+    EXPECT_EQ(params["paimon.doris.enable_jni_io_manager"], "true");
+    EXPECT_EQ(params["paimon.doris.jni_io_manager.tmp_dir"], "/tmp/explicit-paimon-spill");
+    EXPECT_EQ(params["paimon.doris.jni_io_manager.impl_class"], "org.example.CustomIOManager");
+}
+
+TEST(PaimonJniReaderTest, BuildScannerParamsInjectsStorageRootTmpDirForEnabledIOManager) {
+    ScopedExecEnvStorePaths store_paths({
+            StorePath("/data1/doris", -1),
+            StorePath("/data2/doris", -1),
+    });
+    auto scan_params = make_paimon_jni_scan_params();
+    scan_params.__set_paimon_options({
+            {"doris.enable_jni_io_manager", "true"},
+    });
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    state.set_exec_env(ExecEnv::GetInstance());
+
+    auto params = build_paimon_jni_scanner_params(&scan_params, &state);
+    EXPECT_EQ(params["paimon.doris.enable_jni_io_manager"], "true");
+    EXPECT_EQ(params["paimon.doris.jni_io_manager.tmp_dir"],
+              "/data1/doris/paimon_jni_scanner_io_tmp:/data2/doris/"
+              "paimon_jni_scanner_io_tmp");
+}
+
+TEST(PaimonJniReaderTest, BuildScannerParamsUsesStorageRootTmpDirWhenIOManagerTempDirMissing) {
+    std::vector<StorePath> paths;
+    paths.emplace_back("/data1/doris", -1);
+    paths.emplace_back("/data2/doris", -1);
+    EXPECT_EQ(paimon::PaimonJniReader::TEST_build_default_io_manager_tmp_dirs(paths),
+              "/data1/doris/paimon_jni_scanner_io_tmp:/data2/doris/"
+              "paimon_jni_scanner_io_tmp");
 }
 
 } // namespace

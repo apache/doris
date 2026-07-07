@@ -19,11 +19,18 @@
 
 #include <string_view>
 
+#include "runtime/exec_env.h"
+#include "runtime/runtime_state.h"
+#include "util/string_util.h"
+
 namespace doris::format::paimon {
 namespace {
 
 constexpr std::string_view PAIMON_OPTION_PREFIX = "paimon.";
 constexpr std::string_view HADOOP_OPTION_PREFIX = "hadoop.";
+constexpr std::string_view DORIS_ENABLE_JNI_IO_MANAGER = "doris.enable_jni_io_manager";
+constexpr std::string_view DORIS_JNI_IO_MANAGER_TMP_DIR = "doris.jni_io_manager.tmp_dir";
+constexpr std::string_view PAIMON_JNI_SCANNER_IO_TMP_DIR = "paimon_jni_scanner_io_tmp";
 
 } // namespace
 
@@ -79,6 +86,20 @@ Status PaimonJniReader::build_scanner_params(std::map<std::string, std::string>*
             (*params)[std::string(PAIMON_OPTION_PREFIX) + kv.first] = kv.second;
         }
     }
+    const std::string enable_io_manager_key =
+            std::string(PAIMON_OPTION_PREFIX) + std::string(DORIS_ENABLE_JNI_IO_MANAGER);
+    const std::string io_manager_tmp_dir_key =
+            std::string(PAIMON_OPTION_PREFIX) + std::string(DORIS_JNI_IO_MANAGER_TMP_DIR);
+    auto enable_io_manager_it = params->find(enable_io_manager_key);
+    if (enable_io_manager_it != params->end() && iequal(enable_io_manager_it->second, "true") &&
+        params->find(io_manager_tmp_dir_key) == params->end()) {
+        DORIS_CHECK(_runtime_state != nullptr);
+        // Keep Format V2 consistent with the legacy JNI path. Paimon creates and
+        // removes its own paimon-* child directory under these Doris storage-root scoped
+        // parent directories.
+        (*params)[io_manager_tmp_dir_key] =
+                build_default_io_manager_tmp_dirs(_runtime_state->exec_env()->store_paths());
+    }
     if (_scan_params->__isset.properties && !_scan_params->properties.empty()) {
         for (const auto& kv : _scan_params->properties) {
             (*params)[std::string(HADOOP_OPTION_PREFIX) + kv.first] = kv.second;
@@ -88,6 +109,17 @@ Status PaimonJniReader::build_scanner_params(std::map<std::string, std::string>*
     // after all readers stop using them. Format V2 Paimon JNI consumes the scan-level fields
     // planned by current FE and intentionally does not fall back to deprecated split-level fields.
     return Status::OK();
+}
+
+std::string PaimonJniReader::build_default_io_manager_tmp_dirs(
+        const std::vector<StorePath>& store_paths) {
+    std::vector<std::string> tmp_dirs;
+    tmp_dirs.reserve(store_paths.size());
+    for (const auto& store_path : store_paths) {
+        tmp_dirs.push_back(store_path.path + "/" + std::string(PAIMON_JNI_SCANNER_IO_TMP_DIR));
+    }
+    DORIS_CHECK(!tmp_dirs.empty());
+    return join(tmp_dirs, ":");
 }
 
 } // namespace doris::format::paimon
