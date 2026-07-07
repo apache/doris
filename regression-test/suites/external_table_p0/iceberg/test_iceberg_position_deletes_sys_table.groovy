@@ -105,6 +105,27 @@ suite("test_iceberg_position_deletes_sys_table", "p0,external") {
             (2, 'b', 10),
             (3, 'c', 20) AS t(id, name, p);
         DELETE FROM demo.${dbName}.pd_int_partitioned WHERE id = 2;
+        DROP TABLE IF EXISTS demo.${dbName}.pd_date_partitioned;
+        CREATE TABLE demo.${dbName}.pd_date_partitioned (
+            id INT,
+            name STRING,
+            dt DATE
+        ) USING iceberg
+        PARTITIONED BY (dt)
+        TBLPROPERTIES (
+            'format-version'='2',
+            'write.delete.mode'='merge-on-read',
+            'write.update.mode'='merge-on-read',
+            'write.merge.mode'='merge-on-read',
+            'write.distribution-mode'='none',
+            'write.target-file-size-bytes'='134217728'
+        );
+        INSERT INTO demo.${dbName}.pd_date_partitioned
+        SELECT /*+ COALESCE(1) */ id, name, CAST(dt AS DATE) FROM VALUES
+            (1, 'a', '2026-01-02'),
+            (2, 'b', '2026-01-02'),
+            (3, 'c', '2026-03-04') AS t(id, name, dt);
+        DELETE FROM demo.${dbName}.pd_date_partitioned WHERE id = 2;
         DROP TABLE IF EXISTS demo.${dbName}.pd_partition_evolution;
         CREATE TABLE demo.${dbName}.pd_partition_evolution (
             id INT,
@@ -322,6 +343,26 @@ suite("test_iceberg_position_deletes_sys_table", "p0,external") {
         partitionValue.contains("\"p\":10") && !partitionValue.contains("\"p\":\"10\"")
     })
     assertEquals([[1, "a", 10], [3, "c", 20]], sql("""select * from pd_int_partitioned order by id"""))
+
+    // DATE-typed partition column. Iceberg serializes the partition value to an ISO date string
+    // (`2026-01-02`) which the BE parses back into the metadata table `partition` struct DATE field.
+    // Verifies the typed partition round-trip is not limited to STRING/INT columns.
+    assertPositionDeletesSchema("pd_date_partitioned", true)
+    long datePartitionedCount = countRows("""select count(*) from pd_date_partitioned\$position_deletes""")
+    assertEquals(1L, datePartitionedCount)
+    assertSparkDorisPositionDeletes("pd_date_partitioned", commonCompareColumns)
+    assertEquals(datePartitionedCount, countRows(
+            """select count(*) from pd_date_partitioned\$position_deletes where `partition` is not null"""))
+    List<List<Object>> datePartitionedRows = sql """
+            select `row`, cast(`partition` as string) from pd_date_partitioned\$position_deletes
+            """
+    assertEquals(datePartitionedCount, (long) datePartitionedRows.size())
+    assertTrue(datePartitionedRows.every { it[0] == null && it[1] != null })
+    // The deleted row (id=2) lives in partition dt=2026-01-02, so the partition value must render
+    // that exact date rather than a null / days-since-epoch integer / mangled string.
+    assertTrue(datePartitionedRows.every { it[1].toString().contains("2026-01-02") })
+    assertEquals([[1, "a", "2026-01-02"], [3, "c", "2026-03-04"]],
+            sql("""select id, name, cast(dt as string) from pd_date_partitioned order by id"""))
 
     assertPositionDeletesSchema("pd_partition_evolution", true)
     long partitionEvolutionCount = countRows("""select count(*) from pd_partition_evolution\$position_deletes""")

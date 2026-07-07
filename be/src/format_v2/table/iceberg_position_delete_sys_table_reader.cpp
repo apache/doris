@@ -67,6 +67,21 @@ void insert_int64_nullable(MutableColumnPtr& column, const int64_t* value) {
     }
 }
 
+// Fail loudly if the filled output block is malformed. Each output column must be produced by a
+// file slot; a projected system-table column that is not backed by a file slot would be skipped
+// during fill and left shorter than the rest, producing a block with inconsistent column lengths.
+void check_output_columns_aligned(const MutableColumns& columns) {
+    if (columns.empty()) {
+        return;
+    }
+    const size_t expected_rows = columns.front()->size();
+    for (const auto& column : columns) {
+        DORIS_CHECK(column->size() == expected_rows)
+                << "Iceberg position delete system table output block has inconsistent column "
+                   "sizes; a projected column is not backed by a file slot";
+    }
+}
+
 const IColumn* get_column(const Block& block, const std::string& name) {
     auto pos = block.get_position_by_name(name);
     if (pos < 0) {
@@ -285,7 +300,6 @@ Status IcebergPositionDeleteSysTableV2Reader::_init_position_delete_reader() {
     _position_reader = std::make_unique<PositionDeleteFileTableReader>();
     RETURN_IF_ERROR(_position_reader->init({
             .projected_columns = std::move(projected_columns),
-            .column_predicates = {},
             .conjuncts = {},
             .format = format::FileFormat::PARQUET,
             .scan_params = _scan_params,
@@ -346,6 +360,7 @@ Status IcebergPositionDeleteSysTableV2Reader::_append_position_delete_block(
             RETURN_IF_ERROR(_append_sys_column(columns[it->second], *slot, &delete_block, row, 0));
         }
     }
+    check_output_columns_aligned(columns);
     *appended_rows = delete_rows;
     return Status::OK();
 }
@@ -383,6 +398,7 @@ Status IcebergPositionDeleteSysTableV2Reader::_append_deletion_vector_block(Bloc
         ++(*_next_dv_position);
         ++rows;
     }
+    check_output_columns_aligned(columns);
     *read_rows = rows;
     *eof = false;
     return Status::OK();

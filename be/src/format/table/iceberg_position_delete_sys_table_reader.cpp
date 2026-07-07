@@ -68,6 +68,21 @@ void insert_int64_nullable(MutableColumnPtr& column, const int64_t* value) {
     }
 }
 
+// Fail loudly if the filled output block is malformed. Each output column must be produced by a
+// file slot; a projected system-table column that is not backed by a file slot would be skipped
+// during fill and left shorter than the rest, producing a block with inconsistent column lengths.
+void check_output_columns_aligned(const MutableColumns& columns) {
+    if (columns.empty()) {
+        return;
+    }
+    const size_t expected_rows = columns.front()->size();
+    for (const auto& column : columns) {
+        DORIS_CHECK(column->size() == expected_rows)
+                << "Iceberg position delete system table output block has inconsistent column "
+                   "sizes; a projected column is not backed by a file slot";
+    }
+}
+
 const ColumnString* get_string_column(const Block& block, const std::string& name) {
     auto pos = block.get_position_by_name(name);
     if (pos < 0) {
@@ -208,18 +223,31 @@ Status IcebergPositionDeleteSysTableReader::_init_position_delete_reader() {
         return Status::InternalError("Iceberg position delete file misses file format");
     }
 
-    const bool read_row = _output_column_requested(kRowColumn) && _delete_file_has_row();
-    _init_read_columns(read_row);
-    std::vector<std::string> read_column_names;
-    read_column_names.reserve(_read_columns.size());
-    for (const auto& column : _read_columns) {
-        read_column_names.push_back(column.name);
-    }
+    // `row` is optional in position delete files and expensive to read, so only read it when the
+    // query actually projects it. Whether the delete file physically stores `row` is decided from
+    // the reader's own footer/type below, reusing the same reader instance that is initialized
+    // afterwards so the delete file is opened and its footer parsed only once.
+    const bool row_requested = _output_column_requested(kRowColumn);
 
     if (_delete_file_desc->file_format == TFileFormatType::FORMAT_PARQUET) {
         auto parquet_reader = ParquetReader::create_unique(
                 _profile, *_range_params, _range, _batch_size, &_state->timezone_obj(),
                 &_io_context.io_ctx, _state, _meta_cache);
+
+        const FieldDescriptor* schema = nullptr;
+        int row_index = -1;
+        if (row_requested) {
+            RETURN_IF_ERROR(parquet_reader->get_file_metadata_schema(&schema));
+            DORIS_CHECK(schema != nullptr);
+            row_index = schema->get_column_index(kRowColumn);
+        }
+        const bool read_row = row_requested && row_index >= 0;
+        _init_read_columns(read_row);
+        std::vector<std::string> read_column_names;
+        read_column_names.reserve(_read_columns.size());
+        for (const auto& column : _read_columns) {
+            read_column_names.push_back(column.name);
+        }
 
         ParquetInitContext pctx;
         pctx.column_names = read_column_names;
@@ -233,13 +261,6 @@ Status IcebergPositionDeleteSysTableReader::_init_position_delete_reader() {
             if (table_row_field == nullptr) {
                 return Status::InternalError(
                         "Iceberg position delete system table row schema is missing");
-            }
-            const FieldDescriptor* schema = nullptr;
-            RETURN_IF_ERROR(parquet_reader->get_file_metadata_schema(&schema));
-            DORIS_CHECK(schema != nullptr);
-            const auto row_index = schema->get_column_index(kRowColumn);
-            if (row_index < 0) {
-                return Status::InternalError("Iceberg position delete file row column is missing");
             }
             const auto* file_row_field = schema->get_column(static_cast<size_t>(row_index));
             std::shared_ptr<TableSchemaChangeHelper::Node> row_node;
@@ -259,6 +280,27 @@ Status IcebergPositionDeleteSysTableReader::_init_position_delete_reader() {
         auto orc_reader =
                 OrcReader::create_unique(_profile, _state, *_range_params, _range, _batch_size,
                                          _state->timezone(), &_io_context.io_ctx, _meta_cache);
+
+        const orc::Type* row_type = nullptr;
+        if (row_requested) {
+            const orc::Type* root_type = nullptr;
+            RETURN_IF_ERROR(orc_reader->get_file_type(&root_type));
+            DORIS_CHECK(root_type != nullptr);
+            for (uint64_t i = 0; i < root_type->getSubtypeCount(); ++i) {
+                if (root_type->getFieldName(i) == kRowColumn) {
+                    row_type = root_type->getSubtype(i);
+                    break;
+                }
+            }
+        }
+        const bool read_row = row_requested && row_type != nullptr;
+        _init_read_columns(read_row);
+        std::vector<std::string> read_column_names;
+        read_column_names.reserve(_read_columns.size());
+        for (const auto& column : _read_columns) {
+            read_column_names.push_back(column.name);
+        }
+
         OrcInitContext octx;
         octx.column_names = read_column_names;
         octx.col_name_to_block_idx = &_read_col_name_to_block_idx;
@@ -270,19 +312,6 @@ Status IcebergPositionDeleteSysTableReader::_init_position_delete_reader() {
             if (table_row_field == nullptr) {
                 return Status::InternalError(
                         "Iceberg position delete system table row schema is missing");
-            }
-            const orc::Type* root_type = nullptr;
-            RETURN_IF_ERROR(orc_reader->get_file_type(&root_type));
-            DORIS_CHECK(root_type != nullptr);
-            const orc::Type* row_type = nullptr;
-            for (uint64_t i = 0; i < root_type->getSubtypeCount(); ++i) {
-                if (root_type->getFieldName(i) == kRowColumn) {
-                    row_type = root_type->getSubtype(i);
-                    break;
-                }
-            }
-            if (row_type == nullptr) {
-                return Status::InternalError("Iceberg position delete file row column is missing");
             }
             std::shared_ptr<TableSchemaChangeHelper::Node> row_node;
             RETURN_IF_ERROR(
@@ -370,6 +399,10 @@ Status IcebergPositionDeleteSysTableReader::_append_position_delete_block(Block*
             RETURN_IF_ERROR(_append_sys_column(columns[it->second], *slot, &delete_block, row, 0));
         }
     }
+    // Every output column must be produced by a file slot above; a projected system-table column
+    // that is not backed by a file slot would be left short and yield a malformed block with
+    // inconsistent column lengths.
+    check_output_columns_aligned(columns);
     *appended_rows = delete_rows;
     return Status::OK();
 }
@@ -401,6 +434,7 @@ Status IcebergPositionDeleteSysTableReader::_append_deletion_vector_block(Block*
         ++(*_next_dv_position);
         ++rows;
     }
+    check_output_columns_aligned(columns);
     *read_rows = rows;
     *eof = *_next_dv_position == _dv_positions.end();
     return Status::OK();
@@ -517,43 +551,6 @@ Block IcebergPositionDeleteSysTableReader::_create_delete_block() const {
 bool IcebergPositionDeleteSysTableReader::_output_column_requested(const std::string& name) const {
     return std::any_of(_file_slot_descs.begin(), _file_slot_descs.end(),
                        [&name](const SlotDescriptor* slot) { return slot->col_name() == name; });
-}
-
-bool IcebergPositionDeleteSysTableReader::_delete_file_has_row() {
-    if (!_delete_file_desc->__isset.file_format) {
-        return false;
-    }
-    if (_delete_file_desc->file_format == TFileFormatType::FORMAT_PARQUET) {
-        return _parquet_delete_file_has_row();
-    }
-    if (_delete_file_desc->file_format == TFileFormatType::FORMAT_ORC) {
-        return _orc_delete_file_has_row();
-    }
-    return false;
-}
-
-bool IcebergPositionDeleteSysTableReader::_parquet_delete_file_has_row() {
-    ParquetReader reader(_profile, *_range_params, _range, _batch_size, &_state->timezone_obj(),
-                         &_io_context.io_ctx, _state, _meta_cache);
-    const FieldDescriptor* schema = nullptr;
-    Status st = reader.get_file_metadata_schema(&schema);
-    return st.ok() && schema != nullptr && schema->get_column_index(kRowColumn) >= 0;
-}
-
-bool IcebergPositionDeleteSysTableReader::_orc_delete_file_has_row() {
-    OrcReader reader(_profile, _state, *_range_params, _range, _batch_size, _state->timezone(),
-                     &_io_context.io_ctx, _meta_cache);
-    const orc::Type* root = nullptr;
-    Status st = reader.get_file_type(&root);
-    if (!st.ok() || root == nullptr) {
-        return false;
-    }
-    for (uint64_t i = 0; i < root->getSubtypeCount(); ++i) {
-        if (root->getFieldName(i) == kRowColumn) {
-            return true;
-        }
-    }
-    return false;
 }
 
 void IcebergPositionDeleteSysTableReader::_init_read_columns(bool read_row) {

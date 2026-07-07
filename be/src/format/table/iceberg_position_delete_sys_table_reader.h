@@ -81,9 +81,6 @@ private:
     Status _append_partition_column(MutableColumnPtr& column, const SlotDescriptor& slot);
     Block _create_delete_block() const;
     bool _output_column_requested(const std::string& name) const;
-    bool _delete_file_has_row();
-    bool _parquet_delete_file_has_row();
-    bool _orc_delete_file_has_row();
     void _init_read_columns(bool read_row);
     const std::string& _delete_file_output_path() const;
 
