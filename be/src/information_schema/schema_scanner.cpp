@@ -64,7 +64,6 @@
 #include "information_schema/schema_file_cache_statistics.h"
 #include "information_schema/schema_files_scanner.h"
 #include "information_schema/schema_load_job_scanner.h"
-#include "information_schema/schema_loads_history_scanner.h"
 #include "information_schema/schema_metadata_name_ids_scanner.h"
 #include "information_schema/schema_partitions_scanner.h"
 #include "information_schema/schema_processlist_scanner.h"
@@ -269,8 +268,6 @@ std::unique_ptr<SchemaScanner> SchemaScanner::create(TSchemaTableType::type type
         return SchemaRoutineLoadJobScanner::create_unique();
     case TSchemaTableType::SCH_LOAD_JOBS:
         return SchemaLoadJobScanner::create_unique();
-    case TSchemaTableType::SCH_LOADS_HISTORY:
-        return SchemaLoadsHistoryScanner::create_unique();
     case TSchemaTableType::SCH_BACKEND_TABLETS:
         return SchemaTabletsScanner::create_unique();
     case TSchemaTableType::SCH_VIEW_DEPENDENCY:

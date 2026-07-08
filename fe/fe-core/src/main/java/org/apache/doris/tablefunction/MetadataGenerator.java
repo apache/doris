@@ -46,7 +46,6 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.View;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ClientPool;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
@@ -76,7 +75,6 @@ import org.apache.doris.job.extensions.insert.streaming.AbstractStreamingTask;
 import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
 import org.apache.doris.job.extensions.mtmv.MTMVJob;
 import org.apache.doris.job.task.AbstractTask;
-import org.apache.doris.load.LoadsHistorySyncer;
 import org.apache.doris.mtmv.MTMVPartitionUtil;
 import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVStatus;
@@ -91,8 +89,6 @@ import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
 import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FrontendOptions;
-import org.apache.doris.statistics.ResultRow;
-import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.FrontendService;
@@ -175,8 +171,6 @@ public class MetadataGenerator {
     private static final ImmutableMap<String, Integer> TABLE_STREAMS_COLUMN_TO_INDEX;
 
     private static final ImmutableMap<String, Integer> TABLE_STREAM_CONSUMPTION_COLUMN_TO_INDEX;
-
-    private static final ImmutableMap<String, Integer> LOADS_HISTORY_COLUMN_TO_INDEX;
 
     static {
         ImmutableMap.Builder<String, Integer> activeQueriesbuilder = new ImmutableMap.Builder();
@@ -287,13 +281,6 @@ public class MetadataGenerator {
             tableStreamConsumptionBuilder.put(tableStreamConsumptionBuilderColList.get(i).getName().toLowerCase(), i);
         }
         TABLE_STREAM_CONSUMPTION_COLUMN_TO_INDEX = tableStreamConsumptionBuilder.build();
-
-        ImmutableMap.Builder<String, Integer> loadsHistoryBuilder = new ImmutableMap.Builder();
-        List<Column> loadsHistoryColList = SchemaTable.TABLE_MAP.get("loads_history").getFullSchema();
-        for (int i = 0; i < loadsHistoryColList.size(); i++) {
-            loadsHistoryBuilder.put(loadsHistoryColList.get(i).getName().toLowerCase(), i);
-        }
-        LOADS_HISTORY_COLUMN_TO_INDEX = loadsHistoryBuilder.build();
     }
 
     public static TFetchSchemaTableDataResult getMetadataTable(TFetchSchemaTableDataRequest request) throws TException {
@@ -423,10 +410,6 @@ public class MetadataGenerator {
             case TABLE_STREAM_CONSUMPTION:
                 result = streamConsumptionMetadataResult(schemaTableParams);
                 columnIndex = TABLE_STREAM_CONSUMPTION_COLUMN_TO_INDEX;
-                break;
-            case LOADS_HISTORY:
-                result = loadsHistoryMetadataResult(schemaTableParams);
-                columnIndex = LOADS_HISTORY_COLUMN_TO_INDEX;
                 break;
             default:
                 return errorResult("invalid schema table name.");
@@ -715,52 +698,6 @@ public class MetadataGenerator {
             trow.addToColumnValue(
                     new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(16)))); // remote read bytes per second
             dataBatch.add(trow);
-        }
-
-        result.setDataBatch(dataBatch);
-        result.setStatus(new TStatus(TStatusCode.OK));
-        return result;
-    }
-
-    /**
-     * information_schema.loads_history reader. Reads the internal history table
-     * __internal_schema.loads_history through the FE internal SQL path and returns the 20 unified
-     * "loads" columns as strings, in the exact loads column order.
-     *
-     * <p>First version has no predicate pushdown: to bound FE memory the internal read always adds
-     * ORDER BY load_finish_time DESC LIMIT loads_history_query_row_limit, so a truncated result
-     * keeps the newest history. Large-range analysis should query the internal table directly.
-     * If the internal table is missing/unavailable the read returns an empty batch (WARN logged),
-     * not an error, so it does not break other system tables.
-     */
-    private static TFetchSchemaTableDataResult loadsHistoryMetadataResult(TSchemaTableRequestParams params) {
-        TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
-        List<TRow> dataBatch = Lists.newArrayList();
-
-        int rowLimit = Config.loads_history_query_row_limit > 0 ? Config.loads_history_query_row_limit : 100000;
-        // Project the 20 user-facing columns (loads order) from the typed internal table.
-        String sql = "SELECT job_id, label, state, progress, type, etl_info, task_info, error_msg,"
-                + " create_time, etl_start_time, etl_finish_time, load_start_time, load_finish_time,"
-                + " url, job_details, transaction_id, error_tablets, user, comment, first_error_msg"
-                + " FROM `" + FeConstants.INTERNAL_DB_NAME + "`.`"
-                + LoadsHistorySyncer.LOADS_HISTORY_TABLE + "`"
-                + " ORDER BY load_finish_time DESC LIMIT " + rowLimit;
-
-        try {
-            List<ResultRow> rows = StatisticsUtil.execStatisticQuery(sql);
-            for (ResultRow row : rows) {
-                TRow trow = new TRow();
-                for (int i = 0; i < 20; i++) {
-                    String value = row.get(i);
-                    trow.addToColumnValue(new TCell().setStringVal(value == null ? "" : value));
-                }
-                dataBatch.add(trow);
-            }
-        } catch (Exception e) {
-            // Internal table missing / unavailable / schema mismatch: return empty and warn,
-            // without failing the whole schema-table query path.
-            LOG.warn("Failed to read {}.{} for information_schema.loads_history",
-                    FeConstants.INTERNAL_DB_NAME, LoadsHistorySyncer.LOADS_HISTORY_TABLE, e);
         }
 
         result.setDataBatch(dataBatch);

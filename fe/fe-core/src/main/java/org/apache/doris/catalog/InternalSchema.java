@@ -236,11 +236,11 @@ public class InternalSchema {
         AUDIT_SCHEMA.add(new ColumnDef("stmt",
                 ScalarType.createType(PrimitiveType.STRING), ColumnNullableType.NULLABLE));
 
-        // Internal storage table for information_schema.loads_history. The first two columns are
+        // Physical storage table __internal_schema.loads_history. The first two columns are
         // the UNIQUE KEY: finish_time is the typed partition column (day-level dynamic partition
         // retention) and record_key is the stable dedup key so repeated syncs upsert instead of
         // duplicating rows. The remaining columns store the 20 unified "loads" fields verbatim as
-        // strings so the user-visible loads_history rows match loads exactly.
+        // strings so loads_history rows line up with information_schema.loads (direct UNION ALL).
         LOADS_HISTORY_SCHEMA = new ArrayList<>();
         LOADS_HISTORY_SCHEMA.add(new ColumnDef("finish_time",
                 ScalarType.createDatetimeV2Type(3), ColumnNullableType.NOT_NULLABLE));

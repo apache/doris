@@ -126,11 +126,7 @@ public enum SchemaTableType {
             TSchemaTableType.SCH_BE_COMPACTION_TASKS),
     SCH_ROLE_MAPPINGS("ROLE_MAPPINGS", "ROLE_MAPPINGS", TSchemaTableType.SCH_ROLE_MAPPINGS),
     SCH_BACKEND_MS_RPC_TABLE_THROTTLERS("BACKEND_MS_RPC_TABLE_THROTTLERS", "BACKEND_MS_RPC_TABLE_THROTTLERS",
-            TSchemaTableType.SCH_BACKEND_MS_RPC_TABLE_THROTTLERS),
-    // Persisted history view of "loads": final-state import task snapshots synced into the
-    // internal table __internal_schema.loads_history by LoadsHistorySyncer.
-    SCH_LOADS_HISTORY("LOADS_HISTORY", "LOADS_HISTORY",
-            TSchemaTableType.SCH_LOADS_HISTORY);
+            TSchemaTableType.SCH_BACKEND_MS_RPC_TABLE_THROTTLERS);
 
     private static final String dbName = "INFORMATION_SCHEMA";
 

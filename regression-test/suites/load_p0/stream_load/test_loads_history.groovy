@@ -89,35 +89,37 @@ suite("test_loads_history", "p0,nonConcurrent") {
         }
 
         // The history syncer runs on the master FE every loads_history_sync_interval_second
-        // (default 60s). Wait until the same label is persisted into information_schema.loads_history.
+        // (default 60s) and upserts final-state snapshots into the physical internal table
+        // __internal_schema.loads_history. Wait until the same label is persisted there.
         def historyRows = []
         count = 0
         while (true) {
             sleep(2000)
             historyRows = sql """
-                SELECT LABEL, STATE, TYPE, PROGRESS, TASK_INFO, JOB_DETAILS
-                FROM information_schema.loads_history
-                WHERE LABEL = '${label}' AND TYPE = 'STREAM_LOAD'
+                SELECT `label`, `state`, `type`, `progress`, `task_info`, `job_details`
+                FROM __internal_schema.loads_history
+                WHERE `label` = '${label}' AND `type` = 'STREAM_LOAD'
             """
-            log.info("information_schema.loads_history for ${label}: ${historyRows}")
+            log.info("__internal_schema.loads_history for ${label}: ${historyRows}")
             if (historyRows.size() > 0) {
                 break
             }
             if (count > 120) {
-                assertTrue(false, "information_schema.loads_history should contain stream load label ${label}")
+                assertTrue(false, "__internal_schema.loads_history should contain stream load label ${label}")
             }
             count++
         }
 
         def historyRow = historyRows[0]
         // Field semantics align with loads (step-1 Stream Load mapping rules).
-        assertEquals(label, historyRow[0].toString())          // LABEL
-        assertEquals("STREAM_LOAD", historyRow[2].toString())  // TYPE
-        assertEquals("100%", historyRow[3].toString())         // PROGRESS
-        assertTrue(historyRow[4].toString().contains("Db"))    // TASK_INFO json
+        assertEquals(label, historyRow[0].toString())          // label
+        assertEquals("FINISHED", historyRow[1].toString())     // state (Success -> FINISHED, unified)
+        assertEquals("STREAM_LOAD", historyRow[2].toString())  // type
+        assertEquals("100%", historyRow[3].toString())         // progress
+        assertTrue(historyRow[4].toString().contains("Db"))    // task_info json
         assertTrue(historyRow[4].toString().contains("Table"))
         assertTrue(historyRow[4].toString().contains(tableName))
-        assertTrue(historyRow[5].toString().contains("TotalRows")) // JOB_DETAILS json
+        assertTrue(historyRow[5].toString().contains("TotalRows")) // job_details json
         assertTrue(historyRow[5].toString().contains("LoadBytes"))
 
         // The original loads record is NOT removed by history write.
@@ -127,21 +129,22 @@ suite("test_loads_history", "p0,nonConcurrent") {
         """
         assertTrue(loadsStillThere.size() > 0, "loads record must survive history sync")
 
-        // Idempotency: wait for at least one more sync cycle, loads_history must not duplicate the
-        // logical row (UNIQUE KEY upsert).
+        // Idempotency: wait for at least one more sync cycle; the physical history table must not
+        // duplicate the logical row (UNIQUE KEY upsert).
         sleep(70000)
         def dedupRows = sql """
-            SELECT COUNT(*) FROM information_schema.loads_history
-            WHERE LABEL = '${label}' AND TYPE = 'STREAM_LOAD'
+            SELECT COUNT(*) FROM __internal_schema.loads_history
+            WHERE `label` = '${label}' AND `type` = 'STREAM_LOAD'
         """
         log.info("loads_history dedup count for ${label}: ${dedupRows}")
         assertEquals(1L, (dedupRows[0][0]) as long)
 
-        // UNION ALL of the two aligned views executes directly (column alignment check).
+        // loads (recent view) and __internal_schema.loads_history (persisted history) can be
+        // combined by the user; both expose the same field semantics for the label.
         def unionRows = sql """
             SELECT LABEL, STATE, TYPE FROM information_schema.loads WHERE LABEL = '${label}'
             UNION ALL
-            SELECT LABEL, STATE, TYPE FROM information_schema.loads_history WHERE LABEL = '${label}'
+            SELECT `label`, `state`, `type` FROM __internal_schema.loads_history WHERE `label` = '${label}'
         """
         log.info("UNION ALL loads + loads_history for ${label}: ${unionRows}")
         assertTrue(unionRows.size() >= 1)

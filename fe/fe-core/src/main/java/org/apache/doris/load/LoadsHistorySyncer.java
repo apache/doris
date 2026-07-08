@@ -38,8 +38,9 @@ import java.util.List;
 
 /**
  * Master-only daemon that periodically persists final-state import task snapshots into the
- * internal table {@code __internal_schema.loads_history}, which backs
- * {@code information_schema.loads_history}.
+ * internal physical table {@code __internal_schema.loads_history}. That table is a real Doris
+ * OLAP table (created by {@link org.apache.doris.catalog.InternalSchemaInitializer}); users query
+ * it directly and it is the long-term retention version of {@code information_schema.loads}.
  *
  * <p>Data flow: collect final-state records from the same unified sources as
  * {@code information_schema.loads} (the {@link LoadManager} runtime jobs + Stream Load records
@@ -59,7 +60,8 @@ import java.util.List;
 public class LoadsHistorySyncer extends MasterDaemon {
     private static final Logger LOG = LogManager.getLogger(LoadsHistorySyncer.class);
 
-    // User-visible history table name; the internal physical table lives under __internal_schema.
+    // Physical history table name under __internal_schema. Users query it directly:
+    // SELECT ... FROM __internal_schema.loads_history.
     public static final String LOADS_HISTORY_TABLE = "loads_history";
 
     // Physical column order of __internal_schema.loads_history (see InternalSchema.LOADS_HISTORY_SCHEMA):
