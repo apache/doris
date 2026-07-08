@@ -17,11 +17,20 @@
 
 package org.apache.doris.transaction;
 
-public enum TransactionType {
-    UNKNOWN,
-    HMS,
-    ICEBERG,
-    JDBC,
-    MAXCOMPUTE,
-    PAIMON
+import org.apache.doris.datasource.paimon.PaimonMetadataOps;
+import org.apache.doris.datasource.paimon.PaimonTransaction;
+
+/**
+ * Transaction manager for Paimon external tables.
+ */
+public class PaimonTransactionManager extends AbstractExternalTransactionManager<PaimonTransaction> {
+
+    public PaimonTransactionManager(PaimonMetadataOps ops) {
+        super(ops);
+    }
+
+    @Override
+    PaimonTransaction createTransaction() {
+        return new PaimonTransaction((PaimonMetadataOps) ops);
+    }
 }

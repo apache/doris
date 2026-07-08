@@ -37,6 +37,7 @@ import org.apache.doris.datasource.doris.RemoteOlapTable;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalTable;
+import org.apache.doris.datasource.paimon.PaimonExternalTable;
 import org.apache.doris.dictionary.Dictionary;
 import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.load.loadv2.LoadStatistic;
@@ -74,6 +75,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHiveTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalIcebergTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalMaxComputeTableSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalPaimonTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSink;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -564,6 +566,19 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
                                 Optional.of(mcInsertCtx),
                                 emptyInsert, jobId
                         )
+                );
+            } else if (physicalSink instanceof PhysicalPaimonTableSink) {
+                boolean emptyInsert = childIsEmptyRelation(physicalSink);
+                PaimonExternalTable paimonTable = (PaimonExternalTable) targetTableIf;
+                PaimonInsertCommandContext paimonCtx = insertCtx
+                        .map(ctx1 -> (PaimonInsertCommandContext) ctx1)
+                        .orElseGet(PaimonInsertCommandContext::new);
+                return ExecutorFactory.from(
+                        planner,
+                        dataSink,
+                        physicalSink,
+                        () -> new PaimonInsertExecutor(ctx, paimonTable, label, planner,
+                                Optional.of(paimonCtx), emptyInsert, jobId)
                 );
             } else if (physicalSink instanceof PhysicalConnectorTableSink) {
                 boolean emptyInsert = childIsEmptyRelation(physicalSink);
