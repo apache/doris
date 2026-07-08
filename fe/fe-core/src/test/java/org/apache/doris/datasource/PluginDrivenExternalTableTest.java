@@ -28,6 +28,7 @@ import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.ConnectorTableSchema;
 import org.apache.doris.connector.api.ConnectorType;
 import org.apache.doris.connector.api.ConnectorViewDefinition;
+import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.handle.WriteOperation;
 import org.apache.doris.connector.api.write.ConnectorWritePlanProvider;
@@ -141,6 +142,42 @@ public class PluginDrivenExternalTableTest {
         Assertions.assertTrue(table.connectorSupportedWriteOperations().isEmpty(),
                 "a null connector degrades write ops to the empty set");
         Assertions.assertFalse(table.connectorSupportsWriteBranch(), "a null connector degrades branch to false");
+    }
+
+    // ==================== §4.4 W4: per-handle transaction write-target handle resolution ====================
+
+    // A CALLS_REAL_METHODS table whose connector resolves the write-target handle to `resolved` (null => empty).
+    private static PluginDrivenExternalTable writeTargetTable(ConnectorTableHandle resolved) {
+        ConnectorMetadata metadata = Mockito.mock(ConnectorMetadata.class);
+        Mockito.when(metadata.getTableHandle(Mockito.any(), Mockito.any(), Mockito.any()))
+                .thenReturn(Optional.ofNullable(resolved));
+        Connector connector = Mockito.mock(Connector.class);
+        Mockito.when(connector.getMetadata(Mockito.any())).thenReturn(metadata);
+        PluginDrivenExternalCatalog catalog = Mockito.mock(PluginDrivenExternalCatalog.class);
+        Mockito.when(catalog.getConnector()).thenReturn(connector);
+        Mockito.when(catalog.buildConnectorSession()).thenReturn(Mockito.mock(ConnectorSession.class));
+        PluginDrivenExternalTable table = Mockito.mock(PluginDrivenExternalTable.class, Mockito.CALLS_REAL_METHODS);
+        Deencapsulation.setField(table, "catalog", catalog);
+        return table;
+    }
+
+    @Test
+    public void resolveWriteTargetHandleReturnsTheConnectorResolvedHandle() {
+        ConnectorTableHandle handle = Mockito.mock(ConnectorTableHandle.class);
+        Assertions.assertSame(handle, writeTargetTable(handle).resolveWriteTargetHandle(),
+                "the insert executor threads THIS handle into beginTransaction(session, handle) so a heterogeneous "
+                        + "gateway opens the sibling's transaction for a foreign table");
+    }
+
+    @Test
+    public void resolveWriteTargetHandleFailsLoudWhenUnresolvable() {
+        // FAILS LOUD rather than returning null: a null handle is not an instanceof the gateway's own handle type
+        // and would misroute a plain write to the sibling. A downgrade to orElse(null) must break this test.
+        DorisConnectorException e = Assertions.assertThrows(DorisConnectorException.class,
+                () -> writeTargetTable(null).resolveWriteTargetHandle(),
+                "an unresolvable write-target handle must fail loud, not return null");
+        Assertions.assertTrue(e.getMessage().startsWith("Cannot resolve the connector table handle for write target"),
+                "the fail-loud message must name the unresolved write target");
     }
 
     /**

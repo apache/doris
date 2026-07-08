@@ -1524,6 +1524,23 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
     }
 
     /**
+     * Per-handle transaction open: a FOREIGN (iceberg-on-HMS) handle forwards to the sibling so the
+     * session-bound transaction is the sibling's {@code IcebergConnectorTransaction} that iceberg's write plan
+     * downcasts; a hive handle falls through to the connector-level {@link #beginTransaction(ConnectorSession)}
+     * (a {@code HiveConnectorTransaction} that the hive write plan downcasts). The two write plans downcast to
+     * DIFFERENT concrete transaction types, so the selection MUST be symmetric — an always-forward (or
+     * always-hive) shortcut breaks the opposite side. The engine passes the resolved write-target handle
+     * (never null). Dormant until hms enters SPI_READY_TYPES.
+     */
+    @Override
+    public ConnectorTransaction beginTransaction(ConnectorSession session, ConnectorTableHandle handle) {
+        if (!(handle instanceof HiveTableHandle)) {
+            return siblingMetadata(session).beginTransaction(session, handle);
+        }
+        return beginTransaction(session);
+    }
+
+    /**
      * Drops {@code dbName.tableName} after rejecting a transactional table, mirroring legacy
      * {@code HiveMetadataOps.dropTableImpl}. Shared by the direct DROP TABLE and the force DROP DATABASE
      * cascade.

@@ -33,6 +33,8 @@ import org.apache.doris.connector.api.ddl.PartitionFieldChange;
 import org.apache.doris.connector.api.ddl.TagChange;
 import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
+import org.apache.doris.connector.api.handle.ConnectorTransaction;
+import org.apache.doris.connector.api.handle.NoOpConnectorTransaction;
 import org.apache.doris.connector.api.handle.WriteOperation;
 import org.apache.doris.connector.api.mvcc.ConnectorMvccPartitionView;
 import org.apache.doris.connector.api.mvcc.ConnectorMvccSnapshot;
@@ -238,6 +240,44 @@ public class HiveConnectorMetadataSiblingDelegationTest {
         Assertions.assertTrue(siblingMetadata.calls.isEmpty(), "the sibling must not be forwarded a hive handle");
     }
 
+    @Test
+    public void beginTransactionForwardsAForeignHandleToTheSibling() {
+        HiveConnectorMetadata md = withSibling();
+
+        // A foreign (iceberg-on-HMS) write must open the SIBLING's transaction, so iceberg's write plan can
+        // downcast the session-bound transaction to IcebergConnectorTransaction — a HiveConnectorTransaction
+        // (what the unconditional open would bind) would ClassCastException there.
+        ConnectorTransaction txn = md.beginTransaction(null, foreignHandle);
+
+        Assertions.assertSame(RecordingSiblingMetadata.SIBLING_TXN, txn,
+                "a foreign handle must open the sibling's transaction, not a hive one");
+        Assertions.assertEquals(Collections.singletonList("beginTransaction"), siblingMetadata.calls,
+                "beginTransaction must forward the foreign handle to the sibling");
+        Assertions.assertEquals(1, siblingConnector.getMetadataCount, "the sibling must be consulted once");
+    }
+
+    @Test
+    public void beginTransactionForHiveHandleOpensHiveTxnAndNeverConsultsSibling() {
+        // A hive handle must fall through to the connector-level beginTransaction. Stub the no-arg factory so the
+        // test does not build a real HiveConnectorTransaction (which spins a file-system thread pool); the point
+        // is the per-handle guard routes a hive handle to the connector's OWN transaction, a foreign one to the
+        // sibling. The selection must be symmetric — hive and iceberg write plans downcast to different types.
+        ConnectorTransaction hiveTxn = new NoOpConnectorTransaction(70099L, "HIVE");
+        HiveConnectorMetadata md = new HiveConnectorMetadata(null, Collections.emptyMap(), new FakeConnectorContext(),
+                () -> siblingConnector) {
+            @Override
+            public ConnectorTransaction beginTransaction(ConnectorSession session) {
+                return hiveTxn;
+            }
+        };
+
+        Assertions.assertSame(hiveTxn, md.beginTransaction(null, hiveHandle()),
+                "a hive handle must open the connector-level (hive) transaction, not the sibling's");
+        Assertions.assertEquals(0, siblingConnector.getMetadataCount,
+                "a hive handle must never build/consult the iceberg sibling to open a transaction");
+        Assertions.assertTrue(siblingMetadata.calls.isEmpty(), "the sibling must not be forwarded a hive handle");
+    }
+
     private static void assertThrowsMessage(Executable exec, String expectedMessage) {
         DorisConnectorException e = Assertions.assertThrows(DorisConnectorException.class, exec);
         Assertions.assertEquals(expectedMessage, e.getMessage(),
@@ -263,6 +303,7 @@ public class HiveConnectorMetadataSiblingDelegationTest {
     /** Records each forwarded method name and returns distinguishable sentinels. */
     private static final class RecordingSiblingMetadata implements ConnectorMetadata {
         static final ConnectorTableHandle SIBLING_HANDLE = new ForeignHandle();
+        static final ConnectorTransaction SIBLING_TXN = new NoOpConnectorTransaction(4243L, "ICEBERG");
         static final long SENTINEL_SIZE = 4242L;
         static final long SENTINEL_SNAPSHOT_ID = 99L;
 
@@ -377,6 +418,12 @@ public class HiveConnectorMetadataSiblingDelegationTest {
         @Override
         public void truncateTable(ConnectorSession session, ConnectorTableHandle handle, List<String> partitions) {
             calls.add("truncateTable");
+        }
+
+        @Override
+        public ConnectorTransaction beginTransaction(ConnectorSession session, ConnectorTableHandle handle) {
+            calls.add("beginTransaction");
+            return SIBLING_TXN;
         }
 
         @Override

@@ -34,6 +34,7 @@ import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.ConnectorTableSchema;
 import org.apache.doris.connector.api.ConnectorTableStatistics;
 import org.apache.doris.connector.api.ConnectorViewDefinition;
+import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.handle.WriteOperation;
 import org.apache.doris.connector.api.write.ConnectorWritePlanProvider;
@@ -104,6 +105,22 @@ public class PluginDrivenExternalTable extends ExternalTable {
             ConnectorSession session, ConnectorMetadata metadata) {
         String dbName = db != null ? db.getRemoteName() : "";
         return metadata.getTableHandle(session, dbName, getRemoteName());
+    }
+
+    /**
+     * Resolves this table's write-target {@link ConnectorTableHandle} for the plugin-driven insert executor's
+     * per-handle transaction selection, failing loud if it cannot be resolved. A heterogeneous gateway needs
+     * the handle to open the SIBLING connector's transaction for a foreign (iceberg-on-HMS) table; a
+     * single-format connector ignores it (its {@code beginTransaction} defaults to the connector-level one), so
+     * this is byte-identical for it. Fails loud rather than returning null: a null handle is not an
+     * {@code instanceof} the gateway's own handle type and would misroute a plain write to the sibling.
+     */
+    public ConnectorTableHandle resolveWriteTargetHandle() {
+        PluginDrivenExternalCatalog pluginCatalog = (PluginDrivenExternalCatalog) catalog;
+        ConnectorSession session = pluginCatalog.buildConnectorSession();
+        return resolveConnectorTableHandle(session, pluginCatalog.getConnector().getMetadata(session))
+                .orElseThrow(() -> new DorisConnectorException(
+                        "Cannot resolve the connector table handle for write target " + getName()));
     }
 
     /**

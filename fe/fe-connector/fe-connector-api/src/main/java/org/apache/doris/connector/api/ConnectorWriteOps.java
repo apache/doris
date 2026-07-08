@@ -91,4 +91,19 @@ public interface ConnectorWriteOps {
     default ConnectorTransaction beginTransaction(ConnectorSession session) {
         throw new DorisConnectorException("Transactions not supported");
     }
+
+    /**
+     * Per-table view of {@link #beginTransaction(ConnectorSession)}: opens the transaction for the connector
+     * that owns {@code handle}. The default ignores {@code handle} and returns the connector-level
+     * {@link #beginTransaction(ConnectorSession)}, so every single-format connector is unaffected.
+     *
+     * <p>A heterogeneous gateway (one catalog serving multiple table formats) overrides this to route a foreign
+     * handle to its sibling connector's transaction, so the session-bound transaction's concrete type matches
+     * the per-handle-selected write plan provider. The no-arg version alone would bind the gateway's own
+     * transaction and the sibling's write plan would fail to downcast it. Mirrors the per-handle
+     * {@code getWritePlanProvider(handle)} seam.</p>
+     */
+    default ConnectorTransaction beginTransaction(ConnectorSession session, ConnectorTableHandle handle) {
+        return beginTransaction(session);
+    }
 }
