@@ -20,20 +20,12 @@ package org.apache.doris.nereids.rules.rewrite;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.trees.expressions.OrderExpression;
-import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
-import org.apache.doris.nereids.trees.expressions.functions.agg.SupportMultiDistinct;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.util.AggregateUtils;
 
 /**
- * If there are multiple distinct aggregate functions that cannot
- * be transformed into multi_distinct, an error is reported.
- * The following functions can be transformed into multi_distinct:
- * - count -> MULTI_DISTINCT_COUNT
- * - sum -> MULTI_DISTINCT_SUM
- * - avg -> MULTI_DISTINCT_AVG
- * - group_concat -> MULTI_DISTINCT_GROUP_CONCAT
+ * Check that previous aggregate rewrite rules have already handled multiple distinct argument groups.
  */
 public class CheckMultiDistinct extends OneRewriteRuleFactory {
     @Override
@@ -42,43 +34,8 @@ public class CheckMultiDistinct extends OneRewriteRuleFactory {
     }
 
     private LogicalAggregate checkDistinct(LogicalAggregate<? extends Plan> aggregate) {
-        if (aggregate.getDistinctArguments().size() > 1) {
-
-            for (AggregateFunction func : aggregate.getAggregateFunctions()) {
-                if (func.isDistinct() && !(func instanceof SupportMultiDistinct)) {
-                    throw new AnalysisException(func.toString() + " can't support multi distinct.");
-                }
-            }
-        }
-
-        boolean distinctMultiColumns = false;
-        for (AggregateFunction func : aggregate.getAggregateFunctions()) {
-            if (!func.isDistinct()) {
-                continue;
-            }
-            if (func.arity() <= 1) {
-                continue;
-            }
-            for (int i = 1; i < func.arity(); i++) {
-                if (!func.child(i).getInputSlots().isEmpty() && !(func.child(i) instanceof OrderExpression)) {
-                    // think about group_concat(distinct col_1, ',')
-                    distinctMultiColumns = true;
-                    break;
-                }
-            }
-            if (distinctMultiColumns) {
-                break;
-            }
-        }
-
-        long distinctFunctionNum = 0;
-        for (AggregateFunction aggregateFunction : aggregate.getAggregateFunctions()) {
-            distinctFunctionNum += aggregateFunction.isDistinct() ? 1 : 0;
-        }
-
-        if (distinctMultiColumns && distinctFunctionNum > 1) {
-            throw new AnalysisException(
-                    "The query contains multi count distinct or sum distinct, each can't have multi columns");
+        if (AggregateUtils.distinctArgumentGroupCountUpToTwo(aggregate) > 1) {
+            throw new AnalysisException("Multiple distinct argument groups remain after aggregate rewrite");
         }
         return aggregate;
     }

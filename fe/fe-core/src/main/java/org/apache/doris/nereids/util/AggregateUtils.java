@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.SupportMultiDist
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.ColumnStatistic;
@@ -145,6 +146,23 @@ public class AggregateUtils {
     public static boolean containsCountDistinctMultiExpr(LogicalAggregate<? extends Plan> aggregate) {
         return ExpressionUtils.deapAnyMatch(aggregate.getOutputExpressions(), expr ->
                 expr instanceof Count && ((Count) expr).isDistinct() && expr.arity() > 1);
+    }
+
+    /** count agg function distinct group, up to 2*/
+    public static int distinctArgumentGroupCountUpToTwo(Aggregate<? extends Plan> aggregate) {
+        Set<Expression> distinctArgumentGroup = null;
+        for (AggregateFunction aggregateFunction : aggregate.getAggregateFunctions()) {
+            if (!aggregateFunction.isDistinct()) {
+                continue;
+            }
+            Set<Expression> currentGroup = ImmutableSet.copyOf(aggregateFunction.getDistinctArguments());
+            if (distinctArgumentGroup == null) {
+                distinctArgumentGroup = currentGroup;
+            } else if (!distinctArgumentGroup.equals(currentGroup)) {
+                return 2;
+            }
+        }
+        return distinctArgumentGroup == null ? 0 : 1;
     }
 
     /**getAllKeySet*/
