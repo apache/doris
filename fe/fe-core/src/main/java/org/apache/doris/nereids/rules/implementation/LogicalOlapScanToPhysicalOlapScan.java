@@ -22,6 +22,7 @@ import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.Reference;
 import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
@@ -38,7 +39,6 @@ import org.apache.doris.nereids.util.Utils;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -90,7 +90,7 @@ public class LogicalOlapScanToPhysicalOlapScan extends OneImplementationRuleFact
         // When there are multiple partitions, olapScan tasks of different buckets are dispatched in
         // rounded robin algorithm. Therefore, the hashDistributedSpec can be broken except they are in
         // the same stable colocateGroup(CG)
-        Map<String, List<List<Long>>> colocateData = new HashMap<>();
+        Reference<Map<String, List<List<Long>>>> colocateData = new Reference<>();
         boolean isBelongStableCG = Utils.getStableColocateData(olapTable, colocateData);
         boolean isSelectUnpartition = Utils.isSelectUnpartition(olapTable, olapScan.getSelectedPartitionIds());
         // TODO: find a better way to handle both tablet num == 1 and colocate table together in future
@@ -125,7 +125,7 @@ public class LogicalOlapScanToPhysicalOlapScan extends OneImplementationRuleFact
                 DistributionSpec distributionSpec = new DistributionSpecHash(hashColumns, ShuffleType.NATURAL,
                         olapScan.getTable().getId(), olapScan.getSelectedIndexId(),
                         Sets.newLinkedHashSet(olapScan.getSelectedPartitionIds()));
-                return Pair.of(distributionSpec, Optional.of(colocateData));
+                return Pair.of(distributionSpec, Optional.ofNullable(colocateData.getRef()));
             } else {
                 HashDistributionInfo hashDistributionInfo = (HashDistributionInfo) distributionInfo;
                 List<Slot> output = olapScan.getOutput();
@@ -145,7 +145,7 @@ public class LogicalOlapScanToPhysicalOlapScan extends OneImplementationRuleFact
                 DistributionSpec distributionSpec = new DistributionSpecHash(hashColumns, ShuffleType.NATURAL,
                         olapScan.getTable().getId(), olapScan.getSelectedIndexId(),
                         Sets.newLinkedHashSet(olapScan.getSelectedPartitionIds()));
-                return Pair.of(distributionSpec, Optional.of(colocateData));
+                return Pair.of(distributionSpec, Optional.ofNullable(colocateData.getRef()));
             }
         } else {
             // RandomDistributionInfo

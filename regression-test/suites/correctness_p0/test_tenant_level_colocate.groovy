@@ -94,21 +94,21 @@
      order_qt_select_q1 """  select k1,c1,m1,v1 from ${colocateTableNameMaster} right outer join ${rightTable} on ${colocateTableNameMaster}.c1 = ${rightTable}.k1 order by k1; """
      order_qt_select_q2 """  select k1,c1,m2,v1 from ${colocateTableNameSlave} right outer join ${rightTable} on ${colocateTableNameSlave}.c1 = ${rightTable}.k1 order by k1; """
 
-     order_qt_select_q3 """  
+     order_qt_select_q3 """
         with t1 as (
             select c1, sum(m1) as m1 from ${colocateTableNameMaster} group by c1
         )
-        select k1,c1,m1,v1 from t1 right outer join ${rightTable} on t1.c1 = ${rightTable}.k1 order by k1; 
+        select k1,c1,m1,v1 from t1 right outer join ${rightTable} on t1.c1 = ${rightTable}.k1 order by k1;
      """
 
-     order_qt_select_q4 """  
+     order_qt_select_q4 """
         with t1 as (
             select c1, sum(m2) as m2 from ${colocateTableNameSlave} group by c1
         )
-        select k1,c1,m2,v1 from t1 right outer join ${rightTable} on t1.c1 = ${rightTable}.k1 order by k1; 
+        select k1,c1,m2,v1 from t1 right outer join ${rightTable} on t1.c1 = ${rightTable}.k1 order by k1;
      """
 
-     order_qt_select_q5 """  
+     order_qt_select_q5 """
         with t1 as (
             select c1, sum(m1) as m1 from ${colocateTableNameMaster} group by c1
         ),
@@ -116,11 +116,11 @@
             select c1, sum(m2) as m2 from ${colocateTableNameSlave} group by c1
         )
         select k1, m1, m2, v1
-        from t1 join t2 on t1.c1 = t2.c1 right join ${rightTable} on t1.c1 = ${rightTable}.k1 
-        order by k1; 
+        from t1 join t2 on t1.c1 = t2.c1 right join ${rightTable} on t1.c1 = ${rightTable}.k1
+        order by k1;
      """
 
-     order_qt_select_q6 """  
+     order_qt_select_q6 """
         with t1 as (
             select c1, sum(m1) as m1 from ${colocateTableNameMaster} group by c1
         ),
@@ -129,8 +129,8 @@
         )
         select /*+ SET_VAR(enable_nereids_distribute_planner=false)*/
             k1, m1, m2, v1
-        from t1 join t2 on t1.c1 = t2.c1 right join ${rightTable} on t1.c1 = ${rightTable}.k1 
-        order by k1; 
+        from t1 join t2 on t1.c1 = t2.c1 right join ${rightTable} on t1.c1 = ${rightTable}.k1
+        order by k1;
      """
 
      explain {
@@ -143,8 +143,8 @@
                 )
                 select /*+ SET_VAR(disable_join_reorder=true)*/
                     k1, m1, m2, v1
-                from t1 join t2 on t1.c1 = t2.c1 right join ${rightTable} on t1.c1 = ${rightTable}.k1 
-                order by k1; 
+                from t1 join t2 on t1.c1 = t2.c1 right join ${rightTable} on t1.c1 = ${rightTable}.k1
+                order by k1;
             """
          contains "join op: INNER JOIN(COLOCATE[])[]"
          contains "join op: RIGHT OUTER JOIN(BUCKET_SHUFFLE)[]"

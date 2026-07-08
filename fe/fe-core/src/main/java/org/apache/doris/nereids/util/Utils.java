@@ -23,6 +23,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.TenantLevelColocateTableIndex;
 import org.apache.doris.catalog.info.TableNameInfo;
+import org.apache.doris.common.Reference;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.parser.NereidsParser;
@@ -46,6 +47,7 @@ import org.apache.commons.lang3.StringUtils;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -207,7 +209,7 @@ public class Utils {
     /**
      * get stable colocate tag
      */
-    public static boolean getStableColocateData(OlapTable olapTable, Map<String, List<List<Long>>> result) {
+    public static boolean getStableColocateData(OlapTable olapTable, Reference<Map<String, List<List<Long>>>> result) {
         if (olapTable.getCatalogId() != Env.getCurrentInternalCatalog().getId()) {
             return false;
         }
@@ -222,10 +224,13 @@ public class Utils {
         Map<Tag, List<List<Long>>> colocateData = tenantLevelColocateTableIndex.getStableGroupMap(olapTable.getId());
         colocateData.forEach((k, v) -> {
             if (!userLocationTags.isPresent() || userLocationTags.get().contains(k.value)) {
-                result.put(k.value, v);
+                if (result.getRef() == null) {
+                    result.setRef(new HashMap<>());
+                }
+                result.getRef().put(k.value, v);
             }
         });
-        return !result.isEmpty();
+        return result.getRef() != null;
     }
 
     public static boolean isSelectUnpartition(OlapTable olapTable, Collection<Long> selectedPartitionIds) {

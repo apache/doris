@@ -405,7 +405,7 @@ public class TenantLevelColocateTableCheckerAndBalancer extends ColocateTableChe
                     continue;
                 }
                 OlapTable olapTable = (OlapTable) db.getTableNullable(tableId);
-                if (olapTable == null || !colocateIndex.isColocateMasterTable(olapTable.getId())) {
+                if (olapTable == null || !colocateIndex.isColocateTable(olapTable.getId())) {
                     continue;
                 }
 
