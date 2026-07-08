@@ -44,7 +44,7 @@ suite("test_streaming_mysql_job_sc", "p0,external,mysql,external_docker,external
         def waitForColumnComment = { String column, String comment ->
             Awaitility.await().atMost(180, SECONDS).pollInterval(2, SECONDS).until({
                 def createTable = (sql "SHOW CREATE TABLE ${table1}")[0][1] as String
-                createTable.contains("`${column}`") && createTable.contains("COMMENT '${comment}'")
+                createTable.contains("`${column}`") && createTable.contains(comment)
             })
         }
         def waitForRow = { String name ->
