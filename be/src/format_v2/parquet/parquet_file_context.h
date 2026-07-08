@@ -32,6 +32,8 @@ struct IOContext;
 } // namespace doris::io
 
 namespace doris {
+class FileMetaCache;
+struct FileMetaCacheProfile;
 class RuntimeProfile;
 } // namespace doris
 
@@ -112,7 +114,8 @@ struct ParquetFileContext {
     const ::parquet::SchemaDescriptor* schema = nullptr; // physical leaf column schema
 
     Status open(io::FileReaderSPtr input_file_reader, io::IOContext* io_ctx, bool enable_page_cache,
-                const io::FileDescription& file_description);
+                const io::FileDescription& file_description, FileMetaCache* file_meta_cache,
+                FileMetaCacheProfile* file_meta_cache_profile, int64_t* file_footer_read_calls);
     // Register file ranges that belong to selected Parquet column chunks. Arrow still owns page
     // decoding, so v2 caches the serialized bytes read inside these ranges and excludes
     // footer/metadata reads that happen before registration.

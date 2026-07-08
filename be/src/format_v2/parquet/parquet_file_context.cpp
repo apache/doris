@@ -35,6 +35,7 @@
 #include "io/cache/cached_remote_file_reader.h"
 #include "io/file_factory.h"
 #include "io/fs/buffered_reader.h"
+#include "io/fs/file_meta_cache.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/tracing_file_reader.h"
 #include "io/io_common.h"
@@ -535,19 +536,80 @@ Status arrow_status_to_doris_status(const arrow::Status& status) {
 }
 
 Status ParquetFileContext::open(io::FileReaderSPtr input_file_reader, io::IOContext* io_ctx,
-                                bool enable_page_cache,
-                                const io::FileDescription& file_description) {
+                                bool enable_page_cache, const io::FileDescription& file_description,
+                                FileMetaCache* file_meta_cache,
+                                FileMetaCacheProfile* file_meta_cache_profile,
+                                int64_t* file_footer_read_calls) {
     DORIS_CHECK(input_file_reader != nullptr);
+    DORIS_CHECK(file_footer_read_calls != nullptr);
     auto page_cache_file_key = build_page_cache_file_key(*input_file_reader, file_description);
-    arrow_file = std::make_shared<DorisRandomAccessFile>(std::move(input_file_reader), io_ctx,
-                                                         enable_page_cache,
-                                                         std::move(page_cache_file_key));
+    const std::string file_meta_cache_key =
+            file_meta_cache != nullptr ? FileMetaCache::get_key(input_file_reader, file_description)
+                                       : std::string {};
+    const int64_t file_size = file_description.file_size == -1
+                                      ? static_cast<int64_t>(input_file_reader->size())
+                                      : file_description.file_size;
+    std::shared_ptr<::parquet::FileMetaData> cached_metadata;
+    bool metadata_from_cache = false;
+    FileMetaCacheContext file_meta_cache_context {
+            .format = FileMetaCacheFormat::PARQUET,
+            .key = file_meta_cache_key,
+            .modification_time = file_description.mtime,
+            .file_size = file_size,
+            .enable_memory_cache = file_meta_cache != nullptr && file_meta_cache->enabled()};
+    const auto reader_properties = ::parquet::default_reader_properties();
     try {
-        // TODO: Cache parquet metadata in file system layer to avoid repeated metadata read for same file.
-        this->file_reader = ::parquet::ParquetFileReader::Open(
-                arrow_file, ::parquet::default_reader_properties());
+        if (file_meta_cache != nullptr) {
+            ObjLRUCache::CacheHandle meta_cache_handle;
+            std::string serialized_metadata;
+            const FileMetaCacheLookupResult lookup_result =
+                    file_meta_cache->lookup(file_meta_cache_context, &meta_cache_handle,
+                                            &serialized_metadata, file_meta_cache_profile);
+            if (lookup_result.state == FileMetaCacheLookupState::MEMORY_HIT) {
+                const auto* cached_metadata_ptr =
+                        meta_cache_handle.data<std::shared_ptr<::parquet::FileMetaData>>();
+                DORIS_CHECK(cached_metadata_ptr != nullptr);
+                cached_metadata = *cached_metadata_ptr;
+                metadata_from_cache = true;
+            } else if (lookup_result.state == FileMetaCacheLookupState::PERSISTED_HIT) {
+                uint32_t metadata_len = static_cast<uint32_t>(serialized_metadata.size());
+                cached_metadata = ::parquet::FileMetaData::Make(serialized_metadata.data(),
+                                                                &metadata_len, reader_properties);
+                if (file_meta_cache_context.enable_memory_cache) {
+                    auto cached_metadata_holder =
+                            std::make_unique<std::shared_ptr<::parquet::FileMetaData>>(
+                                    cached_metadata);
+                    ObjLRUCache::CacheHandle insert_handle;
+                    file_meta_cache->insert(file_meta_cache_key, cached_metadata_holder,
+                                            &insert_handle);
+                }
+                metadata_from_cache = true;
+            }
+        }
+        arrow_file = std::make_shared<DorisRandomAccessFile>(std::move(input_file_reader), io_ctx,
+                                                             enable_page_cache,
+                                                             std::move(page_cache_file_key));
+        this->file_reader =
+                ::parquet::ParquetFileReader::Open(arrow_file, reader_properties, cached_metadata);
         metadata = this->file_reader->metadata();
         schema = metadata != nullptr ? metadata->schema() : nullptr;
+        if (!metadata_from_cache) {
+            ++(*file_footer_read_calls);
+            if (file_meta_cache != nullptr && metadata != nullptr) {
+                auto cached_metadata_holder =
+                        std::make_unique<std::shared_ptr<::parquet::FileMetaData>>(metadata);
+                ObjLRUCache::CacheHandle insert_handle;
+                if (FileMetaCache::is_persistent_cache_payload_size_allowed(metadata->size())) {
+                    std::string serialized_metadata = metadata->SerializeToString();
+                    file_meta_cache->insert(file_meta_cache_context, cached_metadata_holder,
+                                            &insert_handle, serialized_metadata,
+                                            file_meta_cache_profile);
+                } else if (file_meta_cache_context.enable_memory_cache) {
+                    file_meta_cache->insert(file_meta_cache_key, cached_metadata_holder,
+                                            &insert_handle);
+                }
+            }
+        }
     } catch (const ::parquet::ParquetException& e) {
         if (io_ctx != nullptr && io_ctx->should_stop &&
             std::string_view(e.what()).find("stop") != std::string_view::npos) {

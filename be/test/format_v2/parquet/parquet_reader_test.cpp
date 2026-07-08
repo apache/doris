@@ -60,6 +60,7 @@
 #include "format_v2/parquet/reader/column_reader.h"
 #include "format_v2/table_reader.h"
 #include "gen_cpp/Types_types.h"
+#include "io/fs/file_meta_cache.h"
 #include "io/io_common.h"
 #include "runtime/runtime_state.h"
 #include "storage/index/zone_map/zonemap_eval_context.h"
@@ -1136,7 +1137,7 @@ protected:
             RuntimeProfile* profile = nullptr, bool enable_mapping_timestamp_tz = false,
             std::shared_ptr<io::IOContext> io_ctx = nullptr,
             std::optional<format::GlobalRowIdContext> global_rowid_context = std::nullopt,
-            bool is_immutable = false) const {
+            bool is_immutable = false, FileMetaCache* file_meta_cache = nullptr) const {
         auto system_properties = std::make_shared<io::FileSystemProperties>();
         system_properties->system_type = TFileType::FILE_LOCAL;
         auto file_description = std::make_unique<io::FileDescription>();
@@ -1147,7 +1148,7 @@ protected:
         file_description->is_immutable = is_immutable;
         return std::make_unique<format::parquet::ParquetReader>(
                 system_properties, file_description, std::move(io_ctx), profile,
-                global_rowid_context, enable_mapping_timestamp_tz);
+                global_rowid_context, enable_mapping_timestamp_tz, file_meta_cache);
     }
 
     std::filesystem::path _test_dir;
@@ -1170,6 +1171,28 @@ TEST_F(NewParquetReaderTest, GetSchemaReturnsFileLocalColumns) {
     EXPECT_EQ(schema[1].name, "value");
     ASSERT_TRUE(schema[1].type->is_nullable());
     EXPECT_EQ(remove_nullable(schema[1].type)->get_primitive_type(), TYPE_STRING);
+}
+
+TEST_F(NewParquetReaderTest, UsesFileMetaCacheForFooterMetadata) {
+    FileMetaCache file_meta_cache(1024 * 1024);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+
+    auto first_reader = create_reader(0, -1, nullptr, false, nullptr, std::nullopt, false,
+                                      &file_meta_cache);
+    ASSERT_TRUE(first_reader->init(&state).ok());
+
+    const auto file_size = static_cast<int64_t>(std::filesystem::file_size(_file_path));
+    const std::string file_meta_cache_key = FileMetaCache::get_key(_file_path, 0, file_size);
+    ObjLRUCache::CacheHandle handle;
+    EXPECT_TRUE(file_meta_cache.lookup(file_meta_cache_key, &handle));
+    EXPECT_TRUE(handle.valid());
+
+    auto second_reader = create_reader(0, -1, nullptr, false, nullptr, std::nullopt, false,
+                                       &file_meta_cache);
+    ASSERT_TRUE(second_reader->init(&state).ok());
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(second_reader->get_schema(&schema).ok());
+    ASSERT_EQ(schema.size(), 2);
 }
 
 // Scenario: Parquet is columnar and supports predicate/non-predicate split, nested projection and

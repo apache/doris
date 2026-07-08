@@ -40,6 +40,7 @@
 #include "format_v2/parquet/parquet_scan.h"
 #include "format_v2/parquet/parquet_statistics.h"
 #include "format_v2/parquet/reader/column_reader.h"
+#include "io/fs/file_meta_cache.h"
 #include "io/io_common.h"
 #include "runtime/runtime_state.h"
 
@@ -328,10 +329,11 @@ ParquetReader::ParquetReader(std::shared_ptr<io::FileSystemProperties>& system_p
                              std::unique_ptr<io::FileDescription>& file_description,
                              std::shared_ptr<io::IOContext> io_ctx, RuntimeProfile* profile,
                              std::optional<format::GlobalRowIdContext> global_rowid_context,
-                             bool enable_mapping_timestamp_tz)
+                             bool enable_mapping_timestamp_tz, FileMetaCache* file_meta_cache)
         : FileReader(system_properties, file_description, io_ctx, profile),
           _global_rowid_context(global_rowid_context),
-          _enable_mapping_timestamp_tz(enable_mapping_timestamp_tz) {}
+          _enable_mapping_timestamp_tz(enable_mapping_timestamp_tz),
+          _file_meta_cache(file_meta_cache) {}
 
 ParquetReader::~ParquetReader() = default;
 
@@ -364,8 +366,18 @@ Status ParquetReader::init(RuntimeState* state) {
     _state->scheduler.set_merge_read_options(_profile, merge_read_slice_size);
     _state->scheduler.set_batch_size(_batch_size);
     // Open parquet file and parse metadata to get file schema.
+    FileMetaCacheProfile file_meta_cache_profile {
+            .hit_cache = &_reader_statistics.file_footer_hit_cache};
     RETURN_IF_ERROR(_state->file_context.open(_tracing_file_reader, _io_ctx.get(),
-                                              _state->enable_page_cache, *_file_description));
+                                              _state->enable_page_cache, *_file_description,
+                                              _file_meta_cache, &file_meta_cache_profile,
+                                              &_reader_statistics.file_footer_read_calls));
+    if (_profile != nullptr) {
+        COUNTER_UPDATE(_parquet_profile.file_footer_read_calls,
+                       _reader_statistics.file_footer_read_calls);
+        COUNTER_UPDATE(_parquet_profile.file_footer_hit_cache,
+                       _reader_statistics.file_footer_hit_cache);
+    }
     // Build file schema from parquet metadata.
     // A file reader may expose raw file identifiers, such as Parquet field_id, through ColumnDefinition::identifier
     RETURN_IF_ERROR(

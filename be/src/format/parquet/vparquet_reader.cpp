@@ -65,6 +65,7 @@
 #include "storage/index/zone_map/zonemap_eval_context.h"
 #include "util/slice.h"
 #include "util/string_util.h"
+#include "util/thrift_util.h"
 #include "util/timezone_utils.h"
 
 namespace cctz {
@@ -255,6 +256,18 @@ void ParquetReader::_init_profile() {
                 ADD_COUNTER_WITH_LEVEL(_profile, "FileFooterReadCalls", TUnit::UNIT, 1);
         _parquet_profile.file_footer_hit_cache =
                 ADD_COUNTER_WITH_LEVEL(_profile, "FileFooterHitCache", TUnit::UNIT, 1);
+        _parquet_profile.file_footer_hit_memory_cache =
+                ADD_COUNTER_WITH_LEVEL(_profile, "FileFooterHitMemoryCache", TUnit::UNIT, 1);
+        _parquet_profile.file_footer_hit_disk_cache =
+                ADD_COUNTER_WITH_LEVEL(_profile, "FileFooterHitDiskCache", TUnit::UNIT, 1);
+        _parquet_profile.file_footer_miss_disk_cache =
+                ADD_COUNTER_WITH_LEVEL(_profile, "FileFooterMissDiskCache", TUnit::UNIT, 1);
+        _parquet_profile.file_footer_write_disk_cache =
+                ADD_COUNTER_WITH_LEVEL(_profile, "FileFooterWriteDiskCache", TUnit::UNIT, 1);
+        _parquet_profile.file_footer_read_disk_cache_time = ADD_CHILD_TIMER_WITH_LEVEL(
+                _profile, "FileFooterReadDiskCacheTime", parquet_profile, 1);
+        _parquet_profile.file_footer_write_disk_cache_time = ADD_CHILD_TIMER_WITH_LEVEL(
+                _profile, "FileFooterWriteDiskCacheTime", parquet_profile, 1);
         _parquet_profile.decompress_time =
                 ADD_CHILD_TIMER_WITH_LEVEL(_profile, "DecompressTime", parquet_profile, 1);
         _parquet_profile.decompress_cnt = ADD_CHILD_COUNTER_WITH_LEVEL(
@@ -367,21 +380,76 @@ Status ParquetReader::_open_file() {
             // parse magic number & parse meta data
             _reader_statistics.file_footer_read_calls += 1;
         } else {
-            const auto& file_meta_cache_key =
+            const std::string file_meta_cache_key =
                     FileMetaCache::get_key(_tracing_file_reader, _file_description);
-            if (!_meta_cache->lookup(file_meta_cache_key, &_meta_cache_handle)) {
+            const int64_t file_size = _file_description.file_size == -1
+                                              ? _tracing_file_reader->size()
+                                              : _file_description.file_size;
+            const FileMetaCacheContext file_meta_cache_context {
+                    .format = FileMetaCacheFormat::PARQUET,
+                    .key = file_meta_cache_key,
+                    .modification_time = _file_description.mtime,
+                    .file_size = file_size,
+                    .enable_memory_cache = _meta_cache->enabled()};
+            FileMetaCacheProfile file_meta_cache_profile {
+                    .hit_cache = &_reader_statistics.file_footer_hit_cache,
+                    .hit_memory_cache = &_reader_statistics.file_footer_hit_memory_cache,
+                    .hit_disk_cache = &_reader_statistics.file_footer_hit_disk_cache,
+                    .miss_disk_cache = &_reader_statistics.file_footer_miss_disk_cache,
+                    .write_disk_cache = &_reader_statistics.file_footer_write_disk_cache,
+                    .read_disk_cache_time = &_reader_statistics.file_footer_read_disk_cache_time,
+                    .write_disk_cache_time = &_reader_statistics.file_footer_write_disk_cache_time};
+            std::string footer_payload;
+            const FileMetaCacheLookupResult lookup_result =
+                    _meta_cache->lookup(file_meta_cache_context, &_meta_cache_handle,
+                                        &footer_payload, &file_meta_cache_profile);
+            if (lookup_result.state == FileMetaCacheLookupState::MEMORY_HIT) {
+                _file_metadata = _meta_cache_handle.data<FileMetaData>();
+            } else if (lookup_result.state == FileMetaCacheLookupState::PERSISTED_HIT) {
+                uint32_t metadata_size = static_cast<uint32_t>(footer_payload.size());
+                tparquet::FileMetaData t_metadata;
+                RETURN_IF_ERROR(deserialize_thrift_msg(
+                        reinterpret_cast<const uint8_t*>(footer_payload.data()), &metadata_size,
+                        true, &t_metadata));
+                _file_metadata_ptr = std::make_unique<FileMetaData>(t_metadata, metadata_size);
+                RETURN_IF_ERROR(_file_metadata_ptr->init_schema(enable_mapping_varbinary,
+                                                                enable_mapping_timestamp_tz));
+                if (file_meta_cache_context.enable_memory_cache) {
+                    _meta_cache->insert(file_meta_cache_key, _file_metadata_ptr.release(),
+                                        &_meta_cache_handle);
+                    _file_metadata = _meta_cache_handle.data<FileMetaData>();
+                } else {
+                    _file_metadata = _file_metadata_ptr.get();
+                }
+            } else {
                 RETURN_IF_ERROR(parse_thrift_footer(_tracing_file_reader, &_file_metadata_ptr,
                                                     &meta_size, _io_ctx, enable_mapping_varbinary,
                                                     enable_mapping_timestamp_tz));
-                // _file_metadata_ptr.release() : move control of _file_metadata to _meta_cache_handle
-                _meta_cache->insert(file_meta_cache_key, _file_metadata_ptr.release(),
-                                    &_meta_cache_handle);
-                _file_metadata = _meta_cache_handle.data<FileMetaData>();
+                const size_t serialized_meta_size = meta_size >= PARQUET_FOOTER_SIZE
+                                                            ? meta_size - PARQUET_FOOTER_SIZE
+                                                            : meta_size;
+                if (FileMetaCache::is_persistent_cache_payload_size_allowed(
+                            static_cast<uint64_t>(serialized_meta_size))) {
+                    tparquet::FileMetaData thrift_metadata = _file_metadata_ptr->to_thrift();
+                    ThriftSerializer serializer(true, static_cast<int>(serialized_meta_size));
+                    RETURN_IF_ERROR(serializer.serialize(&thrift_metadata, &footer_payload));
+                    const auto insert_result = _meta_cache->insert(
+                            file_meta_cache_context, _file_metadata_ptr, &_meta_cache_handle,
+                            footer_payload, &file_meta_cache_profile);
+                    if (insert_result.memory_inserted) {
+                        _file_metadata = _meta_cache_handle.data<FileMetaData>();
+                    } else {
+                        _file_metadata = _file_metadata_ptr.get();
+                    }
+                } else if (file_meta_cache_context.enable_memory_cache &&
+                           _meta_cache->insert(file_meta_cache_key, _file_metadata_ptr,
+                                               &_meta_cache_handle)) {
+                    _file_metadata = _meta_cache_handle.data<FileMetaData>();
+                } else {
+                    _file_metadata = _file_metadata_ptr.get();
+                }
                 _reader_statistics.file_footer_read_calls += 1;
-            } else {
-                _reader_statistics.file_footer_hit_cache++;
             }
-            _file_metadata = _meta_cache_handle.data<FileMetaData>();
         }
 
         if (_file_metadata == nullptr) {
@@ -1742,6 +1810,18 @@ void ParquetReader::_collect_profile() {
                    _reader_statistics.file_footer_read_calls);
     COUNTER_UPDATE(_parquet_profile.file_footer_hit_cache,
                    _reader_statistics.file_footer_hit_cache);
+    COUNTER_UPDATE(_parquet_profile.file_footer_hit_memory_cache,
+                   _reader_statistics.file_footer_hit_memory_cache);
+    COUNTER_UPDATE(_parquet_profile.file_footer_hit_disk_cache,
+                   _reader_statistics.file_footer_hit_disk_cache);
+    COUNTER_UPDATE(_parquet_profile.file_footer_miss_disk_cache,
+                   _reader_statistics.file_footer_miss_disk_cache);
+    COUNTER_UPDATE(_parquet_profile.file_footer_write_disk_cache,
+                   _reader_statistics.file_footer_write_disk_cache);
+    COUNTER_UPDATE(_parquet_profile.file_footer_read_disk_cache_time,
+                   _reader_statistics.file_footer_read_disk_cache_time);
+    COUNTER_UPDATE(_parquet_profile.file_footer_write_disk_cache_time,
+                   _reader_statistics.file_footer_write_disk_cache_time);
 
     COUNTER_UPDATE(_parquet_profile.skip_page_header_num, _column_statistics.skip_page_header_num);
     COUNTER_UPDATE(_parquet_profile.parse_page_header_num,

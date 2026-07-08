@@ -27,6 +27,7 @@
 #include "format_v2/parquet/parquet_scan.h"
 
 namespace doris {
+class FileMetaCache;
 namespace io {
 struct IOContext;
 } // namespace io
@@ -46,7 +47,8 @@ public:
                   std::unique_ptr<io::FileDescription>& file_description,
                   std::shared_ptr<io::IOContext> io_ctx, RuntimeProfile* profile,
                   std::optional<format::GlobalRowIdContext> global_rowid_context = std::nullopt,
-                  bool enable_mapping_timestamp_tz = false);
+                  bool enable_mapping_timestamp_tz = false,
+                  FileMetaCache* file_meta_cache = nullptr);
     ~ParquetReader() override;
 
     Status init(RuntimeState* state) override;
@@ -89,6 +91,7 @@ private:
     std::optional<format::GlobalRowIdContext> _global_rowid_context; // global RowId context
     size_t _batch_size = ParquetScanScheduler::DEFAULT_READ_BATCH_SIZE;
     bool _enable_mapping_timestamp_tz = false; // whether UTC timestamps are mapped to TIMESTAMPTZ
+    FileMetaCache* _file_meta_cache = nullptr;
 };
 
 } // namespace doris::format::parquet

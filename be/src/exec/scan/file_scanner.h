@@ -344,7 +344,8 @@ private:
     // 2. the file number is less than 1/3 of cache's capacibility
     // Otherwise, the cache miss rate will be high
     bool _should_enable_file_meta_cache() {
-        return ExecEnv::GetInstance()->file_meta_cache()->enabled() &&
+        return (ExecEnv::GetInstance()->file_meta_cache()->enabled() ||
+                FileMetaCache::is_persistent_cache_enabled()) &&
                _split_source->num_scan_ranges() < config::max_external_file_meta_cache_num / 3;
     }
 };

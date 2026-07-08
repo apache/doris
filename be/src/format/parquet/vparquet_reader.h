@@ -108,6 +108,12 @@ public:
         int64_t parse_footer_time = 0;
         int64_t file_footer_read_calls = 0;
         int64_t file_footer_hit_cache = 0;
+        int64_t file_footer_hit_memory_cache = 0;
+        int64_t file_footer_hit_disk_cache = 0;
+        int64_t file_footer_miss_disk_cache = 0;
+        int64_t file_footer_write_disk_cache = 0;
+        int64_t file_footer_read_disk_cache_time = 0;
+        int64_t file_footer_write_disk_cache_time = 0;
         int64_t file_reader_create_time = 0;
         int64_t open_file_num = 0;
         int64_t row_group_filter_time = 0;
@@ -281,6 +287,12 @@ private:
         RuntimeProfile::Counter* parse_page_index_time = nullptr;
         RuntimeProfile::Counter* file_footer_read_calls = nullptr;
         RuntimeProfile::Counter* file_footer_hit_cache = nullptr;
+        RuntimeProfile::Counter* file_footer_hit_memory_cache = nullptr;
+        RuntimeProfile::Counter* file_footer_hit_disk_cache = nullptr;
+        RuntimeProfile::Counter* file_footer_miss_disk_cache = nullptr;
+        RuntimeProfile::Counter* file_footer_write_disk_cache = nullptr;
+        RuntimeProfile::Counter* file_footer_read_disk_cache_time = nullptr;
+        RuntimeProfile::Counter* file_footer_write_disk_cache_time = nullptr;
         RuntimeProfile::Counter* decompress_time = nullptr;
         RuntimeProfile::Counter* decompress_cnt = nullptr;
         RuntimeProfile::Counter* page_read_counter = nullptr;

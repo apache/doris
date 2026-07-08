@@ -69,6 +69,7 @@
 
 namespace doris {
 class Block;
+class FileMetaCache;
 struct DeleteFileDesc;
 class RuntimeState;
 } // namespace doris
@@ -137,6 +138,7 @@ struct TableReadOptions {
     const TPushAggOp::type push_down_agg_type = TPushAggOp::type::NONE;
     // Digest of stable pushed-down predicates. A zero digest disables condition cache.
     uint64_t condition_cache_digest = 0;
+    FileMetaCache* file_meta_cache = nullptr;
 };
 
 struct SplitReadOptions {
@@ -1591,6 +1593,7 @@ protected:
     std::shared_ptr<io::IOContext> _io_ctx;
     RuntimeState* _runtime_state;
     RuntimeProfile* _scanner_profile;
+    FileMetaCache* _file_meta_cache = nullptr;
     const std::vector<SlotDescriptor*>* _file_slot_descs = nullptr;
     FileFormat _format;
     TPushAggOp::type _push_down_agg_type = TPushAggOp::type::NONE;
