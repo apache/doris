@@ -23,6 +23,7 @@ import org.apache.doris.connector.api.ConnectorMetadata;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
+import org.apache.doris.connector.api.procedure.ConnectorProcedureOps;
 import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.api.write.ConnectorWritePlanProvider;
 import org.apache.doris.connector.hms.HmsClient;
@@ -143,6 +144,24 @@ public class HiveConnector implements Connector {
             return getWritePlanProvider();
         }
         return getOrCreateIcebergSibling().getWritePlanProvider(handle);
+    }
+
+    /**
+     * Per-table procedure ops for {@code ALTER TABLE ... EXECUTE}: a hive handle has NO procedures — it inherits
+     * the connector-level {@code null} (plain-hive exposes none) — while a foreign (iceberg-on-HMS) handle is
+     * delegated to the sibling's per-handle procedure ops (built in the iceberg plugin's classloader), so an
+     * iceberg-on-HMS table gains the native iceberg procedures (rollback_to_snapshot, rewrite_data_files, ...).
+     * The foreign handle is passed through UNMODIFIED and NEVER cast (its concrete iceberg type is invisible
+     * across the loader split — a cast would CCE). A HUDI table keeps a HiveTableHandle, so it too inherits the
+     * null (no procedures), same as plain-hive. Mirrors {@link #getWritePlanProvider(ConnectorTableHandle)};
+     * dormant until hms enters SPI_READY_TYPES (nothing selects procedure ops for this connector today).
+     */
+    @Override
+    public ConnectorProcedureOps getProcedureOps(ConnectorTableHandle handle) {
+        if (handle instanceof HiveTableHandle) {
+            return getProcedureOps();
+        }
+        return getOrCreateIcebergSibling().getProcedureOps(handle);
     }
 
     @Override

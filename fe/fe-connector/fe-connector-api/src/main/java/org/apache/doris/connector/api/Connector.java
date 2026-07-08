@@ -174,6 +174,20 @@ public interface Connector extends Closeable {
         return null;
     }
 
+    /**
+     * Returns the procedure ops for the given table, allowing one connector to select a different set of
+     * procedures <b>per table</b> — the procedure-side analogue of {@link #getScanPlanProvider(
+     * ConnectorTableHandle)} / {@link #getWritePlanProvider(ConnectorTableHandle)}.
+     *
+     * <p>The default ignores {@code handle} and returns the connector-level {@link #getProcedureOps()}, so every
+     * single-format connector is unaffected. A heterogeneous gateway connector (one catalog serving multiple
+     * table formats) overrides this to delegate a foreign (e.g. iceberg-on-HMS) handle to a sibling connector's
+     * procedure ops by the concrete (connector-defined) handle type; the engine never inspects the format.</p>
+     */
+    default ConnectorProcedureOps getProcedureOps(ConnectorTableHandle handle) {
+        return getProcedureOps();
+    }
+
     /** Returns the set of capabilities this connector supports. */
     default Set<ConnectorCapability> getCapabilities() {
         return Collections.emptySet();
