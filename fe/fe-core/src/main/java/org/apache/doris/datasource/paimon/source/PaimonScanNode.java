@@ -93,13 +93,15 @@ public class PaimonScanNode extends FileQueryScanNode {
     private static final String DORIS_END_TIMESTAMP = "endTimestamp";
     private static final String DORIS_INCREMENTAL_BETWEEN_SCAN_MODE = "incrementalBetweenScanMode";
     private static final String PAIMON_PROPERTY_PREFIX = "paimon.";
+    private static final String DORIS_ENABLE_FILE_READER_ASYNC = "doris.enable_file_reader_async";
     private static final String DORIS_ENABLE_JNI_IO_MANAGER = "doris.enable_jni_io_manager";
     private static final String DORIS_JNI_IO_MANAGER_TMP_DIR = "doris.jni_io_manager.tmp_dir";
     private static final String DORIS_JNI_IO_MANAGER_IMPL_CLASS = "doris.jni_io_manager.impl_class";
     private static final List<String> BACKEND_PAIMON_OPTIONS = Arrays.asList(
             DORIS_ENABLE_JNI_IO_MANAGER,
             DORIS_JNI_IO_MANAGER_TMP_DIR,
-            DORIS_JNI_IO_MANAGER_IMPL_CLASS);
+            DORIS_JNI_IO_MANAGER_IMPL_CLASS,
+            DORIS_ENABLE_FILE_READER_ASYNC);
     private static final String PAIMON_BINLOG_SYSTEM_TABLE_TYPE = "binlog";
     private static final String PAIMON_AUDIT_LOG_SYSTEM_TABLE_TYPE = "audit_log";
 

@@ -50,7 +50,6 @@ import java.lang.reflect.InvocationTargetException;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -70,6 +69,8 @@ public class PaimonJniScanner extends JniScanner {
     static final String JNI_IO_MANAGER_TMP_DIR = "paimon.doris.jni_io_manager.tmp_dir";
     static final String JNI_IO_MANAGER_IMPL_CLASS = "paimon.doris.jni_io_manager.impl_class";
     private static final AtomicInteger ACTIVE_SCANNERS = new AtomicInteger();
+    static final String DORIS_ENABLE_FILE_READER_ASYNC = "paimon.doris.enable_file_reader_async";
+    static final String MAX_ASYNC_READ_THRESHOLD = Long.MAX_VALUE + "b"; // max threshold means disable
 
     private final Map<String, String> params;
     private final Map<String, String> hadoopOptionParams;
@@ -305,11 +306,20 @@ public class PaimonJniScanner extends JniScanner {
     public void close() throws IOException {
         IOException exception = null;
         try {
+            try {
+                releaseRecordIterator();
+            } catch (RuntimeException e) {
+                exception = new IOException("Failed to release Paimon record iterator", e);
+            }
             if (reader != null) {
                 try {
                     reader.close();
                 } catch (IOException e) {
-                    exception = e;
+                    if (exception == null) {
+                        exception = e;
+                    } else {
+                        exception.addSuppressed(e);
+                    }
                 } finally {
                     reader = null;
                 }
@@ -333,6 +343,16 @@ public class PaimonJniScanner extends JniScanner {
         }
         if (exception != null) {
             throw exception;
+        }
+    }
+
+    private void releaseRecordIterator() {
+        if (recordIterator != null) {
+            try {
+                recordIterator.releaseBatch();
+            } finally {
+                recordIterator = null;
+            }
         }
     }
 
@@ -365,7 +385,7 @@ public class PaimonJniScanner extends JniScanner {
                 }
                 appendDataTime += System.nanoTime() - startTime;
 
-                recordIterator.releaseBatch();
+                releaseRecordIterator();
                 recordIterator = readBatchWithMetrics();
             }
             if (fields.length == 0 && rows > 0) {
@@ -556,8 +576,7 @@ public class PaimonJniScanner extends JniScanner {
     private void initTable() {
         Preconditions.checkState(params.containsKey("serialized_table"));
         table = PaimonUtils.deserialize(params.get("serialized_table"));
-        table = table.copy(Collections.singletonMap(
-                CoreOptions.READ_BATCH_SIZE.key(), String.valueOf(batchSize)));
+        table = table.copy(buildTableOptions(table.options()));
         paimonAllFieldNames = PaimonUtils.getFieldNames(this.table.rowType());
         if (LOG.isDebugEnabled()) {
             LOG.debug("paimonAllFieldNames:{}", paimonAllFieldNames);
@@ -571,4 +590,12 @@ public class PaimonJniScanner extends JniScanner {
         return value.split(delimiter);
     }
 
+    private Map<String, String> buildTableOptions(Map<String, String> tableOptions) {
+        Map<String, String> options = new HashMap<>(tableOptions);
+        options.put(CoreOptions.READ_BATCH_SIZE.key(), String.valueOf(batchSize));
+        if (Boolean.parseBoolean(params.getOrDefault(DORIS_ENABLE_FILE_READER_ASYNC, "true")) == false) {
+            options.put(CoreOptions.FILE_READER_ASYNC_THRESHOLD.key(), MAX_ASYNC_READ_THRESHOLD);
+        }
+        return options;
+    }
 }
