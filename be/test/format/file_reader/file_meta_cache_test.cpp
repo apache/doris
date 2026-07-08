@@ -17,9 +17,13 @@
 
 #include "io/fs/file_meta_cache.h"
 
+#include <memory>
+
+#include "common/config.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "io/fs/file_reader.h"
+#include "util/defer_op.h"
 
 namespace doris {
 namespace {
@@ -153,6 +157,73 @@ TEST(FileMetaCacheTest, InsertAndLookupWithIntValue) {
     const int* cached_val2 = handle2.data<int>();
     ASSERT_NE(cached_val2, nullptr);
     EXPECT_EQ(*cached_val2, 12345);
+}
+
+TEST(FileMetaCacheTest, ContextLookupReportsMemoryHit) {
+    FileMetaCache cache(1024 * 1024);
+    const std::string meta_key = FileMetaCache::get_key("s3://bucket/memory.parquet", 123, 456);
+    const FileMetaCacheContext context {.format = FileMetaCacheFormat::PARQUET,
+                                        .key = meta_key,
+                                        .modification_time = 123,
+                                        .file_size = 456};
+
+    auto value = std::make_unique<std::string>("serialized footer payload");
+    ObjLRUCache::CacheHandle insert_handle;
+    ASSERT_TRUE(cache.insert(meta_key, value, &insert_handle));
+    ASSERT_TRUE(insert_handle.valid());
+
+    int64_t hit_cache = 0;
+    int64_t hit_memory_cache = 0;
+    int64_t hit_disk_cache = 0;
+    int64_t miss_disk_cache = 0;
+    FileMetaCacheProfile profile {.hit_cache = &hit_cache,
+                                  .hit_memory_cache = &hit_memory_cache,
+                                  .hit_disk_cache = &hit_disk_cache,
+                                  .miss_disk_cache = &miss_disk_cache};
+
+    ObjLRUCache::CacheHandle lookup_handle;
+    std::string serialized_meta;
+    const FileMetaCacheLookupResult result =
+            cache.lookup(context, &lookup_handle, &serialized_meta, &profile);
+
+    EXPECT_EQ(result.state, FileMetaCacheLookupState::MEMORY_HIT);
+    EXPECT_TRUE(lookup_handle.valid());
+    EXPECT_TRUE(serialized_meta.empty());
+    EXPECT_EQ(hit_cache, 1);
+    EXPECT_EQ(hit_memory_cache, 1);
+    EXPECT_EQ(hit_disk_cache, 0);
+    EXPECT_EQ(miss_disk_cache, 0);
+}
+
+TEST(FileMetaCacheTest, ContextInsertCanSkipMemoryCacheWithoutPersistentStore) {
+    const bool old_enable_external_file_meta_disk_cache =
+            config::enable_external_file_meta_disk_cache;
+    Defer defer {[&] {
+        config::enable_external_file_meta_disk_cache = old_enable_external_file_meta_disk_cache;
+    }};
+    config::enable_external_file_meta_disk_cache = false;
+
+    FileMetaCache cache(1024 * 1024);
+    const std::string meta_key =
+            FileMetaCache::get_key("s3://bucket/skip-memory.parquet", 123, 456);
+    const FileMetaCacheContext context {.format = FileMetaCacheFormat::PARQUET,
+                                        .key = meta_key,
+                                        .modification_time = 123,
+                                        .file_size = 456,
+                                        .enable_memory_cache = false};
+    auto value = std::make_unique<std::string>("serialized footer payload");
+    ObjLRUCache::CacheHandle handle;
+
+    const FileMetaCacheInsertResult result =
+            cache.insert(context, value, &handle, std::string_view(*value));
+
+    EXPECT_FALSE(result.persisted_inserted);
+    EXPECT_FALSE(result.memory_inserted);
+    EXPECT_FALSE(handle.valid());
+    EXPECT_NE(value, nullptr);
+
+    ObjLRUCache::CacheHandle lookup_handle;
+    EXPECT_FALSE(cache.lookup(meta_key, &lookup_handle));
 }
 
 } // namespace doris

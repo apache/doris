@@ -1261,6 +1261,8 @@ DECLARE_Bool(enable_file_cache);
 // Both will use the directory "memory" on the disk instead of the real RAM.
 DECLARE_String(file_cache_path);
 DECLARE_Int64(file_cache_each_block_size);
+DECLARE_Bool(enable_external_file_meta_disk_cache);
+DECLARE_mInt64(external_file_meta_disk_cache_max_entry_bytes);
 DECLARE_Bool(clear_file_cache);
 DECLARE_mBool(enable_file_cache_query_limit);
 DECLARE_mBool(enable_file_cache_query_limit_segment_meta);

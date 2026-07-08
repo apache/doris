@@ -17,7 +17,26 @@
 
 #include "io/fs/file_meta_cache.h"
 
+#include <utility>
+
+#include "common/config.h"
+#include "common/logging.h"
+#include "util/stopwatch.hpp"
+
 namespace doris {
+namespace {
+
+void update_profile_counter(int64_t* counter, int64_t value = 1) {
+    if (counter != nullptr) {
+        *counter += value;
+    }
+}
+
+} // namespace
+
+FileMetaCache::FileMetaCache(int64_t capacity,
+                             std::unique_ptr<FileMetaPersistentCache> persistent_cache)
+        : _cache(capacity), _persistent_cache(std::move(persistent_cache)) {}
 
 std::string FileMetaCache::get_key(const std::string file_name, int64_t modification_time,
                                    int64_t file_size) {
@@ -38,6 +57,97 @@ std::string FileMetaCache::get_key(io::FileReaderSPtr file_reader,
     return FileMetaCache::get_key(
             file_reader->path().native(), _file_description.mtime,
             _file_description.file_size == -1 ? file_reader->size() : _file_description.file_size);
+}
+
+bool FileMetaCache::is_persistent_cache_enabled() {
+    return config::enable_external_file_meta_disk_cache &&
+           config::external_file_meta_disk_cache_max_entry_bytes > 0;
+}
+
+bool FileMetaCache::is_persistent_cache_payload_size_allowed(uint64_t payload_size) {
+    const int64_t max_entry_bytes = config::external_file_meta_disk_cache_max_entry_bytes;
+    return config::enable_external_file_meta_disk_cache && max_entry_bytes > 0 &&
+           payload_size <= static_cast<uint64_t>(max_entry_bytes);
+}
+
+FileMetaCacheLookupResult FileMetaCache::lookup(const FileMetaCacheContext& context,
+                                                ObjLRUCache::CacheHandle* handle,
+                                                std::string* serialized_meta,
+                                                FileMetaCacheProfile* profile) {
+    DCHECK(handle != nullptr);
+    DCHECK(serialized_meta != nullptr);
+    if (context.enable_memory_cache && lookup(context.key, handle)) {
+        serialized_meta->clear();
+        if (profile != nullptr) {
+            update_profile_counter(profile->hit_cache);
+            update_profile_counter(profile->hit_memory_cache);
+        }
+        return {.state = FileMetaCacheLookupState::MEMORY_HIT};
+    }
+
+    FileMetaCacheLookupResult result;
+    int64_t persisted_read_time = 0;
+    if (lookup_persistent_cache(context, serialized_meta, &persisted_read_time)) {
+        result.state = FileMetaCacheLookupState::PERSISTED_HIT;
+        if (profile != nullptr) {
+            update_profile_counter(profile->hit_cache);
+            update_profile_counter(profile->hit_disk_cache);
+            update_profile_counter(profile->read_disk_cache_time, persisted_read_time);
+        }
+    } else if (is_persistent_cache_enabled() && profile != nullptr) {
+        update_profile_counter(profile->miss_disk_cache);
+    }
+    return result;
+}
+
+void FileMetaCache::invalidate_persistent_cache(const FileMetaCacheContext& context) {
+    if (_persistent_cache != nullptr) {
+        _persistent_cache->remove(context.format, context.key);
+    }
+}
+
+bool FileMetaCache::lookup_persistent_cache(const FileMetaCacheContext& context,
+                                            std::string* payload, int64_t* read_time) {
+    DCHECK(payload != nullptr);
+    DCHECK(read_time != nullptr);
+    payload->clear();
+    *read_time = 0;
+    if (!is_persistent_cache_enabled() || _persistent_cache == nullptr) {
+        return false;
+    }
+
+    MonotonicStopWatch watch;
+    watch.start();
+    Status status = _persistent_cache->read(context.format, context.key, context.modification_time,
+                                            context.file_size, payload);
+    *read_time = watch.elapsed_time();
+    if (!status.ok()) {
+        payload->clear();
+        VLOG_DEBUG << "lookup file meta persistent cache failed: " << status;
+        return false;
+    }
+    return true;
+}
+
+bool FileMetaCache::insert_persistent_cache(const FileMetaCacheContext& context,
+                                            std::string_view payload, int64_t* write_time) {
+    DCHECK(write_time != nullptr);
+    *write_time = 0;
+    if (!is_persistent_cache_payload_size_allowed(static_cast<uint64_t>(payload.size())) ||
+        _persistent_cache == nullptr) {
+        return false;
+    }
+
+    MonotonicStopWatch watch;
+    watch.start();
+    Status status = _persistent_cache->write(context.format, context.key, context.modification_time,
+                                             context.file_size, payload);
+    *write_time = watch.elapsed_time();
+    if (!status.ok()) {
+        VLOG_DEBUG << "insert file meta persistent cache failed: " << status;
+        return false;
+    }
+    return true;
 }
 
 } // namespace doris
