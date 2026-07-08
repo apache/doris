@@ -57,6 +57,11 @@ public class HiveConnector implements Connector {
     // Catalog property key gating the plugin-side Kerberos authenticator (value matches AuthType.KERBEROS).
     private static final String HADOOP_SECURITY_AUTHENTICATION = "hadoop.security.authentication";
 
+    // The sibling connector type a flipped hms gateway delegates iceberg-on-HMS tables to. A string literal
+    // (not the iceberg plugin's own type constant, which is child-first and invisible from the hive loader);
+    // matches the "iceberg" entry in CatalogFactory.SPI_READY_TYPES.
+    private static final String ICEBERG_CONNECTOR_TYPE = "iceberg";
+
     private final Map<String, String> properties;
     private final ConnectorContext context;
     private volatile HmsClient hmsClient;
@@ -70,6 +75,14 @@ public class HiveConnector implements Connector {
     // Read-transaction manager for transactional (ACID) Hive scans. One per connector, keyed by query.
     // Plugin-owned and dormant until the read cutover wires its query-finish commit (see the manager).
     private final HiveReadTransactionManager readTxnManager = new HiveReadTransactionManager();
+
+    // Embedded iceberg SIBLING connector: a flipped hms gateway delegates its iceberg-on-HMS tables to it. Built
+    // once per gateway connector (lazily) in the iceberg plugin's OWN child-first classloader via
+    // context.createSiblingConnector — never co-packaged into the hive zip (a second AWS SDK would poison S3
+    // JVM-wide). Held ONLY as the parent-first Connector interface and NEVER cast: its concrete type is invisible
+    // to the hive loader, so a cast would CCE across the loader split. Dormant until hms enters SPI_READY_TYPES —
+    // nothing builds it today.
+    private volatile Connector icebergSibling;
 
     public HiveConnector(Map<String, String> properties, ConnectorContext context) {
         this.properties = Collections.unmodifiableMap(properties);
@@ -147,6 +160,36 @@ public class HiveConnector implements Connector {
             }
         }
         return hmsClient;
+    }
+
+    /**
+     * Lazily builds and memoizes the embedded iceberg <em>sibling</em> connector this hive gateway delegates its
+     * iceberg-on-HMS tables to. There is exactly ONE sibling per gateway connector (not per table): the iceberg
+     * connector holds per-catalog caches (latest-snapshot, manifest, scan&rarr;write delete stash) shared across
+     * its tables, which a per-op sibling would fragment. The sibling is built through
+     * {@link ConnectorContext#createSiblingConnector} so its concrete class is loaded by the iceberg plugin's own
+     * child-first classloader, sharing this gateway catalog's id/auth/storage; it is therefore held ONLY as the
+     * parent-first {@link Connector} interface and MUST NOT be cast (a cast would CCE across the loader split).
+     *
+     * <p>Fails loud when no iceberg provider is available (e.g. the plugin is not installed). The failure is NOT
+     * memoized (a null sibling leaves the field unset), so a later-available plugin recovers on the next access.
+     */
+    Connector getOrCreateIcebergSibling() {
+        if (icebergSibling == null) {
+            synchronized (this) {
+                if (icebergSibling == null) {
+                    Connector sibling = context.createSiblingConnector(
+                            ICEBERG_CONNECTOR_TYPE, IcebergSiblingProperties.synthesize(properties));
+                    if (sibling == null) {
+                        throw new DorisConnectorException(
+                                "Cannot serve iceberg-on-HMS tables in catalog '" + context.getCatalogName()
+                                        + "': the iceberg connector plugin is not available");
+                    }
+                    icebergSibling = sibling;
+                }
+            }
+        }
+        return icebergSibling;
     }
 
     private HmsClient createClient() {
@@ -261,6 +304,13 @@ public class HiveConnector implements Connector {
         if (c != null) {
             c.close();
             hmsClient = null;
+        }
+        // Forward close to the embedded iceberg sibling: the engine closes only a catalog's PRIMARY connector,
+        // so the gateway owns the sibling's lifecycle. No-op when the sibling was never built (dormant path).
+        Connector sibling = icebergSibling;
+        if (sibling != null) {
+            sibling.close();
+            icebergSibling = null;
         }
     }
 }
