@@ -133,6 +133,10 @@ public interface SinkVisitor<R, C> {
         return visitLogicalTableSink(icebergTableSink, context);
     }
 
+    default R visitLogicalPaimonTableSink(LogicalPaimonTableSink<? extends Plan> paimonTableSink, C context) {
+        return visitLogicalTableSink(paimonTableSink, context);
+    }
+
     default R visitLogicalMaxComputeTableSink(LogicalMaxComputeTableSink<? extends Plan> mcTableSink, C context) {
         return visitLogicalTableSink(mcTableSink, context);
     }
@@ -195,6 +199,10 @@ public interface SinkVisitor<R, C> {
 
     default R visitPhysicalIcebergTableSink(PhysicalIcebergTableSink<? extends Plan> icebergTableSink, C context) {
         return visitPhysicalTableSink(icebergTableSink, context);
+    }
+
+    default R visitPhysicalPaimonTableSink(PhysicalPaimonTableSink<? extends Plan> paimonTableSink, C context) {
+        return visitPhysicalTableSink(paimonTableSink, context);
     }
 
     default R visitPhysicalMaxComputeTableSink(PhysicalMaxComputeTableSink<? extends Plan> mcTableSink, C context) {
