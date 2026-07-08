@@ -90,7 +90,7 @@ public:
 
     // Add one block to batch, memory is owned by the caller.
     // The batched blocks will be flushed in write_batch.
-    // Once write_batch is called, no more blocks shoud be added.
+    // Once write_batch is called, no more blocks should be added.
     Status batch_block(const Block* block, size_t row_pos, size_t num_rows);
     Status write_batch();
 

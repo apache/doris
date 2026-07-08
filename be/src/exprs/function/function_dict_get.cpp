@@ -33,7 +33,7 @@ namespace doris {
 struct DictGetState {
     std::shared_ptr<const IDictionary> dict;
     ///TODO:
-    // 1. we do not need to check dict every time(shoud only check in open)
+    // 1. we do not need to check dict every time(should only check in open)
     // 2. for some dict, will init some struct each time, we should cache it
 };
 
@@ -85,7 +85,7 @@ public:
         auto* dict_state = reinterpret_cast<DictGetState*>(
                 context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
         if (!dict_state) {
-            return Status::RuntimeError("funciton context for function '{}' must have dict_state;",
+            return Status::RuntimeError("function context for function '{}' must have dict_state;",
                                         get_name());
         }
 

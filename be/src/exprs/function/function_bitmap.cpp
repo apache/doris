@@ -167,7 +167,7 @@ struct ToBitmapWithCheck {
                     continue;
                 } else {
                     const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
-                    // The string lenght is less than 2G, so that cast the str size to int, not use size_t
+                    // The string length is less than 2G, so that cast the str size to int, not use size_t
                     int str_size = cast_set<int>(offsets[i] - offsets[i - 1]);
                     StringParser::ParseResult parse_result = StringParser::PARSE_SUCCESS;
                     uint64_t int_value = StringParser::string_to_unsigned_int<uint64_t>(
@@ -329,7 +329,7 @@ struct BitmapFromArray {
             auto prev_offset = offset_column_data[i - 1];
             for (auto j = prev_offset; j < curr_offset; ++j) {
                 auto data = nested_column_data[j];
-                // invaild value
+                // invalid value
                 if (UNLIKELY(data < 0) || UNLIKELY(nested_null_map[j])) {
                     res.emplace_back();
                     null_map[i] = 1;

@@ -181,7 +181,7 @@ public:
                                "Method erase is not supported for " + get_name());
     }
 
-    /// cut or expand inplace. `this` would be moved, only the return value is avaliable.
+    /// cut or expand inplace. `this` would be moved, only the return value is available.
     virtual Ptr shrink(size_t length) const final {
         // NOLINTBEGIN(performance-move-const-arg)
         MutablePtr res = std::move(*this).mutate();

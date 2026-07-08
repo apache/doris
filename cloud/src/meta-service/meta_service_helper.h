@@ -295,7 +295,7 @@ inline MetaServiceCode cast_as(TxnErrorCode code) {
 // input func_name, count type(get, put, del), make sure the counter is exist
 // about defer_count:
 // which means that these bvars will only be counted after stats has finished counting.
-// why not cancle KVStats, count directly?
+// why not cancel KVStats, count directly?
 // 1. some RPC operations call functions and function reset txn it also need to be counted
 // 2. some function such as `scan_tmp_rowset` it used by RPC(commit_txn) and non rpc
 // maybe we can add a bool variable to judge weather we need count, but if have more complex situation

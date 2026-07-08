@@ -2732,11 +2732,11 @@ Status SegmentIterator::_read_columns_by_rowids(std::vector<ColumnId>& read_colu
     }
 
     for (auto cid : read_column_ids) {
-        auto& colunm = (*mutable_columns)[cid];
-        if (_no_need_read_key_data(cid, colunm, select_size)) {
+        auto& column = (*mutable_columns)[cid];
+        if (_no_need_read_key_data(cid, column, select_size)) {
             continue;
         }
-        if (_prune_column(cid, colunm, select_size)) {
+        if (_prune_column(cid, column, select_size)) {
             continue;
         }
 

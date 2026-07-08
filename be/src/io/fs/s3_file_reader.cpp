@@ -56,7 +56,7 @@ bvar::LatencyRecorder s3_bytes_per_read("s3_file_reader", "bytes_per_read"); // 
 bvar::PerSecond<bvar::Adder<uint64_t>> s3_read_througthput("s3_file_reader", "s3_read_throughput",
                                                            &s3_bytes_read_total);
 // Although we can get QPS from s3_bytes_per_read, but s3_bytes_per_read only
-// record successfull request, and s3_get_request_qps will record all request.
+// record successful request, and s3_get_request_qps will record all request.
 bvar::PerSecond<bvar::Adder<uint64_t>> s3_get_request_qps("s3_file_reader", "s3_get_request",
                                                           &s3_file_reader_read_counter);
 bvar::LatencyRecorder s3_file_reader_latency("s3_file_reader", "s3_latency");

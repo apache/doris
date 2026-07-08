@@ -1041,7 +1041,7 @@ bool OrcReader::_check_expr_can_push_down(const VExprSPtr& expr) {
             if (fn_name == "is_null_pred" || fn_name == "is_not_null_pred") {
                 return _check_slot_can_push_down(expr);
             }
-            VLOG_CRITICAL << "Unsupported function [funciton=" << fn_name << "]";
+            VLOG_CRITICAL << "Unsupported function [function=" << fn_name << "]";
         }
         return false;
     default:
