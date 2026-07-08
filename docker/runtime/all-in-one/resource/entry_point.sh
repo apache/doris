@@ -56,12 +56,10 @@ _is_sourced() {
 
 docker_setup_env() {
     declare -g METADATA_FAILURE_RECOVERY MASTER_FE_IP CURRENT_BE_IP \
-               CURRENT_BE_PORT CURRENT_BROKER_IP CURRENT_BROKER_PORT DATABASE_ALREADY_EXISTS
+               CURRENT_BE_PORT DATABASE_ALREADY_EXISTS
     MASTER_FE_IP="127.0.0.1"
     CURRENT_BE_IP="127.0.0.1"
     CURRENT_BE_PORT=9050
-    CURRENT_BROKER_IP="127.0.0.1"
-    CURRENT_BROKER_PORT=8000
     if [[ $RECOVERY == "true" ]]; then
         METADATA_FAILURE_RECOVERY='true'
     fi
@@ -106,27 +104,6 @@ check_be_status() {
   done
 }
 
-check_broker_status() {
-  set +e
-  declare -g BROKER_ALREADY_EXISTS
-  if [[ $1 == true ]]; then
-    docker_process_sql <<<"show broker" | grep "[[:space:]]${MASTER_FE_IP}[[:space:]]"
-  else
-    docker_process_sql <<<"show broker" | grep "[[:space:]]${CURRENT_BROKER_IP}[[:space:]]" | grep "[[:space:]]${CURRENT_BROKER_PORT}[[:space:]]" | grep "[[:space:]]true[[:space:]]"
-  fi
-  broker_join_status=$?
-  if [[ "${broker_join_status}" == 0 ]]; then
-    if [[ $1 == true ]]; then
-      doris_note "MASTER FE is started!"
-    else
-      doris_note "EntryPoint Check - Verify that Broker is registered to FE successfully"
-      BROKER_ALREADY_EXISTS=true
-    fi
-    return
-  fi
-  sleep 1
-}
-
 add_priority_networks() {
   doris_note "add priority_networks ‘127.0.0.1/24’ to ${DORIS_HOME}/be/conf/be.conf"
   echo "priority_networks = 127.0.0.1/24" >>${DORIS_HOME}/be/conf/be.conf
@@ -161,32 +138,6 @@ register_be_to_fe() {
   fi
 }
 
-register_broker_to_fe() {
-  set +e
-  # check fe status
-  local is_fe_start=false
-  for i in {1..300}; do
-    if [ -n "$BROKER_ALREADY_EXISTS" ]; then
-      doris_warn "Same Broker already exists! No need to register again！"
-      break
-    fi
-    docker_process_sql <<<"alter system add broker test '${CURRENT_BROKER_IP}:${CURRENT_BROKER_PORT}'"
-    register_broker_status=$?
-    if [[ $register_broker_status == 0 ]]; then
-      doris_note "Broker successfully registered to FE！"
-      is_fe_start=true
-      break
-    fi
-    if [[ $(( $i % 20 )) == 1 ]]; then
-      doris_note "Register Broker to FE is failed. retry."
-    fi
-    sleep 1
-  done
-  if ! [[ $is_fe_start ]]; then
-    doris_error "Failed to register Broker to FE！Tried 30 times！Maybe FE Start Failed！"
-  fi
-}
-
 start_doris() {
     declare -g child_pid
     if [[ $METADATA_FAILURE_RECOVERY == "true" ]]; then
@@ -199,15 +150,6 @@ start_doris() {
             bash start_fe.sh --console 2>/dev/null
         } &
     fi
-    if [[ $BROKER = "true" ]]; then
-        sleep 20
-        {
-            set +e
-            bash start_broker.sh 2>/dev/null
-        } &
-        check_broker_status
-        register_broker_to_fe
-    fi
     sleep 20
     doris_note "Start Doris BE."
     {
@@ -219,8 +161,6 @@ start_doris() {
 
 stop_doris() {
     doris_note "Container stopped, running stop_fe & stop_be script"
-    stop_broker.sh
-    sleep 2
     stop_be.sh
     sleep 10
     stop_fe.sh

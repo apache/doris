@@ -17,16 +17,25 @@
 
 #pragma once
 
+#include <gen_cpp/PlanNodes_types.h>
+
 #include <memory>
+#include <string>
 #include <utility>
 #include <vector>
 
+#include "common/status.h"
 #include "format/orc/vorc_reader.h"
 #include "format/parquet/vparquet_reader.h"
 #include "format/table/table_schema_change_helper.h"
 
 namespace doris {
 class ShardedKVCache;
+
+std::string build_paimon_deletion_vector_cache_key(const TPaimonDeletionFileDesc& deletion_file);
+
+Status decode_paimon_deletion_vector_buffer(const char* buf, size_t buffer_size,
+                                            std::vector<int64_t>* delete_rows);
 
 // PaimonOrcReader: directly inherits OrcReader (no composition wrapping).
 // Schema mapping in on_before_init_reader, deletion vector reading in on_after_init_reader.

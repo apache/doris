@@ -21,6 +21,7 @@
 
 #include "core/assert_cast.h"
 #include "core/column/column.h"
+#include "core/column/column_vector.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_decimal.h"
 #include "core/data_type/define_primitive_type.h"
@@ -122,6 +123,10 @@ public:
         this->data(place).add((double)column.get_data()[row_num]);
     }
 
+    void check_input_columns_type(const IColumn** columns) const override {
+        this->template check_argument_column_type<ColumnFloat64>(columns[0]);
+    }
+
     void reset(AggregateDataPtr place) const override { this->data(place).reset(); }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
@@ -139,7 +144,7 @@ public:
     }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
-        auto& column = assert_cast<ColumnFloat64&>(to);
+        auto& column = assert_cast<ColumnFloat64&, TypeCheckOnRelease::DISABLE>(to);
         column.get_data().push_back(this->data(place).result());
     }
 };

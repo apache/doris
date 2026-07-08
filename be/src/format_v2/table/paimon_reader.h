@@ -36,6 +36,10 @@ public:
     Status TEST_annotate_file_schema(std::vector<format::ColumnDefinition>* file_schema) {
         return annotate_file_schema(file_schema);
     }
+    Status TEST_parse_deletion_vector_file(const TTableFormatFileDesc& t_desc, DeleteFileDesc* desc,
+                                           bool* has_delete_file) {
+        return _parse_deletion_vector_file(t_desc, desc, has_delete_file);
+    }
 #endif
 
 protected:

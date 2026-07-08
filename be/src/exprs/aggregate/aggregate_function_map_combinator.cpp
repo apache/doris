@@ -193,7 +193,8 @@ public:
             actual_row = 0;
         }
 
-        const auto& map_column = assert_cast<const ColumnMap&>(*column);
+        const auto& map_column =
+                assert_cast<const ColumnMap&, TypeCheckOnRelease::DISABLE>(*column);
         const auto& offsets = map_column.get_offsets();
         const size_t offset = actual_row == 0 ? 0 : offsets[actual_row - 1];
         const size_t size = offsets[actual_row] - offset;
@@ -265,7 +266,7 @@ public:
     }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
-        auto& map_column = assert_cast<ColumnMap&>(to);
+        auto& map_column = assert_cast<ColumnMap&, TypeCheckOnRelease::DISABLE>(to);
         auto& key_column = map_column.get_keys();
         auto& value_column = map_column.get_values();
         auto& offsets = map_column.get_offsets();
@@ -282,6 +283,49 @@ public:
         }
 
         offsets.push_back(value_column.size());
+    }
+
+    void check_input_columns_type(const IColumn** columns) const override {
+        const IColumn* column = columns[0];
+        if (const auto* const_column = check_and_get_column<ColumnConst>(*column)) {
+            column = &const_column->get_data_column();
+        }
+
+        const IColumn* checked_columns[1] = {column};
+        this->check_columns_type(this->argument_types, checked_columns);
+
+        const auto* map_column = check_and_get_column<ColumnMap>(*column);
+        if (UNLIKELY(map_column == nullptr)) {
+            throw doris::Exception(Status::InternalError(
+                    "Aggregate function {} argument 0 type check failed: Column type {} is not "
+                    "ColumnMap",
+                    get_name(), column->get_name()));
+        }
+        check_key_column_type(map_column->get_keys(), false);
+
+        const IColumn* nested_columns[1] = {&map_column->get_values()};
+        _nested_function->check_input_columns_type(nested_columns);
+    }
+
+    void check_result_column_type(const IColumn& to) const override {
+        IAggregateFunction::check_result_column_type(to);
+
+        const auto* map_column = check_and_get_column<ColumnMap>(to);
+        if (UNLIKELY(map_column == nullptr)) {
+            throw doris::Exception(Status::InternalError(
+                    "Aggregate function {} result type check failed: Column type {} is not "
+                    "ColumnMap",
+                    get_name(), to.get_name()));
+        }
+        check_key_column_type(map_column->get_keys(), true);
+
+        const IColumn* value_column = &map_column->get_values();
+        if (!_nested_function->get_return_type()->is_nullable()) {
+            if (const auto* nullable_column = check_and_get_column<ColumnNullable>(*value_column)) {
+                value_column = &nullable_column->get_nested_column();
+            }
+        }
+        _nested_function->check_result_column_type(*value_column);
     }
 
 private:
@@ -314,6 +358,30 @@ private:
             return nullable_column->get_nested_column();
         }
         return key_column;
+    }
+
+    void check_key_column_type(const IColumn& key_column, bool is_result_column) const {
+        if constexpr (is_string_type(KeyType)) {
+            const auto* nullable_column = check_and_get_column<ColumnNullable>(key_column);
+            if (!is_result_column && nullable_column == nullptr) {
+                this->template check_argument_column_type<ColumnString>(&key_column);
+                return;
+            }
+            if (UNLIKELY(nullable_column == nullptr)) {
+                throw doris::Exception(Status::InternalError(
+                        "Aggregate function {} {} type check failed: Key column type {} is not "
+                        "ColumnNullable",
+                        get_name(), is_result_column ? "result" : "argument",
+                        key_column.get_name()));
+            }
+            if (is_result_column) {
+                this->template check_result_column_type_as<ColumnString>(
+                        nullable_column->get_nested_column());
+            } else {
+                this->template check_argument_column_type<ColumnString>(
+                        &nullable_column->get_nested_column());
+            }
+        }
     }
 
     static LookupKey get_key(const IColumn& key_column, size_t row) {

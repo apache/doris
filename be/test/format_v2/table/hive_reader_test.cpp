@@ -46,7 +46,6 @@ Status init_hive_reader(FileFormat format, TFileScanRangeParams* params, Runtime
     return reader->init({
             .projected_columns = {table_column("id", std::make_shared<DataTypeInt32>()),
                                   table_column("name", std::make_shared<DataTypeString>())},
-            .column_predicates = {},
             .conjuncts = {},
             .format = format,
             .scan_params = params,

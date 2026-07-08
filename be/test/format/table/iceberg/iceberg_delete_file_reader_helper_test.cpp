@@ -71,6 +71,54 @@ TEST(IcebergDeleteFileReaderHelperTest, IsNotDeletionVectorWhenContentMissing) {
     EXPECT_FALSE(is_iceberg_deletion_vector(delete_file));
 }
 
+TEST(IcebergDeleteFileReaderHelperTest, DeletionVectorCacheKeyIncludesLocationAndRange) {
+    // Scenario: one Puffin file can hold several DV blobs. The cache key must isolate both the
+    // data file and the blob range so a scanner never reuses another file's DV.
+    TIcebergDeleteFileDesc first_delete_file;
+    first_delete_file.__set_path("s3://bucket/shared/delete.puffin");
+    first_delete_file.__set_content_offset(128);
+    first_delete_file.__set_content_size_in_bytes(64);
+
+    TIcebergDeleteFileDesc different_offset = first_delete_file;
+    different_offset.__set_content_offset(256);
+
+    TIcebergDeleteFileDesc different_length = first_delete_file;
+    different_length.__set_content_size_in_bytes(96);
+
+    TIcebergDeleteFileDesc different_delete_file = first_delete_file;
+    different_delete_file.__set_path("s3://bucket/shared/other-delete.puffin");
+
+    const std::string data_file_path = "s3://bucket/table/data-00001.parquet";
+    const auto first_key =
+            build_iceberg_deletion_vector_cache_key(data_file_path, first_delete_file);
+
+    EXPECT_NE(first_key, build_iceberg_deletion_vector_cache_key(data_file_path, different_offset));
+    EXPECT_NE(first_key, build_iceberg_deletion_vector_cache_key(data_file_path, different_length));
+    EXPECT_NE(first_key,
+              build_iceberg_deletion_vector_cache_key(data_file_path, different_delete_file));
+    EXPECT_NE(first_key,
+              build_iceberg_deletion_vector_cache_key(
+                      "s3://bucket/table/snapshot-branch/data-00001.parquet", first_delete_file));
+}
+
+TEST(IcebergDeleteFileReaderHelperTest, DeletionVectorCacheKeyEscapesPathBoundaries) {
+    TIcebergDeleteFileDesc first_delete_file;
+    first_delete_file.__set_path("middle#right#tail.puffin");
+    first_delete_file.__set_content_offset(1);
+    first_delete_file.__set_content_size_in_bytes(2);
+
+    TIcebergDeleteFileDesc second_delete_file = first_delete_file;
+    second_delete_file.__set_path("right#tail.puffin");
+
+    const std::string first_data_file_path = "s3://bucket/table/data#left";
+    const std::string second_data_file_path = "s3://bucket/table/data#left#middle";
+    ASSERT_EQ(first_data_file_path + "#" + first_delete_file.path,
+              second_data_file_path + "#" + second_delete_file.path);
+
+    EXPECT_NE(build_iceberg_deletion_vector_cache_key(first_data_file_path, first_delete_file),
+              build_iceberg_deletion_vector_cache_key(second_data_file_path, second_delete_file));
+}
+
 TEST(IcebergDeleteFileReaderHelperTest, ReadMixedEncodingParquetPositionDeleteFile) {
     RuntimeProfile profile("test_profile");
     RuntimeState runtime_state((TQueryOptions()), TQueryGlobals());

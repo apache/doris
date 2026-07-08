@@ -101,16 +101,23 @@ public class KinesisUtil {
                 List<Long> backendIds = new ArrayList<>();
                 for (Long beId : Env.getCurrentSystemInfo().getAllBackendIds(true)) {
                     Backend backend = Env.getCurrentSystemInfo().getBackend(beId);
-                    if (backend != null && backend.isLoadAvailable()
-                            && !backend.isDecommissioned()
+                    if (isBackendAvailableForMetaRequest(backend)
                             && !failedBeIds.contains(beId)
                             && !Env.getCurrentEnv().getRoutineLoadManager().isInBlacklist(beId)) {
                         backendIds.add(beId);
                     }
                 }
                 if (backendIds.isEmpty()) {
-                    for (Long beId : Env.getCurrentEnv().getRoutineLoadManager().getBlacklist().keySet()) {
-                        backendIds.add(beId);
+                    Map<Long, Long> blacklist = Env.getCurrentEnv().getRoutineLoadManager().getBlacklist();
+                    for (Long beId : blacklist.keySet()) {
+                        Backend backend = Env.getCurrentSystemInfo().getBackend(beId);
+                        if (isBackendAvailableForMetaRequest(backend) && !failedBeIds.contains(beId)) {
+                            backendIds.add(beId);
+                        } else if (backend == null) {
+                            blacklist.remove(beId);
+                            LOG.warn("remove stale backend {} from routine load blacklist when getting kinesis meta",
+                                    beId);
+                        }
                     }
                 }
                 if (backendIds.isEmpty()) {
@@ -161,5 +168,10 @@ public class KinesisUtil {
             MetricRepo.COUNTER_ROUTINE_LOAD_GET_META_LANTENCY.increase(endTime - startTime);
             MetricRepo.COUNTER_ROUTINE_LOAD_GET_META_COUNT.increase(1L);
         }
+    }
+
+    private static boolean isBackendAvailableForMetaRequest(Backend backend) {
+        return backend != null && backend.isLoadAvailable()
+                && !backend.isDecommissioned() && !backend.isDecommissioning();
     }
 }

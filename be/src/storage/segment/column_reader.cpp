@@ -256,6 +256,10 @@ bool ColumnReader::is_compaction_reader_type(ReaderType type) {
 Status ColumnReader::create(const ColumnReaderOptions& opts, const ColumnMetaPB& meta,
                             uint64_t num_rows, const io::FileReaderSPtr& file_reader,
                             std::shared_ptr<ColumnReader>* reader) {
+    if (opts.const_value.has_value()) {
+        *reader = std::make_shared<ConstantColumnReader>(*opts.const_value);
+        return Status::OK();
+    }
     if (is_scalar_type((FieldType)meta.type())) {
         std::shared_ptr<ColumnReader> reader_local(
                 new ColumnReader(opts, meta, num_rows, file_reader));
@@ -497,6 +501,18 @@ Status ColumnReader::match_condition(const AndBlockColumnPredicate* col_predicat
     return Status::OK();
 }
 
+Status ConstantColumnReader::match_condition(const AndBlockColumnPredicate* col_predicates,
+                                             bool* matched) const {
+    ZoneMap zone_map;
+    zone_map.min_value = _value;
+    zone_map.max_value = _value;
+    zone_map.has_not_null = !_value.is_null();
+    // evaluate_and returns false iff no value in [min, max] (i.e. the real constant) can satisfy
+    // the predicates; predicates that don't support zonemap conservatively return true.
+    *matched = col_predicates->evaluate_and(zone_map);
+    return Status::OK();
+}
+
 Status ColumnReader::prune_predicates_by_zone_map(
         std::vector<std::shared_ptr<ColumnPredicate>>& predicates, const int column_id,
         bool* pruned) const {
@@ -593,7 +609,8 @@ Status ColumnReader::get_row_ranges_by_bloom_filter(const AndBlockColumnPredicat
             _load_bloom_filter_index(_use_index_page_cache, _opts.kept_in_memory, iter_opts));
     RowRanges bf_row_ranges;
     std::unique_ptr<BloomFilterIndexIterator> bf_iter;
-    RETURN_IF_ERROR(_bloom_filter_index->new_iterator(&bf_iter, iter_opts.stats));
+    RETURN_IF_ERROR(
+            _bloom_filter_index->new_iterator(&bf_iter, iter_opts.stats, &iter_opts.io_ctx));
     size_t range_size = row_ranges->range_size();
     // get covered page ids
     std::set<uint32_t> page_ids;
@@ -625,13 +642,14 @@ Status ColumnReader::_load_ordinal_index(bool use_page_cache, bool kept_in_memor
     if (!_ordinal_index) {
         return Status::InternalError("ordinal_index not inited");
     }
-    return _ordinal_index->load(use_page_cache, kept_in_memory, iter_opts.stats);
+    return _ordinal_index->load(use_page_cache, kept_in_memory, iter_opts.stats, &iter_opts.io_ctx);
 }
 
 Status ColumnReader::_load_zone_map_index(bool use_page_cache, bool kept_in_memory,
                                           const ColumnIteratorOptions& iter_opts) {
     if (_zone_map_index != nullptr) {
-        return _zone_map_index->load(use_page_cache, kept_in_memory, iter_opts.stats);
+        return _zone_map_index->load(use_page_cache, kept_in_memory, iter_opts.stats,
+                                     &iter_opts.io_ctx);
     }
     return Status::OK();
 }
@@ -640,6 +658,13 @@ Status ColumnReader::get_segment_zone_map(segment_v2::ZoneMap* zone_map) const {
     DORIS_CHECK(zone_map != nullptr);
     DORIS_CHECK(_segment_zone_map != nullptr);
     return ZoneMap::from_proto(*_segment_zone_map, _data_type, *zone_map);
+}
+
+Status ConstantColumnReader::get_segment_zone_map(segment_v2::ZoneMap* zone_map) const {
+    zone_map->min_value = _value;
+    zone_map->max_value = _value;
+    zone_map->has_not_null = !_value.is_null();
+    return Status::OK();
 }
 
 Status ColumnReader::get_page_zone_maps(const ColumnIteratorOptions& iter_opts,
@@ -743,7 +768,8 @@ bool ColumnReader::has_bloom_filter_index(bool ngram) const {
 Status ColumnReader::_load_bloom_filter_index(bool use_page_cache, bool kept_in_memory,
                                               const ColumnIteratorOptions& iter_opts) {
     if (_bloom_filter_index != nullptr) {
-        return _bloom_filter_index->load(use_page_cache, kept_in_memory, iter_opts.stats);
+        return _bloom_filter_index->load(use_page_cache, kept_in_memory, iter_opts.stats,
+                                         &iter_opts.io_ctx);
     }
     return Status::OK();
 }

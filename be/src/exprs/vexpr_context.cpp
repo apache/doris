@@ -203,6 +203,38 @@ ZoneMapFilterResult VExprContext::evaluate_zonemap_filter(const VExprContextSPtr
     return ZoneMapFilterResult::kMayMatch;
 }
 
+ZoneMapFilterResult VExprContext::evaluate_dictionary_filter(const VExprContextSPtrs& conjuncts,
+                                                             const DictionaryEvalContext& ctx) {
+    for (const auto& conjunct : conjuncts) {
+        DORIS_CHECK(conjunct != nullptr);
+        const auto& root = conjunct->root();
+        DORIS_CHECK(root != nullptr);
+        if (!root->can_evaluate_dictionary_filter()) {
+            continue;
+        }
+        if (root->evaluate_dictionary_filter(ctx) == ZoneMapFilterResult::kNoMatch) {
+            return ZoneMapFilterResult::kNoMatch;
+        }
+    }
+    return ZoneMapFilterResult::kMayMatch;
+}
+
+ZoneMapFilterResult VExprContext::evaluate_bloom_filter(const VExprContextSPtrs& conjuncts,
+                                                        const BloomFilterEvalContext& ctx) {
+    for (const auto& conjunct : conjuncts) {
+        DORIS_CHECK(conjunct != nullptr);
+        const auto& root = conjunct->root();
+        DORIS_CHECK(root != nullptr);
+        if (!root->can_evaluate_bloom_filter()) {
+            continue;
+        }
+        if (root->evaluate_bloom_filter(ctx) == ZoneMapFilterResult::kNoMatch) {
+            return ZoneMapFilterResult::kNoMatch;
+        }
+    }
+    return ZoneMapFilterResult::kMayMatch;
+}
+
 bool VExprContext::all_expr_inverted_index_evaluated() {
     return _index_context->has_index_result_for_expr(_root.get());
 }

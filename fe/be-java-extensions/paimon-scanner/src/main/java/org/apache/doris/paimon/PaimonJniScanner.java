@@ -26,19 +26,27 @@ import org.apache.doris.common.security.authentication.PreExecutionAuthenticator
 import com.google.common.base.Preconditions;
 import org.apache.paimon.CoreOptions;
 import org.apache.paimon.data.InternalRow;
+import org.apache.paimon.disk.IOManager;
+import org.apache.paimon.disk.IOManagerImpl;
 import org.apache.paimon.predicate.Predicate;
 import org.apache.paimon.reader.RecordReader;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.source.ReadBuilder;
 import org.apache.paimon.table.source.Split;
+import org.apache.paimon.table.source.TableRead;
 import org.apache.paimon.types.DataType;
 import org.apache.paimon.types.TimestampType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.lang.reflect.Constructor;
+import java.lang.reflect.InvocationTargetException;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TimeZone;
@@ -47,6 +55,9 @@ import java.util.stream.Collectors;
 public class PaimonJniScanner extends JniScanner {
     private static final Logger LOG = LoggerFactory.getLogger(PaimonJniScanner.class);
     private static final String HADOOP_OPTION_PREFIX = "hadoop.";
+    static final String ENABLE_JNI_IO_MANAGER = "paimon.doris.enable_jni_io_manager";
+    static final String JNI_IO_MANAGER_TMP_DIR = "paimon.doris.jni_io_manager.tmp_dir";
+    static final String JNI_IO_MANAGER_IMPL_CLASS = "paimon.doris.jni_io_manager.impl_class";
 
     private final Map<String, String> params;
     private final Map<String, String> hadoopOptionParams;
@@ -54,6 +65,8 @@ public class PaimonJniScanner extends JniScanner {
     private final String paimonPredicate;
     private Table table;
     private RecordReader<InternalRow> reader;
+    private IOManager ioManager;
+    private String ioManagerTempDirs;
     private final PaimonColumnValue columnValue = new PaimonColumnValue();
     private List<String> paimonAllFieldNames;
     private List<DataType> paimonDataTypeList;
@@ -105,6 +118,11 @@ public class PaimonJniScanner extends JniScanner {
             resetDatetimeV2Precision();
 
         } catch (Throwable e) {
+            try {
+                close();
+            } catch (IOException closeException) {
+                e.addSuppressed(closeException);
+            }
             LOG.warn("Failed to open paimon_scanner: " + e.getMessage(), e);
             throw new RuntimeException(e);
         }
@@ -122,9 +140,94 @@ public class PaimonJniScanner extends JniScanner {
         int[] projected = getProjected();
         readBuilder.withProjection(projected);
         readBuilder.withFilter(getPredicates());
-        reader = readBuilder.newRead().executeFilter().createReader(getSplit());
+        reader = newReadWithOptionalIOManager(readBuilder).executeFilter().createReader(getSplit());
         paimonDataTypeList =
                 Arrays.stream(projected).mapToObj(i -> table.rowType().getTypeAt(i)).collect(Collectors.toList());
+    }
+
+    private TableRead newReadWithOptionalIOManager(ReadBuilder readBuilder) throws IOException {
+        TableRead tableRead = readBuilder.newRead();
+        if (!isIOManagerEnabled(params)) {
+            return tableRead;
+        }
+        ioManagerTempDirs = getIOManagerTempDirs(params);
+        ioManager = createIOManager(ioManagerTempDirs, getIOManagerImplClass(params));
+        LOG.info("Enable Paimon JNI IOManager with temp dirs: {}, implementation: {}",
+                ioManagerTempDirs, ioManager.getClass().getName());
+        return tableRead.withIOManager(ioManager);
+    }
+
+    static boolean isIOManagerEnabled(Map<String, String> params) {
+        return Boolean.parseBoolean(params.getOrDefault(ENABLE_JNI_IO_MANAGER, "false"));
+    }
+
+    static String getIOManagerTempDirs(Map<String, String> params) throws IOException {
+        String tempDirs = params.get(JNI_IO_MANAGER_TMP_DIR);
+        if (tempDirs == null || tempDirs.trim().isEmpty()) {
+            throw new IOException("Paimon JNI IOManager is enabled but " + JNI_IO_MANAGER_TMP_DIR + " is not set");
+        }
+        return tempDirs.trim();
+    }
+
+    static String getIOManagerImplClass(Map<String, String> params) {
+        String implClass = params.get(JNI_IO_MANAGER_IMPL_CLASS);
+        return implClass == null || implClass.trim().isEmpty() ? null : implClass.trim();
+    }
+
+    static IOManager createIOManager(String tempDirs) throws IOException {
+        return createIOManager(tempDirs, null);
+    }
+
+    static IOManager createIOManager(String tempDirs, String implClassName) throws IOException {
+        String[] splitDirs = IOManagerImpl.splitPaths(tempDirs);
+        if (splitDirs.length == 0) {
+            throw new IOException("Paimon JNI IOManager temp dirs are empty");
+        }
+        for (String splitDir : splitDirs) {
+            Files.createDirectories(Paths.get(splitDir));
+        }
+        if (implClassName == null) {
+            return IOManager.create(splitDirs);
+        }
+        return createCustomIOManager(implClassName, splitDirs, tempDirs);
+    }
+
+    private static IOManager createCustomIOManager(String implClassName, String[] splitDirs, String tempDirs)
+            throws IOException {
+        ClassLoader loader = Thread.currentThread().getContextClassLoader();
+        if (loader == null) {
+            loader = PaimonJniScanner.class.getClassLoader();
+        }
+        try {
+            Class<?> implClass = Class.forName(implClassName, true, loader);
+            if (!IOManager.class.isAssignableFrom(implClass)) {
+                throw new IOException("Paimon JNI IOManager implementation " + implClassName
+                        + " does not implement " + IOManager.class.getName());
+            }
+            return (IOManager) instantiateCustomIOManager(implClass, splitDirs, tempDirs);
+        } catch (ClassNotFoundException e) {
+            throw new IOException("Failed to find Paimon JNI IOManager implementation: " + implClassName, e);
+        } catch (ReflectiveOperationException e) {
+            throw new IOException("Failed to create Paimon JNI IOManager implementation: " + implClassName, e);
+        }
+    }
+
+    private static Object instantiateCustomIOManager(Class<?> implClass, String[] splitDirs, String tempDirs)
+            throws ReflectiveOperationException {
+        try {
+            Constructor<?> constructor = implClass.getConstructor(String[].class);
+            return constructor.newInstance((Object) splitDirs);
+        } catch (NoSuchMethodException e) {
+            try {
+                Constructor<?> constructor = implClass.getConstructor(String.class);
+                return constructor.newInstance(tempDirs);
+            } catch (NoSuchMethodException stringConstructorMissing) {
+                Constructor<?> constructor = implClass.getConstructor();
+                return constructor.newInstance();
+            }
+        } catch (InvocationTargetException e) {
+            throw e;
+        }
     }
 
     private int[] getProjected() {
@@ -169,8 +272,32 @@ public class PaimonJniScanner extends JniScanner {
 
     @Override
     public void close() throws IOException {
+        IOException exception = null;
         if (reader != null) {
-            reader.close();
+            try {
+                reader.close();
+            } catch (IOException e) {
+                exception = e;
+            } finally {
+                reader = null;
+            }
+        }
+        if (ioManager != null) {
+            try {
+                ioManager.close();
+            } catch (Exception e) {
+                LOG.warn("Failed to close Paimon JNI IOManager, temp dirs: {}", ioManagerTempDirs, e);
+                if (exception == null) {
+                    exception = new IOException(e);
+                } else {
+                    exception.addSuppressed(e);
+                }
+            } finally {
+                ioManager = null;
+            }
+        }
+        if (exception != null) {
+            throw exception;
         }
     }
 
@@ -231,6 +358,13 @@ public class PaimonJniScanner extends JniScanner {
     protected TableSchema parseTableSchema() throws UnsupportedOperationException {
         // do nothing
         return null;
+    }
+
+    @Override
+    public Map<String, String> getStatistics() {
+        Map<String, String> statistics = new HashMap<>();
+        statistics.put("counter:PaimonJniIOManagerEnabled", ioManager != null ? "1" : "0");
+        return statistics;
     }
 
     private void initTable() {

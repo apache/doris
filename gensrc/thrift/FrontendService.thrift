@@ -128,6 +128,9 @@ struct TGetTablesParams {
   // Reserved for downstream field `current_roles` to keep thrift field ids
   // wire-compatible across maintained branches. Do not reuse this id.
   9: optional set<string> reserved_field_9
+  // Columns needed by schema table callers. If unset, the callee returns the
+  // full table status for backward compatibility.
+  10: optional set<string> required_columns
 }
 
 struct TTableStatus {
@@ -1405,8 +1408,11 @@ struct TCreatePartitionRequest {
     6: optional bool write_single_replica = false
     // query_id to identify the coordinator, if coordinator exists, it means this is a multi-instance load
     7: optional Types.TUniqueId query_id
-    // Whether the caller's table sink is using load_to_single_tablet mode.
+    // Request-side sink mode. FE uses it to decide whether to populate
+    // TOlapTablePartition.load_tablet_idx in the result for runtime auto partitions.
     8: optional bool load_to_single_tablet = false
+    // Whether the caller's table sink is using adaptive random bucket routing.
+    9: optional bool enable_adaptive_random_bucket = false
 }
 
 struct TCreatePartitionResult {
@@ -1427,8 +1433,11 @@ struct TReplacePartitionRequest {
     5: optional string be_endpoint
     6: optional bool write_single_replica = false
     7: optional Types.TUniqueId query_id
-    // Whether the caller's table sink is using load_to_single_tablet mode.
+    // Request-side sink mode. FE uses it to decide whether to populate
+    // TOlapTablePartition.load_tablet_idx in the result for runtime auto partitions.
     8: optional bool load_to_single_tablet = false
+    // Whether the caller's table sink is using adaptive random bucket routing.
+    9: optional bool enable_adaptive_random_bucket = false
 }
 
 struct TReplacePartitionResult {
