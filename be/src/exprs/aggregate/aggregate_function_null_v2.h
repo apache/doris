@@ -24,6 +24,7 @@
 
 #include <memory>
 
+#include "common/check.h"
 #include "common/logging.h"
 #include "core/assert_cast.h"
 #include "core/block/column_with_type_and_name.h"
@@ -47,7 +48,6 @@ protected:
     size_t prefix_size;
     bool is_window_function = false;
     std::vector<bool> const_argument_idx;
-    bool has_const_null_argument = false;
 
     AggregateDataPtr nested_place(AggregateDataPtr __restrict place) const noexcept {
         return place + prefix_size;
@@ -111,6 +111,10 @@ public:
               is_window_function(is_window_function_),
               const_argument_idx(arguments.size(), false) {
         DCHECK(nested_function_ != nullptr);
+        for (auto index : nested_function->get_const_argument_indexes()) {
+            DORIS_CHECK_LT(index, const_argument_idx.size());
+            const_argument_idx[index] = true;
+        }
         if constexpr (result_is_nullable) {
             if (this->is_window_function) {
                 // flag|---null_count----|-------padding-------|--nested_data----|
@@ -152,23 +156,14 @@ public:
         return nested_function->get_const_argument_indexes();
     }
 
-    Status set_const_arguments(const ColumnsWithTypeAndName& arguments) override {
-        has_const_null_argument = false;
-        const auto& const_argument_indexes = nested_function->get_const_argument_indexes();
-        for (auto index : const_argument_indexes) {
-            if (index >= arguments.size() || !arguments[index].column) [[unlikely]] {
-                return Status::InternalError(
-                        "Aggregate function {} requires invalid const argument {}",
-                        nested_function->get_name(), index);
-            }
-            const auto& argument = arguments[index];
-            const_argument_idx[index] = true;
-            if (this->argument_types[index]->is_nullable() && argument.column->is_null_at(0)) {
-                has_const_null_argument = true;
-                return Status::OK();
+    bool has_null_constant(const IColumn** columns) const {
+        for (size_t i = 0; i < const_argument_idx.size(); ++i) {
+            if (const_argument_idx[i] && this->argument_types[i]->is_nullable() &&
+                columns[i]->is_null_at(0)) {
+                return true;
             }
         }
-        return this->nested_function->set_const_arguments(arguments);
+        return false;
     }
 
     void set_version(const int version_) override {
@@ -443,7 +438,7 @@ public:
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena& arena) const override {
-        if (this->has_const_null_argument) {
+        if (this->has_null_constant(columns)) {
             return;
         }
         const auto* column =
@@ -485,7 +480,7 @@ public:
 
     void add_batch(size_t batch_size, AggregateDataPtr* __restrict places, size_t place_offset,
                    const IColumn** columns, Arena& arena, bool agg_many) const override {
-        if (this->has_const_null_argument) {
+        if (this->has_null_constant(columns)) {
             return;
         }
         const auto* column =
@@ -516,7 +511,7 @@ public:
 
     void add_batch_single_place(size_t batch_size, AggregateDataPtr place, const IColumn** columns,
                                 Arena& arena) const override {
-        if (this->has_const_null_argument) {
+        if (this->has_null_constant(columns)) {
             return;
         }
         const auto* column =
@@ -537,7 +532,7 @@ public:
 
     void add_batch_range(size_t batch_begin, size_t batch_end, AggregateDataPtr place,
                          const IColumn** columns, Arena& arena, bool has_null) override {
-        if (this->has_const_null_argument) {
+        if (this->has_null_constant(columns)) {
             return;
         }
         const auto* column =

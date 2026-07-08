@@ -183,7 +183,6 @@ private:
               _is_window_function(is_window_function) {};
 #endif
     Status _calc_argument_columns(Block* block);
-    Status _init_const_arguments();
 
     DataTypes _argument_types_with_sort;
     DataTypes _real_argument_types;

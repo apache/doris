@@ -256,10 +256,6 @@ public:
         return indexes;
     }
 
-    virtual Status set_const_arguments(const ColumnsWithTypeAndName& /*arguments*/) {
-        return Status::OK();
-    }
-
     virtual MutableColumnPtr create_serialize_column() const { return ColumnString::create(); }
 
     virtual DataTypePtr get_serialized_type() const { return std::make_shared<DataTypeString>(); }
