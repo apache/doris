@@ -81,9 +81,9 @@ class SchemaChangeHelperTest {
     }
 
     @Test
-    void numericType_precisionCappedAt38() {
-        assertEquals("DECIMAL(38, 4)", map("numeric", 50, 4));
-        assertEquals("DECIMAL(38, 9)", map("numeric", 100, -1));
+    void numericType_precisionTooLarge_isString() {
+        assertEquals(DorisType.STRING, map("numeric", 50, 4));
+        assertEquals(DorisType.STRING, map("numeric", 100, -1));
     }
 
     // ─── Char types ──────────────────────────────────────────────────────────
@@ -100,6 +100,11 @@ class SchemaChangeHelperTest {
         // length=100 → 100*3=300 > 255 → VARCHAR(300)
         assertEquals("VARCHAR(300)", map("bpchar", 100, -1));
         assertEquals("VARCHAR(768)", map("bpchar", 256, -1));
+    }
+
+    @Test
+    void bpchar_tooLongLength_isString() {
+        assertEquals(DorisType.STRING, map("bpchar", 30000, -1));
     }
 
     @Test
@@ -200,6 +205,11 @@ class SchemaChangeHelperTest {
     @Test
     void arrayType_numeric_defaultPrecisionScale() {
         assertEquals("ARRAY<DECIMAL(38, 9)>", map("_numeric", 0, -1));
+    }
+
+    @Test
+    void arrayType_numeric_precisionTooLarge_isArrayString() {
+        assertEquals("ARRAY<STRING>", map("_numeric", 50, 4));
     }
 
     @Test

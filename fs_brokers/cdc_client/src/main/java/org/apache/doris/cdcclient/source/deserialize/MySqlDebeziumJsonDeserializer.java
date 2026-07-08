@@ -114,10 +114,22 @@ public class MySqlDebeziumJsonDeserializer extends DebeziumJsonDeserializer {
         }
 
         Tables tables = toTables(tableSchemas);
-        CustomMySqlAntlrDdlParser parser = new CustomMySqlAntlrDdlParser();
-        parser.setCurrentDatabase(database);
-        parser.parse(ddl, tables);
-        List<MySqlSchemaChange> changes = parser.getAndClearParsedChanges();
+        List<MySqlSchemaChange> changes = Collections.emptyList();
+        try {
+            CustomMySqlAntlrDdlParser parser = new CustomMySqlAntlrDdlParser();
+            parser.setCurrentDatabase(database);
+            parser.parse(ddl, tables);
+            changes = parser.getAndClearParsedChanges();
+        } catch (Exception e) {
+            LOG.warn(
+                    "[SCHEMA-CHANGE-SKIPPED] MySQL schema change DDL parser failed. No Doris DDL "
+                            + "emitted, FE baseline will advance to the schema carried by the "
+                            + "history record. DDL: {}",
+                    ddl,
+                    e);
+            return DeserializeResult.schemaChange(
+                    Collections.emptyList(), freshSchemas, Collections.emptyList());
+        }
         if (changes.isEmpty()) {
             LOG.warn(
                     "[SCHEMA-CHANGE-SKIPPED] MySQL schema change event produced no supported "

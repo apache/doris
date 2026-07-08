@@ -58,8 +58,26 @@ class CustomMySqlAntlrDdlParserTest {
 
         List<MySqlSchemaChange> changes = parser.getAndClearParsedChanges();
         assertEquals(1, changes.size());
-        assertEquals("city", changes.get(0).getColumn().name());
-        assertEquals("user city", changes.get(0).getColumn().comment());
+        Column column = changes.get(0).getColumn();
+        assertEquals("city", column.name());
+        assertEquals("VARCHAR", column.typeName());
+        assertEquals(30, column.length());
+        assertEquals("user city", column.comment());
+    }
+
+    @Test
+    void parseAddColumnDateTimePrecision() {
+        Tables tables = tables(table("id"));
+        CustomMySqlAntlrDdlParser parser = parser();
+
+        parser.parse("ALTER TABLE t1 ADD COLUMN created_at DATETIME(6)", tables);
+
+        List<MySqlSchemaChange> changes = parser.getAndClearParsedChanges();
+        assertEquals(1, changes.size());
+        Column column = changes.get(0).getColumn();
+        assertEquals("created_at", column.name());
+        assertEquals("DATETIME", column.typeName());
+        assertEquals(6, column.length());
     }
 
     @Test

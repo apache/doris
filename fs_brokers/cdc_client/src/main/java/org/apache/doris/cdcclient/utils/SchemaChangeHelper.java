@@ -169,10 +169,10 @@ public class SchemaChangeHelper {
                 }
             case "CHAR":
             case "NCHAR":
-                return mysqlCharToDorisType(length);
+                return charToDorisType(length);
             case "VARCHAR":
             case "NVARCHAR":
-                return mysqlVarcharToDorisType(length);
+                return varcharToDorisType(length);
             case "BIT":
                 return length == 1 ? DorisType.BOOLEAN : DorisType.STRING;
             case "JSON":
@@ -208,18 +208,21 @@ public class SchemaChangeHelper {
         return 0;
     }
 
-    private static String mysqlCharToDorisType(int length) {
+    private static String charToDorisType(int length) {
         if (length <= 0) {
             return DorisType.STRING;
         }
         int len = length * 3;
+        if (len > MAX_VARCHAR_LENGTH) {
+            return DorisType.STRING;
+        }
         if (len > MAX_CHAR_LENGTH) {
             return String.format("%s(%d)", DorisType.VARCHAR, len);
         }
         return String.format("%s(%d)", DorisType.CHAR, len);
     }
 
-    private static String mysqlVarcharToDorisType(int length) {
+    private static String varcharToDorisType(int length) {
         if (length <= 0) {
             return DorisType.STRING;
         }
@@ -258,22 +261,15 @@ public class SchemaChangeHelper {
                 return DorisType.DOUBLE;
             case "numeric":
                 {
-                    int p = length > 0 ? Math.min(length, 38) : 38;
+                    if (length > MAX_DECIMAL128_PRECISION) {
+                        return DorisType.STRING;
+                    }
+                    int p = length > 0 ? length : 38;
                     int s = scale >= 0 ? scale : 9;
                     return String.format("%s(%d, %d)", DorisType.DECIMAL, p, s);
                 }
             case "bpchar":
-                {
-                    if (length <= 0) {
-                        return DorisType.STRING;
-                    }
-                    int len = length * 3;
-                    if (len > 255) {
-                        return String.format("%s(%s)", DorisType.VARCHAR, len);
-                    } else {
-                        return String.format("%s(%s)", DorisType.CHAR, len);
-                    }
-                }
+                return charToDorisType(length);
             case "date":
                 return DorisType.DATE;
             case "timestamp":
