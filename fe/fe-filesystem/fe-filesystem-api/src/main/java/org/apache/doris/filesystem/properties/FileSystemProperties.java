@@ -67,6 +67,34 @@ public interface FileSystemProperties extends StorageProperties {
     Map<String, String> matchedProperties();
 
     /**
+     * Validates and normalizes a single storage URI against this provider's configuration.
+     *
+     * <p>This is pure configuration logic (no I/O) and lives on the properties model rather than
+     * on {@link org.apache.doris.filesystem.FileSystem} on purpose: many callers validate a URI
+     * before — or without ever — creating a FileSystem (e.g. HTTP has no FileSystem). Providers
+     * with scheme/endpoint/path-style specific rules override this; the default returns the URI
+     * unchanged.
+     *
+     * @throws IllegalArgumentException if the URI is invalid for this provider
+     */
+    default String validateAndNormalizeUri(String uri) {
+        return uri;
+    }
+
+    /**
+     * Extracts the storage URI from the given load properties and validates it via
+     * {@link #validateAndNormalizeUri(String)}.
+     *
+     * <p>The default looks up the {@code "uri"} key. Providers whose URI lives under a different
+     * key, or that need extra extraction logic (e.g. HDFS nameservices), override this.
+     *
+     * @throws IllegalArgumentException if the URI is missing or invalid for this provider
+     */
+    default String validateAndGetUri(Map<String, String> loadProperties) {
+        return validateAndNormalizeUri(loadProperties == null ? null : loadProperties.get("uri"));
+    }
+
+    /**
      * Converts to backend storage properties if this provider supports BE access.
      */
     default Optional<BackendStorageProperties> toBackendProperties() {
