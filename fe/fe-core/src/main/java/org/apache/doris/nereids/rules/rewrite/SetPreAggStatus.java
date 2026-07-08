@@ -54,10 +54,13 @@ import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -75,6 +78,7 @@ import java.util.stream.Collectors;
  */
 public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.PreAggInfoContext>>
         implements CustomRewriter {
+    private static final Logger LOG = LogManager.getLogger(SetPreAggStatus.class);
     private Map<RelationId, PreAggInfoContext> olapScanPreAggContexts = new HashMap<>();
 
     /**
@@ -210,8 +214,17 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
         context.push(preAggInfoContext);
         Plan plan = super.visit(logicalAggregate, context);
         PreAggInfoContext popped = context.pop();
-        Preconditions.checkState(popped == preAggInfoContext,
-                "PreAggInfoContext stack mismatch in visitLogicalAggregate");
+        if (popped != preAggInfoContext) {
+            if (SessionVariable.isFeDebug()) {
+                Preconditions.checkState(popped == preAggInfoContext,
+                        "PreAggInfoContext stack mismatch in visitLogicalAggregate");
+            } else {
+                LOG.warn("PreAggInfoContext stack mismatch in visitLogicalAggregate: "
+                        + "expected {} but got {}. Skipping preagg for this aggregate.",
+                        preAggInfoContext, popped);
+                return plan;
+            }
+        }
         popped.addAggregateFunctions(logicalAggregate.getAggregateFunctions());
         popped.addGroupByExpresssions(logicalAggregate.getGroupByExpressions());
         for (RelationId id : popped.olapScanIds) {
