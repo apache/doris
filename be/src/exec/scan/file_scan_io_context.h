@@ -25,8 +25,7 @@
 
 namespace doris {
 
-inline std::shared_ptr<io::IOContext> create_file_scan_io_context(RuntimeState* state) {
-    auto io_ctx = std::make_shared<io::IOContext>();
+inline void init_file_scan_io_context(RuntimeState* state, io::IOContext* io_ctx) {
     io_ctx->query_id = &state->query_id();
     if (state->query_options().query_type == TQueryType::SELECT) {
         io_ctx->reader_type = ReaderType::READER_QUERY;
@@ -34,6 +33,11 @@ inline std::shared_ptr<io::IOContext> create_file_scan_io_context(RuntimeState* 
             io_ctx->remote_scan_cache_write_limiter = query_ctx->remote_scan_cache_write_limiter();
         }
     }
+}
+
+inline std::shared_ptr<io::IOContext> create_file_scan_io_context(RuntimeState* state) {
+    auto io_ctx = std::make_shared<io::IOContext>();
+    init_file_scan_io_context(state, io_ctx.get());
     return io_ctx;
 }
 
