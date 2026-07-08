@@ -892,14 +892,6 @@ public class Rewriter extends AbstractBatchJobExecutor {
                 ImmutableSet.of(LogicalCTEAnchor.class),
                 () -> {
                     List<RewriteJob> rewriteJobs = Lists.newArrayListWithExpectedSize(300);
-                    if (Config.enable_table_stream) {
-                        rewriteJobs.addAll(jobs(
-                                        topic("normalize olap table stream scan",
-                                                topDown(new NormalizeOlapTableStreamScan())
-                                        )
-                                )
-                        );
-                    }
                     rewriteJobs.addAll(jobs(
                             topic("cte inline and pull up all cte anchor",
                                     custom(RuleType.PULL_UP_CTE_ANCHOR, PullUpCteAnchor::new),
@@ -967,6 +959,13 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     return rewriteJobs;
                 }
         ));
+        if (Config.enable_table_stream) {
+            builder.addAll(jobs(
+                    topic("normalize olap table stream scan after cte inline",
+                            topDown(new NormalizeOlapTableStreamScan())
+                    )
+            ));
+        }
         return builder.build();
     }
 

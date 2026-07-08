@@ -41,6 +41,7 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.commons.lang3.tuple.Pair;
 
@@ -50,6 +51,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Logical OlapTableStreamScan
@@ -289,6 +291,24 @@ public class LogicalOlapTableStreamScan extends LogicalOlapScan {
                         colToSubPathsMap, manuallySpecifiedTabletIds, operativeSlots, virtualColumns,
                         scoreOrderKeys, scoreLimit, scoreRangeInfo, annOrderKeys, annLimit, tableAlias,
                         partitionPrunablePredicates, scanParams, isReset, isSnapshot));
+    }
+
+    @Override
+    public LogicalOlapTableStreamScan withVirtualColumns(List<NamedExpression> virtualColumns) {
+        LogicalProperties logicalProperties = getLogicalProperties();
+        List<Slot> output = Lists.newArrayList(logicalProperties.getOutput());
+        output.addAll(virtualColumns.stream().map(NamedExpression::toSlot).collect(Collectors.toList()));
+        LogicalProperties finalLogicalProperties = new LogicalProperties(() -> output, this::computeDataTrait);
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalOlapTableStreamScan(relationId, (Table) table, qualifier,
+                        groupExpression, Optional.of(finalLogicalProperties),
+                        selectedPartitionIds, partitionPruned, hasPartitionPredicate, selectedTabletIds,
+                        selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions,
+                        hints, cacheSlotWithSlotName, cachedOutput, tableSample, directMvScan,
+                        colToSubPathsMap, manuallySpecifiedTabletIds, operativeSlots, virtualColumns,
+                        scoreOrderKeys, scoreLimit, scoreRangeInfo, annOrderKeys, annLimit, tableAlias,
+                        partitionPrunablePredicates, scanParams,
+                        isReset, isSnapshot));
     }
 
     /** withTableScanParams */
