@@ -728,6 +728,10 @@ std::optional<VExprSPtr> expression_for_search_argument(const VExprSPtr& expr) {
     // Match legacy ORC reader behavior: lower wrapper predicates to the concrete predicate before
     // checking SARG support. This keeps runtime-filter and top-N pruning from regressing in format v2.
     if (expr->is_rf_wrapper()) {
+        if (expr->node_type() == TExprNodeType::NULL_AWARE_IN_PRED ||
+            expr->node_type() == TExprNodeType::NULL_AWARE_BINARY_PRED) {
+            return std::nullopt;
+        }
         const auto impl = expr->get_impl();
         if (impl == nullptr) {
             return expr;

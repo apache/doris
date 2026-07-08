@@ -56,6 +56,9 @@
 #include "core/data_type/data_type_varbinary.h"
 #include "core/data_type/primitive_type.h"
 #include "core/value/timestamptz_value.h"
+#include "exprs/create_predicate_function.h"
+#include "exprs/runtime_filter_expr.h"
+#include "exprs/vdirect_in_predicate.h"
 #include "exprs/vectorized_fn_call.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
@@ -259,6 +262,17 @@ VExprSPtr function_expr(const std::string& function_name, const DataTypePtr& ret
     node.__set_num_children(static_cast<int16_t>(arg_types.size()));
     node.__set_is_nullable(return_type->is_nullable());
     return VectorizedFnCall::create_shared(node);
+}
+
+TExprNode make_filter_in_node(TExprNodeType::type node_type) {
+    TExprNode node;
+    node.__set_type(create_type_desc(PrimitiveType::TYPE_BOOLEAN));
+    node.__set_node_type(node_type);
+    node.__set_opcode(TExprOpcode::FILTER_IN);
+    node.__set_num_children(1);
+    node.__set_is_nullable(false);
+    node.in_predicate.__set_is_not_in(false);
+    return node;
 }
 
 class NullableInt32GreaterThanExpr final : public VExpr {
@@ -5815,8 +5829,8 @@ TEST_F(NewOrcReaderTest, WholeFileWhenRangeSizeNegative) {
 
 TEST_F(NewOrcReaderTest, ClosePublishesReaderStatisticsToRuntimeProfile) {
     const auto multi_stripe_file_path = (_test_dir / "profile_sarg_pruning.orc").string();
-    write_multi_stripe_orc_int_file(multi_stripe_file_path);
-    ASSERT_EQ(get_orc_stripe_count(multi_stripe_file_path), 2);
+    write_multi_stripe_orc_int_file(multi_stripe_file_path, {1, 1000, 2000});
+    ASSERT_EQ(get_orc_stripe_count(multi_stripe_file_path), 3);
 
     RuntimeProfile profile("new_orc_reader_profile");
     io::FileReaderStats file_reader_stats;
@@ -5833,7 +5847,7 @@ TEST_F(NewOrcReaderTest, ClosePublishesReaderStatisticsToRuntimeProfile) {
     auto request = std::make_shared<format::FileScanRequest>();
     request->predicate_columns = {field_projection(0)};
     request->conjuncts.push_back(
-            VExprContext::create_shared(std::make_shared<NullableInt32GreaterThanExpr>(0, 500)));
+            VExprContext::create_shared(std::make_shared<NullableInt32LessThanExpr>(0, 500)));
     ASSERT_TRUE(reader->open(request).ok());
 
     bool eof = false;
@@ -5873,10 +5887,12 @@ TEST_F(NewOrcReaderTest, ClosePublishesReaderStatisticsToRuntimeProfile) {
     for (const auto counter_name : orc_reader_metric_counters) {
         ASSERT_NE(profile.get_counter(std::string(counter_name)), nullptr) << counter_name;
     }
-    EXPECT_EQ(profile.get_counter("RowGroupsFiltered")->value(), 1);
-    EXPECT_EQ(profile.get_counter("RowGroupsFilteredByMinMax")->value(), 1);
+    EXPECT_EQ(profile.get_counter("RowGroupsFiltered")->value(), 2);
+    EXPECT_EQ(profile.get_counter("RowGroupsFilteredByMinMax")->value(), 2);
     EXPECT_EQ(profile.get_counter("RowGroupsReadNum")->value(), 1);
-    EXPECT_EQ(profile.get_counter("FilteredRowsByGroup")->value(), 200);
+    EXPECT_EQ(profile.get_counter("SelectedRowGroupCount")->value(), 1);
+    EXPECT_EQ(profile.get_counter("EvaluatedRowGroupCount")->value(), 3);
+    EXPECT_EQ(profile.get_counter("FilteredRowsByGroup")->value(), 400);
     EXPECT_EQ(profile.get_counter("FilteredRowsByLazyRead")->value(), 0);
     EXPECT_EQ(profile.get_counter("FilteredRowsByOrcLazyRead")->value(), 0);
     EXPECT_GT(profile.get_counter("FilteredBytes")->value(), 0);
@@ -6020,6 +6036,58 @@ TEST_F(NewOrcReaderTest, SargRuntimeFilterWrapperConjunctPrunesStripes) {
     EXPECT_EQ(reader->reader_statistics().filtered_row_groups, 1);
     EXPECT_EQ(reader->reader_statistics().filtered_row_groups_by_min_max, 1);
     EXPECT_EQ(reader->reader_statistics().filtered_group_rows, 200);
+}
+
+TEST_F(NewOrcReaderTest, SargNullAwareRuntimeFilterDoesNotPruneNullStripe) {
+    const auto multi_stripe_file_path = (_test_dir / "sarg_null_aware_runtime_filter.orc").string();
+    write_two_stripe_orc_nullable_int_file(multi_stripe_file_path);
+    ASSERT_EQ(get_orc_stripe_count(multi_stripe_file_path), 2);
+
+    auto reader = create_reader_for_path(multi_stripe_file_path);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    ASSERT_EQ(schema.size(), 2);
+
+    std::shared_ptr<HybridSetBase> filter(create_set(PrimitiveType::TYPE_INT, true));
+    int32_t unmatched_value = 5000;
+    filter->insert(&unmatched_value);
+
+    auto node = make_filter_in_node(TExprNodeType::NULL_AWARE_IN_PRED);
+    auto direct_in = VDirectInPredicate::create_shared(node, filter, true);
+    direct_in->add_child(TableSlotRef::create_shared(0, 0, -1, schema[0].type, "id"));
+    auto runtime_filter = RuntimeFilterExpr::create_shared(node, direct_in, 0.0, true, 7);
+    auto runtime_filter_context = VExprContext::create_shared(std::move(runtime_filter));
+    ASSERT_TRUE(runtime_filter_context->prepare(&state, RowDescriptor()).ok());
+    ASSERT_TRUE(runtime_filter_context->open(&state).ok());
+
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->predicate_columns = {field_projection(0)};
+    request->conjuncts.push_back(std::move(runtime_filter_context));
+    ASSERT_TRUE(reader->open(request).ok());
+
+    bool eof = false;
+    size_t result_rows = 0;
+    while (!eof) {
+        Block block = build_file_block({schema[0]});
+        size_t rows = 0;
+        ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+        if (eof || rows == 0) {
+            continue;
+        }
+        const auto& ids_nullable =
+                assert_cast<const ColumnNullable&>(*block.get_by_position(0).column);
+        for (size_t row = 0; row < rows; ++row) {
+            EXPECT_TRUE(ids_nullable.is_null_at(row));
+        }
+        result_rows += rows;
+    }
+
+    EXPECT_EQ(result_rows, 200);
+    EXPECT_EQ(reader->reader_statistics().filtered_row_groups, 0);
+    EXPECT_EQ(reader->reader_statistics().filtered_row_groups_by_min_max, 0);
 }
 
 TEST_F(NewOrcReaderTest, SargNullSafeEqualNullConjunctPrunesStripes) {

@@ -1183,10 +1183,15 @@ void OrcReader::_collect_profile() const {
         COUNTER_UPDATE(_orc_profile.io_count, orc_metric_value(reader_metrics.IOCount));
         COUNTER_UPDATE(_orc_profile.io_blocking_latency_us,
                        orc_metric_value(reader_metrics.IOBlockingLatencyUs));
-        COUNTER_UPDATE(_orc_profile.selected_row_group_count,
-                       orc_metric_value(reader_metrics.SelectedRowGroupCount));
-        COUNTER_UPDATE(_orc_profile.evaluated_row_group_count,
-                       orc_metric_value(reader_metrics.EvaluatedRowGroupCount));
+        int64_t selected_row_group_count = orc_metric_value(reader_metrics.SelectedRowGroupCount);
+        int64_t evaluated_row_group_count = orc_metric_value(reader_metrics.EvaluatedRowGroupCount);
+        if (_state->stripe_pruning_applied) {
+            selected_row_group_count = _reader_statistics.read_row_groups;
+            evaluated_row_group_count =
+                    _reader_statistics.filtered_row_groups + _reader_statistics.read_row_groups;
+        }
+        COUNTER_UPDATE(_orc_profile.selected_row_group_count, selected_row_group_count);
+        COUNTER_UPDATE(_orc_profile.evaluated_row_group_count, evaluated_row_group_count);
         COUNTER_UPDATE(_orc_profile.read_row_count, read_row_count);
         COUNTER_UPDATE(_orc_profile.filtered_row_groups, _reader_statistics.filtered_row_groups);
         COUNTER_UPDATE(_orc_profile.filtered_row_groups_by_min_max,
