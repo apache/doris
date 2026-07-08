@@ -29,6 +29,7 @@ import org.apache.doris.connector.api.ConnectorTableSchema;
 import org.apache.doris.connector.api.ConnectorType;
 import org.apache.doris.connector.api.ConnectorViewDefinition;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
+import org.apache.doris.connector.api.handle.WriteOperation;
 import org.apache.doris.connector.api.write.ConnectorWritePlanProvider;
 import org.apache.doris.qe.ConnectContext;
 
@@ -72,6 +73,74 @@ public class PluginDrivenExternalTableTest {
     @AfterEach
     public void clearCtx() {
         ConnectContext.remove();
+    }
+
+    // ==================== §4.4 W3: per-handle write-admission capability probes ====================
+
+    /**
+     * A CALLS_REAL_METHODS table whose connector answers the write capabilities PER-HANDLE (the overloads a
+     * heterogeneous gateway diverts). {@code handlePresent=false} models an unresolvable handle.
+     */
+    private static PluginDrivenExternalTable capabilityTable(boolean handlePresent,
+            Set<WriteOperation> ops, boolean branch) {
+        ConnectorTableHandle handle = Mockito.mock(ConnectorTableHandle.class);
+        ConnectorMetadata metadata = Mockito.mock(ConnectorMetadata.class);
+        Mockito.when(metadata.getTableHandle(Mockito.any(), Mockito.any(), Mockito.any()))
+                .thenReturn(handlePresent ? Optional.of(handle) : Optional.empty());
+        Connector connector = Mockito.mock(Connector.class);
+        Mockito.when(connector.getMetadata(Mockito.any())).thenReturn(metadata);
+        Mockito.when(connector.supportedWriteOperations(Mockito.any())).thenReturn(ops);
+        Mockito.when(connector.supportsWriteBranch(Mockito.any())).thenReturn(branch);
+        Mockito.when(connector.requiresPartitionHashWrite(Mockito.any())).thenReturn(true);
+        Mockito.when(connector.requiresMaterializeStaticPartitionValues(Mockito.any())).thenReturn(true);
+        PluginDrivenExternalCatalog catalog = Mockito.mock(PluginDrivenExternalCatalog.class);
+        Mockito.when(catalog.getConnector()).thenReturn(connector);
+        Mockito.when(catalog.buildConnectorSession()).thenReturn(Mockito.mock(ConnectorSession.class));
+        PluginDrivenExternalTable table = Mockito.mock(PluginDrivenExternalTable.class, Mockito.CALLS_REAL_METHODS);
+        Deencapsulation.setField(table, "catalog", catalog);
+        return table;
+    }
+
+    @Test
+    public void connectorWriteCapabilitiesResolvePerHandle() {
+        Set<WriteOperation> ops = EnumSet.of(WriteOperation.INSERT, WriteOperation.DELETE, WriteOperation.MERGE);
+        PluginDrivenExternalTable table = capabilityTable(true, ops, true);
+        Assertions.assertEquals(ops, table.connectorSupportedWriteOperations(),
+                "the write ops must come from the connector's per-handle overload (resolved via the handle)");
+        Assertions.assertTrue(table.connectorSupportsWriteBranch(),
+                "the branch capability must come from the connector's per-handle overload");
+        Assertions.assertTrue(table.requirePartitionHashOnWrite(),
+                "partition-hash-write must come from the connector's per-handle overload");
+        Assertions.assertTrue(table.materializeStaticPartitionValues(),
+                "materialize-static-partition must come from the connector's per-handle overload");
+    }
+
+    @Test
+    public void connectorWriteCapabilitiesDegradeWhenHandleUnresolvable() {
+        // An unresolvable handle (dropped table / catalog) must degrade to "no writes" — empty op set + false —
+        // rather than misrouting or NPE-ing, even though the connector WOULD report the capabilities for a handle.
+        PluginDrivenExternalTable table = capabilityTable(false, EnumSet.of(WriteOperation.DELETE), true);
+        Assertions.assertTrue(table.connectorSupportedWriteOperations().isEmpty(),
+                "an unresolvable handle degrades write ops to the empty set");
+        Assertions.assertFalse(table.connectorSupportsWriteBranch(),
+                "an unresolvable handle degrades branch support to false");
+        Assertions.assertFalse(table.requirePartitionHashOnWrite(),
+                "an unresolvable handle degrades partition-hash-write to false");
+        Assertions.assertFalse(table.materializeStaticPartitionValues(),
+                "an unresolvable handle degrades materialize-static-partition to false");
+    }
+
+    @Test
+    public void connectorWriteCapabilitiesDegradeWhenConnectorNull() {
+        // A catalog dropped mid-planning nulls its transient connector; the probes must degrade (empty / false)
+        // rather than NPE — this is the null-connector guard the row-id / DML gates rely on.
+        PluginDrivenExternalCatalog catalog = Mockito.mock(PluginDrivenExternalCatalog.class);
+        Mockito.when(catalog.getConnector()).thenReturn(null);
+        PluginDrivenExternalTable table = Mockito.mock(PluginDrivenExternalTable.class, Mockito.CALLS_REAL_METHODS);
+        Deencapsulation.setField(table, "catalog", catalog);
+        Assertions.assertTrue(table.connectorSupportedWriteOperations().isEmpty(),
+                "a null connector degrades write ops to the empty set");
+        Assertions.assertFalse(table.connectorSupportsWriteBranch(), "a null connector degrades branch to false");
     }
 
     /**

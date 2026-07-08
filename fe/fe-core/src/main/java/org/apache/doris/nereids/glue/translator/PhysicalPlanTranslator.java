@@ -643,21 +643,21 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                         null, col.isAllowNull(), null))
                 .collect(java.util.stream.Collectors.toList());
 
-        Set<WriteOperation> writeOps = connector.supportedWriteOperations();
-        if (!(writeOps.contains(WriteOperation.DELETE) || writeOps.contains(WriteOperation.MERGE))) {
-            throw new AnalysisException(
-                    "Connector '" + catalog.getName() + "' (type: " + catalog.getType()
-                            + ") does not support row-level DML operations");
-        }
-        // Resolve the table handle BEFORE selecting the write provider so the provider is chosen per-table (a
-        // heterogeneous gateway routes iceberg-on-HMS to its sibling by the handle type); byte-identical for
-        // every single-format connector (getWritePlanProvider(handle) defaults to the connector-level provider).
+        // Resolve the table handle first so BOTH the write-admission gate and the write provider are chosen
+        // per-table (a heterogeneous gateway routes iceberg-on-HMS to its sibling by the handle type);
+        // byte-identical for every single-format connector (the per-handle overloads default to connector-level).
         ConnectorTableHandle providerTableHandle = metadata.getTableHandle(connSession,
                 targetTable.getRemoteDbName(), targetTable.getRemoteName())
                 .orElseThrow(() -> new AnalysisException(
                         "Table not found: " + targetTable.getRemoteDbName()
                                 + "." + targetTable.getRemoteName()
                                 + " in catalog " + catalog.getName()));
+        Set<WriteOperation> writeOps = connector.supportedWriteOperations(providerTableHandle);
+        if (!(writeOps.contains(WriteOperation.DELETE) || writeOps.contains(WriteOperation.MERGE))) {
+            throw new AnalysisException(
+                    "Connector '" + catalog.getName() + "' (type: " + catalog.getType()
+                            + ") does not support row-level DML operations");
+        }
         ConnectorWritePlanProvider writePlanProvider = connector.getWritePlanProvider(providerTableHandle);
         providerTableHandle = PluginDrivenScanNode.applyMvccSnapshotPin(
                 metadata, connSession, providerTableHandle, MvccUtil.getSnapshotFromContext(targetTable));
@@ -695,20 +695,20 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // Every write-capable connector builds its own opaque TDataSink via its write-plan
         // provider (jdbc / maxcompute / iceberg). A connector whose declared write operations do
         // not include INSERT does not support writes.
-        if (!connector.supportedWriteOperations().contains(WriteOperation.INSERT)) {
-            throw new AnalysisException(
-                    "Connector '" + catalog.getName() + "' (type: " + catalog.getType()
-                            + ") does not support INSERT operations");
-        }
-        // Resolve the table handle BEFORE selecting the write provider so the provider is chosen per-table (a
-        // heterogeneous gateway routes iceberg-on-HMS to its sibling by the handle type); byte-identical for
-        // every single-format connector (getWritePlanProvider(handle) defaults to the connector-level provider).
+        // Resolve the table handle first so BOTH the INSERT-admission gate and the write provider are chosen
+        // per-table (a heterogeneous gateway routes iceberg-on-HMS to its sibling by the handle type);
+        // byte-identical for every single-format connector (the per-handle overloads default to connector-level).
         ConnectorTableHandle providerTableHandle = metadata.getTableHandle(connSession,
                 targetTable.getRemoteDbName(), targetTable.getRemoteName())
                 .orElseThrow(() -> new AnalysisException(
                         "Table not found: " + targetTable.getRemoteDbName()
                                 + "." + targetTable.getRemoteName()
                                 + " in catalog " + catalog.getName()));
+        if (!connector.supportedWriteOperations(providerTableHandle).contains(WriteOperation.INSERT)) {
+            throw new AnalysisException(
+                    "Connector '" + catalog.getName() + "' (type: " + catalog.getType()
+                            + ") does not support INSERT operations");
+        }
         ConnectorWritePlanProvider writePlanProvider = connector.getWritePlanProvider(providerTableHandle);
 
         // Thread the statement's MVCC snapshot pin onto the WRITE handle, reusing the exact scan-side pin

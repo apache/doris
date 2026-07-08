@@ -106,7 +106,9 @@ public class IcebergRowLevelDmlTransformTest {
         }
         Mockito.when(table.getCatalog()).thenReturn(catalog);
         Mockito.when(catalog.getConnector()).thenReturn(connector);
-        Mockito.when(connector.supportedWriteOperations()).thenReturn(ops);
+        // The row-level DML admission probe now resolves per-handle via the table helper; stub it directly. The
+        // catalog -> connector chain is still needed for checkMode (validateRowLevelDmlMode).
+        Mockito.when(table.connectorSupportedWriteOperations()).thenReturn(ops);
         return table;
     }
 

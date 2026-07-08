@@ -32,7 +32,6 @@ import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.FileScanNode;
-import org.apache.doris.datasource.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.PluginDrivenExternalTable;
 import org.apache.doris.datasource.doris.RemoteDorisExternalTable;
 import org.apache.doris.datasource.doris.RemoteOlapTable;
@@ -746,9 +745,8 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
         if (!(targetTable instanceof PluginDrivenExternalTable)) {
             return false;
         }
-        PluginDrivenExternalCatalog catalog =
-                (PluginDrivenExternalCatalog) ((PluginDrivenExternalTable) targetTable).getCatalog();
-        return catalog.getConnector().supportsWriteBranch();
+        // Per-handle: a heterogeneous gateway supports write-to-branch for its iceberg tables but not its hive.
+        return ((PluginDrivenExternalTable) targetTable).connectorSupportsWriteBranch();
     }
 
     @Override

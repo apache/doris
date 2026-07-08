@@ -98,9 +98,26 @@ public interface Connector extends Closeable {
         return p == null ? EnumSet.noneOf(WriteOperation.class) : p.supportedOperations();
     }
 
+    /**
+     * Per-table view of {@link #supportedWriteOperations()}: derives from {@link #getWritePlanProvider(
+     * ConnectorTableHandle)} so a heterogeneous gateway admits the right operations for {@code handle} (e.g. an
+     * iceberg-on-HMS table admits DELETE/MERGE that the hive provider does not). The default routes through the
+     * per-handle provider, so every single-format connector is unaffected.
+     */
+    default Set<WriteOperation> supportedWriteOperations(ConnectorTableHandle handle) {
+        ConnectorWritePlanProvider p = getWritePlanProvider(handle);
+        return p == null ? EnumSet.noneOf(WriteOperation.class) : p.supportedOperations();
+    }
+
     /** Null-safe view of {@link ConnectorWritePlanProvider#supportsWriteBranch()}. No provider ⇒ false. */
     default boolean supportsWriteBranch() {
         ConnectorWritePlanProvider p = getWritePlanProvider();
+        return p != null && p.supportsWriteBranch();
+    }
+
+    /** Per-table view of {@link #supportsWriteBranch()} (derives from the per-handle provider). */
+    default boolean supportsWriteBranch(ConnectorTableHandle handle) {
+        ConnectorWritePlanProvider p = getWritePlanProvider(handle);
         return p != null && p.supportsWriteBranch();
     }
 
@@ -128,12 +145,24 @@ public interface Connector extends Closeable {
         return p != null && p.requiresPartitionHashWrite();
     }
 
+    /** Per-table view of {@link #requiresPartitionHashWrite()} (derives from the per-handle provider). */
+    default boolean requiresPartitionHashWrite(ConnectorTableHandle handle) {
+        ConnectorWritePlanProvider p = getWritePlanProvider(handle);
+        return p != null && p.requiresPartitionHashWrite();
+    }
+
     /**
      * Null-safe view of {@link ConnectorWritePlanProvider#requiresMaterializeStaticPartitionValues()}. No
      * provider ⇒ false.
      */
     default boolean requiresMaterializeStaticPartitionValues() {
         ConnectorWritePlanProvider p = getWritePlanProvider();
+        return p != null && p.requiresMaterializeStaticPartitionValues();
+    }
+
+    /** Per-table view of {@link #requiresMaterializeStaticPartitionValues()} (derives from the per-handle provider). */
+    default boolean requiresMaterializeStaticPartitionValues(ConnectorTableHandle handle) {
+        ConnectorWritePlanProvider p = getWritePlanProvider(handle);
         return p != null && p.requiresMaterializeStaticPartitionValues();
     }
 

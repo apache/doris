@@ -27,7 +27,6 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.InternalDatabaseUtil;
 import org.apache.doris.connector.api.handle.WriteOperation;
-import org.apache.doris.datasource.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.PluginDrivenExternalTable;
 import org.apache.doris.datasource.doris.RemoteDorisExternalTable;
 import org.apache.doris.datasource.doris.RemoteOlapTable;
@@ -332,8 +331,9 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
      * {@code PhysicalPlanTranslator}.
      */
     private static boolean pluginConnectorSupportsInsertOverwrite(PluginDrivenExternalTable table) {
-        PluginDrivenExternalCatalog catalog = (PluginDrivenExternalCatalog) table.getCatalog();
-        return catalog.getConnector().supportedWriteOperations().contains(WriteOperation.OVERWRITE);
+        // Per-handle write-op probe (a heterogeneous gateway answers per-table; OVERWRITE happens to be admitted
+        // by both hive and iceberg, but the probe is resolved uniformly with the other write-op admission gates).
+        return table.connectorSupportedWriteOperations().contains(WriteOperation.OVERWRITE);
     }
 
     /**
@@ -346,9 +346,8 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
         if (!(targetTable instanceof PluginDrivenExternalTable)) {
             return false;
         }
-        PluginDrivenExternalCatalog catalog =
-                (PluginDrivenExternalCatalog) ((PluginDrivenExternalTable) targetTable).getCatalog();
-        return catalog.getConnector().supportsWriteBranch();
+        // Per-handle: a heterogeneous gateway supports write-to-branch for its iceberg tables but not its hive.
+        return ((PluginDrivenExternalTable) targetTable).connectorSupportsWriteBranch();
     }
 
     private void runInsertCommand(LogicalPlan logicalQuery, InsertCommandContext insertCtx,
