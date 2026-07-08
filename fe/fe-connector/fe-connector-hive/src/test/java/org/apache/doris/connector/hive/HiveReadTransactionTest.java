@@ -99,6 +99,32 @@ public class HiveReadTransactionTest {
         Assertions.assertEquals(1, count(client.calls, "commitTxn:5"), "no double commit");
     }
 
+    @Test
+    public void testScanProviderReleaseReadTransactionCommitsViaSharedManager() {
+        RecordingHmsClient client = new RecordingHmsClient();
+        client.openTxnReturn = 9L;
+        // register and the provider's release MUST share the same per-connector manager (HiveConnector injects
+        // one instance into every provider), so the release finds and commits the txn register opened.
+        HiveReadTransactionManager mgr = new HiveReadTransactionManager();
+        HiveScanPlanProvider provider = new HiveScanPlanProvider(client, new HashMap<>(), mgr);
+
+        // A transactional-hive scan opened a read txn (as planAcidScan does via mgr.register), taking the shared
+        // read lock.
+        mgr.register(new HiveReadTransaction("q9", "u", "db", "t", true, client));
+        Assertions.assertEquals(1, count(client.calls, "openTxn:u"), "the scan opened a read txn");
+
+        // The query-finish callback routes through the provider's releaseReadTransaction, which must commit the
+        // txn (releasing the shared read lock) exactly once — otherwise the lock leaks for the metastore's life.
+        provider.releaseReadTransaction("q9");
+        Assertions.assertEquals(1, count(client.calls, "commitTxn:9"),
+                "releaseReadTransaction must commit the txn (release the shared read lock) exactly once");
+
+        // Idempotent: a second release, or a release for a query that opened no txn, is a safe no-op.
+        provider.releaseReadTransaction("q9");
+        provider.releaseReadTransaction("never-opened");
+        Assertions.assertEquals(1, count(client.calls, "commitTxn:9"), "no double commit on repeat release");
+    }
+
     private static int count(List<String> calls, String prefix) {
         int n = 0;
         for (String c : calls) {

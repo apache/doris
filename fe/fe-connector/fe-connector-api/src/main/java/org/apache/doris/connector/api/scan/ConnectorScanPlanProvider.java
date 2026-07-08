@@ -440,4 +440,23 @@ public interface ConnectorScanPlanProvider {
     default String getSerializedTable(Map<String, String> nodeProperties) {
         return null;
     }
+
+    /**
+     * Releases any per-query read transaction this provider opened, called by the engine when the query
+     * finishes (via the generic query-finish callback registry). The default is a no-op: connectors that do
+     * not open a per-query read transaction (every connector except transactional/ACID hive) need not override
+     * it.
+     *
+     * <p>A connector that opens a metastore read transaction + shared read lock during {@link #planScan} (hive
+     * full-ACID / insert-only reads) MUST override this to commit that transaction and release the lock, else
+     * the shared read lock leaks for the metastore's lifetime. Best-effort: an implementation should log and
+     * swallow a commit failure rather than propagate (the callback registry isolates exceptions anyway).
+     * {@code queryId} is the engine query id string ({@link ConnectorSession#getQueryId()}), the same key the
+     * provider registered the transaction under.</p>
+     *
+     * @param queryId the finishing query's id (== {@link ConnectorSession#getQueryId()})
+     */
+    default void releaseReadTransaction(String queryId) {
+        // default: no per-query read transaction to release
+    }
 }

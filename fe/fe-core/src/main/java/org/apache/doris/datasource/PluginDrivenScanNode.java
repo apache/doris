@@ -51,6 +51,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPart
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.spi.Split;
 import org.apache.doris.thrift.TColumnCategory;
@@ -524,6 +525,26 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
     }
 
     /**
+     * Builds the query-finish callback that releases a connector's per-query read transaction. Hive full-ACID /
+     * insert-only reads open a metastore read transaction + shared read lock during {@code planScan}; this
+     * callback commits it (releasing the lock) when the query finishes. Registered UNCONDITIONALLY for every
+     * plugin scan in {@link #getSplits} — connector-agnostic, since a connector that opens no read transaction
+     * inherits the no-op {@link ConnectorScanPlanProvider#releaseReadTransaction} default and the callback is
+     * inert for it. The release runs on the StmtExecutor thread at query finish, whose TCCL is the fe-core app
+     * loader, so it MUST be pinned to the provider's plugin classloader ({@link #onPluginClassLoader}) or the
+     * commit's by-name class resolution (metastore/thrift) would split-brain against the app loader's copies.
+     * Extracted as a pure function of {@code (scanProvider, queryId)} so the release + TCCL-pin behavior is
+     * unit-testable without driving a full {@code getSplits}.
+     */
+    public static Runnable buildReadTransactionReleaseCallback(
+            ConnectorScanPlanProvider scanProvider, String queryId) {
+        return () -> onPluginClassLoader(scanProvider, () -> {
+            scanProvider.releaseReadTransaction(queryId);
+            return null;
+        });
+    }
+
+    /**
      * FIX-E (explain gap): delegates the VERBOSE per-backend block's delete-file lookup to the
      * connector SPI. The parent {@link FileScanNode#getDeleteFiles} returns empty; a connector that
      * threads delete files onto its per-range thrift (paimon's deletion vectors) overrides
@@ -913,6 +934,18 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             LOG.warn("Connector does not provide a scan plan provider, returning empty splits");
             return Collections.emptyList();
         }
+
+        // Register the per-query read-transaction release BEFORE planScan (and before the pruned-to-zero
+        // short-circuit below), so a planScan that opens a metastore read transaction and then throws still has
+        // its release callback in place. Unconditional and connector-agnostic: a connector that opens no read
+        // transaction (every connector except transactional/ACID hive) inherits the no-op
+        // releaseReadTransaction default, so this is inert for it (the callback only pins TCCL and calls the
+        // no-op). The callback runs on the StmtExecutor thread at query finish, whose TCCL is the fe-core app
+        // loader, so the release is pinned to the provider's plugin classloader (see the helper). One string:
+        // connectorSession.getQueryId() == the query-finish registry key == the connector's txnMap key.
+        String readTxnQueryId = connectorSession.getQueryId();
+        QeProcessorImpl.INSTANCE.registerQueryFinishCallback(readTxnQueryId,
+                buildReadTransactionReleaseCallback(scanProvider, readTxnQueryId));
 
         // Push the Nereids partition-pruning result down to the connector so the read session
         // covers only the surviving partitions. A pruned-to-zero set means no data to read,

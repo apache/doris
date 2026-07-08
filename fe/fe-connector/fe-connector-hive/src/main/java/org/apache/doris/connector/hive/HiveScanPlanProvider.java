@@ -208,6 +208,20 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
         }
     }
 
+    /**
+     * Commits and deregisters this query's read transaction (opened by {@link #planAcidScan} via
+     * {@link HiveReadTransactionManager#register}), releasing the metastore shared read lock. Driven by the
+     * generic fe-core query-finish callback at query end; without it a transactional-hive read leaks the shared
+     * read lock for the metastore's lifetime. {@code readTxnManager} is the same per-connector manager that
+     * {@code register} used (both injected by {@code HiveConnector}), so the {@code queryId} keys match.
+     * {@code deregister} is idempotent (a no-op for a query that opened no transaction) and swallows a commit
+     * failure, matching the best-effort SPI contract.
+     */
+    @Override
+    public void releaseReadTransaction(String queryId) {
+        readTxnManager.deregister(queryId);
+    }
+
     /** Encodes each delete-delta as {@code "dir|file1,file2"} for {@link HiveScanRange.Builder#acidInfo}. */
     private static List<String> encodeDeleteDeltas(List<HiveAcidUtil.DeleteDelta> deltas) {
         List<String> encoded = new ArrayList<>(deltas.size());
