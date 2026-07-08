@@ -258,6 +258,8 @@ public:
     IntCounter* num_io_bytes_read_from_cache = nullptr;
     IntCounter* num_io_bytes_read_from_remote = nullptr;
     IntCounter* num_io_bytes_read_from_peer = nullptr;
+    IntCounter* inverted_index_bytes_read_from_remote = nullptr;
+    IntCounter* segment_footer_index_bytes_read_from_remote = nullptr;
 
     IntCounter* udf_close_bthread_count = nullptr;
 
