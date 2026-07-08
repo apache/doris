@@ -40,6 +40,9 @@
 namespace doris {
 namespace {
 
+constexpr int kIcebergPositionDeleteContent = 1;
+constexpr int kIcebergDeletionVectorContent = 3;
+
 TFileRangeDesc range_with_format(std::string table_format, TFileFormatType::type format_type) {
     TFileRangeDesc range;
     range.__set_format_type(format_type);
@@ -48,6 +51,14 @@ TFileRangeDesc range_with_format(std::string table_format, TFileFormatType::type
         table_desc.__set_table_format_type(std::move(table_format));
         range.__set_table_format_params(std::move(table_desc));
     }
+    return range;
+}
+
+TFileRangeDesc iceberg_position_deletes_range(TFileFormatType::type format_type, int content) {
+    auto range = range_with_format("iceberg", format_type);
+    TIcebergFileDesc iceberg_params;
+    iceberg_params.__set_content(content);
+    range.table_format_params.__set_iceberg_params(std::move(iceberg_params));
     return range;
 }
 
@@ -151,6 +162,29 @@ TEST(FileScannerV2Test, SupportedFormatMatrix) {
     TFileScanRangeParams params;
     params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
     EXPECT_FALSE(FileScannerV2::is_supported(params, hudi_range_with_delta_logs()));
+}
+
+// Scenario: Iceberg ORC position-delete system table splits must not be routed to FileScannerV2.
+// The V2 table reader supports Parquet position-delete files and V3 deletion vectors; ORC position
+// deletes fall back to FileScanner V1, whose position-delete system-table reader has an ORC path.
+TEST(FileScannerV2Test, IcebergPositionDeletesOrcFallsBackToV1) {
+    TFileScanRangeParams params;
+    params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
+
+    const auto parquet_position_delete = iceberg_position_deletes_range(
+            TFileFormatType::FORMAT_PARQUET, kIcebergPositionDeleteContent);
+    const auto parquet_deletion_vector = iceberg_position_deletes_range(
+            TFileFormatType::FORMAT_PARQUET, kIcebergDeletionVectorContent);
+    const auto orc_position_delete = iceberg_position_deletes_range(TFileFormatType::FORMAT_ORC,
+                                                                    kIcebergPositionDeleteContent);
+
+    EXPECT_TRUE(FileScannerV2::is_supported(params, parquet_position_delete));
+    EXPECT_TRUE(FileScannerV2::is_supported(params, parquet_deletion_vector));
+    EXPECT_FALSE(FileScannerV2::is_supported(params, orc_position_delete));
+
+    LocalSplitSourceConnector mixed_delete_formats(
+            {scan_range_param(parquet_position_delete), scan_range_param(orc_position_delete)}, 1);
+    EXPECT_FALSE(mixed_delete_formats.all_scan_ranges_match(params, FileScannerV2::is_supported));
 }
 
 // Scenario: SplitSourceConnector should route to FileScannerV2 only when every scan range in the

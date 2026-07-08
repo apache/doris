@@ -300,6 +300,7 @@ Status IcebergPositionDeleteSysTableV2Reader::_init_position_delete_reader() {
     _position_reader = std::make_unique<PositionDeleteFileTableReader>();
     RETURN_IF_ERROR(_position_reader->init({
             .projected_columns = std::move(projected_columns),
+            .column_predicates = {},
             .conjuncts = {},
             .format = format::FileFormat::PARQUET,
             .scan_params = _scan_params,
@@ -400,6 +401,8 @@ Status IcebergPositionDeleteSysTableV2Reader::_append_deletion_vector_block(Bloc
     }
     check_output_columns_aligned(columns);
     *read_rows = rows;
+    // FileScannerV2 treats eof=true as "advance to the next split" without returning the
+    // current block. Keep eof false after appending rows and report EOF on the next empty call.
     *eof = false;
     return Status::OK();
 }
