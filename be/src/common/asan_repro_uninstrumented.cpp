@@ -49,6 +49,11 @@ extern "C" void __cxa_throw(void*, void*, void (*)(void*));
 extern "C" int _Unwind_RaiseException(void*);
 extern "C" __attribute__((weak)) void __interceptor___cxa_throw(void*, void*, void (*)(void*));
 extern "C" __attribute__((weak)) int __interceptor__Unwind_RaiseException(void*);
+// Defined in asan_cxa_throw_wrap.cpp and linked with -Wl,--wrap=__cxa_throw
+// when the fix is active: then &__cxa_throw above resolves to this wrapper,
+// which re-inserts the __asan_handle_no_return() shadow cleanup. Weak, so the
+// diagnosis still links in builds without the fix.
+extern "C" __attribute__((weak)) void __wrap___cxa_throw(void*, void*, void (*)(void*));
 #endif
 
 namespace doris::asan_repro {
@@ -115,20 +120,36 @@ void describe_repro_symbols(char* out, size_t out_size) {
 #if defined(__linux__)
     void* real_throw = reinterpret_cast<void*>(&__cxa_throw);
     void* icept_throw = reinterpret_cast<void*>(&__interceptor___cxa_throw);
+    void* wrap_throw = reinterpret_cast<void*>(&__wrap___cxa_throw);
     void* real_raise = reinterpret_cast<void*>(&_Unwind_RaiseException);
     void* icept_raise = reinterpret_cast<void*>(&__interceptor__Unwind_RaiseException);
+    const bool wrap_active = wrap_throw != nullptr && real_throw == wrap_throw;
+    const char* throw_state;
+    if (icept_throw != nullptr && real_throw == icept_throw) {
+        throw_state = "INTERCEPTED";
+    } else if (wrap_active) {
+        // --wrap fix active: every __cxa_throw reference (this one included)
+        // resolves to __wrap___cxa_throw, which restores the shadow cleanup.
+        throw_state = "WRAPPED by __wrap___cxa_throw (fix active, shadow cleanup restored)";
+    } else {
+        throw_state = "NOT intercepted (bypassed by static link)";
+    }
+    const char* raise_state;
+    if (icept_raise != nullptr && real_raise == icept_raise) {
+        raise_state = "INTERCEPTED";
+    } else if (wrap_active) {
+        raise_state =
+                "NOT intercepted (plain `throw` is covered by the wrapped "
+                "__cxa_throw; std::rethrow_exception from un-instrumented code "
+                "remains a residual gap, see RCA §5.2)";
+    } else {
+        raise_state = "NOT intercepted (bypassed by static link)";
+    }
     snprintf(out, out_size,
              "[ASAN-REPRO] __cxa_throw=%p, __interceptor___cxa_throw=%p => %s\n"
              "[ASAN-REPRO] _Unwind_RaiseException=%p, __interceptor__Unwind_RaiseException=%p "
              "=> %s\n",
-             real_throw, icept_throw,
-             (icept_throw != nullptr && real_throw == icept_throw)
-                     ? "INTERCEPTED"
-                     : "NOT intercepted (bypassed by static link)",
-             real_raise, icept_raise,
-             (icept_raise != nullptr && real_raise == icept_raise)
-                     ? "INTERCEPTED"
-                     : "NOT intercepted (bypassed by static link)");
+             real_throw, icept_throw, throw_state, real_raise, icept_raise, raise_state);
 #else
     snprintf(out, out_size, "[ASAN-REPRO] symbol diagnosis is only implemented on linux\n");
 #endif

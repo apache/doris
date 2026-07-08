@@ -790,6 +790,20 @@ if ("${CMAKE_BUILD_TYPE}" STREQUAL "DEBUG" OR "${CMAKE_BUILD_TYPE}" STREQUAL "RE
     set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} ${MALLOCLIB})
 elseif ("${CMAKE_BUILD_TYPE}" STREQUAL "ASAN" OR "${CMAKE_BUILD_TYPE}" STREQUAL "ASAN_UT")
     set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} ${ASAN_LIBS})
+    if (OS_LINUX)
+        # The fully static link resolves __cxa_throw/__cxa_rethrow to
+        # libstdc++.a's strong definitions, silently bypassing the ASAN
+        # runtime's weak interceptors, so __asan_handle_no_return() never runs
+        # when un-instrumented third-party code (libthrift, ...) throws. The
+        # unwound instrumented frames keep their stack-shadow poison and the
+        # next deep call over the same stack range aborts with the
+        # kCurrentStackFrameMagic CHECK (thrift retry/reopen crashes: QA-202,
+        # DORIS-1073, DORIS-15154, google/glog#978, google/sanitizers#1010).
+        # Redirect every reference to wrappers that restore the shadow
+        # cleanup. See asan-glog-rca.md at the repository root and
+        # be/src/common/asan_cxa_throw_wrap.cpp.
+        set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} -Wl,--wrap=__cxa_throw -Wl,--wrap=__cxa_rethrow)
+    endif()
 elseif ("${CMAKE_BUILD_TYPE}" STREQUAL "LSAN")
     set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} ${LSAN_LIBS})
 elseif ("${CMAKE_BUILD_TYPE}" STREQUAL "UBSAN")
