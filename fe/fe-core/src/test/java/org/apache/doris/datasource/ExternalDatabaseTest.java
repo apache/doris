@@ -102,6 +102,7 @@ public class ExternalDatabaseTest extends TestWithFeService {
 
             Assertions.assertNull(db.getCachedTableNamesForTest());
             Assertions.assertSame(table, db.getTableForReplay("foo").orElse(null));
+            Assertions.assertNull(db.getCachedTableNamesForTest());
         } finally {
             NameMissTableCatalogProvider.reset();
         }
