@@ -9120,7 +9120,7 @@ TEST_F(NewOrcReaderTest, ReadLazyProjectedNestedStructChildFromHiveOrcFixture) {
     const auto& y_values = assert_cast<const ColumnString&>(y_nullable.get_nested_column());
     EXPECT_FALSE(y_nullable.is_null_at(0));
     EXPECT_EQ(y_values.get_data_at(0).to_string(), "Hello");
-    EXPECT_EQ(reader->reader_statistics().lazy_read_filtered_rows, 0);
+    EXPECT_EQ(reader->reader_statistics().lazy_read_filtered_rows, 2);
 }
 
 TEST_F(NewOrcReaderTest, ReadProjectedComplexChildrenWithNulls) {

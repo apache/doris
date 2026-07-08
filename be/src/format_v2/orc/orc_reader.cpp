@@ -243,6 +243,19 @@ size_t trim_right_spaces(const char* value, size_t length) {
     return length;
 }
 
+Status append_orc_string_ref(const ::orc::Type& file_type, const char* data, int64_t length,
+                             std::vector<StringRef>& binary_values) {
+    if (length < 0) {
+        return Status::Corruption("Invalid negative ORC string length {}", length);
+    }
+    auto value_length = static_cast<size_t>(length);
+    if (file_type.getKind() == ::orc::TypeKind::CHAR) {
+        value_length = trim_right_spaces(data, value_length);
+    }
+    binary_values.emplace_back(value_length == 0 ? "" : data, value_length);
+    return Status::OK();
+}
+
 Int128 to_int128(::orc::Int128 value) {
     const auto high_bits = static_cast<__uint128_t>(static_cast<uint64_t>(value.getHighBits()));
     const auto low_bits = static_cast<__uint128_t>(value.getLowBits());
@@ -379,6 +392,35 @@ Status decode_string_values_with_serde(DataTypePtr data_type, IColumn& column,
                                        const ::orc::Type& file_type,
                                        const ::orc::ColumnVectorBatch& batch, size_t rows,
                                        const std::vector<size_t>* selected_rows) {
+    if (const auto* encoded_batch = dynamic_cast<const ::orc::EncodedStringVectorBatch*>(&batch);
+        encoded_batch != nullptr && encoded_batch->isEncoded) {
+        if (encoded_batch->dictionary == nullptr) {
+            return Status::InternalError("Encoded ORC string batch has no dictionary");
+        }
+        auto view = make_orc_decoded_view(rows, selected_rows, DecodedValueKind::BINARY);
+        NullMap null_map;
+        fill_orc_decoded_null_map(batch, rows, selected_rows, &null_map);
+        view.null_map = null_map.empty() ? nullptr : null_map.data();
+        const auto output_rows = decode_row_count(rows, selected_rows);
+        std::vector<StringRef> binary_values;
+        binary_values.reserve(output_rows);
+        for (size_t row = 0; row < output_rows; ++row) {
+            const auto source_row = source_row_at(row, selected_rows);
+            if (is_null_at(batch, source_row)) {
+                binary_values.emplace_back("", 0);
+                continue;
+            }
+            char* data = nullptr;
+            int64_t length = 0;
+            encoded_batch->dictionary->getValueByIndex(encoded_batch->index[source_row], data,
+                                                       length);
+            RETURN_IF_ERROR(append_orc_string_ref(file_type, data, length, binary_values));
+        }
+        view.binary_values = &binary_values;
+        RETURN_IF_ERROR(read_decoded_values(std::move(data_type), column, &view));
+        return Status::OK();
+    }
+
     const auto* orc_batch = dynamic_cast<const ::orc::StringVectorBatch*>(&batch);
     if (orc_batch == nullptr) {
         return Status::InternalError("Unexpected ORC string batch type {}", batch.toString());
@@ -396,11 +438,8 @@ Status decode_string_values_with_serde(DataTypePtr data_type, IColumn& column,
             binary_values.emplace_back("", 0);
             continue;
         }
-        auto length = static_cast<size_t>(orc_batch->length[source_row]);
-        if (file_type.getKind() == ::orc::TypeKind::CHAR) {
-            length = trim_right_spaces(orc_batch->data[source_row], length);
-        }
-        binary_values.emplace_back(length == 0 ? "" : orc_batch->data[source_row], length);
+        RETURN_IF_ERROR(append_orc_string_ref(file_type, orc_batch->data[source_row],
+                                              orc_batch->length[source_row], binary_values));
     }
     view.binary_values = &binary_values;
     RETURN_IF_ERROR(read_decoded_values(std::move(data_type), column, &view));
@@ -1517,17 +1556,6 @@ bool OrcReader::_can_apply_orc_lazy_callback() const {
     if (!_filter_has_row_level_predicates() || _request->predicate_columns.empty() ||
         _request->non_predicate_columns.empty()) {
         return false;
-    }
-    for (const auto& projection : _request->non_predicate_columns) {
-        if (is_virtual_column(projection.column_id())) {
-            continue;
-        }
-        // ORC lazy decoding returns follower complex columns with selected-row layout.
-        // Decode pruned complex projections after full batch materialization so nested offsets
-        // and child values stay aligned.
-        if (has_pruned_projection(projection)) {
-            return false;
-        }
     }
     bool has_physical_read_column = false;
     for (const auto file_column_id : _state->read_columns) {
