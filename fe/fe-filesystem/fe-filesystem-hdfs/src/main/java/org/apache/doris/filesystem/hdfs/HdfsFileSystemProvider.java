@@ -31,8 +31,8 @@ import java.util.Set;
  * SPI provider for plain HDFS-family filesystems: hdfs, viewfs only.
  * Registered via META-INF/services for Java ServiceLoader discovery.
  *
- * <p>Aliyun OSS-HDFS ({@code oss://}, JindoFS) has its own {@link OssHdfsFileSystemProvider}, and
- * JuiceFS ({@code jfs://}) is served by the sibling {@code fe-filesystem-jfs} plugin;
+ * <p>Aliyun OSS-HDFS ({@code oss://}, JindoFS) is served by the sibling {@code fe-filesystem-oss-hdfs}
+ * plugin, and JuiceFS ({@code jfs://}) by the sibling {@code fe-filesystem-jfs} plugin;
  * {@code ofs://} (Tencent CHDFS) is broker-routed by fe-core and is not an SPI filesystem here.
  * Routing is kept strictly disjoint: a concrete uri scheme is authoritative and only
  * {@code hdfs}/{@code viewfs} are claimed here; the {@code _STORAGE_TYPE_} "HDFS" marker is only a

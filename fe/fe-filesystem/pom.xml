@@ -54,6 +54,7 @@ under the License.
         <module>fe-filesystem-azure</module>
         <module>fe-filesystem-hdfs-base</module>
         <module>fe-filesystem-hdfs</module>
+        <module>fe-filesystem-oss-hdfs</module>
         <module>fe-filesystem-broker</module>
     </modules>
 
