@@ -205,7 +205,9 @@ private:
     std::string _expr_name;
 
     std::vector<const IColumn*> _agg_columns;
-    std::vector<bool> _const_argument_idx;
+    // Bool map of argument positions that must be constant by aggregate semantics.
+    // FE checks these positions before execution.
+    std::vector<bool> _always_const_argument_idx;
 };
 
 } // namespace doris

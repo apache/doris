@@ -75,7 +75,7 @@ AggFnEvaluator::AggFnEvaluator(const TExprNode& desc, const bool without_key,
           _is_window_function(is_window_function),
           _data_type(DataTypeFactory::instance().create_data_type(
                   desc.fn.ret_type, desc.__isset.is_nullable ? desc.is_nullable : true)),
-          _const_argument_idx(desc.num_children, false) {
+          _always_const_argument_idx(desc.num_children, false) {
     if (desc.agg_expr.__isset.param_types) {
         const auto& param_types = desc.agg_expr.param_types;
         for (const auto& param_type : param_types) {
@@ -263,8 +263,8 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc,
     }
     if (!_is_merge) {
         for (auto index : _function->get_const_argument_indexes()) {
-            DORIS_CHECK_LT(index, _const_argument_idx.size());
-            _const_argument_idx[index] = true;
+            DORIS_CHECK_LT(index, _always_const_argument_idx.size());
+            _always_const_argument_idx[index] = true;
         }
     }
 
@@ -392,7 +392,7 @@ Status AggFnEvaluator::_calc_argument_columns(Block* block) {
 
     for (int i = 0; i < _input_exprs_ctxs.size(); ++i) {
         int column_id = block->columns();
-        if (_const_argument_idx[i]) {
+        if (_always_const_argument_idx[i]) {
             ColumnWithTypeAndName const_argument;
             RETURN_IF_ERROR(_input_exprs_ctxs[i]->execute_const_expr(const_argument));
             auto column = const_argument.column;
@@ -428,7 +428,7 @@ AggFnEvaluator::AggFnEvaluator(AggFnEvaluator& evaluator, RuntimeState* state)
           _function(evaluator._function),
           _expr_name(evaluator._expr_name),
           _agg_columns(evaluator._agg_columns),
-          _const_argument_idx(evaluator._const_argument_idx) {
+          _always_const_argument_idx(evaluator._always_const_argument_idx) {
     if (evaluator._fn.binary_type == TFunctionBinaryType::JAVA_UDF) {
         DataTypes tmp_argument_types;
         tmp_argument_types.reserve(evaluator._input_exprs_ctxs.size());

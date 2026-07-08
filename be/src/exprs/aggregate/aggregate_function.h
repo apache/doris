@@ -251,6 +251,9 @@ public:
 
     const DataTypes& get_argument_types() const { return argument_types; }
 
+    // Return argument indexes that must be constant by function semantics.
+    // Other arguments may also be constant in a query, but they are not listed here
+    // unless FE checks that the position is always a constant argument.
     virtual const std::vector<size_t>& get_const_argument_indexes() const {
         static const std::vector<size_t> indexes;
         return indexes;
@@ -352,10 +355,11 @@ protected:
 
     template <typename ColumnType>
     void check_const_argument_column_type(const IColumn* column) const {
-        if (UNLIKELY(check_and_get_column_with_const<ColumnType>(*column) == nullptr)) {
+        const auto& const_column = assert_cast<const ColumnConst&>(*column);
+        if (UNLIKELY(check_and_get_column<ColumnType>(const_column.get_data_column()) == nullptr)) {
             throw doris::Exception(Status::InternalError(
                     "Aggregate function {} argument type check failed: Column type {} ({}) does "
-                    "not match expected physical column type {}",
+                    "not match expected const physical column type ColumnConst({})",
                     get_name(), column->get_name(), typeid(*column).name(),
                     typeid(ColumnType).name()));
         }

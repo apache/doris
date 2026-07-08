@@ -216,7 +216,6 @@ public:
             this->template check_const_argument_column_type<ColumnFloat64>(columns[i]);
         }
     }
-
 };
 
 class AggregateFunctionPercentileApproxTwoParams final

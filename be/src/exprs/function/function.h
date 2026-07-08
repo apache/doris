@@ -188,7 +188,9 @@ public:
         return Status::OK();
     }
 
-    // Only used by agg_state wrapper functions.
+    // Return aggregate argument indexes that must be constant by function semantics.
+    // Other arguments may also be constant in a query, but they are not listed here
+    // unless FE checks that the position is always a constant argument.
     virtual const std::vector<size_t>& get_const_argument_indexes() const {
         static const std::vector<size_t> indexes;
         return indexes;
