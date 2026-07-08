@@ -31,8 +31,8 @@ under the License.
 
     <artifactId>fe-filesystem-hdfs</artifactId>
     <packaging>jar</packaging>
-    <name>Doris FE Filesystem - HDFS / ViewFS / OSS-HDFS</name>
-    <description>HDFS, ViewFS, JFS, OFS, and OSSHdfs filesystem implementation for Doris FE.</description>
+    <name>Doris FE Filesystem - HDFS / ViewFS</name>
+    <description>HDFS and ViewFS filesystem implementation for Doris FE.</description>
 
     <dependencies>
         <dependency>
