@@ -416,6 +416,27 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         this.setJobRuntimeMsg("");
     }
 
+    /**
+     * Clear the failure info after a task succeeds, but only if the job has not been paused.
+     * A streaming job runs the data task and the meta-fetch scheduler task concurrently on
+     * different thread pools. If a fetchMeta failure has paused (or is pausing) the job, a
+     * straggler successful task must not wipe out the pause reason via resetFailureInfo(null):
+     * doing so hides the cause (empty ErrorMsg) and, because auto resume only fires when
+     * failureReason != null, leaves the job stuck in PAUSED forever. Guarding under the write
+     * lock (which the fetchMeta pause path also takes) makes the two paths mutually exclusive
+     * so the pause reason always survives.
+     */
+    private void clearFailureInfoIfNotPaused() {
+        writeLock();
+        try {
+            if (!JobStatus.PAUSED.equals(getJobStatus())) {
+                resetFailureInfo(null);
+            }
+        } finally {
+            writeUnlock();
+        }
+    }
+
     @Override
     public void cancelAllTasks(boolean needWaitCancelComplete) throws JobException {
         lock.writeLock().lock();
@@ -543,12 +564,20 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                     || !InternalErrorCode.MANUAL_PAUSE_ERR.equals(this.getFailureReason().getCode())) {
                 // When a job is manually paused, it does not need to be set again,
                 // otherwise, it may be woken up by auto resume.
-                this.setFailureReason(
-                        new FailureReason(InternalErrorCode.GET_REMOTE_DATA_ERROR,
-                                "Failed to fetch meta, " + ex.getMessage()));
-                // If fetching meta fails, the job is paused
-                // and auto resume will automatically wake it up.
-                this.updateJobStatus(JobStatus.PAUSED);
+                // Set the failure reason and pause atomically under the write lock so a
+                // concurrent successful task (onStreamTaskSuccess) cannot clear the reason
+                // between these two writes. See clearFailureInfoIfNotPaused().
+                writeLock();
+                try {
+                    this.setFailureReason(
+                            new FailureReason(InternalErrorCode.GET_REMOTE_DATA_ERROR,
+                                    "Failed to fetch meta, " + ex.getMessage()));
+                    // If fetching meta fails, the job is paused
+                    // and auto resume will automatically wake it up.
+                    this.updateJobStatus(JobStatus.PAUSED);
+                } finally {
+                    writeUnlock();
+                }
 
                 if (MetricRepo.isInit) {
                     MetricRepo.COUNTER_STREAMING_JOB_GET_META_FAIL_COUNT.increase(1L);
@@ -617,7 +646,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
 
     public void onStreamTaskSuccess(AbstractStreamingTask task) {
         try {
-            resetFailureInfo(null);
+            clearFailureInfoIfNotPaused();
             succeedTaskCount.incrementAndGet();
             //update metric
             if (MetricRepo.isInit) {
