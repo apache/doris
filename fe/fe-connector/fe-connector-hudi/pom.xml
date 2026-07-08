@@ -70,6 +70,16 @@ under the License.
             <version>${project.version}</version>
         </dependency>
 
+        <!-- Supplies the plugin-side HMS Kerberos parser (HmsMetaStoreProperties.kerberos() via
+             MetaStoreProviders.bindForType("hms")) + transitively fe-kerberos, for
+             HudiConnector.buildPluginAuthenticator; bundled child-first by plugin-zip.xml's runtime
+             dependencySet. -->
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-connector-metastore-hms</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
         <!-- Hudi SDK for MetaClient and Avro schema -->
         <dependency>
             <groupId>org.apache.hudi</groupId>
