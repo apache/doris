@@ -329,6 +329,8 @@ public class MetaCacheEntry<K, V> {
                 // Leave a narrow hook for tests to pause exactly before the cache put race window.
                 beforeManualCachePutForTest(key, loaded);
                 putLoadedValueWithoutGenerationBump(key, loaded);
+                // Re-check after the put because invalidateAll()/invalidateIf() may bump stripe generations
+                // outside publishLock while this thread is publishing a loaded value.
                 if (generation != generationOf(key)) {
                     removeLoadedValueWithoutGenerationBump(key, loaded);
                 }
