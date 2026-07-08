@@ -178,7 +178,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         }
     }
 
-    private List<Pair<String, String>> listTableNames() {
+    private synchronized List<Pair<String, String>> listTableNames() {
         List<Pair<String, String>> tableNames;
         lowerCaseToTableName.clear();
         if (name.equals(InfoSchemaDb.DATABASE_NAME)) {
@@ -435,9 +435,17 @@ public abstract class ExternalDatabase<T extends ExternalTable>
             remoteTblName = lowerCaseToTableName.get(tableName.toLowerCase());
             if (remoteTblName == null) {
                 // Here we need to execute listTableNames() once to fill in lowerCaseToTableName
-                // to prevent lowerCaseToTableName from being empty in some cases
-                listTableNames();
-                remoteTblName = lowerCaseToTableName.get(tableName.toLowerCase());
+                // to prevent lowerCaseToTableName from being empty in some cases.
+                // Use double-checked locking against the same monitor used by listTableNames()
+                // so that we don't keep repeating a remote list call and don't race with
+                // a concurrent listTableNames() that is swapping the map.
+                synchronized (this) {
+                    remoteTblName = lowerCaseToTableName.get(tableName.toLowerCase());
+                    if (remoteTblName == null) {
+                        listTableNames();
+                        remoteTblName = lowerCaseToTableName.get(tableName.toLowerCase());
+                    }
+                }
                 if (remoteTblName == null) {
                     return false;
                 }
@@ -524,9 +532,17 @@ public abstract class ExternalDatabase<T extends ExternalTable>
                     return null;
                 }
                 // Here we need to execute listTableNames() once to fill in lowerCaseToTableName
-                // to prevent lowerCaseToTableName from being empty in some cases
-                listTableNames();
-                finalName = lowerCaseToTableName.get(tableName.toLowerCase());
+                // to prevent lowerCaseToTableName from being empty in some cases.
+                // Use double-checked locking against the same monitor used by listTableNames()
+                // so that concurrent callers don't wipe each other's results and don't issue
+                // redundant remote list calls.
+                synchronized (this) {
+                    finalName = lowerCaseToTableName.get(tableName.toLowerCase());
+                    if (finalName == null) {
+                        listTableNames();
+                        finalName = lowerCaseToTableName.get(tableName.toLowerCase());
+                    }
+                }
                 if (finalName == null) {
                     if (LOG.isDebugEnabled()) {
                         LOG.debug("failed to get final table name from: {}.{}.{}",
