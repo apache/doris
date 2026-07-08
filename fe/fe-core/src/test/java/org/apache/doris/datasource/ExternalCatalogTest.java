@@ -559,6 +559,7 @@ public class ExternalCatalogTest extends TestWithFeService {
 
             Assertions.assertNull(catalog.getCachedDatabaseNamesForTest());
             Assertions.assertSame(db, catalog.getDbForReplay("dbkeep").orElse(null));
+            Assertions.assertNull(catalog.getCachedDatabaseNamesForTest());
         } finally {
             NameMissCatalogProvider.reset();
         }
