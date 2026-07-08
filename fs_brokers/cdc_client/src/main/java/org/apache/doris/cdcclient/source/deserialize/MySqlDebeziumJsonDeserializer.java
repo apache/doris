@@ -80,6 +80,11 @@ public class MySqlDebeziumJsonDeserializer extends DebeziumJsonDeserializer {
         String database = history.document().getString(HistoryRecord.Fields.DATABASE_NAME);
         String ddl = history.document().getString(HistoryRecord.Fields.DDL_STATEMENTS);
         Map<TableId, TableChanges.TableChange> freshSchemas = deserializeTableChanges(history);
+        LOG.info(
+                "[SCHEMA-CHANGE] MySQL deserializer received schema change, baselineSchemas={}, freshSchemas={}, ddl={}",
+                tableSchemas == null ? 0 : tableSchemas.size(),
+                freshSchemas.size(),
+                ddl);
         if (freshSchemas.isEmpty()) {
             LOG.warn(
                     "[SCHEMA-CHANGE-SKIPPED] MySQL schema change event has no table schema "

@@ -96,6 +96,11 @@ public class PostgresDebeziumJsonDeserializer extends DebeziumJsonDeserializer {
         // Debezium PG TableId is (catalog=null, schema, table) — matches the tableSchemas key.
         TableId tableId = freshTable.id();
         TableChanges.TableChange stored = tableSchemas != null ? tableSchemas.get(tableId) : null;
+        LOG.info(
+                "[SCHEMA-CHANGE] Postgres deserializer received schema change, table={}, baselineSchemas={}, hasStoredSchema={}",
+                tableId.identifier(),
+                tableSchemas == null ? 0 : tableSchemas.size(),
+                stored != null && stored.getTable() != null);
 
         // changeType is not consumed inside cdc_client — downstream only reads getTable() and
         // serializeTableSchemas does not persist it — so ALTER is used uniformly, including for the

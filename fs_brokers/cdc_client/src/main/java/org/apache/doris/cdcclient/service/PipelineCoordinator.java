@@ -474,6 +474,7 @@ public class PipelineCoordinator {
         DorisBatchStreamLoad batchStreamLoad = null;
         long scannedRows = 0L;
         int heartbeatCount = 0;
+        int ddlCount = 0;
         SplitReadResult readResult = null;
         boolean hasExecuteDDL = false;
         boolean isSnapshotSplit = false;
@@ -606,6 +607,9 @@ public class PipelineCoordinator {
                     if (result.getType() == DeserializeResult.Type.SCHEMA_CHANGE) {
                         // Flush pending data before DDL
                         batchStreamLoad.forceFlush();
+                        if (!CollectionUtils.isEmpty(result.getSchemaChanges())) {
+                            ddlCount += result.getSchemaChanges().size();
+                        }
                         SchemaChangeManager.executeChanges(
                                 feAddr, targetDb, token, result.getSchemaChanges());
                         hasExecuteDDL = true;
@@ -629,8 +633,9 @@ public class PipelineCoordinator {
                 }
             }
             LOG.info(
-                    "Fetched {} records and {} heartbeats in {} ms for jobId={} taskId={}",
+                    "Fetched {} records, {} DDLs and {} heartbeats in {} ms for jobId={} taskId={}",
                     scannedRows,
+                    ddlCount,
                     heartbeatCount,
                     System.currentTimeMillis() - startTime,
                     writeRecordRequest.getJobId(),
