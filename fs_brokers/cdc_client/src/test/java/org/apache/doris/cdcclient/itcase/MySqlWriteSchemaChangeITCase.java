@@ -108,7 +108,8 @@ class MySqlWriteSchemaChangeITCase {
             harness.enterBinlog(splits);
             String committedOffsetBeforeSchemaChange = harness.committedOffset();
             String tableSchemasBeforeSchemaChange = harness.committedTableSchemas();
-            assertThat(tableSchemasBeforeSchemaChange).doesNotContain("city");
+            assertThat(tableSchemasBeforeSchemaChange).isNotNull();
+            assertThat(tableSchemasBeforeSchemaChange).contains("t_user").doesNotContain("city");
 
             try (Connection conn = rootConnection(database);
                     Statement st = conn.createStatement()) {
