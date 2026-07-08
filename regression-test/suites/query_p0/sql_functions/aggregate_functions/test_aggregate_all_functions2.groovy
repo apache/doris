@@ -129,6 +129,14 @@ suite("test_aggregate_all_functions2") {
         sql """ select percentile_reservoir(k8,1.1) from baseall; """
         exception "percentile_reservoir level must be in [0, 1]"
     }
+    test {
+        sql """ select percentile_reservoir_state(k8,1.1) from baseall; """
+        exception "percentile_reservoir level must be in [0, 1]"
+        check { result, exception, startTime, endTime ->
+            assertTrue(exception != null)
+            assertFalse(exception.toString().contains("INTERNAL_ERROR"))
+        }
+    }
 
     qt_bool_and """SELECT bool_and(k0) FROM baseall;"""
     qt_bool_and """SELECT bool_and(k1) FROM baseall;"""

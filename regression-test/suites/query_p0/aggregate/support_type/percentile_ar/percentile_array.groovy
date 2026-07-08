@@ -70,4 +70,12 @@ suite("percentile_array") {
         sql """select percentile_array(col_double, array(0.5, 1.1)) from d_table;"""
         exception "percentile_array quantile must be in [0, 1]"
     }
+    test {
+        sql """select percentile_array_state(col_double, [null]) from d_table;"""
+        exception "percentile_array quantile should not be null"
+        check { result, exception, startTime, endTime ->
+            assertTrue(exception != null)
+            assertFalse(exception.toString().contains("INTERNAL_ERROR"))
+        }
+    }
 }
