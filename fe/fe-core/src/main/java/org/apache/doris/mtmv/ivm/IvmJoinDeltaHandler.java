@@ -54,6 +54,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -779,64 +780,19 @@ class IvmJoinDeltaHandler {
                         && IvmDeltaRewriteHelper.INSTANCE.isIncrementalDeltaScan((LogicalOlapScan) child)) {
                     LogicalOlapTableStreamScan streamScan = (LogicalOlapTableStreamScan) child;
                     deltaScanCount[0]++;
-                    // TODO: get TSO from stream
-                    long tso = 0L;
-                    LogicalOlapScan snapshotScan = IvmDeltaRewriteHelper.INSTANCE.toSnapshotScan(streamScan, tso);
-                    return rebuildProjectForSnapshot(project, snapshotScan);
+                    LogicalPlan snapshotScan = postSnapshot
+                            ? streamScan.withPostSnapshot()
+                            : streamScan.withPreSnapshot(Optional.empty());
+                    return helper.remapProjectChildToNewPlan(project, (LogicalPlan) snapshotScan);
                 }
             }
             return node;
         });
         if (deltaScanCount[0] != 1) {
-            throw new AnalysisException("IVM: expected exactly one null-side delta scan, got " + deltaScanCount[0]);
+            throw new IvmException(IvmFailureReason.PLAN_REWRITE_FAILED,
+                    "IVM: expected exactly one null-side delta scan, got " + deltaScanCount[0]);
         }
         return snapshot;
-    }
-
-    /**
-     * Rebuild a delta-wrapper Project so its Alias sources point to the new
-     * snapshot scan's output slots instead of the stream scan's slots.
-     * The Alias target ExprIds (old OlapScan ExprIds) are preserved.
-     */
-    private LogicalProject<?> rebuildProjectForSnapshot(LogicalProject<?> oldProject,
-            LogicalOlapScan snapshotScan) {
-        Map<String, Slot> snapshotSlotByName = new HashMap<>();
-        for (Slot slot : snapshotScan.getOutput()) {
-            snapshotSlotByName.put(slot.getName(), slot);
-        }
-        ImmutableList.Builder<NamedExpression> newProjects
-                = ImmutableList.builderWithExpectedSize(oldProject.getProjects().size());
-        for (NamedExpression expr : oldProject.getProjects()) {
-            if (expr instanceof Alias) {
-                Alias alias = (Alias) expr;
-                Expression childExpr = alias.child();
-                if (childExpr instanceof Slot) {
-                    Slot snapshotSlot = snapshotSlotByName.get(((Slot) childExpr).getName());
-                    if (snapshotSlot != null) {
-                        newProjects.add(new Alias(alias.getExprId(), snapshotSlot, alias.getName()));
-                    }
-                } else if (childExpr instanceof NullLiteral) {
-                    // Hidden columns (e.g. __DORIS_DELETE_SIGN__) use NULL placeholder
-                    // in stream scan project; try to resolve from snapshot scan.
-                    Slot snapshotSlot = snapshotSlotByName.get(alias.getName());
-                    if (snapshotSlot == null) {
-                        throw new AnalysisException("IVM: snapshot scan missing hidden column "
-                                + alias.getName() + " for table " + snapshotScan.getTable().getName());
-                    }
-                    newProjects.add(new Alias(alias.getExprId(), snapshotSlot, alias.getName()));
-                }
-            } else if (expr instanceof Slot) {
-                // Passthrough SlotReference (e.g. stream-only columns added by
-                // replaceOlapScanWithStreamScan). Wrap with Alias to preserve
-                // the old ExprId so parent plan references stay valid.
-                Slot oldSlot = (Slot) expr;
-                Slot snapshotSlot = snapshotSlotByName.get(oldSlot.getName());
-                if (snapshotSlot != null) {
-                    newProjects.add(new Alias(oldSlot.getExprId(), snapshotSlot, oldSlot.getName()));
-                }
-            }
-        }
-        return new LogicalProject<>(newProjects.build(), snapshotScan);
     }
 
     /**

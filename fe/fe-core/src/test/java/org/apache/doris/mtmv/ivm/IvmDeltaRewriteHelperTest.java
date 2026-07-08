@@ -18,21 +18,30 @@
 package org.apache.doris.mtmv.ivm;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.stream.OlapTableStreamWrapper;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.stream.OlapTableStream;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableStreamScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.types.IntegerType;
 
+import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
-class IvmDeltaRewriteHelperTest {
+class IvmDeltaRewriteHelperTest extends IvmDeltaTestBase {
 
     private final IvmDeltaRewriteHelper helper = IvmDeltaRewriteHelper.INSTANCE;
 
@@ -93,50 +102,113 @@ class IvmDeltaRewriteHelperTest {
         Assertions.assertSame(opSlot, result);
     }
 
-    // ==================== toSnapshotScan ====================
-
     @Test
-    void testToSnapshotScanReturnsRegularScanWithTso() {
-        LogicalOlapTableStreamScan deltaScan = Mockito.mock(LogicalOlapTableStreamScan.class);
-        OlapTableStreamWrapper wrapper = Mockito.mock(OlapTableStreamWrapper.class);
-        OlapTable originTable = Mockito.mock(OlapTable.class);
-        Mockito.when(wrapper.getBaseTable()).thenReturn(originTable);
-        Mockito.when(deltaScan.getTable()).thenReturn(wrapper);
-        Mockito.when(deltaScan.getRelationId()).thenReturn(org.apache.doris.nereids.trees.plans.RelationId.createGenerator().getNextId());
-        Mockito.when(deltaScan.getQualifier()).thenReturn(java.util.Collections.emptyList());
-        Mockito.when(deltaScan.getManuallySpecifiedPartitions()).thenReturn(java.util.Collections.emptyList());
-        Mockito.when(deltaScan.getSelectedTabletIds()).thenReturn(java.util.Collections.emptyList());
-        Mockito.when(deltaScan.getHints()).thenReturn(java.util.Collections.emptyList());
-        Mockito.when(deltaScan.getTableSample()).thenReturn(java.util.Optional.empty());
-        Mockito.when(deltaScan.getOperativeSlots()).thenReturn(java.util.Collections.emptyList());
+    void testRemapScanOutputForPreSnapshotPreservesExprId() throws Exception {
+        LogicalOlapScan scan = buildScanForTable(1, "t_pre");
+        OlapTableStream stream = (OlapTableStream) Env.getCurrentInternalCatalog()
+                .getDbOrAnalysisException("test_db")
+                .getTableOrAnalysisException(IvmUtil.streamName(0L, "t_pre"));
 
-        LogicalOlapScan snapshot = helper.toSnapshotScan(deltaScan, 100L);
+        LogicalPlan preSnapshot = (LogicalPlan) scan.withPreSnapshot(Optional.of(stream));
+        LogicalPlan remapped = helper.remapScanOutput(scan, preSnapshot);
 
-        Assertions.assertNotNull(snapshot);
-        Assertions.assertEquals(100L, snapshot.getTso());
-        Assertions.assertFalse(snapshot instanceof LogicalOlapTableStreamScan,
-                "Snapshot scan should be LogicalOlapScan, not stream scan");
+        Assertions.assertInstanceOf(LogicalProject.class, remapped);
+        Assertions.assertInstanceOf(LogicalOlapTableStreamScan.class, remapped.child(0));
+        LogicalOlapTableStreamScan snapshotChild = (LogicalOlapTableStreamScan) remapped.child(0);
+        Assertions.assertTrue(snapshotChild.isSnapshot());
+        Assertions.assertFalse(snapshotChild.isIncrementalScan());
+        Assertions.assertFalse(snapshotChild.isReset());
+        for (int i = 0; i < scan.getOutput().size(); i++) {
+            Assertions.assertEquals(scan.getOutput().get(i).getExprId(), remapped.getOutput().get(i).getExprId());
+            Assertions.assertEquals(scan.getOutput().get(i).getName(), remapped.getOutput().get(i).getName());
+        }
     }
 
     @Test
-    void testToSnapshotScanDifferentTsoValues() {
-        LogicalOlapTableStreamScan deltaScan = Mockito.mock(LogicalOlapTableStreamScan.class);
-        OlapTableStreamWrapper wrapper = Mockito.mock(OlapTableStreamWrapper.class);
-        OlapTable originTable = Mockito.mock(OlapTable.class);
-        Mockito.when(wrapper.getBaseTable()).thenReturn(originTable);
-        Mockito.when(deltaScan.getTable()).thenReturn(wrapper);
-        Mockito.when(deltaScan.getRelationId()).thenReturn(org.apache.doris.nereids.trees.plans.RelationId.createGenerator().getNextId());
-        Mockito.when(deltaScan.getQualifier()).thenReturn(java.util.Collections.emptyList());
-        Mockito.when(deltaScan.getManuallySpecifiedPartitions()).thenReturn(java.util.Collections.emptyList());
-        Mockito.when(deltaScan.getSelectedTabletIds()).thenReturn(java.util.Collections.emptyList());
-        Mockito.when(deltaScan.getHints()).thenReturn(java.util.Collections.emptyList());
-        Mockito.when(deltaScan.getTableSample()).thenReturn(java.util.Optional.empty());
-        Mockito.when(deltaScan.getOperativeSlots()).thenReturn(java.util.Collections.emptyList());
+    void testRemapScanOutputForPostSnapshotPreservesExprId() {
+        LogicalOlapScan scan = buildScanForTable(2, "t_post");
 
-        LogicalOlapScan preSnapshot = helper.toSnapshotScan(deltaScan, 50L);
-        Assertions.assertEquals(50L, preSnapshot.getTso());
+        LogicalPlan postSnapshot = (LogicalPlan) scan.withPostSnapshot();
+        LogicalPlan remapped = helper.remapScanOutput(scan, postSnapshot);
 
-        LogicalOlapScan postSnapshot = helper.toSnapshotScan(deltaScan, 200L);
-        Assertions.assertEquals(200L, postSnapshot.getTso());
+        Assertions.assertInstanceOf(LogicalProject.class, remapped);
+        Assertions.assertInstanceOf(LogicalOlapScan.class, remapped.child(0));
+        Assertions.assertFalse(remapped.child(0) instanceof LogicalOlapTableStreamScan);
+        for (int i = 0; i < scan.getOutput().size(); i++) {
+            Assertions.assertEquals(scan.getOutput().get(i).getExprId(), remapped.getOutput().get(i).getExprId());
+            Assertions.assertEquals(scan.getOutput().get(i).getName(), remapped.getOutput().get(i).getName());
+        }
     }
+
+    @Test
+    void testRemapScanOutputMissingVisibleColumnThrows() {
+        LogicalOlapScan scan = buildScanForTable(3, "t_missing");
+        LogicalPlan newPlan = Mockito.mock(LogicalPlan.class);
+        Mockito.when(newPlan.getOutput()).thenReturn(ImmutableList.of());
+
+        Assertions.assertThrows(AnalysisException.class, () -> helper.remapScanOutput(scan, newPlan));
+    }
+
+    @Test
+    void testRemapProjectChildToPreSnapshotPreservesExprId() {
+        LogicalOlapTableStreamScan deltaScan = buildDeltaScanForTable(4, "t_proj_pre");
+        NamedExpression aliasId = new Alias(deltaScan.getOutput().get(0), "alias_id");
+        NamedExpression passthroughName = (NamedExpression) deltaScan.getOutput().get(1);
+        LogicalProject<LogicalOlapTableStreamScan> oldProject = new LogicalProject<>(
+                ImmutableList.of(aliasId, passthroughName), deltaScan);
+
+        LogicalPlan newChild = (LogicalPlan) deltaScan.withPreSnapshot(Optional.empty());
+        LogicalProject<?> remapped = helper.remapProjectChildToNewPlan(oldProject, newChild);
+
+        Assertions.assertInstanceOf(LogicalOlapTableStreamScan.class, remapped.child());
+        Assertions.assertEquals(oldProject.getOutput().get(0).getExprId(), remapped.getOutput().get(0).getExprId());
+        Assertions.assertEquals(oldProject.getOutput().get(0).getName(), remapped.getOutput().get(0).getName());
+        Assertions.assertEquals(oldProject.getOutput().get(1).getExprId(), remapped.getOutput().get(1).getExprId());
+        Assertions.assertEquals(oldProject.getOutput().get(1).getName(), remapped.getOutput().get(1).getName());
+    }
+
+    @Test
+    void testRemapProjectChildToPostSnapshotPreservesExprId() {
+        LogicalOlapTableStreamScan deltaScan = buildDeltaScanForTable(5, "t_proj_post");
+        NamedExpression aliasId = new Alias(deltaScan.getOutput().get(0), "alias_id");
+        NamedExpression passthroughName = (NamedExpression) deltaScan.getOutput().get(1);
+        LogicalProject<LogicalOlapTableStreamScan> oldProject = new LogicalProject<>(
+                ImmutableList.of(aliasId, passthroughName), deltaScan);
+
+        LogicalPlan newChild = (LogicalPlan) deltaScan.withPostSnapshot();
+        LogicalProject<?> remapped = helper.remapProjectChildToNewPlan(oldProject, newChild);
+
+        Assertions.assertInstanceOf(LogicalOlapScan.class, remapped.child());
+        Assertions.assertFalse(remapped.child() instanceof LogicalOlapTableStreamScan);
+        Assertions.assertEquals(oldProject.getOutput().get(0).getExprId(), remapped.getOutput().get(0).getExprId());
+        Assertions.assertEquals(oldProject.getOutput().get(1).getExprId(), remapped.getOutput().get(1).getExprId());
+    }
+
+    @Test
+    void testRemapProjectChildToPostSnapshotFillsHiddenSlotWithNull() {
+        LogicalOlapTableStreamScan deltaScan = buildDeltaScanForTable(6, "t_proj_missing");
+        NamedExpression missingStreamColumn = new SlotReference("__DORIS_FAKE_HIDDEN__", IntegerType.INSTANCE, true);
+        LogicalProject<LogicalOlapTableStreamScan> oldProject = new LogicalProject<>(
+                ImmutableList.of(missingStreamColumn), deltaScan);
+
+        LogicalPlan newChild = (LogicalPlan) deltaScan.withPostSnapshot();
+        LogicalProject<?> remapped = helper.remapProjectChildToNewPlan(oldProject, newChild);
+        Assertions.assertInstanceOf(Alias.class, remapped.getProjects().get(0));
+        Assertions.assertInstanceOf(NullLiteral.class,
+                ((Alias) remapped.getProjects().get(0)).child());
+    }
+
+    @Test
+    void testRemapProjectChildToPostSnapshotKeepsAliasNullLiteral() {
+        LogicalOlapTableStreamScan deltaScan = buildDeltaScanForTable(7, "t_proj_alias_missing");
+        NamedExpression hiddenAlias = new Alias(new NullLiteral(IntegerType.INSTANCE), "__DORIS_FAKE_HIDDEN__");
+        LogicalProject<LogicalOlapTableStreamScan> oldProject = new LogicalProject<>(
+                ImmutableList.of(hiddenAlias), deltaScan);
+
+        LogicalPlan newChild = (LogicalPlan) deltaScan.withPostSnapshot();
+        LogicalProject<?> remapped = helper.remapProjectChildToNewPlan(oldProject, newChild);
+        Assertions.assertInstanceOf(Alias.class, remapped.getProjects().get(0));
+        Assertions.assertInstanceOf(NullLiteral.class, ((Alias) remapped.getProjects().get(0)).child());
+    }
+
 }
