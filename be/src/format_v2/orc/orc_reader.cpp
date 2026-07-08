@@ -91,6 +91,7 @@ constexpr uint64_t DEFAULT_ORC_READ_BATCH_SIZE = 4096;
 constexpr uint64_t DEFAULT_ORC_NATURAL_READ_SIZE = 128 * 1024;
 constexpr int DECIMAL_PRECISION_FOR_HIVE11 = BeConsts::MAX_DECIMAL128_PRECISION;
 constexpr int DECIMAL_SCALE_FOR_HIVE11 = 10;
+constexpr int32_t DORIS_DATE_EPOCH_DAYNR = 719528;
 constexpr const char* ORC_LIST_ELEMENT_NAME = "element";
 constexpr const char* ORC_MAP_KEY_NAME = "key";
 constexpr const char* ORC_MAP_VALUE_NAME = "value";
@@ -248,6 +249,45 @@ Int128 to_int128(::orc::Int128 value) {
     return static_cast<Int128>((high_bits << 64) | low_bits);
 }
 
+::orc::Int128 to_orc_int128(Int128 value) {
+    const auto unsigned_value = static_cast<__uint128_t>(value);
+    return ::orc::Int128(static_cast<int64_t>(static_cast<uint64_t>(unsigned_value >> 64)),
+                         static_cast<uint64_t>(unsigned_value));
+}
+
+Status scale_decimal_value(Int128 value, int32_t source_scale, int32_t target_scale,
+                           Int128* scaled_value) {
+    DORIS_CHECK(scaled_value != nullptr);
+    if (source_scale == target_scale) {
+        *scaled_value = value;
+        return Status::OK();
+    }
+    if (source_scale < target_scale) {
+        bool overflow = false;
+        const auto scaled = ::orc::scaleUpInt128ByPowerOfTen(to_orc_int128(value),
+                                                             target_scale - source_scale, overflow);
+        if (overflow) {
+            return Status::DataQualityError(
+                    "ORC decimal value overflows when scaling from {} to {}", source_scale,
+                    target_scale);
+        }
+        *scaled_value = to_int128(scaled);
+        return Status::OK();
+    }
+    *scaled_value = to_int128(
+            ::orc::scaleDownInt128ByPowerOfTen(to_orc_int128(value), source_scale - target_scale));
+    return Status::OK();
+}
+
+void fill_decimal_big_endian_value(Int128 value, std::array<uint8_t, sizeof(Int128)>* bytes) {
+    DORIS_CHECK(bytes != nullptr);
+    const auto unsigned_value = static_cast<__uint128_t>(value);
+    for (size_t byte_idx = 0; byte_idx < bytes->size(); ++byte_idx) {
+        const auto shift = (bytes->size() - byte_idx - 1) * 8;
+        (*bytes)[byte_idx] = static_cast<uint8_t>(unsigned_value >> shift);
+    }
+}
+
 Status read_decoded_values(DataTypePtr data_type, IColumn& column, DecodedColumnView* view) {
     DORIS_CHECK(data_type != nullptr);
     DORIS_CHECK(view != nullptr);
@@ -381,8 +421,12 @@ Status decode_date_values_with_serde(DataTypePtr data_type, IColumn& column,
     const auto output_rows = decode_row_count(rows, selected_rows);
     std::vector<int32_t> date_values;
     date_values.resize(output_rows);
+    auto& date_dict = date_day_offset_dict::get();
     for (size_t row = 0; row < output_rows; ++row) {
-        date_values[row] = cast_set<int32_t>(orc_batch->data[source_row_at(row, selected_rows)]);
+        const auto source_row = source_row_at(row, selected_rows);
+        // Match the v1 ORC reader for legacy Hive/ORC dates, including underflow fallback.
+        const auto date = date_dict[cast_set<int>(orc_batch->data[source_row])];
+        date_values[row] = cast_set<int32_t>(date.daynr() - DORIS_DATE_EPOCH_DAYNR);
     }
     view.values = reinterpret_cast<const uint8_t*>(date_values.data());
     RETURN_IF_ERROR(read_decoded_values(std::move(data_type), column, &view));
@@ -393,25 +437,37 @@ Status decode_decimal_values_with_serde(DataTypePtr data_type, IColumn& column,
                                         const ::orc::Type& file_type,
                                         const ::orc::ColumnVectorBatch& batch, size_t rows,
                                         const std::vector<size_t>* selected_rows) {
-    auto view = make_orc_decoded_view(rows, selected_rows, DecodedValueKind::INT64);
+    auto view = make_orc_decoded_view(rows, selected_rows, DecodedValueKind::FIXED_BINARY);
     view.decimal_precision = file_type.getPrecision() == 0
                                      ? DECIMAL_PRECISION_FOR_HIVE11
                                      : cast_set<int>(file_type.getPrecision());
-    view.decimal_scale = file_type.getPrecision() == 0 ? DECIMAL_SCALE_FOR_HIVE11
-                                                       : cast_set<int>(file_type.getScale());
     NullMap null_map;
     fill_orc_decoded_null_map(batch, rows, selected_rows, &null_map);
     view.null_map = null_map.empty() ? nullptr : null_map.data();
+    view.fixed_length = sizeof(Int128);
+
+    std::vector<StringRef> binary_values;
+    std::vector<std::array<uint8_t, sizeof(Int128)>> decimal_values;
+    const auto output_rows = decode_row_count(rows, selected_rows);
+    decimal_values.resize(output_rows);
+    binary_values.reserve(output_rows);
+    const auto target_scale = cast_set<int32_t>(remove_nullable(data_type)->get_scale());
+
     if (const auto* decimal64_batch = dynamic_cast<const ::orc::Decimal64VectorBatch*>(&batch);
         decimal64_batch != nullptr) {
-        std::vector<int64_t> selected_values;
-        if (selected_rows == nullptr) {
-            view.values = reinterpret_cast<const uint8_t*>(decimal64_batch->values.data());
-        } else {
-            fill_selected_values(decimal64_batch->values.data(), rows, selected_rows,
-                                 &selected_values);
-            view.values = reinterpret_cast<const uint8_t*>(selected_values.data());
+        view.decimal_scale = decimal64_batch->scale;
+        for (size_t row = 0; row < output_rows; ++row) {
+            Int128 value = 0;
+            const auto source_row = source_row_at(row, selected_rows);
+            if (!is_null_at(batch, source_row)) {
+                RETURN_IF_ERROR(scale_decimal_value(decimal64_batch->values[source_row],
+                                                    decimal64_batch->scale, target_scale, &value));
+            }
+            fill_decimal_big_endian_value(value, &decimal_values[row]);
+            binary_values.emplace_back(reinterpret_cast<const char*>(decimal_values[row].data()),
+                                       decimal_values[row].size());
         }
+        view.binary_values = &binary_values;
         RETURN_IF_ERROR(read_decoded_values(std::move(data_type), column, &view));
         return Status::OK();
     }
@@ -419,26 +475,18 @@ Status decode_decimal_values_with_serde(DataTypePtr data_type, IColumn& column,
     if (decimal128_batch == nullptr) {
         return Status::InternalError("Unexpected ORC decimal batch type {}", batch.toString());
     }
-    std::vector<StringRef> binary_values;
-    std::vector<std::array<uint8_t, sizeof(Int128)>> decimal_values;
-    const auto output_rows = decode_row_count(rows, selected_rows);
-    decimal_values.resize(output_rows);
-    binary_values.reserve(output_rows);
+    view.decimal_scale = decimal128_batch->scale;
     for (size_t row = 0; row < output_rows; ++row) {
-        auto value = __uint128_t();
+        Int128 value = 0;
         const auto source_row = source_row_at(row, selected_rows);
         if (!is_null_at(batch, source_row)) {
-            value = static_cast<__uint128_t>(to_int128(decimal128_batch->values[source_row]));
+            RETURN_IF_ERROR(scale_decimal_value(to_int128(decimal128_batch->values[source_row]),
+                                                decimal128_batch->scale, target_scale, &value));
         }
-        for (size_t byte_idx = 0; byte_idx < decimal_values[row].size(); ++byte_idx) {
-            const auto shift = (decimal_values[row].size() - byte_idx - 1) * 8;
-            decimal_values[row][byte_idx] = static_cast<uint8_t>(value >> shift);
-        }
+        fill_decimal_big_endian_value(value, &decimal_values[row]);
         binary_values.emplace_back(reinterpret_cast<const char*>(decimal_values[row].data()),
                                    decimal_values[row].size());
     }
-    view.value_kind = DecodedValueKind::FIXED_BINARY;
-    view.fixed_length = sizeof(Int128);
     view.binary_values = &binary_values;
     RETURN_IF_ERROR(read_decoded_values(std::move(data_type), column, &view));
     return Status::OK();
@@ -1470,6 +1518,17 @@ bool OrcReader::_can_apply_orc_lazy_callback() const {
         _request->non_predicate_columns.empty()) {
         return false;
     }
+    for (const auto& projection : _request->non_predicate_columns) {
+        if (is_virtual_column(projection.column_id())) {
+            continue;
+        }
+        // ORC lazy decoding returns follower complex columns with selected-row layout.
+        // Decode pruned complex projections after full batch materialization so nested offsets
+        // and child values stay aligned.
+        if (has_pruned_projection(projection)) {
+            return false;
+        }
+    }
     bool has_physical_read_column = false;
     for (const auto file_column_id : _state->read_columns) {
         if (is_virtual_column(file_column_id)) {
@@ -2292,7 +2351,7 @@ Status OrcReader::get_block(Block* file_block, size_t* rows, bool* eof) {
                 _eof = true;
                 return Status::OK();
             }
-            return Status::InternalError("Failed to read ORC batch: {}", e.what());
+            return Status::InternalError("Orc row reader nextBatch failed. reason = {}", e.what());
         }
         if (has_next) {
             if (_state->orc_lazy_read_enabled && _state->orc_lazy_selection_valid &&

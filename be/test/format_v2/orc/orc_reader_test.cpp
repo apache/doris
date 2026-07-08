@@ -25,6 +25,7 @@
 #include <array>
 #include <atomic>
 #include <cctype>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -96,10 +97,29 @@ std::filesystem::path unique_test_dir(std::string_view prefix) {
     return std::filesystem::temp_directory_path() / name;
 }
 
+std::filesystem::path find_repo_file(std::string_view relative_path) {
+    auto dir = std::filesystem::current_path();
+    while (true) {
+        auto candidate = dir / relative_path;
+        if (std::filesystem::exists(candidate)) {
+            return candidate;
+        }
+        if (!dir.has_parent_path() || dir.parent_path() == dir) {
+            return candidate;
+        }
+        dir = dir.parent_path();
+    }
+}
+
 DateV2Value<DateV2ValueType> make_date_v2(uint16_t year, uint8_t month, uint8_t day) {
     DateV2Value<DateV2ValueType> value;
     value.unchecked_set_time(year, month, day, 0, 0, 0, 0);
     return value;
+}
+
+int64_t orc_date_offset(uint16_t year, uint8_t month, uint8_t day) {
+    static constexpr int32_t DATE_THRESHOLD = 719528;
+    return make_date_v2(year, month, day).daynr() - DATE_THRESHOLD;
 }
 
 DateV2Value<DateTimeV2ValueType> make_datetime_v2(uint16_t year, uint8_t month, uint8_t day,
@@ -1552,6 +1572,48 @@ private:
     const std::string _expr_name = "NullableStringCastToStringGreaterThanExpr";
 };
 
+class NullableStringEqualsExpr final : public VExpr {
+public:
+    NullableStringEqualsExpr(int column_id, DataTypePtr source_type, std::string value,
+                             std::string column_name)
+            : VExpr(std::make_shared<DataTypeUInt8>(), false),
+              _column_id(column_id),
+              _value(std::move(value)) {
+        _node_type = TExprNodeType::BINARY_PRED;
+        _opcode = TExprOpcode::EQ;
+        const auto string_type = std::make_shared<DataTypeString>();
+        add_child(TableSlotRef::create_shared(column_id, column_id, -1,
+                                              make_nullable(std::move(source_type)),
+                                              std::move(column_name)));
+        add_child(
+                TableLiteral::create_shared(string_type, Field::create_field<TYPE_STRING>(_value)));
+    }
+
+    Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
+                               size_t count, ColumnPtr& result_column) const override {
+        const auto& nullable_column =
+                assert_cast<const ColumnNullable&>(*block->get_by_position(_column_id).column);
+        const auto& input = assert_cast<const ColumnString&>(nullable_column.get_nested_column());
+        auto result = ColumnUInt8::create();
+        auto& result_data = result->get_data();
+        result_data.resize(count);
+        for (size_t row = 0; row < count; ++row) {
+            const size_t input_row = selector == nullptr ? row : (*selector)[row];
+            result_data[row] = !nullable_column.is_null_at(input_row) &&
+                               input.get_data_at(input_row).to_string_view().compare(_value) == 0;
+        }
+        result_column = std::move(result);
+        return Status::OK();
+    }
+
+    const std::string& expr_name() const override { return _expr_name; }
+
+private:
+    const int _column_id;
+    const std::string _value;
+    const std::string _expr_name = "NullableStringEqualsExpr";
+};
+
 class SargOnlyStringEqualsVarbinaryLiteralExpr final : public VExpr {
 public:
     SargOnlyStringEqualsVarbinaryLiteralExpr(int column_id, DataTypePtr source_type,
@@ -2974,6 +3036,58 @@ void write_complex_orc_file(const std::string& file_path) {
     fill_complex_map_struct_column(dynamic_cast<::orc::MapVectorBatch&>(*struct_batch.fields[4]));
 
     struct_batch.numElements = COMPLEX_ROW_COUNT;
+    writer->add(*batch);
+    writer->close();
+
+    std::ofstream out(file_path, std::ios::binary);
+    out.write(memory_stream.getData(), static_cast<std::streamsize>(memory_stream.getLength()));
+}
+
+void write_map_decimal_date_orc_file(const std::string& file_path) {
+    constexpr size_t ROWS = 4;
+    constexpr int64_t HIVE_012_1900_DAY_OFFSET = -719530;
+    constexpr int64_t YEAR_0000_12_29_DAY_OFFSET = -719165;
+    constexpr int64_t YEAR_1000_10_16_DAY_OFFSET = -353997;
+
+    auto type = std::unique_ptr<::orc::Type>(
+            ::orc::Type::buildTypeFromString("struct<id:int,map_col:map<decimal(10,5),date>>"));
+
+    MemoryOutputStream memory_stream(1024 * 1024);
+    ::orc::WriterOptions options;
+    options.setCompression(::orc::CompressionKind_LZ4);
+    options.setMemoryPool(::orc::getDefaultPool());
+    auto writer = ::orc::createWriter(*type, &memory_stream, options);
+    auto batch = writer->createRowBatch(ROWS);
+    auto& struct_batch = dynamic_cast<::orc::StructVectorBatch&>(*batch);
+    auto& id_batch = dynamic_cast<::orc::LongVectorBatch&>(*struct_batch.fields[0]);
+    auto& map_batch = dynamic_cast<::orc::MapVectorBatch&>(*struct_batch.fields[1]);
+    auto& key_batch = dynamic_cast<::orc::Decimal64VectorBatch&>(*map_batch.keys);
+    auto& value_batch = dynamic_cast<::orc::LongVectorBatch&>(*map_batch.elements);
+
+    id_batch.data[0] = 1;
+    id_batch.data[1] = 2;
+    id_batch.data[2] = 3;
+    id_batch.data[3] = 4;
+    map_batch.offsets[0] = 0;
+    map_batch.offsets[1] = 1;
+    map_batch.offsets[2] = 2;
+    map_batch.offsets[3] = 3;
+    map_batch.offsets[4] = 4;
+    key_batch.values[0] = -9999999999L;
+    key_batch.values[1] = 9999999999L;
+    key_batch.values[2] = 0;
+    key_batch.values[3] = 1;
+    value_batch.data[0] = HIVE_012_1900_DAY_OFFSET;
+    value_batch.data[1] = orc_date_offset(9999, 12, 31);
+    value_batch.data[2] = YEAR_0000_12_29_DAY_OFFSET;
+    value_batch.data[3] = YEAR_1000_10_16_DAY_OFFSET;
+
+    struct_batch.numElements = ROWS;
+    id_batch.numElements = ROWS;
+    map_batch.numElements = ROWS;
+    key_batch.numElements = ROWS;
+    value_batch.numElements = ROWS;
+
     writer->add(*batch);
     writer->close();
 
@@ -6295,6 +6409,53 @@ TEST_F(NewOrcReaderTest, SargVarcharCastToStringConjunctPrunesStripes) {
     EXPECT_EQ(reader->reader_statistics().filtered_group_rows, 200);
 }
 
+TEST_F(NewOrcReaderTest, SargStringEqualsKeepsMatchingHiveDictRows) {
+    const auto fixture_path = find_repo_file(
+            "docker/thirdparties/docker-compose/hive/scripts/preinstalled_data/"
+            "orc_table/test_string_dict_filter_orc/test_string_dict_filter.orc");
+    ASSERT_TRUE(std::filesystem::exists(fixture_path));
+
+    auto reader = create_reader_for_path(fixture_path.string());
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    ASSERT_EQ(schema.size(), 9);
+    EXPECT_EQ(schema[2].name, "o_orderstatus");
+    EXPECT_EQ(remove_nullable(schema[2].type)->get_primitive_type(), TYPE_STRING);
+
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->predicate_columns = {field_projection(2)};
+    request->conjuncts.push_back(
+            VExprContext::create_shared(std::make_shared<NullableStringEqualsExpr>(
+                    0, remove_nullable(schema[2].type), "F", schema[2].name)));
+    ASSERT_TRUE(reader->open(request).ok());
+
+    bool eof = false;
+    std::vector<std::string> statuses;
+    while (!eof) {
+        Block block = build_file_block({schema[2]});
+        size_t rows = 0;
+        ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+        if (eof || rows == 0) {
+            continue;
+        }
+        const auto& status_nullable =
+                assert_cast<const ColumnNullable&>(*block.get_by_position(0).column);
+        const auto& status_values =
+                assert_cast<const ColumnString&>(status_nullable.get_nested_column());
+        for (size_t row = 0; row < rows; ++row) {
+            EXPECT_FALSE(status_nullable.is_null_at(row));
+            statuses.push_back(status_values.get_data_at(row).to_string());
+        }
+    }
+
+    ASSERT_EQ(statuses.size(), 2);
+    EXPECT_EQ(statuses[0], "F");
+    EXPECT_EQ(statuses[1], "F");
+}
+
 TEST_F(NewOrcReaderTest, SargBinaryVarbinaryLiteralConjunctPrunesRowGroups) {
     const auto multi_stripe_file_path =
             (_test_dir / "binary_varbinary_literal_conjunct_sarg.orc").string();
@@ -8387,6 +8548,34 @@ TEST_F(NewOrcReaderTest, ReadPrimitiveTypesWithNulls) {
     EXPECT_EQ(schema[15].type->to_string(*block.get_by_position(15).column, NULL_ROW), "NULL");
 }
 
+TEST_F(NewOrcReaderTest, ReadHive11DecimalUsesBatchScale) {
+    const auto file_path = find_repo_file(
+            "contrib/apache-orc/java/core/src/test/resources/orc-file-11-format.orc");
+    ASSERT_TRUE(std::filesystem::exists(file_path)) << file_path;
+    auto reader = create_reader_for_path(file_path.string());
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    const auto decimal_it = std::ranges::find_if(
+            schema, [](const format::ColumnDefinition& field) { return field.name == "decimal1"; });
+    ASSERT_NE(decimal_it, schema.end());
+
+    Block block = build_file_block({*decimal_it});
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->non_predicate_columns = {field_projection(decimal_it->file_local_id())};
+    ASSERT_TRUE(reader->open(request).ok());
+
+    size_t rows = 0;
+    bool eof = false;
+    ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+    EXPECT_FALSE(eof);
+    ASSERT_GE(rows, 1);
+    EXPECT_EQ(decimal_it->type->to_string(*block.get_by_position(0).column, 0),
+              "12345678.6547450000");
+}
+
 TEST_F(NewOrcReaderTest, TimestampInstantWithoutMappingUsesSessionTimezone) {
     const auto primitive_file_path = (_test_dir / "timestamp_instant_datetime.orc").string();
     write_primitive_orc_file(primitive_file_path);
@@ -8563,6 +8752,40 @@ TEST_F(NewOrcReaderTest, ReadComplexTypes) {
     EXPECT_EQ(map_keys.get_data_at(2).to_string(), "c");
     EXPECT_EQ(map_values.get_element(0), 100);
     EXPECT_EQ(map_values.get_element(2), 300);
+}
+
+TEST_F(NewOrcReaderTest, ReadMapDecimalDateWithCenturyBoundary) {
+    const auto file_path = (_test_dir / "map_decimal_date.orc").string();
+    write_map_decimal_date_orc_file(file_path);
+    auto reader = create_reader_for_path(file_path);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    ASSERT_EQ(schema.size(), 2);
+    ASSERT_EQ(remove_nullable(schema[1].type)->get_primitive_type(), TYPE_MAP);
+    ASSERT_EQ(schema[1].children.size(), 2);
+
+    Block block = build_file_block(schema);
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->non_predicate_columns = {field_projection(0), field_projection(1)};
+    ASSERT_TRUE(reader->open(request).ok());
+
+    size_t rows = 0;
+    bool eof = false;
+    ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+    EXPECT_FALSE(eof);
+    ASSERT_EQ(rows, 4);
+
+    const auto& map_nullable = assert_cast<const ColumnNullable&>(*block.get_by_position(1).column);
+    const auto& map_column = assert_cast<const ColumnMap&>(map_nullable.get_nested_column());
+    ASSERT_EQ(map_column.get_offsets().size(), 4);
+    ASSERT_EQ(map_column.get_values().size(), 4);
+    EXPECT_EQ(schema[1].children[1].type->to_string(map_column.get_values(), 0), "1900-01-01");
+    EXPECT_EQ(schema[1].children[1].type->to_string(map_column.get_values(), 1), "9999-12-31");
+    EXPECT_EQ(schema[1].children[1].type->to_string(map_column.get_values(), 2), "0000-12-29");
+    EXPECT_EQ(schema[1].children[1].type->to_string(map_column.get_values(), 3), "1000-10-16");
 }
 
 TEST_F(NewOrcReaderTest, ReadDeepNestedComplexTypes) {
@@ -8765,6 +8988,139 @@ TEST_F(NewOrcReaderTest, ReadProjectedMapValueStructChildren) {
     ASSERT_EQ(value_a.size(), 2);
     EXPECT_EQ(value_a.get_element(0), 7);
     EXPECT_EQ(value_a.get_element(1), 8);
+}
+
+TEST_F(NewOrcReaderTest, ReadProjectedNestedStructChildFromHiveOrcFixture) {
+    const auto archive = find_repo_file(
+            "docker/thirdparties/docker-compose/hive/scripts/data/multi_catalog/"
+            "orc_nested_types/data.tar.gz");
+    ASSERT_TRUE(std::filesystem::exists(archive)) << archive;
+    const auto extract_dir = _test_dir / "orc_nested_types";
+    std::filesystem::create_directories(extract_dir);
+    const std::string extract_cmd =
+            "tar -xzf '" + archive.string() + "' -C '" + extract_dir.string() + "'";
+    ASSERT_EQ(std::system(extract_cmd.c_str()), 0);
+    const auto file_path =
+            extract_dir /
+            "data/nested_types1_orc/part-00001-af6ae8cd-ef39-4a9b-a809-bcbd8aec7ccb-c000."
+            "snappy.orc";
+    ASSERT_TRUE(std::filesystem::exists(file_path)) << file_path;
+
+    auto reader = create_reader_for_path(file_path.string());
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    ASSERT_EQ(schema.size(), 9);
+    const auto& complex_struct = schema[8];
+    ASSERT_EQ(complex_struct.name, "complex_struct_col");
+    ASSERT_EQ(complex_struct.children.size(), 3);
+    const auto& c_field = complex_struct.children[2];
+    ASSERT_EQ(c_field.name, "c");
+
+    auto projected_type = make_nullable(
+            std::make_shared<DataTypeStruct>(DataTypes {c_field.type}, Strings {c_field.name}));
+    Block block;
+    block.insert({projected_type->create_column(), projected_type, complex_struct.name});
+
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->non_predicate_columns = {field_projection(complex_struct.file_local_id())};
+    request->local_positions.emplace(format::LocalColumnId(complex_struct.file_local_id()),
+                                     format::LocalIndex(0));
+    auto projection = make_projection(complex_struct, false);
+    projection.children.push_back(make_projection(c_field));
+    request->non_predicate_columns[0] = std::move(projection);
+    ASSERT_TRUE(reader->open(request).ok());
+
+    size_t rows = 0;
+    bool eof = false;
+    ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+    EXPECT_FALSE(eof);
+    ASSERT_EQ(rows, 3);
+
+    const auto& root_struct = assert_cast<const ColumnStruct&>(
+            assert_cast<const ColumnNullable&>(*block.get_by_position(0).column)
+                    .get_nested_column());
+    ASSERT_EQ(root_struct.tuple_size(), 1);
+    const auto& c_nullable = assert_cast<const ColumnNullable&>(root_struct.get_column(0));
+    EXPECT_FALSE(c_nullable.is_null_at(0));
+    const auto& c_struct = assert_cast<const ColumnStruct&>(c_nullable.get_nested_column());
+    ASSERT_EQ(c_struct.tuple_size(), 2);
+    const auto& y_nullable = assert_cast<const ColumnNullable&>(c_struct.get_column(1));
+    const auto& y_values = assert_cast<const ColumnString&>(y_nullable.get_nested_column());
+    EXPECT_FALSE(y_nullable.is_null_at(0));
+    EXPECT_EQ(y_values.get_data_at(0).to_string(), "Hello");
+}
+
+TEST_F(NewOrcReaderTest, ReadLazyProjectedNestedStructChildFromHiveOrcFixture) {
+    const auto archive = find_repo_file(
+            "docker/thirdparties/docker-compose/hive/scripts/data/multi_catalog/"
+            "orc_nested_types/data.tar.gz");
+    ASSERT_TRUE(std::filesystem::exists(archive)) << archive;
+    const auto extract_dir = _test_dir / "lazy_orc_nested_types";
+    std::filesystem::create_directories(extract_dir);
+    const std::string extract_cmd =
+            "tar -xzf '" + archive.string() + "' -C '" + extract_dir.string() + "'";
+    ASSERT_EQ(std::system(extract_cmd.c_str()), 0);
+    const auto file_path =
+            extract_dir /
+            "data/nested_types1_orc/part-00001-af6ae8cd-ef39-4a9b-a809-bcbd8aec7ccb-c000."
+            "snappy.orc";
+    ASSERT_TRUE(std::filesystem::exists(file_path)) << file_path;
+
+    auto reader = create_reader_for_path(file_path.string());
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    ASSERT_EQ(schema.size(), 9);
+    const auto& id_field = schema[0];
+    const auto& complex_struct = schema[8];
+    ASSERT_EQ(complex_struct.name, "complex_struct_col");
+    ASSERT_EQ(complex_struct.children.size(), 3);
+    const auto& c_field = complex_struct.children[2];
+    ASSERT_EQ(c_field.name, "c");
+
+    auto projected_type = make_nullable(
+            std::make_shared<DataTypeStruct>(DataTypes {c_field.type}, Strings {c_field.name}));
+    Block block = build_file_block({id_field});
+    block.insert({projected_type->create_column(), projected_type, complex_struct.name});
+
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->predicate_columns = {field_projection(id_field.file_local_id())};
+    request->non_predicate_columns = {field_projection(complex_struct.file_local_id())};
+    request->local_positions.emplace(format::LocalColumnId(id_field.file_local_id()),
+                                     format::LocalIndex(0));
+    request->local_positions.emplace(format::LocalColumnId(complex_struct.file_local_id()),
+                                     format::LocalIndex(1));
+    auto projection = make_projection(complex_struct, false);
+    projection.children.push_back(make_projection(c_field));
+    request->non_predicate_columns[0] = std::move(projection);
+    request->conjuncts.push_back(
+            VExprContext::create_shared(std::make_shared<NullableInt32EqualsExpr>(0, 3)));
+    ASSERT_TRUE(reader->open(request).ok());
+
+    size_t rows = 0;
+    bool eof = false;
+    ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+    EXPECT_FALSE(eof);
+    ASSERT_EQ(rows, 1);
+
+    const auto& root_struct = assert_cast<const ColumnStruct&>(
+            assert_cast<const ColumnNullable&>(*block.get_by_position(1).column)
+                    .get_nested_column());
+    ASSERT_EQ(root_struct.tuple_size(), 1);
+    const auto& c_nullable = assert_cast<const ColumnNullable&>(root_struct.get_column(0));
+    EXPECT_FALSE(c_nullable.is_null_at(0));
+    const auto& c_struct = assert_cast<const ColumnStruct&>(c_nullable.get_nested_column());
+    ASSERT_EQ(c_struct.tuple_size(), 2);
+    const auto& y_nullable = assert_cast<const ColumnNullable&>(c_struct.get_column(1));
+    const auto& y_values = assert_cast<const ColumnString&>(y_nullable.get_nested_column());
+    EXPECT_FALSE(y_nullable.is_null_at(0));
+    EXPECT_EQ(y_values.get_data_at(0).to_string(), "Hello");
+    EXPECT_EQ(reader->reader_statistics().lazy_read_filtered_rows, 0);
 }
 
 TEST_F(NewOrcReaderTest, ReadProjectedComplexChildrenWithNulls) {
