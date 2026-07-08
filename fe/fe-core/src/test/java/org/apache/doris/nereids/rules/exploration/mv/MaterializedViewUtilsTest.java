@@ -638,6 +638,54 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
     }
 
     @Test
+    public void getRelatedTableInfoTestWithUnrelatedRightWindowTest() {
+        PlanChecker.from(connectContext)
+                .checkExplain("SELECT l.L_SHIPDATE, l.L_ORDERKEY, o.O_ORDERDATE "
+                                + "FROM lineitem as l "
+                                + "LEFT JOIN ("
+                                + "SELECT O_ORDERKEY, O_ORDERDATE, "
+                                + "ROW_NUMBER() OVER (PARTITION BY O_ORDERKEY ORDER BY O_ORDERDATE DESC) AS rn "
+                                + "FROM orders"
+                                + ") as o "
+                                + "ON l.L_ORDERKEY = o.O_ORDERKEY AND o.rn = 1",
+                        nereidsPlanner -> {
+                            Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
+                            RelatedTableInfo relatedTableInfo =
+                                    MaterializedViewUtils.getRelatedTableInfo("L_SHIPDATE", null,
+                                            rewrittenPlan, nereidsPlanner.getCascadesContext());
+                            Assertions.assertTrue(relatedTableInfo.isPctPossible(), relatedTableInfo.getFailReason());
+                            checkRelatedTableInfo(relatedTableInfo,
+                                    "lineitem",
+                                    "L_SHIPDATE",
+                                    true);
+                        });
+    }
+
+    @Test
+    public void getRelatedTableInfoTestWithUnrelatedRightAggregateTest() {
+        PlanChecker.from(connectContext)
+                .checkExplain("SELECT l.L_SHIPDATE, l.L_ORDERKEY, o.max_orderdate "
+                                + "FROM lineitem as l "
+                                + "LEFT JOIN ("
+                                + "SELECT O_ORDERKEY, max(O_ORDERDATE) AS max_orderdate "
+                                + "FROM orders "
+                                + "GROUP BY O_ORDERKEY"
+                                + ") as o "
+                                + "ON l.L_ORDERKEY = o.O_ORDERKEY",
+                        nereidsPlanner -> {
+                            Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
+                            RelatedTableInfo relatedTableInfo =
+                                    MaterializedViewUtils.getRelatedTableInfo("L_SHIPDATE", null,
+                                            rewrittenPlan, nereidsPlanner.getCascadesContext());
+                            Assertions.assertTrue(relatedTableInfo.isPctPossible(), relatedTableInfo.getFailReason());
+                            checkRelatedTableInfo(relatedTableInfo,
+                                    "lineitem",
+                                    "L_SHIPDATE",
+                                    true);
+                        });
+    }
+
+    @Test
     public void getRelatedTableInfoTestWithLimitTest() {
         PlanChecker.from(connectContext)
                 .checkExplain("SELECT l.L_SHIPDATE, l.L_ORDERKEY "
@@ -875,9 +923,11 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
                             RelatedTableInfo relatedTableInfo =
                                     MaterializedViewUtils.getRelatedTableInfo("upgrade_day", null,
                                             rewrittenPlan, nereidsPlanner.getCascadesContext());
-                            Assertions.assertTrue(relatedTableInfo.getFailReason().contains(
-                                    "partition column is not in group by or window partition by"));
-                            Assertions.assertFalse(relatedTableInfo.isPctPossible());
+                            Assertions.assertTrue(relatedTableInfo.isPctPossible(), relatedTableInfo.getFailReason());
+                            checkRelatedTableInfo(relatedTableInfo,
+                                    "test1",
+                                    "upgrade_day",
+                                    true);
                         });
     }
 

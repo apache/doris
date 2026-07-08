@@ -48,6 +48,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
@@ -410,6 +411,9 @@ public class PartitionIncrementMaintainer {
         @Override
         public Void visitLogicalAggregate(LogicalAggregate<? extends Plan> aggregate,
                 PartitionIncrementCheckContext context) {
+            if (!planOutputContainsPartitionColumnToCheck(aggregate, context)) {
+                return super.visitLogicalAggregate(aggregate, context);
+            }
             Set<Expression> groupByExprSet = new HashSet<>(aggregate.getGroupByExpressions());
             if (groupByExprSet.isEmpty()) {
                 context.addFailReason("group by sets is empty, doesn't contain the target partition");
@@ -426,6 +430,9 @@ public class PartitionIncrementMaintainer {
 
         @Override
         public Void visitLogicalWindow(LogicalWindow<? extends Plan> window, PartitionIncrementCheckContext context) {
+            if (!planOutputContainsPartitionColumnToCheck(window, context)) {
+                return super.visitLogicalWindow(window, context);
+            }
             List<NamedExpression> windowExpressions = window.getWindowExpressions();
             if (windowExpressions.isEmpty()) {
                 context.addFailReason("window expression is empty, doesn't contain the target partition");
@@ -445,6 +452,20 @@ public class PartitionIncrementMaintainer {
         }
 
         @Override
+        public Void visitLogicalPartitionTopN(LogicalPartitionTopN<? extends Plan> partitionTopN,
+                PartitionIncrementCheckContext context) {
+            if (!planOutputContainsPartitionColumnToCheck(partitionTopN, context)) {
+                return super.visitLogicalPartitionTopN(partitionTopN, context);
+            }
+            if (!checkPartitionKeysContainPartitionToCheck(partitionTopN.getPartitionKeys(), context)) {
+                context.addFailReason("window partition sets doesn't contain the target partition");
+                context.collectFailedTableSet(partitionTopN);
+                context.setFailFast(true);
+            }
+            return super.visitLogicalPartitionTopN(partitionTopN, context);
+        }
+
+        @Override
         public Void visit(Plan plan, PartitionIncrementCheckContext context) {
             if (plan instanceof LogicalProject
                     || plan instanceof LogicalLimit
@@ -456,6 +477,7 @@ public class PartitionIncrementMaintainer {
                     || plan instanceof LogicalWindow
                     || (plan instanceof LogicalUnion
                     && ((LogicalUnion) plan).getQualifier() == SetOperation.Qualifier.ALL)
+                    || plan instanceof LogicalPartitionTopN
                     || plan instanceof LogicalCTEAnchor
                     || plan instanceof LogicalCTEConsumer
                     || plan instanceof LogicalCTEProducer
@@ -476,23 +498,39 @@ public class PartitionIncrementMaintainer {
                     expression.collectToList(expressionTreeNode -> expressionTreeNode instanceof WindowExpression);
             for (Object windowExpressionObj : windowExpressions) {
                 WindowExpression windowExpression = (WindowExpression) windowExpressionObj;
-                List<Expression> partitionKeys = windowExpression.getPartitionKeys();
-                Set<Column> originalPartitionbyExprSet = new HashSet<>();
-                partitionKeys.forEach(groupExpr -> {
-                    if (groupExpr instanceof SlotReference && groupExpr.isColumnFromTable()) {
-                        originalPartitionbyExprSet.add(((SlotReference) groupExpr).getOriginalColumn().get());
-                    }
-                });
-                Set<SlotReference> contextPartitionColumnSet = getPartitionColumnsToCheck(context);
-                if (contextPartitionColumnSet.isEmpty()) {
-                    return false;
-                }
-                if (contextPartitionColumnSet.stream().noneMatch(
-                        partition -> originalPartitionbyExprSet.contains(partition.getOriginalColumn().get()))) {
+                if (!checkPartitionKeysContainPartitionToCheck(windowExpression.getPartitionKeys(), context)) {
                     return false;
                 }
             }
             return true;
+        }
+
+        private boolean checkPartitionKeysContainPartitionToCheck(List<Expression> partitionKeys,
+                PartitionIncrementCheckContext context) {
+            Set<Column> originalPartitionByExprSet = new HashSet<>();
+            partitionKeys.forEach(partitionKey -> {
+                if (partitionKey instanceof SlotReference && partitionKey.isColumnFromTable()) {
+                    originalPartitionByExprSet.add(((SlotReference) partitionKey).getOriginalColumn().get());
+                }
+            });
+            Set<SlotReference> contextPartitionColumnSet = getPartitionColumnsToCheck(context);
+            if (contextPartitionColumnSet.isEmpty()) {
+                return false;
+            }
+            return contextPartitionColumnSet.stream().anyMatch(
+                    partition -> originalPartitionByExprSet.contains(partition.getOriginalColumn().get()));
+        }
+
+        private boolean planOutputContainsPartitionColumnToCheck(Plan plan, PartitionIncrementCheckContext context) {
+            Set<Slot> outputSet = plan.getOutputSet();
+            for (NamedExpression namedExpression : context.getPartitionAndRefExpressionMap().keySet()) {
+                // Plan outputs are slots, so only tracked partition expressions already resolved
+                // to slots can match here.
+                if (namedExpression instanceof Slot && outputSet.contains(namedExpression)) {
+                    return true;
+                }
+            }
+            return false;
         }
 
         private Set<SlotReference> getPartitionColumnsToCheck(PartitionIncrementCheckContext context) {
