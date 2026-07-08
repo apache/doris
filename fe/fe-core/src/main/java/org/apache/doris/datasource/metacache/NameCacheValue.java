@@ -57,7 +57,8 @@ public final class NameCacheValue {
     }
 
     public List<Pair<String, String>> names() {
-        // Return fresh Pair objects so external callers cannot mutate the published snapshot in place.
+        // Return fresh Pair objects even though the list itself is immutable, so callers cannot
+        // mutate the published snapshot through reused Pair instances.
         return ImmutableList.copyOf(copyPairs(names));
     }
 
