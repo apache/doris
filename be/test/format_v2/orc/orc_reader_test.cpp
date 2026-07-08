@@ -4167,7 +4167,7 @@ TEST_F(NewOrcReaderTest, OpenAcceptsDorisCstTimezone) {
     ASSERT_TRUE(status.ok()) << status;
 }
 
-TEST_F(NewOrcReaderTest, OpenRejectsNonHourOffsetTimezone) {
+TEST_F(NewOrcReaderTest, OpenDelegatesNonHourOffsetTimezoneToOrc) {
     auto reader = create_reader();
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     state.set_timezone("+05:30");
@@ -4175,8 +4175,8 @@ TEST_F(NewOrcReaderTest, OpenRejectsNonHourOffsetTimezone) {
 
     auto request = std::make_shared<format::FileScanRequest>();
     auto status = reader->open(request);
-    ASSERT_FALSE(status.ok());
-    EXPECT_NE(status.to_string().find("non-hour offset"), std::string::npos) << status.to_string();
+    EXPECT_FALSE(status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) << status.to_string();
+    EXPECT_EQ(status.to_string().find("non-hour offset"), std::string::npos) << status.to_string();
 }
 
 TEST_F(NewOrcReaderTest, InitReturnsEndOfFileWhenIoContextShouldStop) {

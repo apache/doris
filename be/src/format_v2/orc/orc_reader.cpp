@@ -133,12 +133,8 @@ Status set_orc_reader_timezone(const std::string& timezone,
         return Status::OK();
     }
 
-    if (!timezone.empty() && (timezone[0] == '+' || timezone[0] == '-')) {
-        if (!is_hour_offset_timezone(timezone)) {
-            return Status::NotSupported("ORC reader timezone does not support non-hour offset '{}'",
-                                        timezone);
-        }
-
+    if (!timezone.empty() && (timezone[0] == '+' || timezone[0] == '-') &&
+        is_hour_offset_timezone(timezone)) {
         const int hour = (timezone[1] - '0') * 10 + timezone[2] - '0';
         row_reader_options->setTimezoneName(
                 hour == 0 ? "Etc/GMT"
