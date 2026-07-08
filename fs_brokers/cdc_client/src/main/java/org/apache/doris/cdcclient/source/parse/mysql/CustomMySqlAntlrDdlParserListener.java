@@ -45,6 +45,11 @@ import org.antlr.v4.runtime.tree.ErrorNode;
 import org.antlr.v4.runtime.tree.ParseTreeListener;
 import org.antlr.v4.runtime.tree.TerminalNode;
 
+/**
+ * Copied from {@link CustomMySqlAntlrDdlParserListener} in Flink CDC 3.6.0.
+ *
+ * <p>This listener's constructor will use some modified listener.
+ */
 final class CustomMySqlAntlrDdlParserListener extends MySqlParserBaseListener
         implements AntlrDdlParserListener {
     private final List<ParseTreeListener> listeners = new CopyOnWriteArrayList<>();

@@ -28,7 +28,7 @@ import io.debezium.connector.mysql.antlr.MySqlAntlrDdlParser;
 import io.debezium.ddl.parser.mysql.generated.MySqlParser;
 import io.debezium.relational.Tables;
 
-/** MySQL DDL parser that exposes supported column schema changes for Doris. */
+/** A ddl parser that will use custom listener. */
 public class CustomMySqlAntlrDdlParser extends MySqlAntlrDdlParser {
     private final List<MySqlSchemaChange> parsedChanges = new ArrayList<>();
 
@@ -36,6 +36,8 @@ public class CustomMySqlAntlrDdlParser extends MySqlAntlrDdlParser {
         super(true, false, true, null, Tables.TableFilter.includeAll());
     }
 
+    // Overriding this method because the BIT type requires default length dimension of 1.
+    // Remove it when debezium fixed this issue.
     @Override
     protected DataTypeResolver initializeDataTypeResolver() {
         DataTypeResolver.Builder dataTypeResolverBuilder = new DataTypeResolver.Builder();
