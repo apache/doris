@@ -33,6 +33,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Supplier;
+
 import javax.annotation.Nullable;
 
 /**
@@ -206,9 +207,9 @@ public class SlotReference extends Slot {
     @Override
     public String computeToSql() {
         if (subPath.isEmpty()) {
-            return name.get();
+            return shapeInfo();
         } else {
-            return name.get() + "['" + String.join("']['", subPath) + "']";
+            return shapeInfo() + "['" + String.join("']['", subPath) + "']";
         }
     }
 
