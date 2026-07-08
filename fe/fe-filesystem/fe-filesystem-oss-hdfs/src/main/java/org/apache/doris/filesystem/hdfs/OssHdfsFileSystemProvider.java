@@ -23,6 +23,7 @@ import org.apache.doris.filesystem.properties.FileSystemProperties;
 import org.apache.doris.filesystem.spi.FileSystemProvider;
 
 import java.io.IOException;
+import java.util.Locale;
 import java.util.Map;
 
 /**
@@ -48,6 +49,10 @@ public class OssHdfsFileSystemProvider implements FileSystemProvider<FileSystemP
             // An explicit plain-HDFS marker belongs to HdfsFileSystemProvider, never here.
             return false;
         }
+        if ("OSS".equals(storageType)) {
+            // A native-OSS (S3-compatible) marker belongs to OssFileSystemProvider, never here.
+            return false;
+        }
         // No authoritative marker: fall back to the same detection fe-core uses to pick
         // OSSHdfsProperties, plus a bare oss:// URI.
         if (OssHdfsProperties.guessIsMe(properties)) {
@@ -57,7 +62,7 @@ public class OssHdfsFileSystemProvider implements FileSystemProvider<FileSystemP
         if (uri == null) {
             uri = properties.get("fs.defaultFS");
         }
-        return uri != null && uri.toLowerCase().startsWith("oss://");
+        return uri != null && uri.toLowerCase(Locale.ROOT).startsWith("oss://");
     }
 
     @Override

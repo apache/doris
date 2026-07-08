@@ -52,4 +52,10 @@ class OssHdfsFileSystemProviderTest {
         Assertions.assertFalse(provider.supports(props("fs.defaultFS", "jfs://cluster")));
         Assertions.assertFalse(provider.supports(props("_STORAGE_TYPE_", "HDFS")));
     }
+
+    @Test
+    void rejectsNativeOssMarker() {
+        // A native-OSS (S3-compatible) marker belongs to OssFileSystemProvider, never here.
+        Assertions.assertFalse(provider.supports(props("_STORAGE_TYPE_", "OSS")));
+    }
 }
