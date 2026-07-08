@@ -43,9 +43,15 @@ import java.util.Set;
 public class CatalogFactory {
     private static final Logger LOG = LogManager.getLogger(CatalogFactory.class);
 
-    // Only these catalog types are routed through the SPI connector path.
-    // Other types (hms, hudi) still use
-    // their built-in ExternalCatalog implementations until their ConnectorProviders are fully ready.
+    // Only these catalog types are routed through the SPI connector path; every other type falls through to the
+    // built-in ExternalCatalog switch below. "hms" is deliberately absent: a hive catalog still uses the built-in
+    // HMSExternalCatalog until the single-line HMS cutover adds "hms" here (which flips hive + iceberg-on-HMS +
+    // hudi-on-HMS to the SPI path atomically).
+    // Do NOT add "hudi": there is no standalone hudi catalog type and no HudiExternalCatalog — a hudi table is
+    // parasitic on an HMS catalog (HMSExternalTable, dlaType==HUDI) and is served post-cutover as an embedded
+    // SIBLING of the hms gateway via ConnectorContext.createSiblingConnector("hudi", ...), which bypasses this
+    // set. Adding "hudi" here would build a standalone PluginDrivenExternalCatalog around HudiConnector with no
+    // fe-core catalog class backing it.
     private static final Set<String> SPI_READY_TYPES =
             ImmutableSet.of("jdbc", "es", "trino-connector", "max_compute", "paimon", "iceberg");
 

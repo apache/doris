@@ -42,6 +42,10 @@ import java.util.Map;
  * <p>Phase 1 provides read-only metadata operations (list databases,
  * list tables, get schema via Hudi's Avro schema). Phase 2 adds scan
  * planning for COW and MOR tables (snapshot reads).</p>
+ *
+ * <p>Built only as an embedded <em>sibling</em> of the hive {@code hms} gateway (via
+ * {@code ConnectorContext.createSiblingConnector("hudi", ...)}), never as a standalone {@code type=hudi}
+ * catalog — see {@link HudiConnectorProvider}.</p>
  */
 public class HudiConnector implements Connector {
 
