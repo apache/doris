@@ -43,6 +43,8 @@ import java.io.IOException;
 import java.lang.management.ManagementFactory;
 import java.lang.management.MemoryMXBean;
 import java.lang.management.MemoryUsage;
+import java.lang.management.ThreadInfo;
+import java.lang.management.ThreadMXBean;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
 import java.nio.file.Files;
@@ -472,8 +474,10 @@ public class PaimonJniScanner extends JniScanner {
 
     static int countThreadsByNamePrefix(String threadNamePrefix) {
         int count = 0;
-        for (Thread thread : Thread.getAllStackTraces().keySet()) {
-            if (thread.getName().startsWith(threadNamePrefix)) {
+        ThreadMXBean threadMXBean = ManagementFactory.getThreadMXBean();
+        ThreadInfo[] threadInfos = threadMXBean.getThreadInfo(threadMXBean.getAllThreadIds(), 0);
+        for (ThreadInfo threadInfo : threadInfos) {
+            if (threadInfo != null && threadInfo.getThreadName().startsWith(threadNamePrefix)) {
                 count++;
             }
         }
