@@ -1575,9 +1575,10 @@ Status OrcReader::_init_search_argument_from_local_filters() {
             if (conjunct == nullptr) {
                 continue;
             }
-            has_pushdown = build_orc_search_argument(*_request, *_state->root_type,
-                                                     conjunct->root(), builder) ||
-                           has_pushdown;
+            has_pushdown =
+                    build_orc_search_argument(*_request, *_state->root_type, _state->timezone_obj,
+                                              conjunct->root(), builder) ||
+                    has_pushdown;
         }
         if (!has_pushdown) {
             return Status::OK();

@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <cctz/time_zone.h>
+
 #include <memory>
 
 #include "exprs/vexpr_fwd.h"
@@ -33,7 +35,7 @@ namespace doris::format::orc {
 // TableColumnMapper owns table-schema -> file-local localization; this module
 // owns the ORC-specific type-id/literal lowering needed by the ORC C++ library.
 bool build_orc_search_argument(const format::FileScanRequest& request, const ::orc::Type& root_type,
-                               const VExprSPtr& expr,
+                               const cctz::time_zone& timezone, const VExprSPtr& expr,
                                std::unique_ptr<::orc::SearchArgumentBuilder>& builder);
 
 } // namespace doris::format::orc

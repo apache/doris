@@ -3835,6 +3835,46 @@ void write_multi_stripe_orc_sarg_types_file(const std::string& file_path) {
     out.write(memory_stream.getData(), static_cast<std::streamsize>(memory_stream.getLength()));
 }
 
+void write_multi_stripe_orc_timestamp_instant_sarg_file(const std::string& file_path) {
+    auto type = std::unique_ptr<::orc::Type>(::orc::Type::buildTypeFromString(
+            "struct<timestamp_instant_col:timestamp with local time zone,payload:string>"));
+
+    MemoryOutputStream memory_stream(4 * 1024 * 1024);
+    ::orc::WriterOptions options;
+    options.setCompression(::orc::CompressionKind_NONE);
+    options.setMemoryPool(::orc::getDefaultPool());
+    options.setStripeSize(1);
+    options.setDictionaryKeySizeThreshold(0);
+    auto writer = ::orc::createWriter(*type, &memory_stream, options);
+
+    auto add_batch = [&](int64_t first_timestamp_second) {
+        constexpr int64_t ROWS_PER_STRIPE = 200;
+        auto batch = writer->createRowBatch(ROWS_PER_STRIPE);
+        auto& struct_batch = dynamic_cast<::orc::StructVectorBatch&>(*batch);
+        auto& timestamp_batch = dynamic_cast<::orc::TimestampVectorBatch&>(*struct_batch.fields[0]);
+        auto& payload_batch = dynamic_cast<::orc::StringVectorBatch&>(*struct_batch.fields[1]);
+        std::vector<std::string> payloads;
+        payloads.reserve(ROWS_PER_STRIPE);
+        for (int64_t row = 0; row < ROWS_PER_STRIPE; ++row) {
+            timestamp_batch.data[row] = first_timestamp_second + row;
+            timestamp_batch.nanoseconds[row] = 123000000;
+            payloads.push_back(std::string(2048, static_cast<char>('a' + row % 26)));
+            set_string_value(payload_batch, row, payloads.back());
+        }
+        struct_batch.numElements = ROWS_PER_STRIPE;
+        timestamp_batch.numElements = ROWS_PER_STRIPE;
+        payload_batch.numElements = ROWS_PER_STRIPE;
+        writer->add(*batch);
+    };
+
+    add_batch(0);
+    add_batch(1609459200);
+    writer->close();
+
+    std::ofstream out(file_path, std::ios::binary);
+    out.write(memory_stream.getData(), static_cast<std::streamsize>(memory_stream.getLength()));
+}
+
 void write_two_stripe_constant_date_file(const std::string& file_path, int64_t first_date_day,
                                          int64_t second_date_day) {
     auto type = std::unique_ptr<::orc::Type>(
@@ -7577,6 +7617,45 @@ TEST_F(NewOrcReaderTest, SargTimestampConjunctPrunesStripes) {
     size_t result_rows = 0;
     while (!eof) {
         Block block = build_file_block({schema[1]});
+        size_t rows = 0;
+        ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+        result_rows += rows;
+    }
+
+    EXPECT_EQ(result_rows, 200);
+    EXPECT_EQ(reader->reader_statistics().filtered_row_groups, 1);
+    EXPECT_EQ(reader->reader_statistics().filtered_row_groups_by_min_max, 1);
+    EXPECT_EQ(reader->reader_statistics().filtered_group_rows, 200);
+}
+
+TEST_F(NewOrcReaderTest, SargTimestampInstantConjunctUsesSessionTimezone) {
+    const auto multi_stripe_file_path =
+            (_test_dir / "sarg_timestamp_instant_timezone.orc").string();
+    write_multi_stripe_orc_timestamp_instant_sarg_file(multi_stripe_file_path);
+    ASSERT_EQ(get_orc_stripe_count(multi_stripe_file_path), 2);
+
+    auto reader = create_reader_for_path(multi_stripe_file_path);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    state.set_timezone("Asia/Shanghai");
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    ASSERT_EQ(schema.size(), 2);
+
+    const auto literal =
+            Field::create_field<TYPE_DATETIMEV2>(make_datetime_v2(2021, 1, 1, 7, 59, 59));
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->predicate_columns = {field_projection(0)};
+    request->conjuncts.push_back(
+            VExprContext::create_shared(std::make_shared<NullableGreaterThanExpr<TYPE_DATETIMEV2>>(
+                    0, remove_nullable(schema[0].type), literal, "timestamp_instant_col")));
+    ASSERT_TRUE(reader->open(request).ok());
+
+    bool eof = false;
+    size_t result_rows = 0;
+    while (!eof) {
+        Block block = build_file_block({schema[0]});
         size_t rows = 0;
         ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
         result_rows += rows;

@@ -595,22 +595,22 @@ std::optional<DateTimeLiteralParts> date_time_literal_parts(const Field& field) 
     }
 }
 
-std::optional<::orc::Literal> make_timestamp_literal(const Field& field) {
-    static const cctz::time_zone utc0 = cctz::utc_time_zone();
+std::optional<::orc::Literal> make_timestamp_literal(const Field& field,
+                                                     const cctz::time_zone& timezone) {
     switch (field.get_type()) {
     case TYPE_DATETIME: {
         const auto& datetime = field.get<TYPE_DATETIME>();
         const cctz::civil_second civil_seconds(datetime.year(), datetime.month(), datetime.day(),
                                                datetime.hour(), datetime.minute(),
                                                datetime.second());
-        return ::orc::Literal(cctz::convert(civil_seconds, utc0).time_since_epoch().count(), 0);
+        return ::orc::Literal(cctz::convert(civil_seconds, timezone).time_since_epoch().count(), 0);
     }
     case TYPE_DATETIMEV2: {
         const auto& datetime = field.get<TYPE_DATETIMEV2>();
         const cctz::civil_second civil_seconds(datetime.year(), datetime.month(), datetime.day(),
                                                datetime.hour(), datetime.minute(),
                                                datetime.second());
-        const auto seconds = cctz::convert(civil_seconds, utc0).time_since_epoch().count();
+        const auto seconds = cctz::convert(civil_seconds, timezone).time_since_epoch().count();
         const auto nanos = cast_set<int32_t>(datetime.microsecond() * 1000);
         return ::orc::Literal(seconds, nanos);
     }
@@ -656,8 +656,8 @@ std::optional<::orc::Literal> make_decimal_literal(const ::orc::Type& orc_type,
                           cast_set<int>(precision), cast_set<int>(scale));
 }
 
-std::optional<::orc::Literal> make_orc_literal(const OrcSargColumn& sarg_column,
-                                               const Field& field) {
+std::optional<::orc::Literal> make_orc_literal(const OrcSargColumn& sarg_column, const Field& field,
+                                               const cctz::time_zone& timezone) {
     switch (sarg_column.predicate_type) {
     case ::orc::PredicateDataType::LONG:
         return make_long_literal(field);
@@ -669,8 +669,14 @@ std::optional<::orc::Literal> make_orc_literal(const OrcSargColumn& sarg_column,
         return make_bool_literal(field);
     case ::orc::PredicateDataType::DATE:
         return make_date_literal(field);
-    case ::orc::PredicateDataType::TIMESTAMP:
-        return make_timestamp_literal(field);
+    case ::orc::PredicateDataType::TIMESTAMP: {
+        DORIS_CHECK(sarg_column.orc_type != nullptr);
+        static const cctz::time_zone utc0 = cctz::utc_time_zone();
+        const auto& literal_timezone =
+                sarg_column.orc_type->getKind() == ::orc::TypeKind::TIMESTAMP_INSTANT ? timezone
+                                                                                      : utc0;
+        return make_timestamp_literal(field, literal_timezone);
+    }
     case ::orc::PredicateDataType::DECIMAL:
         return std::nullopt;
     }
@@ -678,7 +684,8 @@ std::optional<::orc::Literal> make_orc_literal(const OrcSargColumn& sarg_column,
 }
 
 std::optional<::orc::Literal> make_orc_literal(const OrcSargColumn& sarg_column,
-                                               const VExprSPtr& literal_expr) {
+                                               const VExprSPtr& literal_expr,
+                                               const cctz::time_zone& timezone) {
     if (literal_expr == nullptr || !literal_expr->is_literal()) {
         return std::nullopt;
     }
@@ -696,7 +703,7 @@ std::optional<::orc::Literal> make_orc_literal(const OrcSargColumn& sarg_column,
         }
         return make_decimal_literal(*sarg_column.orc_type, *literal, field);
     }
-    return make_orc_literal(sarg_column, field);
+    return make_orc_literal(sarg_column, field, timezone);
 }
 
 bool is_null_literal(const VExprSPtr& literal_expr) {
@@ -711,7 +718,7 @@ bool is_null_literal(const VExprSPtr& literal_expr) {
 // Buildability is checked before emission so the builder path can assume the
 // expression shape was validated and use DORIS_CHECK for impossible branches.
 bool can_build_search_argument(const format::FileScanRequest& request, const ::orc::Type& root_type,
-                               const VExprSPtr& expr);
+                               const cctz::time_zone& timezone, const VExprSPtr& expr);
 
 std::optional<VExprSPtr> expression_for_search_argument(const VExprSPtr& expr) {
     if (expr == nullptr) {
@@ -881,7 +888,7 @@ std::optional<OrcSargComparisonLiteral> make_integer_to_floating_comparison_lite
 
 std::optional<OrcSargComparisonLiteral> make_comparison_literal_for_sarg(
         const OrcSargColumn& column, const VExprSPtr& source_expr, const VExprSPtr& literal_expr,
-        TExprOpcode::type normalized_op) {
+        TExprOpcode::type normalized_op, const cctz::time_zone& timezone) {
     if (is_date_to_datetime_cast_for_sarg(column, source_expr)) {
         const auto field = literal_field_for_sarg(literal_expr);
         if (!field.has_value()) {
@@ -913,7 +920,7 @@ std::optional<OrcSargComparisonLiteral> make_comparison_literal_for_sarg(
         return make_integer_to_floating_comparison_literal(normalized_op, *literal_value);
     }
 
-    const auto literal = make_orc_literal(column, literal_expr);
+    const auto literal = make_orc_literal(column, literal_expr, timezone);
     if (!literal.has_value()) {
         return std::nullopt;
     }
@@ -925,7 +932,7 @@ std::optional<OrcSargComparisonLiteral> make_comparison_literal_for_sarg(
 
 std::optional<std::vector<::orc::Literal>> make_in_literals_for_sarg(
         const OrcSargColumn& column, const VExprSPtr& source_expr,
-        const std::vector<VExprSPtr>& children) {
+        const std::vector<VExprSPtr>& children, const cctz::time_zone& timezone) {
     if (children.size() < 2) {
         return std::nullopt;
     }
@@ -984,7 +991,7 @@ std::optional<std::vector<::orc::Literal>> make_in_literals_for_sarg(
         if (is_null_literal(*child_it)) {
             continue;
         }
-        auto literal = make_orc_literal(column, *child_it);
+        auto literal = make_orc_literal(column, *child_it, timezone);
         if (!literal.has_value()) {
             return std::nullopt;
         }
@@ -998,6 +1005,7 @@ std::optional<std::vector<::orc::Literal>> make_in_literals_for_sarg(
 
 std::optional<OrcSargComparison> sarg_comparison_for_expr(const format::FileScanRequest& request,
                                                           const ::orc::Type& root_type,
+                                                          const cctz::time_zone& timezone,
                                                           const VExprSPtr& expr) {
     if (expr == nullptr || expr->children().size() != 2) {
         return std::nullopt;
@@ -1028,8 +1036,8 @@ std::optional<OrcSargComparison> sarg_comparison_for_expr(const format::FileScan
     if (!sarg_column.has_value()) {
         return std::nullopt;
     }
-    const auto comparison_literal = make_comparison_literal_for_sarg(*sarg_column, *slot_expr,
-                                                                     *literal_expr, normalized_op);
+    const auto comparison_literal = make_comparison_literal_for_sarg(
+            *sarg_column, *slot_expr, *literal_expr, normalized_op, timezone);
     if (!comparison_literal.has_value()) {
         return std::nullopt;
     }
@@ -1041,15 +1049,16 @@ std::optional<OrcSargComparison> sarg_comparison_for_expr(const format::FileScan
 }
 
 bool can_build_slot_literal_predicate(const format::FileScanRequest& request,
-                                      const ::orc::Type& root_type, const VExprSPtr& expr) {
+                                      const ::orc::Type& root_type, const cctz::time_zone& timezone,
+                                      const VExprSPtr& expr) {
     if (expr == nullptr || expr->children().size() != 2) {
         return false;
     }
-    return sarg_comparison_for_expr(request, root_type, expr).has_value();
+    return sarg_comparison_for_expr(request, root_type, timezone, expr).has_value();
 }
 
 bool can_build_in_predicate(const format::FileScanRequest& request, const ::orc::Type& root_type,
-                            const VExprSPtr& expr) {
+                            const cctz::time_zone& timezone, const VExprSPtr& expr) {
     if (expr == nullptr || expr->children().size() < 2) {
         return false;
     }
@@ -1058,7 +1067,7 @@ bool can_build_in_predicate(const format::FileScanRequest& request, const ::orc:
     if (!sarg_column.has_value()) {
         return false;
     }
-    return make_in_literals_for_sarg(*sarg_column, expr->children()[0], expr->children())
+    return make_in_literals_for_sarg(*sarg_column, expr->children()[0], expr->children(), timezone)
             .has_value();
 }
 
@@ -1092,7 +1101,7 @@ std::optional<OrcSargColumn> sarg_column_for_null_safe_equal_null(
 
 std::optional<OrcSargComparison> sarg_comparison_for_null_safe_equal_literal(
         const format::FileScanRequest& request, const ::orc::Type& root_type,
-        const VExprSPtr& expr) {
+        const cctz::time_zone& timezone, const VExprSPtr& expr) {
     if (expr == nullptr || expr->node_type() != TExprNodeType::NULL_AWARE_BINARY_PRED ||
         expr->op() != TExprOpcode::EQ_FOR_NULL || expr->children().size() != 2) {
         return std::nullopt;
@@ -1111,7 +1120,7 @@ std::optional<OrcSargComparison> sarg_comparison_for_null_safe_equal_literal(
             return std::nullopt;
         }
         const auto comparison_literal = make_comparison_literal_for_sarg(
-                *column, source_expr, literal_expr, TExprOpcode::EQ);
+                *column, source_expr, literal_expr, TExprOpcode::EQ, timezone);
         if (!comparison_literal.has_value() ||
             comparison_literal->normalized_op != TExprOpcode::EQ) {
             return std::nullopt;
@@ -1130,9 +1139,11 @@ std::optional<OrcSargComparison> sarg_comparison_for_null_safe_equal_literal(
 }
 
 bool can_build_null_safe_equal_predicate(const format::FileScanRequest& request,
-                                         const ::orc::Type& root_type, const VExprSPtr& expr) {
+                                         const ::orc::Type& root_type,
+                                         const cctz::time_zone& timezone, const VExprSPtr& expr) {
     return sarg_column_for_null_safe_equal_null(request, root_type, expr).has_value() ||
-           sarg_comparison_for_null_safe_equal_literal(request, root_type, expr).has_value();
+           sarg_comparison_for_null_safe_equal_literal(request, root_type, timezone, expr)
+                   .has_value();
 }
 
 bool contains_null_safe_equal(const VExprSPtr& expr) {
@@ -1150,7 +1161,7 @@ bool contains_null_safe_equal(const VExprSPtr& expr) {
 }
 
 bool can_build_search_argument(const format::FileScanRequest& request, const ::orc::Type& root_type,
-                               const VExprSPtr& expr) {
+                               const cctz::time_zone& timezone, const VExprSPtr& expr) {
     const auto sarg_expr = expression_for_search_argument(expr);
     if (!sarg_expr.has_value()) {
         return false;
@@ -1159,13 +1170,13 @@ bool can_build_search_argument(const format::FileScanRequest& request, const ::o
         return false;
     }
     if (sarg_expr->get() != expr.get()) {
-        return can_build_search_argument(request, root_type, *sarg_expr);
+        return can_build_search_argument(request, root_type, timezone, *sarg_expr);
     }
 
     switch ((*sarg_expr)->op()) {
     case TExprOpcode::COMPOUND_AND:
         return std::ranges::any_of((*sarg_expr)->children(), [&](const auto& child) {
-            return can_build_search_argument(request, root_type, child);
+            return can_build_search_argument(request, root_type, timezone, child);
         });
     case TExprOpcode::COMPOUND_OR:
         if (contains_null_safe_equal(*sarg_expr)) {
@@ -1173,14 +1184,14 @@ bool can_build_search_argument(const format::FileScanRequest& request, const ::o
         }
         return !(*sarg_expr)->children().empty() &&
                std::ranges::all_of((*sarg_expr)->children(), [&](const auto& child) {
-                   return can_build_search_argument(request, root_type, child);
+                   return can_build_search_argument(request, root_type, timezone, child);
                });
     case TExprOpcode::COMPOUND_NOT:
         if (contains_null_safe_equal(*sarg_expr)) {
             return false;
         }
         return (*sarg_expr)->children().size() == 1 &&
-               can_build_search_argument(request, root_type, (*sarg_expr)->children()[0]);
+               can_build_search_argument(request, root_type, timezone, (*sarg_expr)->children()[0]);
     case TExprOpcode::GE:
     case TExprOpcode::GT:
     case TExprOpcode::LE:
@@ -1188,13 +1199,13 @@ bool can_build_search_argument(const format::FileScanRequest& request, const ::o
     case TExprOpcode::EQ:
     case TExprOpcode::NE:
         return (*sarg_expr)->node_type() != TExprNodeType::NULL_AWARE_BINARY_PRED &&
-               can_build_slot_literal_predicate(request, root_type, *sarg_expr);
+               can_build_slot_literal_predicate(request, root_type, timezone, *sarg_expr);
     case TExprOpcode::EQ_FOR_NULL:
-        return can_build_null_safe_equal_predicate(request, root_type, *sarg_expr);
+        return can_build_null_safe_equal_predicate(request, root_type, timezone, *sarg_expr);
     case TExprOpcode::FILTER_IN:
     case TExprOpcode::FILTER_NOT_IN:
         return (*sarg_expr)->node_type() != TExprNodeType::NULL_AWARE_IN_PRED &&
-               can_build_in_predicate(request, root_type, *sarg_expr);
+               can_build_in_predicate(request, root_type, timezone, *sarg_expr);
     case TExprOpcode::INVALID_OPCODE:
         return (*sarg_expr)->node_type() == TExprNodeType::FUNCTION_CALL &&
                ((*sarg_expr)->fn().name.function_name == "is_null_pred" ||
@@ -1237,8 +1248,9 @@ void build_equals(const OrcSargComparison& comparison,
 
 void build_comparison_predicate(const format::FileScanRequest& request,
                                 const ::orc::Type& root_type, const VExprSPtr& expr,
+                                const cctz::time_zone& timezone,
                                 std::unique_ptr<::orc::SearchArgumentBuilder>& builder) {
-    const auto comparison = *sarg_comparison_for_expr(request, root_type, expr);
+    const auto comparison = *sarg_comparison_for_expr(request, root_type, timezone, expr);
     switch (comparison.normalized_op) {
     case TExprOpcode::GE:
         builder->startNot();
@@ -1271,11 +1283,12 @@ void build_comparison_predicate(const format::FileScanRequest& request,
 }
 
 void build_in_predicate(const format::FileScanRequest& request, const ::orc::Type& root_type,
-                        const VExprSPtr& expr,
+                        const VExprSPtr& expr, const cctz::time_zone& timezone,
                         std::unique_ptr<::orc::SearchArgumentBuilder>& builder) {
     const auto sarg_column =
             *sarg_column_for_slot_or_safe_cast(request, root_type, expr->children()[0]);
-    auto literals = *make_in_literals_for_sarg(sarg_column, expr->children()[0], expr->children());
+    auto literals = *make_in_literals_for_sarg(sarg_column, expr->children()[0], expr->children(),
+                                               timezone);
     DORIS_CHECK(!literals.empty());
     if (literals.size() == 1) {
         builder->equals(sarg_column.column_id, sarg_column.predicate_type, literals.front());
@@ -1292,28 +1305,29 @@ void build_is_null(const format::FileScanRequest& request, const ::orc::Type& ro
 }
 
 void build_null_safe_equal(const format::FileScanRequest& request, const ::orc::Type& root_type,
-                           const VExprSPtr& expr,
+                           const VExprSPtr& expr, const cctz::time_zone& timezone,
                            std::unique_ptr<::orc::SearchArgumentBuilder>& builder) {
     const auto sarg_column = sarg_column_for_null_safe_equal_null(request, root_type, expr);
     if (sarg_column.has_value()) {
         builder->isNull(sarg_column->column_id, sarg_column->predicate_type);
         return;
     }
-    const auto comparison = *sarg_comparison_for_null_safe_equal_literal(request, root_type, expr);
+    const auto comparison =
+            *sarg_comparison_for_null_safe_equal_literal(request, root_type, timezone, expr);
     build_equals(comparison, builder);
 }
 
 bool build_search_argument(const format::FileScanRequest& request, const ::orc::Type& root_type,
-                           const VExprSPtr& expr,
+                           const cctz::time_zone& timezone, const VExprSPtr& expr,
                            std::unique_ptr<::orc::SearchArgumentBuilder>& builder) {
     const auto sarg_expr = expression_for_search_argument(expr);
     if (!sarg_expr.has_value() || *sarg_expr == nullptr) {
         return false;
     }
     if (sarg_expr->get() != expr.get()) {
-        return build_search_argument(request, root_type, *sarg_expr, builder);
+        return build_search_argument(request, root_type, timezone, *sarg_expr, builder);
     }
-    if (!can_build_search_argument(request, root_type, *sarg_expr)) {
+    if (!can_build_search_argument(request, root_type, timezone, *sarg_expr)) {
         return false;
     }
 
@@ -1321,22 +1335,22 @@ bool build_search_argument(const format::FileScanRequest& request, const ::orc::
     case TExprOpcode::COMPOUND_AND:
         builder->startAnd();
         for (const auto& child : (*sarg_expr)->children()) {
-            static_cast<void>(build_search_argument(request, root_type, child, builder));
+            static_cast<void>(build_search_argument(request, root_type, timezone, child, builder));
         }
         builder->end();
         return true;
     case TExprOpcode::COMPOUND_OR:
         builder->startOr();
         for (const auto& child : (*sarg_expr)->children()) {
-            const auto built = build_search_argument(request, root_type, child, builder);
+            const auto built = build_search_argument(request, root_type, timezone, child, builder);
             DORIS_CHECK(built);
         }
         builder->end();
         return true;
     case TExprOpcode::COMPOUND_NOT:
         builder->startNot();
-        DORIS_CHECK(
-                build_search_argument(request, root_type, (*sarg_expr)->children()[0], builder));
+        DORIS_CHECK(build_search_argument(request, root_type, timezone, (*sarg_expr)->children()[0],
+                                          builder));
         builder->end();
         return true;
     case TExprOpcode::GE:
@@ -1345,17 +1359,17 @@ bool build_search_argument(const format::FileScanRequest& request, const ::orc::
     case TExprOpcode::LT:
     case TExprOpcode::EQ:
     case TExprOpcode::NE:
-        build_comparison_predicate(request, root_type, *sarg_expr, builder);
+        build_comparison_predicate(request, root_type, *sarg_expr, timezone, builder);
         return true;
     case TExprOpcode::EQ_FOR_NULL:
-        build_null_safe_equal(request, root_type, *sarg_expr, builder);
+        build_null_safe_equal(request, root_type, *sarg_expr, timezone, builder);
         return true;
     case TExprOpcode::FILTER_IN:
-        build_in_predicate(request, root_type, *sarg_expr, builder);
+        build_in_predicate(request, root_type, *sarg_expr, timezone, builder);
         return true;
     case TExprOpcode::FILTER_NOT_IN:
         builder->startNot();
-        build_in_predicate(request, root_type, *sarg_expr, builder);
+        build_in_predicate(request, root_type, *sarg_expr, timezone, builder);
         builder->end();
         return true;
     case TExprOpcode::INVALID_OPCODE:
@@ -1378,9 +1392,9 @@ bool build_search_argument(const format::FileScanRequest& request, const ::orc::
 } // namespace
 
 bool build_orc_search_argument(const format::FileScanRequest& request, const ::orc::Type& root_type,
-                               const VExprSPtr& expr,
+                               const cctz::time_zone& timezone, const VExprSPtr& expr,
                                std::unique_ptr<::orc::SearchArgumentBuilder>& builder) {
-    return build_search_argument(request, root_type, expr, builder);
+    return build_search_argument(request, root_type, timezone, expr, builder);
 }
 
 } // namespace doris::format::orc
