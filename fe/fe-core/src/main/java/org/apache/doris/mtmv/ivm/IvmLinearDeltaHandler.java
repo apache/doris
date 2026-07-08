@@ -58,7 +58,7 @@ class IvmLinearDeltaHandler {
      * Returns null dmlFactor for non-incremental stream scans.
      */
     IvmDeltaRewriteResult rewriteOlapTableStreamScan(LogicalOlapTableStreamScan scan) {
-        if (!scan.isIncrementalScan()) {
+        if (!scan.isIncremental()) {
             return new IvmDeltaRewriteResult(scan, null, null);
         }
         Expression factorExpr = buildDmlFactorExpr(scan);
