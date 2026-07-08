@@ -329,8 +329,7 @@ public:
                                                      int column_to_keep, IColumn::Filter& filter);
 
     [[nodiscard]] static Status get_output_block_after_execute_exprs(const VExprContextSPtrs&,
-                                                                     const Block&, Block*,
-                                                                     bool do_projection = false);
+                                                                     const Block&, Block*);
 
     int get_last_result_column_id() const {
         DCHECK(_last_result_column_id != -1);
