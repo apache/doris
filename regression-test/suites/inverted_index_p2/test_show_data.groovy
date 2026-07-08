@@ -774,6 +774,26 @@ suite("test_show_data_with_compaction", "p2") {
         return data_size
     }
 
+    def assert_show_data_size_close = { left_size, right_size, desc ->
+        double diff = Math.abs(left_size.toDouble() - right_size.toDouble())
+        double max_size = Math.max(left_size.toDouble(), right_size.toDouble())
+        double diff_ratio = diff / max_size
+        logger.info("{} show data size diff is {}, diff ratio is {}", desc, diff, diff_ratio)
+        assertTrue(diff_ratio < 0.15d,
+                "${desc} show data size diff ratio ${diff_ratio} should be less than 15%, " +
+                "diff: ${diff} KB, left size: ${left_size}, right size: ${right_size}")
+    }
+
+    def assert_documents_show_data_size_in_range = { data_size, desc ->
+        double size = data_size.toDouble()
+        double min_size = isCloudMode() ? 55.0d : 170.0d
+        double max_size = isCloudMode() ? 70.0d : 200.0d
+        logger.info("{} show data size is {}, expected range is [{}, {}], isCloudMode: {}",
+                desc, size, min_size, max_size, isCloudMode())
+        assertTrue(size >= min_size && size <= max_size,
+                "${desc} show data size ${size} KB should be in [${min_size}, ${max_size}] KB")
+    }
+
     try {
 
         set_be_config.call("inverted_index_compaction_enable", "true")
@@ -813,13 +833,8 @@ suite("test_show_data_with_compaction", "p2") {
         assertTrue(another_with_index_size != "wait_timeout")
 
         logger.info("with_index_size is {}, another_with_index_size is {}", with_index_size, another_with_index_size)
-        // Index compaction merges per-segment index files; for identical data the total
-        // on-disk size may differ slightly from the non-compacted layout (merge/file overhead).
-        // Compare within 10% tolerance instead of exact equality to avoid flakiness, while
-        // still catching gross index bloat or corruption.
-        assertTrue(Math.abs(with_index_size - another_with_index_size)
-                        <= 0.1 * Math.max(with_index_size, another_with_index_size),
-                "index size mismatch beyond 10% tolerance: with_index=${with_index_size}, without_index=${another_with_index_size}")
+        assert_documents_show_data_size_in_range.call(with_index_size, "documents table with inverted index compaction")
+        assert_documents_show_data_size_in_range.call(another_with_index_size, "documents table without inverted index compaction")
 
         set_be_config.call("inverted_index_compaction_enable", "true")
 
@@ -830,10 +845,7 @@ suite("test_show_data_with_compaction", "p2") {
         def data_size_2 = create_table_run_compaction_and_wait(tableName)
 
         logger.info("data_size_1 is {}, data_size_2 is {}", data_size_1, data_size_2)
-        // Same rationale as above: compare index sizes within 10% tolerance, not exact equality.
-        assertTrue(Math.abs(data_size_1 - data_size_2)
-                        <= 0.1 * Math.max(data_size_1, data_size_2),
-                "index size mismatch beyond 10% tolerance: data_size_1=${data_size_1}, data_size_2=${data_size_2}")
+        assert_show_data_size_close.call(data_size_1, data_size_2, "insert table")
 
     } finally {
         // sql "DROP TABLE IF EXISTS ${tableWithIndexCompaction}"
