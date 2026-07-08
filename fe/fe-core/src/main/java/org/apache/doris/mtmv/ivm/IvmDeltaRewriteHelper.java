@@ -31,6 +31,8 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.AssertTrue;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
+import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
@@ -434,6 +436,23 @@ public class IvmDeltaRewriteHelper {
     }
 
     /**
+     * When a hidden column from the old plan is missing in the new plan's output,
+     * choose a suitable default literal instead of NULL.  For delete_sign and
+     * version columns a literal {@code 0} keeps upstream filters ({@code
+     * delete_sign = 0}) harmless; other hidden columns still fall back to NULL.
+     */
+    private Literal hiddenColumnFallbackLiteral(NamedExpression oldExpr) {
+        String name = oldExpr.getName();
+        if (Column.DELETE_SIGN.equals(name)) {
+            return new TinyIntLiteral((byte) 0);
+        }
+        if (Column.VERSION_COL.equals(name)) {
+            return new BigIntLiteral(0L);
+        }
+        return new NullLiteral(oldExpr.getDataType());
+    }
+
+    /**
      * Remap a new plan's output back to the old scan's output ExprIds and names.
      */
     LogicalPlan remapScanOutput(LogicalOlapScan oldScan, LogicalPlan newPlan) {
@@ -456,7 +475,7 @@ public class IvmDeltaRewriteHelper {
                 projects.add(new Alias(oldSlot.getExprId(), newSlot, oldSlot.getName()));
             } else if (oldSlot.getName().startsWith(Column.HIDDEN_COLUMN_PREFIX)) {
                 projects.add(new Alias(oldSlot.getExprId(),
-                        new NullLiteral(oldSlot.getDataType()), oldSlot.getName()));
+                        hiddenColumnFallbackLiteral(oldSlot), oldSlot.getName()));
             } else {
                 throw new IvmException(IvmFailureReason.PLAN_REWRITE_FAILED,
                         "IVM: new plan missing column "
@@ -486,7 +505,7 @@ public class IvmDeltaRewriteHelper {
                     Slot newSlot = newSlotByName.get(alias.getName());
                     if (newSlot == null) {
                         newProjects.add(new Alias(alias.getExprId(),
-                                new NullLiteral(alias.getDataType()), alias.getName()));
+                                hiddenColumnFallbackLiteral(alias), alias.getName()));
                         continue;
                     }
                     newProjects.add(new Alias(alias.getExprId(), newSlot, alias.getName()));
@@ -500,7 +519,7 @@ public class IvmDeltaRewriteHelper {
                 if (newSlot == null) {
                     if (oldSlot.getName().startsWith(Column.HIDDEN_COLUMN_PREFIX)) {
                         newProjects.add(new Alias(oldSlot.getExprId(),
-                                new NullLiteral(oldSlot.getDataType()), oldSlot.getName()));
+                                hiddenColumnFallbackLiteral(oldSlot), oldSlot.getName()));
                         continue;
                     }
                     throw new IvmException(IvmFailureReason.PLAN_REWRITE_FAILED,
