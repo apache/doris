@@ -32,6 +32,18 @@ constexpr std::string_view DORIS_ENABLE_JNI_IO_MANAGER = "doris.enable_jni_io_ma
 constexpr std::string_view DORIS_JNI_IO_MANAGER_TMP_DIR = "doris.jni_io_manager.tmp_dir";
 constexpr std::string_view PAIMON_JNI_SCANNER_IO_TMP_DIR = "paimon_jni_scanner_io_tmp";
 
+const std::string* get_paimon_predicate(const TFileScanRangeParams* scan_params,
+                                        const TPaimonFileDesc& paimon_params) {
+    if (scan_params != nullptr && scan_params->__isset.paimon_predicate &&
+        !scan_params->paimon_predicate.empty()) {
+        return &scan_params->paimon_predicate;
+    }
+    if (paimon_params.__isset.paimon_predicate && !paimon_params.paimon_predicate.empty()) {
+        return &paimon_params.paimon_predicate;
+    }
+    return nullptr;
+}
+
 } // namespace
 
 Status PaimonJniReader::validate_scan_range(const TFileRangeDesc& range) const {
@@ -59,7 +71,7 @@ Status PaimonJniReader::validate_scan_range(const TFileRangeDesc& range) const {
                 "missing serialized_table for paimon jni reader, possibly caused by FE/BE "
                 "protocol mismatch");
     }
-    if (!_scan_params->__isset.paimon_predicate || _scan_params->paimon_predicate.empty()) {
+    if (get_paimon_predicate(_scan_params, range.table_format_params.paimon_params) == nullptr) {
         return Status::InternalError(
                 "missing paimon_predicate for paimon jni reader, possibly caused by FE/BE "
                 "protocol mismatch");
@@ -77,8 +89,10 @@ Status PaimonJniReader::build_scanner_params(std::map<std::string, std::string>*
     params->clear();
 
     const auto& paimon_params = _current_range.table_format_params.paimon_params;
+    const auto* paimon_predicate = get_paimon_predicate(_scan_params, paimon_params);
+    DORIS_CHECK(paimon_predicate != nullptr);
     (*params)["paimon_split"] = paimon_params.paimon_split;
-    (*params)["paimon_predicate"] = _scan_params->paimon_predicate;
+    (*params)["paimon_predicate"] = *paimon_predicate;
     (*params)["serialized_table"] = _scan_params->serialized_table;
 
     if (_scan_params->__isset.paimon_options && !_scan_params->paimon_options.empty()) {
@@ -106,8 +120,8 @@ Status PaimonJniReader::build_scanner_params(std::map<std::string, std::string>*
         }
     }
     // TODO: Remove legacy split-level paimon_predicate, paimon_options and hadoop_conf from thrift
-    // after all readers stop using them. Format V2 Paimon JNI consumes the scan-level fields
-    // planned by current FE and intentionally does not fall back to deprecated split-level fields.
+    // after all readers stop using them. Predicate keeps the split-level fallback for rolling
+    // upgrade compatibility with old FE paths that did not send scan-level paimon_predicate.
     return Status::OK();
 }
 
