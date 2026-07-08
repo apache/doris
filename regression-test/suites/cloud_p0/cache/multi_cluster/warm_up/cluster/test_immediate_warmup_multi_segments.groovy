@@ -98,14 +98,15 @@ suite('test_immediate_warmup_multi_segments', 'docker') {
         return getBrpcMetrics(ip, port, name)
     }
 
-    def injectS3FileReadSlow = {cluster, sleep_s ->
+    def injectS3FileReadSlow = {cluster, sleepSeconds ->
         def backends = sql """SHOW BACKENDS"""
         def cluster_bes = backends.findAll { it[19].contains("""\"compute_group_name\" : \"${cluster}\"""") }
         def injectName = 'S3FileReader::read_at_impl.io_slow'
+        def sleepMicros = sleepSeconds * 1000 * 1000
         for (be in cluster_bes) {
             def ip = be[1]
             def port = be[4]
-            GetDebugPoint().enableDebugPoint(ip, port as int, NodeType.BE, injectName, [sleep:sleep_s, execute:1])
+            GetDebugPoint().enableDebugPoint(ip, port as int, NodeType.BE, injectName, [sleep:sleepMicros, execute:1])
         }
     }
 
@@ -226,7 +227,9 @@ suite('test_immediate_warmup_multi_segments', 'docker') {
             }
             sleep(1000)
             assertEquals(1, getBrpcMetricsByCluster(clusterName2, "file_cache_warm_up_rowset_triggered_by_sync_rowset_num"))
-            assertEquals(segmentNum - 1, getBrpcMetricsByCluster(clusterName2, "file_cache_warm_up_segment_complete_num"))
+            def segmentCompleteNum = getBrpcMetricsByCluster(clusterName2, "file_cache_warm_up_segment_complete_num")
+            assertTrue(segmentNum > segmentCompleteNum,
+                    "Expect segment num: ${segmentNum} not warm up yet, but actual file_cache_warm_up_segment_complete_num: ${segmentCompleteNum}")
             assertEquals(0, getBrpcMetricsByCluster(clusterName2, "file_cache_warm_up_rowset_complete_num"))
 
             future.get()

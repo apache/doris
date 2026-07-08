@@ -304,9 +304,9 @@ suite('test_warm_up_cluster_event_compaction_sync_wait', 'docker') {
         assertTrue(num_submitted >= 8)
         assertEquals(num_finished, num_submitted)
 
-        // The debug point sleep unit is microseconds. Sleep 20s to keep warmup in progress.
+        // The debug point sleep unit is microseconds. Sleep 10s to keep warmup in progress.
         GetDebugPoint().enableDebugPoint(be.ip, be.http_port as int, NodeType.BE,
-                "S3FileReader::read_at_impl.io_slow", [sleep:20000000])
+                "S3FileReader::read_at_impl.io_slow", [sleep:10000000])
 
         // trigger and wait compaction async
         def future = thread {

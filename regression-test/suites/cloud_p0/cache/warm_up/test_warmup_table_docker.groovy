@@ -117,12 +117,11 @@ suite('test_warmup_table_docker', 'docker') {
     docker(options) {
         def clusterName = "warmup_cluster"
 
-        // Add one cluster
-        cluster.addBackend(1, clusterName)
-
+        // rename default cluster， avoid add new cluster and stream load use wrong be
+        sql """ALTER SYSTEM RENAME COMPUTE GROUP compute_cluster ${clusterName}"""
         // Ensure we are in the cluster
         sql """use @${clusterName}"""
-        
+
         try {
             sql "set global enable_audit_plugin = false"
         } catch (Exception e) {
