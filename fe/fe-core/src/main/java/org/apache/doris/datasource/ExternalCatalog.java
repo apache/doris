@@ -907,9 +907,19 @@ public abstract class ExternalCatalog
             return Optional.of(exact);
         }
         String localDbName = getLocalDatabaseName(dbName, true);
-        return localDbName == null
-                ? Optional.empty()
-                : Optional.ofNullable(databases.getIfPresent(localDbName));
+        if (localDbName == null) {
+            // Replay must remain cache-only. When the names snapshot is cold in mode 2, fall back to
+            // a case-insensitive scan over the current hot object-cache keys instead of reloading names.
+            if (getLowerCaseDatabaseNames() == 2 && getDatabaseNamesValue(false) == null) {
+                ExternalDatabase<? extends ExternalTable> fallback =
+                        databases.findIfPresent(key -> key.equalsIgnoreCase(dbName));
+                if (fallback != null) {
+                    return Optional.of(fallback);
+                }
+            }
+            return Optional.empty();
+        }
+        return Optional.ofNullable(databases.getIfPresent(localDbName));
     }
 
     /**
@@ -1196,6 +1206,10 @@ public abstract class ExternalCatalog
         if (LOG.isDebugEnabled()) {
             LOG.debug("unregister database [{}]", dbName);
         }
+        // When lower_case_database_names = 2, database lookup is case-insensitive but the database
+        // object cache still uses the preserved remote/original-case name as its key. Event replay
+        // passes that same preserved name here, so invalidation intentionally follows the same key
+        // convention before cleaning local state.
         if (isInitialized()) {
             invalidateDatabaseCache(dbName);
         }
@@ -1345,7 +1359,7 @@ public abstract class ExternalCatalog
     private List<String> listLocalDatabaseNamesFromCache() {
         NameCacheValue namesValue = java.util.Objects.requireNonNull(
                 getDatabaseNamesValue(true), "database names cache can not be null");
-        return namesValue.names().stream().map(Pair::value).collect(Collectors.toList());
+        return namesValue.localNames();
     }
 
     @Nullable
@@ -1370,6 +1384,8 @@ public abstract class ExternalCatalog
             databaseNames.compute("", (ignored, current) ->
                     (current == null ? NameCacheValue.empty() : current).withName(remoteDbName, localDbName));
         } else if (databaseNames.getIfPresent("") != null) {
+            // The outer hot-entry check only skips a pointless compute on cold state. current may still
+            // become null here if another thread invalidates the names entry between getIfPresent and compute.
             databaseNames.compute("", (ignored, current) ->
                     current == null ? null : current.withName(remoteDbName, localDbName));
         }

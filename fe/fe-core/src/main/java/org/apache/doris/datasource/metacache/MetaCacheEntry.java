@@ -200,6 +200,20 @@ public class MetaCacheEntry<K, V> {
         return data.getIfPresent(key);
     }
 
+    @Nullable
+    public V findIfPresent(Predicate<K> keyPredicate) {
+        if (!effectiveEnabled) {
+            return null;
+        }
+        // Replay-only fallback needs a cache-only scan over current hot keys without triggering load-through.
+        for (java.util.Map.Entry<K, V> entry : data.asMap().entrySet()) {
+            if (keyPredicate.test(entry.getKey())) {
+                return entry.getValue();
+            }
+        }
+        return null;
+    }
+
     public void put(K key, V value) {
         // Public mutations participate in generation control so in-flight loads cannot overwrite them later.
         Objects.requireNonNull(key, "key can not be null");
@@ -301,6 +315,8 @@ public class MetaCacheEntry<K, V> {
             return value;
         }
 
+        // Keep the slow miss load under the per-key load lock so concurrent misses for the same key
+        // are still deduplicated. publishLock(key) only protects the short publication window.
         synchronized (loadLock(key)) {
             value = data.asMap().get(key);
             if (value != null) {

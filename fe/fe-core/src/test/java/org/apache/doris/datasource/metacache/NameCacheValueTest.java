@@ -74,6 +74,16 @@ public class NameCacheValueTest {
     }
 
     @Test
+    public void testLocalNamesExposeImmutableReadOnlyView() {
+        NameCacheValue names = NameCacheValue.of(ImmutableList.of(
+                Pair.of("RemoteA", "LocalA"),
+                Pair.of("RemoteB", "LocalB")));
+
+        Assert.assertEquals(ImmutableList.of("LocalA", "LocalB"), names.localNames());
+        Assert.assertThrows(UnsupportedOperationException.class, () -> names.localNames().add("LocalC"));
+    }
+
+    @Test
     public void testCaseSensitiveNamesCanShareLowerCaseKey() {
         // Keep both exact-name mappings and let the lower-case index follow snapshot insertion order.
         NameCacheValue names = NameCacheValue.of(ImmutableList.of(

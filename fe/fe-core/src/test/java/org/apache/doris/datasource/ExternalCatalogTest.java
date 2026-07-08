@@ -559,6 +559,27 @@ public class ExternalCatalogTest extends TestWithFeService {
     }
 
     @Test
+    public void testGetDbForReplayFallsBackToCaseInsensitiveHotObjectKeyWhenNamesAreCold() {
+        NameMissCatalogProvider.reset();
+        try {
+            NameMissCatalogProvider.putDatabase("DbBase");
+            NameMissCatalog catalog = new NameMissCatalog();
+            catalog.setInitializedForTest(true);
+
+            // Warm names first so resetMetaCacheNames() clears only the names snapshot.
+            Assertions.assertNotNull(catalog.getDbNullable("dbbase"));
+            TestExternalDatabase db = new TestExternalDatabase(catalog, 403L, "DbKeep", "DbKeep");
+            catalog.addDatabaseForTest(db);
+            catalog.resetMetaCacheNames();
+
+            Assertions.assertNull(catalog.getCachedDatabaseNamesForTest());
+            Assertions.assertSame(db, catalog.getDbForReplay("dbkeep").orElse(null));
+        } finally {
+            NameMissCatalogProvider.reset();
+        }
+    }
+
+    @Test
     public void testDatabaseNameMissRefreshDisabledSkipsHotSnapshotReload() {
         boolean original = Config.enable_external_meta_cache_name_miss_refresh;
         Config.enable_external_meta_cache_name_miss_refresh = false;
