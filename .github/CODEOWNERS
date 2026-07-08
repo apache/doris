@@ -18,14 +18,11 @@
 # for more syntax help and usage example
 # https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners#codeowners-syntax
 
-be/src/agent/be_exec_version_manager.cpp @BiteTheDDDDt @zclllyybb
 fe/fe-core/src/main/java/org/apache/doris/catalog/Env.java @dataroaring @CalvinKirs @morningman
 **/pom.xml @CalvinKirs @morningman
 fe/fe-common/src/main/java/org/apache/doris/common/FeMetaVersion.java @dataroaring @morningman @yiguolei @xiaokang
 fe/fe-core/src/main/java/org/apache/doris/fs @CalvinKirs
 fe/fe-core/src/main/java/org/apache/doris/fsv2 @CalvinKirs
-be/src/vec/functions @zclllyybb
-be/**/CMakeLists.txt @zclllyybb @BiteTheDDDDt
 be/src/olap/rowset/segment_v2/variant @eldenmoon @csun5285
 be/src/storage/index/inverted/ @airborne12 @eldenmoon @csun5285
 be/src/exprs/function/function_search.h @airborne12 @eldenmoon @csun5285
@@ -34,8 +31,6 @@ be/src/exprs/function/match.cpp @airborne12 @eldenmoon @csun5285
 be/src/exprs/function/match.h @airborne12 @eldenmoon @csun5285
 be/src/exprs/vsearch.h @airborne12 @eldenmoon @csun5285
 be/src/exprs/vsearch.cpp @airborne12 @eldenmoon @csun5285
-.claude/ @zclllyybb
-AGENTS.md @zclllyybb
 
 be/src/cloud                                                 @liaoxin01 @luwei16 @gavinchou
 be/src/io                                                    @liaoxin01 @gavinchou @morningman @Gabriel39
