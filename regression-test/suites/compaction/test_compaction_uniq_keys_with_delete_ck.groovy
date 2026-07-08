@@ -64,6 +64,7 @@ suite("test_compaction_uniq_keys_with_delete_ck") {
             UNIQUE KEY(`user_id`, `date`, `datev2`, `datetimev2_1`, `datetimev2_2`, `city`, `age`, `sex`)
             ORDER BY(`sex`, `date`, `cost`)
             DISTRIBUTED BY HASH(`user_id`)
+            BUCKETS 1
             PROPERTIES (
                 "replication_num" = "1",
                 "enable_unique_key_merge_on_write" = "true",
@@ -153,7 +154,7 @@ suite("test_compaction_uniq_keys_with_delete_ck") {
                 rowCount += Integer.parseInt(rowset.split(" ")[1])
             }
         }
-        assert (rowCount <= 8 * replicaNum)
+        assert (rowCount < 8 * replicaNum)
         qt_select_default3 """ SELECT * FROM ${tableName} t ORDER BY user_id; """
     } finally {
         // try_sql("DROP TABLE IF EXISTS ${tableName}")

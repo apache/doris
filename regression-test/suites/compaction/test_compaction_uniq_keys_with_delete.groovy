@@ -62,6 +62,7 @@ suite("test_compaction_uniq_keys_with_delete") {
                 `max_dwell_time` INT DEFAULT "0" COMMENT "用户最大停留时间",
                 `min_dwell_time` INT DEFAULT "99999" COMMENT "用户最小停留时间")
             UNIQUE KEY(`user_id`, `date`, `datev2`, `datetimev2_1`, `datetimev2_2`, `city`, `age`, `sex`) DISTRIBUTED BY HASH(`user_id`)
+            BUCKETS 1
             PROPERTIES ( "replication_num" = "1", "disable_auto_compaction" = "true" );
         """
 
@@ -135,7 +136,7 @@ suite("test_compaction_uniq_keys_with_delete") {
                 rowCount += Integer.parseInt(rowset.split(" ")[1])
             }
         }
-        assert (rowCount <= 8 * replicaNum)
+        assert (rowCount < 8 * replicaNum)
         qt_select_default3 """ SELECT * FROM ${tableName} t ORDER BY user_id; """
     } finally {
         try_sql("DROP TABLE IF EXISTS ${tableName}")
