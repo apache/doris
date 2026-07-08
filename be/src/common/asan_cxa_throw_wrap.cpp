@@ -32,12 +32,20 @@
 //
 // ASAN builds therefore link with
 //     -Wl,--wrap=__cxa_throw -Wl,--wrap=__cxa_rethrow
+//     -Wl,--wrap=_Unwind_RaiseException
 // (see the ASAN branch in be/CMakeLists.txt). --wrap redirects every
 // reference from every input object -- including the members of the
 // un-instrumented third-party archives and of libstdc++.a itself -- to the
 // wrappers below, which restore exactly what the official interceptors do:
 // wipe the stack shadow above the throw point, then forward to the real
 // implementation (__real___cxa_throw resolves to libstdc++'s definition).
+//
+// _Unwind_RaiseException is wrapped as well because not every raise funnels
+// through __cxa_throw: std::rethrow_exception (libstdc++'s eh_ptr.cc) and
+// foreign-language unwinders call it directly. This matches the official
+// ASAN interceptor set for the unwind entry points. Throws via __cxa_throw
+// run the shadow wipe twice (once per wrapper); that is idempotent and is
+// also what happens with the stock interceptors.
 
 #if defined(ADDRESS_SANITIZER) && defined(__linux__)
 
@@ -46,9 +54,11 @@ extern "C" {
 void __asan_handle_no_return();
 void __real___cxa_throw(void* thrown_exception, void* tinfo, void (*dest)(void*));
 void __real___cxa_rethrow();
+int __real__Unwind_RaiseException(void* exception_object);
 
 void __wrap___cxa_throw(void* thrown_exception, void* tinfo, void (*dest)(void*));
 void __wrap___cxa_rethrow();
+int __wrap__Unwind_RaiseException(void* exception_object);
 
 void __wrap___cxa_throw(void* thrown_exception, void* tinfo, void (*dest)(void*)) {
     __asan_handle_no_return();
@@ -58,6 +68,13 @@ void __wrap___cxa_throw(void* thrown_exception, void* tinfo, void (*dest)(void*)
 void __wrap___cxa_rethrow() {
     __asan_handle_no_return();
     __real___cxa_rethrow();
+}
+
+// Unlike the two above this one RETURNS when no handler is found (the caller
+// then calls std::terminate), so the return value must be forwarded.
+int __wrap__Unwind_RaiseException(void* exception_object) {
+    __asan_handle_no_return();
+    return __real__Unwind_RaiseException(exception_object);
 }
 
 } // extern "C"

@@ -800,9 +800,12 @@ elseif ("${CMAKE_BUILD_TYPE}" STREQUAL "ASAN" OR "${CMAKE_BUILD_TYPE}" STREQUAL 
         # kCurrentStackFrameMagic CHECK (thrift retry/reopen crashes: QA-202,
         # DORIS-1073, DORIS-15154, google/glog#978, google/sanitizers#1010).
         # Redirect every reference to wrappers that restore the shadow
-        # cleanup. See asan-glog-rca.md at the repository root and
+        # cleanup. _Unwind_RaiseException is wrapped too: std::rethrow_exception
+        # and foreign-language unwinders raise through it without touching
+        # __cxa_throw. See asan-glog-rca.md at the repository root and
         # be/src/common/asan_cxa_throw_wrap.cpp.
-        set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} -Wl,--wrap=__cxa_throw -Wl,--wrap=__cxa_rethrow)
+        set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} -Wl,--wrap=__cxa_throw -Wl,--wrap=__cxa_rethrow
+            -Wl,--wrap=_Unwind_RaiseException)
     endif()
 elseif ("${CMAKE_BUILD_TYPE}" STREQUAL "LSAN")
     set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} ${LSAN_LIBS})
