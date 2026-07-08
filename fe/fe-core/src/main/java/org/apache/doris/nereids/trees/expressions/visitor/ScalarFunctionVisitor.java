@@ -304,7 +304,6 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.IsValidUtf8;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArray;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArrayIgnoreNull;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonContains;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonExtractNoQuotes;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonHash;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonInsert;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonKeys;
@@ -1739,10 +1738,6 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitJsonObjectFlatten(JsonObjectFlatten jsonObjectFlatten, C context) {
         return visitScalarFunction(jsonObjectFlatten, context);
-    }
-
-    default R visitJsonExtractNoQuotes(JsonExtractNoQuotes jsonExtract, C context) {
-        return visitScalarFunction(jsonExtract, context);
     }
 
     default R visitJsonHash(JsonHash jsonhash, C context) {
