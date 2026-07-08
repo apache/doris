@@ -20,6 +20,7 @@
 #include <utility>
 
 #include "common/cast_set.h"
+#include "common/logging.h"
 #include "core/block/block.h"
 #include "exprs/vexpr_context.h"
 #include "runtime/descriptors.h"
@@ -176,6 +177,55 @@ Status JniTableReader::finalize_jni_block(Block* jni_block, Block* output_block,
     return Status::OK();
 }
 
+Status JniTableReader::_get_statistics(JNIEnv* env, std::map<std::string, std::string>* result) {
+    DORIS_CHECK(result != nullptr);
+    result->clear();
+    Jni::LocalObject metrics;
+    RETURN_IF_ERROR(
+            _jni_scanner_obj.call_object_method(env, _jni_scanner_get_statistics).call(&metrics));
+    RETURN_IF_ERROR(Jni::Util::convert_to_cpp_map(env, metrics, result));
+    return Status::OK();
+}
+
+void JniTableReader::_collect_jni_scanner_profile(JNIEnv* env) {
+    if (_scanner_profile == nullptr) {
+        return;
+    }
+
+    std::map<std::string, std::string> statistics_result;
+    Status st = _get_statistics(env, &statistics_result);
+    if (!st) {
+        LOG(WARNING) << "failed to get_statistics when collect profile: " << st;
+        return;
+    }
+
+    const auto connector_name = _connector_name();
+    for (const auto& metric : statistics_result) {
+        std::vector<std::string> type_and_name = split(metric.first, ":");
+        if (type_and_name.size() != 2) {
+            LOG(WARNING) << "Name of JNI Scanner metric should be pattern like "
+                         << "'metricType:metricName'";
+            continue;
+        }
+        long metric_value = std::stol(metric.second);
+        RuntimeProfile::Counter* scanner_counter;
+        if (type_and_name[0] == "timer") {
+            scanner_counter =
+                    ADD_CHILD_TIMER(_scanner_profile, type_and_name[1], connector_name.c_str());
+        } else if (type_and_name[0] == "counter") {
+            scanner_counter = ADD_CHILD_COUNTER(_scanner_profile, type_and_name[1], TUnit::UNIT,
+                                                connector_name.c_str());
+        } else if (type_and_name[0] == "bytes") {
+            scanner_counter = ADD_CHILD_COUNTER(_scanner_profile, type_and_name[1], TUnit::BYTES,
+                                                connector_name.c_str());
+        } else {
+            LOG(WARNING) << "Type of JNI Scanner metric should be timer, counter or bytes";
+            continue;
+        }
+        COUNTER_UPDATE(scanner_counter, metric_value);
+    }
+}
+
 Status JniTableReader::build_jni_columns(std::vector<JniColumn>* columns) const {
     DORIS_CHECK(columns != nullptr);
     columns->clear();
@@ -240,6 +290,7 @@ Status JniTableReader::_close_jni_scanner() {
                 _jni_scanner_open_watcher + _fill_block_watcher + _java_scan_watcher,
                 self_split_weight());
     }
+    _collect_jni_scanner_profile(env);
 
     // _fill_jni_block may fail before releasing the current Java table. JniScanner::releaseTable()
     // is idempotent, so closing the split always releases it.
