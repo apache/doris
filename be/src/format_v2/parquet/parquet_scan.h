@@ -93,6 +93,9 @@ Status plan_parquet_row_groups(const ::parquet::FileMetaData& metadata,
 IColumn::Filter selection_to_filter(const SelectionVector& selection, uint16_t selected_rows,
                                     int64_t batch_rows);
 
+uint16_t apply_compact_filter_to_selection(const IColumn::Filter& filter,
+                                           SelectionVector* selection, uint16_t selected_rows);
+
 Status execute_batch_filters(const format::FileScanRequest& request, int64_t batch_rows,
                              Block* file_block, SelectionVector* selection, uint16_t* selected_rows,
                              int64_t* conjunct_filtered_rows = nullptr);
@@ -150,7 +153,8 @@ private:
 
     Status read_filter_columns(int64_t batch_rows, const format::FileScanRequest& request,
                                Block* file_block, SelectionVector* selection,
-                               uint16_t* selected_rows, int64_t* conjunct_filtered_rows);
+                               uint16_t* selected_rows, int64_t* conjunct_filtered_rows,
+                               bool* predicate_columns_filtered);
 
     void prefetch_current_row_group_columns(
             ParquetFileContext& file_context,

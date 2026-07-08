@@ -231,6 +231,18 @@ suite("test_parquet_lazy_mat_profile", "p0,external") {
             return extractProfileBlockMetrics(profileText, "ParquetReader")
         }
 
+        def q8 = {
+            sql """ set enable_file_scanner_v2 = true; """
+            sql """ set enable_parquet_filter_by_min_max = false; """
+            sql """ set enable_parquet_lazy_materialization = true; """
+            def sql_result = sql """
+                select id from alltypes_tiny_pages_plain where id > 2 and id < 10 order by id;
+            """
+            assertEquals(7, sql_result.size())
+            assertEquals("3", sql_result[0][0].toString())
+            assertEquals("9", sql_result[6][0].toString())
+        }
+
 
 
         def test_true_true = {
@@ -598,6 +610,7 @@ suite("test_parquet_lazy_mat_profile", "p0,external") {
         test_true_false();
         test_false_false();
         test_false_true();
+        q8();
 
 
         sql """drop catalog ${catalog_name};"""
