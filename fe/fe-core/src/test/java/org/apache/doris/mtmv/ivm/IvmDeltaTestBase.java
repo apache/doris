@@ -24,9 +24,11 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MTMV;
+import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.OlapTableFactory;
+import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.RandomDistributionInfo;
 import org.apache.doris.catalog.ScalarType;
@@ -35,6 +37,7 @@ import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.TableProperty;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.stream.OlapTableStream;
+import org.apache.doris.catalog.stream.OlapTableStreamUpdate;
 import org.apache.doris.catalog.stream.OlapTableStreamWrapper;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.mtmv.MTMVJobInfo;
@@ -79,6 +82,7 @@ import org.junit.jupiter.api.Assertions;
 
 import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
@@ -90,6 +94,7 @@ abstract class IvmDeltaTestBase {
 
     protected LogicalOlapScan buildScan() {
         OlapTable table = PlanConstructor.newOlapTable(0, "t1", 0);
+        addTestPartition(table);
         enableRowBinlog(table);
         table.setQualifiedDbName("test_db");
         registerTestStreams(table);
@@ -101,6 +106,7 @@ abstract class IvmDeltaTestBase {
     /** Builds an incremental delta scan (LogicalOlapTableStreamScan with isIncrementalScan=true). */
     protected LogicalOlapTableStreamScan buildDeltaScan() {
         OlapTable table = PlanConstructor.newOlapTable(0, "t1", 0);
+        addTestPartition(table);
         enableRowBinlog(table);
         table.setQualifiedDbName("test_db");
         return new LogicalOlapTableStreamScan(PlanConstructor.getNextRelationId(), buildStreamWrapper(table),
@@ -111,6 +117,7 @@ abstract class IvmDeltaTestBase {
     /** Builds an incremental delta scan for the given table id and name. */
     protected LogicalOlapTableStreamScan buildDeltaScanForTable(long tableId, String tableName) {
         OlapTable table = PlanConstructor.newOlapTable(tableId, tableName, 0);
+        addTestPartition(table);
         enableRowBinlog(table);
         table.setQualifiedDbName("test_db");
         return new LogicalOlapTableStreamScan(PlanConstructor.getNextRelationId(), buildStreamWrapper(table),
@@ -121,6 +128,7 @@ abstract class IvmDeltaTestBase {
     /** Builds a scan for the given table id and name (for delta plan generator tests). */
     protected LogicalOlapScan buildScanForTable(long tableId, String tableName) {
         OlapTable table = PlanConstructor.newOlapTable(tableId, tableName, 0);
+        addTestPartition(table);
         enableRowBinlog(table);
         table.setQualifiedDbName("test_db");
         registerTestStreams(table);
@@ -131,6 +139,45 @@ abstract class IvmDeltaTestBase {
     private OlapTableStreamWrapper buildStreamWrapper(OlapTable baseTable) {
         OlapTableStream stream = registerTestStream(baseTable, 1L);
         return new OlapTableStreamWrapper(stream, baseTable, ImmutableList.of());
+    }
+
+    protected OlapTableStream getRegisteredStream(OlapTable baseTable, long mvId) {
+        Database db = Env.getCurrentInternalCatalog().getDbNullable("test_db");
+        Assertions.assertNotNull(db, "test_db should exist");
+        return (OlapTableStream) db.getTableNullable(IvmUtil.streamName(mvId, baseTable.getName()));
+    }
+
+    protected void advanceStreamToBaseTable(OlapTable baseTable, OlapTableStream stream) {
+        long currentTso = baseTable.getPartitions().iterator().next().getTso();
+        setStreamOffset(baseTable, stream, currentTso);
+    }
+
+    protected void bumpBaseTableTso(OlapTable baseTable, long tso) {
+        long version = Partition.PARTITION_INIT_VERSION + 1;
+        for (Partition partition : baseTable.getPartitions()) {
+            partition.setVisibleVersionAndTime(version, tso, tso);
+            partition.setNextVersion(version + 1);
+            version++;
+        }
+    }
+
+    protected void setStreamOffset(OlapTable baseTable, OlapTableStream stream, long offset) {
+        Map<Long, Long> prev = new HashMap<>();
+        Map<Long, Long> next = new HashMap<>();
+        for (Partition partition : baseTable.getPartitions()) {
+            long partitionId = partition.getId();
+            Long previousOffset = stream.getStreamUpdate(partitionId).first;
+            if (previousOffset != null) {
+                prev.put(partitionId, previousOffset);
+            }
+            next.put(partitionId, offset);
+        }
+        baseTable.writeLock();
+        try {
+            stream.unprotectedUpdateStreamUpdate(new OlapTableStreamUpdate(prev, next), System.currentTimeMillis());
+        } finally {
+            baseTable.writeUnlock();
+        }
     }
 
     protected void registerTestStreams(OlapTable baseTable) {
@@ -183,6 +230,16 @@ abstract class IvmDeltaTestBase {
 
     protected ConnectContext newConnectContext() {
         ConnectContext connectContext = MemoTestUtils.createConnectContext();
+        StatementContext statementContext = new StatementContext(connectContext, null);
+        statementContext.setIvmRewriteContext(Optional.of(IvmRewriteContext.normalize()));
+        connectContext.setStatementContext(statementContext);
+        return connectContext;
+    }
+
+    protected ConnectContext ensureStatementContext(ConnectContext connectContext) {
+        if (connectContext.getStatementContext() != null) {
+            return connectContext;
+        }
         StatementContext statementContext = new StatementContext(connectContext, null);
         statementContext.setIvmRewriteContext(Optional.of(IvmRewriteContext.normalize()));
         connectContext.setStatementContext(statementContext);
@@ -368,5 +425,19 @@ abstract class IvmDeltaTestBase {
             this.normalizedPlan = normalizedPlan;
             this.rewriteResult = rewriteResult;
         }
+    }
+
+    private void addTestPartition(OlapTable table) {
+        if (!table.getPartitions().isEmpty()) {
+            return;
+        }
+        long partitionId = table.getId() * 100 + 1;
+        Partition partition = new Partition(partitionId, "p1",
+                new MaterializedIndex(table.getBaseIndexId(), MaterializedIndex.IndexState.NORMAL),
+                new RandomDistributionInfo(1));
+        partition.setVisibleVersionAndTime(Partition.PARTITION_INIT_VERSION + 1,
+                partitionId * 10, partitionId * 10);
+        partition.setNextVersion(Partition.PARTITION_INIT_VERSION + 2);
+        table.addPartition(partition);
     }
 }

@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.stream.OlapTableStream;
 import org.apache.doris.mtmv.MTMVCache;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -221,25 +222,26 @@ public class LogicalOlapScanTest {
     }
 
     @Test
-    public void testWithTsoReturnsNewScanWithTso() {
+    public void testWithPreSnapshotReturnsStreamSnapshotScan() {
         LogicalOlapScan scan = createMockScan(ImmutableList.of());
-        Assertions.assertEquals(-1, scan.getTso());
+        OlapTableStream stream = Mockito.mock(OlapTableStream.class);
 
-        LogicalOlapScan withTso = scan.withTso(42L);
-        Assertions.assertEquals(42L, withTso.getTso());
-        // Original unchanged
-        Assertions.assertEquals(-1, scan.getTso());
+        LogicalPlan snapshot = scan.withPreSnapshot(Optional.of(stream));
+        Assertions.assertInstanceOf(LogicalOlapTableStreamScan.class, snapshot);
+        LogicalOlapTableStreamScan streamScan = (LogicalOlapTableStreamScan) snapshot;
+        Assertions.assertTrue(streamScan.isSnapshot());
+        Assertions.assertFalse(streamScan.isIncrementalScan());
+        Assertions.assertFalse(streamScan.isReset());
     }
 
     @Test
-    public void testEqualsDistinguishesTso() {
+    public void testWithPostSnapshotReturnsRegularScan() {
         LogicalOlapScan scan1 = createMockScan(ImmutableList.of());
-        LogicalOlapScan scan2 = scan1.withTso(100L);
-        // Same scan but different TSO should not be equal
-        Assertions.assertNotEquals(scan1, scan2);
-        // Same TSO should be equal (same object properties)
-        LogicalOlapScan scan3 = scan1.withTso(100L);
-        Assertions.assertEquals(scan2, scan3);
+        LogicalPlan snapshot = scan1.withPostSnapshot();
+
+        Assertions.assertInstanceOf(LogicalOlapScan.class, snapshot);
+        Assertions.assertFalse(snapshot instanceof LogicalOlapTableStreamScan);
+        Assertions.assertNotSame(scan1, snapshot);
     }
 
 }

@@ -481,7 +481,7 @@ class IvmJoinDeltaHandlerTest extends IvmDeltaTestBase {
     void testNullSideSnapshotOnlyReplacesDeltaScanInsideNullSidePlan() {
         LogicalOlapScan leftSnapshot = buildScanForTable(1, "t1");
         LogicalOlapScan rightDelta = buildDeltaScanForTable(2, "t2");
-        LogicalOlapScan rightSnapshot = buildScanForTable(3, "t3").withTso(77);
+        LogicalOlapScan rightSnapshot = buildScanForTable(3, "t3");
         LogicalProject<Plan> nullSide = normalizedInnerJoin(rowIdProject(rightDelta), rowIdProject(rightSnapshot));
         NormalizedOuterJoinPlan bundle = normalizedOuterJoin(rowIdProject(leftSnapshot), nullSide);
 
@@ -491,9 +491,8 @@ class IvmJoinDeltaHandlerTest extends IvmDeltaTestBase {
         IvmDeltaRewriteResult result = handler.exposeRewritePlan(bundle.topProject, ctx);
         LogicalUnion union = nullSideEventUnion(result.plan);
 
-        // Delta snapshot scans currently keep the copied scan TSO at the logical scan default.
-        assertSnapshotBranch(union.child(1), 0);
-        assertSnapshotBranch(union.child(2), 0);
+        assertSnapshotBranch(union.child(1), false);
+        assertSnapshotBranch(union.child(2), true);
     }
 
     @Test
@@ -540,21 +539,20 @@ class IvmJoinDeltaHandlerTest extends IvmDeltaTestBase {
         assertNoDuplicateScanRelationIds(result.plan);
     }
 
-    private void assertSnapshotBranch(Plan branch, long expectedDeltaSnapshotTso) {
+    private void assertSnapshotBranch(Plan branch, boolean postSnapshot) {
         List<LogicalOlapScan> scans = branch.collectToList(node -> node instanceof LogicalOlapScan);
-        LogicalOlapScan deltaSnapshot = scans.stream()
-                .filter(scan -> scan.getTable().getId() == 2
-                        && !IvmDeltaRewriteHelper.INSTANCE.isIncrementalDeltaScan(scan))
-                .findFirst()
-                .orElseThrow(() -> new AssertionError("Missing copied null-side delta scan"));
-        Assertions.assertEquals(expectedDeltaSnapshotTso, deltaSnapshot.getTso());
+        Assertions.assertTrue(scans.stream().noneMatch(IvmDeltaRewriteHelper.INSTANCE::isIncrementalDeltaScan));
+        if (postSnapshot) {
+            Assertions.assertTrue(scans.stream().noneMatch(scan -> scan instanceof LogicalOlapTableStreamScan),
+                    "Post-snapshot branch should not contain stream scans: " + scans);
+        }
 
         LogicalOlapScan otherSnapshot = scans.stream()
-                .filter(scan -> scan.getTable().getId() == 3)
+                .filter(scan -> "t3".equals(scan.getTable().getName()))
                 .findFirst()
                 .orElseThrow(() -> new AssertionError("Missing existing null-side snapshot scan"));
         Assertions.assertFalse(IvmDeltaRewriteHelper.INSTANCE.isIncrementalDeltaScan(otherSnapshot));
-        Assertions.assertEquals(77, otherSnapshot.getTso());
+        Assertions.assertFalse(otherSnapshot instanceof LogicalOlapTableStreamScan);
     }
 
     private void assertSingleFinalRowId(LogicalProject<?> topProject) {

@@ -18,11 +18,7 @@
 package org.apache.doris.mtmv.ivm;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.stream.OlapTableStreamWrapper;
 import org.apache.doris.common.Pair;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.copier.DeepCopierContext;
 import org.apache.doris.nereids.trees.copier.LogicalPlanDeepCopier;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -69,7 +65,8 @@ public class IvmDeltaRewriteHelper {
     Slot findSlotByName(List<Slot> slots, String name) {
         Slot slot = findSlotByNameOrNull(slots, name);
         if (slot == null) {
-            throw new AnalysisException("IVM failed to find slot: " + name);
+            throw new IvmException(IvmFailureReason.PLAN_REWRITE_FAILED,
+                    "IVM failed to find slot: " + name);
         }
         return slot;
     }
@@ -160,7 +157,8 @@ public class IvmDeltaRewriteHelper {
         Slot newDmlFactorSlot = guardProject.getOutput().stream()
                 .filter(s -> Column.IVM_DML_FACTOR_COL.equals(s.getName()))
                 .findFirst()
-                .orElseThrow(() -> new AnalysisException("IVM: lost dml_factor after non-det guard"));
+                .orElseThrow(() -> new IvmException(IvmFailureReason.PLAN_REWRITE_FAILED,
+                        "IVM: lost dml_factor after non-det guard"));
         Slot newBaseOpSlot = findSlotByName(guardProject.getOutput(), Column.IVM_BASE_OP_COL);
         return new IvmDeltaRewriteResult(guardProject, newDmlFactorSlot, newBaseOpSlot);
     }
@@ -348,8 +346,9 @@ public class IvmDeltaRewriteHelper {
      */
     LogicalProject<Plan> projectUnionOutputs(LogicalUnion union, List<Slot> targetOutputs) {
         if (union.getOutput().size() != targetOutputs.size()) {
-            throw new AnalysisException("IVM outer join rewrite changed union output size from "
-                    + targetOutputs.size() + " to " + union.getOutput().size());
+            throw new IvmException(IvmFailureReason.PLAN_REWRITE_FAILED,
+                    "IVM outer join rewrite changed union output size from "
+                            + targetOutputs.size() + " to " + union.getOutput().size());
         }
         ImmutableList.Builder<NamedExpression> projects = ImmutableList.builderWithExpectedSize(
                 targetOutputs.size());
@@ -381,7 +380,8 @@ public class IvmDeltaRewriteHelper {
             ExprId copiedExprId = copierContext.exprIdReplaceMap.get(sourceSlot.getExprId());
             Slot targetSlot = copiedExprId == null ? null : targetOutputByExprId.get(copiedExprId);
             if (targetSlot == null) {
-                throw new AnalysisException("IVM outer join rewrite lost copied output slot: " + sourceSlot);
+                throw new IvmException(IvmFailureReason.PLAN_REWRITE_FAILED,
+                        "IVM outer join rewrite lost copied output slot: " + sourceSlot);
             }
             outputMapping.put(sourceSlot, targetSlot);
         }
@@ -390,8 +390,9 @@ public class IvmDeltaRewriteHelper {
 
     private Map<Slot, Slot> mapOutputs(List<Slot> sourceOutput, List<Slot> targetOutput) {
         if (sourceOutput.size() != targetOutput.size()) {
-            throw new AnalysisException("IVM outer join rewrite changed output size from "
-                    + sourceOutput.size() + " to " + targetOutput.size());
+            throw new IvmException(IvmFailureReason.PLAN_REWRITE_FAILED,
+                    "IVM outer join rewrite changed output size from "
+                            + sourceOutput.size() + " to " + targetOutput.size());
         }
         Map<Slot, Slot> outputMapping = new HashMap<>();
         for (int i = 0; i < sourceOutput.size(); i++) {
@@ -433,34 +434,99 @@ public class IvmDeltaRewriteHelper {
     }
 
     /**
-     * Converts a delta stream scan back to a regular LogicalOlapScan with the given
-     * snapshot TSO for the snapshot side of the join delta plan.
-     *
-     * <p>This replaces the old {@code scan.withIsDelta(false).withTso(tso)} pattern.
-     * The returned scan uses the original OlapTable (not the stream wrapper) and
-     * carries a mock TSO (BE does not support TSO snapshot reads yet).
+     * Remap a new plan's output back to the old scan's output ExprIds and names.
      */
-    LogicalOlapScan toSnapshotScan(LogicalOlapTableStreamScan deltaScan, long tso) {
-        OlapTable originTable;
-        TableIf table = deltaScan.getTable();
-        if (table instanceof OlapTableStreamWrapper) {
-            originTable = ((OlapTableStreamWrapper) table).getBaseTable();
-        } else if (table instanceof OlapTable) {
-            originTable = (OlapTable) table;
-        } else {
-            throw new AnalysisException(
-                    "IVM: unexpected table type in delta scan: " + table.getClass().getSimpleName());
+    LogicalPlan remapScanOutput(LogicalOlapScan oldScan, LogicalPlan newPlan) {
+        Map<String, Slot> newSlotByName = new LinkedHashMap<>();
+        for (Slot slot : newPlan.getOutput()) {
+            newSlotByName.put(slot.getName(), slot);
         }
-        return new LogicalOlapScan(
-                deltaScan.getRelationId(),
-                originTable,
-                deltaScan.getQualifier(),
-                deltaScan.getManuallySpecifiedPartitions(),
-                deltaScan.getSelectedTabletIds(),
-                deltaScan.getHints(),
-                deltaScan.getTableSample(),
-                deltaScan.getOperativeSlots()
-        ).withTso(tso);
+
+        ImmutableList.Builder<NamedExpression> projects =
+                ImmutableList.builderWithExpectedSize(oldScan.getOutput().size());
+        for (Slot oldSlot : oldScan.getOutput()) {
+            Slot newSlot = newSlotByName.get(oldSlot.getName());
+            if (newSlot != null) {
+                if (!oldSlot.getDataType().equals(newSlot.getDataType())) {
+                    throw new IvmException(IvmFailureReason.PLAN_REWRITE_FAILED,
+                            "IVM: remap output type mismatch for column "
+                                    + oldSlot.getName() + ": old=" + oldSlot.getDataType()
+                                    + ", new=" + newSlot.getDataType());
+                }
+                projects.add(new Alias(oldSlot.getExprId(), newSlot, oldSlot.getName()));
+            } else if (oldSlot.getName().startsWith(Column.HIDDEN_COLUMN_PREFIX)) {
+                projects.add(new Alias(oldSlot.getExprId(),
+                        new NullLiteral(oldSlot.getDataType()), oldSlot.getName()));
+            } else {
+                throw new IvmException(IvmFailureReason.PLAN_REWRITE_FAILED,
+                        "IVM: new plan missing column "
+                                + oldSlot.getName() + " when remapping scan output");
+            }
+        }
+        return new LogicalProject<>(projects.build(), newPlan);
+    }
+
+    /**
+     * Rebuild a delta-wrapper project so its aliases point to a new child plan's output.
+     */
+    LogicalProject<?> remapProjectChildToNewPlan(LogicalProject<?> oldProject, LogicalPlan newChild) {
+        Map<String, Slot> newSlotByName = new LinkedHashMap<>();
+        for (Slot slot : newChild.getOutput()) {
+            newSlotByName.put(slot.getName(), slot);
+        }
+        ImmutableList.Builder<NamedExpression> newProjects =
+                ImmutableList.builderWithExpectedSize(oldProject.getProjects().size());
+        for (NamedExpression expr : oldProject.getProjects()) {
+            if (expr instanceof Alias) {
+                Alias alias = (Alias) expr;
+                Expression childExpr = alias.child();
+                if (childExpr instanceof Slot) {
+                    newProjects.add(remapAliasToNewChild(alias, (Slot) childExpr, newSlotByName));
+                } else if (childExpr instanceof NullLiteral) {
+                    Slot newSlot = newSlotByName.get(alias.getName());
+                    if (newSlot == null) {
+                        newProjects.add(new Alias(alias.getExprId(),
+                                new NullLiteral(alias.getDataType()), alias.getName()));
+                        continue;
+                    }
+                    newProjects.add(new Alias(alias.getExprId(), newSlot, alias.getName()));
+                } else {
+                    throw new IvmException(IvmFailureReason.PLAN_REWRITE_FAILED,
+                            "IVM: unsupported alias child in snapshot remap: " + childExpr);
+                }
+            } else if (expr instanceof Slot) {
+                Slot oldSlot = (Slot) expr;
+                Slot newSlot = newSlotByName.get(oldSlot.getName());
+                if (newSlot == null) {
+                    if (oldSlot.getName().startsWith(Column.HIDDEN_COLUMN_PREFIX)) {
+                        newProjects.add(new Alias(oldSlot.getExprId(),
+                                new NullLiteral(oldSlot.getDataType()), oldSlot.getName()));
+                        continue;
+                    }
+                    throw new IvmException(IvmFailureReason.PLAN_REWRITE_FAILED,
+                            "IVM: new child missing passthrough slot "
+                                    + oldSlot.getName() + " when remapping project child");
+                }
+                newProjects.add(new Alias(oldSlot.getExprId(), newSlot, oldSlot.getName()));
+            } else {
+                throw new IvmException(IvmFailureReason.PLAN_REWRITE_FAILED,
+                        "IVM: unsupported project output in snapshot remap: " + expr);
+            }
+        }
+        return new LogicalProject<>(newProjects.build(), newChild);
+    }
+
+    private Alias remapAliasToNewChild(Alias alias, Slot oldChildSlot, Map<String, Slot> newSlotByName) {
+        Slot newSlot = newSlotByName.get(oldChildSlot.getName());
+        if (newSlot != null) {
+            return new Alias(alias.getExprId(), newSlot, alias.getName());
+        }
+        if (oldChildSlot.getName().startsWith(Column.HIDDEN_COLUMN_PREFIX)) {
+            return new Alias(alias.getExprId(), new NullLiteral(oldChildSlot.getDataType()), alias.getName());
+        }
+        throw new IvmException(IvmFailureReason.PLAN_REWRITE_FAILED,
+                "IVM: new child missing column "
+                        + oldChildSlot.getName() + " when remapping project child");
     }
 
 }

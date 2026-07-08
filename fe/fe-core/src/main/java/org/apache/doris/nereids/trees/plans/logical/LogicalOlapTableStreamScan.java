@@ -21,6 +21,7 @@ import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.stream.OlapTableStream;
 import org.apache.doris.catalog.stream.OlapTableStreamWrapper;
 import org.apache.doris.catalog.stream.StreamReadMode;
 import org.apache.doris.common.IdGenerator;
@@ -474,6 +475,80 @@ public class LogicalOlapTableStreamScan extends LogicalOlapScan {
                         manuallySpecifiedTabletIds, operativeSlots, virtualColumns, scoreOrderKeys, scoreLimit,
                         scoreRangeInfo, annOrderKeys, annLimit, tableAlias, partitionPrunablePredicates,
                         scanParams, readMode));
+    }
+
+    @Override
+    public LogicalPlan withPreSnapshot(Optional<OlapTableStream> stream) {
+        return new LogicalOlapTableStreamScan(
+                relationId,
+                (Table) table,
+                qualifier,
+                groupExpression,
+                Optional.empty(),
+                selectedPartitionIds,
+                partitionPruned,
+                hasPartitionPredicate,
+                selectedTabletIds,
+                selectedIndexId,
+                indexSelected,
+                preAggStatus,
+                manuallySpecifiedPartitions,
+                hints,
+                cacheSlotWithSlotName,
+                Optional.empty(),
+                tableSample,
+                directMvScan,
+                colToSubPathsMap,
+                manuallySpecifiedTabletIds,
+                operativeSlots,
+                virtualColumns,
+                scoreOrderKeys,
+                scoreLimit,
+                scoreRangeInfo,
+                annOrderKeys,
+                annLimit,
+                tableAlias,
+                partitionPrunablePredicates,
+                scanParams,
+                isNormalized,
+                false,
+                false,
+                true);
+    }
+
+    @Override
+    public LogicalPlan withPostSnapshot() {
+        return new LogicalOlapScan(
+                StatementScopeIdGenerator.newRelationId(),
+                getTable().getBaseTable(),
+                qualifier,
+                groupExpression,
+                Optional.empty(),
+                selectedPartitionIds,
+                partitionPruned,
+                hasPartitionPredicate,
+                selectedTabletIds,
+                selectedIndexId,
+                indexSelected,
+                preAggStatus,
+                manuallySpecifiedPartitions,
+                hints,
+                cacheSlotWithSlotName,
+                Optional.empty(),
+                tableSample,
+                directMvScan,
+                colToSubPathsMap,
+                manuallySpecifiedTabletIds,
+                operativeSlots,
+                virtualColumns,
+                scoreOrderKeys,
+                scoreLimit,
+                scoreRangeInfo,
+                annOrderKeys,
+                annLimit,
+                tableAlias,
+                partitionPrunablePredicates,
+                scanParams);
     }
 
     @Override
