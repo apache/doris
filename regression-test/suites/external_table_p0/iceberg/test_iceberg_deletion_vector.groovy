@@ -523,9 +523,17 @@ s3.path-style-access=true
         return matcher.group(1).split(",").collect { it.trim() }.findAll { !it.isEmpty() }.size()
     }
 
+    def aliveBackendCount = {
+        def backends = sql_return_maparray("show backends")
+        int aliveCount = backends.count { be ->
+            be.Alive == null || be.Alive.toString().equalsIgnoreCase("true")
+        }
+        return aliveCount > 0 ? aliveCount : backends.size()
+    }
+
     // Split/cache scenario for 3.4: this query scans one data file with file_split_size=1. The
     // result is captured by qt_split_cache_single_file_count; the profile assertion checks the DV
-    // rows were materialized once for the shared scan-node cache, not once per split.
+    // rows were materialized once per backend-local scan cache, not once per split.
     String splitCacheProfileTag = "iceberg_dv_split_cache_" + UUID.randomUUID().toString()
     profile(splitCacheProfileTag) {
         run {
@@ -555,12 +563,20 @@ s3.path-style-access=true
             }
             def numDeleteRowsValues = profileCounterValues(mergedProfile, "NumDeleteRows")
             numDeleteRowsValues = numDeleteRowsValues.findAll { it > 0L }
+            long numDeleteRows = numDeleteRowsValues.sum(0L)
+            long expectedDeleteRowsPerDv = 2048L
+            int maxBackendLocalLoads = aliveBackendCount()
             int scannerCount = profileInfoValueCount(profileString, "PerScannerRowsRead")
             assertFalse(numDeleteRowsValues.isEmpty(),
                     "Expected NumDeleteRows counter for split DV scan, profile: ${profileString}")
-            assertEquals(2048L, numDeleteRowsValues.sum(0L),
-                    "Expected DV rows to be materialized once across split scanners, " +
+            assertEquals(0L, numDeleteRows % expectedDeleteRowsPerDv,
+                    "Expected DV rows to be counted in backend-local DV loads, " +
                             "NumDeleteRows counters: ${numDeleteRowsValues}, profile: ${profileString}")
+            assertTrue(numDeleteRows >= expectedDeleteRowsPerDv &&
+                            numDeleteRows <= expectedDeleteRowsPerDv * maxBackendLocalLoads,
+                    "Expected DV rows to be materialized at most once per backend-local cache, " +
+                            "alive backends: ${maxBackendLocalLoads}, NumDeleteRows counters: " +
+                            "${numDeleteRowsValues}, profile: ${profileString}")
             assertTrue(scannerCount > 1,
                     "Expected multiple scanner entries for split DV scan, profile: ${profileString}")
         }
