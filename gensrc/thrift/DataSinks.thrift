@@ -46,6 +46,7 @@ enum TDataSinkType {
     MAXCOMPUTE_TABLE_SINK = 18,
     ICEBERG_DELETE_SINK = 19,
     ICEBERG_MERGE_SINK = 20,
+    PAIMON_TABLE_SINK = 21,
 }
 
 enum TResultSinkType {
@@ -618,6 +619,35 @@ struct TMaxComputeTableSink {
     18: optional i64 txn_id                       // FE external transaction ID for runtime block_id allocation
 }
 
+enum TPaimonWriteBackendType {
+    JNI = 0,
+    FFI = 1,
+}
+
+enum TPaimonWriteMode {
+    APPEND = 0,
+    OVERWRITE = 1,
+}
+
+struct TPaimonCommitMessage {
+    1: optional binary partition       // serialized BinaryRow bytes
+    2: optional i32 bucket
+    3: optional binary payload          // Paimon native CommitMessageSerializer bytes
+}
+
+struct TPaimonTableSink {
+    1: optional string db_name
+    2: optional string tb_name
+    3: optional string table_location
+    4: optional map<string, string> paimon_options
+    5: optional map<string, string> hadoop_config
+    6: optional i32 bucket_num
+    7: optional list<string> column_names
+    8: optional string serialized_table       // serialized Paimon Table object (base64)
+    9: optional TPaimonWriteBackendType backend_type  // v1 fixed to JNI
+    10: optional TPaimonWriteMode write_mode           // v1 fixed to APPEND
+}
+
 struct TDataSink {
   1: required TDataSinkType type
   2: optional TDataStreamSink stream_sink
@@ -638,4 +668,5 @@ struct TDataSink {
   18: optional TMaxComputeTableSink max_compute_table_sink
   19: optional TIcebergDeleteSink iceberg_delete_sink
   20: optional TIcebergMergeSink iceberg_merge_sink
+  21: optional TPaimonTableSink paimon_table_sink
 }
