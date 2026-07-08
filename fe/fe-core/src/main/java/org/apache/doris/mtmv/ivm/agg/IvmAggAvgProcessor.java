@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunctio
 import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.collect.ImmutableList;
 
@@ -55,8 +56,8 @@ class IvmAggAvgProcessor extends IvmAggSumLikeProcessor {
         Expression newCount = applyContext.buildNewHiddenCount(target);
         applyContext.putFinalExpression(target.getHiddenStateSlot(IvmAggStateKey.SUM).getName(), newSum);
         applyContext.putFinalExpression(target.getHiddenStateSlot(IvmAggStateKey.COUNT).getName(), newCount);
-        Expression divisor = ctx.castIfNeeded(newCount, newSum.getDataType());
-        Expression visibleValue = ctx.castIfNeeded(new Divide(newSum, divisor),
+        Expression visibleValue = TypeCoercionUtils.castIfNotMatchType(
+                TypeCoercionUtils.processDivide(new Divide(newSum, newCount)),
                 target.getVisibleSlot().getDataType());
         applyContext.putFinalExpression(target.getVisibleSlot().getName(),
                 new If(ctx.isPositive(newCount), visibleValue,
