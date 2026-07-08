@@ -22,6 +22,7 @@ import org.apache.doris.connector.api.ConnectorCapability;
 import org.apache.doris.connector.api.ConnectorMetadata;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.DorisConnectorException;
+import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.api.write.ConnectorWritePlanProvider;
 import org.apache.doris.connector.hms.HmsClient;
@@ -100,6 +101,26 @@ public class HiveConnector implements Connector {
     @Override
     public ConnectorScanPlanProvider getScanPlanProvider() {
         return new HiveScanPlanProvider(getOrCreateClient(), properties, readTxnManager);
+    }
+
+    /**
+     * Selects the scan provider for a given table handle — the gateway seam a flipped hms catalog uses to serve
+     * its iceberg-on-HMS tables from the embedded iceberg sibling. A hive handle (the gateway's OWN hive-loader
+     * type) runs the hive scan provider; any foreign handle (the raw iceberg handle the sibling's getTableHandle
+     * produced) is delegated to the sibling's per-handle scan provider. Because the returned sibling provider is
+     * built in the iceberg plugin's classloader, {@code PluginDrivenScanNode.onPluginClassLoader} auto-pins the
+     * scan-thread TCCL to the iceberg loader for free (it keys off {@code provider.getClass().getClassLoader()}),
+     * so no pinning is needed here. The foreign handle is passed through UNMODIFIED and NEVER cast (its concrete
+     * iceberg type is invisible across the loader split — a cast would CCE). A HUDI table keeps a HiveTableHandle,
+     * so it stays on the hive scan path (its delegation is a later substep). Pairs with the getTableHandle iceberg
+     * divert; dormant until hms enters SPI_READY_TYPES (nothing selects a scan provider for this connector today).
+     */
+    @Override
+    public ConnectorScanPlanProvider getScanPlanProvider(ConnectorTableHandle handle) {
+        if (handle instanceof HiveTableHandle) {
+            return getScanPlanProvider();
+        }
+        return getOrCreateIcebergSibling().getScanPlanProvider(handle);
     }
 
     @Override
