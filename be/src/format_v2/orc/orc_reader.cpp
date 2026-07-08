@@ -749,14 +749,22 @@ bool set_floating_zone_map(const ::orc::Type& type, const ::orc::ColumnStatistic
     return false;
 }
 
-bool set_string_zone_map(const ::orc::ColumnStatistics& statistics, segment_v2::ZoneMap* zone_map) {
+bool set_string_zone_map(const ::orc::Type& type, const ::orc::ColumnStatistics& statistics,
+                         segment_v2::ZoneMap* zone_map) {
     const auto* string_statistics = dynamic_cast<const ::orc::StringColumnStatistics*>(&statistics);
     if (string_statistics == nullptr || !string_statistics->hasMinimum() ||
         !string_statistics->hasMaximum()) {
         return false;
     }
-    zone_map->min_value = Field::create_field<TYPE_STRING>(string_statistics->getMinimum());
-    zone_map->max_value = Field::create_field<TYPE_STRING>(string_statistics->getMaximum());
+    const auto build_field = [&](const std::string& value) {
+        if (type.getKind() != ::orc::TypeKind::CHAR) {
+            return Field::create_field<TYPE_STRING>(value);
+        }
+        return Field::create_field<TYPE_STRING>(
+                std::string(value.data(), trim_right_spaces(value.data(), value.size())));
+    };
+    zone_map->min_value = build_field(string_statistics->getMinimum());
+    zone_map->max_value = build_field(string_statistics->getMaximum());
     return true;
 }
 
@@ -879,7 +887,7 @@ bool build_zone_map_from_orc_statistics(const ::orc::Type& type,
     case ::orc::TypeKind::STRING:
     case ::orc::TypeKind::VARCHAR:
     case ::orc::TypeKind::CHAR:
-        return set_string_zone_map(statistics, zone_map);
+        return set_string_zone_map(type, statistics, zone_map);
     case ::orc::TypeKind::DATE:
         return set_date_zone_map(statistics, zone_map);
     case ::orc::TypeKind::TIMESTAMP:
@@ -2351,6 +2359,55 @@ Status OrcReader::get_aggregate_result(const format::FileAggregateRequest& reque
     }
 
     if (request.agg_type == TPushAggOp::type::COUNT) {
+        if (request.columns.empty()) {
+            return Status::OK();
+        }
+        if (request.columns.size() != 1) {
+            return Status::NotSupported("ORC COUNT pushdown only supports one count column");
+        }
+        const auto& count_projection = request.columns[0].projection;
+        if (!count_projection.project_all_children || !count_projection.children.empty()) {
+            return Status::NotSupported(
+                    "ORC COUNT pushdown only supports top-level column projection");
+        }
+        if (count_projection.local_id() < 0 ||
+            count_projection.local_id() >=
+                    static_cast<int32_t>(_state->root_type->getSubtypeCount())) {
+            return Status::InvalidArgument("Invalid ORC COUNT aggregate column id {}",
+                                           count_projection.local_id());
+        }
+        const auto* count_type =
+                _state->root_type->getSubtype(static_cast<uint64_t>(count_projection.local_id()));
+        DORIS_CHECK(count_type != nullptr);
+
+        result->count = 0;
+        const auto stripe_statistics_count = _state->reader->getNumberOfStripeStatistics();
+        for (const auto stripe_index : selected_stripes) {
+            if (stripe_index >= stripe_statistics_count) {
+                return Status::NotSupported(
+                        "Missing ORC stripe statistics for COUNT column kind {} in stripe {}",
+                        static_cast<int>(count_type->getKind()), stripe_index);
+            }
+            std::unique_ptr<::orc::StripeStatistics> stripe_statistics;
+            try {
+                stripe_statistics = _state->reader->getStripeStatistics(stripe_index);
+            } catch (const std::exception& e) {
+                return Status::InternalError("Failed to read ORC stripe statistics {}: {}",
+                                             stripe_index, e.what());
+            }
+            if (stripe_statistics == nullptr) {
+                return Status::NotSupported("Missing ORC stripe statistics for stripe {}",
+                                            stripe_index);
+            }
+            const auto* column_statistics = stripe_statistics->getColumnStatistics(
+                    cast_set<uint32_t>(count_type->getColumnId()));
+            if (column_statistics == nullptr) {
+                return Status::NotSupported(
+                        "Missing ORC COUNT statistics for column kind {} in stripe {}",
+                        static_cast<int>(count_type->getKind()), stripe_index);
+            }
+            result->count += cast_set<int64_t>(column_statistics->getNumberOfValues());
+        }
         return Status::OK();
     }
 

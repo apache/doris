@@ -4238,6 +4238,56 @@ TEST_F(NewOrcReaderTest, AggregatePushdownTimestampMinMaxUsesSessionTimezone) {
               make_datetime_v2(1970, 1, 1, 9, 0, 0, 123000));
 }
 
+TEST_F(NewOrcReaderTest, AggregatePushdownCharMinMaxTrimsTrailingSpaces) {
+    const auto multi_stripe_file_path = (_test_dir / "aggregate_char_minmax.orc").string();
+    write_multi_stripe_orc_char_file(multi_stripe_file_path);
+
+    auto reader = create_reader_for_path(multi_stripe_file_path);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->non_predicate_columns = {field_projection(0)};
+    ASSERT_TRUE(reader->open(request).ok());
+
+    format::FileAggregateRequest aggregate_request;
+    aggregate_request.agg_type = TPushAggOp::type::MINMAX;
+    aggregate_request.columns.push_back({.projection = field_projection(0)});
+    format::FileAggregateResult aggregate_result;
+    auto status = reader->get_aggregate_result(aggregate_request, &aggregate_result);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_EQ(aggregate_result.columns.size(), 1);
+    EXPECT_TRUE(aggregate_result.columns[0].has_min);
+    EXPECT_TRUE(aggregate_result.columns[0].has_max);
+    EXPECT_EQ(aggregate_result.columns[0].min_value.get<TYPE_STRING>(), "aaa_1000");
+    EXPECT_EQ(aggregate_result.columns[0].max_value.get<TYPE_STRING>(), "zzz_1199");
+}
+
+TEST_F(NewOrcReaderTest, AggregatePushdownCountColumnUsesNonNullValueCount) {
+    const auto multi_stripe_file_path = (_test_dir / "aggregate_count_nullable_int.orc").string();
+    write_two_stripe_orc_nullable_int_file(multi_stripe_file_path);
+
+    auto reader = create_reader_for_path(multi_stripe_file_path);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+    ASSERT_TRUE(reader->open(std::make_shared<format::FileScanRequest>()).ok());
+
+    format::FileAggregateRequest count_star_request;
+    count_star_request.agg_type = TPushAggOp::type::COUNT;
+    format::FileAggregateResult count_star_result;
+    auto status = reader->get_aggregate_result(count_star_request, &count_star_result);
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_EQ(count_star_result.count, 400);
+
+    format::FileAggregateRequest count_column_request;
+    count_column_request.agg_type = TPushAggOp::type::COUNT;
+    count_column_request.columns.push_back({.projection = field_projection(0)});
+    format::FileAggregateResult count_column_result;
+    status = reader->get_aggregate_result(count_column_request, &count_column_result);
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_EQ(count_column_result.count, 200);
+}
+
 TEST_F(NewOrcReaderTest, GetSchemaReturnsFileLocalColumns) {
     auto reader = create_reader();
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
