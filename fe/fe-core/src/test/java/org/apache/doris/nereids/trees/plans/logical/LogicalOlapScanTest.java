@@ -230,7 +230,7 @@ public class LogicalOlapScanTest {
         Assertions.assertInstanceOf(LogicalOlapTableStreamScan.class, snapshot);
         LogicalOlapTableStreamScan streamScan = (LogicalOlapTableStreamScan) snapshot;
         Assertions.assertTrue(streamScan.isSnapshot());
-        Assertions.assertFalse(streamScan.isIncrementalScan());
+        Assertions.assertFalse(streamScan.isIncremental());
         Assertions.assertFalse(streamScan.isReset());
     }
 

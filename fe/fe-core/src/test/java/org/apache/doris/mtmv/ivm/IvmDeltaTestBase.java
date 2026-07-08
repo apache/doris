@@ -103,7 +103,7 @@ abstract class IvmDeltaTestBase {
         return scan;
     }
 
-    /** Builds an incremental delta scan (LogicalOlapTableStreamScan with isIncrementalScan=true). */
+    /** Builds an incremental delta scan (LogicalOlapTableStreamScan with isIncremental=true). */
     protected LogicalOlapTableStreamScan buildDeltaScan() {
         OlapTable table = PlanConstructor.newOlapTable(0, "t1", 0);
         addTestPartition(table);
@@ -111,7 +111,7 @@ abstract class IvmDeltaTestBase {
         table.setQualifiedDbName("test_db");
         return new LogicalOlapTableStreamScan(PlanConstructor.getNextRelationId(), buildStreamWrapper(table),
                 ImmutableList.of("test_db"), ImmutableList.of(), ImmutableList.of(),
-                Optional.empty(), ImmutableList.of()).withIncrementalScan(true);
+                Optional.empty(), ImmutableList.of());
     }
 
     /** Builds an incremental delta scan for the given table id and name. */
@@ -122,7 +122,7 @@ abstract class IvmDeltaTestBase {
         table.setQualifiedDbName("test_db");
         return new LogicalOlapTableStreamScan(PlanConstructor.getNextRelationId(), buildStreamWrapper(table),
                 ImmutableList.of("test_db"), ImmutableList.of(), ImmutableList.of(),
-                Optional.empty(), ImmutableList.of()).withIncrementalScan(true);
+                Optional.empty(), ImmutableList.of());
     }
 
     /** Builds a scan for the given table id and name (for delta plan generator tests). */
