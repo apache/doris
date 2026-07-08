@@ -144,4 +144,9 @@ public class StateCombinator extends ScalarFunction
     public void checkLegalityBeforeTypeCoercion() {
         nested.checkLegalityBeforeTypeCoercion();
     }
+
+    @Override
+    public void checkLegalityAfterRewrite() {
+        nested.checkLegalityAfterRewrite();
+    }
 }

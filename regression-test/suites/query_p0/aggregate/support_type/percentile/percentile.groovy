@@ -112,4 +112,12 @@ suite("percentile") {
         sql """select percentile(col_double, 1.1) from d_table;"""
         exception "percentile quantile must be in [0, 1]"
     }
+    test {
+        sql """select percentile_state(col_double, 1.1) from d_table;"""
+        exception "percentile quantile must be in [0, 1]"
+        check { result, exception, startTime, endTime ->
+            assertTrue(exception != null)
+            assertFalse(exception.toString().contains("INTERNAL_ERROR"))
+        }
+    }
 }

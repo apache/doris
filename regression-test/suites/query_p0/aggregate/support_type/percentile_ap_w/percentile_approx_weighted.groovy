@@ -82,4 +82,12 @@ suite("percentile_approx_weighted") {
         sql """select percentile_approx_weighted(col_double, col_float, 1.1) from d_table;"""
         exception "percentile_approx_weighted quantile must be in [0, 1]"
     }
+    test {
+        sql """select percentile_approx_weighted_state(col_double, col_float, 1.1) from d_table;"""
+        exception "percentile_approx_weighted quantile must be in [0, 1]"
+        check { result, exception, startTime, endTime ->
+            assertTrue(exception != null)
+            assertFalse(exception.toString().contains("INTERNAL_ERROR"))
+        }
+    }
 }
