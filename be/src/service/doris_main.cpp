@@ -63,6 +63,7 @@
 #include <thrift/TOutput.h>
 
 #include "agent/heartbeat_server.h"
+#include "common/asan_repro.h"
 #include "common/config.h"
 #include "common/daemon.h"
 #include "common/logging.h"
@@ -347,6 +348,14 @@ int main(int argc, char** argv) {
             exit(0);
         }
     }
+
+    // Deliberate reproducer for the historical ASAN stale-stack-poison crash
+    // (thrift reopen / glog LOG(WARNING) cores). No-op in non-ASAN builds; on
+    // ASAN builds it either crashes here with the historical signature
+    // (positive reproduction) or prints "[ASAN-REPRO] RESULT: NEGATIVE" and
+    // lets the BE start. See asan-glog-rca.md at the repository root.
+    // Set DORIS_DISABLE_ASAN_REPRO=1 to skip.
+    doris::run_asan_stale_poison_repro();
 
     if (getenv("DORIS_HOME") == nullptr) {
         fprintf(stderr, "you need set DORIS_HOME environment variable.\n");
