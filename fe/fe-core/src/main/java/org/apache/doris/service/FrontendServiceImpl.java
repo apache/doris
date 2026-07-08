@@ -3877,8 +3877,18 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         String cachedClusterId = null;
         for (String partitionName : addPartitionClauseMap.keySet()) {
             Partition partition = table.getPartition(partitionName);
+            if (partition == null) {
+                // The partition was just created above, but may have been concurrently dropped before this
+                // read-back, e.g. by DynamicPartitionScheduler enforcing partition.retention_count or dynamic
+                // partition cleanup. Return a retryable error status instead of throwing NPE on partition.getId().
+                errorStatus.setErrorMsgs(Lists.newArrayList(String.format(
+                        "partition %s was concurrently dropped, please retry", partitionName)));
+                result.setStatus(errorStatus);
+                LOG.warn("send create partition error status: {}", result);
+                return result;
+            }
             // For thread safety, we preserve the tablet distribution information of each partition
-            // before calling getOrSetAutoPartitionInfo, but not check the partition first
+            // before calling getOrSetAutoPartitionInfo.
             List<TTabletLocation> partitionTablets = new ArrayList<>();
             List<TTabletLocation> partitionSlaveTablets = new ArrayList<>();
             TOlapTablePartition tPartition = new TOlapTablePartition();

@@ -39,12 +39,29 @@ suite("test_backup_restore_retention_count", "backup_restore") {
         )
     """
 
-    // Insert data to create partitions
-    sql """
-        INSERT INTO ${dbName}.${tableName} 
-        SELECT date_add('2020-01-01 00:00:00', interval number day) 
-        FROM numbers("number" = "10")
-    """
+    // Insert data to create partitions.
+    // Auto-partition on-the-fly createPartition can race with DynamicPartitionScheduler's retention
+    // cleanup (partition.retention_count) when a concurrent suite lowers the global
+    // dynamic_partition_check_interval_seconds: the scheduler may drop a just-created history partition
+    // before the createPartition RPC finishes, surfacing as a transient createPartition RPC error.
+    // Retry the insert on that transient contention.
+    def maxInsertRetries = 10
+    for (int i = 0; i < maxInsertRetries; i++) {
+        try {
+            sql """
+                INSERT INTO ${dbName}.${tableName}
+                SELECT date_add('2020-01-01 00:00:00', interval number day)
+                FROM numbers("number" = "10")
+            """
+            break
+        } catch (Exception e) {
+            if (i == maxInsertRetries - 1 || !e.getMessage().contains("createPartition")) {
+                throw e
+            }
+            logger.warn("insert raced with retention cleanup, retry ${i + 1}: ${e.getMessage()}")
+            sleep(2000)
+        }
+    }
 
     sql "alter table ${dbName}.${tableName}  set ('partition.retention_count' = '4')"
 
