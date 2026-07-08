@@ -39,6 +39,9 @@ import java.util.Optional;
 public class PhysicalPaimonTableSink<CHILD_TYPE extends Plan>
         extends PhysicalBaseExternalTableSink<CHILD_TYPE> {
 
+    private final PaimonExternalDatabase database;
+    private final PaimonExternalTable targetTable;
+
     public PhysicalPaimonTableSink(PaimonExternalDatabase database,
                                     PaimonExternalTable targetTable,
                                     List<Column> cols,
@@ -64,9 +67,6 @@ public class PhysicalPaimonTableSink<CHILD_TYPE extends Plan>
         this.database = database;
         this.targetTable = targetTable;
     }
-
-    private final PaimonExternalDatabase database;
-    private final PaimonExternalTable targetTable;
 
     public PaimonExternalDatabase getDatabase() {
         return database;

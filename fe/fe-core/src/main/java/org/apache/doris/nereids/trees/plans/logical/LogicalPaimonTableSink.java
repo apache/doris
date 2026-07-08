@@ -63,6 +63,7 @@ public class LogicalPaimonTableSink<CHILD_TYPE extends Plan> extends LogicalTabl
         this.dmlCommandType = dmlCommandType;
     }
 
+    /** Update output expressions based on child output and replace child. */
     public Plan withChildAndUpdateOutput(Plan child) {
         List<NamedExpression> output = child.getOutput().stream()
                 .map(NamedExpression.class::cast)
@@ -101,9 +102,15 @@ public class LogicalPaimonTableSink<CHILD_TYPE extends Plan> extends LogicalTabl
 
     @Override
     public boolean equals(Object o) {
-        if (this == o) return true;
-        if (o == null || getClass() != o.getClass()) return false;
-        if (!super.equals(o)) return false;
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        if (!super.equals(o)) {
+            return false;
+        }
         LogicalPaimonTableSink<?> that = (LogicalPaimonTableSink<?>) o;
         return dmlCommandType == that.dmlCommandType
                 && Objects.equals(database, that.database)

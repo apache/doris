@@ -211,7 +211,9 @@ public class PaimonTableSink extends BaseExternalTableDataSink {
     }
 
     private static String resolveDefaultFsName(String warehouse) {
-        if (warehouse == null || warehouse.isEmpty()) return null;
+        if (warehouse == null || warehouse.isEmpty()) {
+            return null;
+        }
         try {
             java.net.URI uri = java.net.URI.create(warehouse);
             String scheme = uri.getScheme();
