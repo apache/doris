@@ -39,6 +39,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyColumnOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyPartitionOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ReorderColumnsOp;
+import org.apache.doris.load.LoadsHistorySyncer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.plugin.audit.AuditLoader;
@@ -109,6 +110,7 @@ public class InternalSchemaInitializer extends Thread {
         modifyTblReplicaCount(database, StatisticConstants.TABLE_STATISTIC_TBL_NAME);
         modifyTblReplicaCount(database, StatisticConstants.PARTITION_STATISTIC_TBL_NAME);
         modifyTblReplicaCount(database, AuditLoader.AUDIT_LOG_TABLE);
+        modifyTblReplicaCount(database, LoadsHistorySyncer.LOADS_HISTORY_TABLE);
     }
 
     public void modifyColumnStatsTblSchema() {
@@ -403,6 +405,18 @@ public class InternalSchemaInitializer extends Thread {
          * )
          */
         createTable(getAuditLogCreateSql());
+        /**
+         * CREATE TABLE IF NOT EXISTS `internal`.`__internal_schema`.`loads_history` (
+         *   `finish_time` datetimev2(3) NOT NULL COMMENT "",
+         *   `record_key` varchar(768) NOT NULL COMMENT "",
+         *   ... 20 unified "loads" string columns ...
+         * ) ENGINE = olap
+         * UNIQUE KEY(`finish_time`, `record_key`)
+         * PARTITION BY RANGE(`finish_time`) ()
+         * DISTRIBUTED BY HASH(`record_key`) BUCKETS 2
+         * PROPERTIES ("dynamic_partition.enable" = "true", ...)
+         */
+        createTable(getLoadsHistoryCreateSql());
     }
 
     private static String getStatisticsCreateSql(String tableName, List<String> uniqueKeys) throws UserException {
@@ -474,6 +488,45 @@ public class InternalSchemaInitializer extends Thread {
                         + "\n"
                         + ")\n"
                         + "DISTRIBUTED BY HASH(`query_id`)\n"
+                        + "BUCKETS 2\n"
+                        + "PROPERTIES (%s)";
+        return String.format(template, catalogName, dbName, tableName,
+                generateColumnDefinitions(InternalSchema.getCopiedSchema(tableName)), getPropertyStr(properties));
+    }
+
+    private static String getLoadsHistoryCreateSql() throws UserException {
+        String catalogName = InternalCatalog.INTERNAL_CATALOG_NAME;
+        String dbName = FeConstants.INTERNAL_DB_NAME;
+        String tableName = LoadsHistorySyncer.LOADS_HISTORY_TABLE;
+
+        Map<String, String> properties = new HashMap<String, String>() {
+            {
+                put("dynamic_partition.time_unit", "DAY");
+                put("dynamic_partition.start",
+                        String.valueOf(-Math.max(1, Config.loads_history_retention_day)));
+                put("dynamic_partition.end", "3");
+                put("dynamic_partition.prefix", "p");
+                put("dynamic_partition.buckets", "2");
+                put("dynamic_partition.enable", "true");
+                put("replication_num", String.valueOf(Math.max(1,
+                        Config.min_replication_num_per_tablet)));
+            }
+        };
+
+        // UNIQUE KEY(finish_time, record_key) makes the periodic sync idempotent: re-scanning the
+        // same final-state record upserts the same row instead of appending a duplicate. Retention
+        // is enforced by day-level dynamic partition eviction, no dedicated cleanup thread.
+        String template =
+                "CREATE TABLE IF NOT EXISTS `%s`.`%s`.`%s` (\n"
+                        + "%s\n"
+                        + ") ENGINE = olap\n"
+                        + "UNIQUE KEY(`finish_time`, `record_key`)\n"
+                        + "COMMENT \"Doris internal loads history table, DO NOT MODIFY IT\"\n"
+                        + "PARTITION BY RANGE(`finish_time`)\n"
+                        + "(\n"
+                        + "\n"
+                        + ")\n"
+                        + "DISTRIBUTED BY HASH(`record_key`)\n"
                         + "BUCKETS 2\n"
                         + "PROPERTIES (%s)";
         return String.format(template, catalogName, dbName, tableName,
@@ -573,17 +626,24 @@ public class InternalSchemaInitializer extends Thread {
         // 4. check and update audit table schema
         OlapTable auditTable = (OlapTable) optionalTable.get();
 
-        // 5. check if we need to add new columns
-        return alterAuditSchemaIfNeeded(auditTable);
+        // 5. check loads history table
+        Optional<Table> loadsHistoryTable = db.getTable(LoadsHistorySyncer.LOADS_HISTORY_TABLE);
+        if (!loadsHistoryTable.isPresent()) {
+            return false;
+        }
+
+        // 6. check if we need to add new columns
+        return alterSchemaIfNeeded(auditTable, AuditLoader.AUDIT_LOG_TABLE, InternalSchema.AUDIT_SCHEMA)
+                && alterSchemaIfNeeded((OlapTable) loadsHistoryTable.get(),
+                        LoadsHistorySyncer.LOADS_HISTORY_TABLE, InternalSchema.LOADS_HISTORY_SCHEMA);
     }
 
-    private boolean alterAuditSchemaIfNeeded(OlapTable auditTable) {
-        List<ColumnDef> expectedSchema = InternalSchema.AUDIT_SCHEMA;
+    private boolean alterSchemaIfNeeded(OlapTable table, String tableName, List<ColumnDef> expectedSchema) {
         List<String> expectedColumnNames = expectedSchema.stream()
                 .map(ColumnDef::getName)
                 .map(String::toLowerCase)
                 .collect(Collectors.toList());
-        List<Column> currentColumns = auditTable.getBaseSchema();
+        List<Column> currentColumns = table.getBaseSchema();
         List<String> currentColumnNames = currentColumns.stream()
                 .map(Column::getName)
                 .map(String::toLowerCase)
@@ -613,13 +673,13 @@ public class InternalSchemaInitializer extends Thread {
         newColumnOrders.addAll(removedColumnNames);
         ReorderColumnsOp reorderColumnsOp = new ReorderColumnsOp(newColumnOrders, null, Maps.newHashMap());
         alterClauses.add(reorderColumnsOp);
-        TableNameInfo auditTableName = new TableNameInfo(InternalCatalog.INTERNAL_CATALOG_NAME,
-                FeConstants.INTERNAL_DB_NAME, AuditLoader.AUDIT_LOG_TABLE);
-        AlterTableCommand alterTableCommand = new AlterTableCommand(auditTableName, alterClauses);
+        TableNameInfo alterTableName = new TableNameInfo(InternalCatalog.INTERNAL_CATALOG_NAME,
+                FeConstants.INTERNAL_DB_NAME, tableName);
+        AlterTableCommand alterTableCommand = new AlterTableCommand(alterTableName, alterClauses);
         try {
             Env.getCurrentEnv().alterTable(alterTableCommand);
         } catch (Exception e) {
-            LOG.warn("Failed to alter audit table schema", e);
+            LOG.warn("Failed to alter internal table {} schema", tableName, e);
             return false;
         }
         return true;

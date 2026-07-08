@@ -21,6 +21,7 @@ import org.apache.doris.analysis.ColumnDef;
 import org.apache.doris.analysis.ColumnNullableType;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
+import org.apache.doris.load.LoadsHistorySyncer;
 import org.apache.doris.plugin.audit.AuditLoader;
 import org.apache.doris.statistics.StatisticConstants;
 
@@ -36,6 +37,7 @@ public class InternalSchema {
     public static final List<ColumnDef> PARTITION_STATS_SCHEMA;
     public static final List<ColumnDef> HISTO_STATS_SCHEMA;
     public static final List<ColumnDef> AUDIT_SCHEMA;
+    public static final List<ColumnDef> LOADS_HISTORY_SCHEMA;
 
     static {
         // table statistics table
@@ -233,6 +235,57 @@ public class InternalSchema {
         // Keep stmt as last column. So that in fe.audit.log, it will be easier to get sql string
         AUDIT_SCHEMA.add(new ColumnDef("stmt",
                 ScalarType.createType(PrimitiveType.STRING), ColumnNullableType.NULLABLE));
+
+        // Internal storage table for information_schema.loads_history. The first two columns are
+        // the UNIQUE KEY: finish_time is the typed partition column (day-level dynamic partition
+        // retention) and record_key is the stable dedup key so repeated syncs upsert instead of
+        // duplicating rows. The remaining columns store the 20 unified "loads" fields verbatim as
+        // strings so the user-visible loads_history rows match loads exactly.
+        LOADS_HISTORY_SCHEMA = new ArrayList<>();
+        LOADS_HISTORY_SCHEMA.add(new ColumnDef("finish_time",
+                ScalarType.createDatetimeV2Type(3), ColumnNullableType.NOT_NULLABLE));
+        LOADS_HISTORY_SCHEMA.add(new ColumnDef("record_key",
+                ScalarType.createVarchar(768), ColumnNullableType.NOT_NULLABLE));
+        LOADS_HISTORY_SCHEMA.add(new ColumnDef("job_id",
+                ScalarType.createVarchar(128), ColumnNullableType.NULLABLE));
+        LOADS_HISTORY_SCHEMA.add(new ColumnDef("label",
+                ScalarType.createVarchar(512), ColumnNullableType.NULLABLE));
+        LOADS_HISTORY_SCHEMA.add(new ColumnDef("state",
+                ScalarType.createVarchar(64), ColumnNullableType.NULLABLE));
+        LOADS_HISTORY_SCHEMA.add(new ColumnDef("progress",
+                ScalarType.createVarchar(64), ColumnNullableType.NULLABLE));
+        LOADS_HISTORY_SCHEMA.add(new ColumnDef("type",
+                ScalarType.createVarchar(64), ColumnNullableType.NULLABLE));
+        LOADS_HISTORY_SCHEMA.add(new ColumnDef("etl_info",
+                ScalarType.createType(PrimitiveType.STRING), ColumnNullableType.NULLABLE));
+        LOADS_HISTORY_SCHEMA.add(new ColumnDef("task_info",
+                ScalarType.createType(PrimitiveType.STRING), ColumnNullableType.NULLABLE));
+        LOADS_HISTORY_SCHEMA.add(new ColumnDef("error_msg",
+                ScalarType.createType(PrimitiveType.STRING), ColumnNullableType.NULLABLE));
+        LOADS_HISTORY_SCHEMA.add(new ColumnDef("create_time",
+                ScalarType.createVarchar(64), ColumnNullableType.NULLABLE));
+        LOADS_HISTORY_SCHEMA.add(new ColumnDef("etl_start_time",
+                ScalarType.createVarchar(64), ColumnNullableType.NULLABLE));
+        LOADS_HISTORY_SCHEMA.add(new ColumnDef("etl_finish_time",
+                ScalarType.createVarchar(64), ColumnNullableType.NULLABLE));
+        LOADS_HISTORY_SCHEMA.add(new ColumnDef("load_start_time",
+                ScalarType.createVarchar(64), ColumnNullableType.NULLABLE));
+        LOADS_HISTORY_SCHEMA.add(new ColumnDef("load_finish_time",
+                ScalarType.createVarchar(64), ColumnNullableType.NULLABLE));
+        LOADS_HISTORY_SCHEMA.add(new ColumnDef("url",
+                ScalarType.createType(PrimitiveType.STRING), ColumnNullableType.NULLABLE));
+        LOADS_HISTORY_SCHEMA.add(new ColumnDef("job_details",
+                ScalarType.createType(PrimitiveType.STRING), ColumnNullableType.NULLABLE));
+        LOADS_HISTORY_SCHEMA.add(new ColumnDef("transaction_id",
+                ScalarType.createVarchar(128), ColumnNullableType.NULLABLE));
+        LOADS_HISTORY_SCHEMA.add(new ColumnDef("error_tablets",
+                ScalarType.createType(PrimitiveType.STRING), ColumnNullableType.NULLABLE));
+        LOADS_HISTORY_SCHEMA.add(new ColumnDef("user",
+                ScalarType.createVarchar(256), ColumnNullableType.NULLABLE));
+        LOADS_HISTORY_SCHEMA.add(new ColumnDef("comment",
+                ScalarType.createType(PrimitiveType.STRING), ColumnNullableType.NULLABLE));
+        LOADS_HISTORY_SCHEMA.add(new ColumnDef("first_error_msg",
+                ScalarType.createType(PrimitiveType.STRING), ColumnNullableType.NULLABLE));
     }
 
     // Get copied schema for statistic table
@@ -251,6 +304,9 @@ public class InternalSchema {
                 break;
             case AuditLoader.AUDIT_LOG_TABLE:
                 schema = AUDIT_SCHEMA;
+                break;
+            case LoadsHistorySyncer.LOADS_HISTORY_TABLE:
+                schema = LOADS_HISTORY_SCHEMA;
                 break;
             default:
                 throw new UserException("Unknown internal table name: " + tblName);

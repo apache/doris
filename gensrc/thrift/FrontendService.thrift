@@ -906,6 +906,7 @@ enum TSchemaTableName {
   TABLE_STREAMS = 15,
   TABLE_STREAM_CONSUMPTION = 16,
   ROLE_MAPPINGS = 17,
+  LOADS_HISTORY = 18, // db information_schema's table
 }
 
 struct TMetadataTableRequestParams {

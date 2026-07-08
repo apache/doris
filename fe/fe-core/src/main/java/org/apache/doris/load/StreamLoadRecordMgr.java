@@ -63,6 +63,7 @@ import java.util.PriorityQueue;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.function.BooleanSupplier;
 import java.util.stream.Collectors;
 
 public class StreamLoadRecordMgr extends MasterDaemon {
@@ -333,10 +334,84 @@ public class StreamLoadRecordMgr extends MasterDaemon {
     }
 
     private void readStreamLoadJobsFromBackend(Backend backend, List<TLoadJob> streamLoadJobs, int totalCap) {
+        readStreamLoadRecordsFromBackend(backend, () -> streamLoadJobs.size() < totalCap, item -> {
+            if (streamLoadJobs.size() >= totalCap) {
+                return false;
+            }
+            try {
+                // Keep the same table-level LOAD privilege check call used by SHOW STREAM LOAD.
+                if (!Env.getCurrentEnv().getAccessManager()
+                        .checkTblPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME,
+                                item.getDb(), item.getTbl(), PrivPredicate.LOAD)) {
+                    return true;
+                }
+                streamLoadJobs.add(streamLoadRecordToLoadJob(toStreamLoadRecord(item)));
+            } catch (Exception e) {
+                LOG.debug("Skip stream load record in information_schema.loads, label: {}",
+                        item.getLabel(), e);
+            }
+            return true;
+        });
+    }
+
+    /**
+     * Read Stream Load records with finish time >= minFinishTimeMs from one backend's RocksDB
+     * store and convert them into loads_history records. Used by {@link LoadsHistorySyncer};
+     * unlike the information_schema.loads path this does no per-record privilege filtering:
+     * the caller is a master-only daemon persisting snapshots, visibility is decided at query
+     * time (and the daemon thread has no ConnectContext to check against anyway).
+     */
+    public List<LoadJobHistoryRecord> getStreamLoadHistoryRecords(Backend backend, long minFinishTimeMs, int cap) {
+        List<LoadJobHistoryRecord> records = Lists.newArrayList();
+        readStreamLoadRecordsFromBackend(backend, () -> records.size() < cap, item -> {
+            if (records.size() >= cap) {
+                return false;
+            }
+            if (item.getFinishTime() < minFinishTimeMs) {
+                return true;
+            }
+            try {
+                records.add(new LoadJobHistoryRecord(
+                        streamLoadRecordKey(item.getDb(), item.getLabel(), item.getFinishTime()),
+                        item.getFinishTime(),
+                        streamLoadRecordToLoadJob(toStreamLoadRecord(item))));
+            } catch (Exception e) {
+                LOG.warn("Skip stream load record for loads_history, label: {}", item.getLabel(), e);
+            }
+            return true;
+        });
+        return records;
+    }
+
+    /**
+     * Stable dedup key of a Stream Load record for the loads_history UNIQUE KEY. A label is
+     * unique within one database while the load exists, and reusing a label later always
+     * produces a new finish time, so this triple identifies one load run; re-scanning the same
+     * record yields the same key and upserts instead of duplicating.
+     */
+    static String streamLoadRecordKey(String db, String label, long finishTimeMs) {
+        return "STREAM_LOAD:" + db + ":" + label + ":" + finishTimeMs;
+    }
+
+    private static StreamLoadRecord toStreamLoadRecord(TStreamLoadRecord item) {
+        String startTime = TimeUtils.longToTimeString(item.getStartTime(),
+                TimeUtils.getDatetimeMsFormatWithTimeZone());
+        String finishTime = TimeUtils.longToTimeString(item.getFinishTime(),
+                TimeUtils.getDatetimeMsFormatWithTimeZone());
+        return buildStreamLoadRecord(item, startTime, finishTime);
+    }
+
+    /** Visits BE RocksDB records page by page. Return false to stop reading this backend. */
+    private interface StreamLoadRecordVisitor {
+        boolean visit(TStreamLoadRecord record);
+    }
+
+    private void readStreamLoadRecordsFromBackend(Backend backend, BooleanSupplier keepGoing,
+            StreamLoadRecordVisitor visitor) {
         // Paginate forward through the BE RocksDB records. Keys are "{finishTimeMillis}_{label}"
         // ordered by finish time; -1 means SeekToFirst on the BE side.
         long lastStreamLoadTime = -1;
-        while (streamLoadJobs.size() < totalCap) {
+        while (keepGoing.getAsBoolean()) {
             BackendService.Client client = null;
             TNetworkAddress address = null;
             boolean ok = false;
@@ -349,9 +424,9 @@ public class StreamLoadRecordMgr extends MasterDaemon {
                 ok = true;
             } catch (Exception e) {
                 // Tolerate a single BE being temporarily unavailable: skip it and keep the
-                // rest of information_schema.loads queryable.
-                LOG.warn("Failed to read stream load records from backend[{}] for"
-                        + " information_schema.loads, skipping this backend", backend.getId(), e);
+                // already-collected records usable.
+                LOG.warn("Failed to read stream load records from backend[{}],"
+                        + " skipping this backend", backend.getId(), e);
                 return;
             } finally {
                 if (client != null) {
@@ -372,25 +447,8 @@ public class StreamLoadRecordMgr extends MasterDaemon {
                 if (item.getFinishTime() > maxFinishTime) {
                     maxFinishTime = item.getFinishTime();
                 }
-                if (streamLoadJobs.size() >= totalCap) {
-                    break;
-                }
-                try {
-                    // Keep the same table-level LOAD privilege check call used by SHOW STREAM LOAD.
-                    if (!Env.getCurrentEnv().getAccessManager()
-                            .checkTblPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME,
-                                    item.getDb(), item.getTbl(), PrivPredicate.LOAD)) {
-                        continue;
-                    }
-                    String startTime = TimeUtils.longToTimeString(item.getStartTime(),
-                            TimeUtils.getDatetimeMsFormatWithTimeZone());
-                    String finishTime = TimeUtils.longToTimeString(item.getFinishTime(),
-                            TimeUtils.getDatetimeMsFormatWithTimeZone());
-                    streamLoadJobs.add(streamLoadRecordToLoadJob(
-                            buildStreamLoadRecord(item, startTime, finishTime)));
-                } catch (Exception e) {
-                    LOG.debug("Skip stream load record in information_schema.loads, label: {}",
-                            item.getLabel(), e);
+                if (!visitor.visit(item)) {
+                    return;
                 }
             }
 

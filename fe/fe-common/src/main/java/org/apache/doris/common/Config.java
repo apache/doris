@@ -658,6 +658,26 @@ public class Config extends ConfigBase {
             "Whether to disable show stream load and clear stream load records in memory."})
     public static boolean disable_show_stream_load = false;
 
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "Whether to periodically sync final-state import task records into the internal table"
+                    + " __internal_schema.loads_history, which backs information_schema.loads_history."})
+    public static boolean enable_loads_history = true;
+
+    @ConfField(masterOnly = true, description = {
+            "The interval at which the master FE syncs final-state import task records into"
+                    + " __internal_schema.loads_history. Requires restart to take effect."})
+    public static int loads_history_sync_interval_second = 60;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "Retention days of information_schema.loads_history records. Maps to the dynamic"
+                    + " partition start of the internal loads_history table."})
+    public static int loads_history_retention_day = 30;
+
+    @ConfField(mutable = true, description = {
+            "Maximum number of rows returned by one information_schema.loads_history query."
+                    + " The newest records (by finish time) are kept when truncated."})
+    public static int loads_history_query_row_limit = 100000;
+
     @ConfField(mutable = true, description = {"Whether to enable stream load profile"})
     public static boolean enable_stream_load_profile = false;
 

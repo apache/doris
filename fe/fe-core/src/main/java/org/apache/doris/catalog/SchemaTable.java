@@ -735,6 +735,34 @@ public class SchemaTable extends Table {
                                     .column("FIRST_ERROR_MSG", ScalarType.createStringType())
                                     .build())
             )
+            // Persisted history view of "loads". Serves final-state import task snapshots from the
+            // internal table __internal_schema.loads_history (populated by LoadsHistorySyncer).
+            // Columns must stay aligned with "loads" (same names, order and string types) so users
+            // can UNION ALL the two tables directly.
+            .put("loads_history",
+                    new SchemaTable(SystemIdGenerator.getNextId(), "loads_history", TableType.SCHEMA,
+                            builder().column("JOB_ID", ScalarType.createStringType())
+                                    .column("LABEL", ScalarType.createStringType())
+                                    .column("STATE", ScalarType.createStringType())
+                                    .column("PROGRESS", ScalarType.createStringType())
+                                    .column("TYPE", ScalarType.createStringType())
+                                    .column("ETL_INFO", ScalarType.createStringType())
+                                    .column("TASK_INFO", ScalarType.createStringType())
+                                    .column("ERROR_MSG", ScalarType.createStringType())
+                                    .column("CREATE_TIME", ScalarType.createStringType())
+                                    .column("ETL_START_TIME", ScalarType.createStringType())
+                                    .column("ETL_FINISH_TIME", ScalarType.createStringType())
+                                    .column("LOAD_START_TIME", ScalarType.createStringType())
+                                    .column("LOAD_FINISH_TIME", ScalarType.createStringType())
+                                    .column("URL", ScalarType.createStringType())
+                                    .column("JOB_DETAILS", ScalarType.createStringType())
+                                    .column("TRANSACTION_ID", ScalarType.createStringType())
+                                    .column("ERROR_TABLETS", ScalarType.createStringType())
+                                    .column("USER", ScalarType.createStringType())
+                                    .column("COMMENT", ScalarType.createStringType())
+                                    .column("FIRST_ERROR_MSG", ScalarType.createStringType())
+                                    .build())
+            )
             .put("file_cache_info",
                     new SchemaTable(SystemIdGenerator.getNextId(), "file_cache_info", TableType.SCHEMA,
                             builder().column("HASH", ScalarType.createStringType())
