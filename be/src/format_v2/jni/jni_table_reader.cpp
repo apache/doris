@@ -20,6 +20,7 @@
 #include <utility>
 
 #include "common/cast_set.h"
+#include "common/logging.h"
 #include "core/block/block.h"
 #include "exprs/vexpr_context.h"
 #include "runtime/descriptors.h"
@@ -176,6 +177,83 @@ Status JniTableReader::finalize_jni_block(Block* jni_block, Block* output_block,
     return Status::OK();
 }
 
+Status JniTableReader::_get_statistics(JNIEnv* env, std::map<std::string, std::string>* result) {
+    DORIS_CHECK(result != nullptr);
+    result->clear();
+    Jni::LocalObject metrics;
+    RETURN_IF_ERROR(
+            _jni_scanner_obj.call_object_method(env, _jni_scanner_get_statistics).call(&metrics));
+    RETURN_IF_ERROR(Jni::Util::convert_to_cpp_map(env, metrics, result));
+    return Status::OK();
+}
+
+void JniTableReader::_collect_jni_scanner_profile(JNIEnv* env) {
+    if (_scanner_profile == nullptr) {
+        return;
+    }
+
+    std::map<std::string, std::string> statistics_result;
+    Status st = _get_statistics(env, &statistics_result);
+    if (!st) {
+        LOG(WARNING) << "failed to get_statistics when collect profile: " << st;
+        return;
+    }
+
+    const auto connector_name = _connector_name();
+    const auto update_peak = [](int64_t previous, int64_t current) { return current > previous; };
+    for (const auto& metric : statistics_result) {
+        std::vector<std::string> type_and_name = split(metric.first, ":");
+        if (type_and_name.size() != 2) {
+            LOG(WARNING) << "Name of JNI Scanner metric should be pattern like "
+                         << "'metricType:metricName'";
+            continue;
+        }
+        int64_t metric_value = std::stoll(metric.second);
+        RuntimeProfile::Counter* scanner_counter;
+        if (type_and_name[0] == "timer") {
+            scanner_counter =
+                    ADD_CHILD_TIMER(_scanner_profile, type_and_name[1], connector_name.c_str());
+            COUNTER_UPDATE(scanner_counter, metric_value);
+        } else if (type_and_name[0] == "counter") {
+            scanner_counter = ADD_CHILD_COUNTER(_scanner_profile, type_and_name[1], TUnit::UNIT,
+                                                connector_name.c_str());
+            COUNTER_UPDATE(scanner_counter, metric_value);
+        } else if (type_and_name[0] == "bytes") {
+            scanner_counter = ADD_CHILD_COUNTER(_scanner_profile, type_and_name[1], TUnit::BYTES,
+                                                connector_name.c_str());
+            COUNTER_UPDATE(scanner_counter, metric_value);
+        } else if (type_and_name[0] == "timer_gauge") {
+            scanner_counter =
+                    ADD_CHILD_TIMER(_scanner_profile, type_and_name[1], connector_name.c_str());
+            COUNTER_SET(scanner_counter, metric_value);
+        } else if (type_and_name[0] == "gauge") {
+            scanner_counter = ADD_CHILD_COUNTER(_scanner_profile, type_and_name[1], TUnit::UNIT,
+                                                connector_name.c_str());
+            COUNTER_SET(scanner_counter, metric_value);
+        } else if (type_and_name[0] == "bytes_gauge") {
+            scanner_counter = ADD_CHILD_COUNTER(_scanner_profile, type_and_name[1], TUnit::BYTES,
+                                                connector_name.c_str());
+            COUNTER_SET(scanner_counter, metric_value);
+        } else if (type_and_name[0] == "timer_peak") {
+            auto* scanner_peak_counter = _scanner_profile->add_conditition_counter(
+                    type_and_name[1], TUnit::TIME_NS, update_peak, connector_name.c_str());
+            scanner_peak_counter->conditional_update(metric_value, metric_value);
+        } else if (type_and_name[0] == "peak") {
+            auto* scanner_peak_counter = _scanner_profile->add_conditition_counter(
+                    type_and_name[1], TUnit::UNIT, update_peak, connector_name.c_str());
+            scanner_peak_counter->conditional_update(metric_value, metric_value);
+        } else if (type_and_name[0] == "bytes_peak") {
+            auto* scanner_peak_counter = _scanner_profile->add_conditition_counter(
+                    type_and_name[1], TUnit::BYTES, update_peak, connector_name.c_str());
+            scanner_peak_counter->conditional_update(metric_value, metric_value);
+        } else {
+            LOG(WARNING) << "Type of JNI Scanner metric should be timer, counter, bytes, "
+                         << "timer_gauge, gauge, bytes_gauge, timer_peak, peak or bytes_peak";
+            continue;
+        }
+    }
+}
+
 Status JniTableReader::build_jni_columns(std::vector<JniColumn>* columns) const {
     DORIS_CHECK(columns != nullptr);
     columns->clear();
@@ -240,6 +318,7 @@ Status JniTableReader::_close_jni_scanner() {
                 _jni_scanner_open_watcher + _fill_block_watcher + _java_scan_watcher,
                 self_split_weight());
     }
+    _collect_jni_scanner_profile(env);
 
     // _fill_jni_block may fail before releasing the current Java table. JniScanner::releaseTable()
     // is idempotent, so closing the split always releases it.
