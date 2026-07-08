@@ -23,6 +23,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunctio
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.collect.ImmutableList;
 
@@ -53,7 +54,7 @@ class IvmAggSumProcessor extends IvmAggSumLikeProcessor {
                 applyContext.deltaSlotValue(target, IvmAggFunctionKind.SUM));
         Expression newCount = applyContext.buildNewHiddenCount(target);
         applyContext.putFinalExpression(target.getHiddenStateSlot(IvmAggStateKey.COUNT).getName(), newCount);
-        Expression visibleValue = ctx.castIfNeeded(newSum, target.getVisibleSlot().getDataType());
+        Expression visibleValue = TypeCoercionUtils.castIfNotMatchType(newSum, target.getVisibleSlot().getDataType());
         applyContext.putFinalExpression(target.getVisibleSlot().getName(),
                 new If(ctx.isPositive(newCount), visibleValue,
                         new NullLiteral(target.getVisibleSlot().getDataType())));

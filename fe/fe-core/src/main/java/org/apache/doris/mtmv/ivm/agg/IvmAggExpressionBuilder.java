@@ -20,7 +20,6 @@ package org.apache.doris.mtmv.ivm.agg;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.mtmv.ivm.IvmUtil;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
@@ -96,11 +95,6 @@ public class IvmAggExpressionBuilder {
     /** Builds a zero literal cast to the requested data type. */
     public Expression zeroOf(DataType dataType) {
         return new TinyIntLiteral((byte) 0).checkedCastTo(dataType);
-    }
-
-    /** Adds an explicit cast only when the expression type differs from the target column type. */
-    Expression castIfNeeded(Expression expr, DataType dataType) {
-        return expr.getDataType().equals(dataType) ? expr : new Cast(expr, dataType);
     }
 
     /** Keeps an expression only for inserted rows; deleted rows become NULL and are ignored by MIN/MAX. */
