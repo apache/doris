@@ -29,6 +29,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
@@ -461,6 +462,27 @@ class EagerAggRewriterTest extends TestWithFeService implements MemoPatternMatch
         } finally {
             connectContext.getSessionVariable().setEagerAggregationMode(0);
             connectContext.getSessionVariable().setDisableJoinReorder(false);
+        }
+    }
+
+    @Test
+    void testEmptyContextDoesNotAddRelationAggregate() {
+        connectContext.getSessionVariable().setEagerAggregationMode(1);
+        try {
+            PlanChecker planChecker = PlanChecker.from(connectContext).analyze("select * from t1");
+            Plan analyzedPlan = planChecker.getPlan();
+            LogicalRelation relation = findFirstPlan(analyzedPlan, LogicalRelation.class);
+            Assertions.assertNotNull(relation, analyzedPlan.treeString());
+            PushDownAggContext context = new PushDownAggContext(
+                    Collections.emptyList(), Collections.emptyList(), Collections.emptyMap(),
+                    planChecker.getCascadesContext(),
+                    true, false, false, new BilateralState(), false);
+
+            Plan rewritten = relation.accept(new EagerAggRewriter(), context);
+
+            Assertions.assertSame(relation, rewritten, rewritten.treeString());
+        } finally {
+            connectContext.getSessionVariable().setEagerAggregationMode(0);
         }
     }
 
