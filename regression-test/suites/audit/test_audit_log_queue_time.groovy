@@ -59,6 +59,7 @@ suite("test_audit_log_queue_time", "nonConcurrent") {
 
     // Submit concurrent queries with marker for later lookup
     def sqlSleepTime = 5
+    def queueTimeToleranceMs = 1000
     def queuedSqlCnt = 1
     def queryCnt = maxConcurrency + queuedSqlCnt
     def readyLatch = new java.util.concurrent.CountDownLatch(queryCnt)
@@ -120,6 +121,10 @@ suite("test_audit_log_queue_time", "nonConcurrent") {
 
     log.info("audit queue time result for marker ${testMarker}: ${auditResult}")
     assertTrue(auditResult.size() >= queuedSqlCnt)
+    // The workers are released together above, so this lower bound proves queue wait behind a sleep query.
+    def minExpectedQueueTimeMs = sqlSleepTime * 1000 - queueTimeToleranceMs
+    def hasExpectedQueuedQuery = auditResult.any { row -> row[1] >= minExpectedQueueTimeMs }
+    assertTrue(hasExpectedQueuedQuery)
 
     // Cleanup
     sql "drop table if exists ${tableName}"
