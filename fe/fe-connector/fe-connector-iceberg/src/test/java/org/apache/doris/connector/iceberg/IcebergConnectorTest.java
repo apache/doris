@@ -21,6 +21,7 @@ import org.apache.doris.connector.api.ConnectorCapability;
 import org.apache.doris.connector.api.ConnectorContractValidator;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.DorisConnectorException;
+import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.handle.WriteOperation;
 import org.apache.doris.filesystem.properties.StorageProperties;
 
@@ -112,6 +113,20 @@ public class IcebergConnectorTest {
         IcebergConnector connector = new IcebergConnector(Collections.emptyMap(), new RecordingConnectorContext());
         Set<ConnectorCapability> caps = connector.getCapabilities();
         Assertions.assertTrue(caps.contains(ConnectorCapability.SUPPORTS_MVCC_SNAPSHOT));
+    }
+
+    @Test
+    public void ownsHandleOnlyForIcebergTableHandle() {
+        // WHY (hms 3-way sibling routing): a flipped hms gateway embeds this connector as a sibling and asks it
+        // "is this foreign handle yours?" to route a scan/metadata call, because the concrete handle type is
+        // invisible across the plugin classloader split. ownsHandle must be TRUE for this connector's own
+        // IcebergTableHandle and FALSE for any other connector's handle (e.g. a hudi sibling's), so the gateway
+        // routes correctly. MUTATION: returning true unconditionally -> the gateway sends hudi handles here -> red.
+        IcebergConnector connector = new IcebergConnector(Collections.emptyMap(), new RecordingConnectorContext());
+        Assertions.assertTrue(connector.ownsHandle(new IcebergTableHandle("db", "t")),
+                "an IcebergTableHandle is owned by the iceberg connector");
+        Assertions.assertFalse(connector.ownsHandle(new ConnectorTableHandle() {
+        }), "a foreign (non-iceberg) handle is NOT owned by the iceberg connector");
     }
 
     @Test

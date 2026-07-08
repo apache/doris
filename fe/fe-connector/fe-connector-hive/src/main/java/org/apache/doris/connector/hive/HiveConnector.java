@@ -106,10 +106,41 @@ public class HiveConnector implements Connector {
 
     @Override
     public ConnectorMetadata getMetadata(ConnectorSession session) {
-        // Pass the sibling supplier (not the built sibling): a pure-hive query never invokes it, so a hive-only
-        // deployment without the iceberg plugin never builds/throws. The metadata diverts a foreign iceberg
-        // handle through it (per-handle guard-and-forward).
-        return new HiveConnectorMetadata(getOrCreateClient(), properties, context, this::getOrCreateIcebergSibling);
+        // Two sibling seams for the metadata's guard-and-forward:
+        //  - getOrCreateIcebergSibling (by-TYPE, force-build): only the getTableHandle ICEBERG divert uses it, to
+        //    build+ask the iceberg sibling for a table detected as iceberg (no handle exists yet to route by).
+        //  - resolveSiblingOwner (by-HANDLE, peek): every per-handle site routes a foreign handle to whichever
+        //    ALREADY-BUILT sibling owns it. Passing the resolver (not a built sibling) keeps a pure-hive query
+        //    from ever building/throwing a sibling.
+        return new HiveConnectorMetadata(getOrCreateClient(), properties, context,
+                this::getOrCreateIcebergSibling, this::resolveSiblingOwner);
+    }
+
+    /**
+     * Resolves which embedded sibling connector OWNS a foreign (non-hive) table handle, for the per-handle
+     * gateway seams (the connector-level {@code get*Provider(handle)} below and the ~34 guard-and-forward
+     * methods in {@link HiveConnectorMetadata}). Asks each sibling's {@link Connector#ownsHandle} — the sibling
+     * tests its OWN in-loader handle type, which is invisible to the hive loader across the plugin split, so the
+     * gateway can never {@code instanceof} the foreign handle itself.
+     *
+     * <p>Consults only ALREADY-BUILT siblings (a plain field read, never {@code getOrCreate*}). The owning
+     * sibling is always already built: a foreign handle can only originate from {@code getTableHandle}'s divert,
+     * which force-builds that sibling before producing the handle. Reading the field (not force-building) avoids
+     * demanding an UNRELATED plugin merely to classify a handle — e.g. a hudi-only hms catalog with no iceberg
+     * plugin must still route its hudi handles without building an iceberg sibling. Fails loud when no built
+     * sibling owns the handle (an orphan handle is a bug, not a route), naming the catalog.
+     */
+    private Connector resolveSiblingOwner(ConnectorTableHandle handle) {
+        Connector iceberg = icebergSibling;
+        if (iceberg != null && iceberg.ownsHandle(handle)) {
+            return iceberg;
+        }
+        Connector hudi = hudiSibling;
+        if (hudi != null && hudi.ownsHandle(handle)) {
+            return hudi;
+        }
+        throw new DorisConnectorException("Cannot route a foreign table handle in catalog '"
+                + context.getCatalogName() + "': no embedded sibling connector owns it");
     }
 
     @Override
@@ -125,16 +156,17 @@ public class HiveConnector implements Connector {
      * built in the iceberg plugin's classloader, {@code PluginDrivenScanNode.onPluginClassLoader} auto-pins the
      * scan-thread TCCL to the iceberg loader for free (it keys off {@code provider.getClass().getClassLoader()}),
      * so no pinning is needed here. The foreign handle is passed through UNMODIFIED and NEVER cast (its concrete
-     * iceberg type is invisible across the loader split — a cast would CCE). A HUDI table keeps a HiveTableHandle,
-     * so it stays on the hive scan path (its delegation is a later substep). Pairs with the getTableHandle iceberg
-     * divert; dormant until hms enters SPI_READY_TYPES (nothing selects a scan provider for this connector today).
+     * sibling type is invisible across the loader split — a cast would CCE). A HUDI table (once its divert lands)
+     * routes to the hudi sibling by the 3-way {@link #resolveSiblingOwner} — a HUDI-stamped HiveTableHandle stays
+     * hive. Pairs with the getTableHandle diverts; dormant until hms enters SPI_READY_TYPES (nothing selects a
+     * scan provider for this connector today).
      */
     @Override
     public ConnectorScanPlanProvider getScanPlanProvider(ConnectorTableHandle handle) {
         if (handle instanceof HiveTableHandle) {
             return getScanPlanProvider();
         }
-        return getOrCreateIcebergSibling().getScanPlanProvider(handle);
+        return resolveSiblingOwner(handle).getScanPlanProvider(handle);
     }
 
     @Override
@@ -143,29 +175,28 @@ public class HiveConnector implements Connector {
     }
 
     /**
-     * Per-table write provider: a hive handle uses the hive write provider; a foreign (iceberg-on-HMS) handle is
-     * delegated to the sibling's per-handle write provider (built in the iceberg plugin's classloader). The
-     * foreign handle is passed through UNMODIFIED and NEVER cast (its concrete iceberg type is invisible across
-     * the loader split — a cast would CCE). A HUDI table keeps a HiveTableHandle, so it stays on the hive write
-     * path (its delegation is a later substep). Mirrors {@link #getScanPlanProvider(ConnectorTableHandle)};
-     * dormant until hms enters SPI_READY_TYPES. The returned sibling provider runs its planWrite on fe-core
-     * threads — the write-path TCCL pin is a separate flip-time concern (write-delegation W6).
+     * Per-table write provider: a hive handle uses the hive write provider; a foreign handle is delegated to the
+     * OWNING sibling's per-handle write provider (resolved 3-way by {@link #resolveSiblingOwner}). The foreign
+     * handle is passed through UNMODIFIED and NEVER cast (its concrete sibling type is invisible across the loader
+     * split — a cast would CCE). A HUDI-stamped HiveTableHandle stays on the hive write path. Mirrors {@link
+     * #getScanPlanProvider(ConnectorTableHandle)}; dormant until hms enters SPI_READY_TYPES. The returned sibling
+     * provider runs its planWrite on fe-core threads — the write-path TCCL pin is a separate flip-time concern.
      */
     @Override
     public ConnectorWritePlanProvider getWritePlanProvider(ConnectorTableHandle handle) {
         if (handle instanceof HiveTableHandle) {
             return getWritePlanProvider();
         }
-        return getOrCreateIcebergSibling().getWritePlanProvider(handle);
+        return resolveSiblingOwner(handle).getWritePlanProvider(handle);
     }
 
     /**
      * Per-table procedure ops for {@code ALTER TABLE ... EXECUTE}: a hive handle has NO procedures — it inherits
-     * the connector-level {@code null} (plain-hive exposes none) — while a foreign (iceberg-on-HMS) handle is
-     * delegated to the sibling's per-handle procedure ops (built in the iceberg plugin's classloader), so an
+     * the connector-level {@code null} (plain-hive exposes none) — while a foreign handle is delegated to the
+     * OWNING sibling's per-handle procedure ops (resolved 3-way by {@link #resolveSiblingOwner}), so an
      * iceberg-on-HMS table gains the native iceberg procedures (rollback_to_snapshot, rewrite_data_files, ...).
-     * The foreign handle is passed through UNMODIFIED and NEVER cast (its concrete iceberg type is invisible
-     * across the loader split — a cast would CCE). A HUDI table keeps a HiveTableHandle, so it too inherits the
+     * The foreign handle is passed through UNMODIFIED and NEVER cast (its concrete sibling type is invisible
+     * across the loader split — a cast would CCE). A HUDI-stamped HiveTableHandle stays hive and inherits the
      * null (no procedures), same as plain-hive. Mirrors {@link #getWritePlanProvider(ConnectorTableHandle)};
      * dormant until hms enters SPI_READY_TYPES (nothing selects procedure ops for this connector today).
      */
@@ -174,7 +205,7 @@ public class HiveConnector implements Connector {
         if (handle instanceof HiveTableHandle) {
             return getProcedureOps();
         }
-        return getOrCreateIcebergSibling().getProcedureOps(handle);
+        return resolveSiblingOwner(handle).getProcedureOps(handle);
     }
 
     @Override

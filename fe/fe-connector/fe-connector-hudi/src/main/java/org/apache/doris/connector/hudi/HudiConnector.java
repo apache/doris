@@ -21,6 +21,7 @@ import org.apache.doris.connector.api.Connector;
 import org.apache.doris.connector.api.ConnectorMetadata;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.DorisConnectorException;
+import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.hms.HmsClient;
 import org.apache.doris.connector.hms.HmsClientConfig;
@@ -84,6 +85,17 @@ public class HudiConnector implements Connector {
     @Override
     public ConnectorMetadata getMetadata(ConnectorSession session) {
         return new HudiConnectorMetadata(getOrCreateClient(), properties);
+    }
+
+    /**
+     * True for a handle this connector produced (a {@link HudiTableHandle}). Tested against this connector's OWN
+     * in-loader type, so a heterogeneous hms gateway that embeds this connector as a sibling can route a foreign
+     * hudi handle here without casting it across the plugin classloader split. Returns false for any other
+     * connector's handle (e.g. an iceberg sibling's), so the gateway keeps looking.
+     */
+    @Override
+    public boolean ownsHandle(ConnectorTableHandle handle) {
+        return handle instanceof HudiTableHandle;
     }
 
     @Override

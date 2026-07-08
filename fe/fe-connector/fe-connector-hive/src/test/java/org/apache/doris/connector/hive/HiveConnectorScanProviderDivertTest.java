@@ -83,16 +83,20 @@ public class HiveConnectorScanProviderDivertTest {
         RecordingSibling sibling = new RecordingSibling();
         RecordingSiblingContext context = new RecordingSiblingContext(sibling);
         HiveConnector connector = new HiveConnector(props(), context);
+        // Pre-build the owning sibling, mirroring production: getTableHandle's divert force-builds the sibling
+        // before it can produce a foreign handle, so the per-handle router only ever PEEKS an already-built one.
+        connector.getOrCreateIcebergSibling();
         ForeignHandle foreign = new ForeignHandle();
 
         ConnectorScanPlanProvider provider = connector.getScanPlanProvider(foreign);
 
         Assertions.assertSame(sibling.provider, provider,
-                "a foreign handle must return the iceberg sibling's OWN scan provider");
+                "a foreign handle must return the OWNING sibling's OWN scan provider");
         Assertions.assertSame(foreign, sibling.lastHandle,
                 "the foreign handle must reach the sibling's per-handle selector UNMODIFIED (a rewrap would "
                         + "poison the downstream iceberg cast)");
-        Assertions.assertEquals(1, context.buildCount, "the sibling must be built exactly once and consulted");
+        Assertions.assertEquals(1, context.buildCount,
+                "the router PEEKS the already-built sibling (built once, here explicitly) — it never rebuilds");
     }
 
     @Test
@@ -126,15 +130,16 @@ public class HiveConnectorScanProviderDivertTest {
     }
 
     @Test
-    public void foreignHandleFailsLoudWhenIcebergPluginAbsent() {
-        // The seam returns a null sibling when the iceberg plugin is absent; selecting a scan provider for a
-        // foreign handle must fail loud (naming the catalog), not NPE.
+    public void foreignHandleFailsLoudWhenNoBuiltSiblingOwnsIt() {
+        // No sibling is ever built here (nothing calls getOrCreate*/getTableHandle), so the 3-way peek router
+        // finds no owner and must fail loud (naming the catalog), not NPE. This stands in for an orphan handle —
+        // a foreign handle that reached a per-handle seam without its owning sibling built (a bug, not a route).
         RecordingSiblingContext context = new RecordingSiblingContext(null);
         HiveConnector connector = new HiveConnector(props(), context);
 
         DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
                 () -> connector.getScanPlanProvider(new ForeignHandle()),
-                "a foreign handle with no iceberg plugin must fail loud");
+                "a foreign handle no built sibling owns must fail loud");
         Assertions.assertTrue(ex.getMessage().contains("test_catalog"), ex.getMessage());
     }
 
@@ -170,6 +175,13 @@ public class HiveConnectorScanProviderDivertTest {
         @Override
         public ConnectorMetadata getMetadata(ConnectorSession session) {
             return null;
+        }
+
+        // Owns the test's ForeignHandle — the 3-way gateway router (HiveConnector.resolveSiblingOwner) asks each
+        // built sibling this before routing, since the foreign handle's concrete type is loader-invisible.
+        @Override
+        public boolean ownsHandle(ConnectorTableHandle handle) {
+            return handle instanceof ForeignHandle;
         }
 
         @Override

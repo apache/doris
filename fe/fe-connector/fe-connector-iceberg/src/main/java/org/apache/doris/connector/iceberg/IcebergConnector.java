@@ -24,6 +24,7 @@ import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.ConnectorTestResult;
 import org.apache.doris.connector.api.ConnectorValidationContext;
 import org.apache.doris.connector.api.DorisConnectorException;
+import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.procedure.ConnectorProcedureOps;
 import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.api.write.ConnectorWritePlanProvider;
@@ -207,6 +208,17 @@ public class IcebergConnector implements Connector {
     public ConnectorMetadata getMetadata(ConnectorSession session) {
         return new IcebergConnectorMetadata(
                 newCatalogBackedOps(session), properties, context, latestSnapshotCache);
+    }
+
+    /**
+     * True for a handle this connector produced (an {@link IcebergTableHandle}). Tested against this connector's
+     * OWN in-loader type, so a heterogeneous hms gateway that embeds this connector as a sibling can route a
+     * foreign iceberg handle here without casting it across the plugin classloader split. Returns false for any
+     * other connector's handle (e.g. a hudi sibling's), so the gateway keeps looking.
+     */
+    @Override
+    public boolean ownsHandle(ConnectorTableHandle handle) {
+        return handle instanceof IcebergTableHandle;
     }
 
     /**

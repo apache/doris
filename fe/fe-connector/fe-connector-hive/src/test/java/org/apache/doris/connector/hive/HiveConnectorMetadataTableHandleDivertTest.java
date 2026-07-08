@@ -129,7 +129,7 @@ public class HiveConnectorMetadataTableHandleDivertTest {
     public void missingTableReturnsEmptyWithoutConsultingSibling() {
         HiveConnectorMetadata md = new HiveConnectorMetadata(
                 new FakeHmsClient(icebergTable(), false), Collections.emptyMap(), new FakeConnectorContext(),
-                () -> siblingConnector);
+                () -> siblingConnector, handle -> siblingConnector);
 
         Assertions.assertFalse(md.getTableHandle(null, "db", "t").isPresent(),
                 "a non-existent table short-circuits to empty before any format detection or divert");
@@ -150,8 +150,10 @@ public class HiveConnectorMetadataTableHandleDivertTest {
     // ===== helpers =====
 
     private HiveConnectorMetadata withSibling(HmsTableInfo tableInfo) {
+        // getTableHandle diverts iceberg BY TYPE (icebergSiblingSupplier); the by-handle owner resolver is unused
+        // in this suite, so it just returns the recording sibling.
         return new HiveConnectorMetadata(new FakeHmsClient(tableInfo, true), Collections.emptyMap(),
-                new FakeConnectorContext(), () -> siblingConnector);
+                new FakeConnectorContext(), () -> siblingConnector, handle -> siblingConnector);
     }
 
     private static HmsTableInfo hiveTable(String inputFormat) {

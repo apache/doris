@@ -138,4 +138,17 @@ public class ConnectorScanProviderSelectionTest {
         Assertions.assertNotSame(fallback, gateway.getScanPlanProvider(icebergHandle),
                 "an overriding gateway does not fall back to the connector-level no-arg provider");
     }
+
+    @Test
+    public void ownsHandleDefaultsFalse() {
+        // A connector owns no handle it did not define. The default must be false so a gateway asking each
+        // embedded sibling "is this foreign handle yours?" gets a negative from every connector that did not
+        // produce it, and only the producing sibling (which overrides ownsHandle) claims it.
+        // MUTATION: flipping the default to true -> a gateway would route a foreign handle to the WRONG sibling.
+        Connector connector = new FakeConnector() {
+        };
+
+        Assertions.assertFalse(connector.ownsHandle(handle()),
+                "the ownsHandle default must be false (a connector owns no handle it did not define)");
+    }
 }

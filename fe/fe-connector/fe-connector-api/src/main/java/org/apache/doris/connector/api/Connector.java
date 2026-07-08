@@ -43,6 +43,24 @@ public interface Connector extends Closeable {
     /** Returns the metadata interface for the given session. */
     ConnectorMetadata getMetadata(ConnectorSession session);
 
+    /**
+     * Whether {@code handle} is one of THIS connector's own concrete {@link ConnectorTableHandle} subclasses.
+     *
+     * <p>A heterogeneous gateway connector that serves several table formats through embedded <em>sibling</em>
+     * connectors uses this to route a foreign handle to the sibling that produced it: the sibling's concrete
+     * handle type is invisible across the plugin classloader split, so the gateway cannot {@code instanceof} it
+     * directly — it asks each sibling, and the sibling tests its OWN in-loader type. The default returns
+     * {@code false} (a connector owns no handle it did not define), so every non-gateway connector is
+     * unaffected.</p>
+     *
+     * <p>fe-core NEVER calls this — it is a connector-to-sibling routing predicate only, so the engine stays
+     * format-agnostic (it discriminates handles solely by the gateway's own handle type, never by asking a
+     * connector to classify one).</p>
+     */
+    default boolean ownsHandle(ConnectorTableHandle handle) {
+        return false;
+    }
+
     /** Returns the scan plan provider for split generation. */
     default ConnectorScanPlanProvider getScanPlanProvider() {
         return null;

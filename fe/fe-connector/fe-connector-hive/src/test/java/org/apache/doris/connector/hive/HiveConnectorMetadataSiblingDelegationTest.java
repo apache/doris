@@ -56,6 +56,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
+import java.util.function.Supplier;
 
 /**
  * Pins the HMS-cutover §4.4 S3 gateway metadata delegation: {@link HiveConnectorMetadata}'s per-handle methods
@@ -77,10 +78,28 @@ public class HiveConnectorMetadataSiblingDelegationTest {
     private final RecordingSiblingMetadata siblingMetadata = new RecordingSiblingMetadata();
     private final RecordingSiblingConnector siblingConnector = new RecordingSiblingConnector(siblingMetadata);
 
-    /** Metadata wired with a working sibling (hmsClient is null: the hive path is never exercised here). */
+    /**
+     * The by-TYPE force-build supplier constructor arg. This suite exercises only per-handle (by-handle) sites —
+     * which must ALL route via the peek resolver — and never calls getTableHandle (the only by-type site), so the
+     * supplier must never be invoked here. It fails loud if it is, so a per-handle site that regressed from
+     * {@code siblingMetadata(session, handle)} (peek resolver) to {@code icebergSiblingMetadata(session)} (by-type
+     * force-build supplier) blows up instead of silently returning the same sibling.
+     */
+    private static final Supplier<Connector> SUPPLIER_MUST_NOT_BE_USED = () -> {
+        throw new AssertionError(
+                "a per-handle site must route via the peek resolver, not the by-type force-build supplier");
+    };
+
+    /**
+     * Metadata wired so every foreign-handle per-handle site MUST route via the by-handle peek resolver (which
+     * returns the recording sibling), while the by-type force-build supplier is a fail-loud stub (see
+     * {@link #SUPPLIER_MUST_NOT_BE_USED}). hmsClient is null: the hive path is never exercised here. This suite
+     * pins that the per-handle sites FORWARD the whole surface; the 3-way ownsHandle dispatch that PICKS the owner
+     * is pinned by {@code HiveConnectorThreeWayRoutingTest}.
+     */
     private HiveConnectorMetadata withSibling() {
         return new HiveConnectorMetadata(null, Collections.emptyMap(), new FakeConnectorContext(),
-                () -> siblingConnector);
+                SUPPLIER_MUST_NOT_BE_USED, handle -> siblingConnector);
     }
 
     private HiveTableHandle hiveHandle() {
@@ -288,7 +307,7 @@ public class HiveConnectorMetadataSiblingDelegationTest {
         // sibling. The selection must be symmetric — hive and iceberg write plans downcast to different types.
         ConnectorTransaction hiveTxn = new NoOpConnectorTransaction(70099L, "HIVE");
         HiveConnectorMetadata md = new HiveConnectorMetadata(null, Collections.emptyMap(), new FakeConnectorContext(),
-                () -> siblingConnector) {
+                SUPPLIER_MUST_NOT_BE_USED, handle -> siblingConnector) {
             @Override
             public ConnectorTransaction beginTransaction(ConnectorSession session) {
                 return hiveTxn;
