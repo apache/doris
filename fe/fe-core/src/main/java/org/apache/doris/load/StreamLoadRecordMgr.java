@@ -232,7 +232,11 @@ public class StreamLoadRecordMgr extends MasterDaemon {
         TLoadJob tJob = new TLoadJob();
         tJob.setJobId("");
         tJob.setLabel(record.getLabel());
-        tJob.setState(record.getStatus());
+        // Unify STATE with the LoadManager job-state vocabulary so the loads / loads_history
+        // STATE column is consistent across import types. The original Stream Load status text
+        // is preserved verbatim in ERROR_MSG (record.getMessage()). SHOW STREAM LOAD is unaffected;
+        // it reads the raw record status via a separate path.
+        tJob.setState(unifyStreamLoadState(record.getStatus()));
         tJob.setProgress("100%");
         tJob.setType("STREAM_LOAD");
         tJob.setEtlInfo("");
@@ -267,6 +271,32 @@ public class StreamLoadRecordMgr extends MasterDaemon {
         tJob.setComment(record.getComment());
         tJob.setFirstErrorMsg(record.getFirstErrorMsg());
         return tJob;
+    }
+
+    /**
+     * Map a Stream Load record status to the unified LoadManager job-state vocabulary used by
+     * information_schema.loads / loads_history (JobState names: FINISHED / CANCELLED). Stream Load
+     * records are always completion snapshots:
+     * <ul>
+     *   <li>"Success" / "Publish Timeout" -> FINISHED (data is committed and visible / will be)</li>
+     *   <li>"Fail" / "Label Already Exists" -> CANCELLED</li>
+     * </ul>
+     * Any unrecognized status is returned unchanged so a future BE status is never silently lost.
+     */
+    static String unifyStreamLoadState(String streamLoadStatus) {
+        if (streamLoadStatus == null) {
+            return "";
+        }
+        switch (streamLoadStatus) {
+            case "Success":
+            case "Publish Timeout":
+                return "FINISHED";
+            case "Fail":
+            case "Label Already Exists":
+                return "CANCELLED";
+            default:
+                return streamLoadStatus;
+        }
     }
 
     /**
@@ -320,38 +350,64 @@ public class StreamLoadRecordMgr extends MasterDaemon {
             return streamLoadJobs;
         }
 
-        int totalCap = Config.max_stream_load_record_size;
+        // Per-BE cap: fetch the newest `perBeCap` records from each BE (one desc RPC, no loop).
+        // Each BE may hold distinct records, so we read from all BEs and let the upper SQL layer
+        // handle ORDER BY / LIMIT. FE memory is bounded by #BEs * perBeCap.
+        int perBeCap = Config.max_stream_load_record_size;
         for (Backend backend : backends.values()) {
-            if (streamLoadJobs.size() >= totalCap) {
-                break;
-            }
             if (!backend.isAlive()) {
                 continue;
             }
-            readStreamLoadJobsFromBackend(backend, streamLoadJobs, totalCap);
+            fetchNewestStreamLoadJobsFromBackend(backend, streamLoadJobs, perBeCap);
         }
         return streamLoadJobs;
     }
 
-    private void readStreamLoadJobsFromBackend(Backend backend, List<TLoadJob> streamLoadJobs, int totalCap) {
-        readStreamLoadRecordsFromBackend(backend, () -> streamLoadJobs.size() < totalCap, item -> {
-            if (streamLoadJobs.size() >= totalCap) {
-                return false;
+    /**
+     * Fetch the newest {@code cap} Stream Load records from one BE in a single RPC
+     * (reverse / newest-first order) and convert them to TLoadJob rows.
+     * One RPC per BE replaces the old multi-round forward-pagination loop, eliminating both the
+     * oldest-first truncation bias and the INFO log storm on large clusters.
+     */
+    private void fetchNewestStreamLoadJobsFromBackend(Backend backend,
+            List<TLoadJob> streamLoadJobs, int cap) {
+        BackendService.Client client = null;
+        TNetworkAddress address = null;
+        boolean ok = false;
+        try {
+            address = new TNetworkAddress(backend.getHost(), backend.getBePort());
+            client = ClientPool.backendPool.borrowObject(address);
+            TStreamLoadRecordResult result = client.getStreamLoadRecordDesc(cap);
+            ok = true;
+            Map<String, TStreamLoadRecord> batch = result.getStreamLoadRecord();
+            if (batch == null || batch.isEmpty()) {
+                return;
             }
-            try {
-                // Keep the same table-level LOAD privilege check call used by SHOW STREAM LOAD.
-                if (!Env.getCurrentEnv().getAccessManager()
-                        .checkTblPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME,
-                                item.getDb(), item.getTbl(), PrivPredicate.LOAD)) {
-                    return true;
+            for (TStreamLoadRecord item : batch.values()) {
+                try {
+                    if (!Env.getCurrentEnv().getAccessManager()
+                            .checkTblPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME,
+                                    item.getDb(), item.getTbl(), PrivPredicate.LOAD)) {
+                        continue;
+                    }
+                    streamLoadJobs.add(streamLoadRecordToLoadJob(toStreamLoadRecord(item)));
+                } catch (Exception e) {
+                    LOG.debug("Skip stream load record in information_schema.loads, label: {}",
+                            item.getLabel(), e);
                 }
-                streamLoadJobs.add(streamLoadRecordToLoadJob(toStreamLoadRecord(item)));
-            } catch (Exception e) {
-                LOG.debug("Skip stream load record in information_schema.loads, label: {}",
-                        item.getLabel(), e);
             }
-            return true;
-        });
+        } catch (Exception e) {
+            LOG.warn("Failed to read stream load records (desc) from backend[{}],"
+                    + " skipping this backend", backend.getId(), e);
+        } finally {
+            if (client != null) {
+                if (ok) {
+                    ClientPool.backendPool.returnObject(address, client);
+                } else {
+                    ClientPool.backendPool.invalidateObject(address, client);
+                }
+            }
+        }
     }
 
     /**

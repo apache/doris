@@ -304,4 +304,10 @@ void CloudBackendService::get_stream_load_record(TStreamLoadRecordResult& result
                                                _engine.get_stream_load_recorder());
 }
 
+void CloudBackendService::get_stream_load_record_desc(TStreamLoadRecordResult& result,
+                                                      int64_t count) {
+    BaseBackendService::get_stream_load_record_desc(result, count,
+                                                    _engine.get_stream_load_recorder());
+}
+
 } // namespace doris

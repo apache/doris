@@ -25,8 +25,10 @@ import org.junit.Assert;
 import org.junit.Test;
 
 public class StreamLoadRecordMgrTest {
+
     @Test
     public void testStreamLoadRecordToLoadJob() {
+        // "Success" should be mapped to the unified JobState vocabulary "FINISHED".
         StreamLoadRecord record = new StreamLoadRecord("label_1", "db_1", "tbl_1", "127.0.0.1",
                 "Success", "OK", "N/A", "10", "9", "1", "0", "128", "3", "7",
                 "1000", "2000", "user_1", "comment_1", "first_error");
@@ -35,7 +37,8 @@ public class StreamLoadRecordMgrTest {
 
         Assert.assertEquals("", job.getJobId());
         Assert.assertEquals("label_1", job.getLabel());
-        Assert.assertEquals("Success", job.getState());
+        // STATE must use the unified LoadManager vocabulary, not the raw Stream Load status.
+        Assert.assertEquals("FINISHED", job.getState());
         Assert.assertEquals("100%", job.getProgress());
         Assert.assertEquals("STREAM_LOAD", job.getType());
         Assert.assertEquals("", job.getEtlInfo());
@@ -63,5 +66,20 @@ public class StreamLoadRecordMgrTest {
         Assert.assertEquals("128", jobDetails.get("LoadBytes").getAsString());
         Assert.assertEquals("3", jobDetails.get("BeginTxnTimeMs").getAsString());
         Assert.assertEquals("7", jobDetails.get("StreamLoadPutTimeMs").getAsString());
+    }
+
+    /**
+     * Full STATE mapping coverage — all four Stream Load statuses to the unified vocabulary.
+     */
+    @Test
+    public void testUnifyStreamLoadState() {
+        Assert.assertEquals("FINISHED", StreamLoadRecordMgr.unifyStreamLoadState("Success"));
+        Assert.assertEquals("FINISHED", StreamLoadRecordMgr.unifyStreamLoadState("Publish Timeout"));
+        Assert.assertEquals("CANCELLED", StreamLoadRecordMgr.unifyStreamLoadState("Fail"));
+        Assert.assertEquals("CANCELLED", StreamLoadRecordMgr.unifyStreamLoadState("Label Already Exists"));
+        // Unknown status is preserved as-is (forward-compatible with future BE additions).
+        Assert.assertEquals("SomeFuture", StreamLoadRecordMgr.unifyStreamLoadState("SomeFuture"));
+        // Null is handled gracefully.
+        Assert.assertEquals("", StreamLoadRecordMgr.unifyStreamLoadState(null));
     }
 }

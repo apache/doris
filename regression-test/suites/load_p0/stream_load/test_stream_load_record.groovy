@@ -106,9 +106,9 @@ suite("test_stream_load_record", "p0,nonConcurrent") {
         // 7 JOB_DETAILS, 8 USER, 9 COMMENT, 10 FIRST_ERROR_MSG
         def row = loadRows[0]
 
-        // Direct fields mapped 1:1 from the Stream Load record.
+        // STATE is now unified with LoadManager vocabulary: "Success" → "FINISHED"
         assertEquals(label, row[0].toString())            // LABEL
-        assertEquals("Success", row[1].toString())        // STATE
+        assertEquals("FINISHED", row[1].toString())       // STATE (unified: Success→FINISHED)
         assertEquals("100%", row[2].toString())           // PROGRESS
         assertEquals("STREAM_LOAD", row[3].toString())    // TYPE
         assertTrue(row[8].toString().length() > 0)        // USER is populated
