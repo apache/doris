@@ -38,7 +38,7 @@ import java.util.Set;
  */
 public class HdfsProperties extends HdfsCompatibleProperties {
 
-    private static final Set<String> SUPPORT_SCHEMA = ImmutableSet.of("hdfs", "viewfs", "ofs", "jfs");
+    private static final Set<String> SUPPORT_SCHEMA = ImmutableSet.of("hdfs", "viewfs");
 
     @ConnectorProperty(names = {"hdfs.authentication.type", "hadoop.security.authentication"},
             required = false,

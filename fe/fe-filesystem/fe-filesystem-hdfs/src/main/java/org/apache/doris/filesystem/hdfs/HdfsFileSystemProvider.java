@@ -19,42 +19,34 @@ package org.apache.doris.filesystem.hdfs;
 
 import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.filesystem.hdfs.properties.HdfsProperties;
-import org.apache.doris.filesystem.hdfs.properties.OssHdfsProperties;
 import org.apache.doris.filesystem.properties.FileSystemProperties;
 import org.apache.doris.filesystem.spi.FileSystemProvider;
 
 import java.io.IOException;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
 /**
- * SPI provider for plain HDFS-family filesystems: hdfs, viewfs, ofs, jfs.
+ * SPI provider for plain HDFS-family filesystems: hdfs, viewfs only.
  * Registered via META-INF/services for Java ServiceLoader discovery.
  *
- * <p>Aliyun OSS-HDFS ({@code oss://}, JindoFS) is intentionally NOT handled here — it has its own
- * {@link OssHdfsFileSystemProvider}. Routing is kept strictly disjoint: the authoritative
- * {@code _STORAGE_TYPE_} marker wins, and the heuristic fallback excludes anything
- * {@link OssHdfsProperties#guessIsMe} claims. {@code oss} is therefore absent from
- * {@link #SUPPORTED_SCHEMES}.</p>
+ * <p>Aliyun OSS-HDFS ({@code oss://}, JindoFS) has its own {@link OssHdfsFileSystemProvider}, and
+ * JuiceFS ({@code jfs://}) is served by the sibling {@code fe-filesystem-jfs} plugin;
+ * {@code ofs://} (Tencent CHDFS) is broker-routed by fe-core and is not an SPI filesystem here.
+ * Routing is kept strictly disjoint: a concrete uri scheme is authoritative and only
+ * {@code hdfs}/{@code viewfs} are claimed here; the {@code _STORAGE_TYPE_} "HDFS" marker is only a
+ * fallback when there is no uri scheme.</p>
  */
 public class HdfsFileSystemProvider implements FileSystemProvider<FileSystemProperties> {
 
-    public static final Set<String> SUPPORTED_SCHEMES = Set.of("hdfs", "viewfs", "ofs", "jfs");
+    public static final Set<String> SUPPORTED_SCHEMES = Set.of("hdfs", "viewfs");
 
     @Override
     public boolean supports(Map<String, String> properties) {
-        // Authoritative match: StoragePropertiesConverter always sets this key for HDFS storage,
-        // including Hive catalog properties that may not carry explicit HDFS connection keys.
         String storageType = properties.get("_STORAGE_TYPE_");
-        if ("HDFS".equals(storageType)) {
-            return true;
-        }
+        // OSS-HDFS (oss://, JindoFS) belongs to OssHdfsFileSystemProvider.
         if ("OSS_HDFS".equals(storageType)) {
-            // An explicit OSS-HDFS marker belongs to OssHdfsFileSystemProvider, never here.
-            return false;
-        }
-        // No authoritative marker: never claim a configuration that OSS-HDFS owns.
-        if (OssHdfsProperties.guessIsMe(properties)) {
             return false;
         }
         String uri = properties.get("HDFS_URI");
@@ -64,9 +56,16 @@ public class HdfsFileSystemProvider implements FileSystemProvider<FileSystemProp
         if (uri != null) {
             int schemeEnd = uri.indexOf("://");
             if (schemeEnd > 0) {
-                String scheme = uri.substring(0, schemeEnd).toLowerCase();
-                return SUPPORTED_SCHEMES.contains(scheme);
+                // A concrete scheme is authoritative: only hdfs/viewfs are ours. jfs:// and oss://
+                // are served by sibling filesystem plugins and ofs:// is broker-routed by fe-core,
+                // so all are declined here even though fe-core also marks jfs as "HDFS".
+                return SUPPORTED_SCHEMES.contains(uri.substring(0, schemeEnd).toLowerCase(Locale.ROOT));
             }
+        }
+        // No uri scheme: fall back to the authoritative HDFS marker or HA/kerberos hints
+        // (e.g. Hive catalog properties without explicit connection URIs).
+        if ("HDFS".equals(storageType)) {
+            return true;
         }
         return properties.containsKey("dfs.nameservices")
                 || properties.containsKey("hadoop.kerberos.principal");

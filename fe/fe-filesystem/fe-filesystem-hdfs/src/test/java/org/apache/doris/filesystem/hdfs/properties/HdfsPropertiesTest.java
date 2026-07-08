@@ -64,18 +64,6 @@ class HdfsPropertiesTest {
     }
 
     @Test
-    void ofsUriDerivesDefaultFsWhenNotExplicit() {
-        // ofs is in HdfsFileSystemProvider.SUPPORTED_SCHEMES, so a bare ofs:// uri with no explicit
-        // fs.defaultFS must still derive one; otherwise the backend config silently lacks fs.defaultFS.
-        Map<String, String> raw = new HashMap<>();
-        raw.put("uri", "ofs://cluster/path/to/file");
-
-        Map<String, String> resolved = resolve(raw);
-
-        Assertions.assertEquals("ofs://cluster", resolved.get("fs.defaultFS"));
-    }
-
-    @Test
     void userOverriddenHadoopKeysArePreserved() {
         Map<String, String> raw = new HashMap<>();
         raw.put("fs.defaultFS", "hdfs://ns");
