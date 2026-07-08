@@ -25,8 +25,9 @@ suite("test_insert_visible_timeout_return_mode", "nonConcurrent") {
     }
 
     def debugPoint = "PublishVersionDaemon.stop_publish"
-    // PublishVersionDaemon runs on the master FE, so keep both the session and debug point on master.
-    def feHost = getMasterIp()
+    // PublishVersionDaemon runs on the master FE. Use the configured runner-reachable host and master FE ports,
+    // because SHOW FRONTENDS can expose loopback or internal addresses in regression deployments.
+    def feHost = context.config.feHttpAddress.split(":")[0]
     def feHttpPort = getMasterPort()
     def feQueryPort = getMasterPort("query")
     def masterJdbcUrl = Config.buildUrlWithDb(feHost, feQueryPort, context.dbName)
