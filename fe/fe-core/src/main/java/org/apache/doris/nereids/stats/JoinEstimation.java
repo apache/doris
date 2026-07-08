@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.algebra.Join;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.Statistics;
@@ -53,6 +54,16 @@ public class JoinEstimation {
     private static double TRUSTABLE_UNIQ_THRESHOLD = 0.9;
     private static double OUTER_JOIN_NULL_SUPPLELMENT_RATIO = 0.1;
 
+    private static boolean shouldDecayRemainingUntrustConditions() {
+        ConnectContext connectContext = ConnectContext.get();
+        return connectContext == null || connectContext.getSessionVariable() == null
+                || connectContext.getSessionVariable().isEnableLowConfidenceEqJoinRemainingConditionDecay();
+    }
+
+    private static void normalizeColumnStatistics(Statistics outputStats, Statistics inputStats) {
+        outputStats.normalizeColumnStatistics(inputStats.getRowCount(), false);
+    }
+
     private static EqualPredicate normalizeEqualPredJoinCondition(EqualPredicate equal, Statistics rightStats) {
         boolean changeOrder = equal.left().getInputSlots().stream()
                 .anyMatch(slot -> rightStats.findColumnStatistics(slot) != null);
@@ -61,6 +72,45 @@ public class JoinEstimation {
         } else {
             return equal;
         }
+    }
+
+    /**
+     * Check whether any equal-join predicate has high-confidence column statistics
+     * on at least one side, i.e. {@code ndv / rowCount > TRUSTABLE_UNIQ_THRESHOLD (0.9)}.
+     *
+     * A "trustable" equality means one side of the join key is nearly unique, so the
+     * join selectivity estimation is reliable.  This is used by
+     * {@code MemoStatsAndCostRecomputer.isTrustJoin()} to score join candidates for
+     * the {@code trust_join_count} row-count aggregation policy, and by
+     * {@code estimateInnerJoinWithEqualPredicate()} to separate high-confidence
+     * equalities from low-confidence ones.
+     *
+     * Unknown column stats ({@code ColumnStatistic.UNKNOWN}) are rejected before the
+     * NDV check because they carry {@code ndv=1} which could falsely pass the ratio
+     * test on small tables.
+     */
+    static boolean hasTrustableEqualCondition(Statistics leftStats, Statistics rightStats, Join join) {
+        if (join.getEqualPredicates().isEmpty()) {
+            return false;
+        }
+        double rightStatsRowCount = StatsMathUtil.nonZeroDivisor(rightStats.getRowCount());
+        double leftStatsRowCount = StatsMathUtil.nonZeroDivisor(leftStats.getRowCount());
+        return join.getEqualPredicates().stream()
+                .map(expression -> normalizeEqualPredJoinCondition((EqualPredicate) expression, rightStats))
+                .anyMatch(equal -> {
+                    ColumnStatistic eqLeftColStats = ExpressionEstimation.estimate(equal.left(), leftStats);
+                    ColumnStatistic eqRightColStats = ExpressionEstimation.estimate(equal.right(), rightStats);
+                    // Reject unknown column stats: ExpressionEstimation.visitSlotReference()
+                    // returns ColumnStatistic.UNKNOWN (ndv=1, isUnKnown=true) when a slot
+                    // has no stats.  An unknown column with ndv=1 could satisfy the NDV-ratio
+                    // check for small row counts, but the equality should not be treated as
+                    // trustable.
+                    if (eqLeftColStats.isUnKnown || eqRightColStats.isUnKnown) {
+                        return false;
+                    }
+                    return eqRightColStats.ndv / rightStatsRowCount > TRUSTABLE_UNIQ_THRESHOLD
+                            || eqLeftColStats.ndv / leftStatsRowCount > TRUSTABLE_UNIQ_THRESHOLD;
+                });
     }
 
     private static boolean joinConditionContainsUnknownColumnStats(Statistics leftStats,
@@ -150,6 +200,11 @@ public class JoinEstimation {
             Optional<Double> ratio = unTrustEqualRatio.stream().min(Double::compareTo);
             if (ratio.isPresent()) {
                 outputRowCount = Math.max(1, outputRowCount * ratio.get());
+                if (shouldDecayRemainingUntrustConditions()) {
+                    outputRowCount = Math.max(1, outputRowCount * Math.pow(
+                            UNTRUSTABLE_CONDITION_SELECTIVITY_LINEAR_FACTOR,
+                            Math.max(0, unTrustableCondition.size() - 1)));
+                }
             }
         }
         innerJoinStats = crossJoinStats.withRowCountAndEnforceValid(outputRowCount);
@@ -296,7 +351,8 @@ public class JoinEstimation {
                         .putColumnStatistics(rightStats.columnStatistics())
                         .build();
             }
-            result.normalizeColumnStatistics();
+            normalizeColumnStatistics(result,
+                    join.getJoinType().isLeftSemiOrAntiJoin() ? leftStats : rightStats);
             return result;
         }
         double rowCount = Double.POSITIVE_INFINITY;
@@ -354,7 +410,8 @@ public class JoinEstimation {
                 builder.setRowCount(rowCount);
             }
             Statistics outputStats = builder.build();
-            outputStats.normalizeColumnStatistics();
+            normalizeColumnStatistics(outputStats,
+                    join.getJoinType().isLeftSemiOrAntiJoin() ? leftStats : rightStats);
             return outputStats;
         }
     }
@@ -376,7 +433,8 @@ public class JoinEstimation {
                         .putColumnStatistics(rightStats.columnStatistics())
                         .build();
             }
-            result.normalizeColumnStatistics();
+            normalizeColumnStatistics(result,
+                    join.getJoinType().isAsofLeftInnerJoin() ? leftStats : rightStats);
             return result;
         }
         double rowCount = Double.POSITIVE_INFINITY;
@@ -403,7 +461,8 @@ public class JoinEstimation {
             }
             builder.setRowCount(rowCount);
             Statistics outputStats = builder.build();
-            outputStats.normalizeColumnStatistics();
+            normalizeColumnStatistics(outputStats,
+                    join.getJoinType().isAsofLeftInnerJoin() ? leftStats : rightStats);
             return outputStats;
         }
     }
