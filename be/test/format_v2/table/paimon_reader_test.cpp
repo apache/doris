@@ -44,6 +44,8 @@
 #include "core/field.h"
 #include "exec/common/endian.h"
 #include "format/format_common.h"
+#include "format/table/deletion_vector_reader.h"
+#include "format/table/paimon_reader.h"
 #include "format_v2/column_data.h"
 #include "gen_cpp/ExternalTableSchema_types.h"
 #include "gen_cpp/PlanNodes_types.h"
@@ -193,8 +195,8 @@ void write_int_pair_parquet_file(const std::string& file_path, const std::vector
                                                       builder.build()));
 }
 
-int64_t write_paimon_deletion_vector_file(const std::string& file_path,
-                                          const std::vector<uint32_t>& deleted_positions) {
+std::vector<char> build_paimon_deletion_vector_buffer(
+        const std::vector<uint32_t>& deleted_positions) {
     roaring::Roaring rows;
     for (const auto position : deleted_positions) {
         rows.add(position);
@@ -207,13 +209,18 @@ int64_t write_paimon_deletion_vector_file(const std::string& file_path,
     constexpr char PAIMON_BITMAP_MAGIC[] = {'\x5E', '\x43', '\xF2', '\xD0'};
     memcpy(blob.data() + 4, PAIMON_BITMAP_MAGIC, 4);
     rows.write(blob.data() + 8);
+    return blob;
+}
 
+int64_t write_paimon_deletion_vector_file(const std::string& file_path,
+                                          const std::vector<uint32_t>& deleted_positions) {
+    const auto blob = build_paimon_deletion_vector_buffer(deleted_positions);
     std::ofstream output(file_path, std::ios::binary);
     EXPECT_TRUE(output.is_open());
     output.write(blob.data(), static_cast<std::streamsize>(blob.size()));
     EXPECT_TRUE(output.good());
     // Paimon DeletionFile.length is magic + bitmap length, excluding the leading length field.
-    return static_cast<int64_t>(total_length);
+    return static_cast<int64_t>(blob.size() - 4);
 }
 
 TFileScanRangeParams make_local_parquet_scan_params() {
@@ -380,6 +387,95 @@ TEST(PaimonReaderTest, FallsBackToByNameWhenSplitHistorySchemaIsMissing) {
     ASSERT_TRUE(reader.TEST_annotate_file_schema(&file_schema).ok());
     EXPECT_EQ(file_schema[0].get_identifier_field_id(), 0);
     EXPECT_TRUE(file_schema[0].name_mapping.empty());
+}
+
+TEST(PaimonReaderTest, DeletionVectorCacheKeyIncludesOffsetAndLength) {
+    // Scenario: format_v2 converts Paimon split metadata into a generic DeleteFileDesc. The
+    // generated key must preserve offset and length so shared DV files do not collide.
+    TTableFormatFileDesc table_format_params;
+    table_format_params.__isset.paimon_params = true;
+    TPaimonDeletionFileDesc deletion_file;
+    deletion_file.__set_path("s3://bucket/table/deletion.dv");
+    deletion_file.__set_offset(128);
+    deletion_file.__set_length(64);
+    table_format_params.paimon_params.__set_deletion_file(deletion_file);
+
+    paimon::PaimonReader reader;
+    DeleteFileDesc first_desc;
+    bool has_delete_file = false;
+    ASSERT_TRUE(reader.TEST_parse_deletion_vector_file(table_format_params, &first_desc,
+                                                       &has_delete_file)
+                        .ok());
+    EXPECT_TRUE(has_delete_file);
+
+    table_format_params.paimon_params.deletion_file.__set_offset(256);
+    DeleteFileDesc different_offset_desc;
+    ASSERT_TRUE(reader.TEST_parse_deletion_vector_file(table_format_params, &different_offset_desc,
+                                                       &has_delete_file)
+                        .ok());
+
+    table_format_params.paimon_params.deletion_file.__set_offset(128);
+    table_format_params.paimon_params.deletion_file.__set_length(96);
+    DeleteFileDesc different_length_desc;
+    ASSERT_TRUE(reader.TEST_parse_deletion_vector_file(table_format_params, &different_length_desc,
+                                                       &has_delete_file)
+                        .ok());
+
+    EXPECT_NE(first_desc.key, different_offset_desc.key);
+    EXPECT_NE(first_desc.key, different_length_desc.key);
+}
+
+TEST(PaimonReaderTest, DecodeDeletionVectorBufferUsesSharedFormatHelper) {
+    // Scenario: format_v2 TableReader reads a raw Paimon BitmapDeletionVector range and delegates
+    // the binary parsing to the same helper used by the format reader path.
+    const auto buffer = build_paimon_deletion_vector_buffer({0, 3, 5});
+    DeleteRows delete_rows;
+
+    ASSERT_TRUE(
+            decode_paimon_deletion_vector_buffer(buffer.data(), buffer.size(), &delete_rows).ok());
+    EXPECT_EQ(delete_rows, DeleteRows({0, 3, 5}));
+}
+
+TEST(PaimonReaderTest, DecodeDeletionVectorBufferRejectsShortBuffer) {
+    // Scenario: a truncated Paimon DV must fail before reading the magic or roaring payload.
+    const std::vector<char> buffer = {'\0', '\0', '\0', '\4'};
+    DeleteRows delete_rows;
+
+    EXPECT_FALSE(
+            decode_paimon_deletion_vector_buffer(buffer.data(), buffer.size(), &delete_rows).ok());
+}
+
+TEST(PaimonReaderTest, DecodeDeletionVectorBufferRejectsLengthMismatch) {
+    // Scenario: a cached or remote Paimon DV range with a mismatched leading length must not be
+    // accepted as a valid bitmap.
+    auto buffer = build_paimon_deletion_vector_buffer({1, 2});
+    BigEndian::Store32(buffer.data(), static_cast<uint32_t>(buffer.size()));
+    DeleteRows delete_rows;
+
+    EXPECT_FALSE(
+            decode_paimon_deletion_vector_buffer(buffer.data(), buffer.size(), &delete_rows).ok());
+}
+
+TEST(PaimonReaderTest, DecodeDeletionVectorBufferRejectsMagicMismatch) {
+    // Scenario: format_v2 must reject non-Paimon payloads even when the range length is valid.
+    auto buffer = build_paimon_deletion_vector_buffer({1, 2});
+    buffer[4] = '\0';
+    DeleteRows delete_rows;
+
+    EXPECT_FALSE(
+            decode_paimon_deletion_vector_buffer(buffer.data(), buffer.size(), &delete_rows).ok());
+}
+
+TEST(PaimonReaderTest, DecodeDeletionVectorBufferRejectsCorruptRoaringBitmap) {
+    // Scenario: a valid Paimon DV header with a corrupt roaring body should return a data quality
+    // error instead of producing partial delete rows.
+    auto buffer = build_paimon_deletion_vector_buffer({1, 2});
+    buffer.resize(8);
+    BigEndian::Store32(buffer.data(), 4);
+    DeleteRows delete_rows;
+
+    EXPECT_FALSE(
+            decode_paimon_deletion_vector_buffer(buffer.data(), buffer.size(), &delete_rows).ok());
 }
 
 // Scenario: PaimonReader must clear the previous split schema id before reading a new split. A
