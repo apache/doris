@@ -273,7 +273,7 @@ public class ConnectContext {
 
     private InsertResult insertResult;
 
-    private SessionContext sessionContext;
+    private SessionContext sessionContext = SessionContext.empty();
 
 
     // This context is used for SSL connection between server and mysql client.
@@ -370,6 +370,10 @@ public class ConnectContext {
 
     public SessionContext getSessionContext() {
         return sessionContext;
+    }
+
+    public void setSessionContext(SessionContext sessionContext) {
+        this.sessionContext = sessionContext == null ? SessionContext.empty() : sessionContext;
     }
 
     public MysqlSslContext getMysqlSslContext() {

@@ -39,6 +39,8 @@ import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.DelegatedCredential;
+import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.MysqlCapability;
 import org.apache.doris.mysql.MysqlChannel;
@@ -88,6 +90,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.UUID;
 
 /**
@@ -709,6 +712,7 @@ public abstract class ConnectProcessor {
         if (request.isSetConnectAttributes()) {
             ctx.setConnectAttributes(request.getConnectAttributes());
         }
+        restoreForwardedSessionContext(ctx, request);
 
         // set compute group
         ctx.setComputeGroup(Env.getCurrentEnv().getAuth().getComputeGroup(ctx.getQualifiedUser()));
@@ -839,6 +843,24 @@ public abstract class ConnectProcessor {
         // Old followers do not carry the cursor flag. Keep their existing behavior; they must
         // be upgraded to preserve cursor intent. Do not reject their ordinary prepared statements.
         context.setCursorFetchRequested(request.isSetCursorFetchRequested() && request.isCursorFetchRequested());
+    }
+
+    static void restoreForwardedSessionContext(ConnectContext context, TMasterOpRequest request) {
+        if (!request.isSetDelegatedCredentialToken()) {
+            return;
+        }
+        Preconditions.checkState(request.isSetDelegatedCredentialType(),
+                "delegated credential type is required");
+        Preconditions.checkState(request.isSetDelegatedCredentialSessionId(),
+                "delegated credential session id is required");
+        OptionalLong expiresAtMillis = request.isSetDelegatedCredentialExpiresAtMillis()
+                ? OptionalLong.of(request.getDelegatedCredentialExpiresAtMillis())
+                : OptionalLong.empty();
+        String sessionId = request.getDelegatedCredentialSessionId();
+        context.setSessionContext(SessionContext.of(sessionId, new DelegatedCredential(
+                DelegatedCredential.Type.valueOf(request.getDelegatedCredentialType()),
+                request.getDelegatedCredentialToken(),
+                expiresAtMillis)));
     }
 
     // only Mysql protocol

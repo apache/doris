@@ -19,10 +19,12 @@ package org.apache.doris.datasource.iceberg;
 
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.DelegatedCredential;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.SchemaCacheValue;
+import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.iceberg.cache.ManifestCacheValue;
@@ -32,6 +34,7 @@ import org.apache.doris.datasource.metacache.MetaCacheEntry;
 import org.apache.doris.datasource.metacache.MetaCacheEntryStats;
 import org.apache.doris.datasource.metacache.MetaCacheSizeEstimate;
 import org.apache.doris.datasource.metacache.MetaCacheWeightUtils;
+import org.apache.doris.qe.ConnectContext;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.BaseTable;
@@ -4164,4 +4167,88 @@ public class IcebergExternalMetaCacheTest {
             return new TestingManifestFile(path, content);
         }
     }
+
+    @Test
+    public void testDelegatedTablesBypassSharedCacheAndRetainCatalogLease() throws Exception {
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        IcebergRestExternalCatalog catalog = Mockito.mock(IcebergRestExternalCatalog.class);
+        IcebergMetadataOps ops = Mockito.mock(IcebergMetadataOps.class);
+        ExecutionAuthenticator authenticator = new ExecutionAuthenticator() { };
+        Mockito.when(catalog.useSessionCatalog(Mockito.any())).thenReturn(true);
+        Mockito.when(catalog.getMetadataOps()).thenReturn(ops);
+        Mockito.when(catalog.getExecutionAuthenticator()).thenReturn(authenticator);
+        IcebergExternalCatalog.TableLoadContext context =
+                Mockito.mock(IcebergExternalCatalog.TableLoadContext.class);
+        Mockito.when(catalog.beginTableLoad()).thenReturn(context);
+        Mockito.when(context.getOps()).thenReturn(ops);
+        Mockito.when(context.getAuthenticator()).thenReturn(authenticator);
+        Mockito.when(context.getCatalogType()).thenReturn(IcebergExternalCatalog.ICEBERG_REST);
+        IcebergCatalogResourceTracker.ResourceLease catalogLease =
+                Mockito.mock(IcebergCatalogResourceTracker.ResourceLease.class);
+        Mockito.when(context.promote()).thenReturn(catalogLease);
+        SessionContext alice = SessionContext.of(new DelegatedCredential(
+                DelegatedCredential.Type.ACCESS_TOKEN, "alice-access-token"));
+        SessionContext bob = SessionContext.of(new DelegatedCredential(
+                DelegatedCredential.Type.ACCESS_TOKEN, "bob-access-token"));
+        Table aliceTable = tableWithMetadataLocation("/metadata/alice.json");
+        Table bobTable = tableWithMetadataLocation("/metadata/bob.json");
+        Mockito.when(context.loadTable(alice, "remote_db", "remote_tbl")).thenReturn(aliceTable);
+        Mockito.when(context.loadTable(bob, "remote_db", "remote_tbl")).thenReturn(bobTable);
+        IcebergExternalMetaCache cache = new IcebergExternalMetaCache(executor) {
+            @Override
+            protected CatalogIf<?> getCatalog(long catalogId) {
+                return catalog;
+            }
+        };
+        ConnectContext connectContext = new ConnectContext();
+        connectContext.setThreadLocalInfo();
+        try {
+            cache.initCatalog(1L, Collections.emptyMap());
+            NameMapping mapping = new NameMapping(1L, "db", "tbl", "remote_db", "remote_tbl");
+            MetaCacheEntry<NameMapping, IcebergTableCacheValue> sharedCache = cache.entry(1L,
+                    IcebergExternalMetaCache.ENTRY_TABLE, NameMapping.class, IcebergTableCacheValue.class);
+            IcebergTableCacheValue shared = new IcebergTableCacheValue(
+                    tableWithMetadataLocation("/metadata/service-account.json"));
+            sharedCache.put(mapping, shared);
+            connectContext.setSessionContext(alice);
+            IcebergTableCacheValue aliceValue;
+            try (IcebergTableCacheValue.Lease lease = cache.borrowForTest(mapping)) {
+                aliceValue = lease.getValue();
+                Assert.assertNotSame(shared, aliceValue);
+                Assert.assertEquals("/metadata/alice.json",
+                        ((HasTableOperations) lease.getIcebergTable()).operations().current().metadataFileLocation());
+                Mockito.verify(catalogLease, Mockito.never()).close();
+            }
+            Mockito.verify(catalogLease).close();
+            connectContext.setSessionContext(bob);
+            try (IcebergTableCacheValue.Lease lease = cache.borrowForTest(mapping)) {
+                Assert.assertNotSame(aliceValue, lease.getValue());
+                Assert.assertEquals("/metadata/bob.json",
+                        ((HasTableOperations) lease.getIcebergTable()).operations().current().metadataFileLocation());
+            }
+            Mockito.verify(catalogLease, Mockito.times(2)).close();
+            Assert.assertSame(shared, sharedCache.peekIfPresent(mapping));
+            ExternalTable dorisTable = Mockito.mock(IcebergExternalTable.class);
+            Mockito.when(dorisTable.getCatalog()).thenReturn(catalog);
+            Mockito.when(dorisTable.getOrBuildNameMapping()).thenReturn(mapping);
+            MetaCacheEntry<IcebergSnapshotEntryKey, IcebergSnapshotCacheValue> snapshots = cache.entry(1L,
+                    IcebergExternalMetaCache.ENTRY_SNAPSHOT,
+                    IcebergSnapshotEntryKey.class, IcebergSnapshotCacheValue.class);
+            connectContext.setSessionContext(alice);
+            cache.getSnapshotCache(dorisTable);
+            Assert.assertNull(snapshots.peekIfPresent(
+                    IcebergSnapshotEntryKey.tryCreate(mapping, aliceTable).get()));
+            connectContext.setSessionContext(bob);
+            cache.getSnapshotCache(dorisTable);
+            Assert.assertNull(snapshots.peekIfPresent(
+                    IcebergSnapshotEntryKey.tryCreate(mapping, bobTable).get()));
+            Mockito.verify(catalogLease, Mockito.times(4)).close();
+            Mockito.verify(context, Mockito.never()).loadTable("remote_db", "remote_tbl");
+        } finally {
+            ConnectContext.remove();
+            cache.close();
+            executor.shutdownNow();
+        }
+    }
+
 }
