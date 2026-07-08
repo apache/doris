@@ -72,8 +72,8 @@ public class HudiForceJniTest {
         TFileRangeDesc rangeDesc = new TFileRangeDesc();
         range.populateRangeParams(formatDesc, rangeDesc);
 
-        Assertions.assertNotEquals(TFileFormatType.FORMAT_PARQUET, rangeDesc.getFormatType(),
-                "force_jni must NOT downgrade a no-log slice to the native parquet reader");
+        Assertions.assertEquals(TFileFormatType.FORMAT_JNI, rangeDesc.getFormatType(),
+                "force_jni must keep the slice on the JNI reader (explicit FORMAT_JNI), not the native reader");
         Assertions.assertTrue(formatDesc.getHudiParams().isSetColumnNames(),
                 "JNI fileDesc fields must be set when the slice stays on JNI");
         Assertions.assertEquals("20240101000000000", formatDesc.getHudiParams().getInstantTime());

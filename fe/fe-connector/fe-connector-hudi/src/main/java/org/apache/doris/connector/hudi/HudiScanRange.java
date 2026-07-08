@@ -172,26 +172,25 @@ public class HudiScanRange implements ConnectorScanRange {
 
         boolean isJni = "jni".equalsIgnoreCase(getFileFormat());
 
-        // Dynamic format downgrade: if JNI but no delta logs, use native reader — UNLESS force_jni is engaged
-        // (then keep the JNI reader, matching legacy HudiScanNode.setScanParams' !isForceJniScanner() guard).
-        if (isJni) {
-            if (deltaLogs.isEmpty() && !forceJni) {
-                String dataFilePath = props.getOrDefault(
-                        "hudi.data_file_path", "");
-                if (!dataFilePath.isEmpty()) {
-                    String lower = dataFilePath.toLowerCase();
-                    if (lower.endsWith(".parquet")) {
-                        rangeDesc.setFormatType(TFileFormatType.FORMAT_PARQUET);
-                        isJni = false;
-                    } else if (lower.endsWith(".orc")) {
-                        rangeDesc.setFormatType(TFileFormatType.FORMAT_ORC);
-                        isJni = false;
-                    }
-                }
+        // A JNI-format split with no delta logs (a read-optimized / log-less slice) reads natively — UNLESS
+        // force_jni is engaged (legacy HudiScanNode.setScanParams' !isForceJniScanner() guard). In practice
+        // collectMorSplits/collectCowSplits already stamp the native format directly, so this only resolves a
+        // defensively-built "jni"+no-log range.
+        if (isJni && deltaLogs.isEmpty() && !forceJni) {
+            String dataFilePath = props.getOrDefault("hudi.data_file_path", "");
+            String lower = dataFilePath.toLowerCase();
+            if (lower.endsWith(".parquet") || lower.endsWith(".orc")) {
+                isJni = false;
             }
         }
 
+        // Set the per-range format EXPLICITLY (mirroring PaimonScanRange): the node-level file_format_type is a
+        // SINGLE default per table and cannot be correct for every slice — a MOR table mixes native no-log
+        // slices with JNI log slices, a COW ORC table's node default is parquet, and force_jni keeps a COW slice
+        // on JNI. Relying on that default silently delivered the wrong reader to BE (an empty THudiFileDesc under
+        // FORMAT_JNI for a native no-log slice, or the native reader for a force_jni / ORC slice).
         if (isJni) {
+            rangeDesc.setFormatType(TFileFormatType.FORMAT_JNI);
             fileDesc.setInstantTime(
                     props.getOrDefault("hudi.instant_time", ""));
             fileDesc.setSerde(props.getOrDefault("hudi.serde", ""));
@@ -217,6 +216,8 @@ public class HudiScanRange implements ConnectorScanRange {
             if (!columnTypes.isEmpty()) {
                 fileDesc.setColumnTypes(columnTypes);
             }
+        } else {
+            rangeDesc.setFormatType(nativeFormatType(props));
         }
 
         formatDesc.setHudiParams(fileDesc);
@@ -236,6 +237,24 @@ public class HudiScanRange implements ConnectorScanRange {
             rangeDesc.setColumnsFromPath(normalized.getValues());
             rangeDesc.setColumnsFromPathIsNull(normalized.getIsNull());
         }
+    }
+
+    /**
+     * The BE native reader format for a non-JNI slice: from the range's own file format when it is already
+     * native (collectCowSplits / a no-log MOR slice stamp "parquet"/"orc" directly), else — for a "jni" range
+     * downgraded above — from the base file suffix. Defaults to parquet (matching {@code detectFileFormat}).
+     */
+    private TFileFormatType nativeFormatType(Map<String, String> props) {
+        String fmt = getFileFormat();
+        if ("orc".equalsIgnoreCase(fmt)) {
+            return TFileFormatType.FORMAT_ORC;
+        }
+        if ("parquet".equalsIgnoreCase(fmt)) {
+            return TFileFormatType.FORMAT_PARQUET;
+        }
+        String dataFilePath = props.getOrDefault("hudi.data_file_path", "");
+        return dataFilePath.toLowerCase().endsWith(".orc")
+                ? TFileFormatType.FORMAT_ORC : TFileFormatType.FORMAT_PARQUET;
     }
 
     /** Builder for constructing HudiScanRange instances. */

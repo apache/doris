@@ -62,6 +62,9 @@ public class HudiScanRangeTest {
 
         THudiFileDesc fileDesc = formatDesc.getHudiParams();
 
+        // A log-bearing MOR slice must set FORMAT_JNI explicitly (not rely on the node default).
+        Assertions.assertEquals(TFileFormatType.FORMAT_JNI, rangeDesc.getFormatType());
+
         // Types must NOT be shattered: 3 columns -> 3 type strings (old bug
         // produced 5: "decimal(10","2)","struct<a:int","b:string>").
         Assertions.assertEquals(Arrays.asList("int", "decimal(10,2)", "struct<a:int,b:string>"),
@@ -91,5 +94,43 @@ public class HudiScanRangeTest {
         Assertions.assertEquals(TFileFormatType.FORMAT_PARQUET, rangeDesc.getFormatType());
         Assertions.assertFalse(formatDesc.getHudiParams().isSetColumnTypes());
         Assertions.assertFalse(formatDesc.getHudiParams().isSetColumnNames());
+    }
+
+    @Test
+    public void nativeParquetSliceExplicitlySetsFormatType() {
+        // A native slice as collectMorSplits/collectCowSplits actually build it: fileFormat="parquet" (NOT
+        // "jni"), no JNI metadata. populateRangeParams MUST set FORMAT_PARQUET explicitly — relying on the
+        // node-level default (jni for a MOR table) shipped an empty THudiFileDesc under FORMAT_JNI to BE.
+        HudiScanRange range = new HudiScanRange.Builder()
+                .path("s3://bucket/t/base.parquet")
+                .fileFormat("parquet")
+                .fileSize(456L)
+                .build();
+
+        TTableFormatFileDesc formatDesc = new TTableFormatFileDesc();
+        TFileRangeDesc rangeDesc = new TFileRangeDesc();
+        range.populateRangeParams(formatDesc, rangeDesc);
+
+        Assertions.assertEquals(TFileFormatType.FORMAT_PARQUET, rangeDesc.getFormatType(),
+                "a native parquet slice must set FORMAT_PARQUET, not inherit the node default");
+        Assertions.assertFalse(formatDesc.getHudiParams().isSetColumnNames(), "native slice sets no JNI fields");
+    }
+
+    @Test
+    public void nativeOrcSliceExplicitlySetsFormatType() {
+        // A COW ORC table's node default is parquet; without an explicit per-range set BE would read the ORC
+        // base file as parquet.
+        HudiScanRange range = new HudiScanRange.Builder()
+                .path("s3://bucket/t/base.orc")
+                .fileFormat("orc")
+                .fileSize(456L)
+                .build();
+
+        TTableFormatFileDesc formatDesc = new TTableFormatFileDesc();
+        TFileRangeDesc rangeDesc = new TFileRangeDesc();
+        range.populateRangeParams(formatDesc, rangeDesc);
+
+        Assertions.assertEquals(TFileFormatType.FORMAT_ORC, rangeDesc.getFormatType(),
+                "a native orc slice must set FORMAT_ORC, not inherit the parquet node default");
     }
 }
