@@ -86,6 +86,28 @@ public class ExternalDatabaseTest extends TestWithFeService {
     }
 
     @Test
+    public void testGetTableForReplayFallsBackToCaseInsensitiveHotObjectKeyWhenNamesAreCold() {
+        NameMissTableCatalogProvider.reset();
+        try {
+            NameMissTableCatalogProvider.putTable("db_ci", "Foo");
+            CaseInsensitiveCatalog catalog = new CaseInsensitiveCatalog();
+            InspectableDatabase db = new InspectableDatabase(catalog, 210L, "db_ci", "db_ci");
+            db.setInitializedForTest(true);
+            TestExternalTable table = new TestExternalTable(211L, "Foo", "Foo", catalog, db);
+
+            // Warm names first so resetMetaCacheNames() clears only the names snapshot.
+            Assertions.assertTrue(db.getTableNamesWithLock().contains("Foo"));
+            db.addTableForTest(table);
+            db.resetMetaCacheNames();
+
+            Assertions.assertNull(db.getCachedTableNamesForTest());
+            Assertions.assertSame(table, db.getTableForReplay("foo").orElse(null));
+        } finally {
+            NameMissTableCatalogProvider.reset();
+        }
+    }
+
+    @Test
     public void testGetTableNullableUpdatesIdMapWithActualTableId() {
         InspectableCatalog catalog = new InspectableCatalog();
         InspectableDatabase db = new InspectableDatabase(catalog, 300L, "db1", "db1");
@@ -390,6 +412,19 @@ public class ExternalDatabaseTest extends TestWithFeService {
         private static Map<String, String> buildProps() {
             Map<String, String> props = Maps.newHashMap();
             props.put("catalog_provider.class", DatabaseCatalogProvider.class.getName());
+            return props;
+        }
+    }
+
+    private static class CaseInsensitiveCatalog extends TestExternalCatalog {
+        CaseInsensitiveCatalog() {
+            super(1001L, "db_case_insensitive_catalog", "", buildCaseInsensitiveProps(), "");
+        }
+
+        private static Map<String, String> buildCaseInsensitiveProps() {
+            Map<String, String> props = Maps.newHashMap();
+            props.put("catalog_provider.class", NameMissTableCatalogProvider.class.getName());
+            props.put(ExternalCatalog.LOWER_CASE_TABLE_NAMES, "2");
             return props;
         }
     }

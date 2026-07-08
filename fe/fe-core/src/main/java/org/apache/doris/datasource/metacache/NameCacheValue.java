@@ -21,6 +21,7 @@ import org.apache.doris.common.Pair;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 
 import java.util.List;
@@ -34,7 +35,10 @@ import java.util.stream.Collectors;
  */
 public final class NameCacheValue {
     private final ImmutableList<Pair<String, String>> names;
+    private final ImmutableList<String> localNames;
     private final ImmutableMap<String, String> lowerCaseToRemoteName;
+    private final ImmutableMap<String, String> localNameToRemoteName;
+    private final ImmutableSet<String> localNameSet;
 
     private NameCacheValue(List<Pair<String, String>> names) {
         // Deep-copy each pair so callers cannot mutate the snapshot through reused Pair instances.
@@ -42,10 +46,17 @@ public final class NameCacheValue {
         // Build the lower-case index with last-write-wins semantics so the snapshot does not
         // introduce case-conflict validation beyond what the catalog-aware loader already enforces.
         Map<String, String> indexBuilder = new java.util.HashMap<>();
+        Map<String, String> localNameIndexBuilder = new java.util.HashMap<>();
+        ImmutableList.Builder<String> localNamesBuilder = ImmutableList.builder();
         for (Pair<String, String> pair : this.names) {
             indexBuilder.put(pair.key().toLowerCase(Locale.ROOT), pair.key());
+            localNamesBuilder.add(pair.value());
+            localNameIndexBuilder.put(pair.value(), pair.key());
         }
+        localNames = localNamesBuilder.build();
         lowerCaseToRemoteName = ImmutableMap.copyOf(indexBuilder);
+        localNameToRemoteName = ImmutableMap.copyOf(localNameIndexBuilder);
+        localNameSet = ImmutableSet.copyOf(localNames);
     }
 
     public static NameCacheValue of(List<Pair<String, String>> names) {
@@ -62,22 +73,16 @@ public final class NameCacheValue {
         return ImmutableList.copyOf(copyPairs(names));
     }
 
+    public List<String> localNames() {
+        return localNames;
+    }
+
     public String remoteNameOfLocalName(String localName) {
-        for (Pair<String, String> pair : names) {
-            if (pair.value().equals(localName)) {
-                return pair.key();
-            }
-        }
-        return null;
+        return localNameToRemoteName.get(localName);
     }
 
     public boolean containsLocalName(String localName) {
-        for (Pair<String, String> pair : names) {
-            if (pair.value().equals(localName)) {
-                return true;
-            }
-        }
-        return false;
+        return localNameSet.contains(localName);
     }
 
     public String remoteNameForCaseInsensitiveLookup(String name) {
