@@ -34,6 +34,9 @@ import org.apache.doris.connector.api.pushdown.FilterApplicationResult;
 import org.apache.doris.connector.hms.HmsClient;
 import org.apache.doris.connector.hms.HmsClientException;
 import org.apache.doris.connector.hms.HmsTableInfo;
+import org.apache.doris.thrift.THiveTable;
+import org.apache.doris.thrift.TTableDescriptor;
+import org.apache.doris.thrift.TTableType;
 
 import org.apache.avro.Schema;
 import org.apache.hadoop.conf.Configuration;
@@ -217,6 +220,25 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
     @Override
     public Map<String, String> getProperties() {
         return properties;
+    }
+
+    /**
+     * Builds the BE table descriptor for a hudi table: a {@code TTableType.HIVE_TABLE} carrying a
+     * {@link THiveTable}, a direct port of legacy hudi (which rode {@code HMSExternalTable.toThrift} /
+     * {@code HudiScanNode extends HiveScanNode} = HIVE_TABLE). Without this override the SPI default returns
+     * {@code null} and fe-core ({@code PluginDrivenExternalTable.toThrift}) falls back to a generic
+     * {@code SCHEMA_TABLE} descriptor, so BE builds a SchemaTableDescriptor instead of a HiveTableDescriptor.
+     * Mirrors {@code HiveConnectorMetadata.buildTableDescriptor}; the SPI signature carries no handle, so this
+     * single override serves base and system tables alike.
+     */
+    @Override
+    public TTableDescriptor buildTableDescriptor(ConnectorSession session,
+            long tableId, String tableName, String dbName, String remoteName, int numCols, long catalogId) {
+        THiveTable tHiveTable = new THiveTable(dbName, tableName, new HashMap<>());
+        TTableDescriptor desc = new TTableDescriptor(
+                tableId, TTableType.HIVE_TABLE, numCols, 0, tableName, dbName);
+        desc.setHiveTable(tHiveTable);
+        return desc;
     }
 
     // ========== Internal helpers ==========

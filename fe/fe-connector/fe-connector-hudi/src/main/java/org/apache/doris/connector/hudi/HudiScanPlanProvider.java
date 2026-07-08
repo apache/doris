@@ -24,6 +24,7 @@ import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.pushdown.ConnectorExpression;
 import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.api.scan.ConnectorScanRange;
+import org.apache.doris.connector.spi.ConnectorContext;
 
 import org.apache.avro.Schema;
 import org.apache.hadoop.conf.Configuration;
@@ -84,9 +85,11 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
     private static final String FORCE_JNI_SCANNER = "force_jni_scanner";
 
     private final Map<String, String> properties;
+    private final ConnectorContext context;
 
-    public HudiScanPlanProvider(Map<String, String> properties) {
+    public HudiScanPlanProvider(Map<String, String> properties, ConnectorContext context) {
         this.properties = properties;
+        this.context = context;
     }
 
     /**
@@ -209,7 +212,18 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
             props.put("path_partition_keys", String.join(",", partKeys));
         }
 
-        // Location/storage properties for native and JNI readers
+        // BE-facing storage for the native + JNI readers, mirroring legacy getLocationProperties' dual merge.
+        //  (1) BE-canonical static credentials (AWS_* for object stores, resolved hadoop.*/dfs.* for HDFS): BE's
+        //      native (FILE_S3) reader understands ONLY these canonical keys, so without them a private bucket
+        //      403s (the raw catalog aliases s3.access_key/... are useless to it). Sourced from the context's
+        //      single normalization hook. Empty for no context (offline tests) or a credential-less warehouse.
+        if (context != null) {
+            context.getBackendStorageProperties().forEach((k, v) -> props.put("location." + k, v));
+        }
+        //  (2) Hadoop-format passthrough for the Hudi JNI reader (its own Hadoop FileSystem: fs.s3a.* etc).
+        //      Emitted AFTER the canonical set so an overlapping hadoop key resolves to the catalog's explicit
+        //      value (legacy putAll order: backendStorageProperties then hadoopProperties). The s3./oss./cos./obs.
+        //      Doris aliases are harmless to BE (ignored by both readers) but kept so no configured key is dropped.
         for (Map.Entry<String, String> entry : properties.entrySet()) {
             String key = entry.getKey();
             if (key.startsWith("hadoop.") || key.startsWith("fs.")

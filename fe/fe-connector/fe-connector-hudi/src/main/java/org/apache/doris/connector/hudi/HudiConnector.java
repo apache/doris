@@ -88,7 +88,7 @@ public class HudiConnector implements Connector {
 
     @Override
     public ConnectorScanPlanProvider getScanPlanProvider() {
-        return new HudiScanPlanProvider(properties);
+        return new HudiScanPlanProvider(properties, context);
     }
 
     private HmsClient getOrCreateClient() {
