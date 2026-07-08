@@ -29,14 +29,16 @@ import java.util.HashMap;
 import java.util.Map;
 
 /**
- * Pins the HMS-cutover §4.4 S2 embedded-sibling holder: a flipped hms gateway lazily builds ONE embedded
- * iceberg connector (via {@link org.apache.doris.connector.spi.ConnectorContext#createSiblingConnector}) that it
- * delegates its iceberg-on-HMS tables to, and forwards {@code close()} to it.
+ * Pins the HMS-cutover embedded-sibling holders: a flipped hms gateway lazily builds ONE embedded iceberg
+ * connector and ONE embedded hudi connector (each via
+ * {@link org.apache.doris.connector.spi.ConnectorContext#createSiblingConnector}) that it delegates its
+ * iceberg-on-HMS / hudi-on-HMS tables to, and forwards {@code close()} to both.
  *
  * <p>The whole surface is dormant until hms enters {@code SPI_READY_TYPES}: no production path calls
- * {@code getOrCreateIcebergSibling()} yet, so these assertions are a Rule-9 guard that the holder's contract
- * (single sibling per gateway, hms-flavor synthesized props, fail-loud when the plugin is absent, lifecycle
- * forwarding) is correct BEFORE the flip wires a consumer.
+ * {@code getOrCreateIcebergSibling()} / {@code getOrCreateHudiSibling()} yet, so these assertions are a Rule-9
+ * guard that each holder's contract (single sibling per gateway, correctly synthesized props — hms-flavor for
+ * iceberg, verbatim for hudi — fail-loud when the plugin is absent, independent lifecycle forwarding) is correct
+ * BEFORE the flip wires a consumer.
  */
 public class HiveConnectorSiblingTest {
 
@@ -128,6 +130,104 @@ public class HiveConnectorSiblingTest {
         connector.close();
 
         Assertions.assertEquals(0, context.buildCount, "close must not trigger a sibling build");
+    }
+
+    // ---- hudi sibling holder (mirrors the iceberg cases above; hudi synthesizes props verbatim, no flavor) ----
+
+    @Test
+    public void buildsHudiSiblingWithVerbatimProps() {
+        Map<String, String> catalogProps = new HashMap<>();
+        catalogProps.put("hive.metastore.uris", "thrift://host:9083");
+        catalogProps.put("iceberg.catalog.type", "rest"); // hudi injects NO flavor: a stray key survives verbatim
+        FakeSibling sibling = new FakeSibling();
+        RecordingSiblingContext context = new RecordingSiblingContext(sibling);
+        HiveConnector connector = new HiveConnector(catalogProps, context);
+
+        Connector built = connector.getOrCreateHudiSibling();
+
+        Assertions.assertSame(sibling, built, "the accessor must return the context-built sibling");
+        // The sibling is always a hudi connector — the delegate type must reach the seam verbatim.
+        Assertions.assertEquals("hudi", context.lastType, "the sibling connector type must be hudi");
+        Assertions.assertEquals("thrift://host:9083", context.lastProps.get("hive.metastore.uris"),
+                "the gateway's metastore uri must be carried to the sibling");
+        // Unlike iceberg, hudi synthesis injects no flavor: a stray gateway key is carried through unchanged
+        // (there is no iceberg.catalog.type analogue for hudi to force).
+        Assertions.assertEquals("rest", context.lastProps.get("iceberg.catalog.type"),
+                "hudi synthesis injects no flavor — a stray gateway key is carried verbatim, not overridden");
+    }
+
+    @Test
+    public void memoizesSingleHudiSiblingPerGateway() {
+        RecordingSiblingContext context = new RecordingSiblingContext(new FakeSibling());
+        HiveConnector connector = new HiveConnector(new HashMap<>(), context);
+
+        Connector first = connector.getOrCreateHudiSibling();
+        Connector second = connector.getOrCreateHudiSibling();
+
+        Assertions.assertSame(first, second, "repeated access must return the same single sibling");
+        Assertions.assertEquals(1, context.buildCount, "the sibling must be built exactly once per gateway");
+    }
+
+    @Test
+    public void failsLoudWhenHudiPluginAbsent() {
+        RecordingSiblingContext context = new RecordingSiblingContext(null);
+        HiveConnector connector = new HiveConnector(new HashMap<>(), context);
+
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                connector::getOrCreateHudiSibling);
+        Assertions.assertTrue(ex.getMessage().contains("test_catalog"),
+                "the failure must name the catalog it could not serve");
+        Assertions.assertTrue(ex.getMessage().contains("hudi"),
+                "the failure must name the missing hudi plugin");
+    }
+
+    @Test
+    public void hudiFailLoudIsNotMemoized() {
+        RecordingSiblingContext context = new RecordingSiblingContext(null);
+        HiveConnector connector = new HiveConnector(new HashMap<>(), context);
+        Assertions.assertThrows(DorisConnectorException.class, connector::getOrCreateHudiSibling);
+
+        FakeSibling sibling = new FakeSibling();
+        context.siblingToReturn = sibling;
+        Assertions.assertSame(sibling, connector.getOrCreateHudiSibling(),
+                "a later-available sibling must be built after an earlier fail-loud");
+        Assertions.assertEquals(2, context.buildCount, "the failed build must be retried, not memoized");
+    }
+
+    @Test
+    public void closeForwardsToHudiSiblingAndClearsIt() throws Exception {
+        FakeSibling sibling = new FakeSibling();
+        RecordingSiblingContext context = new RecordingSiblingContext(sibling);
+        HiveConnector connector = new HiveConnector(new HashMap<>(), context);
+        connector.getOrCreateHudiSibling();
+
+        connector.close();
+        connector.close();
+
+        Assertions.assertEquals(1, sibling.closeCount, "close must forward to the hudi sibling exactly once");
+    }
+
+    @Test
+    public void closeForwardsToBothSiblingsIndependently() throws Exception {
+        // Regression guard for adding the hudi holder: close() must forward to the iceberg AND the hudi field,
+        // each exactly once — adding the hudi arm must not drop or double the iceberg arm. Use a type-dispatching
+        // context so the two siblings are distinct instances.
+        FakeSibling icebergSibling = new FakeSibling();
+        FakeSibling hudiSibling = new FakeSibling();
+        FakeConnectorContext context = new FakeConnectorContext() {
+            @Override
+            public Connector createSiblingConnector(String catalogType, Map<String, String> properties) {
+                return "hudi".equals(catalogType) ? hudiSibling : icebergSibling;
+            }
+        };
+        HiveConnector connector = new HiveConnector(new HashMap<>(), context);
+        connector.getOrCreateIcebergSibling();
+        connector.getOrCreateHudiSibling();
+
+        connector.close();
+
+        Assertions.assertEquals(1, icebergSibling.closeCount, "close must forward to the iceberg sibling once");
+        Assertions.assertEquals(1, hudiSibling.closeCount, "close must forward to the hudi sibling once");
     }
 
     /** Records the {@code createSiblingConnector} call and returns a configurable (possibly null) sibling. */

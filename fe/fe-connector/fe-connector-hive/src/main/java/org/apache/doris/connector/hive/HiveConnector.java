@@ -64,6 +64,11 @@ public class HiveConnector implements Connector {
     // matches the "iceberg" entry in CatalogFactory.SPI_READY_TYPES.
     private static final String ICEBERG_CONNECTOR_TYPE = "iceberg";
 
+    // The sibling connector type a flipped hms gateway delegates hudi-on-HMS tables to. A string literal (hudi
+    // has NO user-facing catalog type — it is served only via createSiblingConnector); matches the "hudi" type
+    // string HudiConnectorProvider registers. NEVER add "hudi" to CatalogFactory.SPI_READY_TYPES.
+    private static final String HUDI_CONNECTOR_TYPE = "hudi";
+
     private final Map<String, String> properties;
     private final ConnectorContext context;
     private volatile HmsClient hmsClient;
@@ -85,6 +90,14 @@ public class HiveConnector implements Connector {
     // to the hive loader, so a cast would CCE across the loader split. Dormant until hms enters SPI_READY_TYPES —
     // nothing builds it today.
     private volatile Connector icebergSibling;
+
+    // Embedded hudi SIBLING connector: a flipped hms gateway delegates its hudi-on-HMS tables to it. Same
+    // lifecycle/classloader contract as icebergSibling above — built once per gateway (lazily) in the hudi
+    // plugin's OWN child-first classloader via context.createSiblingConnector, never co-packaged into the hive
+    // zip (a second AWS SDK would poison S3 JVM-wide). Held ONLY as the parent-first Connector interface and
+    // NEVER cast (a cast would CCE across the loader split). Dormant until hms enters SPI_READY_TYPES AND the
+    // getTableHandle HUDI divert is wired (a later substep) — nothing references it today.
+    private volatile Connector hudiSibling;
 
     public HiveConnector(Map<String, String> properties, ConnectorContext context) {
         this.properties = Collections.unmodifiableMap(properties);
@@ -252,6 +265,37 @@ public class HiveConnector implements Connector {
         return icebergSibling;
     }
 
+    /**
+     * Lazily builds and memoizes the embedded hudi <em>sibling</em> connector this hive gateway delegates its
+     * hudi-on-HMS tables to. Mirrors {@link #getOrCreateIcebergSibling()}: exactly ONE sibling per gateway
+     * connector (not per table), built through {@link ConnectorContext#createSiblingConnector} so its concrete
+     * class is loaded by the hudi plugin's own child-first classloader, sharing this gateway catalog's
+     * id/auth/storage; it is therefore held ONLY as the parent-first {@link Connector} interface and MUST NOT be
+     * cast (a cast would CCE across the loader split).
+     *
+     * <p>Fails loud when no hudi provider is available (e.g. the plugin is not installed). The failure is NOT
+     * memoized (a null sibling leaves the field unset), so a later-available plugin recovers on the next access.
+     *
+     * <p>Dormant: no production path references it until the getTableHandle HUDI divert lands (a later substep).
+     */
+    Connector getOrCreateHudiSibling() {
+        if (hudiSibling == null) {
+            synchronized (this) {
+                if (hudiSibling == null) {
+                    Connector sibling = context.createSiblingConnector(
+                            HUDI_CONNECTOR_TYPE, HudiSiblingProperties.synthesize(properties));
+                    if (sibling == null) {
+                        throw new DorisConnectorException(
+                                "Cannot serve hudi-on-HMS tables in catalog '" + context.getCatalogName()
+                                        + "': the hudi connector plugin is not available");
+                    }
+                    hudiSibling = sibling;
+                }
+            }
+        }
+        return hudiSibling;
+    }
+
     private HmsClient createClient() {
         String metastoreUri = properties.get(HiveConnectorProperties.HIVE_METASTORE_URIS);
         if (metastoreUri == null || metastoreUri.isEmpty()) {
@@ -371,6 +415,12 @@ public class HiveConnector implements Connector {
         if (sibling != null) {
             sibling.close();
             icebergSibling = null;
+        }
+        // Same for the embedded hudi sibling — the gateway owns its lifecycle too. No-op when never built.
+        Connector hudi = hudiSibling;
+        if (hudi != null) {
+            hudi.close();
+            hudiSibling = null;
         }
     }
 }
