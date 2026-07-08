@@ -72,11 +72,10 @@ Status run_decompress(const std::vector<uint8_t>& stream, std::vector<uint8_t>* 
     size_t more_input_bytes = 0;
     size_t more_output_bytes = 0;
 
-    return decompressor->decompress(const_cast<uint8_t*>(stream.data()),
-                                    static_cast<uint32_t>(stream.size()), &input_bytes_read,
-                                    output->data(), static_cast<uint32_t>(output->size()),
-                                    decompressed_len, &stream_end, &more_input_bytes,
-                                    &more_output_bytes);
+    return decompressor->decompress(
+            const_cast<uint8_t*>(stream.data()), static_cast<uint32_t>(stream.size()),
+            &input_bytes_read, output->data(), static_cast<uint32_t>(output->size()),
+            decompressed_len, &stream_end, &more_input_bytes, &more_output_bytes);
 }
 
 } // namespace
@@ -87,7 +86,8 @@ class Lz4BlockDecompressorTest : public ::testing::Test {};
 TEST_F(Lz4BlockDecompressorTest, ValidMultipleSmallBlocks) {
     std::string a(40, 'a');
     std::string b(40, 'b');
-    std::vector<uint8_t> stream = make_lz4_block({a, b}, static_cast<uint32_t>(a.size() + b.size()));
+    std::vector<uint8_t> stream =
+            make_lz4_block({a, b}, static_cast<uint32_t>(a.size() + b.size()));
 
     std::vector<uint8_t> output(a.size() + b.size());
     size_t decompressed_len = 0;
