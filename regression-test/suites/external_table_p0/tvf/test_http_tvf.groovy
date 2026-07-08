@@ -22,13 +22,142 @@ import com.sun.net.httpserver.HttpExchange
 import java.nio.file.Files
 import java.nio.file.Paths
 import java.net.InetSocketAddress
+import java.net.InetAddress
+import java.net.URLDecoder
 
 suite("test_http_tvf", "p2") {
+    def dataRoot = Paths.get(context.config.dataPath).toAbsolutePath().normalize()
+    HttpServer httpServer = HttpServer.create(new InetSocketAddress("0.0.0.0", 0), 0)
+
+    def writeResponse = { HttpExchange exchange, int status, byte[] body ->
+        exchange.sendResponseHeaders(status, body.length)
+        exchange.responseBody.withCloseable { os ->
+            os.write(body)
+        }
+    }
+
+    def sendRangeNotSatisfiable = { HttpExchange exchange, long fileSize ->
+        exchange.responseHeaders.add("Content-Range", "bytes */${fileSize}")
+        exchange.sendResponseHeaders(416, -1)
+        exchange.close()
+    }
+
+    def copyRange = { inputStream, outputStream, long length ->
+        byte[] buffer = new byte[8192]
+        long remaining = length
+        while (remaining > 0) {
+            int readSize = inputStream.read(buffer, 0, (int) Math.min(buffer.length, remaining))
+            if (readSize < 0) {
+                break
+            }
+            outputStream.write(buffer, 0, readSize)
+            remaining -= readSize
+        }
+    }
+
+    def skipFully = { inputStream, long length ->
+        long remaining = length
+        while (remaining > 0) {
+            long skipped = inputStream.skip(remaining)
+            if (skipped <= 0) {
+                if (inputStream.read() < 0) {
+                    break
+                }
+                skipped = 1
+            }
+            remaining -= skipped
+        }
+    }
+
+    httpServer.createContext("/", { HttpExchange exchange ->
+        if (!"GET".equalsIgnoreCase(exchange.requestMethod) && !"HEAD".equalsIgnoreCase(exchange.requestMethod)) {
+            writeResponse(exchange, 405, "Method Not Allowed".getBytes("UTF-8"))
+            return
+        }
+
+        def requestPath = URLDecoder.decode(exchange.requestURI.path, "UTF-8")
+        def relativePath = requestPath.startsWith("/") ? requestPath.substring(1) : requestPath
+        def filePath = dataRoot.resolve(relativePath).normalize()
+        if (!filePath.startsWith(dataRoot)) {
+            writeResponse(exchange, 403, "Forbidden".getBytes("UTF-8"))
+            return
+        }
+        if (!Files.isRegularFile(filePath)) {
+            writeResponse(exchange, 404, "Not Found".getBytes("UTF-8"))
+            return
+        }
+
+        long fileSize = Files.size(filePath)
+        exchange.responseHeaders.add("Accept-Ranges", "bytes")
+        exchange.responseHeaders.add("Content-Type", "application/octet-stream")
+
+        long start = 0
+        long end = fileSize - 1
+        int status = 200
+        String rangeHeader = exchange.requestHeaders.getFirst("Range")
+        if (rangeHeader != null && rangeHeader.startsWith("bytes=")) {
+            String range = rangeHeader.substring("bytes=".length()).split(",", 2)[0].trim()
+            try {
+                if (range.startsWith("-")) {
+                    long suffixLength = Long.parseLong(range.substring(1))
+                    if (suffixLength <= 0) {
+                        sendRangeNotSatisfiable(exchange, fileSize)
+                        return
+                    }
+                    start = Math.max(0, fileSize - suffixLength)
+                } else {
+                    String[] parts = range.split("-", 2)
+                    start = Long.parseLong(parts[0])
+                    if (parts.length > 1 && parts[1].length() > 0) {
+                        end = Long.parseLong(parts[1])
+                    }
+                }
+                if (start < 0 || start >= fileSize || end < start) {
+                    sendRangeNotSatisfiable(exchange, fileSize)
+                    return
+                }
+                end = Math.min(end, fileSize - 1)
+                status = 206
+                exchange.responseHeaders.add("Content-Range", "bytes ${start}-${end}/${fileSize}")
+            } catch (NumberFormatException e) {
+                sendRangeNotSatisfiable(exchange, fileSize)
+                return
+            }
+        }
+
+        long responseLength = fileSize == 0 ? 0 : end - start + 1
+        exchange.responseHeaders.add("Content-Length", Long.toString(responseLength))
+        exchange.sendResponseHeaders(status, "HEAD".equalsIgnoreCase(exchange.requestMethod) ? -1 : responseLength)
+        if ("HEAD".equalsIgnoreCase(exchange.requestMethod)) {
+            exchange.close()
+            return
+        }
+        Files.newInputStream(filePath).withCloseable { input ->
+            skipFully(input, start)
+            exchange.responseBody.withCloseable { output ->
+                copyRange(input, output, responseLength)
+            }
+        }
+    } as HttpHandler)
+    httpServer.start()
+
+    String httpServerHost = context.config.otherConfigs.get("httpTvfHost")
+    if (httpServerHost == null || httpServerHost.trim().isEmpty()) {
+        httpServerHost = context.config.otherConfigs.get("externalEnvIp")
+    }
+    if (httpServerHost == null || httpServerHost.trim().isEmpty()) {
+        httpServerHost = InetAddress.getLocalHost().getHostAddress()
+    }
+    String httpBaseUrl = "http://${httpServerHost}:${httpServer.address.port}"
+    def httpUrl = { String relativePath -> "${httpBaseUrl}/${relativePath}" }
+    logger.info("Start local HTTP server for http tvf test: ${httpBaseUrl}, root: ${dataRoot}")
+
+    try {
     // csv
     qt_sql01 """
         SELECT *
         FROM http(
-            "uri" = "https://raw.githubusercontent.com/apache/doris/refs/heads/master/regression-test/data/load_p0/http_stream/all_types.csv",
+            "uri" = "${httpUrl("load_p0/http_stream/all_types.csv")}",
             "format" = "csv",
             "column_separator" = ","
         )
@@ -38,7 +167,7 @@ suite("test_http_tvf", "p2") {
     qt_sql02 """
         SELECT count(*)
         FROM http(
-            "uri" = "https://raw.githubusercontent.com/apache/doris/refs/heads/master/regression-test/data/load_p0/http_stream/all_types.csv",
+            "uri" = "${httpUrl("load_p0/http_stream/all_types.csv")}",
             "format" = "csv",
             "column_separator" = ","
         );
@@ -47,7 +176,7 @@ suite("test_http_tvf", "p2") {
     qt_sql03 """
         desc function
         http(
-            "uri" = "https://raw.githubusercontent.com/apache/doris/refs/heads/master/regression-test/data/load_p0/http_stream/all_types.csv",
+            "uri" = "${httpUrl("load_p0/http_stream/all_types.csv")}",
             "format" = "csv",
             "column_separator" = ","
         );
@@ -56,7 +185,7 @@ suite("test_http_tvf", "p2") {
     qt_sql04 """
         desc function
         file(
-            "uri" = "https://raw.githubusercontent.com/apache/doris/refs/heads/master/regression-test/data/load_p0/http_stream/all_types.csv",
+            "uri" = "${httpUrl("load_p0/http_stream/all_types.csv")}",
             "format" = "csv",
             "fs.http.support" = "true",
             "column_separator" = ","
@@ -67,7 +196,7 @@ suite("test_http_tvf", "p2") {
     qt_sql05 """
         desc function
         http(
-            "uri" = "https://raw.githubusercontent.com/apache/doris/refs/heads/master/regression-test/data/load_p0/stream_load/all_types.csv.gz",
+            "uri" = "${httpUrl("load_p0/stream_load/all_types.csv.gz")}",
             "format" = "csv",
             "column_separator" = ",",
             "compress_type" = "gz"
@@ -77,7 +206,7 @@ suite("test_http_tvf", "p2") {
     qt_sql05 """
         select count(*) from
         http(
-            "uri" = "https://raw.githubusercontent.com/apache/doris/refs/heads/master/regression-test/data/load_p0/stream_load/all_types.csv.gz",
+            "uri" = "${httpUrl("load_p0/stream_load/all_types.csv.gz")}",
             "format" = "csv",
             "column_separator" = ",",
             "compress_type" = "gz"
@@ -88,7 +217,7 @@ suite("test_http_tvf", "p2") {
     qt_sql06 """
         select count(*) from
         http(
-            "uri" = "https://raw.githubusercontent.com/apache/doris/refs/heads/master/regression-test/data/load_p0/stream_load/basic_data.json",
+            "uri" = "${httpUrl("load_p0/stream_load/basic_data.json")}",
             "format" = "json",
             "strip_outer_array" = true
         );
@@ -97,7 +226,7 @@ suite("test_http_tvf", "p2") {
     qt_sql07 """
         desc function
         http(
-            "uri" = "https://raw.githubusercontent.com/apache/doris/refs/heads/master/regression-test/data/load_p0/stream_load/basic_data.json",
+            "uri" = "${httpUrl("load_p0/stream_load/basic_data.json")}",
             "format" = "json",
             "strip_outer_array" = true
         );
@@ -107,7 +236,7 @@ suite("test_http_tvf", "p2") {
     qt_sql08 """
         select * from
         http(
-            "uri" = "https://raw.githubusercontent.com/apache/doris/refs/heads/master/regression-test/data/external_table_p0/tvf/t.parquet",
+            "uri" = "${httpUrl("external_table_p0/tvf/t.parquet")}",
             "format" = "parquet"
         ) order by id limit 10;
     """
@@ -115,7 +244,7 @@ suite("test_http_tvf", "p2") {
     qt_sql09 """
         select arr_map, id from
         http(
-            "uri" = "https://raw.githubusercontent.com/apache/doris/refs/heads/master/regression-test/data/external_table_p0/tvf/t.parquet",
+            "uri" = "${httpUrl("external_table_p0/tvf/t.parquet")}",
             "format" = "parquet"
         ) order by id limit 10;
     """
@@ -123,7 +252,7 @@ suite("test_http_tvf", "p2") {
     qt_sql10 """
         desc function
         http(
-            "uri" = "https://raw.githubusercontent.com/apache/doris/refs/heads/master/regression-test/data/external_table_p0/tvf/t.parquet",
+            "uri" = "${httpUrl("external_table_p0/tvf/t.parquet")}",
             "format" = "parquet"
         );
     """
@@ -131,7 +260,7 @@ suite("test_http_tvf", "p2") {
     qt_sql11 """
         select m, id from
         http(
-            "uri" = "https://raw.githubusercontent.com/apache/doris/refs/heads/master/regression-test/data/types/complex_types/mm.orc",
+            "uri" = "${httpUrl("types/complex_types/mm.orc")}",
             "format" = "orc"
         ) order by id limit 10;
     """
@@ -139,7 +268,7 @@ suite("test_http_tvf", "p2") {
     qt_sql12 """
         desc function
         http(
-            "uri" = "https://raw.githubusercontent.com/apache/doris/refs/heads/master/regression-test/data/types/complex_types/mm.orc",
+            "uri" = "${httpUrl("types/complex_types/mm.orc")}",
             "format" = "orc"
         );
     """
@@ -149,7 +278,7 @@ suite("test_http_tvf", "p2") {
         sql """
             select * from
             http(
-                "uri" = "https://raw.githubusercontent.com/apache/doris/refs/heads/master/regression-test/data/load_p0/stream_load/test_decimal.parquet",
+                "uri" = "${httpUrl("load_p0/stream_load/test_decimal.parquet")}",
                 "format" = "parquet",
                 "http.enable.range.request" = "false",
                 "http.max.request.size.bytes" = "1000"
@@ -162,7 +291,7 @@ suite("test_http_tvf", "p2") {
     qt_sql_norange """
         SELECT count(1) FROM
         HTTP(
-            "uri" = "https://raw.githubusercontent.com/apache/doris/refs/tags/4.0.2-rc02/regression-test/data/datatype_p0/nested_types/query/test_nested_type_with_resize.csv",
+            "uri" = "${httpUrl("datatype_p0/nested_types/query/test_nested_type_with_resize.csv")}",
             "format" = "csv",
             "http.enable.range.request"="false"
         );
@@ -171,7 +300,7 @@ suite("test_http_tvf", "p2") {
     qt_sql13 """
         select * from
         http(
-            "uri" = "https://raw.githubusercontent.com/apache/doris/refs/heads/master/regression-test/data/load_p0/stream_load/test_decimal.parquet",
+            "uri" = "${httpUrl("load_p0/stream_load/test_decimal.parquet")}",
             "format" = "parquet",
             "http.enable.range.request" = "true",
             "http.max.request.size.bytes" = "1000"
@@ -181,7 +310,7 @@ suite("test_http_tvf", "p2") {
     qt_sql14 """
         select * from
         http(
-            "uri" = "https://raw.githubusercontent.com/apache/doris/refs/heads/master/regression-test/data/load_p0/stream_load/test_decimal.parquet",
+            "uri" = "${httpUrl("load_p0/stream_load/test_decimal.parquet")}",
             "format" = "parquet",
             "http.enable.range.request" = "true",
             "http.max.request.size.bytes" = "2000"
@@ -254,5 +383,7 @@ suite("test_http_tvf", "p2") {
             "format" = "parquet"
         ) order by text limit 1;
     """
+    } finally {
+        httpServer.stop(0)
+    }
 }
-
