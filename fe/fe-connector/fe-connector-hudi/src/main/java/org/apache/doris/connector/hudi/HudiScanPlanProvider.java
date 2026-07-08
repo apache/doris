@@ -312,23 +312,85 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
     }
 
     /**
-     * Parse partition path "year=2024/month=01" into column→value map.
+     * Parse a Hudi partition's relative path into a column&rarr;value map, byte-faithful to legacy
+     * {@code HudiPartitionUtils.parsePartitionValues}. Handles BOTH hive-style ("year=2024/month=01") and Hudi's
+     * DEFAULT non-hive-style POSITIONAL ("2024/01") layouts, and URL-unescapes every value:
+     * <ul>
+     *   <li>A fragment carrying the "col=" prefix contributes the suffix; a fragment WITHOUT it is mapped
+     *       POSITIONALLY to the i-th partition column. The old split-on-'=' logic silently DROPPED a
+     *       prefix-less fragment, so a non-hive-style partitioned table read NULL partition columns on a plain
+     *       snapshot read — this is the regression this fix closes.</li>
+     *   <li>Single partition column with a mismatched fragment count: the whole path (minus an optional "col="
+     *       prefix) is that column's value (legacy single-column-whole-path fallback).</li>
+     *   <li>Fragment count != column count with &gt; 1 column: fail loud, exactly like legacy.</li>
+     *   <li>Every value is unescaped via {@link #unescapePathName} (e.g. "%20" &rarr; space) — legacy delegated
+     *       to Hive's {@code FileUtils.unescapePathName}; inlined here so the connector needs no hive-common
+     *       dependency (mirrors the fe-connector-hive inlined copy).</li>
+     * </ul>
+     *
+     * <p>Static + package-private for direct unit testing (no live HoodieTableMetaClient needed).
+     *
+     * <p>NOTE: this derives values from the partition path fed to the FileSystemView. On the UNPRUNED path that
+     * path is Hudi's own relative path (getAllPartitionPaths) = the shape the FileSystemView uses, so values are
+     * consistent. The PRUNED path (applyFilter) currently feeds HMS hive-style partition NAMES, which match the
+     * FileSystemView only for hive-sync'd tables; making the pruned partition SOURCE useHiveSyncPartition-aware
+     * for non-hive-style tables belongs to the partition-listing step (which ports that source once), and is
+     * likewise closed before the catalog flip.
      */
-    private Map<String, String> parsePartitionValues(
+    static Map<String, String> parsePartitionValues(
             String partitionPath, List<String> partKeyNames) {
-        if (partitionPath == null || partitionPath.isEmpty()
-                || partKeyNames == null || partKeyNames.isEmpty()) {
+        if (partKeyNames == null || partKeyNames.isEmpty()) {
+            // Non-partitioned table (legacy returns an empty value list). The unpartitioned scan path always
+            // reaches here with an empty key list, so an empty partitionPath needs no separate guard.
             return Collections.emptyMap();
         }
         Map<String, String> values = new LinkedHashMap<>();
-        String[] parts = partitionPath.split("/");
-        for (String part : parts) {
-            int eq = part.indexOf('=');
-            if (eq > 0) {
-                values.put(part.substring(0, eq), part.substring(eq + 1));
+        String[] fragments = partitionPath.split("/");
+        if (fragments.length != partKeyNames.size()) {
+            if (partKeyNames.size() == 1) {
+                String prefix = partKeyNames.get(0) + "=";
+                String value = partitionPath.startsWith(prefix)
+                        ? partitionPath.substring(prefix.length()) : partitionPath;
+                values.put(partKeyNames.get(0), unescapePathName(value));
+                return values;
             }
+            throw new DorisConnectorException(
+                    "Failed to parse partition values of path: " + partitionPath);
+        }
+        for (int i = 0; i < fragments.length; i++) {
+            String prefix = partKeyNames.get(i) + "=";
+            String raw = fragments[i].startsWith(prefix)
+                    ? fragments[i].substring(prefix.length()) : fragments[i];
+            values.put(partKeyNames.get(i), unescapePathName(raw));
         }
         return values;
+    }
+
+    /**
+     * URL-decodes a Hive-escaped path component (e.g. "a%2Fb" &rarr; "a/b"). Byte-faithful port of Hive's
+     * {@code org.apache.hadoop.hive.common.FileUtils.unescapePathName} (identical to the fe-connector-hive
+     * inlined copy in {@code HiveWriteUtils}), so the connector needs no hive-common dependency.
+     */
+    private static String unescapePathName(String path) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < path.length(); i++) {
+            char c = path.charAt(i);
+            if (c == '%' && i + 2 < path.length()) {
+                int code = -1;
+                try {
+                    code = Integer.parseInt(path.substring(i + 1, i + 3), 16);
+                } catch (Exception e) {
+                    code = -1;
+                }
+                if (code >= 0) {
+                    sb.append((char) code);
+                    i += 2;
+                    continue;
+                }
+            }
+            sb.append(c);
+        }
+        return sb.toString();
     }
 
     /**
