@@ -26,6 +26,24 @@ import java.util.List;
 public class S3UtilTest {
 
     @Test
+    public void testBuildEndpointUrlDefaultsToHttps() {
+        Assert.assertEquals("https://s3.us-east-1.amazonaws.com",
+                S3Util.buildEndpointUrl("s3.us-east-1.amazonaws.com"));
+    }
+
+    @Test
+    public void testBuildEndpointUrlKeepsExplicitHttp() {
+        Assert.assertEquals("http://127.0.0.1:9000",
+                S3Util.buildEndpointUrl("http://127.0.0.1:9000"));
+    }
+
+    @Test
+    public void testBuildEndpointUrlKeepsExplicitHttps() {
+        Assert.assertEquals("https://s3.us-east-1.amazonaws.com",
+                S3Util.buildEndpointUrl("https://s3.us-east-1.amazonaws.com"));
+    }
+
+    @Test
     public void testExtendGlobNumberRange_simpleRange() {
         // Test simple range expansion {1..3}
         String input = "file_{1..3}.csv";
@@ -457,4 +475,3 @@ public class S3UtilTest {
         Assert.assertEquals("file[abc.csv", S3Util.expandBracketPatterns("file[abc.csv"));
     }
 }
-

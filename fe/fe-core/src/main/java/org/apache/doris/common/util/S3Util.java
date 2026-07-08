@@ -394,11 +394,7 @@ public class S3Util {
     public static void validateAndTestEndpoint(String endpoint) throws UserException {
         HttpURLConnection connection = null;
         try {
-            String urlStr = endpoint;
-            // Add default protocol if not specified
-            if (!endpoint.startsWith("http://") && !endpoint.startsWith("https://")) {
-                urlStr = "http://" + endpoint;
-            }
+            String urlStr = buildEndpointUrl(endpoint);
             endpoint = endpoint.replaceFirst("^http://", "");
             endpoint = endpoint.replaceFirst("^https://", "");
             List<String> whiteList = new ArrayList<>(Arrays.asList(Config.s3_load_endpoint_white_list));
@@ -432,6 +428,13 @@ public class S3Util {
             }
             SecurityChecker.getInstance().stopSSRFChecking();
         }
+    }
+
+    static String buildEndpointUrl(String endpoint) {
+        if (endpoint.startsWith("http://") || endpoint.startsWith("https://")) {
+            return endpoint;
+        }
+        return "https://" + endpoint;
     }
 
     /**

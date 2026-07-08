@@ -1575,7 +1575,7 @@ DEFINE_Validator(paimon_file_system_scheme_mappings,
 DEFINE_mInt32(thrift_client_open_num_tries, "1");
 
 // http scheme in S3Client to use. E.g. http or https
-DEFINE_String(s3_client_http_scheme, "http");
+DEFINE_String(s3_client_http_scheme, "https");
 DEFINE_Validator(s3_client_http_scheme, [](const std::string& config) -> bool {
     return config == "http" || config == "https";
 });
