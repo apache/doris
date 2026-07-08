@@ -21,9 +21,12 @@
 #include <parallel_hashmap/phmap.h>
 
 #include <algorithm>
+#include <array>
 #include <cstdarg>
 #include <cstdint>
 #include <cstdio>
+#include <initializer_list>
+#include <iterator>
 #include <limits>
 #include <map>
 #include <memory>
@@ -34,7 +37,9 @@
 #include <set>
 #include <stdexcept>
 #include <string>
+#include <type_traits>
 #include <utility>
+#include <vector>
 
 #include "common/config.h"
 #include "common/exception.h"
@@ -99,7 +104,7 @@ namespace detail {
 
 class Roaring64MapSetBitForwardIterator;
 
-// Forked from https://github.com/RoaringBitmap/CRoaring/blob/v0.2.60/cpp/roaring64map.hh
+// Forked from https://github.com/RoaringBitmap/CRoaring/blob/v4.7.2/cpp/roaring/roaring64map.hh
 // What we change includes
 // - a custom serialization format is used inside read()/write()/getSizeInBytes()
 // - added clear() and is32BitsEnough()
@@ -141,41 +146,46 @@ public:
      * Add value x
      *
      */
-    void add(uint32_t x) {
-        roarings[0].add(x);
-        roarings[0].setCopyOnWrite(copyOnWrite);
-    }
-    void add(uint64_t x) {
-        roarings[highBytes(x)].add(lowBytes(x));
-        roarings[highBytes(x)].setCopyOnWrite(copyOnWrite);
-    }
+    void add(uint32_t x) { lookupOrCreateInner(0).add(x); }
 
-    template <typename T>
+    void add(uint64_t x) { lookupOrCreateInner(highBytes(x)).add(lowBytes(x)); }
+
+    template <typename T,
+              typename = std::enable_if_t<std::is_integral_v<T> &&
+                                          !std::is_same_v<std::remove_cv_t<T>, uint64_t>>>
     void addMany(size_t n_args, const T* vals) {
         if constexpr (sizeof(T) == sizeof(uint32_t)) {
-            auto& roaring = roarings[0];
-            roaring.addMany(n_args, reinterpret_cast<const uint32_t*>(vals));
-            roaring.setCopyOnWrite(copyOnWrite);
+            lookupOrCreateInner(0).addMany(n_args, reinterpret_cast<const uint32_t*>(vals));
         } else if constexpr (sizeof(T) < sizeof(uint32_t)) {
-            auto& roaring = roarings[0];
             std::vector<uint32_t> values(n_args);
             for (size_t i = 0; i != n_args; ++i) {
-                values[i] = uint32_t(vals[i]);
+                values[i] = static_cast<uint32_t>(vals[i]);
             }
-            roaring.addMany(n_args, values.data());
-            roaring.setCopyOnWrite(copyOnWrite);
+            lookupOrCreateInner(0).addMany(n_args, values.data());
         } else {
-            for (size_t lcv = 0; lcv < n_args; lcv++) {
-                roarings[highBytes(vals[lcv])].add(lowBytes(vals[lcv]));
-                roarings[highBytes(vals[lcv])].setCopyOnWrite(copyOnWrite);
-            }
+            addMany64(n_args, vals);
         }
     }
 
-    void addMany(size_t n_args, const uint64_t* vals) {
+    void addMany(size_t n_args, const uint64_t* vals) { addMany64(n_args, vals); }
+
+    template <typename T>
+    void addMany64(size_t n_args, const T* vals) {
+        // Potentially reduce outer map lookups by optimistically
+        // assuming that adjacent values will belong to the same inner bitmap.
+        roaring::Roaring* last_inner_bitmap = nullptr;
+        uint32_t last_value_high = 0;
+        roaring::BulkContext last_bulk_context;
         for (size_t lcv = 0; lcv < n_args; lcv++) {
-            roarings[highBytes(vals[lcv])].add(lowBytes(vals[lcv]));
-            roarings[highBytes(vals[lcv])].setCopyOnWrite(copyOnWrite);
+            auto value = static_cast<uint64_t>(vals[lcv]);
+            auto value_high = highBytes(value);
+            auto value_low = lowBytes(value);
+            if (last_inner_bitmap == nullptr || value_high != last_value_high) {
+                last_inner_bitmap = &lookupOrCreateInner(value_high);
+                last_value_high = value_high;
+                last_bulk_context = roaring::BulkContext {};
+            }
+            last_inner_bitmap->addBulk(last_bulk_context, value_low);
         }
     }
 
@@ -192,7 +202,6 @@ public:
     }
     /**
      * Return the largest value (if not empty)
-     *
      */
     uint64_t maximum() const {
         for (auto roaring_iter = roarings.crbegin(); roaring_iter != roarings.crend();
@@ -201,14 +210,13 @@ public:
                 return uniteBytes(roaring_iter->first, roaring_iter->second.maximum());
             }
         }
-        // we put std::numeric_limits<>::max/min in parenthesis
+        // we put std::numeric_limits<>::max/min in parentheses
         // to avoid a clash with the Windows.h header under Windows
         return (std::numeric_limits<uint64_t>::min)();
     }
 
     /**
      * Return the smallest value (if not empty)
-     *
      */
     uint64_t minimum() const {
         for (auto roaring_iter = roarings.cbegin(); roaring_iter != roarings.cend();
@@ -217,7 +225,7 @@ public:
                 return uniteBytes(roaring_iter->first, roaring_iter->second.minimum());
             }
         }
-        // we put std::numeric_limits<>::max/min in parenthesis
+        // we put std::numeric_limits<>::max/min in parentheses
         // to avoid a clash with the Windows.h header under Windows
         return (std::numeric_limits<uint64_t>::max)();
     }
@@ -226,25 +234,75 @@ public:
      * Check if value x is present
      */
     bool contains(uint32_t x) const {
-        return roarings.count(0) == 0 ? false : roarings.at(0).contains(x);
+        auto iter = roarings.find(0);
+        if (iter == roarings.end()) {
+            return false;
+        }
+        return iter->second.contains(x);
     }
     bool contains(uint64_t x) const {
-        return roarings.count(highBytes(x)) == 0 ? false
-                                                 : roarings.at(highBytes(x)).contains(lowBytes(x));
+        auto iter = roarings.find(highBytes(x));
+        if (iter == roarings.end()) {
+            return false;
+        }
+        return iter->second.contains(lowBytes(x));
     }
 
     /**
-     * Compute the intersection between the current bitmap and the provided
-     * bitmap,
+     * Compute the intersection of the current bitmap and the provided bitmap,
      * writing the result in the current bitmap. The provided bitmap is not
      * modified.
+     *
+     * Performance hint: if you are computing the intersection between several
+     * bitmaps, two-by-two, it is best to start with the smallest bitmap.
      */
-    Roaring64Map& operator&=(const Roaring64Map& r) {
-        for (auto& map_entry : roarings) {
-            if (r.roarings.count(map_entry.first) == 1) {
-                map_entry.second &= r.roarings.at(map_entry.first);
-            } else {
-                map_entry.second = roaring::Roaring();
+    Roaring64Map& operator&=(const Roaring64Map& other) {
+        if (this == &other) {
+            // ANDing *this with itself is a no-op.
+            return *this;
+        }
+
+        // Logic table summarizing what to do when a given outer key is
+        // present vs. absent from self and other.
+        //
+        // self     other    (self & other)  work to do
+        // --------------------------------------------
+        // absent   absent   empty           None
+        // absent   present  empty           None
+        // present  absent   empty           Erase self
+        // present  present  empty or not    Intersect self with other, but
+        //                                   erase self if result is empty.
+        //
+        // Because there is only work to do when a key is present in 'self', the
+        // main for loop iterates over entries in 'self'.
+
+        decltype(roarings.begin()) self_next;
+        for (auto self_iter = roarings.begin(); self_iter != roarings.end();
+             self_iter = self_next) {
+            // Do the 'next' operation now, so we don't have to worry about
+            // invalidation of self_iter down below with the 'erase' operation.
+            self_next = std::next(self_iter);
+
+            auto self_key = self_iter->first;
+            auto& self_bitmap = self_iter->second;
+
+            auto other_iter = other.roarings.find(self_key);
+            if (other_iter == other.roarings.end()) {
+                // 'other' doesn't have self_key. In the logic table above,
+                // this reflects the case (self.present & other.absent).
+                // So, erase self.
+                roarings.erase(self_iter);
+                continue;
+            }
+
+            // Both sides have self_key. In the logic table above, this reflects
+            // the case (self.present & other.present). So, intersect self with
+            // other.
+            const auto& other_bitmap = other_iter->second;
+            self_bitmap &= other_bitmap;
+            if (self_bitmap.isEmpty()) {
+                // ...but if intersection is empty, remove it altogether.
+                roarings.erase(self_iter);
             }
         }
         return *this;
@@ -252,51 +310,178 @@ public:
 
     /**
      * Compute the difference between the current bitmap and the provided
-     * bitmap,
-     * writing the result in the current bitmap. The provided bitmap is not
-     * modified.
+     * bitmap, writing the result in the current bitmap. The provided bitmap
+     * is not modified.
      */
-    Roaring64Map& operator-=(const Roaring64Map& r) {
-        for (auto& map_entry : roarings) {
-            if (r.roarings.count(map_entry.first) == 1) {
-                map_entry.second -= r.roarings.at(map_entry.first);
+    Roaring64Map& operator-=(const Roaring64Map& other) {
+        if (this == &other) {
+            // Subtracting *this from itself results in the empty map.
+            roarings.clear();
+            return *this;
+        }
+
+        // Logic table summarizing what to do when a given outer key is
+        // present vs. absent from self and other.
+        //
+        // self     other    (self - other)  work to do
+        // --------------------------------------------
+        // absent   absent   empty           None
+        // absent   present  empty           None
+        // present  absent   unchanged       None
+        // present  present  empty or not    Subtract other from self, but
+        //                                   erase self if result is empty
+        //
+        // Because there is only work to do when a key is present in both 'self'
+        // and 'other', the main while loop ping-pongs back and forth until it
+        // finds the next key that is the same on both sides.
+
+        auto self_iter = roarings.begin();
+        auto other_iter = other.roarings.cbegin();
+
+        while (self_iter != roarings.end() && other_iter != other.roarings.cend()) {
+            auto self_key = self_iter->first;
+            auto other_key = other_iter->first;
+            if (self_key < other_key) {
+                // Because self_key is < other_key, advance self_iter to the
+                // first point where self_key >= other_key (or end).
+                self_iter = roarings.lower_bound(other_key);
+                continue;
             }
+
+            if (self_key > other_key) {
+                // Because self_key is > other_key, advance other_iter to the
+                // first point where other_key >= self_key (or end).
+                other_iter = other.roarings.lower_bound(self_key);
+                continue;
+            }
+
+            // Both sides have self_key. In the logic table above, this reflects
+            // the case (self.present & other.present). So subtract other from
+            // self.
+            auto& self_bitmap = self_iter->second;
+            const auto& other_bitmap = other_iter->second;
+            self_bitmap -= other_bitmap;
+
+            if (self_bitmap.isEmpty()) {
+                // ...but if subtraction is empty, remove it altogether.
+                self_iter = roarings.erase(self_iter);
+            } else {
+                ++self_iter;
+            }
+            ++other_iter;
         }
         return *this;
     }
 
     /**
-     * Compute the union between the current bitmap and the provided bitmap,
+     * Compute the union of the current bitmap and the provided bitmap,
      * writing the result in the current bitmap. The provided bitmap is not
      * modified.
      *
      * See also the fastunion function to aggregate many bitmaps more quickly.
      */
-    Roaring64Map& operator|=(const Roaring64Map& r) {
-        for (const auto& map_entry : r.roarings) {
-            if (roarings.count(map_entry.first) == 0) {
-                roarings[map_entry.first] = map_entry.second;
-                roarings[map_entry.first].setCopyOnWrite(copyOnWrite);
-            } else {
-                roarings[map_entry.first] |= map_entry.second;
+    Roaring64Map& operator|=(const Roaring64Map& other) {
+        if (this == &other) {
+            // ORing *this with itself is a no-op.
+            return *this;
+        }
+
+        // Logic table summarizing what to do when a given outer key is
+        // present vs. absent from self and other.
+        //
+        // self     other    (self | other)  work to do
+        // --------------------------------------------
+        // absent   absent   empty           None
+        // absent   present  not empty       Copy other to self and set flags
+        // present  absent   unchanged       None
+        // present  present  not empty       self |= other
+        //
+        // Because there is only work to do when a key is present in 'other',
+        // the main for loop iterates over entries in 'other'.
+
+        for (const auto& other_entry : other.roarings) {
+            const auto& other_bitmap = other_entry.second;
+
+            // Try to insert other_bitmap into self at other_key. We take
+            // advantage of the fact that std::map::insert will not overwrite an
+            // existing entry.
+            auto insert_result = roarings.insert(other_entry);
+            auto self_iter = insert_result.first;
+            auto insert_happened = insert_result.second;
+            auto& self_bitmap = self_iter->second;
+
+            if (insert_happened) {
+                // Key was not present in self, so insert was performed above.
+                // In the logic table above, this reflects the case
+                // (self.absent | other.present). Because the copy has already
+                // happened, thanks to the 'insert' operation above, we just
+                // need to set the copyOnWrite flag.
+                self_bitmap.setCopyOnWrite(copyOnWrite);
+                continue;
             }
+
+            // Both sides have self_key, and the insert was not performed. In
+            // the logic table above, this reflects the case
+            // (self.present & other.present). So OR other into self.
+            self_bitmap |= other_bitmap;
         }
         return *this;
     }
 
     /**
-     * Compute the symmetric union between the current bitmap and the provided
-     * bitmap,
-     * writing the result in the current bitmap. The provided bitmap is not
-     * modified.
+     * Compute the XOR of the current bitmap and the provided bitmap, writing
+     * the result in the current bitmap. The provided bitmap is not modified.
      */
-    Roaring64Map& operator^=(const Roaring64Map& r) {
-        for (const auto& map_entry : r.roarings) {
-            if (roarings.count(map_entry.first) == 0) {
-                roarings[map_entry.first] = map_entry.second;
-                roarings[map_entry.first].setCopyOnWrite(copyOnWrite);
-            } else {
-                roarings[map_entry.first] ^= map_entry.second;
+    Roaring64Map& operator^=(const Roaring64Map& other) {
+        if (this == &other) {
+            // XORing *this with itself results in the empty map.
+            roarings.clear();
+            return *this;
+        }
+
+        // Logic table summarizing what to do when a given outer key is
+        // present vs. absent from self and other.
+        //
+        // self     other    (self ^ other)  work to do
+        // --------------------------------------------
+        // absent   absent   empty           None
+        // absent   present  non-empty       Copy other to self and set flags
+        // present  absent   unchanged       None
+        // present  present  empty or not    XOR other into self, but erase self
+        //                                   if result is empty.
+        //
+        // Because there is only work to do when a key is present in 'other',
+        // the main for loop iterates over entries in 'other'.
+
+        for (const auto& other_entry : other.roarings) {
+            const auto& other_bitmap = other_entry.second;
+
+            // Try to insert other_bitmap into self at other_key. We take
+            // advantage of the fact that std::map::insert will not overwrite an
+            // existing entry.
+            auto insert_result = roarings.insert(other_entry);
+            auto self_iter = insert_result.first;
+            auto insert_happened = insert_result.second;
+            auto& self_bitmap = self_iter->second;
+
+            if (insert_happened) {
+                // Key was not present in self, so insert was performed above.
+                // In the logic table above, this reflects the case
+                // (self.absent ^ other.present). Because the copy has already
+                // happened, thanks to the 'insert' operation above, we just
+                // need to set the copyOnWrite flag.
+                self_bitmap.setCopyOnWrite(copyOnWrite);
+                continue;
+            }
+
+            // Both sides have self_key, and the insert was not performed. In
+            // the logic table above, this reflects the case
+            // (self.present ^ other.present). So XOR other into self.
+            self_bitmap ^= other_bitmap;
+
+            if (self_bitmap.isEmpty()) {
+                // ...but if intersection is empty, remove it altogether.
+                roarings.erase(self_iter);
             }
         }
         return *this;
@@ -337,6 +522,18 @@ public:
             }
         }
         return card;
+    }
+
+    bool intersect(const Roaring64Map& r) const {
+        const auto& smaller = roarings.size() <= r.roarings.size() ? roarings : r.roarings;
+        const auto& larger = roarings.size() <= r.roarings.size() ? r.roarings : roarings;
+        for (const auto& map_entry : smaller) {
+            auto it = larger.find(map_entry.first);
+            if (it != larger.cend() && map_entry.second.intersect(it->second)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -394,6 +591,20 @@ public:
         return card;
     }
 
+    bool isSubset(const Roaring64Map& r) const {
+        for (const auto& map_entry : roarings) {
+            if (map_entry.second.isEmpty()) {
+                continue;
+            }
+            auto roaring_iter = r.roarings.find(map_entry.first);
+            if (roaring_iter == r.roarings.cend())
+                return false;
+            else if (!map_entry.second.isSubset(roaring_iter->second))
+                return false;
+        }
+        return true;
+    }
+
     /**
     * Returns true if the bitmap is empty (cardinality is zero).
     */
@@ -426,6 +637,22 @@ public:
     }
 
     /**
+     * Convert the bitmap to a sorted array. Write the output to "ans", the
+     * caller is responsible to ensure that there is enough memory allocated
+     * (e.g., ans = new uint64_t[mybitmap.cardinality()];)
+     */
+    void toUint64Array(uint64_t* ans) const {
+        // Annoyingly, VS 2017 marks std::accumulate() as [[nodiscard]]
+        (void)std::accumulate(roarings.cbegin(), roarings.cend(), ans,
+                              [](uint64_t* previous,
+                                 const std::pair<const uint32_t, roaring::Roaring>& map_entry) {
+                                  for (uint32_t low_bits : map_entry.second)
+                                      *previous++ = uniteBytes(map_entry.first, low_bits);
+                                  return previous;
+                              });
+    }
+
+    /**
      * Return true if the two bitmaps contain the same elements.
      */
     bool operator==(const Roaring64Map& r) const {
@@ -436,10 +663,8 @@ public:
         auto rhs_iter = r.roarings.cbegin();
         auto rhs_cend = r.roarings.cend();
         while (lhs_iter != lhs_cend && rhs_iter != rhs_cend) {
-            auto lhs_key = lhs_iter->first;
-            auto rhs_key = rhs_iter->first;
-            const auto& lhs_map = lhs_iter->second;
-            const auto& rhs_map = rhs_iter->second;
+            auto lhs_key = lhs_iter->first, rhs_key = rhs_iter->first;
+            const auto &lhs_map = lhs_iter->second, &rhs_map = rhs_iter->second;
             if (lhs_map.isEmpty()) {
                 ++lhs_iter;
                 continue;
@@ -487,9 +712,9 @@ public:
     }
 
     /**
-     * If needed, reallocate memory to shrink the memory usage. Returns
-     * the number of bytes saved.
-    */
+     * If needed, reallocate memory to shrink the memory usage.
+     * Returns the number of bytes saved.
+     */
     size_t shrinkToFit() {
         size_t savedBytes = 0;
         auto iter = roarings.begin();
@@ -497,7 +722,7 @@ public:
             if (iter->second.isEmpty()) {
                 // empty Roarings are 84 bytes
                 savedBytes += 88;
-                iter = roarings.erase(iter);
+                roarings.erase(iter++);
             } else {
                 savedBytes += iter->second.shrinkToFit();
                 iter++;
@@ -507,13 +732,15 @@ public:
     }
 
     /**
-     * Iterate over the bitmap elements. The function iterator is called once
-     * for all the values with ptr (can be nullptr) as the second parameter of each
-     * call.
+     * Iterate over the bitmap elements in order(start from the smallest one)
+     * and call iterator once for every element until the iterator function
+     * returns false. To iterate over all values, the iterator function should
+     * always return true.
      *
-     * roaring_iterator is simply a pointer to a function that returns bool
-     * (true means that the iteration should continue while false means that it
-     * should stop), and takes (uint32_t,void*) as inputs.
+     * The roaring_iterator64 parameter is a pointer to a function that
+     * returns bool (true means that the iteration should continue while false
+     * means that it should stop), and takes (uint64_t element, void* ptr) as
+     * inputs.
      */
     void iterate(roaring::api::roaring_iterator64 iterator, void* ptr) const {
         for (const auto& map_entry : roarings) {
@@ -760,6 +987,12 @@ private:
     void emplaceOrInsert(const uint32_t key, roaring::Roaring&& value) {
         roarings.emplace(key, value);
     }
+
+    roaring::Roaring& lookupOrCreateInner(uint32_t key) {
+        auto& bitmap = roarings[key];
+        bitmap.setCopyOnWrite(copyOnWrite);
+        return bitmap;
+    }
 };
 
 // Forked from https://github.com/RoaringBitmap/CRoaring/blob/v0.4.0/cpp/roaring64map.hh
@@ -866,15 +1099,197 @@ inline Roaring64MapSetBitForwardIterator Roaring64Map::end() const {
 
 } // namespace detail
 
+class BitmapValue;
+
+class BitmapSmallSet {
+public:
+    using value_type = uint64_t;
+    using iterator = value_type*;
+    using const_iterator = const value_type*;
+
+    static constexpr size_t INLINE_CAPACITY = 32;
+    static_assert(INLINE_CAPACITY <= std::numeric_limits<uint8_t>::max(),
+                  "INLINE_CAPACITY must fit into uint8_t");
+
+    BitmapSmallSet() = default;
+    BitmapSmallSet(const BitmapSmallSet&) = default;
+    BitmapSmallSet& operator=(const BitmapSmallSet&) = default;
+    BitmapSmallSet(BitmapSmallSet&& other) noexcept { *this = std::move(other); }
+
+    BitmapSmallSet& operator=(BitmapSmallSet&& other) noexcept {
+        if (this == &other) {
+            return *this;
+        }
+        _values = other._values;
+        _size = other._size;
+        other.clear();
+        return *this;
+    }
+
+    size_t size() const { return _size; }
+    bool empty() const { return _size == 0; }
+
+    iterator begin() { return _values.data(); }
+    iterator end() { return _values.data() + _size; }
+    const_iterator begin() const { return _values.data(); }
+    const_iterator end() const { return _values.data() + _size; }
+    const_iterator cbegin() const { return begin(); }
+    const_iterator cend() const { return end(); }
+    const value_type* data() const { return _values.data(); }
+
+    void clear() { _size = 0; }
+
+    bool contains(value_type value) const { return find_index(value) != npos; }
+
+    // Use `insert/insert_many` only when the caller has proved the inline storage will not overflow.
+    // Paths that may increase cardinality should call `BitmapValue::add/add_many` instead.
+    void insert(value_type value) {
+        size_t pos = find_index(value);
+        if (pos != npos) {
+            return;
+        }
+
+        DORIS_CHECK(_size < INLINE_CAPACITY) << "BitmapSmallSet overflow";
+
+        _values[_size] = value;
+        ++_size;
+    }
+
+    template <typename T, typename = std::enable_if_t<std::is_integral_v<T>>>
+    void insert_many(const T* values, size_t n) {
+        DORIS_CHECK(_size + n <= INLINE_CAPACITY) << "BitmapSmallSet overflow";
+        if (n == 0) {
+            return;
+        }
+
+        if constexpr (std::is_same_v<std::remove_cv_t<T>, value_type>) {
+            memcpy(_values.data() + _size, values, sizeof(value_type) * n);
+        } else {
+            std::array<value_type, INLINE_CAPACITY> converted_values {};
+            for (size_t i = 0; i < n; ++i) {
+                converted_values[i] = static_cast<value_type>(values[i]);
+            }
+            memcpy(_values.data() + _size, converted_values.data(), sizeof(value_type) * n);
+        }
+        _size = static_cast<uint8_t>(_size + n);
+        compact_unique();
+    }
+
+    template <typename T, typename = std::enable_if_t<std::is_integral_v<T>>>
+    bool try_insert_many(const T* values, size_t n) {
+        if (_size + n <= INLINE_CAPACITY) {
+            insert_many(values, n);
+            return true;
+        }
+
+        BitmapSmallSet candidate = *this;
+        for (size_t i = 0; i < n; ++i) {
+            auto value = static_cast<value_type>(values[i]);
+            if (candidate.contains(value)) {
+                continue;
+            }
+            if (candidate.size() >= INLINE_CAPACITY) {
+                return false;
+            }
+            candidate.insert(value);
+        }
+        *this = std::move(candidate);
+        return true;
+    }
+
+    // The caller must ensure the input already has set semantics.
+    bool read(const void* src, size_t n) {
+        DORIS_CHECK(n <= INLINE_CAPACITY) << "BitmapSmallSet overflow";
+        clear();
+        if (n > 0) {
+            memcpy(_values.data(), src, sizeof(value_type) * n);
+        }
+        _size = static_cast<uint8_t>(n);
+        return has_unique_values();
+    }
+
+    void read_unique(const void* src, size_t n) {
+        DORIS_CHECK(n <= INLINE_CAPACITY) << "BitmapSmallSet overflow";
+        clear();
+        insert_many(reinterpret_cast<const value_type*>(src), n);
+    }
+
+    void copy_to_sorted(value_type* dst) const {
+        if (_size > 0) {
+            memcpy(dst, _values.data(), sizeof(value_type) * _size);
+        }
+        std::sort(dst, dst + _size);
+    }
+
+    size_t erase(value_type value) {
+        size_t pos = find_index(value);
+        if (pos == npos) {
+            return 0;
+        }
+        erase_at(pos);
+        return 1;
+    }
+
+    value_type operator[](size_t index) const { return _values[index]; }
+    value_type& operator[](size_t index) { return _values[index]; }
+
+private:
+    friend class BitmapValue;
+
+    size_t find_index(value_type value) const {
+        for (size_t i = 0; i < _size; ++i) {
+            if (_values[i] == value) {
+                return i;
+            }
+        }
+        return npos;
+    }
+
+    void erase_at(size_t pos) {
+        DCHECK_LT(pos, _size);
+        _values[pos] = _values[_size - 1];
+        --_size;
+    }
+
+    bool has_unique_values() const {
+        for (size_t i = 0; i < _size; ++i) {
+            for (size_t j = i + 1; j < _size; ++j) {
+                if (_values[i] == _values[j]) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    void compact_unique() {
+        size_t unique_size = 0;
+        for (size_t i = 0; i < _size; ++i) {
+            bool found = false;
+            for (size_t j = 0; j < unique_size; ++j) {
+                if (_values[j] == _values[i]) {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                _values[unique_size++] = _values[i];
+            }
+        }
+        _size = static_cast<uint8_t>(unique_size);
+    }
+
+    std::array<value_type, INLINE_CAPACITY> _values {};
+    uint8_t _size = 0;
+    static constexpr size_t npos = static_cast<size_t>(-1);
+};
+
 // Represent the in-memory and on-disk structure of Doris's BITMAP data type.
 // Optimize for the case where the bitmap contains 0 or 1 element which is common
 // for streaming load scenario.
 class BitmapValueIterator;
 class BitmapValue {
 public:
-    template <typename T>
-    using SetContainer = phmap::flat_hash_set<T>;
-
     // Construct an empty bitmap.
     BitmapValue() : _sv(0), _bitmap(nullptr), _type(EMPTY), _is_shared(false) { _set.clear(); }
 
@@ -989,32 +1404,16 @@ public:
             break;
         }
         _is_shared = other._is_shared;
+        other._type = EMPTY;
+        other._is_shared = false;
         return *this;
     }
 
     // Construct a bitmap from given elements.
-    explicit BitmapValue(const std::vector<uint64_t>& bits) : _is_shared(false) {
-        if (bits.size() == 0) {
-            _type = EMPTY;
-            return;
-        }
-
-        if (bits.size() == 1) {
-            _type = SINGLE;
-            _sv = bits[0];
-            return;
-        }
-
-        if (!config::enable_set_in_bitmap_value || bits.size() > SET_TYPE_THRESHOLD) {
-            _type = BITMAP;
-            _prepare_bitmap_for_write();
-            _bitmap->addMany(bits.size(), &bits[0]);
-        } else {
-            _type = SET;
-            for (auto v : bits) {
-                _set.insert(v);
-            }
-        }
+    template <typename T, typename = std::enable_if_t<std::is_integral_v<T>>>
+    explicit BitmapValue(const std::vector<T>& bits) : _is_shared(false) {
+        _type = EMPTY;
+        this->add_many(bits.data(), bits.size());
     }
 
     BitmapTypeCode::type get_type_code() const {
@@ -1040,18 +1439,27 @@ public:
         __builtin_unreachable();
     }
 
-    template <typename T>
+    template <typename T, typename = std::enable_if_t<std::is_integral_v<T>>>
     void add_many(const T* values, const size_t count) {
+        if (count == 0) {
+            return;
+        }
+
         switch (_type) {
         case EMPTY:
             if (count == 1) {
-                _sv = values[0];
+                _sv = static_cast<uint64_t>(values[0]);
                 _type = SINGLE;
-            } else if (config::enable_set_in_bitmap_value && count < SET_TYPE_THRESHOLD) {
-                for (size_t i = 0; i != count; ++i) {
-                    _set.insert(values[i]);
+            } else if (config::enable_set_in_bitmap_value) {
+                BitmapSmallSet new_set;
+                if (new_set.try_insert_many(values, count)) {
+                    _set = std::move(new_set);
+                    _type = SET;
+                } else {
+                    _prepare_bitmap_for_write();
+                    _bitmap->addMany(count, values);
+                    _type = BITMAP;
                 }
-                _type = SET;
             } else {
                 _prepare_bitmap_for_write();
                 _bitmap->addMany(count, values);
@@ -1059,13 +1467,18 @@ public:
             }
             break;
         case SINGLE:
-            if (config::enable_set_in_bitmap_value && count < SET_TYPE_THRESHOLD) {
-                _set.insert(_sv);
-                for (size_t i = 0; i != count; ++i) {
-                    _set.insert(values[i]);
+            if (config::enable_set_in_bitmap_value) {
+                BitmapSmallSet new_set;
+                new_set.insert(_sv);
+                if (new_set.try_insert_many(values, count)) {
+                    _set = std::move(new_set);
+                    _type = SET;
+                } else {
+                    _prepare_bitmap_for_write();
+                    _bitmap->add(_sv);
+                    _bitmap->addMany(count, values);
+                    _type = BITMAP;
                 }
-                _type = SET;
-                _convert_to_bitmap_if_need();
             } else {
                 _prepare_bitmap_for_write();
                 _bitmap->add(_sv);
@@ -1078,10 +1491,10 @@ public:
             _bitmap->addMany(count, values);
             break;
         case SET:
-            for (size_t i = 0; i != count; ++i) {
-                _set.insert(values[i]);
+            if (!_set.try_insert_many(values, count)) {
+                _convert_set_to_bitmap();
+                _bitmap->addMany(count, values);
             }
-            _convert_to_bitmap_if_need();
             break;
         }
     }
@@ -1093,8 +1506,9 @@ public:
                 _sv = value;
                 _type = SINGLE;
             } else {
-                _set.insert(value);
                 _type = SET;
+                _set.clear();
+                _set.insert(value);
             }
             break;
         case SINGLE:
@@ -1103,6 +1517,7 @@ public:
                 break;
             }
             if (config::enable_set_in_bitmap_value) {
+                _set.clear();
                 _set.insert(_sv);
                 _set.insert(value);
                 _type = SET;
@@ -1118,8 +1533,15 @@ public:
             _bitmap->add(value);
             break;
         case SET:
-            _set.insert(value);
-            _convert_to_bitmap_if_need();
+            if (_set.contains(value)) {
+                break;
+            }
+            if (_set.size() < SET_TYPE_THRESHOLD) {
+                _set.insert(value);
+            } else {
+                _convert_set_to_bitmap();
+                _bitmap->add(value);
+            }
             break;
         }
     }
@@ -1169,11 +1591,11 @@ public:
                 _convert_to_smaller_type();
                 break;
             case SET: {
-                for (auto it = _set.begin(); it != _set.end();) {
-                    if (rhs.contains(*it)) {
-                        it = _set.erase(it);
+                for (size_t i = 0; i < _set.size();) {
+                    if (rhs.contains(_set[i])) {
+                        _set.erase_at(i);
                     } else {
-                        ++it;
+                        ++i;
                     }
                 }
                 _convert_to_smaller_type();
@@ -1193,18 +1615,16 @@ public:
             case BITMAP:
                 _prepare_bitmap_for_write();
                 for (auto v : rhs._set) {
-                    if (_bitmap->contains(v)) {
-                        _bitmap->remove(v);
-                    }
+                    _bitmap->remove(v);
                 }
                 _convert_to_smaller_type();
                 break;
             case SET: {
-                for (auto it = _set.begin(); it != _set.end();) {
-                    if (rhs.contains(*it)) {
-                        it = _set.erase(it);
+                for (size_t i = 0; i < _set.size();) {
+                    if (rhs.contains(_set[i])) {
+                        _set.erase_at(i);
                     } else {
-                        ++it;
+                        ++i;
                     }
                 }
                 _convert_to_smaller_type();
@@ -1252,11 +1672,10 @@ public:
             case SET: {
                 _prepare_bitmap_for_write();
                 *_bitmap = *rhs._bitmap;
-
-                for (auto v : _set) {
-                    _bitmap->add(v);
-                }
+                _bitmap->addMany(_set.size(), _set.data());
                 _type = BITMAP;
+
+                _set.clear();
                 break;
             }
             }
@@ -1268,33 +1687,18 @@ public:
                 _type = SET;
                 break;
             case SINGLE: {
-                if ((rhs._set.size() + rhs._set.contains(_sv) > SET_TYPE_THRESHOLD)) {
-                    _prepare_bitmap_for_write();
-                    _bitmap->add(_sv);
-                    for (auto v : rhs._set) {
-                        _bitmap->add(v);
-                    }
-                    _type = BITMAP;
-                } else {
-                    _set = rhs._set;
-                    _set.insert(_sv);
-                    _type = SET;
-                }
+                _set = rhs._set;
+                _type = SET;
+                this->add(_sv);
                 break;
             }
             case BITMAP:
                 _prepare_bitmap_for_write();
-                for (auto v : rhs._set) {
-                    _bitmap->add(v);
-                }
+                _bitmap->addMany(rhs._set.size(), rhs._set.data());
                 break;
-            case SET: {
-                for (auto v : rhs._set) {
-                    _set.insert(v);
-                }
-                _convert_to_bitmap_if_need();
+            case SET:
+                this->add_many(rhs._set.data(), rhs._set.size());
                 break;
-            }
             }
             break;
         }
@@ -1304,7 +1708,7 @@ public:
     BitmapValue& fastunion(const std::vector<const BitmapValue*>& values) {
         std::vector<const detail::Roaring64Map*> bitmaps;
         std::vector<uint64_t> single_values;
-        std::vector<const SetContainer<uint64_t>*> sets;
+        std::vector<const BitmapSmallSet*> sets;
         for (const auto* value : values) {
             switch (value->_type) {
             case EMPTY:
@@ -1338,9 +1742,7 @@ public:
                 break;
             case SET: {
                 *_bitmap = detail::Roaring64Map::fastunion(bitmaps.size(), bitmaps.data());
-                for (auto v : _set) {
-                    _bitmap->add(v);
-                }
+                _bitmap->addMany(_set.size(), _set.data());
                 _set.clear();
                 break;
             }
@@ -1350,75 +1752,12 @@ public:
 
         if (!sets.empty()) {
             for (auto& set : sets) {
-                for (auto v : *set) {
-                    _set.insert(v);
-                }
-            }
-            switch (_type) {
-            case EMPTY:
-                _type = SET;
-                break;
-            case SINGLE: {
-                _set.insert(_sv);
-                _type = SET;
-                break;
-            }
-            case BITMAP:
-                _prepare_bitmap_for_write();
-                for (auto v : _set) {
-                    _bitmap->add(v);
-                }
-                _type = BITMAP;
-                _set.clear();
-                break;
-            case SET: {
-                break;
-            }
-            }
-            if (_type == SET) {
-                _convert_to_bitmap_if_need();
+                this->add_many(set->data(), set->size());
             }
         }
 
-        if (_type == EMPTY && single_values.size() == 1) {
-            if (config::enable_set_in_bitmap_value) {
-                _type = SET;
-                _set.insert(single_values[0]);
-            } else {
-                _sv = single_values[0];
-                _type = SINGLE;
-            }
-        } else if (!single_values.empty()) {
-            switch (_type) {
-            case EMPTY:
-            case SINGLE:
-                if (config::enable_set_in_bitmap_value) {
-                    _set.insert(single_values.cbegin(), single_values.cend());
-                    if (_type == SINGLE) {
-                        _set.insert(_sv);
-                    }
-                    _type = SET;
-                    _convert_to_bitmap_if_need();
-                } else {
-                    _prepare_bitmap_for_write();
-                    _bitmap->addMany(single_values.size(), single_values.data());
-                    if (_type == SINGLE) {
-                        _bitmap->add(_sv);
-                    }
-                    _type = BITMAP;
-                    _convert_to_smaller_type();
-                }
-                break;
-            case BITMAP: {
-                _prepare_bitmap_for_write();
-                _bitmap->addMany(single_values.size(), single_values.data());
-                break;
-            }
-            case SET:
-                _set.insert(single_values.cbegin(), single_values.cend());
-                _convert_to_bitmap_if_need();
-                break;
-            }
+        if (!single_values.empty()) {
+            this->add_many(single_values.data(), single_values.size());
         }
 
         return *this;
@@ -1479,11 +1818,11 @@ public:
                 _convert_to_smaller_type();
                 break;
             case SET:
-                for (auto it = _set.begin(); it != _set.end();) {
-                    if (!rhs._bitmap->contains(*it)) {
-                        it = _set.erase(it);
+                for (size_t i = 0; i < _set.size();) {
+                    if (!rhs._bitmap->contains(_set[i])) {
+                        _set.erase_at(i);
                     } else {
-                        ++it;
+                        ++i;
                     }
                 }
                 _convert_to_smaller_type();
@@ -1512,11 +1851,11 @@ public:
                 _convert_to_smaller_type();
                 break;
             case SET:
-                for (auto it = _set.begin(); it != _set.end();) {
-                    if (!rhs._set.contains(*it)) {
-                        it = _set.erase(it);
+                for (size_t i = 0; i < _set.size();) {
+                    if (!rhs._set.contains(_set[i])) {
+                        _set.erase_at(i);
                     } else {
-                        ++it;
+                        ++i;
                     }
                 }
                 _convert_to_smaller_type();
@@ -1546,22 +1885,22 @@ public:
                 if (_sv == rhs._sv) {
                     _type = EMPTY;
                 } else {
-                    add(rhs._sv);
+                    this->add(rhs._sv);
                 }
                 break;
             case BITMAP:
                 if (!_bitmap->contains(rhs._sv)) {
-                    add(rhs._sv);
+                    this->add(rhs._sv);
                 } else {
-                    _prepare_bitmap_for_write();
-                    _bitmap->remove(rhs._sv);
+                    this->remove(rhs._sv);
                 }
+                _convert_to_smaller_type();
                 break;
             case SET:
                 if (!_set.contains(rhs._sv)) {
-                    _set.insert(rhs._sv);
+                    this->add(rhs._sv);
                 } else {
-                    _set.erase(rhs._sv);
+                    this->remove(rhs._sv);
                 }
                 break;
             }
@@ -1583,7 +1922,7 @@ public:
                 if (!rhs._bitmap->contains(_sv)) {
                     _bitmap->add(_sv);
                 } else {
-                    _bitmap->remove(_sv);
+                    this->remove(_sv);
                 }
                 break;
             case BITMAP:
@@ -1601,6 +1940,7 @@ public:
                         _bitmap->add(v);
                     }
                 }
+                _set.clear();
                 _type = BITMAP;
                 _convert_to_smaller_type();
                 break;
@@ -1614,12 +1954,12 @@ public:
                 break;
             case SINGLE:
                 _set = rhs._set;
-                if (!rhs._set.contains(_sv)) {
-                    _set.insert(_sv);
-                } else {
-                    _set.erase(_sv);
-                }
                 _type = SET;
+                if (_set.contains(_sv)) {
+                    this->remove(_sv);
+                } else {
+                    this->add(_sv);
+                }
                 break;
             case BITMAP:
                 _prepare_bitmap_for_write();
@@ -1633,14 +1973,26 @@ public:
                 _convert_to_smaller_type();
                 break;
             case SET:
-                for (auto v : rhs._set) {
-                    if (_set.contains(v)) {
-                        _set.erase(v);
-                    } else {
-                        _set.insert(v);
+                if (this == &rhs) {
+                    reset();
+                    break;
+                }
+
+                std::array<uint64_t, SET_TYPE_THRESHOLD> values_to_add {};
+                size_t add_count = 0;
+                for (size_t i = 0; i < rhs._set.size(); ++i) {
+                    auto v = rhs._set[i];
+                    if (_set.erase(v) == 0) {
+                        values_to_add[add_count++] = v;
                     }
                 }
-                _convert_to_smaller_type();
+
+                if (_set.size() + add_count <= SET_TYPE_THRESHOLD) {
+                    _set.insert_many(values_to_add.data(), add_count);
+                } else {
+                    _convert_set_to_bitmap();
+                    _bitmap->addMany(add_count, values_to_add.data());
+                }
                 break;
             }
             break;
@@ -1659,6 +2011,113 @@ public:
             return _bitmap->contains(x);
         case SET:
             return _set.contains(x);
+        }
+        return false;
+    }
+
+    bool intersects(const BitmapValue& rhs) const {
+        switch (rhs._type) {
+        case EMPTY:
+            return false;
+        case SINGLE:
+            return contains(rhs._sv);
+        case BITMAP:
+            switch (_type) {
+            case EMPTY:
+                return false;
+            case SINGLE:
+                return rhs._bitmap->contains(_sv);
+            case BITMAP:
+                return _bitmap->intersect(*rhs._bitmap);
+            case SET:
+                for (auto v : _set) {
+                    if (rhs._bitmap->contains(v)) {
+                        return true;
+                    }
+                }
+                return false;
+            }
+            break;
+        case SET:
+            switch (_type) {
+            case EMPTY:
+                return false;
+            case SINGLE:
+                return rhs._set.contains(_sv);
+            case BITMAP:
+                for (auto v : rhs._set) {
+                    if (_bitmap->contains(v)) {
+                        return true;
+                    }
+                }
+                return false;
+            case SET: {
+                const auto& smaller = _set.size() <= rhs._set.size() ? _set : rhs._set;
+                const auto& larger = _set.size() <= rhs._set.size() ? rhs._set : _set;
+                for (auto v : smaller) {
+                    if (larger.contains(v)) {
+                        return true;
+                    }
+                }
+                return false;
+            }
+            }
+        }
+        return false;
+    }
+
+    bool contains_all(const BitmapValue& rhs) const {
+        if (rhs.cardinality() == 0) {
+            return true;
+        }
+
+        switch (rhs._type) {
+        case EMPTY:
+            return true;
+        case SINGLE:
+            return contains(rhs._sv);
+        case BITMAP:
+            switch (_type) {
+            case EMPTY:
+                return false;
+            case SINGLE:
+                return rhs._bitmap->cardinality() == 0 ||
+                       (rhs._bitmap->cardinality() == 1 && rhs._bitmap->contains(_sv));
+            case SET:
+                if (rhs._bitmap->cardinality() > _set.size()) {
+                    return false;
+                }
+                for (auto v : *rhs._bitmap) {
+                    if (!_set.contains(v)) {
+                        return false;
+                    }
+                }
+                return true;
+            case BITMAP:
+                return rhs._bitmap->isSubset(*_bitmap);
+            }
+            break;
+        case SET:
+            switch (_type) {
+            case EMPTY:
+                return false;
+            case SINGLE:
+                return rhs._set.size() == 1 && rhs._set.contains(_sv);
+            case BITMAP:
+                for (auto v : rhs._set) {
+                    if (!_bitmap->contains(v)) {
+                        return false;
+                    }
+                }
+                return true;
+            case SET:
+                for (auto v : rhs._set) {
+                    if (!_set.contains(v)) {
+                        return false;
+                    }
+                }
+                return true;
+            }
         }
         return false;
     }
@@ -1732,8 +2191,10 @@ public:
             }
             case SET: {
                 uint64_t cardinality = 0;
-                for (auto v : _set) {
-                    if (rhs._set.contains(v)) {
+                const auto& smaller = _set.size() <= rhs._set.size() ? _set : rhs._set;
+                const auto& larger = _set.size() <= rhs._set.size() ? rhs._set : _set;
+                for (auto v : smaller) {
+                    if (larger.contains(v)) {
                         ++cardinality;
                     }
                 }
@@ -1795,13 +2256,7 @@ public:
                 return cardinality;
             }
             case SET: {
-                uint64_t cardinality = _set.size();
-                for (auto v : _set) {
-                    if (!rhs._set.contains(v)) {
-                        ++cardinality;
-                    }
-                }
-                return cardinality;
+                return _set.size() + rhs._set.size() - and_cardinality(rhs);
             }
             }
         }
@@ -1859,13 +2314,7 @@ public:
                 return cardinality;
             }
             case SET: {
-                uint64_t cardinality = _set.size();
-                for (auto v : rhs._set) {
-                    if (_set.contains(v)) {
-                        cardinality -= 1;
-                    }
-                }
-                return cardinality;
+                return _set.size() - and_cardinality(rhs);
             }
             }
         }
@@ -1924,9 +2373,19 @@ public:
             ++dst;
             *dst = static_cast<uint8_t>(_set.size());
             ++dst;
-            for (auto v : _set) {
-                encode_fixed64_le(reinterpret_cast<uint8_t*>(dst), v);
-                dst += sizeof(uint64_t);
+            {
+                // `BitmapSmallSet` stores values inline and unordered, but historical SET bytes were
+                // emitted by iterating `phmap::flat_hash_set`. Rebuild the old container before
+                // encoding so visible strings such as `bitmap_to_base64` stay stable.
+                //   TypeCode::SET(1 byte) | count(1 byte) | uint64 values in phmap iteration order.
+                phmap::flat_hash_set<uint64_t> values;
+                for (auto v : _set) {
+                    values.insert(v);
+                }
+                for (auto v : values) {
+                    encode_fixed64_le(reinterpret_cast<uint8_t*>(dst), v);
+                    dst += sizeof(uint64_t);
+                }
             }
             break;
         case BITMAP:
@@ -1947,7 +2406,7 @@ public:
             _sv = decode_fixed32_le(reinterpret_cast<const uint8_t*>(src + 1));
             if (config::enable_set_in_bitmap_value) {
                 _type = SET;
-                _set.insert(_sv);
+                _set.read(&_sv, 1);
             }
             break;
         case BitmapTypeCode::SINGLE64:
@@ -1955,7 +2414,7 @@ public:
             _sv = decode_fixed64_le(reinterpret_cast<const uint8_t*>(src + 1));
             if (config::enable_set_in_bitmap_value) {
                 _type = SET;
-                _set.insert(_sv);
+                _set.read(&_sv, 1);
             }
             break;
         case BitmapTypeCode::BITMAP32:
@@ -1980,23 +2439,14 @@ public:
                 throw Exception(ErrorCode::INTERNAL_ERROR,
                                 "bitmap value with incorrect set count, count: {}", count);
             }
-            _set.reserve(count);
-            for (uint8_t i = 0; i != count; ++i, src += sizeof(uint64_t)) {
-                _set.insert(decode_fixed64_le(reinterpret_cast<const uint8_t*>(src)));
-            }
-            if (_set.size() != count) {
+            if (!_set.read(src, count)) {
                 throw Exception(ErrorCode::INTERNAL_ERROR,
-                                "bitmap value with incorrect set count, count: {}, set size: {}",
-                                count, _set.size());
+                                "bitmap value with duplicated set values, count: {}", count);
             }
+            src += sizeof(uint64_t) * count;
 
             if (!config::enable_set_in_bitmap_value) {
-                _prepare_bitmap_for_write();
-                for (auto v : _set) {
-                    _bitmap->add(v);
-                }
-                _type = BITMAP;
-                _set.clear();
+                _convert_set_to_bitmap();
             }
             break;
         }
@@ -2009,22 +2459,15 @@ public:
                 _type = BITMAP;
                 _prepare_bitmap_for_write();
 
-                for (int i = 0; i < size; ++i) {
-                    uint64_t key {};
-                    memcpy(&key, src, sizeof(uint64_t));
-                    _bitmap->add(key);
-                    src += sizeof(uint64_t);
+                if (size > 0) {
+                    std::vector<uint64_t> values(size);
+                    memcpy(values.data(), src, sizeof(uint64_t) * size);
+                    _bitmap->addMany(size, values.data());
+                    src += sizeof(uint64_t) * size;
                 }
             } else {
                 _type = SET;
-                _set.reserve(size);
-
-                for (int i = 0; i < size; ++i) {
-                    uint64_t key {};
-                    memcpy(&key, src, sizeof(uint64_t));
-                    _set.insert(key);
-                    src += sizeof(uint64_t);
-                }
+                _set.read_unique(src, size);
             }
             break;
         }
@@ -2087,10 +2530,11 @@ public:
             } iter_ctx;
             iter_ctx.ss = &ss;
 
-            std::vector<uint64_t> values(_set.begin(), _set.end());
-            std::sort(values.begin(), values.end());
+            std::array<uint64_t, SET_TYPE_THRESHOLD> values {};
+            _set.copy_to_sorted(values.data());
 
-            for (auto v : values) {
+            for (size_t i = 0; i < _set.size(); ++i) {
+                auto v = values[i];
                 if (iter_ctx.first) {
                     iter_ctx.first = false;
                 } else {
@@ -2171,14 +2615,12 @@ public:
         }
         case SET: {
             int64_t count = 0;
-            std::vector<uint64_t> values(_set.begin(), _set.end());
-            std::sort(values.begin(), values.end());
-            for (auto it = values.begin(); it != values.end(); ++it) {
-                if (*it < range_start || *it >= range_end) {
-                    continue;
+            for (size_t i = 0; i < _set.size(); ++i) {
+                uint64_t v = _set[i];
+                if (v >= range_start && v < range_end) {
+                    ret_bitmap->add(v);
+                    ++count;
                 }
-                ret_bitmap->add(*it);
-                ++count;
             }
             return count;
         }
@@ -2194,11 +2636,14 @@ public:
      */
     int64_t sub_limit(const int64_t& range_start, const int64_t& cardinality_limit,
                       BitmapValue* ret_bitmap) const {
+        if (cardinality_limit <= 0) {
+            return 0;
+        }
         switch (_type) {
         case EMPTY:
             return 0;
         case SINGLE: {
-            //only single value, so range_start must less than _sv
+            // Only single value, so range_start must be less than or equal to _sv.
             if (range_start > _sv) {
                 return 0;
             } else {
@@ -2222,22 +2667,26 @@ public:
             return count;
         }
         case SET: {
-            int64_t count = 0;
-
-            std::vector<uint64_t> values(_set.begin(), _set.end());
-            std::sort(values.begin(), values.end());
-            for (auto it = values.begin(); it != values.end(); ++it) {
-                if (*it < range_start) {
+            std::array<uint64_t, SET_TYPE_THRESHOLD> values {};
+            size_t count = 0;
+            for (size_t i = 0; i < _set.size(); ++i) {
+                auto v = _set[i];
+                if (v < range_start) {
                     continue;
                 }
-                if (count < cardinality_limit) {
-                    ret_bitmap->add(*it);
-                    ++count;
-                } else {
-                    break;
-                }
+                values[count++] = v;
             }
-            return count;
+
+            const auto output_count = std::min(count, static_cast<size_t>(cardinality_limit));
+            if (output_count == 0) {
+                return 0;
+            }
+            if (output_count < count) {
+                std::nth_element(values.begin(), values.begin() + output_count,
+                                 values.begin() + count);
+            }
+            ret_bitmap->add_many(values.data(), output_count);
+            return output_count;
         }
         }
         return 0;
@@ -2250,6 +2699,10 @@ public:
      */
     int64_t offset_limit(const int64_t& offset, const int64_t& limit,
                          BitmapValue* ret_bitmap) const {
+        if (limit <= 0) {
+            return 0;
+        }
+
         switch (_type) {
         case EMPTY:
             return 0;
@@ -2266,7 +2719,7 @@ public:
             break;
         }
         if (_type == BITMAP) {
-            if (std::abs(offset) >= _bitmap->cardinality()) {
+            if (std::abs(offset) > _bitmap->cardinality()) {
                 return 0;
             }
             int64_t abs_offset = offset;
@@ -2285,7 +2738,7 @@ public:
             }
             return count;
         } else {
-            if (std::abs(offset) > _set.size()) {
+            if (std::abs(offset) > _set.size() || limit <= 0) {
                 return 0;
             }
 
@@ -2293,25 +2746,28 @@ public:
             if (offset < 0) {
                 abs_offset = _set.size() + offset;
             }
-
-            std::vector<uint64_t> values(_set.begin(), _set.end());
-            std::sort(values.begin(), values.end());
-
-            int64_t count = 0;
-            size_t index = 0;
-            for (auto v : values) {
-                if (index < abs_offset) {
-                    ++index;
-                    continue;
-                }
-                if (count == limit || index == values.size()) {
-                    break;
-                }
-                ++count;
-                ++index;
-                ret_bitmap->add(v);
+            if (abs_offset >= _set.size()) {
+                return 0;
             }
-            return count;
+
+            std::array<uint64_t, SET_TYPE_THRESHOLD> values {};
+            memcpy(values.data(), _set.data(), sizeof(uint64_t) * _set.size());
+
+            const auto start = static_cast<size_t>(abs_offset);
+            const auto end = std::min(_set.size(), start + static_cast<size_t>(limit));
+            if (end == start) {
+                return 0;
+            }
+
+            if (end < _set.size()) {
+                std::nth_element(values.begin(), values.begin() + end,
+                                 values.begin() + _set.size());
+            }
+            if (start > 0) {
+                std::nth_element(values.begin(), values.begin() + start, values.begin() + end);
+            }
+            ret_bitmap->add_many(values.data() + start, end - start);
+            return end - start;
         }
     }
 
@@ -2325,16 +2781,17 @@ public:
             break;
         }
         case BITMAP: {
-            for (auto it = _bitmap->begin(); it != _bitmap->end(); ++it) {
-                data.emplace_back(*it);
-            }
+            const auto old_size = data.size();
+            const auto cardinality = _bitmap->cardinality();
+            data.resize(old_size + cardinality);
+            _bitmap->toUint64Array(reinterpret_cast<uint64_t*>(data.data() + old_size));
             break;
         }
         case SET: {
-            std::vector<uint64_t> values(_set.begin(), _set.end());
-            std::sort(values.begin(), values.end());
-            for (auto v : values) {
-                data.emplace_back(v);
+            std::array<uint64_t, SET_TYPE_THRESHOLD> values {};
+            _set.copy_to_sorted(values.data());
+            for (size_t i = 0; i < _set.size(); ++i) {
+                data.emplace_back(values[i]);
             }
             break;
         }
@@ -2372,6 +2829,7 @@ private:
                 _sv = _bitmap->minimum();
             } else {
                 _type = SET;
+                _set.clear();
                 for (auto v : *_bitmap) {
                     _set.insert(v);
                 }
@@ -2426,14 +2884,12 @@ private:
         _is_shared = false;
     }
 
-    void _convert_to_bitmap_if_need() {
-        if (_type != SET || _set.size() <= SET_TYPE_THRESHOLD) {
-            return;
-        }
+    // Promote the current SET payload to roaring. Use this only when the caller has already
+    // decided SET is no longer the right representation, for example add() detects a new value
+    // cannot fit in the inline set, or an operation intentionally switches to roaring first.
+    void _convert_set_to_bitmap() {
         _prepare_bitmap_for_write();
-        for (auto v : _set) {
-            _bitmap->add(v);
-        }
+        _bitmap->addMany(_set.size(), _set.data());
         _type = BITMAP;
         _set.clear();
     }
@@ -2447,7 +2903,7 @@ private:
     uint64_t _sv = 0; // store the single value when _type == SINGLE
     // !FIXME: We should rethink the logic about _bitmap and _is_shared
     mutable std::shared_ptr<detail::Roaring64Map> _bitmap; // used when _type == BITMAP
-    SetContainer<uint64_t> _set;
+    BitmapSmallSet _set;
     BitmapDataType _type {EMPTY};
     // Indicate whether the state is shared among multi BitmapValue object
     mutable bool _is_shared = true;
@@ -2600,7 +3056,7 @@ public:
 private:
     const BitmapValue& _bitmap;
     detail::Roaring64MapSetBitForwardIterator* _iter = nullptr;
-    BitmapValue::SetContainer<uint64_t>::const_iterator _set_iter;
+    BitmapSmallSet::const_iterator _set_iter;
     uint64_t _sv = 0;
     bool _end = false;
 };

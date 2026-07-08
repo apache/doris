@@ -492,6 +492,76 @@ TEST(BitmapValueTest, operators) {
     config::enable_set_in_bitmap_value = false;
 }
 
+TEST(BitmapValueTest, bitmap_operator_cow_with_set_rhs) {
+    config::enable_set_in_bitmap_value = true;
+
+    std::vector<uint64_t> values(128);
+    std::iota(values.begin(), values.end(), 0);
+
+    BitmapValue bitmap;
+    bitmap.add_many(values.data(), values.size());
+
+    BitmapValue rhs_set({1, 2, 200});
+
+    BitmapValue copied = bitmap;
+    bitmap -= rhs_set;
+    EXPECT_FALSE(bitmap.contains(1));
+    EXPECT_FALSE(bitmap.contains(2));
+    EXPECT_TRUE(copied.contains(1));
+    EXPECT_TRUE(copied.contains(2));
+
+    bitmap = copied;
+    copied = bitmap;
+    bitmap |= rhs_set;
+    EXPECT_TRUE(copied.contains(1));
+    EXPECT_TRUE(copied.contains(2));
+    EXPECT_FALSE(copied.contains(200));
+
+    bitmap = copied;
+    copied = bitmap;
+    bitmap ^= BitmapValue(1);
+    EXPECT_FALSE(bitmap.contains(1));
+    EXPECT_TRUE(copied.contains(1));
+
+    config::enable_set_in_bitmap_value = false;
+}
+
+TEST(BitmapValueTest, bitmap_xor_single_and_set) {
+    config::enable_set_in_bitmap_value = true;
+
+    BitmapValue lhs_single(1);
+    lhs_single ^= BitmapValue(2);
+    EXPECT_STREQ("1,2", lhs_single.to_string().c_str());
+
+    lhs_single = BitmapValue(1);
+    lhs_single ^= BitmapValue({2, 3});
+    EXPECT_STREQ("1,2,3", lhs_single.to_string().c_str());
+
+    lhs_single = BitmapValue(1);
+    lhs_single ^= BitmapValue({1, 2});
+    EXPECT_STREQ("2", lhs_single.to_string().c_str());
+
+    config::enable_set_in_bitmap_value = false;
+}
+
+TEST(BitmapValueTest, bitmap_xor_set_bitmap_clear_stale_set) {
+    config::enable_set_in_bitmap_value = true;
+
+    BitmapValue lhs({1, 2});
+    std::vector<uint64_t> rhs_values(33);
+    std::iota(rhs_values.begin(), rhs_values.end(), 1);
+    BitmapValue rhs(rhs_values);
+
+    lhs ^= rhs;
+    for (uint64_t v = 3; v <= 32; ++v) {
+        lhs.remove(v);
+    }
+
+    EXPECT_STREQ("33", lhs.to_string().c_str());
+
+    config::enable_set_in_bitmap_value = false;
+}
+
 void check_bitmap_equal(const BitmapValue& left, const BitmapValue& right) {
     EXPECT_EQ(left.cardinality(), right.cardinality());
     EXPECT_EQ(left.minimum(), right.minimum());
@@ -718,6 +788,18 @@ TEST(BitmapValueTest, sub_range_limit) {
     EXPECT_EQ(ret, 10);
     ret = bitmap.offset_limit(100, 10, &out);
     EXPECT_EQ(ret, 10);
+    config::enable_set_in_bitmap_value = false;
+}
+
+TEST(BitmapValueTest, offset_limit_negative_cardinality_for_set) {
+    config::enable_set_in_bitmap_value = true;
+
+    BitmapValue bitmap({1, 2, 3});
+    BitmapValue out;
+    auto ret = bitmap.offset_limit(-3, 2, &out);
+    EXPECT_EQ(ret, 2);
+    EXPECT_STREQ("1,2", out.to_string().c_str());
+
     config::enable_set_in_bitmap_value = false;
 }
 
@@ -1291,6 +1373,94 @@ TEST(BitmapValueTest, bitmap_value_iterator_test) {
             EXPECT_TRUE(false);
         }
     }
+}
+
+TEST(BitmapValueTest, contains_all_ignore_internal_representation) {
+    bool old_enable_set = config::enable_set_in_bitmap_value;
+
+    config::enable_set_in_bitmap_value = false;
+    BitmapValue lhs_bitmap({1, 2, 3});
+    BitmapValue rhs_bitmap({1, 2});
+    EXPECT_EQ(BitmapValue::BITMAP, lhs_bitmap._type);
+    EXPECT_EQ(BitmapValue::BITMAP, rhs_bitmap._type);
+
+    config::enable_set_in_bitmap_value = true;
+    BitmapValue lhs_set({1, 2, 3});
+    BitmapValue rhs_set({1, 2});
+    EXPECT_EQ(BitmapValue::SET, lhs_set._type);
+    EXPECT_EQ(BitmapValue::SET, rhs_set._type);
+
+    EXPECT_TRUE(lhs_set.contains_all(rhs_bitmap));
+    EXPECT_TRUE(lhs_bitmap.contains_all(rhs_set));
+    EXPECT_TRUE(lhs_bitmap.contains_all(rhs_bitmap));
+    EXPECT_FALSE(rhs_set.contains_all(lhs_bitmap));
+
+    BitmapValue empty_set_rhs({1, 3});
+    empty_set_rhs &= BitmapValue({2, 4});
+    EXPECT_EQ(0, empty_set_rhs.cardinality());
+    EXPECT_TRUE(lhs_set.contains_all(empty_set_rhs));
+    EXPECT_TRUE(BitmapValue().contains_all(empty_set_rhs));
+
+    config::enable_set_in_bitmap_value = old_enable_set;
+}
+
+TEST(BitmapValueTest, deserialize_set_duplicate_values) {
+    bool old_enable_set = config::enable_set_in_bitmap_value;
+    config::enable_set_in_bitmap_value = true;
+
+    {
+        char data[] = {static_cast<char>(BitmapTypeCode::SET),
+                       2,
+                       7,
+                       0,
+                       0,
+                       0,
+                       0,
+                       0,
+                       0,
+                       0,
+                       7,
+                       0,
+                       0,
+                       0,
+                       0,
+                       0,
+                       0,
+                       0};
+        BitmapValue bitmap;
+        EXPECT_THROW(bitmap.deserialize(data), Exception);
+    }
+
+    {
+        char data[] = {static_cast<char>(BitmapTypeCode::SET_V2),
+                       2,
+                       0,
+                       0,
+                       0,
+                       7,
+                       0,
+                       0,
+                       0,
+                       0,
+                       0,
+                       0,
+                       0,
+                       7,
+                       0,
+                       0,
+                       0,
+                       0,
+                       0,
+                       0,
+                       0};
+        BitmapValue bitmap;
+        EXPECT_TRUE(bitmap.deserialize(data));
+        EXPECT_EQ(BitmapValue::SET, bitmap._type);
+        EXPECT_EQ(1, bitmap.cardinality());
+        EXPECT_TRUE(bitmap.contains(7));
+    }
+
+    config::enable_set_in_bitmap_value = old_enable_set;
 }
 
 TEST(BitmapValueTest, invalid_data) {
