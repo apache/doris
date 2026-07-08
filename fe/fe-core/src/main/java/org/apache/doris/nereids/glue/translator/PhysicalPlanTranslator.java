@@ -649,13 +649,16 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     "Connector '" + catalog.getName() + "' (type: " + catalog.getType()
                             + ") does not support row-level DML operations");
         }
-        ConnectorWritePlanProvider writePlanProvider = connector.getWritePlanProvider();
+        // Resolve the table handle BEFORE selecting the write provider so the provider is chosen per-table (a
+        // heterogeneous gateway routes iceberg-on-HMS to its sibling by the handle type); byte-identical for
+        // every single-format connector (getWritePlanProvider(handle) defaults to the connector-level provider).
         ConnectorTableHandle providerTableHandle = metadata.getTableHandle(connSession,
                 targetTable.getRemoteDbName(), targetTable.getRemoteName())
                 .orElseThrow(() -> new AnalysisException(
                         "Table not found: " + targetTable.getRemoteDbName()
                                 + "." + targetTable.getRemoteName()
                                 + " in catalog " + catalog.getName()));
+        ConnectorWritePlanProvider writePlanProvider = connector.getWritePlanProvider(providerTableHandle);
         providerTableHandle = PluginDrivenScanNode.applyMvccSnapshotPin(
                 metadata, connSession, providerTableHandle, MvccUtil.getSnapshotFromContext(targetTable));
 
@@ -697,13 +700,16 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     "Connector '" + catalog.getName() + "' (type: " + catalog.getType()
                             + ") does not support INSERT operations");
         }
-        ConnectorWritePlanProvider writePlanProvider = connector.getWritePlanProvider();
+        // Resolve the table handle BEFORE selecting the write provider so the provider is chosen per-table (a
+        // heterogeneous gateway routes iceberg-on-HMS to its sibling by the handle type); byte-identical for
+        // every single-format connector (getWritePlanProvider(handle) defaults to the connector-level provider).
         ConnectorTableHandle providerTableHandle = metadata.getTableHandle(connSession,
                 targetTable.getRemoteDbName(), targetTable.getRemoteName())
                 .orElseThrow(() -> new AnalysisException(
                         "Table not found: " + targetTable.getRemoteDbName()
                                 + "." + targetTable.getRemoteName()
                                 + " in catalog " + catalog.getName()));
+        ConnectorWritePlanProvider writePlanProvider = connector.getWritePlanProvider(providerTableHandle);
 
         // Thread the statement's MVCC snapshot pin onto the WRITE handle, reusing the exact scan-side pin
         // logic so a DML's write anchors at the SAME snapshot its scan read (the pin is keyed by

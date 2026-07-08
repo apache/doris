@@ -90,6 +90,10 @@ public class PluginDrivenExternalTableTest {
         ConnectorSession session = Mockito.mock(ConnectorSession.class);
         Connector connector = Mockito.mock(Connector.class);
         Mockito.when(connector.getWritePlanProvider()).thenReturn(writeProviderPresent ? provider : null);
+        // Production now selects the write provider per-handle; a plain Mockito mock does not run the interface
+        // default, so stub the per-handle overload to the same provider (mirrors the scan seam).
+        Mockito.when(connector.getWritePlanProvider(Mockito.any()))
+                .thenReturn(writeProviderPresent ? provider : null);
         Mockito.when(connector.getMetadata(Mockito.any())).thenReturn(metadata);
         PluginDrivenExternalCatalog catalog = Mockito.mock(PluginDrivenExternalCatalog.class);
         Mockito.when(catalog.getConnector()).thenReturn(connector);

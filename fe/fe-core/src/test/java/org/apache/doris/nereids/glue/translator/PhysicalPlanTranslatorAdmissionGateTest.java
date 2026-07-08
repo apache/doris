@@ -144,6 +144,8 @@ public class PhysicalPlanTranslatorAdmissionGateTest {
         ConnectorWritePlanProvider provider = Mockito.mock(ConnectorWritePlanProvider.class);
         Connector connector = Mockito.mock(Connector.class);
         Mockito.when(connector.getWritePlanProvider()).thenReturn(provider);
+        // Production selects the write provider per-handle; a plain mock does not run the interface default.
+        Mockito.when(connector.getWritePlanProvider(Mockito.any())).thenReturn(provider);
         Mockito.when(connector.supportedWriteOperations()).thenReturn(ops);
         Mockito.when(connector.getMetadata(Mockito.any())).thenReturn(metadata);
         Mockito.when(metadata.getTableHandle(Mockito.any(), Mockito.any(), Mockito.any()))

@@ -128,6 +128,23 @@ public class HiveConnector implements Connector {
         return new HiveWritePlanProvider(getOrCreateClient(), properties, context);
     }
 
+    /**
+     * Per-table write provider: a hive handle uses the hive write provider; a foreign (iceberg-on-HMS) handle is
+     * delegated to the sibling's per-handle write provider (built in the iceberg plugin's classloader). The
+     * foreign handle is passed through UNMODIFIED and NEVER cast (its concrete iceberg type is invisible across
+     * the loader split — a cast would CCE). A HUDI table keeps a HiveTableHandle, so it stays on the hive write
+     * path (its delegation is a later substep). Mirrors {@link #getScanPlanProvider(ConnectorTableHandle)};
+     * dormant until hms enters SPI_READY_TYPES. The returned sibling provider runs its planWrite on fe-core
+     * threads — the write-path TCCL pin is a separate flip-time concern (write-delegation W6).
+     */
+    @Override
+    public ConnectorWritePlanProvider getWritePlanProvider(ConnectorTableHandle handle) {
+        if (handle instanceof HiveTableHandle) {
+            return getWritePlanProvider();
+        }
+        return getOrCreateIcebergSibling().getWritePlanProvider(handle);
+    }
+
     @Override
     public Set<ConnectorCapability> getCapabilities() {
         // Connector-wide capabilities for the flipped hms catalog, each a faithful port of a legacy

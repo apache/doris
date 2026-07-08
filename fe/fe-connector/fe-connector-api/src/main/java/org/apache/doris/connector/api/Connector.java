@@ -76,6 +76,19 @@ public interface Connector extends Closeable {
     }
 
     /**
+     * Returns the write plan provider for the given table, allowing one connector to select a different
+     * provider <b>per table</b> — the write-side analogue of {@link #getScanPlanProvider(ConnectorTableHandle)}.
+     *
+     * <p>The default ignores {@code handle} and returns the connector-level {@link #getWritePlanProvider()}, so
+     * every single-format connector is unaffected. A heterogeneous gateway connector (one catalog serving
+     * multiple table formats) overrides this to delegate to a per-format sub-provider by the concrete
+     * (connector-defined) handle type; the engine never inspects the format.</p>
+     */
+    default ConnectorWritePlanProvider getWritePlanProvider(ConnectorTableHandle handle) {
+        return getWritePlanProvider();
+    }
+
+    /**
      * The write operations the engine may perform on this connector — the single admission source. Reads the
      * write provider's {@link ConnectorWritePlanProvider#supportedOperations()}; no provider ⇒ empty set ⇒ all
      * writes rejected. The engine consults this instead of {@code getWritePlanProvider() != null}.

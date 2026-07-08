@@ -522,14 +522,20 @@ public class PluginDrivenExternalTable extends ExternalTable {
         if (connector == null) {
             return Collections.emptyList();
         }
-        ConnectorWritePlanProvider writePlanProvider = connector.getWritePlanProvider();
-        if (writePlanProvider == null) {
-            return Collections.emptyList();
-        }
+        // Resolve the handle first so the write provider is selected per-table (a heterogeneous gateway routes
+        // iceberg-on-HMS to its sibling by the handle type); both null-degrade checks keep the empty fallback.
+        // Equivalent result for single-format connectors (getWritePlanProvider(handle) defaults to the no-arg
+        // one); this gated (show-hidden / row-level-DML) path resolves the handle before the provider-null check,
+        // so a read-only connector now resolves the handle here — a no-op for a write-capable connector, which
+        // resolved it regardless.
         ConnectorSession session = pluginCatalog.buildConnectorSession();
         ConnectorMetadata metadata = connector.getMetadata(session);
         Optional<ConnectorTableHandle> handleOpt = resolveConnectorTableHandle(session, metadata);
         if (!handleOpt.isPresent()) {
+            return Collections.emptyList();
+        }
+        ConnectorWritePlanProvider writePlanProvider = connector.getWritePlanProvider(handleOpt.get());
+        if (writePlanProvider == null) {
             return Collections.emptyList();
         }
         return writePlanProvider.getSyntheticWriteColumns(session, handleOpt.get());
