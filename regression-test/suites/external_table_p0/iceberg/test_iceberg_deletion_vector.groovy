@@ -531,7 +531,7 @@ s3.path-style-access=true
         run {
             sql """
                 /* ${splitCacheProfileTag} */
-                SELECT count(*), sum(id)
+                SELECT /*+ SET_VAR(parallel_pipeline_task_num=1) */ count(*), sum(id)
                   FROM dv_split_cache_single_file;
             """
             // The detailed scanner counters are populated asynchronously after the query returns.
