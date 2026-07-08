@@ -160,12 +160,11 @@ public class AuditEvent {
     public String workloadGroup = "";
     @AuditField(value = "ComputeGroupName", colName = "compute_group")
     public String cloudClusterName = "";
-    // resource group affinity decision of this statement; preferred group is empty when no
-    // effective group was resolved (affinity inactive)
-    @AuditField(value = "EffectivePreferredResourceGroup", colName = "effective_preferred_resource_group")
-    public String effectivePreferredResourceGroup = "";
-    @AuditField(value = "ResourceGroupSelectPolicy", colName = "resource_group_select_policy")
-    public String resourceGroupSelectPolicy = "";
+    // Backend selection hint of this statement; preferred key is empty when no selection preference is active.
+    @AuditField(value = "BackendSelectionPreferredKey", colName = "backend_selection_preferred_key")
+    public String backendSelectionPreferredKey = "";
+    @AuditField(value = "BackendSelectionMode", colName = "backend_selection_mode")
+    public String backendSelectionMode = "";
 
     // stmt should be last one
     @AuditField(value = "Stmt", colName = "stmt")
@@ -329,13 +328,13 @@ public class AuditEvent {
             return this;
         }
 
-        public AuditEventBuilder setEffectivePreferredResourceGroup(String effectivePreferredResourceGroup) {
-            auditEvent.effectivePreferredResourceGroup = effectivePreferredResourceGroup;
+        public AuditEventBuilder setBackendSelectionPreferredKey(String backendSelectionPreferredKey) {
+            auditEvent.backendSelectionPreferredKey = backendSelectionPreferredKey;
             return this;
         }
 
-        public AuditEventBuilder setResourceGroupSelectPolicy(String resourceGroupSelectPolicy) {
-            auditEvent.resourceGroupSelectPolicy = resourceGroupSelectPolicy;
+        public AuditEventBuilder setBackendSelectionMode(String backendSelectionMode) {
+            auditEvent.backendSelectionMode = backendSelectionMode;
             return this;
         }
 

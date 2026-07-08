@@ -25,13 +25,13 @@ import org.mockito.Mockito;
 
 public class PointQueryExecutorTest {
     @Test
-    public void testCandidateBackendsShuffleDependsOnQueryAffinityOrder() {
+    public void testCandidateBackendsShuffleDependsOnQuerySelectionOrder() {
         OlapScanNode scanNode = Mockito.mock(OlapScanNode.class);
 
-        Mockito.when(scanNode.isScanBackendOrderByQueryAffinity()).thenReturn(false);
+        Mockito.when(scanNode.isScanBackendOrderBySelection()).thenReturn(false);
         Assert.assertTrue(PointQueryExecutor.shouldShuffleCandidateBackends(scanNode));
 
-        Mockito.when(scanNode.isScanBackendOrderByQueryAffinity()).thenReturn(true);
+        Mockito.when(scanNode.isScanBackendOrderBySelection()).thenReturn(true);
         Assert.assertFalse(PointQueryExecutor.shouldShuffleCandidateBackends(scanNode));
     }
 }

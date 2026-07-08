@@ -83,8 +83,8 @@ import org.apache.doris.proto.Types;
 import org.apache.doris.proto.Types.PUniqueId;
 import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.qe.QueryStatisticsItem.FragmentInstanceInfo;
-import org.apache.doris.resource.ResourceGroupAffinity;
-import org.apache.doris.resource.ResourceGroupAffinityPolicyFactory;
+import org.apache.doris.resource.BackendSelection;
+import org.apache.doris.resource.BackendSelectionPolicyFactory;
 import org.apache.doris.resource.workloadgroup.QueryQueue;
 import org.apache.doris.resource.workloadgroup.QueueToken;
 import org.apache.doris.resource.workloadgroup.WorkloadGroup;
@@ -1939,9 +1939,9 @@ public class Coordinator implements CoordInterface {
                     // can be executed on any BE. addressToBackendID can be empty when this is a constant
                     // select stmt like:
                     //      SELECT  @@session.auto_increment_increment AS auto_increment_increment;
-                    execHostport = chooseHostByCurrentBackendWithAffinity(addressToBackendID);
+                    execHostport = chooseHostByCurrentBackendSelection(addressToBackendID);
                 } else {
-                    execHostport = chooseHostWithAffinity(this.idToBackend, backendIdRef);
+                    execHostport = chooseHostWithSelection(this.idToBackend, backendIdRef);
                 }
                 if (execHostport == null) {
                     LOG.warn("DataPartition UNPARTITIONED, no scanNode Backend available");
@@ -2125,9 +2125,9 @@ public class Coordinator implements CoordInterface {
                     // of the query can be executed on any BE. addressToBackendID can be empty when this is a constant
                     // select stmt like:
                     //      SELECT  @@session.auto_increment_increment AS auto_increment_increment;
-                    execHostport = chooseHostByCurrentBackendWithAffinity(addressToBackendID);
+                    execHostport = chooseHostByCurrentBackendSelection(addressToBackendID);
                 } else {
-                    execHostport = chooseHostWithAffinity(this.idToBackend, backendIdRef);
+                    execHostport = chooseHostWithSelection(this.idToBackend, backendIdRef);
                 }
                 if (execHostport == null) {
                     throw new UserException(SystemInfoService.NO_SCAN_NODE_BACKEND_AVAILABLE_MSG);
@@ -2173,23 +2173,23 @@ public class Coordinator implements CoordInterface {
         return execHostport;
     }
 
-    private boolean isLoadAffinityCoordinator() {
+    private boolean isLoadSelectionCoordinator() {
         return queryOptions != null && queryOptions.getQueryType() == TQueryType.LOAD
-                && ResourceGroupAffinityPolicyFactory.get().isLoadAffinityEnabled(context);
+                && BackendSelectionPolicyFactory.get().isLoadSelectionEnabled(context);
     }
 
-    private TNetworkAddress chooseHostWithAffinity(ImmutableMap<Long, Backend> backends, Reference<Long> backendIdRef)
+    private TNetworkAddress chooseHostWithSelection(ImmutableMap<Long, Backend> backends, Reference<Long> backendIdRef)
             throws UserException {
-        if (!isLoadAffinityCoordinator()) {
+        if (!isLoadSelectionCoordinator()) {
             return SimpleScheduler.getHost(backends, backendIdRef);
         }
-        ResourceGroupAffinity.AffinityDecision decision =
-                ResourceGroupAffinityPolicyFactory.get().decideForLoad(context);
-        if (!ResourceGroupAffinityPolicyFactory.get().hasEffectiveLoadAffinity(decision)) {
+        BackendSelection.SelectionHint decision =
+                BackendSelectionPolicyFactory.get().getLoadSelectionHint(context);
+        if (!BackendSelectionPolicyFactory.get().hasLoadSelectionPreference(decision)) {
             return SimpleScheduler.getHost(backends, backendIdRef);
         }
-        List<Backend> orderedBackends = ResourceGroupAffinityPolicyFactory.get()
-                .orderLoadBackends(decision, ImmutableList.copyOf(backends.values()));
+        List<Backend> orderedBackends = BackendSelectionPolicyFactory.get()
+                .orderLoadCandidates(decision, ImmutableList.copyOf(backends.values()));
         TNetworkAddress address = firstAvailableLoadBackend(orderedBackends, backendIdRef);
         if (address == null) {
             return SimpleScheduler.getHost(backends, backendIdRef);
@@ -2197,9 +2197,9 @@ public class Coordinator implements CoordInterface {
         return address;
     }
 
-    private TNetworkAddress chooseHostByCurrentBackendWithAffinity(Map<TNetworkAddress, Long> addressToBackendID)
+    private TNetworkAddress chooseHostByCurrentBackendSelection(Map<TNetworkAddress, Long> addressToBackendID)
             throws UserException {
-        if (!isLoadAffinityCoordinator()) {
+        if (!isLoadSelectionCoordinator()) {
             return SimpleScheduler.getHostByCurrentBackend(addressToBackendID);
         }
         ImmutableList.Builder<Backend> candidateBuilder = ImmutableList.builder();
@@ -2209,14 +2209,14 @@ public class Coordinator implements CoordInterface {
                 candidateBuilder.add(backend);
             }
         }
-        ResourceGroupAffinity.AffinityDecision decision =
-                ResourceGroupAffinityPolicyFactory.get().decideForLoad(context);
-        if (!ResourceGroupAffinityPolicyFactory.get().hasEffectiveLoadAffinity(decision)) {
+        BackendSelection.SelectionHint decision =
+                BackendSelectionPolicyFactory.get().getLoadSelectionHint(context);
+        if (!BackendSelectionPolicyFactory.get().hasLoadSelectionPreference(decision)) {
             return SimpleScheduler.getHostByCurrentBackend(addressToBackendID);
         }
         Reference<Long> backendIdRef = new Reference<>();
-        List<Backend> orderedBackends = ResourceGroupAffinityPolicyFactory.get()
-                .orderLoadBackends(decision, candidateBuilder.build());
+        List<Backend> orderedBackends = BackendSelectionPolicyFactory.get()
+                .orderLoadCandidates(decision, candidateBuilder.build());
         TNetworkAddress address = firstAvailableLoadBackend(orderedBackends, backendIdRef);
         if (address == null) {
             return SimpleScheduler.getHostByCurrentBackend(addressToBackendID);
@@ -2510,12 +2510,12 @@ public class Coordinator implements CoordInterface {
                                                          Map<TNetworkAddress, Long> replicaNumPerHost,
                                                          Reference<Long> backendIdRef,
                                                          boolean isEnableOrderedLocations,
-                                                         boolean enableResourceGroupAffinity) throws UserException {
+                                                         boolean enableBackendSelection) throws UserException {
         List<TScanRangeLocation> locations = seqLocation.getLocations();
         if (isEnableOrderedLocations) {
             Collections.sort(locations);
         }
-        locations = applyResourceGroupAffinity(locations, enableResourceGroupAffinity);
+        locations = applyBackendSelection(locations, enableBackendSelection);
         if (!Config.enable_local_replica_selection) {
             return selectBackendsByRoundRobin(locations, assignedBytesPerHost, replicaNumPerHost,
                     backendIdRef);
@@ -2542,24 +2542,24 @@ public class Coordinator implements CoordInterface {
         }
     }
 
-    private List<TScanRangeLocation> applyResourceGroupAffinity(List<TScanRangeLocation> locations,
-            boolean enableResourceGroupAffinity) throws UserException {
-        if (!enableResourceGroupAffinity) {
+    private List<TScanRangeLocation> applyBackendSelection(List<TScanRangeLocation> locations,
+            boolean enableBackendSelection) throws UserException {
+        if (!enableBackendSelection) {
             return locations;
         }
-        ResourceGroupAffinity.AffinityDecision decision = getQueryResourceGroupAffinityDecision();
-        return ResourceGroupAffinityPolicyFactory.get().applyQueryAffinity(decision, locations,
+        BackendSelection.SelectionHint decision = getQueryBackendSelectionDecision();
+        return BackendSelectionPolicyFactory.get().orderQueryCandidates(decision, locations,
                 location -> {
                     Backend backend = idToBackend.get(location.backend_id);
                     return backend == null ? null : backend.getLocationTag();
                 });
     }
 
-    private ResourceGroupAffinity.AffinityDecision getQueryResourceGroupAffinityDecision() {
+    private BackendSelection.SelectionHint getQueryBackendSelectionDecision() {
         if (context != null) {
-            return context.getQueryResourceGroupAffinityDecision();
+            return context.getQueryBackendSelectionDecision();
         }
-        return ResourceGroupAffinity.AffinityDecision.noAffinity();
+        return BackendSelection.SelectionHint.noSelection();
     }
 
     public TScanRangeLocation selectBackendsByRoundRobin(List<TScanRangeLocation> sortedLocations,

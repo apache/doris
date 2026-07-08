@@ -23,7 +23,7 @@ import org.apache.doris.resource.computegroup.ComputeGroup;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-class OlapScanNodeAffinityConfigTest {
+class OlapScanNodeBackendSelectionConfigTest {
     @Test
     void testResourceTagLocationCheckConfigGate() {
         boolean oldConfig = Config.resource_tag_location_check;
@@ -66,19 +66,19 @@ class OlapScanNodeAffinityConfigTest {
     }
 
     @Test
-    void testQueryAffinityDisabledInCloudMode() {
+    void testQuerySelectionDisabledInCloudMode() {
         String oldCloudUniqueId = Config.cloud_unique_id;
         String oldDeployMode = Config.deploy_mode;
         try {
             Config.cloud_unique_id = "cloud_id";
             Config.deploy_mode = "cloud";
-            Assertions.assertFalse(OlapScanNode.shouldApplyQueryAffinity(false));
-            Assertions.assertFalse(OlapScanNode.shouldApplyQueryAffinity(true));
+            Assertions.assertFalse(OlapScanNode.shouldApplyQuerySelection(false));
+            Assertions.assertFalse(OlapScanNode.shouldApplyQuerySelection(true));
 
             Config.cloud_unique_id = "";
             Config.deploy_mode = "";
-            Assertions.assertTrue(OlapScanNode.shouldApplyQueryAffinity(false));
-            Assertions.assertFalse(OlapScanNode.shouldApplyQueryAffinity(true));
+            Assertions.assertTrue(OlapScanNode.shouldApplyQuerySelection(false));
+            Assertions.assertFalse(OlapScanNode.shouldApplyQuerySelection(true));
         } finally {
             Config.cloud_unique_id = oldCloudUniqueId;
             Config.deploy_mode = oldDeployMode;

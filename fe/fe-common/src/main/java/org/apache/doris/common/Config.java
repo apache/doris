@@ -1015,12 +1015,12 @@ public class Config extends ConfigBase {
     public static long tablet_schedule_high_priority_second = 30 * 60;
 
     @ConfField(mutable = true, masterOnly = true,
-            description = {"是否允许 Resource Group affinity 扩展实现参与副本修复 clone 选源。"
+            description = {"是否允许可选 Backend 选择扩展实现参与副本修复 clone 选源。"
                     + "默认公共实现为 no-op，不改变修复行为。",
-                    "Whether Resource Group affinity extension implementations may participate in repair clone "
+                    "Whether optional backend selection extension implementations may participate in repair clone "
                     + "source selection. The default public implementation is a no-op and does not change repair "
                     + "behavior."})
-    public static boolean enable_repair_src_replica_local_affinity = true;
+    public static boolean enable_repair_source_backend_selection = true;
 
     /**
      * publish version queue's size in be, report it to fe,

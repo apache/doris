@@ -76,9 +76,9 @@ import org.apache.doris.planner.LocalExchangeNode.LocalExchangeTypeRequire;
 import org.apache.doris.planner.normalize.Normalizer;
 import org.apache.doris.planner.normalize.PartitionRangePredicateNormalizer;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.resource.ResourceGroupAffinity;
-import org.apache.doris.resource.ResourceGroupAffinityPolicy;
-import org.apache.doris.resource.ResourceGroupAffinityPolicyFactory;
+import org.apache.doris.resource.BackendSelection;
+import org.apache.doris.resource.BackendSelectionPolicy;
+import org.apache.doris.resource.BackendSelectionPolicyFactory;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.resource.computegroup.ComputeGroup;
 import org.apache.doris.system.Backend;
@@ -231,8 +231,8 @@ public class OlapScanNode extends ScanNode {
     private final PartitionPruneV2ForShortCircuitPlan cachedPartitionPruner =
                         new PartitionPruneV2ForShortCircuitPlan();
 
-    private ResourceGroupAffinity.AffinityDecision affinityDecision;
-    private boolean scanBackendOrderByQueryAffinity = false;
+    private BackendSelection.SelectionHint selectionHint;
+    private boolean scanBackendOrderBySelection = false;
 
     private boolean isTopnLazyMaterialize = false;
     private List<Column> topnLazyMaterializeOutputColumns = new ArrayList<>();
@@ -272,8 +272,8 @@ public class OlapScanNode extends ScanNode {
         return scanBackendIds;
     }
 
-    public boolean isScanBackendOrderByQueryAffinity() {
-        return scanBackendOrderByQueryAffinity;
+    public boolean isScanBackendOrderBySelection() {
+        return scanBackendOrderBySelection;
     }
 
     public void setTableSample(TableSample tSample) {
@@ -606,15 +606,15 @@ public class OlapScanNode extends ScanNode {
                 } else if (replicas.size() > 1) {
                     Collections.shuffle(replicas);
                 }
-                if (shouldApplyQueryAffinity(skipMissingVersion)) {
-                    if (affinityDecision == null) {
-                        affinityDecision = context.getQueryResourceGroupAffinityDecision();
+                if (shouldApplyQuerySelection(skipMissingVersion)) {
+                    if (selectionHint == null) {
+                        selectionHint = context.getQueryBackendSelectionDecision();
                     }
-                    ResourceGroupAffinityPolicy affinityPolicy = ResourceGroupAffinityPolicyFactory.get();
-                    if (affinityPolicy.hasEffectiveQueryAffinity(affinityDecision)) {
-                        replicas = new ArrayList<>(affinityPolicy.applyQueryAffinity(affinityDecision, replicas,
+                    BackendSelectionPolicy selectionPolicy = BackendSelectionPolicyFactory.get();
+                    if (selectionPolicy.hasQuerySelectionPreference(selectionHint)) {
+                        replicas = new ArrayList<>(selectionPolicy.orderQueryCandidates(selectionHint, replicas,
                                 replica -> getReplicaLocationTag(replica, allBackends)));
-                        scanBackendOrderByQueryAffinity = true;
+                        scanBackendOrderBySelection = true;
                     }
                 }
             } else {
@@ -1066,8 +1066,8 @@ public class OlapScanNode extends ScanNode {
         computeColumnsFilter(olapTable.getBaseSchemaKeyColumns(), olapTable.getPartitionInfo());
         computePartitionInfo();
         scanBackendIds.clear();
-        affinityDecision = null;
-        scanBackendOrderByQueryAffinity = false;
+        selectionHint = null;
+        scanBackendOrderBySelection = false;
         scanTabletIds.clear();
         tabletId2BucketSeq.clear();
         bucketSeq2locations.clear();
@@ -1090,7 +1090,7 @@ public class OlapScanNode extends ScanNode {
     }
 
     @VisibleForTesting
-    static boolean shouldApplyQueryAffinity(boolean skipMissingVersion) {
+    static boolean shouldApplyQuerySelection(boolean skipMissingVersion) {
         return !Config.isCloudMode() && !skipMissingVersion;
     }
 

@@ -24,9 +24,9 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.resource.ResourceGroupAffinity;
-import org.apache.doris.resource.ResourceGroupAffinityPolicy;
-import org.apache.doris.resource.ResourceGroupAffinityPolicyFactory;
+import org.apache.doris.resource.BackendSelection;
+import org.apache.doris.resource.BackendSelectionPolicy;
+import org.apache.doris.resource.BackendSelectionPolicyFactory;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 
@@ -39,7 +39,7 @@ import org.mockito.Mockito;
 
 import java.util.List;
 
-public class GroupCommitManagerAffinityTest {
+public class GroupCommitManagerBackendSelectionTest {
     private final String originalCloudUniqueId = Config.cloud_unique_id;
     private final String originalDeployMode = Config.deploy_mode;
 
@@ -50,93 +50,93 @@ public class GroupCommitManagerAffinityTest {
     }
 
     @Test
-    public void testDisabledLoadAffinityDoesNotResolveDecision() {
+    public void testDisabledLoadSelectionDoesNotResolveDecision() {
         ConnectContext context = new ConnectContext();
-        DisabledLoadAffinityPolicy policy = new DisabledLoadAffinityPolicy();
+        DisabledLoadSelectionPolicy policy = new DisabledLoadSelectionPolicy();
 
-        try (MockedStatic<ResourceGroupAffinityPolicyFactory> mockedFactory =
-                Mockito.mockStatic(ResourceGroupAffinityPolicyFactory.class)) {
-            mockedFactory.when(ResourceGroupAffinityPolicyFactory::get).thenReturn(policy);
+        try (MockedStatic<BackendSelectionPolicyFactory> mockedFactory =
+                Mockito.mockStatic(BackendSelectionPolicyFactory.class)) {
+            mockedFactory.when(BackendSelectionPolicyFactory::get).thenReturn(policy);
 
-            Assert.assertNull(GroupCommitManager.decideGroupCommitLoadAffinity(context));
-            Assert.assertEquals(0, policy.decideForLoadCalls);
+            Assert.assertNull(GroupCommitManager.getGroupCommitLoadSelectionHint(context));
+            Assert.assertEquals(0, policy.getLoadSelectionHintCalls);
         }
     }
 
     @Test
-    public void testEnabledLoadAffinityReturnsDecision() {
+    public void testEnabledLoadSelectionReturnsDecision() {
         ConnectContext context = new ConnectContext();
-        EnabledLoadAffinityPolicy policy = new EnabledLoadAffinityPolicy();
+        EnabledLoadSelectionPolicy policy = new EnabledLoadSelectionPolicy();
 
-        try (MockedStatic<ResourceGroupAffinityPolicyFactory> mockedFactory =
-                Mockito.mockStatic(ResourceGroupAffinityPolicyFactory.class)) {
-            mockedFactory.when(ResourceGroupAffinityPolicyFactory::get).thenReturn(policy);
+        try (MockedStatic<BackendSelectionPolicyFactory> mockedFactory =
+                Mockito.mockStatic(BackendSelectionPolicyFactory.class)) {
+            mockedFactory.when(BackendSelectionPolicyFactory::get).thenReturn(policy);
 
-            Assert.assertSame(policy.decision, GroupCommitManager.decideGroupCommitLoadAffinity(context));
-            Assert.assertEquals(1, policy.decideForLoadCalls);
+            Assert.assertSame(policy.decision, GroupCommitManager.getGroupCommitLoadSelectionHint(context));
+            Assert.assertEquals(1, policy.getLoadSelectionHintCalls);
         }
     }
 
     @Test
-    public void testEffectiveLoadAffinityReusesCachedBackend() throws Exception {
+    public void testEffectiveLoadSelectionReusesCachedBackend() throws Exception {
         Config.cloud_unique_id = "";
         Config.deploy_mode = "";
         long tableId = 10001L;
         GroupCommitManager manager = new GroupCommitManager();
-        CountingLoadAffinityPolicy policy = new CountingLoadAffinityPolicy();
+        CountingLoadSelectionPolicy policy = new CountingLoadSelectionPolicy();
         Env env = mockEnv(tableId);
         SystemInfoService systemInfoService = mockSystemInfoService();
 
         try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class);
-                MockedStatic<ResourceGroupAffinityPolicyFactory> mockedFactory =
-                        Mockito.mockStatic(ResourceGroupAffinityPolicyFactory.class)) {
+                MockedStatic<BackendSelectionPolicyFactory> mockedFactory =
+                        Mockito.mockStatic(BackendSelectionPolicyFactory.class)) {
             mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
             mockedEnv.when(Env::getCurrentSystemInfo).thenReturn(systemInfoService);
-            mockedFactory.when(ResourceGroupAffinityPolicyFactory::get).thenReturn(policy);
+            mockedFactory.when(BackendSelectionPolicyFactory::get).thenReturn(policy);
 
             long firstBackendId = manager.selectBackendForGroupCommitInternal(tableId, "", policy.decision);
             long secondBackendId = manager.selectBackendForGroupCommitInternal(tableId, "", policy.decision);
 
             Assert.assertEquals(1L, firstBackendId);
             Assert.assertEquals(1L, secondBackendId);
-            Assert.assertEquals(1, policy.orderLoadBackendsCalls);
+            Assert.assertEquals(1, policy.orderLoadCandidatesCalls);
         }
     }
 
     @Test
-    public void testDifferentEffectiveLoadAffinityUsesSeparateCache() throws Exception {
+    public void testDifferentEffectiveLoadSelectionUsesSeparateCache() throws Exception {
         Config.cloud_unique_id = "";
         Config.deploy_mode = "";
         long tableId = 10002L;
         GroupCommitManager manager = new GroupCommitManager();
-        CountingLoadAffinityPolicy policy = new CountingLoadAffinityPolicy();
+        CountingLoadSelectionPolicy policy = new CountingLoadSelectionPolicy();
         Env env = mockEnv(tableId);
         SystemInfoService systemInfoService = mockSystemInfoService();
 
         try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class);
-                MockedStatic<ResourceGroupAffinityPolicyFactory> mockedFactory =
-                        Mockito.mockStatic(ResourceGroupAffinityPolicyFactory.class)) {
+                MockedStatic<BackendSelectionPolicyFactory> mockedFactory =
+                        Mockito.mockStatic(BackendSelectionPolicyFactory.class)) {
             mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
             mockedEnv.when(Env::getCurrentSystemInfo).thenReturn(systemInfoService);
-            mockedFactory.when(ResourceGroupAffinityPolicyFactory::get).thenReturn(policy);
+            mockedFactory.when(BackendSelectionPolicyFactory::get).thenReturn(policy);
 
             long firstBackendId = manager.selectBackendForGroupCommitInternal(tableId, "", policy.decision);
             long secondBackendId = manager.selectBackendForGroupCommitInternal(tableId, "", policy.otherDecision);
 
             Assert.assertEquals(1L, firstBackendId);
             Assert.assertEquals(1L, secondBackendId);
-            Assert.assertEquals(2, policy.orderLoadBackendsCalls);
+            Assert.assertEquals(2, policy.orderLoadCandidatesCalls);
         }
     }
 
     @Test
-    public void testCloudGroupCommitIgnoresLoadAffinityDecision() throws Exception {
+    public void testCloudGroupCommitIgnoresLoadSelectionDecision() throws Exception {
         Config.cloud_unique_id = "cloud_id";
         Config.deploy_mode = "cloud";
         long tableId = 10003L;
         String cluster = "cluster_a";
         GroupCommitManager manager = new GroupCommitManager();
-        CountingLoadAffinityPolicy policy = new CountingLoadAffinityPolicy();
+        CountingLoadSelectionPolicy policy = new CountingLoadSelectionPolicy();
         Env env = mockEnv(tableId);
         CloudSystemInfoService cloudSystemInfoService = Mockito.mock(CloudSystemInfoService.class);
         Backend backend = newBackend(1L);
@@ -146,69 +146,69 @@ public class GroupCommitManagerAffinityTest {
         Mockito.when(cloudSystemInfoService.getBackend(backend.getId())).thenReturn(backend);
 
         try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class);
-                MockedStatic<ResourceGroupAffinityPolicyFactory> mockedFactory =
-                        Mockito.mockStatic(ResourceGroupAffinityPolicyFactory.class)) {
+                MockedStatic<BackendSelectionPolicyFactory> mockedFactory =
+                        Mockito.mockStatic(BackendSelectionPolicyFactory.class)) {
             mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
             mockedEnv.when(Env::getCurrentSystemInfo).thenReturn(cloudSystemInfoService);
-            mockedFactory.when(ResourceGroupAffinityPolicyFactory::get).thenReturn(policy);
+            mockedFactory.when(BackendSelectionPolicyFactory::get).thenReturn(policy);
 
             long firstBackendId = manager.selectBackendForGroupCommitInternal(tableId, cluster, policy.decision);
             long secondBackendId = manager.selectBackendForGroupCommitInternal(tableId, cluster, policy.decision);
 
             Assert.assertEquals(1L, firstBackendId);
             Assert.assertEquals(1L, secondBackendId);
-            Assert.assertEquals(0, policy.orderLoadBackendsCalls);
+            Assert.assertEquals(0, policy.orderLoadCandidatesCalls);
         }
     }
 
-    private static final class DisabledLoadAffinityPolicy implements ResourceGroupAffinityPolicy {
-        private int decideForLoadCalls;
+    private static final class DisabledLoadSelectionPolicy implements BackendSelectionPolicy {
+        private int getLoadSelectionHintCalls;
 
         @Override
-        public boolean isLoadAffinityEnabled(ConnectContext context) {
+        public boolean isLoadSelectionEnabled(ConnectContext context) {
             return false;
         }
 
         @Override
-        public ResourceGroupAffinity.AffinityDecision decideForLoad(ConnectContext context) {
-            decideForLoadCalls++;
-            throw new AssertionError("load affinity decision should not be resolved when disabled");
+        public BackendSelection.SelectionHint getLoadSelectionHint(ConnectContext context) {
+            getLoadSelectionHintCalls++;
+            throw new AssertionError("load selection decision should not be resolved when disabled");
         }
     }
 
-    private static final class EnabledLoadAffinityPolicy implements ResourceGroupAffinityPolicy {
-        private final ResourceGroupAffinity.AffinityDecision decision =
-                new ResourceGroupAffinity.AffinityDecision("rg_a", ResourceGroupAffinity.Policy.PREFER_LOCAL, "test");
-        private int decideForLoadCalls;
+    private static final class EnabledLoadSelectionPolicy implements BackendSelectionPolicy {
+        private final BackendSelection.SelectionHint decision =
+                new BackendSelection.SelectionHint("key_a", BackendSelection.Mode.PREFER, "test");
+        private int getLoadSelectionHintCalls;
 
         @Override
-        public boolean isLoadAffinityEnabled(ConnectContext context) {
+        public boolean isLoadSelectionEnabled(ConnectContext context) {
             return true;
         }
 
         @Override
-        public ResourceGroupAffinity.AffinityDecision decideForLoad(ConnectContext context) {
-            decideForLoadCalls++;
+        public BackendSelection.SelectionHint getLoadSelectionHint(ConnectContext context) {
+            getLoadSelectionHintCalls++;
             return decision;
         }
     }
 
-    private static final class CountingLoadAffinityPolicy implements ResourceGroupAffinityPolicy {
-        private final ResourceGroupAffinity.AffinityDecision decision =
-                new ResourceGroupAffinity.AffinityDecision("rg_a", ResourceGroupAffinity.Policy.PREFER_LOCAL, "test");
-        private final ResourceGroupAffinity.AffinityDecision otherDecision =
-                new ResourceGroupAffinity.AffinityDecision("rg_b", ResourceGroupAffinity.Policy.PREFER_LOCAL, "test");
-        private int orderLoadBackendsCalls;
+    private static final class CountingLoadSelectionPolicy implements BackendSelectionPolicy {
+        private final BackendSelection.SelectionHint decision =
+                new BackendSelection.SelectionHint("key_a", BackendSelection.Mode.PREFER, "test");
+        private final BackendSelection.SelectionHint otherDecision =
+                new BackendSelection.SelectionHint("key_b", BackendSelection.Mode.PREFER, "test");
+        private int orderLoadCandidatesCalls;
 
         @Override
-        public boolean hasEffectiveLoadAffinity(ResourceGroupAffinity.AffinityDecision decision) {
-            return decision != null && !decision.getEffectivePreferredGroup().isEmpty();
+        public boolean hasLoadSelectionPreference(BackendSelection.SelectionHint decision) {
+            return decision != null && !decision.getPreferredKey().isEmpty();
         }
 
         @Override
-        public List<Backend> orderLoadBackends(ResourceGroupAffinity.AffinityDecision decision,
+        public List<Backend> orderLoadCandidates(BackendSelection.SelectionHint decision,
                 List<Backend> candidates) {
-            orderLoadBackendsCalls++;
+            orderLoadCandidatesCalls++;
             return candidates;
         }
     }

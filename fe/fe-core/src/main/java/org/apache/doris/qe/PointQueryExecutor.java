@@ -147,7 +147,7 @@ public class PointQueryExecutor implements CoordInterface {
     }
 
     static boolean shouldShuffleCandidateBackends(OlapScanNode scanNode) {
-        return !scanNode.isScanBackendOrderByQueryAffinity();
+        return !scanNode.isScanBackendOrderBySelection();
     }
 
     // execute query without analyze & plan

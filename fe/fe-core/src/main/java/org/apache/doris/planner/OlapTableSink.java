@@ -63,9 +63,9 @@ import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DebugPointUtil.DebugPoint;
 import org.apache.doris.nereids.trees.plans.commands.insert.OlapInsertCommandContext;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.resource.ResourceGroupAffinity;
-import org.apache.doris.resource.ResourceGroupAffinityPolicy;
-import org.apache.doris.resource.ResourceGroupAffinityPolicyFactory;
+import org.apache.doris.resource.BackendSelection;
+import org.apache.doris.resource.BackendSelectionPolicy;
+import org.apache.doris.resource.BackendSelectionPolicyFactory;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TColumn;
@@ -379,7 +379,7 @@ public class OlapTableSink extends DataSink {
         }
         strBuilder.append(prefix + "  TUPLE ID: " + tupleDescriptor.getId() + "\n");
         strBuilder.append(prefix + "  " + DataPartition.RANDOM.getExplainString(explainLevel));
-        appendSinkAffinityExplain(strBuilder, prefix);
+        appendSinkSelectionExplain(strBuilder, prefix);
         boolean isPartialUpdate = uniqueKeyUpdateMode != TUniqueKeyUpdateMode.UPSERT;
         strBuilder.append(prefix + "  IS_PARTIAL_UPDATE: " + isPartialUpdate);
         if (isPartialUpdate) {
@@ -394,21 +394,21 @@ public class OlapTableSink extends DataSink {
         return strBuilder.toString();
     }
 
-    // Only printed when the session enables load local affinity, so existing plans stay unchanged.
-    private void appendSinkAffinityExplain(StringBuilder strBuilder, String prefix) {
+    // Only printed when load backend selection is enabled, so existing plans stay unchanged.
+    private void appendSinkSelectionExplain(StringBuilder strBuilder, String prefix) {
         ConnectContext context = ConnectContext.get();
-        ResourceGroupAffinityPolicy policy = ResourceGroupAffinityPolicyFactory.get();
-        if (!policy.isLoadAffinityEnabled(context)) {
+        BackendSelectionPolicy policy = BackendSelectionPolicyFactory.get();
+        if (!policy.isLoadSelectionEnabled(context)) {
             return;
         }
-        ResourceGroupAffinity.AffinityDecision decision =
-                policy.decideForLoad(context);
+        BackendSelection.SelectionHint decision =
+                policy.getLoadSelectionHint(context);
         if (decision == null) {
             return;
         }
-        strBuilder.append(prefix).append("  sink affinity: preferred=").append(decision.getEffectivePreferredGroup())
-                .append(", policy=").append(decision.getEffectivePolicy())
-                .append(", source=").append(decision.getResolveNote()).append("\n");
+        strBuilder.append(prefix).append("  sink backend selection: preferred=").append(decision.getPreferredKey())
+                .append(", mode=").append(decision.getMode())
+                .append(", source=").append(decision.getReason()).append("\n");
     }
 
     @Override
@@ -1318,7 +1318,7 @@ public class OlapTableSink extends DataSink {
 
     private Long chooseSingleReplicaMaster(Multimap<Long, Long> bePathsMap) throws UserException {
         ConnectContext context = ConnectContext.get();
-        if (!ResourceGroupAffinityPolicyFactory.get().isLoadAffinityEnabled(context)) {
+        if (!BackendSelectionPolicyFactory.get().isLoadSelectionEnabled(context)) {
             return chooseRandomSingleReplicaMaster(bePathsMap);
         }
         List<Backend> candidates = Lists.newArrayList();
@@ -1328,7 +1328,7 @@ public class OlapTableSink extends DataSink {
                 candidates.add(backend);
             }
         }
-        Backend selected = ResourceGroupAffinityPolicyFactory.get().chooseFirstAvailableLoadBackend(
+        Backend selected = BackendSelectionPolicyFactory.get().chooseFirstAvailableLoadBackend(
                 context, ImmutableList.copyOf(candidates), Backend::isLoadAvailable);
         if (selected != null) {
             return selected.getId();

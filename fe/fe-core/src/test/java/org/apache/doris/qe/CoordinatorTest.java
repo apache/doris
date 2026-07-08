@@ -31,9 +31,9 @@ import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.RuntimeFilter;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.planner.SortNode;
-import org.apache.doris.resource.ResourceGroupAffinity;
-import org.apache.doris.resource.ResourceGroupAffinityPolicy;
-import org.apache.doris.resource.ResourceGroupAffinityPolicyFactory;
+import org.apache.doris.resource.BackendSelection;
+import org.apache.doris.resource.BackendSelectionPolicy;
+import org.apache.doris.resource.BackendSelectionPolicyFactory;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -171,7 +171,7 @@ public class CoordinatorTest extends TestWithFeService {
     }
 
     @Test
-    public void testCoordinatorQueryAffinityUsesCoordinatorContext() throws Exception {
+    public void testCoordinatorQuerySelectionUsesCoordinatorContext() throws Exception {
         ConnectContext context = new ConnectContext();
         context.setQueryId(new TUniqueId(3L, 3L));
         Coordinator coordinator = new Coordinator(context, mockPlanner());
@@ -185,15 +185,15 @@ public class CoordinatorTest extends TestWithFeService {
         scanRangeLocations.addToLocations(createScanRangeLocation(tagABackend));
         scanRangeLocations.addToLocations(createScanRangeLocation(tagBBackend));
 
-        ContextCapturingQueryAffinityPolicy policy = new ContextCapturingQueryAffinityPolicy("tag_b");
+        ContextCapturingQuerySelectionPolicy policy = new ContextCapturingQuerySelectionPolicy("tag_b");
         ConnectContext previousContext = ConnectContext.get();
         ConnectContext.remove();
-        try (MockedStatic<ResourceGroupAffinityPolicyFactory> mockedFactory =
-                Mockito.mockStatic(ResourceGroupAffinityPolicyFactory.class)) {
-            mockedFactory.when(ResourceGroupAffinityPolicyFactory::get).thenReturn(policy);
+        try (MockedStatic<BackendSelectionPolicyFactory> mockedFactory =
+                Mockito.mockStatic(BackendSelectionPolicyFactory.class)) {
+            mockedFactory.when(BackendSelectionPolicyFactory::get).thenReturn(policy);
 
             Reference<Long> backendIdRef = new Reference<>();
-            selectBackendsByRoundRobinWithAffinity(coordinator, scanRangeLocations, new HashMap<>(),
+            selectBackendsByRoundRobinWithSelection(coordinator, scanRangeLocations, new HashMap<>(),
                     initialReplicaNumPerHost(scanRangeLocations), backendIdRef);
 
             Assertions.assertEquals(tagBBackend.getId(), backendIdRef.getRef());
@@ -259,7 +259,7 @@ public class CoordinatorTest extends TestWithFeService {
         previousContext.setThreadLocalInfo();
     }
 
-    private void selectBackendsByRoundRobinWithAffinity(Coordinator coordinator,
+    private void selectBackendsByRoundRobinWithSelection(Coordinator coordinator,
             TScanRangeLocations scanRangeLocations, Map<TNetworkAddress, Long> assignedBytesPerHost,
             Map<TNetworkAddress, Long> replicaNumPerHost, Reference<Long> backendIdRef) throws Exception {
         Method method = Coordinator.class.getDeclaredMethod("selectBackendsByRoundRobin",
@@ -269,11 +269,11 @@ public class CoordinatorTest extends TestWithFeService {
                 false, true);
     }
 
-    private static final class ContextCapturingQueryAffinityPolicy implements ResourceGroupAffinityPolicy {
+    private static final class ContextCapturingQuerySelectionPolicy implements BackendSelectionPolicy {
         private final String preferredTag;
         private ConnectContext decideContext;
 
-        private ContextCapturingQueryAffinityPolicy(String preferredTag) {
+        private ContextCapturingQuerySelectionPolicy(String preferredTag) {
             this.preferredTag = preferredTag;
         }
 
@@ -282,16 +282,16 @@ public class CoordinatorTest extends TestWithFeService {
         }
 
         @Override
-        public ResourceGroupAffinity.AffinityDecision decideForQuery(ConnectContext context) {
+        public BackendSelection.SelectionHint getQuerySelectionHint(ConnectContext context) {
             decideContext = context;
-            return new ResourceGroupAffinity.AffinityDecision(preferredTag,
-                    ResourceGroupAffinity.Policy.PREFER_LOCAL, "test");
+            return new BackendSelection.SelectionHint(preferredTag,
+                    BackendSelection.Mode.PREFER, "test");
         }
 
         @Override
-        public <T> List<T> applyQueryAffinity(ResourceGroupAffinity.AffinityDecision decision, List<T> candidates,
+        public <T> List<T> orderQueryCandidates(BackendSelection.SelectionHint decision, List<T> candidates,
                 Function<T, Tag> beTagOf) throws UserException {
-            if (!preferredTag.equals(decision.getEffectivePreferredGroup())) {
+            if (!preferredTag.equals(decision.getPreferredKey())) {
                 return candidates;
             }
             return candidates.stream()

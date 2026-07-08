@@ -46,7 +46,7 @@ import org.apache.doris.plugin.AuditEvent;
 import org.apache.doris.plugin.AuditEvent.AuditEventBuilder;
 import org.apache.doris.plugin.AuditEvent.EventType;
 import org.apache.doris.qe.QueryState.MysqlStateType;
-import org.apache.doris.resource.ResourceGroupAffinity;
+import org.apache.doris.resource.BackendSelection;
 import org.apache.doris.resource.workloadgroup.QueueToken;
 import org.apache.doris.service.FrontendOptions;
 
@@ -281,9 +281,9 @@ public class AuditLogHelper {
                 .setCloudCluster(Strings.isNullOrEmpty(cluster) ? "UNKNOWN" : cluster)
                 .setWorkloadGroup(ctx.getWorkloadGroupName());
 
-        ResourceGroupAffinity.AffinityDecision affinityDecision = ctx.getQueryResourceGroupAffinityDecisionForAudit();
-        auditEventBuilder.setEffectivePreferredResourceGroup(affinityDecision.getEffectivePreferredGroup())
-                .setResourceGroupSelectPolicy(affinityDecision.getEffectivePolicy().name()
+        BackendSelection.SelectionHint selectionHint = ctx.getQueryBackendSelectionDecisionForAudit();
+        auditEventBuilder.setBackendSelectionPreferredKey(selectionHint.getPreferredKey())
+                .setBackendSelectionMode(selectionHint.getMode().name()
                         .toLowerCase(Locale.ROOT));
 
         // sql mode

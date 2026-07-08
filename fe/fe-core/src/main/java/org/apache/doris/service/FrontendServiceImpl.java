@@ -134,8 +134,8 @@ import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.qe.VariableMgr;
-import org.apache.doris.resource.ResourceGroupAffinity;
-import org.apache.doris.resource.ResourceGroupAffinityPolicyFactory;
+import org.apache.doris.resource.BackendSelection;
+import org.apache.doris.resource.BackendSelectionPolicyFactory;
 import org.apache.doris.service.arrowflight.FlightSqlConnectProcessor;
 import org.apache.doris.statistics.AnalysisManager;
 import org.apache.doris.statistics.ColStatsData;
@@ -1182,7 +1182,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     private TMasterOpResult handleForwardShortcut(TMasterOpRequest params) throws TException {
         if (params.isSyncJournalOnly()) {
-            return createForwardAckResult();
+            return createForwardResultWithJournalSync();
         }
         if (params.getGroupCommitInfo() != null && params.getGroupCommitInfo().isGetGroupCommitLoadBeId()) {
             return handleGroupCommitLoadBeId(params.getGroupCommitInfo());
@@ -1190,7 +1190,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (params.getGroupCommitInfo() != null && params.getGroupCommitInfo().isUpdateLoadData()) {
             Env.getCurrentEnv().getGroupCommitManager()
                     .updateLoadData(params.getGroupCommitInfo().tableId, params.getGroupCommitInfo().receiveData);
-            return createForwardAckResult();
+            return createForwardResultWithoutJournalSync();
         }
         if (!params.isSetCancelQeury() || !params.isCancelQeury()) {
             return null;
@@ -1198,34 +1198,43 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         return handleForwardCancel(params);
     }
 
-    private TMasterOpResult createForwardAckResult() {
+    private TMasterOpResult createForwardResultWithJournalSync() {
         TMasterOpResult result = new TMasterOpResult();
         result.setMaxJournalId(Env.getCurrentEnv().getMaxJournalId());
         result.setPacket("".getBytes());
         return result;
     }
 
+    private TMasterOpResult createForwardResultWithoutJournalSync() {
+        TMasterOpResult result = new TMasterOpResult();
+        // Group commit shortcuts update master memory only and must not force follower journal replay.
+        result.setPacket("".getBytes());
+        return result;
+    }
+
     private TMasterOpResult handleGroupCommitLoadBeId(TGroupCommitInfo info) {
-        TMasterOpResult result = createForwardAckResult();
+        TMasterOpResult result = createForwardResultWithoutJournalSync();
         try {
             result.setGroupCommitLoadBeId(Env.getCurrentEnv().getGroupCommitManager()
                     .selectBackendForGroupCommitInternal(info.groupCommitLoadTableId, info.cluster,
-                            forwardedGroupCommitLoadAffinity(info)));
+                            forwardedGroupCommitLoadSelectionHint(info)));
         } catch (LoadException | DdlException e) {
             // Throwing TException here surfaces on the requesting FE as a transport error with a
             // null message; carry the selection error through the result instead.
+            LOG.warn("failed to select backend for forwarded group commit load, tableId={}, cluster={}",
+                    info.groupCommitLoadTableId, info.cluster, e);
             result.setStatusCode(1);
             result.setErrMessage(e.getMessage() == null ? e.toString() : e.getMessage());
         }
         return result;
     }
 
-    static ResourceGroupAffinity.AffinityDecision forwardedGroupCommitLoadAffinity(TGroupCommitInfo info) {
-        if (!info.isSetLoadAffinityPreferredGroup() || !info.isSetLoadAffinityPolicy()) {
+    static BackendSelection.SelectionHint forwardedGroupCommitLoadSelectionHint(TGroupCommitInfo info) {
+        if (!info.isSetLoadSelectionPreferredKey() || !info.isSetLoadSelectionMode()) {
             return null;
         }
-        return ResourceGroupAffinityPolicyFactory.get().forwardedLoadDecision(
-                info.getLoadAffinityPreferredGroup(), info.getLoadAffinityPolicy());
+        return BackendSelectionPolicyFactory.get().getForwardedLoadSelectionHint(
+                info.getLoadSelectionPreferredKey(), info.getLoadSelectionMode());
     }
 
     private TMasterOpResult handleForwardCancel(TMasterOpRequest params) throws TException {
@@ -1236,7 +1245,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (context != null) {
             context.cancelQuery(new Status(TStatusCode.CANCELLED, "cancel query by forward request."));
         }
-        TMasterOpResult result = createForwardAckResult();
+        TMasterOpResult result = createForwardResultWithJournalSync();
         result.setStatusCode(0);
         return result;
     }

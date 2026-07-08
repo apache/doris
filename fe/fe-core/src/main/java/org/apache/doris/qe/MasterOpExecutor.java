@@ -21,9 +21,9 @@ import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.LoadException;
-import org.apache.doris.resource.ResourceGroupAffinity;
-import org.apache.doris.resource.ResourceGroupAffinityPolicy;
-import org.apache.doris.resource.ResourceGroupAffinityPolicyFactory;
+import org.apache.doris.resource.BackendSelection;
+import org.apache.doris.resource.BackendSelectionPolicy;
+import org.apache.doris.resource.BackendSelectionPolicyFactory;
 import org.apache.doris.thrift.TGroupCommitInfo;
 import org.apache.doris.thrift.TMasterOpRequest;
 import org.apache.doris.thrift.TMasterOpResult;
@@ -90,7 +90,6 @@ public class MasterOpExecutor extends FEOpExecutor {
             // a thrift-level exception would lose the message on the wire
             throw new LoadException(result.getErrMessage());
         }
-        waitOnReplaying();
         return result.groupCommitLoadBeId;
     }
 
@@ -103,7 +102,6 @@ public class MasterOpExecutor extends FEOpExecutor {
 
     public void updateLoadData(long tableId, long receiveData) throws Exception {
         result = forward(buildUpdateLoadDataParams(tableId, receiveData));
-        waitOnReplaying();
     }
 
     private TMasterOpRequest buildSyncJournalParams() {
@@ -124,21 +122,21 @@ public class MasterOpExecutor extends FEOpExecutor {
         groupCommitParams.setGetGroupCommitLoadBeId(true);
         groupCommitParams.setGroupCommitLoadTableId(tableId);
         groupCommitParams.setCluster(cluster);
-        setGroupCommitLoadAffinity(groupCommitParams, ctx);
+        setGroupCommitLoadSelectionHint(groupCommitParams, ctx);
         return getMasterOpRequestForGroupCommit(groupCommitParams);
     }
 
-    static void setGroupCommitLoadAffinity(TGroupCommitInfo groupCommitParams, ConnectContext context) {
-        ResourceGroupAffinityPolicy policy = ResourceGroupAffinityPolicyFactory.get();
-        if (!policy.isLoadAffinityEnabled(context)) {
+    static void setGroupCommitLoadSelectionHint(TGroupCommitInfo groupCommitParams, ConnectContext context) {
+        BackendSelectionPolicy policy = BackendSelectionPolicyFactory.get();
+        if (!policy.isLoadSelectionEnabled(context)) {
             return;
         }
-        ResourceGroupAffinity.AffinityDecision decision = policy.decideForLoad(context);
+        BackendSelection.SelectionHint decision = policy.getLoadSelectionHint(context);
         if (decision == null) {
             return;
         }
-        groupCommitParams.setLoadAffinityPreferredGroup(decision.getEffectivePreferredGroup());
-        groupCommitParams.setLoadAffinityPolicy(decision.getEffectivePolicy().name());
+        groupCommitParams.setLoadSelectionPreferredKey(decision.getPreferredKey());
+        groupCommitParams.setLoadSelectionMode(decision.getMode().name());
     }
 
     private TMasterOpRequest buildUpdateLoadDataParams(long tableId, long receiveData) {

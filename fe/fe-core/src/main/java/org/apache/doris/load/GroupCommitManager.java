@@ -35,9 +35,9 @@ import org.apache.doris.proto.InternalService.PGetWalQueueSizeRequest;
 import org.apache.doris.proto.InternalService.PGetWalQueueSizeResponse;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.MasterOpExecutor;
-import org.apache.doris.resource.ResourceGroupAffinity;
-import org.apache.doris.resource.ResourceGroupAffinityPolicy;
-import org.apache.doris.resource.ResourceGroupAffinityPolicyFactory;
+import org.apache.doris.resource.BackendSelection;
+import org.apache.doris.resource.BackendSelectionPolicy;
+import org.apache.doris.resource.BackendSelectionPolicyFactory;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -233,10 +233,10 @@ public class GroupCommitManager {
         } else {
             try {
                 // Master FE will select BE by itself.
-                ResourceGroupAffinity.AffinityDecision affinityDecision =
-                        Config.isCloudMode() ? null : decideGroupCommitLoadAffinity(context);
+                BackendSelection.SelectionHint selectionHint =
+                        Config.isCloudMode() ? null : getGroupCommitLoadSelectionHint(context);
                 return Env.getCurrentSystemInfo()
-                        .getBackend(selectBackendForGroupCommitInternal(tableId, clusterName, affinityDecision));
+                        .getBackend(selectBackendForGroupCommitInternal(tableId, clusterName, selectionHint));
             } catch (Exception e) {
                 LOG.warn("get backend failed, tableId: {}, exception", tableId, e);
                 throw new LoadException(e.getMessage());
@@ -245,12 +245,12 @@ public class GroupCommitManager {
     }
 
     @Nullable
-    static ResourceGroupAffinity.AffinityDecision decideGroupCommitLoadAffinity(ConnectContext context) {
-        ResourceGroupAffinityPolicy policy = ResourceGroupAffinityPolicyFactory.get();
-        if (!policy.isLoadAffinityEnabled(context)) {
+    static BackendSelection.SelectionHint getGroupCommitLoadSelectionHint(ConnectContext context) {
+        BackendSelectionPolicy policy = BackendSelectionPolicyFactory.get();
+        if (!policy.isLoadSelectionEnabled(context)) {
             return null;
         }
-        return policy.decideForLoad(context);
+        return policy.getLoadSelectionHint(context);
     }
 
     public long selectBackendForGroupCommitInternal(long tableId, String cluster)
@@ -259,7 +259,7 @@ public class GroupCommitManager {
     }
 
     public long selectBackendForGroupCommitInternal(long tableId, String cluster,
-            @Nullable ResourceGroupAffinity.AffinityDecision affinityDecision)
+            @Nullable BackendSelection.SelectionHint selectionHint)
             throws LoadException, DdlException {
         // Understanding Group Commit and Backend Selection Logic
         //
@@ -292,7 +292,7 @@ public class GroupCommitManager {
         // This approach ensures that group commits can effectively batch data together
         // while managing the load on each BE efficiently.
         return Config.isCloudMode() ? selectBackendForCloudGroupCommitInternal(tableId, cluster)
-                : selectBackendForLocalGroupCommitInternal(tableId, affinityDecision);
+                : selectBackendForLocalGroupCommitInternal(tableId, selectionHint);
     }
 
     private long selectBackendForCloudGroupCommitInternal(long tableId, String cluster)
@@ -331,14 +331,14 @@ public class GroupCommitManager {
     }
 
     private long selectBackendForLocalGroupCommitInternal(long tableId,
-            @Nullable ResourceGroupAffinity.AffinityDecision affinityDecision) throws LoadException {
+            @Nullable BackendSelection.SelectionHint selectionHint) throws LoadException {
         if (LOG.isDebugEnabled()) {
             LOG.debug("group commit select be info, tableToBeMap {}, tablePressureMap {}", tableToBeMap.toString(),
                     tableToPressureMap.toString());
         }
-        ResourceGroupAffinityPolicy affinityPolicy = ResourceGroupAffinityPolicyFactory.get();
-        boolean hasEffectiveLoadAffinity = affinityPolicy.hasEffectiveLoadAffinity(affinityDecision);
-        String cacheKey = buildLocalGroupCommitCacheKey(tableId, affinityDecision, hasEffectiveLoadAffinity);
+        BackendSelectionPolicy selectionPolicy = BackendSelectionPolicyFactory.get();
+        boolean hasLoadSelectionPreference = selectionPolicy.hasLoadSelectionPreference(selectionHint);
+        String cacheKey = buildLocalGroupCommitCacheKey(tableId, selectionHint, hasLoadSelectionPreference);
         Long cachedBackendId = getCachedLocalBackend(cacheKey, tableId);
         if (cachedBackendId != null) {
             return cachedBackendId;
@@ -357,8 +357,8 @@ public class GroupCommitManager {
         }
 
         // If the cached backend is not active or decommissioned, select a random new backend.
-        Long randomBackendId = getRandomLocalBackend(cacheKey, tableId, backends, affinityPolicy, affinityDecision,
-                hasEffectiveLoadAffinity);
+        Long randomBackendId = getRandomLocalBackend(cacheKey, tableId, backends, selectionPolicy, selectionHint,
+                hasLoadSelectionPreference);
         if (randomBackendId != null) {
             return randomBackendId;
         }
@@ -429,15 +429,15 @@ public class GroupCommitManager {
 
     @Nullable
     private Long getRandomLocalBackend(String cacheKey, long tableId, List<Backend> backends,
-            ResourceGroupAffinityPolicy affinityPolicy,
-            @Nullable ResourceGroupAffinity.AffinityDecision affinityDecision, boolean hasEffectiveLoadAffinity)
+            BackendSelectionPolicy selectionPolicy,
+            @Nullable BackendSelection.SelectionHint selectionHint, boolean hasLoadSelectionPreference)
             throws LoadException {
         OlapTable table = (OlapTable) Env.getCurrentEnv().getInternalCatalog().getTableByTableId(tableId);
         Collections.shuffle(backends);
         List<Backend> orderedBackends;
         try {
-            orderedBackends = hasEffectiveLoadAffinity
-                    ? affinityPolicy.orderLoadBackends(affinityDecision, backends)
+            orderedBackends = hasLoadSelectionPreference
+                    ? selectionPolicy.orderLoadCandidates(selectionHint, backends)
                     : backends;
         } catch (UserException e) {
             throw new LoadException(e.getMessage());
@@ -464,13 +464,13 @@ public class GroupCommitManager {
     }
 
     private String buildLocalGroupCommitCacheKey(long tableId,
-            @Nullable ResourceGroupAffinity.AffinityDecision affinityDecision, boolean hasEffectiveLoadAffinity) {
+            @Nullable BackendSelection.SelectionHint selectionHint, boolean hasLoadSelectionPreference) {
         String cacheKey = String.valueOf(tableId);
-        if (!hasEffectiveLoadAffinity) {
+        if (!hasLoadSelectionPreference) {
             return cacheKey;
         }
-        return cacheKey + "#" + affinityDecision.getEffectivePreferredGroup()
-                + "#" + affinityDecision.getEffectivePolicy();
+        return cacheKey + "#" + selectionHint.getPreferredKey()
+                + "#" + selectionHint.getMode();
     }
 
     public void updateLoadData(long tableId, long receiveData) {

@@ -372,8 +372,8 @@ struct TGroupCommitInfo{
     5: optional bool updateLoadData
     6: optional i64 tableId 
     7: optional i64 receiveData
-    8: optional string loadAffinityPreferredGroup
-    9: optional string loadAffinityPolicy
+    8: optional string loadSelectionPreferredKey
+    9: optional string loadSelectionMode
 }
 
 struct TMasterOpRequest {

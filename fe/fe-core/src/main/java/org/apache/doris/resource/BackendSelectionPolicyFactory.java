@@ -24,38 +24,38 @@ import java.util.Iterator;
 import java.util.ServiceLoader;
 
 /**
- * Discovers a {@link ResourceGroupAffinityPolicy} via {@link ServiceLoader}. If no custom
+ * Discovers a {@link BackendSelectionPolicy} via {@link ServiceLoader}. If no custom
  * provider is on the classpath, falls back to the interface's no-op defaults.
  */
-public class ResourceGroupAffinityPolicyFactory {
-    private static final Logger LOG = LogManager.getLogger(ResourceGroupAffinityPolicyFactory.class);
+public class BackendSelectionPolicyFactory {
+    private static final Logger LOG = LogManager.getLogger(BackendSelectionPolicyFactory.class);
 
-    private static final ResourceGroupAffinityPolicy DEFAULT = new ResourceGroupAffinityPolicy() {
+    private static final BackendSelectionPolicy DEFAULT = new BackendSelectionPolicy() {
     };
 
-    private static volatile ResourceGroupAffinityPolicy instance;
+    private static volatile BackendSelectionPolicy instance;
 
-    public static ResourceGroupAffinityPolicy get() {
+    public static BackendSelectionPolicy get() {
         if (instance == null) {
-            synchronized (ResourceGroupAffinityPolicyFactory.class) {
+            synchronized (BackendSelectionPolicyFactory.class) {
                 if (instance == null) {
-                    instance = load(ResourceGroupAffinityPolicyFactory.class.getClassLoader());
+                    instance = load(BackendSelectionPolicyFactory.class.getClassLoader());
                 }
             }
         }
         return instance;
     }
 
-    static ResourceGroupAffinityPolicy load(ClassLoader classLoader) {
-        ServiceLoader<ResourceGroupAffinityPolicy> loader =
-                ServiceLoader.load(ResourceGroupAffinityPolicy.class, classLoader);
-        Iterator<ResourceGroupAffinityPolicy> it = loader.iterator();
+    static BackendSelectionPolicy load(ClassLoader classLoader) {
+        ServiceLoader<BackendSelectionPolicy> loader =
+                ServiceLoader.load(BackendSelectionPolicy.class, classLoader);
+        Iterator<BackendSelectionPolicy> it = loader.iterator();
         if (it.hasNext()) {
-            ResourceGroupAffinityPolicy policy = it.next();
-            LOG.info("Loaded ResourceGroupAffinityPolicy implementation: {}", policy.getClass().getName());
+            BackendSelectionPolicy policy = it.next();
+            LOG.info("Loaded BackendSelectionPolicy implementation: {}", policy.getClass().getName());
             return policy;
         }
-        LOG.info("No ResourceGroupAffinityPolicy implementation found, using no-op (affinity disabled)");
+        LOG.info("No BackendSelectionPolicy implementation found, using no-op backend selection policy");
         return DEFAULT;
     }
 }

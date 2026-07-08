@@ -29,74 +29,74 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
-class SessionVariableAffinityTest {
+class SessionVariableBackendSelectionTest {
 
     @Test
-    void testPreferredResourceGroupValidationAcceptsValidTagName() throws Exception {
+    void testPreferredBackendSelectionKeyValidationAcceptsValidKey() throws Exception {
         SessionVariable sessionVariable = new SessionVariable();
 
         VariableMgr.setVar(sessionVariable, new SetVar(SetType.SESSION,
-                SessionVariable.PREFERRED_RESOURCE_GROUP, new StringLiteral("group_a")));
+                SessionVariable.PREFERRED_BACKEND_SELECTION_KEY, new StringLiteral("group_a")));
 
-        Assertions.assertEquals("group_a", sessionVariable.getPreferredResourceGroup());
+        Assertions.assertEquals("group_a", sessionVariable.getPreferredBackendSelectionKey());
     }
 
     @Test
-    void testPreferredResourceGroupValidationRejectsInvalidTagName() {
+    void testPreferredBackendSelectionKeyValidationRejectsInvalidKey() {
         SessionVariable sessionVariable = new SessionVariable();
 
         DdlException exception = Assertions.assertThrows(DdlException.class, () ->
                 VariableMgr.setVar(sessionVariable, new SetVar(SetType.SESSION,
-                        SessionVariable.PREFERRED_RESOURCE_GROUP, new StringLiteral("bad tag"))));
+                        SessionVariable.PREFERRED_BACKEND_SELECTION_KEY, new StringLiteral("bad tag"))));
 
-        Assertions.assertTrue(exception.getMessage().contains("preferred_resource_group value is invalid"));
+        Assertions.assertTrue(exception.getMessage().contains("preferred_backend_selection_key value is invalid"));
     }
 
     @Test
-    void testResourceGroupSelectPolicyRejectsInvalidToken() {
+    void testBackendSelectionModeRejectsInvalidToken() {
         SessionVariable sessionVariable = new SessionVariable();
 
         DdlException exception = Assertions.assertThrows(DdlException.class, () ->
                 VariableMgr.setVar(sessionVariable, new SetVar(SetType.SESSION,
-                        SessionVariable.RESOURCE_GROUP_SELECT_POLICY, new StringLiteral("auto"))));
+                        SessionVariable.BACKEND_SELECTION_MODE, new StringLiteral("auto"))));
 
-        Assertions.assertTrue(exception.getMessage().contains("resource_group_select_policy value is invalid"));
+        Assertions.assertTrue(exception.getMessage().contains("backend_selection_mode value is invalid"));
     }
 
     @Test
-    void testResourceGroupSelectPolicyDefaultIsPreferLocalInShowVariables() throws Exception {
+    void testBackendSelectionModeDefaultIsPreferInShowVariables() throws Exception {
         SessionVariable sessionVariable = new SessionVariable();
         PatternMatcher matcher = PatternMatcherWrapper.createMysqlPattern(
-                SessionVariable.RESOURCE_GROUP_SELECT_POLICY, false);
+                SessionVariable.BACKEND_SELECTION_MODE, false);
 
         List<List<String>> rows = VariableMgr.dump(SetType.SESSION, sessionVariable, matcher);
 
         Assertions.assertEquals(1, rows.size());
-        Assertions.assertEquals(SessionVariable.RESOURCE_GROUP_SELECT_POLICY, rows.get(0).get(0));
-        Assertions.assertEquals("prefer_local", rows.get(0).get(1));
+        Assertions.assertEquals(SessionVariable.BACKEND_SELECTION_MODE, rows.get(0).get(0));
+        Assertions.assertEquals("prefer", rows.get(0).get(1));
     }
 
     @Test
     void testSettingPreferredToEmptyStringIsAllowed() throws Exception {
         SessionVariable sessionVariable = new SessionVariable();
         VariableMgr.setVar(sessionVariable, new SetVar(SetType.SESSION,
-                SessionVariable.PREFERRED_RESOURCE_GROUP, new StringLiteral("group_a")));
+                SessionVariable.PREFERRED_BACKEND_SELECTION_KEY, new StringLiteral("group_a")));
 
         VariableMgr.setVar(sessionVariable, new SetVar(SetType.SESSION,
-                SessionVariable.PREFERRED_RESOURCE_GROUP, new StringLiteral("")));
+                SessionVariable.PREFERRED_BACKEND_SELECTION_KEY, new StringLiteral("")));
 
-        Assertions.assertEquals("", sessionVariable.getPreferredResourceGroup());
+        Assertions.assertEquals("", sessionVariable.getPreferredBackendSelectionKey());
     }
 
     @Test
-    void testLoadLocalAffinityDefaultIsOffAndCanBeEnabled() throws Exception {
+    void testLoadBackendSelectionDefaultIsOffAndCanBeEnabled() throws Exception {
         SessionVariable sessionVariable = new SessionVariable();
 
-        Assertions.assertFalse(sessionVariable.isEnableLoadLocalAffinity());
+        Assertions.assertFalse(sessionVariable.isEnableLoadBackendSelection());
 
         VariableMgr.setVar(sessionVariable, new SetVar(SetType.SESSION,
-                SessionVariable.ENABLE_LOAD_LOCAL_AFFINITY, new StringLiteral("true")));
+                SessionVariable.ENABLE_LOAD_BACKEND_SELECTION, new StringLiteral("true")));
 
-        Assertions.assertTrue(sessionVariable.isEnableLoadLocalAffinity());
+        Assertions.assertTrue(sessionVariable.isEnableLoadBackendSelection());
     }
 }

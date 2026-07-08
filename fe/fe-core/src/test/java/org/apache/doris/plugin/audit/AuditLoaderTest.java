@@ -70,22 +70,22 @@ public class AuditLoaderTest {
     }
 
     @Test
-    public void testAuditTableResourceAffinityFieldsMatchSchemaOrder() {
+    public void testAuditTableBackendSelectionFieldsMatchSchemaOrder() {
         List<String> schemaNames = InternalSchema.AUDIT_SCHEMA.stream()
                 .map(ColumnDef::getName)
                 .collect(Collectors.toList());
         int workloadGroupIndex = schemaNames.indexOf("workload_group");
         Assert.assertEquals(workloadGroupIndex + 1, schemaNames.indexOf("compute_group"));
-        Assert.assertEquals(workloadGroupIndex + 2, schemaNames.indexOf("effective_preferred_resource_group"));
-        Assert.assertEquals(workloadGroupIndex + 3, schemaNames.indexOf("resource_group_select_policy"));
+        Assert.assertEquals(workloadGroupIndex + 2, schemaNames.indexOf("backend_selection_preferred_key"));
+        Assert.assertEquals(workloadGroupIndex + 3, schemaNames.indexOf("backend_selection_mode"));
         Assert.assertEquals(workloadGroupIndex + 4, schemaNames.indexOf("stmt"));
         Assert.assertEquals(schemaNames.size() - 1, schemaNames.indexOf("stmt"));
 
         AuditEvent auditEvent = new AuditEvent.AuditEventBuilder()
                 .setWorkloadGroup("wg_a")
                 .setCloudCluster("compute_a")
-                .setEffectivePreferredResourceGroup("rg_a")
-                .setResourceGroupSelectPolicy("prefer_local")
+                .setBackendSelectionPreferredKey("key_a")
+                .setBackendSelectionMode("prefer")
                 .setStmt("select 1")
                 .build();
         StringBuilder logBuffer = new StringBuilder();
@@ -99,8 +99,8 @@ public class AuditLoaderTest {
         Assert.assertEquals(schemaNames.size(), fields.length);
         Assert.assertEquals("wg_a", fields[workloadGroupIndex]);
         Assert.assertEquals("compute_a", fields[workloadGroupIndex + 1]);
-        Assert.assertEquals("rg_a", fields[workloadGroupIndex + 2]);
-        Assert.assertEquals("prefer_local", fields[workloadGroupIndex + 3]);
+        Assert.assertEquals("key_a", fields[workloadGroupIndex + 2]);
+        Assert.assertEquals("prefer", fields[workloadGroupIndex + 3]);
         Assert.assertEquals("select 1", fields[workloadGroupIndex + 4]);
     }
 

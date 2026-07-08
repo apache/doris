@@ -63,8 +63,8 @@ import org.apache.doris.nereids.stats.StatsErrorEstimator;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.util.MoreFieldsThread;
 import org.apache.doris.plugin.AuditEvent.AuditEventBuilder;
-import org.apache.doris.resource.ResourceGroupAffinity;
-import org.apache.doris.resource.ResourceGroupAffinityPolicyFactory;
+import org.apache.doris.resource.BackendSelection;
+import org.apache.doris.resource.BackendSelectionPolicyFactory;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.resource.computegroup.ComputeGroup;
 import org.apache.doris.resource.computegroup.ComputeGroupMgr;
@@ -249,7 +249,7 @@ public class ConnectContext {
 
     private String workloadGroupName = "";
     private boolean isGroupCommit;
-    private ResourceGroupAffinity.AffinityDecision queryResourceGroupAffinityDecision;
+    private BackendSelection.SelectionHint queryBackendSelectionDecision;
 
     private TResultSinkType resultSinkType = TResultSinkType.MYSQL_PROTOCOL;
 
@@ -772,22 +772,22 @@ public class ConnectContext {
     public void setStartTime() {
         startTime = System.currentTimeMillis();
         returnRows = 0;
-        queryResourceGroupAffinityDecision = null;
+        queryBackendSelectionDecision = null;
     }
 
-    public ResourceGroupAffinity.AffinityDecision getQueryResourceGroupAffinityDecision() {
-        if (queryResourceGroupAffinityDecision == null) {
-            queryResourceGroupAffinityDecision =
-                    ResourceGroupAffinityPolicyFactory.get().decideForQuery(this);
+    public BackendSelection.SelectionHint getQueryBackendSelectionDecision() {
+        if (queryBackendSelectionDecision == null) {
+            queryBackendSelectionDecision =
+                    BackendSelectionPolicyFactory.get().getQuerySelectionHint(this);
         }
-        return queryResourceGroupAffinityDecision;
+        return queryBackendSelectionDecision;
     }
 
-    // Audit runs for every statement type, so it must not create a query affinity decision.
-    public ResourceGroupAffinity.AffinityDecision getQueryResourceGroupAffinityDecisionForAudit() {
-        return queryResourceGroupAffinityDecision == null
-                ? ResourceGroupAffinity.AffinityDecision.noAffinity()
-                : queryResourceGroupAffinityDecision;
+    // Audit runs for every statement type, so it must not create a query selection hint.
+    public BackendSelection.SelectionHint getQueryBackendSelectionDecisionForAudit() {
+        return queryBackendSelectionDecision == null
+                ? BackendSelection.SelectionHint.noSelection()
+                : queryBackendSelectionDecision;
     }
 
     public void updateReturnRows(int returnRows) {

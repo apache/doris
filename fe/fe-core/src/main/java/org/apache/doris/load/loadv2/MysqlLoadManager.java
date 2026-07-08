@@ -45,7 +45,7 @@ import org.apache.doris.nereids.trees.plans.commands.load.MysqlLoadCommand;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.VariableMgr;
-import org.apache.doris.resource.ResourceGroupAffinityPolicyFactory;
+import org.apache.doris.resource.BackendSelectionPolicyFactory;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.BeSelectionPolicy;
 import org.apache.doris.system.SystemInfoService;
@@ -685,8 +685,8 @@ public class MysqlLoadManager {
             }
         } else {
             BeSelectionPolicy policy = new BeSelectionPolicy.Builder().needLoadAvailable().build();
-            // -1 returns every eligible backend shuffled, so the affinity helper's head pick
-            // stays equivalent to the old random single pick when affinity is inactive.
+            // -1 returns every eligible backend shuffled, so the selection helper's head pick
+            // stays equivalent to the old random single pick when backend selection is inactive.
             List<Long> backendIds = Env.getCurrentSystemInfo().selectBackendIdsByPolicy(policy, -1);
             if (backendIds.isEmpty()) {
                 throw new LoadException(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG + ", policy: " + policy);
@@ -698,8 +698,8 @@ public class MysqlLoadManager {
                     candidates.add(candidate);
                 }
             }
-            backend = ResourceGroupAffinityPolicyFactory.get()
-                    .chooseLoadBackendWithAffinity(ConnectContext.get(), candidates);
+            backend = BackendSelectionPolicyFactory.get()
+                    .chooseLoadBackend(ConnectContext.get(), candidates);
             if (backend == null) {
                 throw new LoadException(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG + ", policy: " + policy);
             }

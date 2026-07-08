@@ -40,8 +40,8 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.persist.ReplicaPersistInfo;
-import org.apache.doris.resource.ResourceGroupAffinityPolicy;
-import org.apache.doris.resource.ResourceGroupAffinityPolicyFactory;
+import org.apache.doris.resource.BackendSelectionPolicy;
+import org.apache.doris.resource.BackendSelectionPolicyFactory;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
@@ -196,8 +196,8 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
     // tag is only set for BALANCE task, used to identify which workload group this Balance job is in
     private Tag tag;
 
-    private ResourceGroupAffinityPolicy.SrcAffinityResult srcAffinityResult =
-            ResourceGroupAffinityPolicy.SrcAffinityResult.DISABLED;
+    private BackendSelectionPolicy.RepairSourceSelectionResult repairSourceSelectionResult =
+            BackendSelectionPolicy.RepairSourceSelectionResult.DISABLED;
 
     private SubCode schedFailedCode;
 
@@ -451,8 +451,8 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         return copyTimeMs;
     }
 
-    public ResourceGroupAffinityPolicy.SrcAffinityResult getSrcAffinityResult() {
-        return srcAffinityResult;
+    public BackendSelectionPolicy.RepairSourceSelectionResult getRepairSourceSelectionResult() {
+        return repairSourceSelectionResult;
     }
 
     public long getSrcBackendId() {
@@ -663,12 +663,12 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         // sort replica by version count asc and isUserDrop, so that we prefer to choose replicas with fewer versions
         Collections.sort(candidates, CLONE_SRC_COMPARATOR);
 
-        // Resource-group (tag.location) source affinity is behind an SPI. The default no-op policy
+        // Backend repair source selection is behind an SPI. The default no-op policy
         // leaves the candidate ordering unchanged.
-        ResourceGroupAffinityPolicy affinityPolicy = ResourceGroupAffinityPolicyFactory.get();
-        boolean affinity = isRepairSrcAffinityActive(affinityPolicy, destBackendId);
-        List<Replica> orderedCandidates = affinity
-                ? affinityPolicy.orderRepairSrcCandidates(candidates, destBackendId)
+        BackendSelectionPolicy selectionPolicy = BackendSelectionPolicyFactory.get();
+        boolean selectionEnabled = isRepairSourceSelectionEnabled(selectionPolicy, destBackendId);
+        List<Replica> orderedCandidates = selectionEnabled
+                ? selectionPolicy.orderRepairSourceCandidates(candidates, destBackendId)
                 : candidates;
         for (Replica srcReplica : orderedCandidates) {
             long replicaBeId = srcReplica.getBackendIdWithoutException();
@@ -690,19 +690,19 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
                 continue;
             }
             setSrc(srcReplica);
-            srcAffinityResult = affinity
-                    ? affinityPolicy.classifyRepairSrc(replicaBeId, destBackendId,
+            repairSourceSelectionResult = selectionEnabled
+                    ? selectionPolicy.classifyRepairSource(replicaBeId, destBackendId,
                             tablet.getReplicas(), candidates)
-                    : ResourceGroupAffinityPolicy.SrcAffinityResult.DISABLED;
+                    : BackendSelectionPolicy.RepairSourceSelectionResult.DISABLED;
             return;
         }
         throw new SchedException(Status.SCHEDULE_FAILED, SubCode.WAITING_SLOT,
                 "waiting for source replica's slot");
     }
 
-    static boolean isRepairSrcAffinityActive(ResourceGroupAffinityPolicy affinityPolicy, long destBackendId) {
-        return Config.enable_repair_src_replica_local_affinity
-                && affinityPolicy.isRepairSrcAffinityEnabled()
+    static boolean isRepairSourceSelectionEnabled(BackendSelectionPolicy selectionPolicy, long destBackendId) {
+        return Config.enable_repair_source_backend_selection
+                && selectionPolicy.isRepairSourceSelectionEnabled()
                 && destBackendId != -1;
     }
 

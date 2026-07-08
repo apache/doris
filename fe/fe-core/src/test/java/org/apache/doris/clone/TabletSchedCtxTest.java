@@ -31,7 +31,7 @@ import org.apache.doris.clone.TabletSchedCtx.Priority;
 import org.apache.doris.clone.TabletSchedCtx.Type;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.DebugPointUtil;
-import org.apache.doris.resource.ResourceGroupAffinityPolicy;
+import org.apache.doris.resource.BackendSelectionPolicy;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
 import org.apache.doris.utframe.TestWithFeService;
@@ -246,24 +246,24 @@ public class TabletSchedCtxTest extends TestWithFeService {
     }
 
     @Test
-    public void testRepairSrcAffinityConfigGate() {
-        boolean oldConfig = Config.enable_repair_src_replica_local_affinity;
+    public void testRepairSourceSelectionConfigGate() {
+        boolean oldConfig = Config.enable_repair_source_backend_selection;
         try {
-            ResourceGroupAffinityPolicy enabledPolicy = new ResourceGroupAffinityPolicy() {
+            BackendSelectionPolicy enabledPolicy = new BackendSelectionPolicy() {
                 @Override
-                public boolean isRepairSrcAffinityEnabled() {
+                public boolean isRepairSourceSelectionEnabled() {
                     return true;
                 }
             };
 
-            Config.enable_repair_src_replica_local_affinity = false;
-            Assertions.assertFalse(TabletSchedCtx.isRepairSrcAffinityActive(enabledPolicy, 1L));
+            Config.enable_repair_source_backend_selection = false;
+            Assertions.assertFalse(TabletSchedCtx.isRepairSourceSelectionEnabled(enabledPolicy, 1L));
 
-            Config.enable_repair_src_replica_local_affinity = true;
-            Assertions.assertTrue(TabletSchedCtx.isRepairSrcAffinityActive(enabledPolicy, 1L));
-            Assertions.assertFalse(TabletSchedCtx.isRepairSrcAffinityActive(enabledPolicy, -1L));
+            Config.enable_repair_source_backend_selection = true;
+            Assertions.assertTrue(TabletSchedCtx.isRepairSourceSelectionEnabled(enabledPolicy, 1L));
+            Assertions.assertFalse(TabletSchedCtx.isRepairSourceSelectionEnabled(enabledPolicy, -1L));
         } finally {
-            Config.enable_repair_src_replica_local_affinity = oldConfig;
+            Config.enable_repair_source_backend_selection = oldConfig;
         }
     }
 }

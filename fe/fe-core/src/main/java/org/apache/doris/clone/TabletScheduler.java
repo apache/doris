@@ -49,7 +49,7 @@ import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.persist.ReplicaPersistInfo;
-import org.apache.doris.resource.ResourceGroupAffinityPolicy.SrcAffinityResult;
+import org.apache.doris.resource.BackendSelectionPolicy.RepairSourceSelectionResult;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
@@ -1969,13 +1969,13 @@ public class TabletScheduler extends MasterDaemon {
         if (MetricRepo.COUNTER_CLONE_BYTES_CROSS_AZ != null) {
             MetricRepo.COUNTER_CLONE_BYTES_CROSS_AZ.increase(bytes);
         }
-        SrcAffinityResult result = tabletCtx.getSrcAffinityResult();
-        if (result == SrcAffinityResult.FALLBACK_SLOT_FULL) {
+        RepairSourceSelectionResult result = tabletCtx.getRepairSourceSelectionResult();
+        if (result == RepairSourceSelectionResult.FALLBACK_SLOT_FULL) {
             if (MetricRepo.COUNTER_CLONE_CROSS_AZ_SLOT_FULL != null) {
                 MetricRepo.COUNTER_CLONE_CROSS_AZ_SLOT_FULL.increase(bytes);
             }
-        } else if (result == SrcAffinityResult.FALLBACK_NO_LOCAL
-                || result == SrcAffinityResult.FALLBACK_LOCAL_UNHEALTHY) {
+        } else if (result == RepairSourceSelectionResult.FALLBACK_NO_PREFERRED
+                || result == RepairSourceSelectionResult.FALLBACK_PREFERRED_UNAVAILABLE) {
             if (MetricRepo.COUNTER_CLONE_CROSS_AZ_NO_LOCAL != null) {
                 MetricRepo.COUNTER_CLONE_CROSS_AZ_NO_LOCAL.increase(bytes);
             }

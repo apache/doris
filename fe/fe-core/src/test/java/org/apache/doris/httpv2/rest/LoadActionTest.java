@@ -22,7 +22,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.load.StreamLoadHandler;
-import org.apache.doris.resource.ResourceGroupAffinityPolicyFactory;
+import org.apache.doris.resource.BackendSelectionPolicyFactory;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -355,7 +355,7 @@ public class LoadActionTest {
     }
 
     @Test
-    public void testSelectCloudRedirectBackendIgnoresLoadAffinity() throws Exception {
+    public void testSelectCloudRedirectBackendIgnoresLoadSelection() throws Exception {
         LoadAction loadAction = new LoadAction();
         HttpServletRequest request = Mockito.mock(HttpServletRequest.class);
         Mockito.when(request.getHeader("host")).thenReturn("fe-host:8030");
@@ -364,11 +364,11 @@ public class LoadActionTest {
         Backend backend = mockBackend("be-host", 8040, null);
 
         try (MockedStatic<StreamLoadHandler> mockedStreamLoad = Mockito.mockStatic(StreamLoadHandler.class);
-                MockedStatic<ResourceGroupAffinityPolicyFactory> mockedAffinity =
-                        Mockito.mockStatic(ResourceGroupAffinityPolicyFactory.class)) {
+                MockedStatic<BackendSelectionPolicyFactory> mockedSelection =
+                        Mockito.mockStatic(BackendSelectionPolicyFactory.class)) {
             mockedStreamLoad.when(() -> StreamLoadHandler.selectBackend("cg1")).thenReturn(backend);
-            mockedAffinity.when(ResourceGroupAffinityPolicyFactory::get)
-                    .thenThrow(new AssertionError("cloud stream load redirect should not use load affinity"));
+            mockedSelection.when(BackendSelectionPolicyFactory::get)
+                    .thenThrow(new AssertionError("cloud stream load redirect should not use load selection"));
 
             TNetworkAddress addr = invokeSelectCloudRedirectBackend(loadAction, request, "cg1", false, -1L, null);
 

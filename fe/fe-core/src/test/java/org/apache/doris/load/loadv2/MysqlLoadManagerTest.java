@@ -20,7 +20,7 @@ package org.apache.doris.load.loadv2;
 import org.apache.doris.common.Config;
 import org.apache.doris.load.StreamLoadHandler;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.resource.ResourceGroupAffinityPolicyFactory;
+import org.apache.doris.resource.BackendSelectionPolicyFactory;
 import org.apache.doris.system.Backend;
 
 import org.junit.jupiter.api.AfterEach;
@@ -41,7 +41,7 @@ public class MysqlLoadManagerTest {
     }
 
     @Test
-    public void testSelectBackendForCloudMySqlLoadIgnoresLoadAffinity() throws Exception {
+    public void testSelectBackendForCloudMySqlLoadIgnoresLoadSelection() throws Exception {
         Config.cloud_unique_id = "cloud";
         ConnectContext context = new ConnectContext();
         context.setCloudCluster("cg1");
@@ -52,11 +52,11 @@ public class MysqlLoadManagerTest {
         Mockito.when(backend.getHttpPort()).thenReturn(8040);
 
         try (MockedStatic<StreamLoadHandler> mockedStreamLoad = Mockito.mockStatic(StreamLoadHandler.class);
-                MockedStatic<ResourceGroupAffinityPolicyFactory> mockedAffinity =
-                        Mockito.mockStatic(ResourceGroupAffinityPolicyFactory.class)) {
+                MockedStatic<BackendSelectionPolicyFactory> mockedSelection =
+                        Mockito.mockStatic(BackendSelectionPolicyFactory.class)) {
             mockedStreamLoad.when(() -> StreamLoadHandler.selectBackend("cg1")).thenReturn(backend);
-            mockedAffinity.when(ResourceGroupAffinityPolicyFactory::get)
-                    .thenThrow(new AssertionError("cloud mysql load should not use load affinity"));
+            mockedSelection.when(BackendSelectionPolicyFactory::get)
+                    .thenThrow(new AssertionError("cloud mysql load should not use load selection"));
 
             String url = invokeSelectBackendForMySqlLoad(manager, "db1", "tbl1");
 

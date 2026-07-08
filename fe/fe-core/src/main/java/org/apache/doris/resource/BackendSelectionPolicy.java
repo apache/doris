@@ -30,67 +30,65 @@ import java.util.function.Function;
 import java.util.function.Predicate;
 
 /**
- * SPI for resource-group (tag.location) affinity decisions.
+ * SPI for optional backend selection hints.
  * <p>
- * The public default is a pass-through no-op. Downstream builds may register a real implementation
- * via {@link java.util.ServiceLoader}; {@link ResourceGroupAffinityPolicyFactory} then selects it.
+ * The public default is a pass-through no-op. Extension builds may register an implementation
+ * via {@link java.util.ServiceLoader}; {@link BackendSelectionPolicyFactory} then selects it.
  */
-public interface ResourceGroupAffinityPolicy {
+public interface BackendSelectionPolicy {
 
     /** Observability classification of how a repair clone source was selected. */
-    enum SrcAffinityResult {
+    enum RepairSourceSelectionResult {
         DISABLED,
-        LOCAL_HIT,
-        FALLBACK_NO_LOCAL,
-        FALLBACK_LOCAL_UNHEALTHY,
+        PREFERRED_HIT,
+        FALLBACK_NO_PREFERRED,
+        FALLBACK_PREFERRED_UNAVAILABLE,
         FALLBACK_SLOT_FULL
     }
 
-    /** Whether repair-clone source affinity is active. Open-source no-op: always {@code false}. */
-    default boolean isRepairSrcAffinityEnabled() {
+    /** Whether repair-clone source selection is active. Open-source no-op: always {@code false}. */
+    default boolean isRepairSourceSelectionEnabled() {
         return false;
     }
 
     /**
-     * Reorder healthy clone-source candidates to prefer the same {@code tag.location} as the repair
-     * destination backend. Must be a <strong>stable</strong> reorder so the caller's existing
-     * version-based ordering is preserved within each tier, and must not drop candidates so that a
-     * same-AZ slot-full case still falls through to a cross-AZ source.
+     * Reorder healthy clone-source candidates while preserving the caller's existing ordering inside
+     * each implementation-defined tier. Implementations must not drop candidates.
      * <p>
      * Open-source no-op: returns {@code healthyCandidates} unchanged.
      */
-    default List<Replica> orderRepairSrcCandidates(List<Replica> healthyCandidates, long destBackendId) {
+    default List<Replica> orderRepairSourceCandidates(List<Replica> healthyCandidates, long destBackendId) {
         return healthyCandidates;
     }
 
     /**
-     * Classify which affinity tier the finally chosen source fell into, for observability.
-     * Open-source no-op: returns {@link SrcAffinityResult#DISABLED}.
+     * Classify which implementation-defined tier the finally chosen source fell into, for observability.
+     * Open-source no-op: returns {@link RepairSourceSelectionResult#DISABLED}.
      */
-    default SrcAffinityResult classifyRepairSrc(long chosenSrcBackendId, long destBackendId,
+    default RepairSourceSelectionResult classifyRepairSource(long chosenSrcBackendId, long destBackendId,
             List<Replica> allReplicas, List<Replica> healthyCandidates) {
-        return SrcAffinityResult.DISABLED;
+        return RepairSourceSelectionResult.DISABLED;
     }
 
-    default ResourceGroupAffinity.AffinityDecision decideForQuery(ConnectContext context) {
-        return ResourceGroupAffinity.AffinityDecision.noAffinity();
+    default BackendSelection.SelectionHint getQuerySelectionHint(ConnectContext context) {
+        return BackendSelection.SelectionHint.noSelection();
     }
 
-    default ResourceGroupAffinity.AffinityDecision decideForQuery(
+    default BackendSelection.SelectionHint getQuerySelectionHint(
             ConnectContext context, Set<Tag> allowedTags, boolean needCheckTags) {
-        return ResourceGroupAffinity.AffinityDecision.noAffinity();
+        return BackendSelection.SelectionHint.noSelection();
     }
 
-    default boolean hasEffectiveQueryAffinity(ResourceGroupAffinity.AffinityDecision decision) {
+    default boolean hasQuerySelectionPreference(BackendSelection.SelectionHint hint) {
         return false;
     }
 
     /**
-     * Optionally reorder query scan candidates before the existing scheduler chooses a backend.
-     * This is a placement hint: callers may still apply their normal load-balancing policy after
-     * this method. Implementations must not drop candidates.
+     * Optionally reorder query scan candidates before the existing scheduler chooses a backend. This
+     * is only a placement hint: callers may still apply their normal load-balancing policy after this
+     * method. Implementations must not drop candidates.
      */
-    default <T> List<T> applyQueryAffinity(ResourceGroupAffinity.AffinityDecision decision, List<T> candidates,
+    default <T> List<T> orderQueryCandidates(BackendSelection.SelectionHint hint, List<T> candidates,
             Function<T, Tag> beTagOf) throws UserException {
         return candidates;
     }
@@ -99,20 +97,20 @@ public interface ResourceGroupAffinityPolicy {
      * Optionally reorder only candidates that are otherwise tied by the caller's load-balancing
      * key. Implementations must preserve candidates outside the tied groups.
      */
-    default <T> List<T> applyQueryAffinityWithinTies(ResourceGroupAffinity.AffinityDecision decision,
+    default <T> List<T> orderTiedQueryCandidates(BackendSelection.SelectionHint hint,
             List<T> sortedCandidates, Comparator<T> tieKey, Function<T, Tag> beTagOf) throws UserException {
         return sortedCandidates;
     }
 
-    default boolean isLoadAffinityEnabled(ConnectContext context) {
+    default boolean isLoadSelectionEnabled(ConnectContext context) {
         return false;
     }
 
-    default List<Backend> orderLoadBackends(ConnectContext context, List<Backend> candidates) throws UserException {
+    default List<Backend> orderLoadCandidates(ConnectContext context, List<Backend> candidates) throws UserException {
         return candidates;
     }
 
-    default List<Backend> orderLoadBackends(ResourceGroupAffinity.AffinityDecision decision,
+    default List<Backend> orderLoadCandidates(BackendSelection.SelectionHint hint,
             List<Backend> candidates) throws UserException {
         return candidates;
     }
@@ -127,11 +125,11 @@ public interface ResourceGroupAffinityPolicy {
         return null;
     }
 
-    default boolean hasEffectiveLoadAffinity(ResourceGroupAffinity.AffinityDecision decision) {
+    default boolean hasLoadSelectionPreference(BackendSelection.SelectionHint hint) {
         return false;
     }
 
-    default Backend chooseLoadBackendWithAffinity(ConnectContext context, List<Backend> candidates)
+    default Backend chooseLoadBackend(ConnectContext context, List<Backend> candidates)
             throws LoadException {
         for (Backend backend : candidates) {
             if (backend.isLoadAvailable()) {
@@ -141,12 +139,11 @@ public interface ResourceGroupAffinityPolicy {
         return null;
     }
 
-    default ResourceGroupAffinity.AffinityDecision decideForLoad(ConnectContext context) {
+    default BackendSelection.SelectionHint getLoadSelectionHint(ConnectContext context) {
         return null;
     }
 
-    default ResourceGroupAffinity.AffinityDecision forwardedLoadDecision(String effectivePreferredGroup,
-            String policy) {
+    default BackendSelection.SelectionHint getForwardedLoadSelectionHint(String preferredKey, String mode) {
         return null;
     }
 }

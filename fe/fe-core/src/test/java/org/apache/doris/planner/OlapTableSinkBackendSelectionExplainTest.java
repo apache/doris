@@ -19,9 +19,9 @@ package org.apache.doris.planner;
 
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.resource.ResourceGroupAffinity;
-import org.apache.doris.resource.ResourceGroupAffinityPolicy;
-import org.apache.doris.resource.ResourceGroupAffinityPolicyFactory;
+import org.apache.doris.resource.BackendSelection;
+import org.apache.doris.resource.BackendSelectionPolicy;
+import org.apache.doris.resource.BackendSelectionPolicyFactory;
 
 import org.junit.Assert;
 import org.junit.Test;
@@ -30,40 +30,40 @@ import org.mockito.Mockito;
 
 import java.util.Collections;
 
-public class OlapTableSinkAffinityExplainTest {
+public class OlapTableSinkBackendSelectionExplainTest {
     @Test
-    public void testExplainSkipsLoadDecisionWhenLoadAffinityDisabled() {
+    public void testExplainSkipsLoadDecisionWhenLoadSelectionDisabled() {
         ConnectContext context = new ConnectContext();
         context.setThreadLocalInfo();
-        DisabledLoadAffinityPolicy policy = new DisabledLoadAffinityPolicy();
+        DisabledLoadSelectionPolicy policy = new DisabledLoadSelectionPolicy();
 
-        try (MockedStatic<ResourceGroupAffinityPolicyFactory> mockedFactory =
-                Mockito.mockStatic(ResourceGroupAffinityPolicyFactory.class)) {
-            mockedFactory.when(ResourceGroupAffinityPolicyFactory::get).thenReturn(policy);
+        try (MockedStatic<BackendSelectionPolicyFactory> mockedFactory =
+                Mockito.mockStatic(BackendSelectionPolicyFactory.class)) {
+            mockedFactory.when(BackendSelectionPolicyFactory::get).thenReturn(policy);
 
             OlapTableSink sink = new OlapTableSink(null, null, Collections.emptyList(), false);
             StringBuilder explain = new StringBuilder();
-            Deencapsulation.invoke(sink, "appendSinkAffinityExplain", explain, "");
+            Deencapsulation.invoke(sink, "appendSinkSelectionExplain", explain, "");
 
             Assert.assertEquals("", explain.toString());
-            Assert.assertEquals(0, policy.decideForLoadCalls);
+            Assert.assertEquals(0, policy.getLoadSelectionHintCalls);
         } finally {
             ConnectContext.remove();
         }
     }
 
-    private static final class DisabledLoadAffinityPolicy implements ResourceGroupAffinityPolicy {
-        private int decideForLoadCalls;
+    private static final class DisabledLoadSelectionPolicy implements BackendSelectionPolicy {
+        private int getLoadSelectionHintCalls;
 
         @Override
-        public boolean isLoadAffinityEnabled(ConnectContext context) {
+        public boolean isLoadSelectionEnabled(ConnectContext context) {
             return false;
         }
 
         @Override
-        public ResourceGroupAffinity.AffinityDecision decideForLoad(ConnectContext context) {
-            decideForLoadCalls++;
-            throw new AssertionError("load affinity decision should not be resolved when disabled");
+        public BackendSelection.SelectionHint getLoadSelectionHint(ConnectContext context) {
+            getLoadSelectionHintCalls++;
+            throw new AssertionError("load selection decision should not be resolved when disabled");
         }
     }
 }

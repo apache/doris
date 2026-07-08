@@ -230,9 +230,9 @@ public class InternalSchema {
                 ScalarType.createType(PrimitiveType.STRING), ColumnNullableType.NULLABLE));
         AUDIT_SCHEMA.add(new ColumnDef("compute_group",
                 ScalarType.createType(PrimitiveType.STRING), ColumnNullableType.NULLABLE));
-        AUDIT_SCHEMA.add(new ColumnDef("effective_preferred_resource_group",
+        AUDIT_SCHEMA.add(new ColumnDef("backend_selection_preferred_key",
                 ScalarType.createType(PrimitiveType.STRING), ColumnNullableType.NULLABLE));
-        AUDIT_SCHEMA.add(new ColumnDef("resource_group_select_policy",
+        AUDIT_SCHEMA.add(new ColumnDef("backend_selection_mode",
                 ScalarType.createType(PrimitiveType.STRING), ColumnNullableType.NULLABLE));
         // Keep stmt as last column. So that in fe.audit.log, it will be easier to get sql string
         AUDIT_SCHEMA.add(new ColumnDef("stmt",

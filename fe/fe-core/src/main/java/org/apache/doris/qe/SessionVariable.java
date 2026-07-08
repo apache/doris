@@ -24,6 +24,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.VariableAnnotation;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -41,7 +42,6 @@ import org.apache.doris.nereids.rules.rewrite.eageraggregation.EagerAggHints;
 import org.apache.doris.nereids.rules.rewrite.eageraggregation.EagerAggHints.Action;
 import org.apache.doris.planner.GroupCommitBlockSink;
 import org.apache.doris.qe.VarAttrDef.VarAttr;
-import org.apache.doris.resource.Tag;
 import org.apache.doris.thrift.TGroupCommitMode;
 import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 import org.apache.doris.thrift.TQueryOptions;
@@ -114,9 +114,9 @@ public class SessionVariable implements Serializable, Writable {
     public static final String SQL_MODE = "sql_mode";
     public static final String WORKLOAD_VARIABLE = "workload_group";
     public static final String RESOURCE_VARIABLE = "resource_group";
-    public static final String PREFERRED_RESOURCE_GROUP = "preferred_resource_group";
-    public static final String RESOURCE_GROUP_SELECT_POLICY = "resource_group_select_policy";
-    public static final String ENABLE_LOAD_LOCAL_AFFINITY = "enable_load_local_affinity";
+    public static final String PREFERRED_BACKEND_SELECTION_KEY = "preferred_backend_selection_key";
+    public static final String BACKEND_SELECTION_MODE = "backend_selection_mode";
+    public static final String ENABLE_LOAD_BACKEND_SELECTION = "enable_load_backend_selection";
     public static final String AUTO_COMMIT = "autocommit";
     public static final String TX_ISOLATION = "tx_isolation";
     public static final String TX_READ_ONLY = "tx_read_only";
@@ -1282,35 +1282,33 @@ public class SessionVariable implements Serializable, Writable {
     @VarAttrDef.VarAttr(name = RESOURCE_VARIABLE)
     public String resourceGroup = "";
 
-    @VarAttrDef.VarAttr(name = PREFERRED_RESOURCE_GROUP, needForward = true,
-            checker = "checkPreferredResourceGroup", description = {
-                "当前会话优选的 Resource Group。默认空字符串，表示不覆盖 FE 节点自身的 Resource Group。"
-                        + "非空时需满足 location tag 命名规则。",
-                "The preferred Resource Group for the current session. The default empty string means "
-                        + "do not override the FE node's own Resource Group. When non-empty, it must satisfy "
-                        + "the location tag naming rules."
+    @VarAttrDef.VarAttr(name = PREFERRED_BACKEND_SELECTION_KEY, needForward = true,
+            checker = "checkPreferredBackendSelectionKey", description = {
+                "当前会话优选的 Backend 选择 key。默认空字符串，表示不提供选择偏好。",
+                "The preferred backend selection key for the current session. The default empty string means "
+                        + "no selection preference is provided."
             })
-    public String preferredResourceGroup = "";
+    public String preferredBackendSelectionKey = "";
 
-    @VarAttrDef.VarAttr(name = RESOURCE_GROUP_SELECT_POLICY, needForward = true,
-            checker = "checkResourceGroupSelectPolicy",
-            setter = "setResourceGroupSelectPolicy",
-            options = {"prefer_local", "strict", "random"},
+    @VarAttrDef.VarAttr(name = BACKEND_SELECTION_MODE, needForward = true,
+            checker = "checkBackendSelectionMode",
+            setter = "setBackendSelectionMode",
+            options = {"prefer", "require", "default"},
             description = {
-                "Resource Group 副本选择策略，供 Resource Group affinity 扩展实现消费。默认公共实现为 no-op，"
-                        + "不会改变副本或 Backend 选择行为。可选值：`prefer_local`、`strict`、`random`。",
-                "Replica selection policy for Resource Group affinity extension implementations. The default public "
-                        + "implementation is a no-op and does not change replica or backend selection behavior. "
-                        + "Supported values are `prefer_local`, `strict`, and `random`."
+                "Backend 选择模式，供可选扩展实现消费。默认公共实现为 no-op，不会改变副本或 Backend 选择行为。"
+                        + "可选值：`prefer`、`require`、`default`。",
+                "Backend selection mode for optional extension implementations. The default public implementation "
+                        + "is a no-op and does not change replica or backend selection behavior. Supported values "
+                        + "are `prefer`, `require`, and `default`."
             })
-    public String resourceGroupSelectPolicy = "prefer_local";
+    public String backendSelectionMode = "prefer";
 
-    @VarAttrDef.VarAttr(name = ENABLE_LOAD_LOCAL_AFFINITY, needForward = true, description = {
-            "是否允许 Resource Group affinity 扩展实现参与导入调度。默认公共实现为 no-op，不改变导入行为。",
-            "Whether Resource Group affinity extension implementations may participate in load scheduling. "
+    @VarAttrDef.VarAttr(name = ENABLE_LOAD_BACKEND_SELECTION, needForward = true, description = {
+            "是否允许可选 Backend 选择扩展实现参与导入调度。默认公共实现为 no-op，不改变导入行为。",
+            "Whether optional backend selection extension implementations may participate in load scheduling. "
                     + "The default public implementation is a no-op and does not change load behavior."
     })
-    public boolean enableLoadLocalAffinity = false;
+    public boolean enableLoadBackendSelection = false;
 
     // this is used to make mysql client happy
     // autocommit is actually a boolean value, but @@autocommit is type of BIGINT.
@@ -4508,51 +4506,53 @@ public class SessionVariable implements Serializable, Writable {
         return resourceGroup;
     }
 
-    public String getPreferredResourceGroup() {
-        return preferredResourceGroup;
+    public String getPreferredBackendSelectionKey() {
+        return preferredBackendSelectionKey;
     }
 
-    public String getResourceGroupSelectPolicy() {
-        return resourceGroupSelectPolicy;
+    public String getBackendSelectionMode() {
+        return backendSelectionMode;
     }
 
-    public boolean isEnableLoadLocalAffinity() {
-        return enableLoadLocalAffinity;
+    public boolean isEnableLoadBackendSelection() {
+        return enableLoadBackendSelection;
     }
 
     public void setResourceGroup(String resourceGroup) {
         this.resourceGroup = resourceGroup;
     }
 
-    public void checkPreferredResourceGroup(String preferredResourceGroup) {
-        if (Strings.isNullOrEmpty(preferredResourceGroup)) {
+    public void checkPreferredBackendSelectionKey(String preferredBackendSelectionKey) {
+        if (Strings.isNullOrEmpty(preferredBackendSelectionKey)) {
             return;
         }
         try {
-            Tag.create(Tag.TYPE_LOCATION, preferredResourceGroup);
+            FeNameFormat.checkCommonName(PREFERRED_BACKEND_SELECTION_KEY, preferredBackendSelectionKey);
         } catch (Exception e) {
-            LOG.warn("preferred_resource_group value is invalid, the invalid value is {}", preferredResourceGroup, e);
-            throw new UnsupportedOperationException("preferred_resource_group value is invalid, the invalid value is "
-                    + preferredResourceGroup);
-        }
-    }
-
-    public void checkResourceGroupSelectPolicy(String resourceGroupSelectPolicy) {
-        String normalized = Strings.nullToEmpty(resourceGroupSelectPolicy).toLowerCase(Locale.ROOT);
-        if (!"prefer_local".equals(normalized)
-                && !"strict".equals(normalized)
-                && !"random".equals(normalized)) {
-            LOG.warn("resource_group_select_policy value is invalid, the invalid value is {}",
-                    resourceGroupSelectPolicy);
+            LOG.warn("preferred_backend_selection_key value is invalid, the invalid value is {}",
+                    preferredBackendSelectionKey, e);
             throw new UnsupportedOperationException(
-                    "resource_group_select_policy value is invalid, the invalid value is "
-                            + resourceGroupSelectPolicy
-                            + ", supported values are prefer_local, strict and random");
+                    "preferred_backend_selection_key value is invalid, the invalid value is "
+                            + preferredBackendSelectionKey);
         }
     }
 
-    public void setResourceGroupSelectPolicy(String resourceGroupSelectPolicy) {
-        this.resourceGroupSelectPolicy = Strings.nullToEmpty(resourceGroupSelectPolicy).toLowerCase(Locale.ROOT);
+    public void checkBackendSelectionMode(String backendSelectionMode) {
+        String normalized = Strings.nullToEmpty(backendSelectionMode).toLowerCase(Locale.ROOT);
+        if (!"prefer".equals(normalized)
+                && !"require".equals(normalized)
+                && !"default".equals(normalized)) {
+            LOG.warn("backend_selection_mode value is invalid, the invalid value is {}",
+                    backendSelectionMode);
+            throw new UnsupportedOperationException(
+                    "backend_selection_mode value is invalid, the invalid value is "
+                            + backendSelectionMode
+                            + ", supported values are prefer, require and default");
+        }
+    }
+
+    public void setBackendSelectionMode(String backendSelectionMode) {
+        this.backendSelectionMode = Strings.nullToEmpty(backendSelectionMode).toLowerCase(Locale.ROOT);
     }
 
     public boolean isDisableFileCache() {

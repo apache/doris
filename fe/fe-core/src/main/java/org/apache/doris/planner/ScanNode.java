@@ -110,7 +110,7 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
     protected List<Column> columns;
 
     // Save the id of backends which this scan node will be executed on.
-    // Iteration order is part of the semantics for point-query and affinity/local-shuffle consumers.
+    // Iteration order is part of the semantics for point-query and selection-sensitive consumers.
     // Now only OlapScanNode and FileQueryScanNode implement this.
     protected Set<Long> scanBackendIds = new LinkedHashSet<>();
     // Immutable scan context used for evolving scan-related metadata.
