@@ -134,6 +134,7 @@ suite("test_aggregate_all_functions2") {
         exception "percentile_reservoir level must be in [0, 1]"
         check { result, exception, startTime, endTime ->
             assertTrue(exception != null)
+            assertTrue(exception.toString().contains("percentile_reservoir level must be in [0, 1]"))
             assertFalse(exception.toString().contains("INTERNAL_ERROR"))
         }
     }

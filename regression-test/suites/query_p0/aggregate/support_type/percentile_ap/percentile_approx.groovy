@@ -91,6 +91,7 @@ suite("percentile_approx") {
         exception "percentile_approx quantile must be in [0, 1]"
         check { result, exception, startTime, endTime ->
             assertTrue(exception != null)
+            assertTrue(exception.toString().contains("percentile_approx quantile must be in [0, 1]"))
             assertFalse(exception.toString().contains("INTERNAL_ERROR"))
         }
     }

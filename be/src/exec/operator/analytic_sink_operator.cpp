@@ -24,6 +24,7 @@
 #include <cstdint>
 #include <string>
 
+#include "core/column/column_const.h"
 #include "exec/operator/operator.h"
 #include "exprs/vectorized_agg_fn.h"
 #include "runtime/runtime_state.h"
@@ -378,8 +379,16 @@ void AnalyticSinkLocalState::_execute_for_function(int64_t partition_start, int6
     // here is the core function, should not add timer
     for (size_t i = 0; i < _agg_functions_size; ++i) {
         std::vector<const IColumn*> agg_columns;
-        for (int j = 0; j < _agg_input_columns[i].size(); ++j) {
-            agg_columns.push_back(_agg_input_columns[i][j].get());
+        std::vector<ColumnPtr> const_columns;
+        const auto& always_const_argument_idx = _agg_functions[i]->always_const_argument_idx();
+        const_columns.resize(always_const_argument_idx.size());
+        for (size_t j = 0; j < _agg_input_columns[i].size(); ++j) {
+            const IColumn* column = _agg_input_columns[i][j].get();
+            if (j < always_const_argument_idx.size() && always_const_argument_idx[j]) {
+                const_columns[j] = ColumnConst::create(column->cut(0, 1), column->size());
+                column = const_columns[j].get();
+            }
+            agg_columns.push_back(column);
         }
         if constexpr (incremental) {
             _agg_functions[i]->execute_function_with_incremental(

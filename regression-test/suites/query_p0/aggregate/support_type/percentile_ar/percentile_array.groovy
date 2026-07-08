@@ -75,6 +75,7 @@ suite("percentile_array") {
         exception "percentile_array quantile should not be null"
         check { result, exception, startTime, endTime ->
             assertTrue(exception != null)
+            assertTrue(exception.toString().contains("percentile_array quantile should not be null"))
             assertFalse(exception.toString().contains("INTERNAL_ERROR"))
         }
     }

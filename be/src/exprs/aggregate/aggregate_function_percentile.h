@@ -212,8 +212,16 @@ public:
     }
 
     void check_input_columns_type(const IColumn** columns) const override {
+        const auto& const_argument_indexes = this->get_const_argument_indexes();
+        size_t const_argument_pos = 0;
         for (size_t i = 0; i < this->argument_types.size(); ++i) {
-            this->template check_const_argument_column_type<ColumnFloat64>(columns[i]);
+            if (const_argument_pos < const_argument_indexes.size() &&
+                const_argument_indexes[const_argument_pos] == i) {
+                this->template check_const_argument_column_type<ColumnFloat64>(columns[i]);
+                ++const_argument_pos;
+            } else {
+                this->template check_argument_column_type<ColumnFloat64>(columns[i]);
+            }
         }
     }
 };

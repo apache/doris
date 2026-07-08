@@ -650,9 +650,26 @@ public:
         }
         /// This container stores the columns we really pass to the nested function.
         std::vector<const IColumn*> nested_columns(number_of_arguments);
+        std::vector<ColumnPtr> nested_const_columns(number_of_arguments);
 
         for (size_t i = 0; i < number_of_arguments; ++i) {
             if (is_nullable[i]) {
+                if (const auto* const_column = check_and_get_column<ColumnConst>(*columns[i])) {
+                    const auto& nullable_col =
+                            assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(
+                                    const_column->get_data_column());
+                    if (nullable_col.is_null_at(0)) {
+                        return;
+                    }
+                    nested_const_columns[i] = ColumnConst::create(
+                            nullable_col.get_nested_column_ptr(), const_column->size());
+                    if (!this->always_const_argument_idx[i]) {
+                        nested_const_columns[i] =
+                                nested_const_columns[i]->convert_to_full_column_if_const();
+                    }
+                    nested_columns[i] = nested_const_columns[i].get();
+                    continue;
+                }
                 const auto& nullable_col =
                         assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(
                                 *columns[i]);

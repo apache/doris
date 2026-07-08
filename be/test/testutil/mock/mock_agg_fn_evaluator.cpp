@@ -70,6 +70,10 @@ AggFnEvaluator* create_agg_fn(ObjectPool& pool, const std::string& agg_fn_name,
     }
     mock_agg_fn_evaluator->_always_const_argument_idx.resize(
             mock_agg_fn_evaluator->_input_exprs_ctxs.size(), false);
+    for (auto index : mock_agg_fn_evaluator->_function->get_const_argument_indexes()) {
+        DCHECK_LT(index, mock_agg_fn_evaluator->_always_const_argument_idx.size());
+        mock_agg_fn_evaluator->_always_const_argument_idx[index] = true;
+    }
     mock_agg_fn_evaluator->_data_type = mock_agg_fn_evaluator->_function->get_return_type();
     return mock_agg_fn_evaluator;
 }
