@@ -75,10 +75,25 @@ public class MysqlAuthPacketCredentialExtractor {
         } catch (RuntimeException e) {
             return authResponse;
         }
-        if (oidcToken == null || oidcToken.length == 0 || payload.remaining() != 0 || !looksLikeJwt(oidcToken)) {
+        if (oidcToken == null || oidcToken.length == 0 || !isTrailingAllZero(payload) || !looksLikeJwt(oidcToken)) {
             return authResponse;
         }
         return oidcToken;
+    }
+
+    /**
+     * Some JDBC clients (e.g. mysql-connector-j 9.x) pre-allocate a buffer that may be
+     * larger than the actual string when sending strings, so the bytes on the wire can
+     * end with one or more zero bytes after the length-encoded payload. Treat such
+     * trailing zero bytes as harmless padding rather than rejecting the packet.
+     */
+    private static boolean isTrailingAllZero(ByteBuffer payload) {
+        while (payload.hasRemaining()) {
+            if (payload.get() != 0) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private static boolean looksLikeJwt(byte[] bytes) {
