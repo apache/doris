@@ -31,6 +31,8 @@ import java.io.File;
 import java.lang.reflect.Field;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 public class PaimonJniScannerTest {
     @Rule
@@ -91,6 +93,65 @@ public class PaimonJniScannerTest {
 
         scanner.close();
         Assert.assertFalse(spillDir.exists());
+    }
+
+    @Test
+    public void testStatisticsIncludePaimonDiagnostics() {
+        Map<String, String> params = createBaseParams();
+        params.put("paimon_split", "encoded-split");
+        params.put("paimon_predicate", "encoded-predicate");
+        params.put("paimon.file-reader-async-threshold", "10 MiB");
+        PaimonJniScanner scanner = new PaimonJniScanner(128, params);
+
+        Map<String, String> statistics = scanner.getStatistics();
+
+        Assert.assertEquals("0", statistics.get("counter:PaimonJniIOManagerEnabled"));
+        Assert.assertEquals("0", statistics.get("counter:PaimonJniRequiredFieldCount"));
+        Assert.assertEquals("13", statistics.get("counter:PaimonJniSplitEncodedLength"));
+        Assert.assertEquals("17", statistics.get("counter:PaimonJniPredicateEncodedLength"));
+        Assert.assertEquals("1", statistics.get("counter:PaimonJniAsyncThresholdConfigured"));
+        Assert.assertEquals(String.valueOf(10L * 1024L * 1024L),
+                statistics.get("bytes:PaimonJniAsyncThresholdBytes"));
+        Assert.assertTrue(statistics.containsKey("counter:PaimonJniAsyncReaderThreadCount"));
+        Assert.assertTrue(statistics.containsKey("counter:PaimonJniActiveScannerCount"));
+        Assert.assertTrue(statistics.containsKey("counter:PaimonJniReadBatchCalls"));
+        Assert.assertTrue(statistics.containsKey("timer:PaimonJniScannerOpenTime"));
+        Assert.assertTrue(statistics.containsKey("timer:PaimonJniReadBatchTime"));
+        Assert.assertTrue(Long.parseLong(statistics.get("bytes:PaimonJniJvmHeapUsed")) > 0);
+        Assert.assertTrue(Long.parseLong(statistics.get("bytes:PaimonJniJvmHeapCommitted")) > 0);
+    }
+
+    @Test
+    public void testCountThreadsByNamePrefix() throws Exception {
+        CountDownLatch started = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        Thread thread = new Thread(() -> {
+            started.countDown();
+            try {
+                release.await(30, TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }, "paimon-reader-async-thread-test");
+
+        thread.start();
+        try {
+            Assert.assertTrue(started.await(5, TimeUnit.SECONDS));
+            Assert.assertTrue(PaimonJniScanner.countThreadsByNamePrefix("paimon-reader-async-thread") >= 1);
+        } finally {
+            release.countDown();
+            thread.join(5000);
+        }
+    }
+
+    @Test
+    public void testParseDataSizeBytes() {
+        Assert.assertEquals(Long.valueOf(1024L), PaimonJniScanner.parseDataSizeBytes("1 KiB").get());
+        Assert.assertEquals(Long.valueOf(10L * 1024L * 1024L),
+                PaimonJniScanner.parseDataSizeBytes("10 MiB").get());
+        Assert.assertEquals(Long.valueOf(2L * 1024L * 1024L * 1024L),
+                PaimonJniScanner.parseDataSizeBytes("2GB").get());
+        Assert.assertFalse(PaimonJniScanner.parseDataSizeBytes("unknown").isPresent());
     }
 
     private Map<String, String> createBaseParams() {

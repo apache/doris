@@ -39,6 +39,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.lang.management.ManagementFactory;
+import java.lang.management.MemoryMXBean;
+import java.lang.management.MemoryUsage;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
 import java.nio.file.Files;
@@ -46,16 +49,25 @@ import java.nio.file.Paths;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.TimeZone;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
 public class PaimonJniScanner extends JniScanner {
     private static final Logger LOG = LoggerFactory.getLogger(PaimonJniScanner.class);
     private static final String HADOOP_OPTION_PREFIX = "hadoop.";
+    private static final String PAIMON_OPTION_PREFIX = "paimon.";
+    private static final String ASYNC_READER_THREAD_NAME_PREFIX = "paimon-reader-async-thread";
+    private static final String FILE_READER_ASYNC_THRESHOLD = "file-reader-async-threshold";
     static final String ENABLE_JNI_IO_MANAGER = "paimon.doris.enable_jni_io_manager";
     static final String JNI_IO_MANAGER_TMP_DIR = "paimon.doris.jni_io_manager.tmp_dir";
     static final String JNI_IO_MANAGER_IMPL_CLASS = "paimon.doris.jni_io_manager.impl_class";
+    private static final AtomicInteger ACTIVE_SCANNERS = new AtomicInteger();
+    private static final AtomicInteger PEAK_ACTIVE_SCANNERS = new AtomicInteger();
+    private static final AtomicInteger PEAK_ASYNC_READER_THREADS = new AtomicInteger();
 
     private final Map<String, String> params;
     private final Map<String, String> hadoopOptionParams;
@@ -71,6 +83,12 @@ public class PaimonJniScanner extends JniScanner {
     private RecordReader.RecordIterator<InternalRow> recordIterator = null;
     private final ClassLoader classLoader;
     private PreExecutionAuthenticator preExecutionAuthenticator;
+    private boolean scannerCounted;
+    private long openTimeNanos;
+    private long readBatchTimeNanos;
+    private long readBatchCalls;
+    private long emptyReadBatchCalls;
+    private long rowsRead;
 
     public PaimonJniScanner(int batchSize, Map<String, String> params) {
         this.classLoader = this.getClass().getClassLoader();
@@ -98,6 +116,8 @@ public class PaimonJniScanner extends JniScanner {
 
     @Override
     public void open() throws IOException {
+        markScannerOpenedForMetrics();
+        long startTime = System.nanoTime();
         try {
             // When the user does not specify hive-site.xml, Paimon will look for the file from the classpath:
             //    org.apache.paimon.hive.HiveCatalog.createHiveConf:
@@ -119,6 +139,8 @@ public class PaimonJniScanner extends JniScanner {
             }
             LOG.warn("Failed to open paimon_scanner: " + e.getMessage(), e);
             throw new RuntimeException(e);
+        } finally {
+            openTimeNanos += System.nanoTime() - startTime;
         }
     }
 
@@ -263,28 +285,32 @@ public class PaimonJniScanner extends JniScanner {
     @Override
     public void close() throws IOException {
         IOException exception = null;
-        if (reader != null) {
-            try {
-                reader.close();
-            } catch (IOException e) {
-                exception = e;
-            } finally {
-                reader = null;
-            }
-        }
-        if (ioManager != null) {
-            try {
-                ioManager.close();
-            } catch (Exception e) {
-                LOG.warn("Failed to close Paimon JNI IOManager, temp dirs: {}", ioManagerTempDirs, e);
-                if (exception == null) {
-                    exception = new IOException(e);
-                } else {
-                    exception.addSuppressed(e);
+        try {
+            if (reader != null) {
+                try {
+                    reader.close();
+                } catch (IOException e) {
+                    exception = e;
+                } finally {
+                    reader = null;
                 }
-            } finally {
-                ioManager = null;
             }
+            if (ioManager != null) {
+                try {
+                    ioManager.close();
+                } catch (Exception e) {
+                    LOG.warn("Failed to close Paimon JNI IOManager, temp dirs: {}", ioManagerTempDirs, e);
+                    if (exception == null) {
+                        exception = new IOException(e);
+                    } else {
+                        exception.addSuppressed(e);
+                    }
+                } finally {
+                    ioManager = null;
+                }
+            }
+        } finally {
+            markScannerClosedForMetrics();
         }
         if (exception != null) {
             throw exception;
@@ -295,7 +321,7 @@ public class PaimonJniScanner extends JniScanner {
         int rows = 0;
         try {
             if (recordIterator == null) {
-                recordIterator = reader.readBatch();
+                recordIterator = readBatchWithMetrics();
             }
 
             while (recordIterator != null) {
@@ -310,15 +336,23 @@ public class PaimonJniScanner extends JniScanner {
                         appendData(i, columnValue);
                     }
                     if (rows >= batchSize) {
+                        if (fields.length == 0) {
+                            vectorTable.appendVirtualData(rows);
+                        }
                         appendDataTime += System.nanoTime() - startTime;
+                        rowsRead += rows;
                         return rows;
                     }
                 }
                 appendDataTime += System.nanoTime() - startTime;
 
                 recordIterator.releaseBatch();
-                recordIterator = reader.readBatch();
+                recordIterator = readBatchWithMetrics();
             }
+            if (fields.length == 0 && rows > 0) {
+                vectorTable.appendVirtualData(rows);
+            }
+            rowsRead += rows;
         } catch (Exception e) {
             close();
             LOG.warn("Failed to get the next batch of paimon. "
@@ -327,6 +361,20 @@ public class PaimonJniScanner extends JniScanner {
             throw new IOException(e);
         }
         return rows;
+    }
+
+    private RecordReader.RecordIterator<InternalRow> readBatchWithMetrics() throws IOException {
+        long startTime = System.nanoTime();
+        try {
+            RecordReader.RecordIterator<InternalRow> iterator = reader.readBatch();
+            if (iterator == null) {
+                emptyReadBatchCalls++;
+            }
+            return iterator;
+        } finally {
+            readBatchCalls++;
+            readBatchTimeNanos += System.nanoTime() - startTime;
+        }
     }
 
     @Override
@@ -348,7 +396,149 @@ public class PaimonJniScanner extends JniScanner {
     public Map<String, String> getStatistics() {
         Map<String, String> statistics = new HashMap<>();
         statistics.put("counter:PaimonJniIOManagerEnabled", ioManager != null ? "1" : "0");
+        statistics.put("counter:PaimonJniActiveScannerCount", String.valueOf(ACTIVE_SCANNERS.get()));
+        statistics.put("counter:PaimonJniActiveScannerPeakCount", String.valueOf(PEAK_ACTIVE_SCANNERS.get()));
+        statistics.put("counter:PaimonJniAsyncReaderThreadCount",
+                String.valueOf(currentAsyncReaderThreadCount()));
+        statistics.put("counter:PaimonJniAsyncReaderThreadPeakCount",
+                String.valueOf(PEAK_ASYNC_READER_THREADS.get()));
+        statistics.put("counter:PaimonJniRequiredFieldCount", String.valueOf(fields.length));
+        statistics.put("counter:PaimonJniSplitEncodedLength", String.valueOf(lengthOfParam("paimon_split")));
+        statistics.put("counter:PaimonJniPredicateEncodedLength", String.valueOf(lengthOfParam("paimon_predicate")));
+        statistics.put("counter:PaimonJniAsyncThresholdConfigured",
+                hasPaimonOption(FILE_READER_ASYNC_THRESHOLD) ? "1" : "0");
+        parseDataSizeBytes(paimonOption(FILE_READER_ASYNC_THRESHOLD))
+                .ifPresent(bytes -> statistics.put("bytes:PaimonJniAsyncThresholdBytes", String.valueOf(bytes)));
+        statistics.put("counter:PaimonJniReadBatchCalls", String.valueOf(readBatchCalls));
+        statistics.put("counter:PaimonJniEmptyReadBatchCalls", String.valueOf(emptyReadBatchCalls));
+        statistics.put("counter:PaimonJniRowsRead", String.valueOf(rowsRead));
+        statistics.put("timer:PaimonJniScannerOpenTime", String.valueOf(openTimeNanos));
+        statistics.put("timer:PaimonJniReadBatchTime", String.valueOf(readBatchTimeNanos));
+        putMemoryStatistics(statistics);
         return statistics;
+    }
+
+    private int lengthOfParam(String key) {
+        String value = params.get(key);
+        return value == null ? 0 : value.length();
+    }
+
+    private boolean hasPaimonOption(String key) {
+        return paimonOption(key) != null;
+    }
+
+    private String paimonOption(String key) {
+        return params.get(PAIMON_OPTION_PREFIX + key);
+    }
+
+    private static void putMemoryStatistics(Map<String, String> statistics) {
+        MemoryMXBean memoryMXBean = ManagementFactory.getMemoryMXBean();
+        MemoryUsage heapUsage = memoryMXBean.getHeapMemoryUsage();
+        MemoryUsage nonHeapUsage = memoryMXBean.getNonHeapMemoryUsage();
+        statistics.put("bytes:PaimonJniJvmHeapUsed", String.valueOf(nonNegative(heapUsage.getUsed())));
+        statistics.put("bytes:PaimonJniJvmHeapCommitted", String.valueOf(nonNegative(heapUsage.getCommitted())));
+        statistics.put("bytes:PaimonJniJvmHeapMax", String.valueOf(nonNegative(heapUsage.getMax())));
+        statistics.put("bytes:PaimonJniJvmNonHeapUsed", String.valueOf(nonNegative(nonHeapUsage.getUsed())));
+        statistics.put("bytes:PaimonJniJvmNonHeapCommitted", String.valueOf(nonNegative(nonHeapUsage.getCommitted())));
+        statistics.put("bytes:PaimonJniJvmNonHeapMax", String.valueOf(nonNegative(nonHeapUsage.getMax())));
+    }
+
+    private static long nonNegative(long value) {
+        return Math.max(value, 0L);
+    }
+
+    private static int currentAsyncReaderThreadCount() {
+        int currentCount = countThreadsByNamePrefix(ASYNC_READER_THREAD_NAME_PREFIX);
+        updatePeak(PEAK_ASYNC_READER_THREADS, currentCount);
+        return currentCount;
+    }
+
+    static int countThreadsByNamePrefix(String threadNamePrefix) {
+        int count = 0;
+        for (Thread thread : Thread.getAllStackTraces().keySet()) {
+            if (thread.getName().startsWith(threadNamePrefix)) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    private void markScannerOpenedForMetrics() {
+        if (!scannerCounted) {
+            scannerCounted = true;
+            int currentCount = ACTIVE_SCANNERS.incrementAndGet();
+            updatePeak(PEAK_ACTIVE_SCANNERS, currentCount);
+        }
+    }
+
+    private void markScannerClosedForMetrics() {
+        if (scannerCounted) {
+            scannerCounted = false;
+            ACTIVE_SCANNERS.decrementAndGet();
+        }
+    }
+
+    private static void updatePeak(AtomicInteger peak, int value) {
+        int previous;
+        do {
+            previous = peak.get();
+            if (value <= previous) {
+                return;
+            }
+        } while (!peak.compareAndSet(previous, value));
+    }
+
+    static Optional<Long> parseDataSizeBytes(String value) {
+        if (value == null || value.trim().isEmpty()) {
+            return Optional.empty();
+        }
+        String normalized = value.trim().toLowerCase(Locale.ROOT).replace("_", "").replace(" ", "");
+        int unitStart = 0;
+        while (unitStart < normalized.length()
+                && (Character.isDigit(normalized.charAt(unitStart)) || normalized.charAt(unitStart) == '.')) {
+            unitStart++;
+        }
+        if (unitStart == 0) {
+            return Optional.empty();
+        }
+        try {
+            double number = Double.parseDouble(normalized.substring(0, unitStart));
+            String unit = normalized.substring(unitStart);
+            long multiplier;
+            switch (unit) {
+                case "":
+                case "b":
+                case "byte":
+                case "bytes":
+                    multiplier = 1L;
+                    break;
+                case "k":
+                case "kb":
+                case "kib":
+                    multiplier = 1024L;
+                    break;
+                case "m":
+                case "mb":
+                case "mib":
+                    multiplier = 1024L * 1024L;
+                    break;
+                case "g":
+                case "gb":
+                case "gib":
+                    multiplier = 1024L * 1024L * 1024L;
+                    break;
+                case "t":
+                case "tb":
+                case "tib":
+                    multiplier = 1024L * 1024L * 1024L * 1024L;
+                    break;
+                default:
+                    return Optional.empty();
+            }
+            return Optional.of((long) (number * multiplier));
+        } catch (NumberFormatException e) {
+            return Optional.empty();
+        }
     }
 
     private void initTable() {
