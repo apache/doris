@@ -117,6 +117,8 @@ public class PaimonJniScannerTest {
                 statistics.get("bytes_gauge:PaimonJniAsyncThresholdBytes"));
         Assert.assertTrue(statistics.containsKey("gauge:PaimonJniAsyncReaderThreadCount"));
         Assert.assertTrue(statistics.containsKey("gauge:PaimonJniActiveScannerCount"));
+        Assert.assertFalse(statistics.containsKey("peak:PaimonJniActiveScannerPeakCount"));
+        Assert.assertFalse(statistics.containsKey("peak:PaimonJniAsyncReaderThreadPeakCount"));
         Assert.assertTrue(statistics.containsKey("counter:PaimonJniReadBatchCalls"));
         Assert.assertTrue(statistics.containsKey("timer:PaimonJniScannerOpenTime"));
         Assert.assertTrue(statistics.containsKey("timer:PaimonJniReadBatchTime"));

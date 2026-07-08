@@ -70,8 +70,6 @@ public class PaimonJniScanner extends JniScanner {
     static final String JNI_IO_MANAGER_TMP_DIR = "paimon.doris.jni_io_manager.tmp_dir";
     static final String JNI_IO_MANAGER_IMPL_CLASS = "paimon.doris.jni_io_manager.impl_class";
     private static final AtomicInteger ACTIVE_SCANNERS = new AtomicInteger();
-    private static final AtomicInteger PEAK_ACTIVE_SCANNERS = new AtomicInteger();
-    private static final AtomicInteger PEAK_ASYNC_READER_THREADS = new AtomicInteger();
 
     private final Map<String, String> params;
     private final Map<String, String> hadoopOptionParams;
@@ -409,11 +407,8 @@ public class PaimonJniScanner extends JniScanner {
         Map<String, String> statistics = new HashMap<>();
         statistics.put("gauge:PaimonJniIOManagerEnabled", ioManager != null ? "1" : "0");
         statistics.put("gauge:PaimonJniActiveScannerCount", String.valueOf(ACTIVE_SCANNERS.get()));
-        statistics.put("peak:PaimonJniActiveScannerPeakCount", String.valueOf(PEAK_ACTIVE_SCANNERS.get()));
         statistics.put("gauge:PaimonJniAsyncReaderThreadCount",
                 String.valueOf(currentAsyncReaderThreadCount()));
-        statistics.put("peak:PaimonJniAsyncReaderThreadPeakCount",
-                String.valueOf(PEAK_ASYNC_READER_THREADS.get()));
         statistics.put("gauge:PaimonJniRequiredFieldCount", String.valueOf(fields.length));
         statistics.put("counter:PaimonJniSplitEncodedLength", String.valueOf(lengthOfParam("paimon_split")));
         statistics.put("counter:PaimonJniPredicateEncodedLength", String.valueOf(lengthOfParam("paimon_predicate")));
@@ -467,9 +462,7 @@ public class PaimonJniScanner extends JniScanner {
     }
 
     private static int currentAsyncReaderThreadCount() {
-        int currentCount = countThreadsByNamePrefix(ASYNC_READER_THREAD_NAME_PREFIX);
-        updatePeak(PEAK_ASYNC_READER_THREADS, currentCount);
-        return currentCount;
+        return countThreadsByNamePrefix(ASYNC_READER_THREAD_NAME_PREFIX);
     }
 
     static int countThreadsByNamePrefix(String threadNamePrefix) {
@@ -487,8 +480,7 @@ public class PaimonJniScanner extends JniScanner {
     private void markScannerOpenedForMetrics() {
         if (!scannerCounted) {
             scannerCounted = true;
-            int currentCount = ACTIVE_SCANNERS.incrementAndGet();
-            updatePeak(PEAK_ACTIVE_SCANNERS, currentCount);
+            ACTIVE_SCANNERS.incrementAndGet();
         }
     }
 
@@ -497,16 +489,6 @@ public class PaimonJniScanner extends JniScanner {
             scannerCounted = false;
             ACTIVE_SCANNERS.decrementAndGet();
         }
-    }
-
-    private static void updatePeak(AtomicInteger peak, int value) {
-        int previous;
-        do {
-            previous = peak.get();
-            if (value <= previous) {
-                return;
-            }
-        } while (!peak.compareAndSet(previous, value));
     }
 
     static Optional<Long> parseDataSizeBytes(String value) {
