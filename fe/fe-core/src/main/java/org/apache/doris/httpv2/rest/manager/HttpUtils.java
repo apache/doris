@@ -135,8 +135,7 @@ public class HttpUtils {
     }
 
     private static String executeRequest(HttpRequestBase request) throws IOException {
-        // Pick the client by this request's actual scheme, not the global enable_https flag,
-        // since this method also serves plain http:// BE calls.
+        // Pick client by this request's own scheme, since this method also serves plain http BE calls.
         boolean useHttpsClient = "https".equalsIgnoreCase(request.getURI().getScheme());
         try (CloseableHttpClient client = useHttpsClient
                 ? InternalHttpsUtils.createValidatedHttpClient()

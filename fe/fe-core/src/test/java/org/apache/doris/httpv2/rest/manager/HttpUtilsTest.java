@@ -30,8 +30,7 @@ import java.lang.reflect.Field;
 
 public class HttpUtilsTest {
 
-    // Port 1 refuses connections on loopback almost immediately, so these tests fail fast
-    // without needing a real HTTP(S) server.
+    // Port 1 refuses connections on loopback, so no real HTTP(S) server is needed.
     private static final String REFUSED_PORT_URL_HTTP = "http://127.0.0.1:1/ping";
     private static final String REFUSED_PORT_URL_HTTPS = "https://127.0.0.1:1/ping";
 
