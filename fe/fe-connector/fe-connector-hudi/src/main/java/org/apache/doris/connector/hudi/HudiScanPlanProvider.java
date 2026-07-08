@@ -32,6 +32,7 @@ import org.apache.hudi.common.engine.HoodieLocalEngineContext;
 import org.apache.hudi.common.model.BaseFile;
 import org.apache.hudi.common.model.HoodieBaseFile;
 import org.apache.hudi.common.model.HoodieLogFile;
+import org.apache.hudi.common.model.HoodieTableType;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.table.TableSchemaResolver;
 import org.apache.hudi.common.table.timeline.HoodieInstant;
@@ -75,10 +76,28 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
 
     private static final Logger LOG = LogManager.getLogger(HudiScanPlanProvider.class);
 
+    // The force_jni_scanner session flag (VariableMgr.toMap channel, read via
+    // ConnectorSession.getSessionProperties()). When true, the JNI escape hatch is engaged: a native-eligible
+    // slice is routed to the JNI reader (dodging native-reader bugs), matching legacy
+    // HudiScanNode.canUseNativeReader() / setScanParams (sessionVariable.isForceJniScanner()). Same key + read
+    // path as the paimon connector's FORCE_JNI_SCANNER. Default false, so normal reads are unaffected.
+    private static final String FORCE_JNI_SCANNER = "force_jni_scanner";
+
     private final Map<String, String> properties;
 
     public HudiScanPlanProvider(Map<String, String> properties) {
         this.properties = properties;
+    }
+
+    /**
+     * Reads the {@code force_jni_scanner} session flag from the SPI session properties. Package-private static
+     * for offline unit testing. Default false (legacy default) when unset or the session is null.
+     */
+    static boolean isForceJniScannerEnabled(ConnectorSession session) {
+        if (session == null) {
+            return false;
+        }
+        return Boolean.parseBoolean(session.getSessionProperties().get(FORCE_JNI_SCANNER));
     }
 
     @Override
@@ -89,13 +108,22 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
             Optional<ConnectorExpression> filter) {
         HudiTableHandle hudiHandle = (HudiTableHandle) handle;
         String basePath = hudiHandle.getBasePath();
-        boolean isCow = "COPY_ON_WRITE".equals(hudiHandle.getHudiTableType());
 
         Configuration conf = buildHadoopConf();
         HoodieTableMetaClient metaClient = HoodieTableMetaClient.builder()
                 .setConf(new org.apache.hudi.storage.hadoop.HadoopStorageConfiguration(conf))
                 .setBasePath(basePath)
                 .build();
+
+        // Determine COW vs MOR from the Hudi table config (authoritative), NOT the substring-detected handle
+        // type: an UNKNOWN detection must not silently pick the wrong read path for a COW table (detection
+        // hardening).
+        boolean isCow = metaClient.getTableType() == HoodieTableType.COPY_ON_WRITE;
+        // force_jni_scanner routes even a native-eligible read to the JNI reader (legacy
+        // HudiScanNode.canUseNativeReader() = !isForceJniScanner() && isCowTable), so a COW table under
+        // force_jni takes the merged-file-slice (JNI) path too.
+        boolean forceJni = isForceJniScannerEnabled(session);
+        boolean useNativeCowPath = isCow && !forceJni;
 
         HoodieTimeline timeline = metaClient.getCommitsAndCompactionTimeline()
                 .filterCompletedInstants();
@@ -144,13 +172,13 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
             Map<String, String> partValues = parsePartitionValues(
                     partitionPath, hudiHandle.getPartitionKeyNames());
 
-            if (isCow) {
+            if (useNativeCowPath) {
                 collectCowSplits(fsView, partitionPath, queryInstant,
                         basePath, partValues, ranges);
             } else {
                 collectMorSplits(fsView, partitionPath, queryInstant,
                         basePath, inputFormat, serdeLib,
-                        columnNames, columnTypes, partValues, ranges);
+                        columnNames, columnTypes, partValues, forceJni, ranges);
             }
         }
 
@@ -232,7 +260,7 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
             String partitionPath, String queryInstant,
             String basePath, String inputFormat, String serdeLib,
             List<String> columnNames, List<String> columnTypes,
-            Map<String, String> partValues,
+            Map<String, String> partValues, boolean forceJni,
             List<ConnectorScanRange> ranges) {
         fsView.getLatestMergedFileSlicesBeforeOrOn(partitionPath, queryInstant)
                 .forEach(fileSlice -> {
@@ -245,8 +273,9 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
                             .map(StoragePath::toString)
                             .collect(Collectors.toList());
 
-                    // Dynamic format decision: no logs → native reader
-                    boolean useNative = logs.isEmpty() && !filePath.isEmpty();
+                    // Dynamic format decision: no logs → native reader, UNLESS force_jni keeps it on JNI
+                    // (legacy HudiScanNode.setScanParams' !isForceJniScanner() guard on the no-log downgrade).
+                    boolean useNative = logs.isEmpty() && !filePath.isEmpty() && !forceJni;
                     String format = useNative ? detectFileFormat(filePath) : "jni";
 
                     // For log-only slices, use first log as agency path
@@ -259,7 +288,9 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
                             .length(fileSize)
                             .fileSize(fileSize)
                             .fileFormat(format)
-                            .partitionValues(partValues);
+                            .partitionValues(partValues)
+                            // Bake force_jni so populateRangeParams (no session) keeps this slice on JNI too.
+                            .forceJni(forceJni);
 
                     if (!useNative) {
                         // JNI reader needs full metadata

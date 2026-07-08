@@ -64,6 +64,12 @@ public class HudiScanRange implements ConnectorScanRange {
     private final List<String> deltaLogs;
     private final List<String> columnNames;
     private final List<String> columnTypes;
+    // When true (force_jni_scanner), the JNI escape hatch is engaged for this split: the no-delta-log native
+    // downgrade in populateRangeParams is suppressed so a native-eligible slice still reads via the JNI reader
+    // (dodging native-reader bugs). Baked in at plan time by HudiScanPlanProvider from the session flag, so
+    // populateRangeParams (which has no session) stays CONSISTENT with planScan's native/JNI branch. Legacy
+    // parity: HudiScanNode.setScanParams guards the same downgrade with !sessionVariable.isForceJniScanner().
+    private final boolean forceJni;
 
     private HudiScanRange(Builder builder) {
         this.path = builder.path;
@@ -104,6 +110,7 @@ public class HudiScanRange implements ConnectorScanRange {
         this.columnTypes = builder.columnTypes != null
                 ? Collections.unmodifiableList(new ArrayList<>(builder.columnTypes))
                 : Collections.emptyList();
+        this.forceJni = builder.forceJni;
     }
 
     @Override
@@ -165,9 +172,10 @@ public class HudiScanRange implements ConnectorScanRange {
 
         boolean isJni = "jni".equalsIgnoreCase(getFileFormat());
 
-        // Dynamic format downgrade: if JNI but no delta logs, use native reader
+        // Dynamic format downgrade: if JNI but no delta logs, use native reader — UNLESS force_jni is engaged
+        // (then keep the JNI reader, matching legacy HudiScanNode.setScanParams' !isForceJniScanner() guard).
         if (isJni) {
-            if (deltaLogs.isEmpty()) {
+            if (deltaLogs.isEmpty() && !forceJni) {
                 String dataFilePath = props.getOrDefault(
                         "hudi.data_file_path", "");
                 if (!dataFilePath.isEmpty()) {
@@ -249,6 +257,7 @@ public class HudiScanRange implements ConnectorScanRange {
         private List<String> deltaLogs;
         private List<String> columnNames;
         private List<String> columnTypes;
+        private boolean forceJni;
 
         public Builder path(String path) {
             this.path = path;
@@ -322,6 +331,11 @@ public class HudiScanRange implements ConnectorScanRange {
 
         public Builder columnTypes(List<String> columnTypes) {
             this.columnTypes = columnTypes;
+            return this;
+        }
+
+        public Builder forceJni(boolean forceJni) {
+            this.forceJni = forceJni;
             return this;
         }
 
