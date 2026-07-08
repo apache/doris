@@ -41,11 +41,15 @@ Stream-based binlog capture is implemented for IVM incremental refresh:
   `__doris_ivm_{mvId}_{baseTableName}` is auto-created for each base table.
 - `IvmDeltaRewriter.replaceWithDelta()` constructs `LogicalOlapTableStreamScan`
   with `OlapTableStreamWrapper`, flowing through stream → `RowBinlogTableWrapper` → binlog scan.
-- `dml_factor` is derived from `__DORIS_BINLOG_OP__`:
-  `ROW_BINLOG_APPEND(0)/UPDATE(1) → +1, DELETE(2) → -1`.
+- `dml_factor` is derived from `__DORIS_STREAM_CHANGE_TYPE__`:
+  `APPEND/UPDATE_AFTER → +1, DELETE/UPDATE_BEFORE → -1`.
 
-**TSO snapshot reads** (`scan.withTso(tso)`) are mocked — BE does not support TSO-based
-snapshot reads yet.
+Snapshot rewrite now uses two explicit logical forms:
+
+- pre snapshot: `LogicalOlapTableStreamScan` in snapshot mode (`stream@snapshot`)
+- post snapshot: ordinary `LogicalOlapScan`
+
+IVM no longer uses mock `scan.withTso(tso)` bindings in incremental refresh rewrite.
 
 ## Explain Refresh Plans
 
@@ -65,17 +69,17 @@ EXPLAIN LOGICAL PLAN PROCESS REFRESH MATERIALIZED VIEW mv_name COMPLETE;
 
 `EXPLAIN REFRESH` currently supports only `INCREMENTAL` and `COMPLETE`.
 
-## DML Factor from `__DORIS_BINLOG_OP__`
+## DML Factor from `__DORIS_STREAM_CHANGE_TYPE__`
 
 The `dml_factor` column (+1 for inserts/updates, −1 for deletes) drives all delta computations.
 It is derived in `IvmLinearDeltaHandler.buildDmlFactorExpr()`:
 
-- Reads the real `__DORIS_BINLOG_OP__` binlog column (type `BIGINT`):
-  - `ROW_BINLOG_APPEND(0)` or `ROW_BINLOG_UPDATE(1)` → `dml_factor = +1`
-  - `ROW_BINLOG_DELETE(2)` → `dml_factor = -1`
-- Expression: `IF(__DORIS_BINLOG_OP__ < 2, 1, -1)`
-- The `__DORIS_BINLOG_OP__` column is output by `LogicalOlapTableStreamScan.computeOutput()`
-  when `isIncrementalScan=true`, populated by the BE binlog scan via `RowBinlogTableWrapper`.
+- Reads `__DORIS_STREAM_CHANGE_TYPE__` from the incremental stream scan:
+  - `APPEND` or `UPDATE_AFTER` → `dml_factor = +1`
+  - `DELETE` or `UPDATE_BEFORE` → `dml_factor = -1`
+- Expression: `IF(change_type IN ('APPEND', 'UPDATE_AFTER'), 1, -1)`
+- The `__DORIS_STREAM_CHANGE_TYPE__` virtual column is output by
+  `LogicalOlapTableStreamScan.computeOutput()` when `isIncrementalScan=true`.
 
 ## Row ID Generation
 
@@ -94,7 +98,7 @@ IVM is not publicly available until October 2026. Before that date, there is no 
 ## Regression Test Guide: Binlog Operations
 
 When writing IVM regression tests, base tables should use MOW (Merge-on-Write unique key) tables
-for delete testing. The real binlog stream captures the `__DORIS_BINLOG_OP__` column automatically
+for delete testing. The real stream scan exposes the change-type metadata automatically
 — no mock column is needed in the base table schema.
 
 ### Base Table Setup
@@ -110,6 +114,7 @@ internal stream for each base table.
    the INCREMENTAL refresh (the partition must have new data for the refresh to run).
 3. When all rows of a group are deleted, the group-level count
    (`__DORIS_IVM_AGG_COUNT_COL__`) drops to 0, causing `DELETE_SIGN=1` in the MV.
-4. TSO snapshot reads are not yet supported by BE; snapshot scans are still mock
-   (read the full table). This means snapshot TSO bindings (`withTso(tso)`) are
-   placeholders and will produce correct results once BE support is added.
+4. Snapshot sides in incremental refresh are rewritten explicitly:
+   pre snapshot uses `stream@snapshot`, and post snapshot uses ordinary olap scan.
+   Regression cases should validate this logical shape instead of any table-level
+   TSO binding.
