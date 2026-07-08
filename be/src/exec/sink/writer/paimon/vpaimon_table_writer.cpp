@@ -23,16 +23,14 @@
 
 namespace doris {
 
-static constexpr const char* PAIMON_OUTPUT_COLUMN_NAMES_KEY =
-        "doris.output_column_names";
+static constexpr const char* PAIMON_OUTPUT_COLUMN_NAMES_KEY = "doris.output_column_names";
 static constexpr char PAIMON_COLUMN_NAME_SEPARATOR = '\x01';
 
 VPaimonTableWriter::VPaimonTableWriter(const TDataSink& t_sink,
-                                         const VExprContextSPtrs& output_exprs,
-                                         std::shared_ptr<Dependency> dep,
-                                         std::shared_ptr<Dependency> fin_dep)
-        : AsyncResultWriter(output_exprs, std::move(dep), std::move(fin_dep)),
-          _t_sink(t_sink) {
+                                       const VExprContextSPtrs& output_exprs,
+                                       std::shared_ptr<Dependency> dep,
+                                       std::shared_ptr<Dependency> fin_dep)
+        : AsyncResultWriter(output_exprs, std::move(dep), std::move(fin_dep)), _t_sink(t_sink) {
     DCHECK(_t_sink.__isset.paimon_table_sink);
 }
 
@@ -51,8 +49,7 @@ Status VPaimonTableWriter::open(RuntimeState* state, RuntimeProfile* profile) {
     _open_timer = ADD_TIMER(_operator_profile, "OpenTime");
     _close_timer = ADD_TIMER(_operator_profile, "CloseTime");
     _prepare_commit_timer = ADD_TIMER(_operator_profile, "PrepareCommitTime");
-    _serialize_commit_messages_timer =
-            ADD_TIMER(_operator_profile, "SerializeCommitMessagesTime");
+    _serialize_commit_messages_timer = ADD_TIMER(_operator_profile, "SerializeCommitMessagesTime");
     _commit_payload_count = ADD_COUNTER(_operator_profile, "CommitPayloadCount", TUnit::UNIT);
     _commit_payload_bytes_counter =
             ADD_COUNTER(_operator_profile, "CommitPayloadBytes", TUnit::BYTES);
@@ -61,8 +58,7 @@ Status VPaimonTableWriter::open(RuntimeState* state, RuntimeProfile* profile) {
     SCOPED_TIMER(_open_timer);
 
     // Create the backend via factory
-    RETURN_IF_ERROR(
-            PaimonWriteBackendFactory::create(_t_sink.paimon_table_sink, &_backend));
+    RETURN_IF_ERROR(PaimonWriteBackendFactory::create(_t_sink.paimon_table_sink, &_backend));
     RETURN_IF_ERROR(_backend->open(_t_sink.paimon_table_sink, state));
 
     // Create a single writer (the actual per-partition-bucket routing is
@@ -104,16 +100,14 @@ Status VPaimonTableWriter::write(RuntimeState* state, Block& block) {
 
     // If the block is already large enough, send it directly.
     // Otherwise, buffer it to reduce JNI call overhead.
-    if (output_block.rows() >= BATCH_MAX_ROWS ||
-        output_block.bytes() >= BATCH_MAX_BYTES) {
+    if (output_block.rows() >= BATCH_MAX_ROWS || output_block.bytes() >= BATCH_MAX_BYTES) {
         RETURN_IF_ERROR(_flush_buffer());
         return _write_projected_block(output_block);
     }
 
     // Check if appending would overflow the buffer
-    if (_buffered_rows > 0 &&
-        (_buffered_rows + output_block.rows() >= BATCH_MAX_ROWS ||
-         _buffered_bytes + output_block.bytes() >= BATCH_MAX_BYTES)) {
+    if (_buffered_rows > 0 && (_buffered_rows + output_block.rows() >= BATCH_MAX_ROWS ||
+                               _buffered_bytes + output_block.bytes() >= BATCH_MAX_BYTES)) {
         RETURN_IF_ERROR(_flush_buffer());
     }
 

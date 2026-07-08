@@ -35,8 +35,8 @@ class RuntimeState;
 // ────────────────────────────────────────────────────────────
 
 enum class PaimonBackendType {
-    JNI,  // Java SDK via JNI
-    FFI   // Rust via C FFI
+    JNI, // Java SDK via JNI
+    FFI  // Rust via C FFI
 };
 
 // ────────────────────────────────────────────────────────────
@@ -77,9 +77,8 @@ public:
     virtual Status commit(const std::vector<TPaimonCommitMessage>& messages) = 0;
 
     /// Commit in OVERWRITE mode, optionally scoped to static partitions.
-    virtual Status overwrite(
-            const std::vector<TPaimonCommitMessage>& messages,
-            const std::map<std::string, std::string>& static_partition) = 0;
+    virtual Status overwrite(const std::vector<TPaimonCommitMessage>& messages,
+                             const std::map<std::string, std::string>& static_partition) = 0;
 
     /// Truncate the entire table.
     virtual Status truncate_table() = 0;

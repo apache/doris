@@ -23,8 +23,8 @@ namespace doris {
 
 Status PaimonTableSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
-    _writer = std::make_shared<VPaimonTableWriter>(
-            info.tsink, _output_vexpr_ctxs, _dependency, _finish_dependency);
+    _writer = std::make_shared<VPaimonTableWriter>(info.tsink, _output_vexpr_ctxs, _dependency,
+                                                   _finish_dependency);
     return Status::OK();
 }
 

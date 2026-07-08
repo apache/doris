@@ -94,8 +94,7 @@ class JniPaimonWriter final : public IPaimonWriter {
 public:
     JniPaimonWriter(JNIEnv* env, jobject jni_writer_obj, jmethodID write_id,
                     jmethodID prepare_commit_id, jmethodID abort_id,
-                    std::unique_ptr<ArrowMemoryPool<>> arrow_pool,
-                    const TPaimonTableSink& sink);
+                    std::unique_ptr<ArrowMemoryPool<>> arrow_pool, const TPaimonTableSink& sink);
     ~JniPaimonWriter() override;
 
     Status write(RuntimeState* state, Block& block) override;

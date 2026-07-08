@@ -62,7 +62,7 @@ class RuntimeState;
 class VPaimonTableWriter final : public AsyncResultWriter {
 public:
     VPaimonTableWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs,
-                        std::shared_ptr<Dependency> dep, std::shared_ptr<Dependency> fin_dep);
+                       std::shared_ptr<Dependency> dep, std::shared_ptr<Dependency> fin_dep);
 
     ~VPaimonTableWriter() override = default;
 
@@ -100,7 +100,7 @@ private:
     std::unique_ptr<Block> _buffer;
     size_t _buffered_rows = 0;
     size_t _buffered_bytes = 0;
-    static constexpr size_t BATCH_MAX_ROWS = 32768;      // 32K rows
+    static constexpr size_t BATCH_MAX_ROWS = 32768;            // 32K rows
     static constexpr size_t BATCH_MAX_BYTES = 4 * 1024 * 1024; // 4 MB
 
     // Statistics

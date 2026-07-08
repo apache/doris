@@ -35,10 +35,8 @@ namespace doris {
 // JniPaimonWriteBackend
 // ────────────────────────────────────────────────────────────
 
-static constexpr const char* PAIMON_JNI_WRITER_CLASS =
-        "org/apache/doris/paimon/PaimonJniWriter";
-static constexpr const char* PAIMON_OUTPUT_COLUMN_NAMES_KEY =
-        "doris.output_column_names";
+static constexpr const char* PAIMON_JNI_WRITER_CLASS = "org/apache/doris/paimon/PaimonJniWriter";
+static constexpr const char* PAIMON_OUTPUT_COLUMN_NAMES_KEY = "doris.output_column_names";
 static constexpr char PAIMON_COLUMN_NAME_SEPARATOR = '\x01';
 
 JniPaimonWriteBackend::~JniPaimonWriteBackend() {
@@ -74,11 +72,10 @@ Status JniPaimonWriteBackend::_get_jni_env(JNIEnv** env) {
     return Status::OK();
 }
 
-Status JniPaimonWriteBackend::_check_jni_exception(JNIEnv* env,
-                                                    const std::string& method_name) {
+Status JniPaimonWriteBackend::_check_jni_exception(JNIEnv* env, const std::string& method_name) {
     if (env->ExceptionCheck()) {
-        Status st = Jni::Env::GetJniExceptionMsg(
-                env, true, "JNI exception in " + method_name + ": ");
+        Status st =
+                Jni::Env::GetJniExceptionMsg(env, true, "JNI exception in " + method_name + ": ");
         LOG(WARNING) << st.to_string();
         return st;
     }
@@ -100,13 +97,11 @@ static std::vector<std::string> _split_column_names(const std::string& column_na
     return names;
 }
 
-static jobject _to_java_options(JNIEnv* env,
-                                 const std::map<std::string, std::string>& options) {
+static jobject _to_java_options(JNIEnv* env, const std::map<std::string, std::string>& options) {
     jclass map_cls = env->FindClass("java/util/HashMap");
     jmethodID map_ctor = env->GetMethodID(map_cls, "<init>", "()V");
     jmethodID put_method = env->GetMethodID(
-            map_cls, "put",
-            "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;");
+            map_cls, "put", "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;");
 
     jobject map_obj = env->NewObject(map_cls, map_ctor);
     for (const auto& kv : options) {
@@ -131,15 +126,14 @@ Status JniPaimonWriteBackend::open(const TPaimonTableSink& sink, RuntimeState* s
     jclass local_cls = env->FindClass(PAIMON_JNI_WRITER_CLASS);
     RETURN_IF_ERROR(_check_jni_exception(env, "FindClass"));
     if (local_cls == nullptr) {
-        return Status::InternalError("Failed to find Java class: {}",
-                                     PAIMON_JNI_WRITER_CLASS);
+        return Status::InternalError("Failed to find Java class: {}", PAIMON_JNI_WRITER_CLASS);
     }
     _jni_writer_cls = static_cast<jclass>(env->NewGlobalRef(local_cls));
     env->DeleteLocalRef(local_cls);
 
     // Cache method IDs
     _open_id = env->GetMethodID(_jni_writer_cls, "open",
-                                 "(Ljava/lang/String;Ljava/util/Map;[Ljava/lang/String;)V");
+                                "(Ljava/lang/String;Ljava/util/Map;[Ljava/lang/String;)V");
     _write_id = env->GetMethodID(_jni_writer_cls, "write", "(JI)V");
     _prepare_commit_id = env->GetMethodID(_jni_writer_cls, "prepareCommit", "()[[B");
     _abort_id = env->GetMethodID(_jni_writer_cls, "abort", "()V");
@@ -176,8 +170,8 @@ Status JniPaimonWriteBackend::open(const TPaimonTableSink& sink, RuntimeState* s
     jclass string_cls = env->FindClass("java/lang/String");
     jobjectArray j_cols = nullptr;
     if (sink.__isset.column_names && !sink.column_names.empty()) {
-        j_cols = env->NewObjectArray(static_cast<jsize>(sink.column_names.size()),
-                                      string_cls, nullptr);
+        j_cols = env->NewObjectArray(static_cast<jsize>(sink.column_names.size()), string_cls,
+                                     nullptr);
         for (size_t i = 0; i < sink.column_names.size(); ++i) {
             jstring str = env->NewStringUTF(sink.column_names[i].c_str());
             env->SetObjectArrayElement(j_cols, static_cast<jsize>(i), str);
@@ -203,7 +197,7 @@ Status JniPaimonWriteBackend::open(const TPaimonTableSink& sink, RuntimeState* s
 }
 
 Status JniPaimonWriteBackend::create_writer(const std::string& partition_bytes, int32_t bucket,
-                                             std::unique_ptr<IPaimonWriter>* writer) {
+                                            std::unique_ptr<IPaimonWriter>* writer) {
     DCHECK(_opened) << "Backend must be opened before creating writers";
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(_get_jni_env(&env));
@@ -218,8 +212,7 @@ Status JniPaimonWriteBackend::create_writer(const std::string& partition_bytes, 
     return Status::OK();
 }
 
-Status JniPaimonWriteBackend::create_committer(
-        std::unique_ptr<IPaimonCommitter>* committer) {
+Status JniPaimonWriteBackend::create_committer(std::unique_ptr<IPaimonCommitter>* committer) {
     auto c = std::make_unique<JniPaimonCommitter>(_sink);
     *committer = std::move(c);
     return Status::OK();
@@ -229,11 +222,10 @@ Status JniPaimonWriteBackend::create_committer(
 // JniPaimonWriter
 // ────────────────────────────────────────────────────────────
 
-JniPaimonWriter::JniPaimonWriter(JNIEnv* env, jobject jni_writer_obj,
-                                   jmethodID write_id, jmethodID prepare_commit_id,
-                                   jmethodID abort_id,
-                                   std::unique_ptr<ArrowMemoryPool<>> arrow_pool,
-                                   const TPaimonTableSink& sink)
+JniPaimonWriter::JniPaimonWriter(JNIEnv* env, jobject jni_writer_obj, jmethodID write_id,
+                                 jmethodID prepare_commit_id, jmethodID abort_id,
+                                 std::unique_ptr<ArrowMemoryPool<>> arrow_pool,
+                                 const TPaimonTableSink& sink)
         : _env(env),
           _jni_writer_obj(jni_writer_obj),
           _write_id(write_id),
@@ -268,8 +260,8 @@ Status JniPaimonWriter::_write_projected_block(Block& block) {
     RETURN_IF_ERROR(get_arrow_schema_from_block(block, &arrow_schema, "UTC"));
 
     std::shared_ptr<arrow::RecordBatch> record_batch;
-    RETURN_IF_ERROR(convert_to_arrow_batch(block, arrow_schema, _arrow_pool.get(),
-                                            &record_batch, cctz::utc_time_zone()));
+    RETURN_IF_ERROR(convert_to_arrow_batch(block, arrow_schema, _arrow_pool.get(), &record_batch,
+                                           cctz::utc_time_zone()));
 
     auto out_stream_res = arrow::io::BufferOutputStream::Create();
     if (!out_stream_res.ok()) {
@@ -313,8 +305,8 @@ Status JniPaimonWriter::_write_projected_block(Block& block) {
     auto address = reinterpret_cast<jlong>(buffer->data());
     jint length = static_cast<jint>(buffer->size());
     env->CallVoidMethod(_jni_writer_obj, _write_id, address, length);
-    RETURN_IF_ERROR(Jni::Env::GetJniExceptionMsg(
-            env, false, "JNI exception in JniPaimonWriter::write: "));
+    RETURN_IF_ERROR(
+            Jni::Env::GetJniExceptionMsg(env, false, "JNI exception in JniPaimonWriter::write: "));
     return Status::OK();
 }
 
@@ -335,8 +327,7 @@ Status JniPaimonWriter::prepare_commit(std::vector<TPaimonCommitMessage>& messag
     }
 
     jobject j_payloads_obj = env->CallObjectMethod(_jni_writer_obj, _prepare_commit_id);
-    Status st = Jni::Env::GetJniExceptionMsg(
-            env, false, "JNI exception in prepareCommit: ");
+    Status st = Jni::Env::GetJniExceptionMsg(env, false, "JNI exception in prepareCommit: ");
     if (!st.ok()) {
         return st;
     }
@@ -349,8 +340,7 @@ Status JniPaimonWriter::prepare_commit(std::vector<TPaimonCommitMessage>& messag
     jsize num_payloads = env->GetArrayLength(j_payloads);
 
     for (jsize i = 0; i < num_payloads; ++i) {
-        jbyteArray j_bytes = static_cast<jbyteArray>(
-                env->GetObjectArrayElement(j_payloads, i));
+        jbyteArray j_bytes = static_cast<jbyteArray>(env->GetObjectArrayElement(j_payloads, i));
         if (j_bytes == nullptr) {
             continue;
         }
@@ -358,8 +348,7 @@ Status JniPaimonWriter::prepare_commit(std::vector<TPaimonCommitMessage>& messag
         if (len > 0) {
             jbyte* bytes = env->GetByteArrayElements(j_bytes, nullptr);
             if (bytes != nullptr) {
-                std::string payload(reinterpret_cast<char*>(bytes),
-                                    static_cast<size_t>(len));
+                std::string payload(reinterpret_cast<char*>(bytes), static_cast<size_t>(len));
                 TPaimonCommitMessage msg;
                 msg.__set_payload(payload);
                 messages.emplace_back(std::move(msg));
@@ -390,8 +379,7 @@ Status JniPaimonWriter::abort() {
         }
     }
     env->CallVoidMethod(_jni_writer_obj, _abort_id);
-    return Jni::Env::GetJniExceptionMsg(
-            env, true, "JNI exception in abort: ");
+    return Jni::Env::GetJniExceptionMsg(env, true, "JNI exception in abort: ");
 }
 
 // ────────────────────────────────────────────────────────────
@@ -419,28 +407,24 @@ Status JniPaimonCommitter::commit(const std::vector<TPaimonCommitMessage>& messa
     return _commit_impl(messages, false, nullptr);
 }
 
-Status JniPaimonCommitter::overwrite(
-        const std::vector<TPaimonCommitMessage>& messages,
-        const std::map<std::string, std::string>& static_partition) {
+Status JniPaimonCommitter::overwrite(const std::vector<TPaimonCommitMessage>& messages,
+                                     const std::map<std::string, std::string>& static_partition) {
     return _commit_impl(messages, true, &static_partition);
 }
 
 Status JniPaimonCommitter::truncate_table() {
-    return Status::NotSupported(
-            "truncate_table is handled by FE Coordinator");
+    return Status::NotSupported("truncate_table is handled by FE Coordinator");
 }
 
 Status JniPaimonCommitter::truncate_partitions(
         const std::vector<std::map<std::string, std::string>>& partitions) {
-    return Status::NotSupported(
-            "truncate_partitions is handled by FE Coordinator");
+    return Status::NotSupported("truncate_partitions is handled by FE Coordinator");
 }
 
 Status JniPaimonCommitter::abort(const std::vector<TPaimonCommitMessage>& messages) {
     // Abort is best-effort: delete the data files.
     // In the current architecture, FE handles abort through PaimonTransaction.
-    return Status::NotSupported(
-            "abort is handled by FE Coordinator");
+    return Status::NotSupported("abort is handled by FE Coordinator");
 }
 
 } // namespace doris

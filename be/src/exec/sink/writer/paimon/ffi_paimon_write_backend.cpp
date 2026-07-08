@@ -27,12 +27,11 @@ Status FfiPaimonWriteBackend::open(const TPaimonTableSink& sink, RuntimeState* s
 }
 
 Status FfiPaimonWriteBackend::create_writer(const std::string& partition_bytes, int32_t bucket,
-                                             std::unique_ptr<IPaimonWriter>* writer) {
+                                            std::unique_ptr<IPaimonWriter>* writer) {
     return Status::NotSupported("FFI backend: create_writer not yet implemented");
 }
 
-Status FfiPaimonWriteBackend::create_committer(
-        std::unique_ptr<IPaimonCommitter>* committer) {
+Status FfiPaimonWriteBackend::create_committer(std::unique_ptr<IPaimonCommitter>* committer) {
     return Status::NotSupported("FFI backend: create_committer not yet implemented");
 }
 

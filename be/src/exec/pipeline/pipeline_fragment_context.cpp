@@ -1376,8 +1376,8 @@ Status PipelineFragmentContext::_create_data_sink(ObjectPool* pool, const TDataS
         if (!thrift_sink.__isset.paimon_table_sink) {
             return Status::InternalError("Missing paimon table sink.");
         }
-        _sink = std::make_shared<PaimonTableSinkOperatorX>(pool, next_sink_operator_id(),
-                                                            row_desc, output_exprs);
+        _sink = std::make_shared<PaimonTableSinkOperatorX>(pool, next_sink_operator_id(), row_desc,
+                                                           output_exprs);
         break;
     }
     case TDataSinkType::JDBC_TABLE_SINK: {
@@ -2527,13 +2527,13 @@ void PipelineFragmentContext::_coordinator_callback(const ReportStatusRequest& r
     if (auto pcm = req.runtime_state->paimon_commit_messages(); !pcm.empty()) {
         params.__isset.paimon_commit_messages = true;
         params.paimon_commit_messages.insert(params.paimon_commit_messages.end(), pcm.begin(),
-                                              pcm.end());
+                                             pcm.end());
     } else if (!req.runtime_states.empty()) {
         for (auto* rs : req.runtime_states) {
             if (auto rs_pcm = rs->paimon_commit_messages(); !rs_pcm.empty()) {
                 params.__isset.paimon_commit_messages = true;
                 params.paimon_commit_messages.insert(params.paimon_commit_messages.end(),
-                                                      rs_pcm.begin(), rs_pcm.end());
+                                                     rs_pcm.begin(), rs_pcm.end());
             }
         }
     }

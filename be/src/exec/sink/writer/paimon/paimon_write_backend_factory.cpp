@@ -15,15 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "exec/sink/writer/paimon/paimon_write_backend.h"
-
 #include "exec/sink/writer/paimon/ffi_paimon_write_backend.h"
 #include "exec/sink/writer/paimon/jni_paimon_write_backend.h"
+#include "exec/sink/writer/paimon/paimon_write_backend.h"
 
 namespace doris {
 
 Status PaimonWriteBackendFactory::create(const TPaimonTableSink& sink,
-                                          std::unique_ptr<IPaimonWriteBackend>* backend) {
+                                         std::unique_ptr<IPaimonWriteBackend>* backend) {
     PaimonBackendType type = select_backend_type(sink);
 
     switch (type) {
@@ -36,12 +35,10 @@ Status PaimonWriteBackendFactory::create(const TPaimonTableSink& sink,
         return Status::OK();
     }
     }
-    return Status::InternalError("Unknown Paimon backend type: {}",
-                                 static_cast<int>(type));
+    return Status::InternalError("Unknown Paimon backend type: {}", static_cast<int>(type));
 }
 
-PaimonBackendType PaimonWriteBackendFactory::select_backend_type(
-        const TPaimonTableSink& sink) {
+PaimonBackendType PaimonWriteBackendFactory::select_backend_type(const TPaimonTableSink& sink) {
     // v1: Always use JNI backend.
     //
     // v2: When Rust FFI backend is ready, use the following logic:

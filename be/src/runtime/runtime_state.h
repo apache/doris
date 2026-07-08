@@ -548,11 +548,10 @@ public:
         return _paimon_commit_messages;
     }
 
-    void add_paimon_commit_messages(
-            const std::vector<TPaimonCommitMessage>& commit_messages) {
+    void add_paimon_commit_messages(const std::vector<TPaimonCommitMessage>& commit_messages) {
         std::lock_guard<std::mutex> lock(_paimon_commit_messages_mutex);
-        _paimon_commit_messages.insert(_paimon_commit_messages.end(),
-                                        commit_messages.begin(), commit_messages.end());
+        _paimon_commit_messages.insert(_paimon_commit_messages.end(), commit_messages.begin(),
+                                       commit_messages.end());
     }
 
     // local runtime filter mgr, the runtime filter do not have remote target or
