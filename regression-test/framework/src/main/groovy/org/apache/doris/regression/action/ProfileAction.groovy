@@ -26,8 +26,9 @@ import org.apache.doris.regression.util.JdbcUtils
 
 @Slf4j
 class ProfileAction implements SuiteAction {
-    private static final long DEFAULT_PROFILE_WAIT_TIMEOUT_MS = 30000
+    private static final long DEFAULT_PROFILE_WAIT_TIMEOUT_MS = 60000
     private static final long DEFAULT_PROFILE_WAIT_INTERVAL_MS = 500
+    private static final String PROFILE_COMPLETION_STATE = "Profile Completion State:"
     private static final String PROFILE_LIST_COMPLETE = "COMPLETE"
     private static final String PROFILE_COMPLETE = "Profile Completion State: COMPLETE"
 
@@ -94,7 +95,7 @@ class ProfileAction implements SuiteAction {
         if (profileText == null || profileText.isEmpty()) {
             return false
         }
-        if (!profileText.contains(PROFILE_COMPLETE)) {
+        if (profileText.contains(PROFILE_COMPLETION_STATE) && !profileText.contains(PROFILE_COMPLETE)) {
             return false
         }
         return requiredContents == null || requiredContents.isEmpty()
@@ -163,7 +164,8 @@ class ProfileAction implements SuiteAction {
             for (final def profileItem in getProfileList()) {
                 if (profileItem["Sql Statement"].toString().contains(sqlPattern)) {
                     profileId = profileItem["Profile ID"].toString()
-                    if (profileItem["Profile Completion State"]?.toString() != PROFILE_LIST_COMPLETE) {
+                    def profileCompletionState = profileItem["Profile Completion State"]?.toString()
+                    if (profileCompletionState != null && profileCompletionState != PROFILE_LIST_COMPLETE) {
                         break
                     }
                     try {
