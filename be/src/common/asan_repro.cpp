@@ -284,7 +284,7 @@ void real_path_sweep(int port) {
                       st.to_string().c_str());
             continue;
         }
-        real_rpc_attempt(&client);  // poison: real TTransportException from libthrift
+        real_rpc_attempt(&client); // poison: real TTransportException from libthrift
         stuff_pending_bytes(&client);
         padded_close(&client, pad); // Jira crash site: close -> flush -> getSocketInfo
         // ~ThriftClient runs close() again: one more shot at a slightly
@@ -316,36 +316,40 @@ void repro_thread_body() {
 
     ProbeResult control;
     run_scenario(false, &control);
-    repro_log("[ASAN-REPRO] part1 control (throw from INSTRUMENTED code):   %d/%d probe frames "
-              "on stale poison, first level=%d addr=%p\n",
-              control.poisoned_levels, kProbeDepth, control.first_poisoned_level,
-              control.first_poisoned_addr);
+    repro_log(
+            "[ASAN-REPRO] part1 control (throw from INSTRUMENTED code):   %d/%d probe frames "
+            "on stale poison, first level=%d addr=%p\n",
+            control.poisoned_levels, kProbeDepth, control.first_poisoned_level,
+            control.first_poisoned_addr);
 
     ProbeResult test;
     run_scenario(true, &test);
-    repro_log("[ASAN-REPRO] part1 test    (throw from UN-INSTRUMENTED code): %d/%d probe frames "
-              "on stale poison, first level=%d addr=%p\n",
-              test.poisoned_levels, kProbeDepth, test.first_poisoned_level,
-              test.first_poisoned_addr);
+    repro_log(
+            "[ASAN-REPRO] part1 test    (throw from UN-INSTRUMENTED code): %d/%d probe frames "
+            "on stale poison, first level=%d addr=%p\n",
+            test.poisoned_levels, kProbeDepth, test.first_poisoned_level, test.first_poisoned_addr);
     if (test.poisoned_levels > 0) {
-        repro_log("[ASAN-REPRO] part1 verdict: stale stack shadow poison CONFIRMED after an "
-                  "un-instrumented throw. Expecting part2 to crash at the Jira stack site.\n");
+        repro_log(
+                "[ASAN-REPRO] part1 verdict: stale stack shadow poison CONFIRMED after an "
+                "un-instrumented throw. Expecting part2 to crash at the Jira stack site.\n");
     } else {
-        repro_log("[ASAN-REPRO] part1 verdict: no stale poison detected. Running part2 as "
-                  "confirmation; it should survive.\n");
+        repro_log(
+                "[ASAN-REPRO] part1 verdict: no stale poison detected. Running part2 as "
+                "confirmation; it should survive.\n");
     }
 
 #if defined(__linux__)
     DeadPeerServer server;
     if (server.start()) {
-        repro_log("[ASAN-REPRO] part2: dead-peer FE listening on 127.0.0.1:%d, driving the real "
-                  "path: report() fails -> ThriftClientImpl::close() -> TBufferedTransport::"
-                  "close/flush -> TSocket::write_partial -> getSocketInfo()\n"
-                  "[ASAN-REPRO] part2: a crash below with frames like the Jira stacks IS the "
-                  "expected POSITIVE result, e.g.\n"
-                  "[ASAN-REPRO]   AddressSanitizer: CHECK failed: asan_thread.cpp:... "
-                  "\"((ptr[0] == kCurrentStackFrameMagic)) != (0)\" (0x0, 0x0)\n",
-                  server.port());
+        repro_log(
+                "[ASAN-REPRO] part2: dead-peer FE listening on 127.0.0.1:%d, driving the real "
+                "path: report() fails -> ThriftClientImpl::close() -> TBufferedTransport::"
+                "close/flush -> TSocket::write_partial -> getSocketInfo()\n"
+                "[ASAN-REPRO] part2: a crash below with frames like the Jira stacks IS the "
+                "expected POSITIVE result, e.g.\n"
+                "[ASAN-REPRO]   AddressSanitizer: CHECK failed: asan_thread.cpp:... "
+                "\"((ptr[0] == kCurrentStackFrameMagic)) != (0)\" (0x0, 0x0)\n",
+                server.port());
         real_path_sweep(server.port());
         server.stop();
         repro_log("[ASAN-REPRO] part2: sweep finished WITHOUT crashing.\n");
@@ -357,19 +361,22 @@ void repro_thread_body() {
 #endif
 
     if (test.poisoned_levels == 0) {
-        repro_log("[ASAN-REPRO] RESULT: NEGATIVE - no stale stack shadow poison after an "
-                  "un-instrumented throw and the real path survived. The bug is NOT present in "
-                  "this build (fixed, or the link layout changed). BE continues to start.\n");
+        repro_log(
+                "[ASAN-REPRO] RESULT: NEGATIVE - no stale stack shadow poison after an "
+                "un-instrumented throw and the real path survived. The bug is NOT present in "
+                "this build (fixed, or the link layout changed). BE continues to start.\n");
         return;
     }
 
-    repro_log("[ASAN-REPRO] part3: real path survived although poison exists (alignment luck); "
-              "triggering the synthetic crash site via an intercepted memset() instead.\n"
-              "[ASAN-REPRO] expected: AddressSanitizer: CHECK failed: asan_thread.cpp:... "
-              "\"((ptr[0] == kCurrentStackFrameMagic)) != (0)\" (0x0, 0x0)\n");
+    repro_log(
+            "[ASAN-REPRO] part3: real path survived although poison exists (alignment luck); "
+            "triggering the synthetic crash site via an intercepted memset() instead.\n"
+            "[ASAN-REPRO] expected: AddressSanitizer: CHECK failed: asan_thread.cpp:... "
+            "\"((ptr[0] == kCurrentStackFrameMagic)) != (0)\" (0x0, 0x0)\n");
     asan_repro::descend_and_boom(0, kProbeDepth);
-    repro_log("[ASAN-REPRO] UNEXPECTED: part3 returned without crashing although stale poison "
-              "was found. Please report this output.\n");
+    repro_log(
+            "[ASAN-REPRO] UNEXPECTED: part3 returned without crashing although stale poison "
+            "was found. Please report this output.\n");
 }
 
 } // namespace
@@ -379,13 +386,14 @@ void run_asan_stale_poison_repro() {
         repro_log("[ASAN-REPRO] disabled by DORIS_DISABLE_ASAN_REPRO\n");
         return;
     }
-    repro_log("[ASAN-REPRO] ==============================================================\n"
-              "[ASAN-REPRO] Deliberate reproducer for the ASAN stale-stack-poison BE crash\n"
-              "[ASAN-REPRO] (thrift reopen / glog LOG(WARNING) cores: QA-202, DORIS-1073,\n"
-              "[ASAN-REPRO] DORIS-15154, google/glog#978, google/sanitizers#1010).\n"
-              "[ASAN-REPRO] Root cause analysis: asan-glog-rca.md in the repository root.\n"
-              "[ASAN-REPRO] A crash right below IS the expected POSITIVE result.\n"
-              "[ASAN-REPRO] ==============================================================\n");
+    repro_log(
+            "[ASAN-REPRO] ==============================================================\n"
+            "[ASAN-REPRO] Deliberate reproducer for the ASAN stale-stack-poison BE crash\n"
+            "[ASAN-REPRO] (thrift reopen / glog LOG(WARNING) cores: QA-202, DORIS-1073,\n"
+            "[ASAN-REPRO] DORIS-15154, google/glog#978, google/sanitizers#1010).\n"
+            "[ASAN-REPRO] Root cause analysis: asan-glog-rca.md in the repository root.\n"
+            "[ASAN-REPRO] A crash right below IS the expected POSITIVE result.\n"
+            "[ASAN-REPRO] ==============================================================\n");
     // A dedicated thread gives a pristine stack, which makes the layout (and
     // therefore the reproduction) deterministic.
     std::thread t(repro_thread_body);
