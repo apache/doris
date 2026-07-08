@@ -43,7 +43,6 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
-import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -80,13 +79,13 @@ import java.util.function.Predicate;
  * Entry point for IVM delta rewriting.
  *
  * <h3>Multi-bundle generation</h3>
- * <p>The rewriter generates one bundle per OlapScan that has pending delta data
- * ({@code consumedTso != latestTso}). OlapScans belonging to excluded trigger tables
- * are skipped entirely (assumed unchanged). For the i-th delta scan Si:
+ * <p>The rewriter generates one bundle per OlapScan whose stream has pending data.
+ * OlapScans belonging to excluded trigger tables are skipped entirely (assumed unchanged).
+ * For the i-th delta scan Si:
  * <ul>
  *   <li>Si → {@link #replaceWithDelta} (LogicalOlapTableStreamScan as delta source)</li>
- *   <li>Sj where j &lt; i → {@code Sj.withTso(latestTso)} (v2, post-delta snapshot)</li>
- *   <li>Sj where j &gt; i → {@code Sj.withTso(consumedTso)} (v1, pre-delta snapshot)</li>
+ *   <li>Sj where j &lt; i → post-refresh snapshot ({@code scan.withPostSnapshot()})</li>
+ *   <li>Sj where j &gt; i → pre-refresh snapshot ({@code scan.withPreSnapshot(stream)})</li>
  * </ul>
  *
  * <p>Both the collection pass and the replacement pass use
@@ -269,17 +268,17 @@ public class IvmDeltaRewriter {
 
     /**
      * Generates delta plans from the normalized plan by replacing each pending-delta
-     * OlapScan with its delta source and binding TSO snapshots on other scans.
+     * OlapScan with its delta source and rewriting other scans to pre/post snapshots.
      * Returns one plan per OlapScan that has pending delta data.
      *
      * <p>For the i-th delta scan Si in the collected scan list:
      * <ul>
      *   <li>Si is replaced with its delta source (LogicalOlapTableStreamScan)</li>
-     *   <li>Sj where j &lt; i gets bound to latestTso (v2, post-delta snapshot)</li>
-     *   <li>Sj where j &gt; i gets bound to consumedTso (v1, pre-delta snapshot)</li>
+     *   <li>Sj where j &lt; i becomes a post-refresh snapshot scan</li>
+     *   <li>Sj where j &gt; i becomes a pre-refresh snapshot scan</li>
      * </ul>
      *
-     * @return list of plans with TSO bindings, or empty if all scans are up-to-date
+     * @return list of delta plans, or empty if all streams are up-to-date
      */
     List<Plan> generateDeltaPlans(Plan normalizedPlan,
             IvmRefreshContext ctx,
@@ -303,7 +302,7 @@ public class IvmDeltaRewriter {
             IvmRefreshContext ctx,
             Predicate<LogicalOlapScan> isExcluded,
             boolean includeUpToDateStreams, long mvId) {
-        List<DeltaScanContext> scanContexts = collectDeltaScanContexts(normalizedPlan, ctx, isExcluded);
+        List<DeltaScanContext> scanContexts = collectDeltaScanContexts(normalizedPlan, ctx, isExcluded, mvId);
         if (scanContexts.isEmpty()) {
             return Collections.emptyList();
         }
@@ -322,7 +321,7 @@ public class IvmDeltaRewriter {
 
     private List<DeltaScanContext> collectDeltaScanContexts(Plan normalizedPlan,
             IvmRefreshContext ctx,
-            Predicate<LogicalOlapScan> isExcluded) {
+            Predicate<LogicalOlapScan> isExcluded, long mvId) {
         List<LogicalOlapScan> allScans = new ArrayList<>();
         List<TableNameInfo> tableNames = new ArrayList<>();
         Map<TableNameInfo, Integer> occurrences = new HashMap<>();
@@ -345,13 +344,12 @@ public class IvmDeltaRewriter {
             return Collections.emptyList();
         }
 
-        // TODO: Compute consumedTso/latestTso from OlapTableStream.getStreamUpdate()
-        // once streams are auto-created (Phase 1). For now use placeholder values.
         List<DeltaScanContext> contexts = new ArrayList<>();
         for (int i = 0; i < allScans.size(); i++) {
-            // Placeholder: stream.getStreamUpdate(partitionId) → (consumed, latest)
+            LogicalOlapScan scan = allScans.get(i);
+            OlapTableStream stream = getStream((OlapTable) scan.getTable(), mvId);
             contexts.add(new DeltaScanContext(tableNames.get(i),
-                    occurrenceIndexes.get(i), 0L, Long.MAX_VALUE));
+                    occurrenceIndexes.get(i), stream, hasPendingData(stream, scan.getSelectedPartitionIds())));
         }
         return contexts;
     }
@@ -365,11 +363,11 @@ public class IvmDeltaRewriter {
             int currentIndex = scanIdx.getAndIncrement();
             DeltaScanContext ctx = scanContexts.get(currentIndex);
             if (currentIndex == deltaIndex) {
-                return replaceWithDelta(scan, ctx, mvId);
+                return replaceWithDelta(scan, ctx);
             } else if (currentIndex < deltaIndex) {
-                return scan.withTso(ctx.latestTso);
+                return helper.remapScanOutput(scan, (LogicalPlan) scan.withPostSnapshot());
             } else {
-                return scan.withTso(ctx.consumedTso);
+                return helper.remapScanOutput(scan, (LogicalPlan) scan.withPreSnapshot(Optional.of(ctx.stream)));
             }
         });
 
@@ -415,14 +413,28 @@ public class IvmDeltaRewriter {
      *
      * <p>Project output = base columns (mapped to old ExprId) + stream-only columns (passthrough).
      */
-    private Plan replaceWithDelta(LogicalOlapScan scan, DeltaScanContext ctx, long mvId) {
-        LogicalOlapTableStreamScan streamScan = createStreamScan(scan, mvId);
-        return replaceOlapScanWithStreamScan(scan, streamScan);
+    private boolean hasPendingData(OlapTableStream stream, List<Long> partitionIds) {
+        OlapTable baseTable = stream.getBaseTableNullable();
+        if (baseTable == null) {
+            throw new IvmException(IvmFailureReason.PLAN_REWRITE_FAILED,
+                    "IVM: stream base table is null for stream " + stream.getName());
+        }
+        for (Long partitionId : partitionIds) {
+            if (baseTable.getPartition(partitionId) != null
+                    && stream.hasData(baseTable.getPartition(partitionId))) {
+                return true;
+            }
+        }
+        return false;
     }
 
-    private LogicalOlapTableStreamScan createStreamScan(LogicalOlapScan scan, long mvId) {
+    private Plan replaceWithDelta(LogicalOlapScan scan, DeltaScanContext ctx) {
+        LogicalOlapTableStreamScan streamScan = createStreamScan(scan, ctx.stream);
+        return helper.remapScanOutput(scan, streamScan);
+    }
+
+    private LogicalOlapTableStreamScan createStreamScan(LogicalOlapScan scan, OlapTableStream stream) {
         OlapTable originTable = (OlapTable) scan.getTable();
-        OlapTableStream stream = getStream(originTable, mvId);
         OlapTableStreamWrapper streamWrapper = new OlapTableStreamWrapper(
                 stream, originTable, scan.getSelectedPartitionIds());
         return new LogicalOlapTableStreamScan(
@@ -435,47 +447,6 @@ public class IvmDeltaRewriter {
                 scan.getTableSample(),
                 scan.getOperativeSlots()
         ).withIncrementalScan(true);
-    }
-
-    /**
-     * Wraps the StreamScan with a Project that maps base column slots back to
-     * the old OlapScan ExprIds so parent expressions are not broken.
-     *
-     * <p>Project expressions:
-     * <ul>
-     *   <li>Base columns (same name in both): {@code Alias(oldExprId, streamSlot, name)}</li>
-     *   <li>Stream-only columns (e.g. seq, changeType): passthrough as raw SlotReference</li>
-     * </ul>
-     */
-    private LogicalProject<?> replaceOlapScanWithStreamScan(LogicalOlapScan oldScan,
-            LogicalOlapTableStreamScan streamScan) {
-        List<Slot> oldOutput = oldScan.getOutput();
-        List<Slot> streamOutput = streamScan.getOutput();
-
-        Map<String, Slot> streamSlotByName = new HashMap<>();
-        for (Slot slot : streamOutput) {
-            streamSlotByName.put(slot.getName(), slot);
-        }
-
-        List<NamedExpression> projects = new ArrayList<>();
-        for (Slot oldSlot : oldOutput) {
-            Slot streamSlot = streamSlotByName.get(oldSlot.getName());
-            if (streamSlot != null) {
-                projects.add(new Alias(oldSlot.getExprId(), streamSlot, oldSlot.getName()));
-            } else if (oldSlot.getName().startsWith(Column.HIDDEN_COLUMN_PREFIX)) {
-                // Hidden columns (e.g. __DORIS_DELETE_SIGN__, __DORIS_VERSION_COL__)
-                // exist in old OlapScan output but not in stream scan output;
-                // fill with NULL literal to keep output schema consistent.
-                projects.add(new Alias(oldSlot.getExprId(),
-                        new NullLiteral(oldSlot.getDataType()), oldSlot.getName()));
-            } else {
-                throw new IvmException(IvmFailureReason.STREAM_UNSUPPORTED,
-                        "IVM: stream scan missing column "
-                                + oldSlot.getName() + " for table " + oldScan.getTable().getName());
-            }
-        }
-
-        return new LogicalProject<>(projects, streamScan);
     }
 
     private OlapTableStream getStream(OlapTable originTable, long mvId) {
@@ -588,19 +559,19 @@ public class IvmDeltaRewriter {
         private final TableNameInfo tableNameInfo;
         // 1-based scan occurrence for the same base table, used to identify self-join delta plans.
         private final int occurrence;
-        private final long consumedTso;
-        private final long latestTso;
+        private final OlapTableStream stream;
+        private final boolean hasPendingData;
 
         private DeltaScanContext(TableNameInfo tableNameInfo,
-                int occurrence, long consumedTso, long latestTso) {
+                int occurrence, OlapTableStream stream, boolean hasPendingData) {
             this.tableNameInfo = tableNameInfo;
             this.occurrence = occurrence;
-            this.consumedTso = consumedTso;
-            this.latestTso = latestTso;
+            this.stream = stream;
+            this.hasPendingData = hasPendingData;
         }
 
         private boolean isUpToDate() {
-            return consumedTso == latestTso;
+            return !hasPendingData;
         }
     }
 
