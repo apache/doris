@@ -29,13 +29,19 @@ import org.apache.doris.connector.api.ConnectorTableStatistics;
 import org.apache.doris.connector.api.ConnectorType;
 import org.apache.doris.connector.api.ConnectorViewDefinition;
 import org.apache.doris.connector.api.DorisConnectorException;
+import org.apache.doris.connector.api.ddl.BranchChange;
 import org.apache.doris.connector.api.ddl.ConnectorBucketSpec;
+import org.apache.doris.connector.api.ddl.ConnectorColumnPosition;
 import org.apache.doris.connector.api.ddl.ConnectorCreateTableRequest;
 import org.apache.doris.connector.api.ddl.ConnectorPartitionField;
 import org.apache.doris.connector.api.ddl.ConnectorPartitionSpec;
+import org.apache.doris.connector.api.ddl.DropRefChange;
+import org.apache.doris.connector.api.ddl.PartitionFieldChange;
+import org.apache.doris.connector.api.ddl.TagChange;
 import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.handle.ConnectorTransaction;
+import org.apache.doris.connector.api.handle.WriteOperation;
 import org.apache.doris.connector.api.mvcc.ConnectorMvccPartitionView;
 import org.apache.doris.connector.api.mvcc.ConnectorMvccSnapshot;
 import org.apache.doris.connector.api.mvcc.ConnectorTableFreshness;
@@ -1336,9 +1342,172 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
         }
     }
 
-    // RENAME TABLE is intentionally NOT overridden: hive does not support ALTER TABLE RENAME (legacy
-    // HMSCachedClient has no rename), so the SPI default throw ("RENAME TABLE not supported") preserves the
-    // pre-flip behavior.
+    // ========== ConnectorTableOps: ALTER-DDL -- foreign (iceberg) handles divert to the sibling ==========
+    //
+    // Every mutating ALTER method already carries a handle. A foreign (iceberg-on-HMS) handle is forwarded to the
+    // embedded iceberg sibling (which implements the real column / branch / tag / partition-field evolution); the
+    // foreign handle is NEVER cast. A hive handle reproduces the pre-flip behavior: hive supports none of these
+    // through this SPI, so its branch throws the exact SPI-default message it inherited before this override.
+    // Dormant until hms enters SPI_READY_TYPES.
+
+    @Override
+    public void renameTable(ConnectorSession session, ConnectorTableHandle handle, String newName) {
+        if (!(handle instanceof HiveTableHandle)) {
+            siblingMetadata(session).renameTable(session, handle, newName);
+            return;
+        }
+        // hive does not support ALTER TABLE RENAME (legacy HMSCachedClient has no rename).
+        throw new DorisConnectorException("RENAME TABLE not supported");
+    }
+
+    @Override
+    public void addColumn(ConnectorSession session, ConnectorTableHandle handle, ConnectorColumn column,
+            ConnectorColumnPosition position) {
+        if (!(handle instanceof HiveTableHandle)) {
+            siblingMetadata(session).addColumn(session, handle, column, position);
+            return;
+        }
+        throw new DorisConnectorException("ADD COLUMN not supported");
+    }
+
+    @Override
+    public void addColumns(ConnectorSession session, ConnectorTableHandle handle, List<ConnectorColumn> columns) {
+        if (!(handle instanceof HiveTableHandle)) {
+            siblingMetadata(session).addColumns(session, handle, columns);
+            return;
+        }
+        throw new DorisConnectorException("ADD COLUMNS not supported");
+    }
+
+    @Override
+    public void dropColumn(ConnectorSession session, ConnectorTableHandle handle, String columnName) {
+        if (!(handle instanceof HiveTableHandle)) {
+            siblingMetadata(session).dropColumn(session, handle, columnName);
+            return;
+        }
+        throw new DorisConnectorException("DROP COLUMN not supported");
+    }
+
+    @Override
+    public void renameColumn(ConnectorSession session, ConnectorTableHandle handle, String oldName,
+            String newName) {
+        if (!(handle instanceof HiveTableHandle)) {
+            siblingMetadata(session).renameColumn(session, handle, oldName, newName);
+            return;
+        }
+        throw new DorisConnectorException("RENAME COLUMN not supported");
+    }
+
+    @Override
+    public void modifyColumn(ConnectorSession session, ConnectorTableHandle handle, ConnectorColumn column,
+            ConnectorColumnPosition position) {
+        if (!(handle instanceof HiveTableHandle)) {
+            siblingMetadata(session).modifyColumn(session, handle, column, position);
+            return;
+        }
+        throw new DorisConnectorException("MODIFY COLUMN not supported");
+    }
+
+    @Override
+    public void reorderColumns(ConnectorSession session, ConnectorTableHandle handle, List<String> newOrder) {
+        if (!(handle instanceof HiveTableHandle)) {
+            siblingMetadata(session).reorderColumns(session, handle, newOrder);
+            return;
+        }
+        throw new DorisConnectorException("REORDER COLUMNS not supported");
+    }
+
+    @Override
+    public void createOrReplaceBranch(ConnectorSession session, ConnectorTableHandle handle, BranchChange branch) {
+        if (!(handle instanceof HiveTableHandle)) {
+            siblingMetadata(session).createOrReplaceBranch(session, handle, branch);
+            return;
+        }
+        throw new DorisConnectorException("CREATE/REPLACE BRANCH not supported");
+    }
+
+    @Override
+    public void createOrReplaceTag(ConnectorSession session, ConnectorTableHandle handle, TagChange tag) {
+        if (!(handle instanceof HiveTableHandle)) {
+            siblingMetadata(session).createOrReplaceTag(session, handle, tag);
+            return;
+        }
+        throw new DorisConnectorException("CREATE/REPLACE TAG not supported");
+    }
+
+    @Override
+    public void dropBranch(ConnectorSession session, ConnectorTableHandle handle, DropRefChange branch) {
+        if (!(handle instanceof HiveTableHandle)) {
+            siblingMetadata(session).dropBranch(session, handle, branch);
+            return;
+        }
+        throw new DorisConnectorException("DROP BRANCH not supported");
+    }
+
+    @Override
+    public void dropTag(ConnectorSession session, ConnectorTableHandle handle, DropRefChange tag) {
+        if (!(handle instanceof HiveTableHandle)) {
+            siblingMetadata(session).dropTag(session, handle, tag);
+            return;
+        }
+        throw new DorisConnectorException("DROP TAG not supported");
+    }
+
+    @Override
+    public void addPartitionField(ConnectorSession session, ConnectorTableHandle handle,
+            PartitionFieldChange change) {
+        if (!(handle instanceof HiveTableHandle)) {
+            siblingMetadata(session).addPartitionField(session, handle, change);
+            return;
+        }
+        throw new DorisConnectorException("ADD PARTITION FIELD not supported");
+    }
+
+    @Override
+    public void dropPartitionField(ConnectorSession session, ConnectorTableHandle handle,
+            PartitionFieldChange change) {
+        if (!(handle instanceof HiveTableHandle)) {
+            siblingMetadata(session).dropPartitionField(session, handle, change);
+            return;
+        }
+        throw new DorisConnectorException("DROP PARTITION FIELD not supported");
+    }
+
+    @Override
+    public void replacePartitionField(ConnectorSession session, ConnectorTableHandle handle,
+            PartitionFieldChange change) {
+        if (!(handle instanceof HiveTableHandle)) {
+            siblingMetadata(session).replacePartitionField(session, handle, change);
+            return;
+        }
+        throw new DorisConnectorException("REPLACE PARTITION FIELD not supported");
+    }
+
+    // ========== ConnectorWriteOps: write validation -- foreign (iceberg) handles divert to the sibling ==========
+    //
+    // Both validators carry a handle and run at analysis time. A foreign (iceberg-on-HMS) handle forwards to the
+    // sibling so iceberg's real write-mode / static-partition rejections apply. A hive handle MUST reproduce the
+    // permissive SPI default (return silently, NEVER throw) -- a throw here would newly reject legal plain-hive
+    // row-level DML / static-partition INSERTs. Dormant until hms enters SPI_READY_TYPES.
+
+    @Override
+    public void validateRowLevelDmlMode(ConnectorSession session, ConnectorTableHandle handle, WriteOperation op) {
+        if (!(handle instanceof HiveTableHandle)) {
+            siblingMetadata(session).validateRowLevelDmlMode(session, handle, op);
+            return;
+        }
+        // hive: no per-table row-level DML mode constraint (SPI default no-op).
+    }
+
+    @Override
+    public void validateStaticPartitionColumns(ConnectorSession session, ConnectorTableHandle handle,
+            List<String> staticPartitionColumnNames) {
+        if (!(handle instanceof HiveTableHandle)) {
+            siblingMetadata(session).validateStaticPartitionColumns(session, handle, staticPartitionColumnNames);
+            return;
+        }
+        // hive: no static-partition constraint (SPI default no-op).
+    }
 
     // ========== ConnectorWriteOps: transactions ==========
 

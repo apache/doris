@@ -18,6 +18,7 @@
 package org.apache.doris.connector.hive;
 
 import org.apache.doris.connector.api.Connector;
+import org.apache.doris.connector.api.ConnectorColumn;
 import org.apache.doris.connector.api.ConnectorColumnStatistics;
 import org.apache.doris.connector.api.ConnectorMetadata;
 import org.apache.doris.connector.api.ConnectorPartitionInfo;
@@ -25,8 +26,14 @@ import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.ConnectorTableSchema;
 import org.apache.doris.connector.api.ConnectorTableStatistics;
 import org.apache.doris.connector.api.DorisConnectorException;
+import org.apache.doris.connector.api.ddl.BranchChange;
+import org.apache.doris.connector.api.ddl.ConnectorColumnPosition;
+import org.apache.doris.connector.api.ddl.DropRefChange;
+import org.apache.doris.connector.api.ddl.PartitionFieldChange;
+import org.apache.doris.connector.api.ddl.TagChange;
 import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
+import org.apache.doris.connector.api.handle.WriteOperation;
 import org.apache.doris.connector.api.mvcc.ConnectorMvccPartitionView;
 import org.apache.doris.connector.api.mvcc.ConnectorMvccSnapshot;
 import org.apache.doris.connector.api.mvcc.ConnectorTableFreshness;
@@ -37,6 +44,7 @@ import org.apache.doris.connector.api.pushdown.FilterApplicationResult;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.function.Executable;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -169,6 +177,73 @@ public class HiveConnectorMetadataSiblingDelegationTest {
                 "a foreign handle with no sibling configured must fail loud");
     }
 
+    @Test
+    public void everyAlterDdlAndValidateMethodForwardsAForeignHandleToTheSibling() {
+        HiveConnectorMetadata md = withSibling();
+
+        // The 14 ALTER-DDL mutators + 2 write validators: a foreign (iceberg-on-HMS) handle must divert, never
+        // run the hive branch and never be cast. Change objects are null — the guard fires on the handle type
+        // before any param is touched.
+        md.renameTable(null, foreignHandle, "new");
+        md.addColumn(null, foreignHandle, null, null);
+        md.addColumns(null, foreignHandle, Collections.emptyList());
+        md.dropColumn(null, foreignHandle, "c");
+        md.renameColumn(null, foreignHandle, "a", "b");
+        md.modifyColumn(null, foreignHandle, null, null);
+        md.reorderColumns(null, foreignHandle, Collections.emptyList());
+        md.createOrReplaceBranch(null, foreignHandle, null);
+        md.createOrReplaceTag(null, foreignHandle, null);
+        md.dropBranch(null, foreignHandle, null);
+        md.dropTag(null, foreignHandle, null);
+        md.addPartitionField(null, foreignHandle, null);
+        md.dropPartitionField(null, foreignHandle, null);
+        md.replacePartitionField(null, foreignHandle, null);
+        md.validateRowLevelDmlMode(null, foreignHandle, null);
+        md.validateStaticPartitionColumns(null, foreignHandle, Collections.emptyList());
+
+        Assertions.assertEquals(RecordingSiblingMetadata.EXPECTED_WRITE_METHODS, siblingMetadata.calls,
+                "every ALTER-DDL mutator + write validator must forward a foreign handle to the sibling");
+    }
+
+    @Test
+    public void hiveHandleAlterDdlThrowsAndValidateIsNoopAndNeverConsultsSibling() {
+        HiveConnectorMetadata md = withSibling();
+        HiveTableHandle hive = hiveHandle();
+
+        // Group-1: ALTER-DDL for a hive handle throws the EXACT inherited SPI-default message (byte-parity with
+        // pre-override behavior) without building or consulting the sibling.
+        assertThrowsMessage(() -> md.renameTable(null, hive, "n"), "RENAME TABLE not supported");
+        assertThrowsMessage(() -> md.addColumn(null, hive, null, null), "ADD COLUMN not supported");
+        assertThrowsMessage(() -> md.addColumns(null, hive, Collections.emptyList()), "ADD COLUMNS not supported");
+        assertThrowsMessage(() -> md.dropColumn(null, hive, "c"), "DROP COLUMN not supported");
+        assertThrowsMessage(() -> md.renameColumn(null, hive, "a", "b"), "RENAME COLUMN not supported");
+        assertThrowsMessage(() -> md.modifyColumn(null, hive, null, null), "MODIFY COLUMN not supported");
+        assertThrowsMessage(() -> md.reorderColumns(null, hive, Collections.emptyList()),
+                "REORDER COLUMNS not supported");
+        assertThrowsMessage(() -> md.createOrReplaceBranch(null, hive, null), "CREATE/REPLACE BRANCH not supported");
+        assertThrowsMessage(() -> md.createOrReplaceTag(null, hive, null), "CREATE/REPLACE TAG not supported");
+        assertThrowsMessage(() -> md.dropBranch(null, hive, null), "DROP BRANCH not supported");
+        assertThrowsMessage(() -> md.dropTag(null, hive, null), "DROP TAG not supported");
+        assertThrowsMessage(() -> md.addPartitionField(null, hive, null), "ADD PARTITION FIELD not supported");
+        assertThrowsMessage(() -> md.dropPartitionField(null, hive, null), "DROP PARTITION FIELD not supported");
+        assertThrowsMessage(() -> md.replacePartitionField(null, hive, null), "REPLACE PARTITION FIELD not supported");
+
+        // Group-2: validate* for a hive handle MUST return silently — a throw here would newly reject legal
+        // plain-hive row-level DML / static-partition INSERTs.
+        md.validateRowLevelDmlMode(null, hive, null);
+        md.validateStaticPartitionColumns(null, hive, Collections.emptyList());
+
+        Assertions.assertEquals(0, siblingConnector.getMetadataCount,
+                "a hive handle must never build/consult the iceberg sibling for ALTER-DDL / validate");
+        Assertions.assertTrue(siblingMetadata.calls.isEmpty(), "the sibling must not be forwarded a hive handle");
+    }
+
+    private static void assertThrowsMessage(Executable exec, String expectedMessage) {
+        DorisConnectorException e = Assertions.assertThrows(DorisConnectorException.class, exec);
+        Assertions.assertEquals(expectedMessage, e.getMessage(),
+                "the hive branch must reproduce the exact inherited SPI-default message");
+    }
+
     /** A sibling {@link Connector} whose getMetadata hands back the recording metadata and counts the calls. */
     private static final class RecordingSiblingConnector implements Connector {
         private final ConnectorMetadata metadata;
@@ -200,6 +275,14 @@ public class HiveConnectorMetadataSiblingDelegationTest {
                 "truncateTable", "getTableSchemaAtSnapshot", "getMvccPartitionView", "resolveTimeTravel",
                 "applySnapshot", "applyRewriteFileScope", "applyTopnLazyMaterialization", "listSupportedSysTables",
                 "getSysTableHandle"));
+
+        // The exact set + order of ALTER-DDL / validate methods the foreign-handle write test drives (Rule-9
+        // completeness lock for §4.4 W1: dropping a guard, or adding one that should not forward, fails the test).
+        static final List<String> EXPECTED_WRITE_METHODS = Collections.unmodifiableList(Arrays.asList(
+                "renameTable", "addColumn", "addColumns", "dropColumn", "renameColumn", "modifyColumn",
+                "reorderColumns", "createOrReplaceBranch", "createOrReplaceTag", "dropBranch", "dropTag",
+                "addPartitionField", "dropPartitionField", "replacePartitionField",
+                "validateRowLevelDmlMode", "validateStaticPartitionColumns"));
 
         final List<String> calls = new ArrayList<>();
         final Optional<FilterApplicationResult<ConnectorTableHandle>> filterResult =
@@ -342,6 +425,97 @@ public class HiveConnectorMetadataSiblingDelegationTest {
                 ConnectorTableHandle baseTableHandle, String sysName) {
             calls.add("getSysTableHandle");
             return Optional.of(SIBLING_HANDLE);
+        }
+
+        // ---- §4.4 W1: ALTER-DDL mutators + write validators (the write-delegation surface) ----
+
+        @Override
+        public void renameTable(ConnectorSession session, ConnectorTableHandle handle, String newName) {
+            calls.add("renameTable");
+        }
+
+        @Override
+        public void addColumn(ConnectorSession session, ConnectorTableHandle handle, ConnectorColumn column,
+                ConnectorColumnPosition position) {
+            calls.add("addColumn");
+        }
+
+        @Override
+        public void addColumns(ConnectorSession session, ConnectorTableHandle handle, List<ConnectorColumn> columns) {
+            calls.add("addColumns");
+        }
+
+        @Override
+        public void dropColumn(ConnectorSession session, ConnectorTableHandle handle, String columnName) {
+            calls.add("dropColumn");
+        }
+
+        @Override
+        public void renameColumn(ConnectorSession session, ConnectorTableHandle handle, String oldName,
+                String newName) {
+            calls.add("renameColumn");
+        }
+
+        @Override
+        public void modifyColumn(ConnectorSession session, ConnectorTableHandle handle, ConnectorColumn column,
+                ConnectorColumnPosition position) {
+            calls.add("modifyColumn");
+        }
+
+        @Override
+        public void reorderColumns(ConnectorSession session, ConnectorTableHandle handle, List<String> newOrder) {
+            calls.add("reorderColumns");
+        }
+
+        @Override
+        public void createOrReplaceBranch(ConnectorSession session, ConnectorTableHandle handle,
+                BranchChange branch) {
+            calls.add("createOrReplaceBranch");
+        }
+
+        @Override
+        public void createOrReplaceTag(ConnectorSession session, ConnectorTableHandle handle, TagChange tag) {
+            calls.add("createOrReplaceTag");
+        }
+
+        @Override
+        public void dropBranch(ConnectorSession session, ConnectorTableHandle handle, DropRefChange branch) {
+            calls.add("dropBranch");
+        }
+
+        @Override
+        public void dropTag(ConnectorSession session, ConnectorTableHandle handle, DropRefChange tag) {
+            calls.add("dropTag");
+        }
+
+        @Override
+        public void addPartitionField(ConnectorSession session, ConnectorTableHandle handle,
+                PartitionFieldChange change) {
+            calls.add("addPartitionField");
+        }
+
+        @Override
+        public void dropPartitionField(ConnectorSession session, ConnectorTableHandle handle,
+                PartitionFieldChange change) {
+            calls.add("dropPartitionField");
+        }
+
+        @Override
+        public void replacePartitionField(ConnectorSession session, ConnectorTableHandle handle,
+                PartitionFieldChange change) {
+            calls.add("replacePartitionField");
+        }
+
+        @Override
+        public void validateRowLevelDmlMode(ConnectorSession session, ConnectorTableHandle handle,
+                WriteOperation op) {
+            calls.add("validateRowLevelDmlMode");
+        }
+
+        @Override
+        public void validateStaticPartitionColumns(ConnectorSession session, ConnectorTableHandle handle,
+                List<String> staticPartitionColumnNames) {
+            calls.add("validateStaticPartitionColumns");
         }
     }
 }
