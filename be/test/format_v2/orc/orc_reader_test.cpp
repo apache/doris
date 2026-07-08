@@ -2705,6 +2705,7 @@ void write_primitive_orc_file(const std::string& file_path) {
     ::orc::WriterOptions options;
     options.setCompression(::orc::CompressionKind_NONE);
     options.setMemoryPool(::orc::getDefaultPool());
+    options.setTimezoneName("UTC");
     auto writer = ::orc::createWriter(*type, &memory_stream, options);
     auto batch = writer->createRowBatch(PRIMITIVE_ROW_COUNT);
     auto& struct_batch = dynamic_cast<::orc::StructVectorBatch&>(*batch);
