@@ -790,9 +790,9 @@ DataTypePtr Segment::get_data_type_of(const TabletColumn& column,
     std::shared_ptr<ColumnReader> v_reader;
 
     // Get the parent variant column reader
-    OlapReaderStatistics stats;
     // If status is not ok, it will throw exception(data corruption)
-    THROW_IF_ERROR(get_column_reader(unique_id, &v_reader, &stats));
+    THROW_IF_ERROR(
+            get_column_reader(unique_id, &v_reader, read_options.stats, &read_options.io_ctx));
     DCHECK(v_reader != nullptr);
     auto* variant_reader = static_cast<VariantColumnReader*>(v_reader.get());
     // Delegate type inference for variant paths to VariantColumnReader.

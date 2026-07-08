@@ -26,6 +26,7 @@
 #include "common/status.h"
 #include "core/column/column_string.h"
 #include "core/data_type/data_type_factory.hpp"
+#include "cpp/sync_point.h"
 #include "storage/index/indexed_column_reader.h"
 #include "util/json/path_in_data.h"
 
@@ -86,6 +87,8 @@ Status VariantExternalMetaReader::init_from_footer(std::shared_ptr<const Segment
     }
 
     _key_reader = std::make_unique<segment_v2::IndexedColumnReader>(file_reader, key_meta);
+    TEST_SYNC_POINT_CALLBACK("VariantExternalMetaReader::init_from_footer:key_reader_io_ctx",
+                             source_io_ctx);
     RETURN_IF_ERROR(_key_reader->load(true, false, stats, source_io_ctx));
     return Status::OK();
 }

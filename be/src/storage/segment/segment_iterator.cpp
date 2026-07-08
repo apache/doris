@@ -3419,7 +3419,8 @@ Status SegmentIterator::_apply_expr_zonemap_to_row_ranges(const VExprContextSPtr
             continue;
         }
         std::shared_ptr<ColumnReader> reader;
-        Status st = _segment->get_column_reader(*tablet_column, &reader, _opts.stats);
+        Status st =
+                _segment->get_column_reader(*tablet_column, &reader, _opts.stats, &_opts.io_ctx);
         if (st.is<ErrorCode::NOT_FOUND>()) {
             continue;
         }
