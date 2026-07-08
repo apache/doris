@@ -92,7 +92,7 @@ public class PaimonJniScannerTest {
         Field ioManagerField = PaimonJniScanner.class.getDeclaredField("ioManager");
         ioManagerField.setAccessible(true);
         ioManagerField.set(scanner, ioManager);
-        Assert.assertEquals("1", scanner.getStatistics().get("counter:PaimonJniIOManagerEnabled"));
+        Assert.assertEquals("1", scanner.getStatistics().get("gauge:PaimonJniIOManagerEnabled"));
 
         scanner.close();
         Assert.assertFalse(spillDir.exists());
@@ -108,20 +108,20 @@ public class PaimonJniScannerTest {
 
         Map<String, String> statistics = scanner.getStatistics();
 
-        Assert.assertEquals("0", statistics.get("counter:PaimonJniIOManagerEnabled"));
-        Assert.assertEquals("0", statistics.get("counter:PaimonJniRequiredFieldCount"));
+        Assert.assertEquals("0", statistics.get("gauge:PaimonJniIOManagerEnabled"));
+        Assert.assertEquals("0", statistics.get("gauge:PaimonJniRequiredFieldCount"));
         Assert.assertEquals("13", statistics.get("counter:PaimonJniSplitEncodedLength"));
         Assert.assertEquals("17", statistics.get("counter:PaimonJniPredicateEncodedLength"));
-        Assert.assertEquals("1", statistics.get("counter:PaimonJniAsyncThresholdConfigured"));
+        Assert.assertEquals("1", statistics.get("gauge:PaimonJniAsyncThresholdConfigured"));
         Assert.assertEquals(String.valueOf(10L * 1024L * 1024L),
-                statistics.get("bytes:PaimonJniAsyncThresholdBytes"));
-        Assert.assertTrue(statistics.containsKey("counter:PaimonJniAsyncReaderThreadCount"));
-        Assert.assertTrue(statistics.containsKey("counter:PaimonJniActiveScannerCount"));
+                statistics.get("bytes_gauge:PaimonJniAsyncThresholdBytes"));
+        Assert.assertTrue(statistics.containsKey("gauge:PaimonJniAsyncReaderThreadCount"));
+        Assert.assertTrue(statistics.containsKey("gauge:PaimonJniActiveScannerCount"));
         Assert.assertTrue(statistics.containsKey("counter:PaimonJniReadBatchCalls"));
         Assert.assertTrue(statistics.containsKey("timer:PaimonJniScannerOpenTime"));
         Assert.assertTrue(statistics.containsKey("timer:PaimonJniReadBatchTime"));
-        Assert.assertTrue(Long.parseLong(statistics.get("bytes:PaimonJniJvmHeapUsed")) > 0);
-        Assert.assertTrue(Long.parseLong(statistics.get("bytes:PaimonJniJvmHeapCommitted")) > 0);
+        Assert.assertTrue(Long.parseLong(statistics.get("bytes_gauge:PaimonJniJvmHeapUsed")) > 0);
+        Assert.assertTrue(Long.parseLong(statistics.get("bytes_gauge:PaimonJniJvmHeapCommitted")) > 0);
     }
 
     @Test

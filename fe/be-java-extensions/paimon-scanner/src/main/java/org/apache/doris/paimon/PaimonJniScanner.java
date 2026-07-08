@@ -405,20 +405,20 @@ public class PaimonJniScanner extends JniScanner {
     @Override
     public Map<String, String> getStatistics() {
         Map<String, String> statistics = new HashMap<>();
-        statistics.put("counter:PaimonJniIOManagerEnabled", ioManager != null ? "1" : "0");
-        statistics.put("counter:PaimonJniActiveScannerCount", String.valueOf(ACTIVE_SCANNERS.get()));
-        statistics.put("counter:PaimonJniActiveScannerPeakCount", String.valueOf(PEAK_ACTIVE_SCANNERS.get()));
-        statistics.put("counter:PaimonJniAsyncReaderThreadCount",
+        statistics.put("gauge:PaimonJniIOManagerEnabled", ioManager != null ? "1" : "0");
+        statistics.put("gauge:PaimonJniActiveScannerCount", String.valueOf(ACTIVE_SCANNERS.get()));
+        statistics.put("peak:PaimonJniActiveScannerPeakCount", String.valueOf(PEAK_ACTIVE_SCANNERS.get()));
+        statistics.put("gauge:PaimonJniAsyncReaderThreadCount",
                 String.valueOf(currentAsyncReaderThreadCount()));
-        statistics.put("counter:PaimonJniAsyncReaderThreadPeakCount",
+        statistics.put("peak:PaimonJniAsyncReaderThreadPeakCount",
                 String.valueOf(PEAK_ASYNC_READER_THREADS.get()));
-        statistics.put("counter:PaimonJniRequiredFieldCount", String.valueOf(fields.length));
+        statistics.put("gauge:PaimonJniRequiredFieldCount", String.valueOf(fields.length));
         statistics.put("counter:PaimonJniSplitEncodedLength", String.valueOf(lengthOfParam("paimon_split")));
         statistics.put("counter:PaimonJniPredicateEncodedLength", String.valueOf(lengthOfParam("paimon_predicate")));
-        statistics.put("counter:PaimonJniAsyncThresholdConfigured",
+        statistics.put("gauge:PaimonJniAsyncThresholdConfigured",
                 hasPaimonOption(FILE_READER_ASYNC_THRESHOLD) ? "1" : "0");
-        parseDataSizeBytes(paimonOption(FILE_READER_ASYNC_THRESHOLD))
-                .ifPresent(bytes -> statistics.put("bytes:PaimonJniAsyncThresholdBytes", String.valueOf(bytes)));
+        parseDataSizeBytes(paimonOption(FILE_READER_ASYNC_THRESHOLD)).ifPresent(
+                bytes -> statistics.put("bytes_gauge:PaimonJniAsyncThresholdBytes", String.valueOf(bytes)));
         statistics.put("counter:PaimonJniReadBatchCalls", String.valueOf(readBatchCalls));
         statistics.put("counter:PaimonJniEmptyReadBatchCalls", String.valueOf(emptyReadBatchCalls));
         statistics.put("counter:PaimonJniRowsRead", String.valueOf(rowsRead));
@@ -451,12 +451,13 @@ public class PaimonJniScanner extends JniScanner {
         MemoryMXBean memoryMXBean = ManagementFactory.getMemoryMXBean();
         MemoryUsage heapUsage = memoryMXBean.getHeapMemoryUsage();
         MemoryUsage nonHeapUsage = memoryMXBean.getNonHeapMemoryUsage();
-        statistics.put("bytes:PaimonJniJvmHeapUsed", String.valueOf(nonNegative(heapUsage.getUsed())));
-        statistics.put("bytes:PaimonJniJvmHeapCommitted", String.valueOf(nonNegative(heapUsage.getCommitted())));
-        statistics.put("bytes:PaimonJniJvmHeapMax", String.valueOf(nonNegative(heapUsage.getMax())));
-        statistics.put("bytes:PaimonJniJvmNonHeapUsed", String.valueOf(nonNegative(nonHeapUsage.getUsed())));
-        statistics.put("bytes:PaimonJniJvmNonHeapCommitted", String.valueOf(nonNegative(nonHeapUsage.getCommitted())));
-        statistics.put("bytes:PaimonJniJvmNonHeapMax", String.valueOf(nonNegative(nonHeapUsage.getMax())));
+        statistics.put("bytes_gauge:PaimonJniJvmHeapUsed", String.valueOf(nonNegative(heapUsage.getUsed())));
+        statistics.put("bytes_gauge:PaimonJniJvmHeapCommitted", String.valueOf(nonNegative(heapUsage.getCommitted())));
+        statistics.put("bytes_gauge:PaimonJniJvmHeapMax", String.valueOf(nonNegative(heapUsage.getMax())));
+        statistics.put("bytes_gauge:PaimonJniJvmNonHeapUsed", String.valueOf(nonNegative(nonHeapUsage.getUsed())));
+        statistics.put("bytes_gauge:PaimonJniJvmNonHeapCommitted",
+                String.valueOf(nonNegative(nonHeapUsage.getCommitted())));
+        statistics.put("bytes_gauge:PaimonJniJvmNonHeapMax", String.valueOf(nonNegative(nonHeapUsage.getMax())));
     }
 
     private static long nonNegative(long value) {
