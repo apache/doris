@@ -73,14 +73,14 @@ branch (:607), identical to paimon; the `MTMVSnapshotIdSnapshot` branch (:589) r
   → never detects change (the 0-stub). The instant is strictly more correct than both.
 
 ## Signed / to-sign decisions
-- **DECISION (needs user sign-off) — hudi MTMV freshness scope.** Legacy `HudiDlaTable.getPartitionSnapshot`/
-  `getTableSnapshot` return `MTMVTimestampSnapshot(0L)` (real logic commented out) — hudi CAN be an MV base but never
-  auto-refreshes on a source commit. **Recommended = implement REAL instant freshness now** (paimon model above): a
-  strict superset over the broken 0-stub, near-zero cost (the instant is already computed for the scan), and it
-  naturally avoids the `-1` over-refresh landmine. The alternative (replicate the 0-stub) is worse (table pin =
-  instant vs partition = 0 semantic split) and still risks `-1`. **Behavior change to accept: hudi MVs will now
-  auto-refresh when the base hudi table gets a new commit.** Regardless of A/B, do NOT override
-  getTableFreshness/getPartitionFreshnessMillis.
+- **DECISION — hudi MTMV freshness scope — SIGNED 2026-07-09 = A (implement REAL instant freshness now, paimon
+  model).** Legacy `HudiDlaTable.getPartitionSnapshot`/`getTableSnapshot` return `MTMVTimestampSnapshot(0L)` (real
+  logic commented out) — hudi CAN be an MV base but never auto-refreshes on a source commit. Chosen: pin the latest
+  completed instant (table = `MTMVSnapshotIdSnapshot(instant)`, partition = `MTMVTimestampSnapshot(instant)`) — a
+  strict superset over the broken 0-stub, near-zero cost, naturally avoids the `-1` over-refresh landmine.
+  **Accepted behavior change: hudi MVs will now auto-refresh when the base hudi table gets a new commit** (record
+  this in the commit/HANDOFF as an intentional improvement, not a legacy diff). Do NOT override
+  getTableFreshness/getPartitionFreshnessMillis (dead code under flag=false).
 
 ## Risks / landmines (verified)
 - **R1 (HIGH) — partition NAME rendering.** Must render hive-style `col=val/...` or silent UNPARTITIONED degrade
