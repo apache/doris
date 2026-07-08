@@ -962,6 +962,13 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     return rewriteJobs;
                 }
         ));
+        if (Config.enable_table_stream) {
+            builder.addAll(jobs(
+                    topic("normalize olap table stream scan after cte inline",
+                            topDown(new NormalizeOlapTableStreamScan())
+                    )
+            ));
+        }
         return builder.build();
     }
 

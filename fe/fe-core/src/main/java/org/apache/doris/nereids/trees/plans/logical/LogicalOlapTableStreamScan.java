@@ -353,6 +353,24 @@ public class LogicalOlapTableStreamScan extends LogicalOlapScan {
                         partitionPrunablePredicates, scanParams, readMode));
     }
 
+    @Override
+    public LogicalOlapTableStreamScan withVirtualColumns(List<NamedExpression> virtualColumns) {
+        LogicalProperties logicalProperties = getLogicalProperties();
+        List<Slot> output = Lists.newArrayList(logicalProperties.getOutput());
+        output.addAll(virtualColumns.stream().map(NamedExpression::toSlot).collect(Collectors.toList()));
+        LogicalProperties finalLogicalProperties = new LogicalProperties(() -> output, this::computeDataTrait);
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalOlapTableStreamScan(relationId, (Table) table, qualifier,
+                        groupExpression, Optional.of(finalLogicalProperties),
+                        selectedPartitionIds, partitionPruned, hasPartitionPredicate, selectedTabletIds,
+                        selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions,
+                        hints, cacheSlotWithSlotName, cachedOutput, tableSample, directMvScan,
+                        colToSubPathsMap, manuallySpecifiedTabletIds, operativeSlots, virtualColumns,
+                        scoreOrderKeys, scoreLimit, scoreRangeInfo, annOrderKeys, annLimit, tableAlias,
+                        partitionPrunablePredicates, scanParams,
+                        isReset, isSnapshot));
+    }
+
     /** withTableScanParams */
     @Override
     public LogicalOlapTableStreamScan withTableScanParams(TableScanParams scanParams) {
