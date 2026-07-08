@@ -35,6 +35,7 @@ import org.apache.doris.common.util.LogKey;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.FailMsg;
+import org.apache.doris.load.LoadJobHistoryRecord;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -625,6 +626,32 @@ public class LoadManager implements Writable {
                 .filter(job -> job.getState().isFinalState())
                 .filter(job -> job.getFinishTimestamp() >= minFinishTimeMs)
                 .collect(Collectors.toList());
+    }
+
+    /**
+     * Collect final-state (FINISHED / CANCELLED) LoadManager jobs with finish timestamp
+     * >= minFinishTimeMs as unified loads_history records. Used by
+     * {@link org.apache.doris.load.LoadsHistorySyncer}.
+     *
+     * <p>The dedup key for a job that has a job id is {@code TYPE + ":" + JOB_ID}; job id is
+     * globally unique and persisted, so re-scanning the same job upserts the same history row.
+     * Running / pending / retrying jobs are excluded by {@link #getFinalStateJobs(long)}.
+     */
+    public List<LoadJobHistoryRecord> getLoadJobHistoryRecords(long minFinishTimeMs) {
+        List<LoadJobHistoryRecord> records = Lists.newArrayList();
+        for (LoadJob job : getFinalStateJobs(minFinishTimeMs)) {
+            try {
+                TLoadJob row = toTLoadJob(job.getShowInfo());
+                if (row == null) {
+                    continue;
+                }
+                String recordKey = row.getType() + ":" + row.getJobId();
+                records.add(new LoadJobHistoryRecord(recordKey, job.getFinishTimestamp(), row));
+            } catch (Exception e) {
+                LOG.warn("Skip load job for loads_history, job id: {}", job.getId(), e);
+            }
+        }
+        return records;
     }
 
     /**
