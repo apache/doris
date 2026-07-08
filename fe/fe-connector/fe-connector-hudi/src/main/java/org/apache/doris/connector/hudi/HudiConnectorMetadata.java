@@ -19,11 +19,13 @@ package org.apache.doris.connector.hudi;
 
 import org.apache.doris.connector.api.ConnectorColumn;
 import org.apache.doris.connector.api.ConnectorMetadata;
+import org.apache.doris.connector.api.ConnectorPartitionInfo;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.ConnectorTableSchema;
 import org.apache.doris.connector.api.ConnectorType;
 import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
+import org.apache.doris.connector.api.mvcc.ConnectorMvccSnapshot;
 import org.apache.doris.connector.api.pushdown.ConnectorAnd;
 import org.apache.doris.connector.api.pushdown.ConnectorComparison;
 import org.apache.doris.connector.api.pushdown.ConnectorExpression;
@@ -45,6 +47,7 @@ import org.apache.hudi.common.table.TableSchemaResolver;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.AbstractMap;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -74,12 +77,19 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
 
     private static final Logger LOG = LogManager.getLogger(HudiConnectorMetadata.class);
 
+    // Catalog property gating the partition-name source (mirrors legacy HMSExternalTable.USE_HIVE_SYNC_PARTITION).
+    private static final String USE_HIVE_SYNC_PARTITION = "use_hive_sync_partition";
+
     private final HmsClient hmsClient;
     private final Map<String, String> properties;
+    // Runs the metaClient-touching partition/snapshot work under the plugin UGI doAs + TCCL pin (see R4).
+    private final HudiMetaClientExecutor metaClientExecutor;
 
-    public HudiConnectorMetadata(HmsClient hmsClient, Map<String, String> properties) {
+    public HudiConnectorMetadata(HmsClient hmsClient, Map<String, String> properties,
+            HudiMetaClientExecutor metaClientExecutor) {
         this.hmsClient = hmsClient;
         this.properties = properties;
+        this.metaClientExecutor = metaClientExecutor;
     }
 
     // ========== ConnectorSchemaOps ==========
@@ -220,6 +230,143 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
     @Override
     public Map<String, String> getProperties() {
         return properties;
+    }
+
+    // ========== ConnectorMvccOps (MTMV freshness) ==========
+
+    /**
+     * Pins the LATEST completed instant as the query-begin MVCC snapshot (snapshot-id freshness, paimon model).
+     * The generic model then serves {@code MTMVSnapshotIdSnapshot(instant)} for the table and
+     * {@code MTMVTimestampSnapshot(instant)} per partition, so a hudi materialized view auto-refreshes on a new
+     * base commit and stays stable otherwise. This is an INTENTIONAL improvement over legacy {@code HudiDlaTable}
+     * (which pinned a constant {@code 0L} and never detected change), NOT a byte-parity port.
+     *
+     * <p>{@code lastModifiedFreshness} is deliberately LEFT FALSE — that flag routes a last-modified connector
+     * (hive) to the on-demand {@code getTableFreshness}/{@code getPartitionFreshnessMillis} probes; a snapshot-id
+     * connector like hudi keeps the instant pin and pays zero extra metadata calls. {@code schemaId} is left
+     * default ({@code -1}): explicit time travel is a later step.
+     */
+    @Override
+    public Optional<ConnectorMvccSnapshot> beginQuerySnapshot(
+            ConnectorSession session, ConnectorTableHandle handle) {
+        return buildBeginQuerySnapshot(latestInstant((HudiTableHandle) handle));
+    }
+
+    /** Builds the query-begin snapshot from a pinned instant. Static for offline unit testing. */
+    static Optional<ConnectorMvccSnapshot> buildBeginQuerySnapshot(long instant) {
+        return Optional.of(ConnectorMvccSnapshot.builder().snapshotId(instant).build());
+    }
+
+    // ========== ConnectorTableOps (partitions) ==========
+
+    /**
+     * Lists all partitions with metadata. {@code filter} is intentionally ignored (paimon / maxcompute parity):
+     * the generic model lists the full universe and prunes FE-side.
+     */
+    @Override
+    public List<ConnectorPartitionInfo> listPartitions(ConnectorSession session,
+            ConnectorTableHandle handle, Optional<ConnectorExpression> filter) {
+        return collectPartitions((HudiTableHandle) handle);
+    }
+
+    @Override
+    public List<String> listPartitionNames(ConnectorSession session, ConnectorTableHandle handle) {
+        List<ConnectorPartitionInfo> partitions = collectPartitions((HudiTableHandle) handle);
+        List<String> names = new ArrayList<>(partitions.size());
+        for (ConnectorPartitionInfo partition : partitions) {
+            names.add(partition.getPartitionName());
+        }
+        return names;
+    }
+
+    @Override
+    public List<List<String>> listPartitionValues(ConnectorSession session,
+            ConnectorTableHandle handle, List<String> partitionColumns) {
+        List<ConnectorPartitionInfo> partitions = collectPartitions((HudiTableHandle) handle);
+        List<List<String>> result = new ArrayList<>(partitions.size());
+        for (ConnectorPartitionInfo partition : partitions) {
+            Map<String, String> rawValues = partition.getPartitionValues();
+            // Preserve the requested partitionColumns order (feeds the partition_values() TVF, whose inner-list
+            // order must match the input), mirroring PaimonConnectorMetadata.listPartitionValues.
+            List<String> values = new ArrayList<>(partitionColumns.size());
+            for (String column : partitionColumns) {
+                values.add(rawValues.get(column));
+            }
+            result.add(values);
+        }
+        return result;
+    }
+
+    /**
+     * Shared partition collector backing {@link #listPartitions}, {@link #listPartitionNames} and
+     * {@link #listPartitionValues}. Lists the raw partition identifiers from the
+     * {@code use_hive_sync_partition}-aware source (mirroring legacy
+     * {@code HudiExternalMetaCache.loadPartitionNames}), then renders one {@link ConnectorPartitionInfo} per
+     * partition. Unpartitioned &rarr; {@code emptyList()} (legacy never lists partitions for an unpartitioned
+     * table). Explicit time-travel (non-latest) partition listing is a later step.
+     */
+    private List<ConnectorPartitionInfo> collectPartitions(HudiTableHandle handle) {
+        List<String> partKeyNames = handle.getPartitionKeyNames();
+        if (partKeyNames == null || partKeyNames.isEmpty()) {
+            return Collections.emptyList();
+        }
+        if (useHiveSyncPartition()) {
+            // hive-sync tables register their partitions in HMS: list the names from there (already authed via
+            // hmsClient, no metaClient), like legacy. The instant still comes from the timeline. If HMS has none
+            // (a hive-sync table not yet synced), fall back to the hudi metadata listing (legacy parity).
+            List<String> hmsNames = hmsClient.listPartitionNames(
+                    handle.getDbName(), handle.getTableName(), -1);
+            if (hmsNames != null && !hmsNames.isEmpty()) {
+                return buildPartitionInfos(hmsNames, partKeyNames, latestInstant(handle));
+            }
+            LOG.warn("hive-sync hudi table {}.{} has no HMS partitions; "
+                    + "falling back to hudi metadata partition listing",
+                    handle.getDbName(), handle.getTableName());
+        }
+        // Non-hive-sync (or hive-sync HMS-empty fallback): the instant and the partition paths both come from
+        // the metaClient, built ONCE under the plugin auth + TCCL pin. Byte-consistent with the scan's unpruned
+        // partition source (resolvePartitions -> listAllPartitionPaths), which is the R2 prune-to-zero guard.
+        Map.Entry<Long, List<String>> listing = metaClientExecutor.execute(() -> {
+            HoodieTableMetaClient metaClient =
+                    HudiScanPlanProvider.buildMetaClient(buildHadoopConf(), handle.getBasePath());
+            return new AbstractMap.SimpleImmutableEntry<>(
+                    HudiScanPlanProvider.latestCompletedInstant(metaClient),
+                    HudiScanPlanProvider.listAllPartitionPaths(metaClient));
+        });
+        return buildPartitionInfos(listing.getValue(), partKeyNames, listing.getKey());
+    }
+
+    /**
+     * Renders one {@link ConnectorPartitionInfo} per raw partition path. {@code partitionName} = hive-style
+     * (for the fe-core re-parse), {@code partitionValues} = the unescaped value map (for the TVF),
+     * {@code lastModifiedMillis} = the pinned instant (a stable, monotonic freshness marker feeding
+     * {@code MTMVTimestampSnapshot}; row/size/file counts stay {@code UNKNOWN}). Static + package-private for
+     * offline unit testing.
+     */
+    static List<ConnectorPartitionInfo> buildPartitionInfos(
+            List<String> rawPaths, List<String> partKeyNames, long instant) {
+        List<ConnectorPartitionInfo> result = new ArrayList<>(rawPaths.size());
+        for (String rawPath : rawPaths) {
+            // Parse the unescaped values ONCE; render the hive-style name from the SAME values so the name and
+            // the values map agree by construction (the name re-parses back to these values in fe-core).
+            Map<String, String> values = HudiScanPlanProvider.parsePartitionValues(rawPath, partKeyNames);
+            String name = HudiScanPlanProvider.renderHiveStylePartitionName(partKeyNames, values);
+            result.add(new ConnectorPartitionInfo(name, values, Collections.emptyMap(),
+                    ConnectorPartitionInfo.UNKNOWN, ConnectorPartitionInfo.UNKNOWN,
+                    instant, ConnectorPartitionInfo.UNKNOWN));
+        }
+        return result;
+    }
+
+    /** Pins the latest completed instant, building the metaClient under the plugin auth + TCCL pin. */
+    private long latestInstant(HudiTableHandle handle) {
+        return metaClientExecutor.execute(() ->
+                HudiScanPlanProvider.latestCompletedInstant(
+                        HudiScanPlanProvider.buildMetaClient(buildHadoopConf(), handle.getBasePath())));
+    }
+
+    private boolean useHiveSyncPartition() {
+        return Boolean.parseBoolean(properties.getOrDefault(USE_HIVE_SYNC_PARTITION, "false"));
     }
 
     /**

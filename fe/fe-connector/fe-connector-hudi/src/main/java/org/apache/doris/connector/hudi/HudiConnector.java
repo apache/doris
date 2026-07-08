@@ -84,7 +84,40 @@ public class HudiConnector implements Connector {
 
     @Override
     public ConnectorMetadata getMetadata(ConnectorSession session) {
-        return new HudiConnectorMetadata(getOrCreateClient(), properties);
+        return new HudiConnectorMetadata(getOrCreateClient(), properties, metaClientExecutor());
+    }
+
+    /**
+     * Builds the metaClient execute-wrapper the metadata partition/snapshot methods run their
+     * {@code HoodieTableMetaClient}-touching work inside: a TCCL pin to the hudi plugin classloader (so
+     * hudi-bundled reflection resolves the plugin's child-first copies) around the plugin UGI {@code doAs}
+     * (Kerberos) — or the FE-injected {@code context.executeAuthenticated} when this is a non-Kerberos
+     * catalog — restoring the previous TCCL in a {@code finally}. Mirrors the {@link #createClient()} auth
+     * choice; the TCCL pin is added because — unlike the HMS thrift RPC ({@code ThriftHmsClient.doAs} pins the
+     * system loader) — building a metaClient / listing partitions off the (unpinned) planning thread needs the
+     * plugin loader. See {@link HudiMetaClientExecutor} and memory
+     * {@code catalog-spi-plugin-tccl-classloader-gotcha}.
+     */
+    private HudiMetaClientExecutor metaClientExecutor() {
+        return new HudiMetaClientExecutor() {
+            @Override
+            public <T> T execute(Callable<T> action) {
+                ClassLoader previous = Thread.currentThread().getContextClassLoader();
+                Thread.currentThread().setContextClassLoader(HudiConnector.class.getClassLoader());
+                try {
+                    HadoopAuthenticator auth = pluginAuthenticator();
+                    if (auth != null) {
+                        return auth.doAs(action::call);
+                    }
+                    return context.executeAuthenticated(action);
+                } catch (Exception e) {
+                    throw new DorisConnectorException("Hudi metadata operation failed for catalog '"
+                            + context.getCatalogName() + "'", e);
+                } finally {
+                    Thread.currentThread().setContextClassLoader(previous);
+                }
+            }
+        };
     }
 
     /**

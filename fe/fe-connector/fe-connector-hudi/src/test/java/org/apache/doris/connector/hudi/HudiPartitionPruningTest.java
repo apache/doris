@@ -162,7 +162,8 @@ public class HudiPartitionPruningTest {
     private Optional<FilterApplicationResult<ConnectorTableHandle>> applyFilter(
             HudiTableHandle handle, ConnectorExpression expr) {
         HudiConnectorMetadata metadata = new HudiConnectorMetadata(
-                new FakeHmsClient(PARTITIONS), Collections.emptyMap());
+                new FakeHmsClient(PARTITIONS), Collections.emptyMap(),
+                new DirectHudiMetaClientExecutor());
         return metadata.applyFilter(null, handle, new ConnectorFilterConstraint(expr));
     }
 

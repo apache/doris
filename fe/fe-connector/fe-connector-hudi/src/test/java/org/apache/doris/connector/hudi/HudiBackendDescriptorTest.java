@@ -42,7 +42,8 @@ public class HudiBackendDescriptorTest {
 
     @Test
     public void buildTableDescriptorIsHiveTable() {
-        HudiConnectorMetadata md = new HudiConnectorMetadata(null, Collections.emptyMap());
+        HudiConnectorMetadata md = new HudiConnectorMetadata(null, Collections.emptyMap(),
+                new DirectHudiMetaClientExecutor());
 
         TTableDescriptor desc = md.buildTableDescriptor(null, 7L, "t", "db", "t", 3, 100L);
 

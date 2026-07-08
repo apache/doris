@@ -342,18 +342,61 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
         }
 
         try {
-            HoodieMetadataConfig metadataConfig = HoodieMetadataConfig.newBuilder()
-                    .enable(HoodieTableMetadataUtil.isFilesPartitionAvailable(metaClient))
-                    .build();
-            HoodieLocalEngineContext engineCtx = new HoodieLocalEngineContext(metaClient.getStorageConf());
-            HoodieTableMetadata tableMetadata = HoodieTableMetadata.create(
-                    engineCtx, metaClient.getStorage(), metadataConfig,
-                    metaClient.getBasePath().toString(), true);
-            return tableMetadata.getAllPartitionPaths();
+            return listAllPartitionPaths(metaClient);
         } catch (Exception e) {
             throw new DorisConnectorException(
                     "Failed to list partitions for " + handle.getBasePath(), e);
         }
+    }
+
+    /**
+     * Builds a {@link HoodieTableMetaClient} from a Hadoop {@link Configuration} and base path. Package-private
+     * static so the metadata path ({@link HudiConnectorMetadata}) builds the metaClient the same way the scan
+     * does, from inside the plugin-auth + TCCL pin its execute-wrapper supplies.
+     */
+    static HoodieTableMetaClient buildMetaClient(Configuration conf, String basePath) {
+        return HoodieTableMetaClient.builder()
+                .setConf(new org.apache.hudi.storage.hadoop.HadoopStorageConfiguration(conf))
+                .setBasePath(basePath)
+                .build();
+    }
+
+    /**
+     * Returns the LATEST completed instant as a numeric long ({@code yyyyMMddHHmmssSSS}), or {@code 0L} when
+     * the timeline has none. Byte-faithful port of legacy {@code HudiUtils.getLastTimeStamp} and the same
+     * timeline {@link #planScan} reads at query time — so the MVCC pin and the scan take the identical instant.
+     */
+    static long latestCompletedInstant(HoodieTableMetaClient metaClient) {
+        Optional<String> requestedTime = metaClient.getCommitsAndCompactionTimeline()
+                .filterCompletedInstants().lastInstant().toJavaOptional()
+                .map(HoodieInstant::requestedTime);
+        return requestedTimeToInstant(requestedTime);
+    }
+
+    /**
+     * Pure numeric mapping backing {@link #latestCompletedInstant}: a present {@code requestedTime} parses to a
+     * long ({@code Long.parseLong}, fail-loud on malformed = legacy parity); absent &rarr; {@code 0L} (legacy
+     * empty-timeline sentinel, {@code >= 0} so it survives the dictionary-refresh filter). Extracted so the
+     * empty/value semantics are unit-testable without a live metaClient.
+     */
+    static long requestedTimeToInstant(Optional<String> requestedTime) {
+        return requestedTime.map(Long::parseLong).orElse(0L);
+    }
+
+    /**
+     * Lists ALL partition relative paths from the Hudi metadata table (COW/MOR agnostic). Byte-faithful port of
+     * legacy {@code HudiPartitionUtils.getAllPartitionNames}; extracted so both {@link #resolvePartitions} and
+     * the metadata partition-listing path share one copy of the {@code HoodieTableMetadata.create(...)} dance.
+     */
+    static List<String> listAllPartitionPaths(HoodieTableMetaClient metaClient) throws Exception {
+        HoodieMetadataConfig metadataConfig = HoodieMetadataConfig.newBuilder()
+                .enable(HoodieTableMetadataUtil.isFilesPartitionAvailable(metaClient))
+                .build();
+        HoodieLocalEngineContext engineCtx = new HoodieLocalEngineContext(metaClient.getStorageConf());
+        HoodieTableMetadata tableMetadata = HoodieTableMetadata.create(
+                engineCtx, metaClient.getStorage(), metadataConfig,
+                metaClient.getBasePath().toString(), true);
+        return tableMetadata.getAllPartitionPaths();
     }
 
     /**
@@ -409,6 +452,57 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
             values.put(partKeyNames.get(i), unescapePathName(raw));
         }
         return values;
+    }
+
+    /**
+     * Renders a Hive-style partition name ({@code "col0=val0/col1=val1/..."}) from a column&rarr;value map, in
+     * partition-key order, ESCAPING each value with {@link #escapePathName} (the canonical Hive {@code
+     * makePartName}).
+     *
+     * <p><b>MANDATORY for the generic MVCC model:</b> fe-core rebuilds the partition item by re-parsing this
+     * name via {@code HiveUtil.toPartitionValues} under a {@code checkState(values.size()==types.size())}. A raw
+     * positional path ({@code "2024/01"}) would yield the wrong value count &rarr; the partition is skipped
+     * &rarr; silent UNPARTITIONED degrade, so a hive-style name is required. Escaping is MANDATORY too:
+     * {@code HiveUtil.toPartitionValues} splits on {@code '/'}, so a value that itself spans {@code '/'} (e.g. a
+     * single partition column with a {@code yyyy/MM/dd} output format &rarr; path {@code "2024/01/02"}) must be
+     * escaped ({@code "%2F"}) or the re-parse would truncate/collide it. Since {@code escapePathName} is the
+     * exact inverse of {@link #escapePathName}'s unescape (the same set {@code HiveUtil.toPartitionValues} uses),
+     * the re-parse recovers EXACTLY the values {@link #parsePartitionValues} produced. Static + package-private
+     * for direct unit testing.
+     */
+    static String renderHiveStylePartitionName(List<String> partKeyNames, Map<String, String> values) {
+        StringBuilder sb = new StringBuilder();
+        for (String col : partKeyNames) {
+            if (sb.length() > 0) {
+                sb.append('/');
+            }
+            sb.append(col).append('=').append(escapePathName(values.get(col)));
+        }
+        return sb.toString();
+    }
+
+    // Hive FileUtils.charToEscape minus the control range: escaped so a partition VALUE containing one of these
+    // survives the round-trip through HiveUtil.toPartitionValues (which url-unescapes). '/' and '=' are the
+    // load-bearing ones (structural to the re-parse); the rest mirror Hive for name faithfulness.
+    private static final String CHARS_TO_ESCAPE = "\"#%'*/:=?\\{[]^";
+
+    /**
+     * URL-encodes a partition value into a Hive-escaped path component (e.g. {@code "a/b"} &rarr; {@code
+     * "a%2Fb"}). Byte-faithful port of Hive's {@code org.apache.hadoop.hive.common.FileUtils.escapePathName} and
+     * the exact inverse of {@link #unescapePathName}, so a rendered hive-style name re-parses (unescapes) back
+     * to the original value. Inlined so the connector needs no hive-common dependency.
+     */
+    private static String escapePathName(String value) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < value.length(); i++) {
+            char c = value.charAt(i);
+            if (c < 0x20 || c == 0x7F || CHARS_TO_ESCAPE.indexOf(c) >= 0) {
+                sb.append('%').append(String.format("%02X", (int) c));
+            } else {
+                sb.append(c);
+            }
+        }
+        return sb.toString();
     }
 
     /**
