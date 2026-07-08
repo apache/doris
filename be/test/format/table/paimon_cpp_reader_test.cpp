@@ -19,14 +19,38 @@
 
 #include <gtest/gtest.h>
 
+#include <cstring>
 #include <string>
 #include <vector>
 
 #include "core/block/block.h"
+#include "exec/common/endian.h"
+#include "format/table/paimon_reader.h"
+#include "roaring/roaring.hh"
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
 
 namespace doris {
+
+namespace {
+
+std::vector<char> build_paimon_deletion_vector_buffer(const std::vector<uint32_t>& positions) {
+    roaring::Roaring rows;
+    for (const auto position : positions) {
+        rows.add(position);
+    }
+
+    const size_t bitmap_size = rows.getSizeInBytes();
+    const uint32_t total_length = static_cast<uint32_t>(4 + bitmap_size);
+    std::vector<char> buffer(4 + total_length);
+    BigEndian::Store32(buffer.data(), total_length);
+    constexpr char PAIMON_BITMAP_MAGIC[] = {'\x5E', '\x43', '\xF2', '\xD0'};
+    memcpy(buffer.data() + 4, PAIMON_BITMAP_MAGIC, 4);
+    rows.write(buffer.data() + 8);
+    return buffer;
+}
+
+} // namespace
 
 class PaimonCppReaderTest : public testing::Test {
 protected:
@@ -91,6 +115,88 @@ TEST_F(PaimonCppReaderTest, InitReaderFailsWithoutPaimonSplit) {
 
     ASSERT_FALSE(status.ok());
     EXPECT_NE(status.to_string().find("missing paimon_split"), std::string::npos);
+}
+
+TEST(PaimonDeletionVectorTest, DecodeValidBuffer) {
+    // Scenario: a valid Paimon DV buffer should decode to sorted row positions that readers pass
+    // into the common position-delete filter.
+    const auto buffer = build_paimon_deletion_vector_buffer({0, 3, 5});
+    std::vector<int64_t> delete_rows;
+    const auto status =
+            decode_paimon_deletion_vector_buffer(buffer.data(), buffer.size(), &delete_rows);
+
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_EQ(delete_rows, std::vector<int64_t>({0, 3, 5}));
+}
+
+TEST(PaimonDeletionVectorTest, RejectShortBuffer) {
+    // Scenario: malformed DV content must fail before reading the length and magic fields.
+    const std::vector<char> buffer(7, '\0');
+    std::vector<int64_t> delete_rows;
+    const auto status =
+            decode_paimon_deletion_vector_buffer(buffer.data(), buffer.size(), &delete_rows);
+
+    ASSERT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("file size too small"), std::string::npos);
+}
+
+TEST(PaimonDeletionVectorTest, RejectLengthMismatch) {
+    // Scenario: the big-endian length prefix protects against using a truncated or over-read DV
+    // slice from a shared deletion-vector file.
+    auto buffer = build_paimon_deletion_vector_buffer({1});
+    BigEndian::Store32(buffer.data(), static_cast<uint32_t>(buffer.size()));
+    std::vector<int64_t> delete_rows;
+    const auto status =
+            decode_paimon_deletion_vector_buffer(buffer.data(), buffer.size(), &delete_rows);
+
+    ASSERT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("length not match"), std::string::npos);
+}
+
+TEST(PaimonDeletionVectorTest, RejectMagicMismatch) {
+    // Scenario: Paimon DV buffers have a fixed magic header, so a cache entry or offset pointing
+    // to unrelated bytes must be rejected.
+    auto buffer = build_paimon_deletion_vector_buffer({1});
+    buffer[4] = '\0';
+    std::vector<int64_t> delete_rows;
+    const auto status =
+            decode_paimon_deletion_vector_buffer(buffer.data(), buffer.size(), &delete_rows);
+
+    ASSERT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("invalid magic number"), std::string::npos);
+}
+
+TEST(PaimonDeletionVectorTest, RejectCorruptRoaringBitmap) {
+    // Scenario: a buffer with a valid header but incomplete Roaring payload should surface as a
+    // data-quality error instead of silently producing partial delete rows.
+    auto buffer = build_paimon_deletion_vector_buffer({1, 2});
+    buffer.resize(10);
+    BigEndian::Store32(buffer.data(), static_cast<uint32_t>(buffer.size() - 4));
+    std::vector<int64_t> delete_rows;
+    const auto status =
+            decode_paimon_deletion_vector_buffer(buffer.data(), buffer.size(), &delete_rows);
+
+    ASSERT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("failed to deserialize roaring bitmap"), std::string::npos);
+}
+
+TEST(PaimonDeletionVectorTest, CacheKeyIncludesOffsetAndLength) {
+    // Scenario: different Paimon tables or splits may reference the same DV file with different
+    // ranges; cache keys must include both offset and length to avoid sharing the wrong bitmap.
+    TPaimonDeletionFileDesc first_deletion_file;
+    first_deletion_file.__set_path("s3://bucket/table/deletion.dv");
+    first_deletion_file.__set_offset(128);
+    first_deletion_file.__set_length(64);
+
+    TPaimonDeletionFileDesc different_offset = first_deletion_file;
+    different_offset.__set_offset(256);
+
+    TPaimonDeletionFileDesc different_length = first_deletion_file;
+    different_length.__set_length(96);
+
+    const auto first_key = build_paimon_deletion_vector_cache_key(first_deletion_file);
+    EXPECT_NE(first_key, build_paimon_deletion_vector_cache_key(different_offset));
+    EXPECT_NE(first_key, build_paimon_deletion_vector_cache_key(different_length));
 }
 
 } // namespace doris

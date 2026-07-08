@@ -17,9 +17,14 @@
 
 #pragma once
 
+#include <gen_cpp/PlanNodes_types.h>
+
 #include <memory>
+#include <string>
+#include <utility>
 #include <vector>
 
+#include "common/status.h"
 #include "format/orc/vorc_reader.h"
 #include "format/parquet/vparquet_reader.h"
 #include "format/table/table_format_reader.h"
@@ -33,28 +38,14 @@ public:
                  const TFileRangeDesc& range, ShardedKVCache* kv_cache, io::IOContext* io_ctx,
                  FileMetaCache* meta_cache);
 
-    ~PaimonReader() override = default;
+std::string build_paimon_deletion_vector_cache_key(const TPaimonDeletionFileDesc& deletion_file);
 
-    Status init_row_filters() final;
+Status decode_paimon_deletion_vector_buffer(const char* buf, size_t buffer_size,
+                                            std::vector<int64_t>* delete_rows);
 
-    Status get_next_block_inner(Block* block, size_t* read_rows, bool* eof) final;
-
-protected:
-    struct PaimonProfile {
-        RuntimeProfile::Counter* num_delete_rows;
-        RuntimeProfile::Counter* delete_files_read_time;
-        RuntimeProfile::Counter* parse_deletion_vector_time;
-    };
-    // _delete_rows from kv_cache.
-    const std::vector<int64_t>* _delete_rows = nullptr;
-    // owned by scan node
-    ShardedKVCache* _kv_cache;
-    PaimonProfile _paimon_profile;
-
-    virtual void set_delete_rows() = 0;
-};
-
-class PaimonOrcReader final : public PaimonReader {
+// PaimonOrcReader: directly inherits OrcReader (no composition wrapping).
+// Schema mapping in on_before_init_reader, deletion vector reading in on_after_init_reader.
+class PaimonOrcReader final : public OrcReader, public TableSchemaChangeHelper {
 public:
     ENABLE_FACTORY_CREATOR(PaimonOrcReader);
     PaimonOrcReader(std::unique_ptr<GenericReader> file_format_reader, RuntimeProfile* profile,

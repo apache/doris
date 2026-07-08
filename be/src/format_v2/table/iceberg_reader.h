@@ -119,8 +119,6 @@ private:
         format::DeleteRows* _rows = nullptr;
     };
 
-    static std::string _iceberg_delete_vector_cache_key(const TIcebergDeleteFileDesc& delete_file);
-
     static std::shared_ptr<io::FileSystemProperties> _delete_file_system_properties(
             const TFileScanRangeParams& scan_params);
 

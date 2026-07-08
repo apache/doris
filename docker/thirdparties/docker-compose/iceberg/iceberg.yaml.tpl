@@ -101,6 +101,23 @@ services:
       - /usr/lib/iceberg-rest/iceberg-rest-adapter.jar:/opt/jdbc/postgresql.jar
       - org.apache.iceberg.rest.RESTCatalogServer
 
+  trino:
+    image: trinodb/trino:482
+    container_name: doris--iceberg-trino
+    depends_on:
+      rest:
+        condition: service_started
+      mc:
+        condition: service_completed_successfully
+    user: root
+    networks:
+      - doris--iceberg
+    healthcheck:
+      test: ["CMD-SHELL", "test -d /etc/trino/catalog && command -v trino >/dev/null"]
+      interval: 5s
+      timeout: 60s
+      retries: 120
+
   minio:
     image: minio/minio:RELEASE.2025-01-20T14-49-07Z
     container_name: doris--minio

@@ -67,6 +67,12 @@ TFileRangeDesc build_iceberg_delete_file_range(const std::string& path);
 
 bool is_iceberg_deletion_vector(const TIcebergDeleteFileDesc& delete_file);
 
+std::string build_iceberg_deletion_vector_cache_key(const std::string& data_file_path,
+                                                    const TIcebergDeleteFileDesc& delete_file);
+
+Status decode_iceberg_deletion_vector_buffer(const char* buf, size_t buffer_size,
+                                             roaring::Roaring64Map* rows_to_delete);
+
 Status read_iceberg_position_delete_file(const TIcebergDeleteFileDesc& delete_file,
                                          const IcebergDeleteFileReaderOptions& options,
                                          IcebergPositionDeleteVisitor* visitor);
