@@ -109,10 +109,26 @@ suite("test_ddl_backup_auth","p0,auth_call") {
     assertTrue(res.size() == 0)
 
     connect(user, "${pwd}", context.config.jdbcUrl) {
-        sql """BACKUP SNAPSHOT ${dbName}.${backupLabelName}
-                TO ${repositoryName}
-                ON (${tableName})
-                PROPERTIES ("type" = "full");"""
+        // BACKUP submission serializes on a single global BackupHandler lock (tryLock(10s)). Under parallel
+        // P0 with many concurrent backup/restore suites, that lock can be held past 10s by slow S3 ops,
+        // so submission may transiently fail with "Another backup or restore job is being submitted".
+        // This suite only verifies auth (a user with LOAD_PRIV can submit backup), so retry the contention.
+        def maxBackupRetries = 15
+        for (int i = 0; i < maxBackupRetries; i++) {
+            try {
+                sql """BACKUP SNAPSHOT ${dbName}.${backupLabelName}
+                        TO ${repositoryName}
+                        ON (${tableName})
+                        PROPERTIES ("type" = "full");"""
+                break
+            } catch (Exception e) {
+                if (i == maxBackupRetries - 1 || !e.getMessage().contains("Another backup or restore job")) {
+                    throw e
+                }
+                logger.warn("backup submit contended on global lock, retry ${i + 1}: ${e.getMessage()}")
+                sleep(2000)
+            }
+        }
         res = sql """SHOW BACKUP FROM ${dbName};"""
         logger.info("res: " + res)
         assertTrue(res.size() == 1)
