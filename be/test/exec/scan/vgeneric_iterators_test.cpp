@@ -359,6 +359,156 @@ TEST(VGenericIteratorsTest, MergeWithSeqColumn) {
     EXPECT_EQ(seg_iter_num - 1, actual_value);
 }
 
+// Schema with a smallint key c1 and a struct column c2 = struct<f1:int, f2:int, f3:int>.
+static Schema create_struct_schema(int32_t struct_unique_id) {
+    std::vector<TabletColumnPtr> col_schemas;
+    auto c1 = std::make_shared<TabletColumn>(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
+                                             FieldType::OLAP_FIELD_TYPE_SMALLINT, true);
+    c1->set_is_key(true);
+    col_schemas.emplace_back(c1);
+
+    // The (agg, type, nullable) constructor does not support complex types, so
+    // build the struct column with the default constructor plus setters.
+    auto c2 = std::make_shared<TabletColumn>();
+    c2->set_type(FieldType::OLAP_FIELD_TYPE_STRUCT);
+    c2->set_aggregation_method(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE);
+    c2->set_is_nullable(true);
+    c2->set_name("c2");
+    c2->set_unique_id(struct_unique_id);
+    for (const auto* sub_name : {"f1", "f2", "f3"}) {
+        TabletColumn sub(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
+                         FieldType::OLAP_FIELD_TYPE_INT, true);
+        sub.set_name(sub_name);
+        c2->add_sub_column(sub);
+    }
+    col_schemas.emplace_back(c2);
+
+    std::vector<ColumnId> column_ids(col_schemas.size());
+    for (uint32_t cid = 0; cid < column_ids.size(); ++cid) {
+        column_ids[cid] = cid;
+    }
+
+    Schema schema(col_schemas, column_ids);
+    return schema;
+}
+
+// Fills whatever block it is given: ascending keys (key_start + i * key_stride) so
+// several inputs interleave under merge, and default values for the struct column.
+// Also checks that the merge context built its block with the expected struct type.
+class PrunedStructUtIterator : public RowwiseIterator {
+public:
+    PrunedStructUtIterator(const Schema& schema, size_t num_rows, int16_t key_start,
+                           int16_t key_stride, DataTypePtr expected_struct_type)
+            : _schema(schema),
+              _num_rows(num_rows),
+              _key(key_start),
+              _key_stride(key_stride),
+              _expected_struct_type(std::move(expected_struct_type)) {}
+    ~PrunedStructUtIterator() override = default;
+
+    Status init(const StorageReadOptions& opts) override { return Status::OK(); }
+
+    Status next_batch(Block* block) override {
+        if (_rows_returned >= _num_rows) {
+            return Status::EndOfFile("End of PrunedStructUtIterator");
+        }
+        // The merge block must carry the FE-pruned struct type (not the full storage
+        // type) so that its struct children line up with the pruned sub-column readers.
+        EXPECT_TRUE(block->get_by_position(1).type->equals(*_expected_struct_type));
+        while (_rows_returned < _num_rows) {
+            ColumnWithTypeAndName& key_col = block->get_by_position(0);
+            ((IColumn&)(*key_col.column)).insert_data((const char*)&_key, sizeof(_key));
+            ColumnWithTypeAndName& struct_col = block->get_by_position(1);
+            ((IColumn&)(*struct_col.column)).insert_default();
+            _key = (int16_t)(_key + _key_stride);
+            ++_rows_returned;
+        }
+        return Status::OK();
+    }
+
+    const Schema& schema() const override { return _schema; }
+
+private:
+    const Schema& _schema;
+    size_t _num_rows;
+    size_t _rows_returned = 0;
+    int16_t _key;
+    int16_t _key_stride;
+    DataTypePtr _expected_struct_type;
+};
+
+// When the query prunes struct sub-columns, StorageReadOptions carries a tablet schema
+// whose pruned-columns map records the FE-pruned type for the column's unique id. The
+// merge iterator must build its internal blocks with that pruned type (see
+// VMergeIteratorContext::_data_type_maybe_pruned); otherwise the block's full struct
+// children would be paired with the pruned sub-column iterators by bare index.
+TEST(VGenericIteratorsTest, MergeWithPrunedStructColumn) {
+    constexpr int32_t struct_unique_id = 10;
+    auto schema = create_struct_schema(struct_unique_id);
+    auto output_schema = std::make_shared<Schema>(schema);
+
+    // The FE-pruned type of c2 keeps only {f1, f3} out of {f1, f2, f3}.
+    TabletColumn pruned_c2;
+    pruned_c2.set_type(FieldType::OLAP_FIELD_TYPE_STRUCT);
+    pruned_c2.set_aggregation_method(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE);
+    pruned_c2.set_is_nullable(true);
+    pruned_c2.set_name("c2");
+    pruned_c2.set_unique_id(struct_unique_id);
+    for (const auto* sub_name : {"f1", "f3"}) {
+        TabletColumn sub(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
+                         FieldType::OLAP_FIELD_TYPE_INT, true);
+        sub.set_name(sub_name);
+        pruned_c2.add_sub_column(sub);
+    }
+    auto pruned_type = Schema::get_data_type_ptr(pruned_c2);
+    auto full_type = Schema::get_data_type_ptr(*schema.column(1));
+    EXPECT_FALSE(pruned_type->equals(*full_type));
+
+    auto tablet_schema = std::make_shared<TabletSchema>();
+    tablet_schema->add_pruned_columns_data_type(struct_unique_id, pruned_type);
+    EXPECT_TRUE(tablet_schema->has_pruned_columns());
+    EXPECT_EQ(tablet_schema->pruned_columns_data_type().size(), 1);
+    EXPECT_TRUE(
+            tablet_schema->pruned_columns_data_type().at(struct_unique_id)->equals(*pruned_type));
+
+    std::vector<RowwiseIteratorUPtr> inputs;
+    inputs.push_back(std::make_unique<PrunedStructUtIterator>(schema, 100, 0, 2, pruned_type));
+    inputs.push_back(std::make_unique<PrunedStructUtIterator>(schema, 100, 1, 2, pruned_type));
+
+    auto iter = new_merge_iterator(std::move(inputs), -1, false, false, nullptr, output_schema);
+    StorageReadOptions opts;
+    opts.tablet_schema = tablet_schema;
+    auto st = iter->init(opts);
+    EXPECT_TRUE(st.ok());
+
+    // The destination block mirrors a query-level block: the struct column is created
+    // with the pruned type, matching what the merge context copies into it.
+    Block block;
+    auto key_type = Schema::get_data_type_ptr(*schema.column(0));
+    auto key_column = key_type->create_column();
+    block.insert(ColumnWithTypeAndName(std::move(key_column), key_type, "c1"));
+    auto struct_column = pruned_type->create_column();
+    block.insert(ColumnWithTypeAndName(std::move(struct_column), pruned_type, "c2"));
+    std::vector<bool> row_is_same;
+    BlockWithSameBit block_with_same_bit {.block = &block, .same_bit = row_is_same};
+
+    do {
+        st = iter->next_batch(&block_with_same_bit);
+    } while (st.ok());
+
+    EXPECT_TRUE(st.is<END_OF_FILE>());
+    EXPECT_EQ(block.rows(), 200);
+
+    // Keys 0..199 in order: the two inputs (0,2,4,... and 1,3,5,...) interleaved.
+    auto c0 = block.get_by_position(0).column;
+    for (size_t i = 0; i < block.rows(); ++i) {
+        EXPECT_EQ(i, (*c0)[i].get<TYPE_SMALLINT>());
+    }
+    // The struct column kept the pruned 2-child layout end to end.
+    EXPECT_TRUE(block.get_by_position(1).type->equals(*pruned_type));
+    EXPECT_EQ(block.get_by_position(1).column->size(), 200);
+}
+
 // Mirror of MergeWithSeqColumn but with small_seq_first=true.
 // Same key across all segments, seq values are 0..seg_iter_num-1; the merge
 // iterator should keep exactly one row whose seq value is the smallest (0).

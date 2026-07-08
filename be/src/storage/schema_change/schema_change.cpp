@@ -44,6 +44,7 @@
 #include "core/block/column_with_type_and_name.h"
 #include "core/column/column.h"
 #include "core/column/column_nullable.h"
+#include "core/data_type/data_type_factory.hpp"
 #include "exec/common/util.hpp"
 #include "exec/common/variant_util.h"
 #include "exprs/aggregate/aggregate_function.h"
@@ -174,6 +175,7 @@ public:
             for (int i = key_number; i < columns; i++) {
                 try {
                     AggregateFunctionPtr function = tablet_schema->column(i).get_aggregate_function(
+                            DataTypeFactory::instance().create_data_type(tablet_schema->column(i)),
                             AGG_LOAD_SUFFIX, tablet_schema->column(i).get_be_exec_version());
                     if (!function) {
                         return Status::InternalError(

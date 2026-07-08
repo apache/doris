@@ -788,11 +788,10 @@ AggregateFunctionPtr TabletColumn::get_aggregate_function_union(DataTypePtr type
     return AggregateStateUnion::create(state_type->get_nested_function(), {type}, type);
 }
 
-AggregateFunctionPtr TabletColumn::get_aggregate_function(std::string suffix,
+AggregateFunctionPtr TabletColumn::get_aggregate_function(DataTypePtr type, std::string suffix,
                                                           int current_be_exec_version) const {
     AggregateFunctionPtr function = nullptr;
 
-    auto type = DataTypeFactory::instance().create_data_type(*this);
     if (type && type->get_primitive_type() == PrimitiveType::TYPE_AGG_STATE) {
         function = get_aggregate_function_union(type, current_be_exec_version);
     } else {

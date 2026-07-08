@@ -107,7 +107,7 @@ Status VMergeIteratorContext::block_reset(const std::shared_ptr<Block>& block) {
         const auto& column_ids = _output_schema->column_ids();
         for (size_t i = 0; i < _output_schema->num_column_ids(); ++i) {
             auto column_desc = _output_schema->column(column_ids[i]);
-            auto data_type = Schema::get_data_type_ptr(*column_desc);
+            auto data_type = _data_type_maybe_pruned(*column_desc);
             if (data_type == nullptr) {
                 return Status::RuntimeError("invalid data type");
             }
@@ -294,6 +294,11 @@ Status VAutoIncrementIterator::init(const StorageReadOptions& opts) {
 Status VMergeIteratorContext::init(const StorageReadOptions& opts) {
     _block_row_max = opts.block_row_max;
     _record_rowids = opts.record_rowids;
+    // For query reads that prune nested sub-columns, block_reset() must build the
+    // merge block with the FE-pruned complex types recorded on the tablet schema.
+    if (opts.tablet_schema != nullptr && opts.tablet_schema->has_pruned_columns()) {
+        _pruned_columns_data_type = &opts.tablet_schema->pruned_columns_data_type();
+    }
     RETURN_IF_ERROR(_load_next_block());
     if (valid()) {
         RETURN_IF_ERROR(advance());

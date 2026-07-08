@@ -28,6 +28,7 @@
 #include "core/block/column_with_type_and_name.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_vector.h"
+#include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/data_type_number.h"
 #include "exprs/aggregate/aggregate_function_reader.h"
 #include "storage/compaction/compaction.h"
@@ -194,10 +195,10 @@ void VerticalBlockReader::_init_agg_state(const ReaderParams& read_params) {
 
     auto& tablet_schema = *_tablet_schema;
     for (size_t idx = 0; idx < _return_columns.size(); ++idx) {
+        const auto& column = tablet_schema.column(_return_columns.at(idx));
         AggregateFunctionPtr function =
-                tablet_schema.column(_return_columns.at(idx))
-                        .get_aggregate_function(AGG_READER_SUFFIX,
-                                                read_params.get_be_exec_version());
+                column.get_aggregate_function(DataTypeFactory::instance().create_data_type(column),
+                                              AGG_READER_SUFFIX, read_params.get_be_exec_version());
         DCHECK(function != nullptr);
         const auto* column_ptr = _stored_data_columns[idx].get();
         const IColumn* columns[] = {column_ptr};
