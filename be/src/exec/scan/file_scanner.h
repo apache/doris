@@ -31,6 +31,7 @@
 #include "common/status.h"
 #include "core/block/block.h"
 #include "exec/operator/file_scan_operator.h"
+#include "exec/scan/file_scan_io_context.h"
 #include "exprs/vexpr_fwd.h"
 #include "format/generic_reader.h"
 #include "format/orc/vorc_reader.h"
@@ -308,8 +309,7 @@ private:
     };
 
     Status _init_io_ctx() {
-        _io_ctx = std::make_shared<io::IOContext>();
-        _io_ctx->query_id = &_state->query_id();
+        _io_ctx = create_file_scan_io_context(_state);
         return Status::OK();
     };
 

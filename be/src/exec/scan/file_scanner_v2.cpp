@@ -42,6 +42,7 @@
 #include "exec/common/util.hpp"
 #include "exec/operator/scan_operator.h"
 #include "exec/scan/access_path_parser.h"
+#include "exec/scan/file_scan_io_context.h"
 #include "exprs/runtime_filter_expr.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
@@ -736,8 +737,7 @@ Status FileScannerV2::_to_file_format(TFileFormatType::type format_type,
 }
 
 Status FileScannerV2::_init_io_ctx() {
-    _io_ctx = std::make_shared<io::IOContext>();
-    _io_ctx->query_id = &_state->query_id();
+    _io_ctx = create_file_scan_io_context(_state);
     return Status::OK();
 }
 
