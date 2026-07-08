@@ -2524,6 +2524,20 @@ void PipelineFragmentContext::_coordinator_callback(const ReportStatusRequest& r
         }
     }
 
+    if (auto pcm = req.runtime_state->paimon_commit_messages(); !pcm.empty()) {
+        params.__isset.paimon_commit_messages = true;
+        params.paimon_commit_messages.insert(params.paimon_commit_messages.end(), pcm.begin(),
+                                              pcm.end());
+    } else if (!req.runtime_states.empty()) {
+        for (auto* rs : req.runtime_states) {
+            if (auto rs_pcm = rs->paimon_commit_messages(); !rs_pcm.empty()) {
+                params.__isset.paimon_commit_messages = true;
+                params.paimon_commit_messages.insert(params.paimon_commit_messages.end(),
+                                                      rs_pcm.begin(), rs_pcm.end());
+            }
+        }
+    }
+
     req.runtime_state->get_unreported_errors(&(params.error_log));
     params.__isset.error_log = (!params.error_log.empty());
 
