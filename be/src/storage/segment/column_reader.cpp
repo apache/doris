@@ -356,7 +356,8 @@ ColumnReader::ColumnReader(const ColumnReaderOptions& opts, const ColumnMetaPB& 
 ColumnReader::~ColumnReader() = default;
 
 int64_t ColumnReader::get_metadata_size() const {
-    return sizeof(ColumnReader) + (_segment_zone_map ? _segment_zone_map->ByteSizeLong() : 0);
+    return sizeof(ColumnReader) + (_segment_zone_map ? _segment_zone_map->ByteSizeLong() : 0) +
+           (_segment_zone_map_v2 ? _segment_zone_map_v2->ByteSizeLong() : 0);
 }
 
 #ifdef BE_TEST
@@ -364,7 +365,7 @@ int64_t ColumnReader::get_metadata_size() const {
 /// See UT case 'SegCompactionMoWTest.SegCompactionInterleaveWithBig_ooooOOoOooooooooO'
 /// be/test/olap/segcompaction_mow_test.cpp
 void ColumnReader::check_data_by_zone_map_for_test(const MutableColumnPtr& dst) const {
-    if (!_segment_zone_map) {
+    if (!_segment_zone_map && !_segment_zone_map_v2) {
         return;
     }
 
@@ -390,7 +391,7 @@ void ColumnReader::check_data_by_zone_map_for_test(const MutableColumnPtr& dst) 
     }
 
     ZoneMap zone_map;
-    THROW_IF_ERROR(ZoneMap::from_proto(*_segment_zone_map, _data_type, zone_map));
+    THROW_IF_ERROR(_get_segment_zone_map(&zone_map));
 
     if (zone_map.has_null) {
         return;
@@ -429,10 +430,15 @@ Status ColumnReader::init(const ColumnMetaPB* meta) {
                     new OrdinalIndexReader(_file_reader, _num_rows, index_meta.ordinal_index()));
             break;
         case ZONE_MAP_INDEX:
-            _segment_zone_map =
-                    std::make_unique<ZoneMapPB>(index_meta.zone_map_index().segment_zone_map());
-            _zone_map_index.reset(new ZoneMapIndexReader(
-                    _file_reader, index_meta.zone_map_index().page_zone_maps()));
+            if (index_meta.zone_map_index().has_segment_zone_map_v2()) {
+                _segment_zone_map_v2 = std::make_unique<ZoneMapEntryPB>(
+                        index_meta.zone_map_index().segment_zone_map_v2());
+            } else {
+                _segment_zone_map =
+                        std::make_unique<ZoneMapPB>(index_meta.zone_map_index().segment_zone_map());
+            }
+            _zone_map_index.reset(
+                    new ZoneMapIndexReader(_file_reader, index_meta.zone_map_index(), _data_type));
             break;
         case BLOOM_FILTER_INDEX:
             _bloom_filter_index.reset(
@@ -506,12 +512,12 @@ Status ColumnReader::get_row_ranges_by_zone_map(
 }
 
 Status ColumnReader::next_batch_of_zone_map(size_t* n, MutableColumnPtr& dst) const {
-    if (_segment_zone_map == nullptr) {
+    if (_segment_zone_map == nullptr && _segment_zone_map_v2 == nullptr) {
         return Status::InternalError("segment zonemap not exist");
     }
     // TODO: this work to get min/max value seems should only do once
     ZoneMap zone_map;
-    RETURN_IF_ERROR(ZoneMap::from_proto(*_segment_zone_map, _data_type, zone_map));
+    RETURN_IF_ERROR(_get_segment_zone_map(&zone_map));
 
     dst->reserve(*n);
     if (!zone_map.has_not_null) {
@@ -532,7 +538,7 @@ Status ColumnReader::match_condition(const AndBlockColumnPredicate* col_predicat
         return Status::OK();
     }
     ZoneMap zone_map;
-    RETURN_IF_ERROR(ZoneMap::from_proto(*_segment_zone_map, _data_type, zone_map));
+    RETURN_IF_ERROR(_get_segment_zone_map(&zone_map));
 
     *matched = _zone_map_match_condition(zone_map, col_predicates);
     return Status::OK();
@@ -559,7 +565,7 @@ Status ColumnReader::prune_predicates_by_zone_map(
     }
 
     ZoneMap zone_map;
-    RETURN_IF_ERROR(ZoneMap::from_proto(*_segment_zone_map, _data_type, zone_map));
+    RETURN_IF_ERROR(_get_segment_zone_map(&zone_map));
     if (zone_map.pass_all) {
         return Status::OK();
     }
@@ -591,21 +597,19 @@ Status ColumnReader::_get_filtered_pages(
         std::vector<uint32_t>* page_indexes, const ColumnIteratorOptions& iter_opts) {
     RETURN_IF_ERROR(_load_zone_map_index(_use_index_page_cache, _opts.kept_in_memory, iter_opts));
 
-    const std::vector<ZoneMapPB>& zone_maps = _zone_map_index->page_zone_maps();
+    const std::vector<ZoneMap>& zone_maps = _zone_map_index->page_zone_map_infos();
     size_t page_size = _zone_map_index->num_pages();
     for (size_t i = 0; i < page_size; ++i) {
-        if (zone_maps[i].pass_all()) {
+        if (zone_maps[i].pass_all) {
             page_indexes->push_back(cast_set<uint32_t>(i));
         } else {
-            segment_v2::ZoneMap zone_map;
-            RETURN_IF_ERROR(ZoneMap::from_proto(zone_maps[i], _data_type, zone_map));
-            if (_zone_map_match_condition(zone_map, col_predicates)) {
+            if (_zone_map_match_condition(zone_maps[i], col_predicates)) {
                 bool should_read = true;
                 if (delete_predicates != nullptr) {
                     for (auto del_pred : *delete_predicates) {
                         // TODO: Both `min_value` and `max_value` should be 0 or neither should be 0.
                         //  So nullable only need to judge once.
-                        if (del_pred->evaluate_del(zone_map)) {
+                        if (del_pred->evaluate_del(zone_maps[i])) {
                             should_read = false;
                             break;
                         }
@@ -693,8 +697,7 @@ Status ColumnReader::_load_zone_map_index(bool use_page_cache, bool kept_in_memo
 
 Status ColumnReader::get_segment_zone_map(segment_v2::ZoneMap* zone_map) const {
     DORIS_CHECK(zone_map != nullptr);
-    DORIS_CHECK(_segment_zone_map != nullptr);
-    return ZoneMap::from_proto(*_segment_zone_map, _data_type, *zone_map);
+    return _get_segment_zone_map(zone_map);
 }
 
 Status ConstantColumnReader::get_segment_zone_map(segment_v2::ZoneMap* zone_map) const {
@@ -714,6 +717,27 @@ Status ColumnReader::get_page_zone_maps(const ColumnIteratorOptions& iter_opts,
     RETURN_IF_ERROR(_load_zone_map_index(_use_index_page_cache, _opts.kept_in_memory, iter_opts));
     *zone_maps = &_zone_map_index->page_zone_maps();
     return Status::OK();
+}
+
+Status ColumnReader::get_page_zone_map_infos(const ColumnIteratorOptions& iter_opts,
+                                             const std::vector<segment_v2::ZoneMap>** zone_maps) {
+    DORIS_CHECK(zone_maps != nullptr);
+    if (_zone_map_index == nullptr) {
+        *zone_maps = nullptr;
+        return Status::OK();
+    }
+    RETURN_IF_ERROR(_load_zone_map_index(_use_index_page_cache, _opts.kept_in_memory, iter_opts));
+    *zone_maps = &_zone_map_index->page_zone_map_infos();
+    return Status::OK();
+}
+
+Status ColumnReader::_get_segment_zone_map(segment_v2::ZoneMap* zone_map) const {
+    DORIS_CHECK(zone_map != nullptr);
+    if (_segment_zone_map_v2 != nullptr) {
+        return ZoneMap::from_entry_pb_native(*_segment_zone_map_v2, _data_type, *zone_map);
+    }
+    DORIS_CHECK(_segment_zone_map != nullptr);
+    return ZoneMap::from_proto(*_segment_zone_map, _data_type, *zone_map);
 }
 
 Status ColumnReader::get_row_range_for_page(uint32_t page_index,

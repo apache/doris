@@ -148,8 +148,8 @@ TEST_F(MetadataAdderTest, meta_load_with_pb_test) {
 
         io::FileReaderSPtr file_reader;
         EXPECT_TRUE(fs->open_file(file1, &file_reader).ok());
-        segment_v2::ZoneMapIndexReader zonemap_col_reader(
-                file_reader, index_meta1.zone_map_index().page_zone_maps());
+        segment_v2::ZoneMapIndexReader zonemap_col_reader(file_reader, index_meta1.zone_map_index(),
+                                                          int_data_type_ptr);
         Status status = zonemap_col_reader.load(true, false);
 
         int mem_size = zonemap_col_reader.get_metadata_size();
@@ -185,7 +185,7 @@ TEST_F(MetadataAdderTest, meta_load_with_pb_test) {
         io::FileReaderSPtr file_reader2;
         EXPECT_TRUE(fs->open_file(file2, &file_reader2).ok());
         segment_v2::ZoneMapIndexReader zonemap_col_reader2(
-                file_reader2, index_meta2.zone_map_index().page_zone_maps());
+                file_reader2, index_meta2.zone_map_index(), str_data_type_ptr);
         Status status2 = zonemap_col_reader2.load(true, false);
 
         int mem_size2 = zonemap_col_reader2.get_metadata_size();
