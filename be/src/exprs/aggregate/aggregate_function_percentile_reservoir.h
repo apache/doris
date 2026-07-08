@@ -98,25 +98,14 @@ public:
         return indexes;
     }
 
-    Status set_const_arguments(const ColumnsWithTypeAndName& arguments) override {
-        const auto& const_level =
-                assert_cast<const ColumnConst&, TypeCheckOnRelease::DISABLE>(*arguments[1].column);
-        const IColumn* level_column = &const_level.get_data_column();
-        if (const auto* nullable_column =
-                    check_and_get_column<ColumnNullable>(*const_level.get_data_column_ptr())) {
-            level_column = &nullable_column->get_nested_column();
-        }
-        _level = assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(*level_column)
-                         .get_data()[0];
-        RETURN_IF_CATCH_EXCEPTION(check_quantile(_level));
-        return Status::OK();
-    }
-
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena&) const override {
         auto value = assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(*columns[0])
                              .get_data()[row_num];
-        this->data(place).add(value, _level);
+        const auto& level_column = *check_and_get_column_with_const<ColumnFloat64>(*columns[1]);
+        auto level = level_column.get_data()[0];
+        check_quantile(level);
+        this->data(place).add(value, level);
     }
 
     void check_input_columns_type(const IColumn** columns) const override {
@@ -128,7 +117,10 @@ public:
                                 Arena&) const override {
         const auto& sources =
                 assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(*columns[0]);
-        this->data(place).add_batch(sources.get_data().data(), batch_size, _level);
+        const auto& level_column = *check_and_get_column_with_const<ColumnFloat64>(*columns[1]);
+        auto level = level_column.get_data()[0];
+        check_quantile(level);
+        this->data(place).add_batch(sources.get_data().data(), batch_size, level);
     }
 
     void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
@@ -140,8 +132,12 @@ public:
         if (frame_start < frame_end) {
             const auto& sources =
                     assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(*columns[0]);
+            const auto& level_column =
+                    *check_and_get_column_with_const<ColumnFloat64>(*columns[1]);
+            auto level = level_column.get_data()[0];
+            check_quantile(level);
             this->data(place).add_batch(sources.get_data().data() + frame_start,
-                                        frame_end - frame_start, _level);
+                                        frame_end - frame_start, level);
             *use_null_result = false;
             *could_use_previous_result = true;
         } else if (!*could_use_previous_result) {
@@ -169,9 +165,6 @@ public:
         assert_cast<ColumnFloat64&, TypeCheckOnRelease::DISABLE>(to).get_data().push_back(
                 this->data(place).get());
     }
-
-private:
-    double _level = 0.0;
 };
 
 } // namespace doris

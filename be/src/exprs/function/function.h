@@ -189,11 +189,6 @@ public:
     }
 
     // Only used by agg_state wrapper functions.
-    virtual Status set_const_arguments(const ColumnsWithTypeAndName& /*arguments*/) {
-        return Status::OK();
-    }
-
-    // Only used by agg_state wrapper functions.
     virtual const std::vector<size_t>& get_const_argument_indexes() const {
         static const std::vector<size_t> indexes;
         return indexes;
@@ -508,10 +503,6 @@ public:
 
     Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
         return function->close(context, scope);
-    }
-
-    Status set_const_arguments(const ColumnsWithTypeAndName& const_arguments) override {
-        return function->set_const_arguments(const_arguments);
     }
 
     const std::vector<size_t>& get_const_argument_indexes() const override {

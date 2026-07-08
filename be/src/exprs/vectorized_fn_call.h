@@ -121,7 +121,6 @@ protected:
 private:
     Status _do_execute(VExprContext* context, const Block* block, const Selector* selector,
                        size_t count, ColumnPtr& result_column, ColumnPtr* arg_column) const;
-    bool _const_arguments_inited = false;
 };
 
 } // namespace doris

@@ -79,12 +79,14 @@ protected:
     }
 
     void set_ai_agg_const_arguments(const std::string& resource_name, const std::string& task) {
-        ColumnsWithTypeAndName arguments(3);
-        arguments[0] = make_const_string_argument(resource_name);
-        arguments[2] = make_const_string_argument(task);
-        EXPECT_TRUE(_agg_function->set_const_arguments(arguments).ok());
+        _resource_name_argument = make_const_string_argument(resource_name);
+        _task_argument = make_const_string_argument(task);
         EXPECT_EQ(_agg_function->get_const_argument_indexes(), (std::vector<size_t> {0, 2}));
     }
+
+    const IColumn* resource_name_column() const { return _resource_name_argument.column.get(); }
+
+    const IColumn* task_column() const { return _task_argument.column.get(); }
 
     std::unique_ptr<MockRuntimeState> _runtime_state;
     std::shared_ptr<QueryContext> _query_ctx;
@@ -92,6 +94,8 @@ protected:
     DataTypes _data_types;
     AggregateFunctionPtr _agg_function;
     Arena _arena;
+    ColumnWithTypeAndName _resource_name_argument;
+    ColumnWithTypeAndName _task_argument;
 };
 
 TEST_F(AggregateFunctionAIAggTest, add_test) {
@@ -104,7 +108,7 @@ TEST_F(AggregateFunctionAIAggTest, add_test) {
     AggregateDataPtr place = memory.get();
     _agg_function->create(place);
 
-    const IColumn* columns[3] = {nullptr, text_col.get(), nullptr};
+    const IColumn* columns[3] = {resource_name_column(), text_col.get(), task_column()};
     _agg_function->add(place, columns, 0, _arena);
 
     const auto& data = *reinterpret_cast<const AggregateFunctionAIAggData*>(place);
@@ -128,7 +132,7 @@ TEST_F(AggregateFunctionAIAggTest, multiple_add_test) {
     std::unique_ptr<char[]> memory(new char[_agg_function->size_of_data()]);
     AggregateDataPtr place = memory.get();
     _agg_function->create(place);
-    const IColumn* columns[3] = {nullptr, text_col.get(), nullptr};
+    const IColumn* columns[3] = {resource_name_column(), text_col.get(), task_column()};
     for (size_t i = 0; i < texts.size(); ++i) {
         _agg_function->add(place, columns, i, _arena);
     }
@@ -157,14 +161,14 @@ TEST_F(AggregateFunctionAIAggTest, merge_test) {
 
     text_col1->insert_data("First part", 10);
 
-    const IColumn* columns1[3] = {nullptr, text_col1.get(), nullptr};
+    const IColumn* columns1[3] = {resource_name_column(), text_col1.get(), task_column()};
     _agg_function->add(place1, columns1, 0, _arena);
 
     auto text_col2 = ColumnString::create();
 
     text_col2->insert_data("Second part", 11);
 
-    const IColumn* columns2[3] = {nullptr, text_col2.get(), nullptr};
+    const IColumn* columns2[3] = {resource_name_column(), text_col2.get(), task_column()};
     _agg_function->add(place2, columns2, 0, _arena);
 
     _agg_function->merge(place1, place2, _arena);
@@ -188,7 +192,7 @@ TEST_F(AggregateFunctionAIAggTest, serialize_deserialize_test) {
 
     text_col->insert_data("Test data for serialization", 28);
 
-    const IColumn* columns[3] = {nullptr, text_col.get(), nullptr};
+    const IColumn* columns[3] = {resource_name_column(), text_col.get(), task_column()};
     _agg_function->add(place1, columns, 0, _arena);
 
     auto serialize_column = _agg_function->create_serialize_column();
@@ -222,7 +226,7 @@ TEST_F(AggregateFunctionAIAggTest, reset_test) {
 
     text_col->insert_data("Some text", 9);
 
-    const IColumn* columns[3] = {nullptr, text_col.get(), nullptr};
+    const IColumn* columns[3] = {resource_name_column(), text_col.get(), task_column()};
     _agg_function->add(place, columns, 0, _arena);
 
     const auto& data_before = *reinterpret_cast<const AggregateFunctionAIAggData*>(place);
@@ -249,7 +253,7 @@ TEST_F(AggregateFunctionAIAggTest, empty_data_test) {
 
     text_col->insert_data("", 0);
 
-    const IColumn* columns[3] = {nullptr, text_col.get(), nullptr};
+    const IColumn* columns[3] = {resource_name_column(), text_col.get(), task_column()};
     _agg_function->add(place, columns, 0, _arena);
 
     const auto& data = *reinterpret_cast<const AggregateFunctionAIAggData*>(place);
@@ -281,7 +285,7 @@ TEST_F(AggregateFunctionAIAggTest, merge_empty_test) {
 
     text_col->insert_data("Test data", 9);
 
-    const IColumn* columns[3] = {nullptr, text_col.get(), nullptr};
+    const IColumn* columns[3] = {resource_name_column(), text_col.get(), task_column()};
     _agg_function->add(place1, columns, 0, _arena);
 
     _agg_function->merge(place1, place2, _arena);
@@ -317,7 +321,7 @@ TEST_F(AggregateFunctionAIAggTest, add_batch_single_place_test) {
     AggregateDataPtr place = memory.get();
     _agg_function->create(place);
 
-    const IColumn* columns[3] = {nullptr, text_col.get(), nullptr};
+    const IColumn* columns[3] = {resource_name_column(), text_col.get(), task_column()};
 
     _agg_function->add_batch_single_place(batch_size, place, columns, _arena);
     const auto& data = *reinterpret_cast<const AggregateFunctionAIAggData*>(place);
@@ -346,7 +350,7 @@ TEST_F(AggregateFunctionAIAggTest, add_batch_single_place_multiple_calls_test) {
     AggregateDataPtr place = memory.get();
     _agg_function->create(place);
 
-    const IColumn* columns[3] = {nullptr, text_col.get(), nullptr};
+    const IColumn* columns[3] = {resource_name_column(), text_col.get(), task_column()};
 
     _agg_function->add_batch_single_place(batch_size, place, columns, _arena);
     auto text_col2 = ColumnString::create();
@@ -356,7 +360,7 @@ TEST_F(AggregateFunctionAIAggTest, add_batch_single_place_multiple_calls_test) {
         text_col2->insert_data(text.c_str(), text.size());
     }
 
-    const IColumn* columns2[3] = {nullptr, text_col2.get(), nullptr};
+    const IColumn* columns2[3] = {resource_name_column(), text_col2.get(), task_column()};
 
     _agg_function->add_batch_single_place(batch_size, place, columns2, _arena);
 
@@ -390,7 +394,7 @@ TEST_F(AggregateFunctionAIAggTest, ai_context_window_size_session_variable_test)
     AggregateDataPtr place = memory.get();
     _agg_function->create(place);
 
-    const IColumn* columns[3] = {nullptr, text_col.get(), nullptr};
+    const IColumn* columns[3] = {resource_name_column(), text_col.get(), task_column()};
     _agg_function->add(place, columns, 0, _arena);
     _agg_function->add(place, columns, 1, _arena);
 
@@ -432,14 +436,14 @@ TEST_F(AggregateFunctionAIAggTest, query_context_is_isolated_between_function_in
     ColumnsWithTypeAndName arguments(3);
     arguments[0] = make_const_string_argument("mock_resource");
     arguments[2] = make_const_string_argument("summarize");
-    EXPECT_TRUE(first_agg_function->set_const_arguments(arguments).ok());
     EXPECT_EQ(first_agg_function->get_const_argument_indexes(), (std::vector<size_t> {0, 2}));
 
     std::unique_ptr<char[]> memory(new char[first_agg_function->size_of_data()]);
     AggregateDataPtr place = memory.get();
     first_agg_function->create(place);
 
-    const IColumn* columns[3] = {nullptr, text_col.get(), nullptr};
+    const IColumn* columns[3] = {arguments[0].column.get(), text_col.get(),
+                                 arguments[2].column.get()};
     first_agg_function->add(place, columns, 0, _arena);
     first_agg_function->add(place, columns, 1, _arena);
 
@@ -477,7 +481,7 @@ TEST_F(AggregateFunctionAIAggTest, mock_resource_send_request_test) {
     AggregateDataPtr place = memory.get();
     _agg_function->create(place);
 
-    const IColumn* columns[3] = {nullptr, col_text.get(), nullptr};
+    const IColumn* columns[3] = {resource_name_column(), col_text.get(), task_column()};
     _agg_function->add(place, columns, 0, _arena);
 
     ColumnString result_column;
@@ -501,7 +505,7 @@ TEST_F(AggregateFunctionAIAggTest, missing_ai_resources_metadata_test) {
     AggregateDataPtr place = memory.get();
     _agg_function->create(place);
 
-    const IColumn* columns[3] = {nullptr, col_text.get(), nullptr};
+    const IColumn* columns[3] = {resource_name_column(), col_text.get(), task_column()};
 
     try {
         _agg_function->add(place, columns, 0, _arena);

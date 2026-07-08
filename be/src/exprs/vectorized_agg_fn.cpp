@@ -261,6 +261,12 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc,
     if (_fn.name.function_name == "ai_agg") {
         _function->set_query_context(state->get_query_ctx());
     }
+    if (!_is_merge) {
+        for (auto index : _function->get_const_argument_indexes()) {
+            DORIS_CHECK_LT(index, _const_argument_idx.size());
+            _const_argument_idx[index] = true;
+        }
+    }
 
     // Foreachv2, like foreachv1, does not check the return type,
     // because its return type is related to the internal agg.
@@ -276,38 +282,7 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc,
 }
 
 Status AggFnEvaluator::open(RuntimeState* state) {
-    RETURN_IF_ERROR(VExpr::open(_input_exprs_ctxs, state));
-    return _init_const_arguments();
-}
-
-// Agg functions such as percentile require some arguments to be constant, but
-// the const argument may still be represented as an unevaluated expression when
-// FE skips constant folding, e.g. percentile(x, 0.1 + 0.2). Such an expression
-// is not necessarily `VExpr::is_constant()`, so evaluate it after input exprs
-// are opened.
-
-Status AggFnEvaluator::_init_const_arguments() {
-    if (_is_merge) {
-        return Status::OK();
-    }
-
-    const auto& const_argument_indexes = _function->get_const_argument_indexes();
-    if (const_argument_indexes.empty()) {
-        return Status::OK();
-    }
-    for (const auto i : const_argument_indexes) {
-        if (i >= _input_exprs_ctxs.size()) [[unlikely]] {
-            return Status::InternalError("Aggregate function {} requires invalid const argument {}",
-                                         _function->get_name(), i);
-        }
-        _const_argument_idx[i] = true;
-    }
-
-    ColumnsWithTypeAndName const_arguments(_input_exprs_ctxs.size());
-    for (const auto i : const_argument_indexes) {
-        RETURN_IF_ERROR(_input_exprs_ctxs[i]->execute_const_expr(const_arguments[i]));
-    }
-    return _function->set_const_arguments(const_arguments);
+    return VExpr::open(_input_exprs_ctxs, state);
 }
 
 void AggFnEvaluator::create(AggregateDataPtr place) {

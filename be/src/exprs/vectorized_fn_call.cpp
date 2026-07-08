@@ -86,29 +86,6 @@ VectorizedFnCall::VectorizedFnCall(const TExprNode& node) : VExpr(node) {
     _function_name = _fn.name.function_name;
 }
 
-static Status init_const_arguments_for_agg_state(VExprContext* context,
-                                                 const FunctionBasePtr& function,
-                                                 const VExprSPtrs& children) {
-    const auto& const_argument_indexes = function->get_const_argument_indexes();
-    if (const_argument_indexes.empty()) {
-        return Status::OK();
-    }
-
-    ColumnsWithTypeAndName const_arguments(children.size());
-    for (const auto index : const_argument_indexes) {
-        if (index >= children.size()) [[unlikely]] {
-            return Status::InternalError("Function {} requires invalid const argument {}",
-                                         function->get_name(), index);
-        }
-        ColumnPtr const_column;
-        RETURN_IF_ERROR(
-                children[index]->execute_column(context, nullptr, nullptr, 1, const_column));
-        const_arguments[index] = {const_column, children[index]->data_type(),
-                                  children[index]->expr_name()};
-    }
-    return function->set_const_arguments(const_arguments);
-}
-
 Status VectorizedFnCall::prepare(RuntimeState* state, const RowDescriptor& desc,
                                  VExprContext* context) {
     RETURN_IF_ERROR_OR_PREPARED(VExpr::prepare(state, desc, context));
@@ -215,10 +192,6 @@ Status VectorizedFnCall::open(RuntimeState* state, VExprContext* context,
     }
     RETURN_IF_ERROR(VExpr::init_function_context(state, context, scope, _function));
     if (scope == FunctionContext::FRAGMENT_LOCAL) {
-        if (!_const_arguments_inited) {
-            RETURN_IF_ERROR(init_const_arguments_for_agg_state(context, _function, _children));
-            _const_arguments_inited = true;
-        }
         RETURN_IF_ERROR(VExpr::get_const_col(context, nullptr));
     }
     _open_finished = true;

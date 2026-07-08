@@ -41,7 +41,12 @@ public:
             : _argument_types(argument_types),
               _return_type(return_type),
               _agg_function(agg_function),
-              _const_argument_idx(argument_types.size(), false) {}
+              _const_argument_idx(argument_types.size(), false) {
+        for (auto index : _agg_function->get_const_argument_indexes()) {
+            DORIS_CHECK_LT(index, _const_argument_idx.size());
+            _const_argument_idx[index] = true;
+        }
+    }
 
     static FunctionBasePtr create(const DataTypes& argument_types, const DataTypePtr& return_type,
                                   AggregateFunctionPtr agg_function) {
@@ -65,17 +70,6 @@ public:
 
     const std::vector<size_t>& get_const_argument_indexes() const override {
         return _agg_function->get_const_argument_indexes();
-    }
-
-    Status set_const_arguments(const ColumnsWithTypeAndName& arguments) override {
-        for (auto index : get_const_argument_indexes()) {
-            if (index >= _const_argument_idx.size()) [[unlikely]] {
-                return Status::InternalError("Function {} requires invalid const argument {}",
-                                             get_name(), index);
-            }
-            _const_argument_idx[index] = true;
-        }
-        return _agg_function->set_const_arguments(arguments);
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,

@@ -145,20 +145,6 @@ public:
         return indexes;
     }
 
-    Status set_const_arguments(const ColumnsWithTypeAndName& arguments) override {
-        const auto& const_half_decay =
-                assert_cast<const ColumnConst&, TypeCheckOnRelease::DISABLE>(*arguments[0].column);
-        const IColumn* half_decay_column = &const_half_decay.get_data_column();
-        if (const auto* nullable_column =
-                    check_and_get_column<ColumnNullable>(*const_half_decay.get_data_column_ptr())) {
-            half_decay_column = &nullable_column->get_nested_column();
-        }
-        _half_decay =
-                assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(*half_decay_column)
-                        .get_data()[0];
-        return Status::OK();
-    }
-
     void reset(AggregateDataPtr __restrict place) const override { this->data(place).reset(); }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
@@ -169,7 +155,9 @@ public:
         const double current_time =
                 assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(*columns[2])
                         .get_data()[row_num];
-        this->data(place).add(new_value, current_time, _half_decay);
+        const auto& half_decay_column =
+                *check_and_get_column_with_const<ColumnFloat64>(*columns[0]);
+        this->data(place).add(new_value, current_time, half_decay_column.get_data()[0]);
     }
 
     void check_input_columns_type(const IColumn** columns) const override {
@@ -196,9 +184,6 @@ public:
         assert_cast<ColumnFloat64&, TypeCheckOnRelease::DISABLE>(to).get_data().push_back(
                 this->data(place).get());
     }
-
-private:
-    double _half_decay = 0.0;
 };
 
 } // namespace doris
