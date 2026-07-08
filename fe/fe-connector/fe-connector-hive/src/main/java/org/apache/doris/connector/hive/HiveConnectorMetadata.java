@@ -1509,6 +1509,28 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
         // hive: no static-partition constraint (SPI default no-op).
     }
 
+    /**
+     * Rejects the dynamic partition-NAME list form ({@code INSERT ... PARTITION(p1, p2)}) on a hive table with the
+     * exact legacy message. UNLIKE the two permissive validators above, a hive handle here THROWS on a non-empty
+     * list — this is the net-new port of the legacy fe-core reject ({@code BindSink.bindHiveTableSink}), not a
+     * silent no-op. A foreign (iceberg-on-HMS) handle forwards to the sibling, which accepts {@code
+     * PARTITION(names)} exactly as a standalone {@code type=iceberg} catalog does (no heterogeneous-vs-standalone
+     * divergence); the forward happens regardless of emptiness (the empty-early-return is hive-only). An empty
+     * list returns silently for a hive handle (a plain {@code INSERT ... SELECT} or a static {@code
+     * PARTITION(col='val')} INSERT is legal plain-hive). Dormant until hms enters SPI_READY_TYPES.
+     */
+    @Override
+    public void validateWritePartitionNames(ConnectorSession session, ConnectorTableHandle handle,
+            List<String> partitionNames) {
+        if (!(handle instanceof HiveTableHandle)) {
+            siblingMetadata(session).validateWritePartitionNames(session, handle, partitionNames);
+            return;
+        }
+        if (partitionNames != null && !partitionNames.isEmpty()) {
+            throw new DorisConnectorException("Not support insert with partition spec in hive catalog.");
+        }
+    }
+
     // ========== ConnectorWriteOps: transactions ==========
 
     /**

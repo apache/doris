@@ -202,9 +202,33 @@ public class HiveConnectorMetadataSiblingDelegationTest {
         md.replacePartitionField(null, foreignHandle, null);
         md.validateRowLevelDmlMode(null, foreignHandle, null);
         md.validateStaticPartitionColumns(null, foreignHandle, Collections.emptyList());
+        // Empty list on purpose: a foreign handle must forward REGARDLESS of emptiness (the empty-early-return is
+        // hive-only) — this would fail if the empty check were placed before the foreign-handle divert.
+        md.validateWritePartitionNames(null, foreignHandle, Collections.emptyList());
 
         Assertions.assertEquals(RecordingSiblingMetadata.EXPECTED_WRITE_METHODS, siblingMetadata.calls,
                 "every ALTER-DDL mutator + write validator must forward a foreign handle to the sibling");
+    }
+
+    @Test
+    public void hiveHandleRejectsNonEmptyPartitionNamesWithLegacyMessage() {
+        HiveConnectorMetadata md = withSibling();
+        HiveTableHandle hive = hiveHandle();
+
+        // Net-new port of the legacy fe-core reject (retired BindSink.bindHiveTableSink): the dynamic
+        // partition-NAME list form INSERT ... PARTITION(p1, p2) is unsupported on a hive table. UNLIKE the two
+        // permissive validators, a hive handle here THROWS the EXACT legacy message on a non-empty list. The e2e
+        // test_hive_write_type.groovy asserts on this literal substring, so it must stay byte-identical.
+        assertThrowsMessage(() -> md.validateWritePartitionNames(null, hive, Arrays.asList("p1", "p2")),
+                "Not support insert with partition spec in hive catalog.");
+
+        // An empty list (a plain INSERT ... SELECT or a static PARTITION(col='val') INSERT) is legal plain-hive
+        // and MUST return silently — a throw here would newly reject legal writes.
+        md.validateWritePartitionNames(null, hive, Collections.emptyList());
+
+        Assertions.assertEquals(0, siblingConnector.getMetadataCount,
+                "a hive handle must never build/consult the iceberg sibling to validate partition names");
+        Assertions.assertTrue(siblingMetadata.calls.isEmpty(), "the sibling must not be forwarded a hive handle");
     }
 
     @Test
@@ -323,7 +347,7 @@ public class HiveConnectorMetadataSiblingDelegationTest {
                 "renameTable", "addColumn", "addColumns", "dropColumn", "renameColumn", "modifyColumn",
                 "reorderColumns", "createOrReplaceBranch", "createOrReplaceTag", "dropBranch", "dropTag",
                 "addPartitionField", "dropPartitionField", "replacePartitionField",
-                "validateRowLevelDmlMode", "validateStaticPartitionColumns"));
+                "validateRowLevelDmlMode", "validateStaticPartitionColumns", "validateWritePartitionNames"));
 
         final List<String> calls = new ArrayList<>();
         final Optional<FilterApplicationResult<ConnectorTableHandle>> filterResult =
@@ -563,6 +587,12 @@ public class HiveConnectorMetadataSiblingDelegationTest {
         public void validateStaticPartitionColumns(ConnectorSession session, ConnectorTableHandle handle,
                 List<String> staticPartitionColumnNames) {
             calls.add("validateStaticPartitionColumns");
+        }
+
+        @Override
+        public void validateWritePartitionNames(ConnectorSession session, ConnectorTableHandle handle,
+                List<String> partitionNames) {
+            calls.add("validateWritePartitionNames");
         }
     }
 }

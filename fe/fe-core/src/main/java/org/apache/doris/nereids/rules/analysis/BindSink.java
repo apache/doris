@@ -755,6 +755,37 @@ public class BindSink implements AnalysisRuleFactory {
         }
     }
 
+    /**
+     * Connector analogue of the legacy hive partition-spec reject (retired legacy {@code bindHiveTableSink}):
+     * rejects the dynamic partition-NAME list form ({@code INSERT ... PARTITION(p1, p2)}) through the neutral
+     * {@code ConnectorMetadata#validateWritePartitionNames} SPI, so the rejection and its message stay in the
+     * connector (hive rejects, iceberg accepts). A connector {@link DorisConnectorException} is surfaced as the
+     * analysis-time {@link AnalysisException} the legacy native path threw, preserving the message and exception
+     * type. The handle round-trip + SPI call happen only when the list is non-empty, so a plain {@code INSERT ...
+     * SELECT} (empty list) is byte-unchanged for every live connector. Mirrors {@link #checkConnectorStaticPartitions}.
+     */
+    private void checkConnectorWritePartitionNames(PluginDrivenExternalTable table, List<String> partitionNames) {
+        if (partitionNames == null || partitionNames.isEmpty()) {
+            return;
+        }
+        if (!(table.getCatalog() instanceof PluginDrivenExternalCatalog)) {
+            return;
+        }
+        PluginDrivenExternalCatalog catalog = (PluginDrivenExternalCatalog) table.getCatalog();
+        ConnectorSession session = catalog.buildConnectorSession();
+        ConnectorMetadata metadata = catalog.getConnector().getMetadata(session);
+        ConnectorTableHandle handle = metadata.getTableHandle(
+                        session, table.getRemoteDbName(), table.getRemoteName())
+                .orElseThrow(() -> new AnalysisException("Table not found: "
+                        + table.getRemoteDbName() + "." + table.getRemoteName()
+                        + " in catalog " + catalog.getName()));
+        try {
+            metadata.validateWritePartitionNames(session, handle, partitionNames);
+        } catch (DorisConnectorException e) {
+            throw new AnalysisException(e.getMessage(), e);
+        }
+    }
+
     private Plan bindConnectorTableSink(MatchingContext<UnboundConnectorTableSink<Plan>> ctx) {
         UnboundConnectorTableSink<?> sink = ctx.root;
         Pair<ExternalDatabase, PluginDrivenExternalTable> pair = bind(ctx.cascadesContext, sink);
@@ -776,6 +807,12 @@ public class BindSink implements AnalysisRuleFactory {
         // path. Fail loud at analysis time, before the write plan is synthesized (otherwise an unknown column is
         // silently swallowed by the materialize block below and surfaces as an unrelated planning error).
         checkConnectorStaticPartitions(table, staticPartitions, staticPartitionColNames);
+
+        // Reject the dynamic partition-NAME list form (INSERT ... PARTITION(p1, p2)) via the neutral SPI, so the
+        // reject and its message stay in the connector (hive rejects with the legacy message; iceberg accepts).
+        // The retired legacy hive path threw "Not support insert with partition spec in hive catalog." here.
+        // Guarded on non-empty inside the helper, so a plain INSERT ... SELECT is byte-unchanged for live connectors.
+        checkConnectorWritePartitionNames(table, sink.getPartitions());
 
         List<Column> bindColumns = selectConnectorSinkBindColumns(
                 table, sink.getColNames(), staticPartitionColNames, sink.isRewrite());
