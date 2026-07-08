@@ -47,7 +47,10 @@ protected:
     std::unique_ptr<NestFunction> nested_function;
     size_t prefix_size;
     bool is_window_function = false;
-    std::vector<bool> const_argument_idx;
+    // Argument positions that must be constant by nested aggregate semantics.
+    // Other positions may also receive constant columns at runtime, but FE only
+    // guarantees these positions are always constant arguments.
+    std::vector<bool> always_const_argument_idx;
 
     AggregateDataPtr nested_place(AggregateDataPtr __restrict place) const noexcept {
         return place + prefix_size;
@@ -109,11 +112,11 @@ public:
             : IAggregateFunctionHelper<Derived>(arguments),
               nested_function {assert_cast<NestFunction*>(nested_function_)},
               is_window_function(is_window_function_),
-              const_argument_idx(arguments.size(), false) {
+              always_const_argument_idx(arguments.size(), false) {
         DCHECK(nested_function_ != nullptr);
         for (auto index : nested_function->get_const_argument_indexes()) {
-            DORIS_CHECK_LT(index, const_argument_idx.size());
-            const_argument_idx[index] = true;
+            DORIS_CHECK_LT(index, always_const_argument_idx.size());
+            always_const_argument_idx[index] = true;
         }
         if constexpr (result_is_nullable) {
             if (this->is_window_function) {
@@ -156,9 +159,9 @@ public:
         return nested_function->get_const_argument_indexes();
     }
 
-    bool has_null_constant(const IColumn** columns) const {
-        for (size_t i = 0; i < const_argument_idx.size(); ++i) {
-            if (const_argument_idx[i] && this->argument_types[i]->is_nullable() &&
+    bool check_always_const_col_has_null(const IColumn** columns) const {
+        for (size_t i = 0; i < always_const_argument_idx.size(); ++i) {
+            if (always_const_argument_idx[i] && this->argument_types[i]->is_nullable() &&
                 columns[i]->is_null_at(0)) {
                 return true;
             }
@@ -438,7 +441,7 @@ public:
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena& arena) const override {
-        if (this->has_null_constant(columns)) {
+        if (this->check_always_const_col_has_null(columns)) {
             return;
         }
         const auto* column =
@@ -480,7 +483,7 @@ public:
 
     void add_batch(size_t batch_size, AggregateDataPtr* __restrict places, size_t place_offset,
                    const IColumn** columns, Arena& arena, bool agg_many) const override {
-        if (this->has_null_constant(columns)) {
+        if (this->check_always_const_col_has_null(columns)) {
             return;
         }
         const auto* column =
@@ -511,7 +514,7 @@ public:
 
     void add_batch_single_place(size_t batch_size, AggregateDataPtr place, const IColumn** columns,
                                 Arena& arena) const override {
-        if (this->has_null_constant(columns)) {
+        if (this->check_always_const_col_has_null(columns)) {
             return;
         }
         const auto* column =
@@ -532,7 +535,7 @@ public:
 
     void add_batch_range(size_t batch_begin, size_t batch_end, AggregateDataPtr place,
                          const IColumn** columns, Arena& arena, bool has_null) override {
-        if (this->has_null_constant(columns)) {
+        if (this->check_always_const_col_has_null(columns)) {
             return;
         }
         const auto* column =

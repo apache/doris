@@ -41,10 +41,10 @@ public:
             : _argument_types(argument_types),
               _return_type(return_type),
               _agg_function(agg_function),
-              _const_argument_idx(argument_types.size(), false) {
+              _always_const_argument_idx(argument_types.size(), false) {
         for (auto index : _agg_function->get_const_argument_indexes()) {
-            DORIS_CHECK_LT(index, _const_argument_idx.size());
-            _const_argument_idx[index] = true;
+            DORIS_CHECK_LT(index, _always_const_argument_idx.size());
+            _always_const_argument_idx[index] = true;
         }
     }
 
@@ -82,7 +82,7 @@ public:
             DataTypePtr signature =
                     assert_cast<const DataTypeAggState*>(_return_type.get())->get_sub_types()[i];
             ColumnPtr column;
-            if (_const_argument_idx[i]) {
+            if (_always_const_argument_idx[i]) {
                 column = block.get_by_position(arguments[i]).column;
                 if (const auto* const_column = check_and_get_column<ColumnConst>(*column)) {
                     column = const_column->get_data_column_ptr();
@@ -116,7 +116,9 @@ private:
     DataTypes _argument_types;
     DataTypePtr _return_type;
     AggregateFunctionPtr _agg_function;
-    std::vector<bool> _const_argument_idx;
+    // Bool map of argument positions that must be constant by aggregate semantics.
+    // FE checks these positions before execution.
+    std::vector<bool> _always_const_argument_idx;
 };
 
 } // namespace doris

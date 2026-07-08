@@ -132,8 +132,7 @@ public:
         if (frame_start < frame_end) {
             const auto& sources =
                     assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(*columns[0]);
-            const auto& level_column =
-                    *check_and_get_column_with_const<ColumnFloat64>(*columns[1]);
+            const auto& level_column = *check_and_get_column_with_const<ColumnFloat64>(*columns[1]);
             auto level = level_column.get_data()[0];
             check_quantile(level);
             this->data(place).add_batch(sources.get_data().data() + frame_start,
