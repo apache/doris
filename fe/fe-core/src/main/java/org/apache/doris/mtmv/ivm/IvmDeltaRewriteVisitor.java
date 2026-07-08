@@ -64,7 +64,7 @@ class IvmDeltaRewriteVisitor extends PlanVisitor<IvmDeltaRewriteResult, IvmRefre
         return linearHandler.rewriteOlapScan(scan);
     }
 
-    /** Stream scan is a delta source — build dml_factor if isIncrementalScan. */
+    /** Stream scan is a delta source — build dml_factor if isIncremental. */
     @Override
     public IvmDeltaRewriteResult visitLogicalOlapTableStreamScan(
             LogicalOlapTableStreamScan scan, IvmRefreshContext ctx) {

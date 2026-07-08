@@ -251,7 +251,7 @@ class IvmLinearDeltaHandlerTest extends IvmDeltaTestBase {
     @Test
     void testRewritePlanWithoutOpColumnUsesLiteralOne() {
         // Non-incremental stream scan: rewrite returns scan as-is with null dmlFactor (no dml_factor injected)
-        LogicalOlapTableStreamScan scan = (LogicalOlapTableStreamScan) buildDeltaScan().withIncrementalScan(false);
+        LogicalOlapTableStreamScan scan = (LogicalOlapTableStreamScan) buildDeltaScan().withIsSnapshot(true);
         TestableIvmLinearDeltaHandler handler = new TestableIvmLinearDeltaHandler();
 
         IvmDeltaRewriteResult result = handler.exposeRewritePlan(scan, dummyCtx());

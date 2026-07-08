@@ -947,7 +947,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
                 hints,
                 tableSample,
                 operativeSlots
-        ).withIncrementalScan(false).withIsReset(false).withIsSnapshot(true);
+        ).withIsReset(false).withIsSnapshot(true);
     }
 
     /** Build a post-refresh snapshot as a regular olap scan. */

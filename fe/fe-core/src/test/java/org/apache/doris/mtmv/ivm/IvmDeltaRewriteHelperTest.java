@@ -56,14 +56,14 @@ class IvmDeltaRewriteHelperTest extends IvmDeltaTestBase {
     @Test
     void testIsIncrementalDeltaScan_streamScanNotIncremental_returnsFalse() {
         LogicalOlapTableStreamScan scan = Mockito.mock(LogicalOlapTableStreamScan.class);
-        Mockito.when(scan.isIncrementalScan()).thenReturn(false);
+        Mockito.when(scan.isIncremental()).thenReturn(false);
         Assertions.assertFalse(helper.isIncrementalDeltaScan(scan));
     }
 
     @Test
     void testIsIncrementalDeltaScan_streamScanIncremental_returnsTrue() {
         LogicalOlapTableStreamScan scan = Mockito.mock(LogicalOlapTableStreamScan.class);
-        Mockito.when(scan.isIncrementalScan()).thenReturn(true);
+        Mockito.when(scan.isIncremental()).thenReturn(true);
         Assertions.assertTrue(helper.isIncrementalDeltaScan(scan));
     }
 
@@ -116,7 +116,7 @@ class IvmDeltaRewriteHelperTest extends IvmDeltaTestBase {
         Assertions.assertInstanceOf(LogicalOlapTableStreamScan.class, remapped.child(0));
         LogicalOlapTableStreamScan snapshotChild = (LogicalOlapTableStreamScan) remapped.child(0);
         Assertions.assertTrue(snapshotChild.isSnapshot());
-        Assertions.assertFalse(snapshotChild.isIncrementalScan());
+        Assertions.assertFalse(snapshotChild.isIncremental());
         Assertions.assertFalse(snapshotChild.isReset());
         for (int i = 0; i < scan.getOutput().size(); i++) {
             Assertions.assertEquals(scan.getOutput().get(i).getExprId(), remapped.getOutput().get(i).getExprId());

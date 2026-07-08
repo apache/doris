@@ -373,7 +373,7 @@ public class IvmDeltaRewriter {
 
         long deltaCount = modifiedPlan.collectToList(
                 n -> n instanceof LogicalOlapTableStreamScan
-                        && ((LogicalOlapTableStreamScan) n).isIncrementalScan()).size();
+                        && ((LogicalOlapTableStreamScan) n).isIncremental()).size();
         Preconditions.checkState(deltaCount == 1,
                 "IVM: expected exactly 1 delta scan per bundle, got " + deltaCount);
 
@@ -446,7 +446,7 @@ public class IvmDeltaRewriter {
                 scan.getHints(),
                 scan.getTableSample(),
                 scan.getOperativeSlots()
-        ).withIncrementalScan(true);
+        );
     }
 
     private OlapTableStream getStream(OlapTable originTable, long mvId) {
@@ -476,7 +476,7 @@ public class IvmDeltaRewriter {
                 return false;
             }
             LogicalOlapTableStreamScan streamScan = (LogicalOlapTableStreamScan) node;
-            if (!streamScan.isIncrementalScan()) {
+            if (!streamScan.isIncremental()) {
                 return false;
             }
             TableIf table = streamScan.getTable();
