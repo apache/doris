@@ -22,6 +22,7 @@ import org.apache.paimon.disk.BufferFileWriter;
 import org.apache.paimon.disk.FileIOChannel;
 import org.apache.paimon.disk.IOManager;
 import org.apache.paimon.disk.IOManagerImpl;
+import org.apache.paimon.table.Table;
 import org.junit.Assert;
 import org.junit.Rule;
 import org.junit.Test;
@@ -29,6 +30,8 @@ import org.junit.rules.TemporaryFolder;
 
 import java.io.File;
 import java.lang.reflect.Field;
+import java.lang.reflect.Proxy;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
@@ -96,12 +99,12 @@ public class PaimonJniScannerTest {
     }
 
     @Test
-    public void testStatisticsIncludePaimonDiagnostics() {
+    public void testStatisticsIncludePaimonDiagnostics() throws Exception {
         Map<String, String> params = createBaseParams();
         params.put("paimon_split", "encoded-split");
         params.put("paimon_predicate", "encoded-predicate");
-        params.put("paimon.file-reader-async-threshold", "10 MiB");
         PaimonJniScanner scanner = new PaimonJniScanner(128, params);
+        setTableOptions(scanner, Collections.singletonMap("file-reader-async-threshold", "10 MiB"));
 
         Map<String, String> statistics = scanner.getStatistics();
 
@@ -161,6 +164,22 @@ public class PaimonJniScannerTest {
         params.put("paimon_split", "");
         params.put("paimon_predicate", "");
         return params;
+    }
+
+    private void setTableOptions(PaimonJniScanner scanner, Map<String, String> options) throws Exception {
+        Table table = (Table) Proxy.newProxyInstance(
+                Table.class.getClassLoader(), new Class[] {Table.class}, (proxy, method, args) -> {
+                    if ("options".equals(method.getName())) {
+                        return options;
+                    }
+                    if ("toString".equals(method.getName())) {
+                        return "TestPaimonTable";
+                    }
+                    throw new UnsupportedOperationException(method.getName());
+                });
+        Field tableField = PaimonJniScanner.class.getDeclaredField("table");
+        tableField.setAccessible(true);
+        tableField.set(scanner, table);
     }
 
     public static class TestIOManager implements IOManager {

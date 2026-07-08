@@ -428,6 +428,12 @@ public class PaimonJniScanner extends JniScanner {
     }
 
     private String paimonOption(String key) {
+        if (table != null) {
+            String tableOption = table.options().get(key);
+            if (tableOption != null) {
+                return tableOption;
+            }
+        }
         return params.get(PAIMON_OPTION_PREFIX + key);
     }
 
