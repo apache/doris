@@ -4208,6 +4208,36 @@ TEST_F(NewOrcReaderTest, AggregatePushdownUsesPrunedStripes) {
     EXPECT_EQ(reader->reader_statistics().filtered_row_groups, 1);
 }
 
+TEST_F(NewOrcReaderTest, AggregatePushdownTimestampMinMaxUsesSessionTimezone) {
+    const auto multi_stripe_file_path = (_test_dir / "aggregate_timestamp_timezone.orc").string();
+    write_two_stripe_constant_timestamp_file(multi_stripe_file_path, 0, 3600);
+
+    auto reader = create_reader_for_path(multi_stripe_file_path);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    state.set_timezone("Asia/Shanghai");
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->non_predicate_columns = {field_projection(0)};
+    ASSERT_TRUE(reader->open(request).ok());
+
+    format::FileAggregateRequest aggregate_request;
+    aggregate_request.agg_type = TPushAggOp::type::MINMAX;
+    aggregate_request.columns.push_back(
+            {.projection = format::LocalColumnIndex::top_level(format::LocalColumnId(0))});
+    format::FileAggregateResult aggregate_result;
+    auto status = reader->get_aggregate_result(aggregate_request, &aggregate_result);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_EQ(aggregate_result.columns.size(), 1);
+    EXPECT_EQ(aggregate_result.count, 400);
+    EXPECT_TRUE(aggregate_result.columns[0].has_min);
+    EXPECT_TRUE(aggregate_result.columns[0].has_max);
+    EXPECT_EQ(aggregate_result.columns[0].min_value.get<TYPE_DATETIMEV2>(),
+              make_datetime_v2(1970, 1, 1, 8, 0, 0, 123000));
+    EXPECT_EQ(aggregate_result.columns[0].max_value.get<TYPE_DATETIMEV2>(),
+              make_datetime_v2(1970, 1, 1, 9, 0, 0, 123000));
+}
+
 TEST_F(NewOrcReaderTest, GetSchemaReturnsFileLocalColumns) {
     auto reader = create_reader();
     RuntimeState state {TQueryOptions(), TQueryGlobals()};

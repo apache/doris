@@ -774,7 +774,8 @@ bool set_date_zone_map(const ::orc::ColumnStatistics& statistics, segment_v2::Zo
     return true;
 }
 
-DateV2Value<DateTimeV2ValueType> datetime_v2_from_orc_millis(int64_t millis, int32_t nanos_tail) {
+DateV2Value<DateTimeV2ValueType> datetime_v2_from_orc_millis(int64_t millis, int32_t nanos_tail,
+                                                             const cctz::time_zone& timezone) {
     int64_t seconds = millis / 1000;
     int64_t millis_remainder = millis % 1000;
     if (millis_remainder < 0) {
@@ -784,13 +785,13 @@ DateV2Value<DateTimeV2ValueType> datetime_v2_from_orc_millis(int64_t millis, int
     const auto extra_nanos = std::max<int32_t>(nanos_tail, 0);
     const auto microseconds = cast_set<uint64_t>(millis_remainder * 1000 + extra_nanos / 1000);
     DateV2Value<DateTimeV2ValueType> value;
-    value.from_unixtime(seconds, cctz::utc_time_zone());
+    value.from_unixtime(seconds, timezone);
     value.set_microsecond(microseconds);
     return value;
 }
 
 bool set_timestamp_zone_map(const ::orc::ColumnStatistics& statistics,
-                            segment_v2::ZoneMap* zone_map) {
+                            const cctz::time_zone& timezone, segment_v2::ZoneMap* zone_map) {
     const auto* timestamp_statistics =
             dynamic_cast<const ::orc::TimestampColumnStatistics*>(&statistics);
     if (timestamp_statistics == nullptr || !timestamp_statistics->hasMinimum() ||
@@ -798,9 +799,9 @@ bool set_timestamp_zone_map(const ::orc::ColumnStatistics& statistics,
         return false;
     }
     zone_map->min_value = Field::create_field<TYPE_DATETIMEV2>(datetime_v2_from_orc_millis(
-            timestamp_statistics->getMinimum(), timestamp_statistics->getMinimumNanos()));
+            timestamp_statistics->getMinimum(), timestamp_statistics->getMinimumNanos(), timezone));
     zone_map->max_value = Field::create_field<TYPE_DATETIMEV2>(datetime_v2_from_orc_millis(
-            timestamp_statistics->getMaximum(), timestamp_statistics->getMaximumNanos()));
+            timestamp_statistics->getMaximum(), timestamp_statistics->getMaximumNanos(), timezone));
     return true;
 }
 
@@ -856,6 +857,7 @@ bool set_decimal_zone_map(const ::orc::Type& type, const ::orc::ColumnStatistics
 
 bool build_zone_map_from_orc_statistics(const ::orc::Type& type,
                                         const ::orc::ColumnStatistics& statistics,
+                                        const cctz::time_zone& timezone,
                                         segment_v2::ZoneMap* zone_map) {
     DORIS_CHECK(zone_map != nullptr);
     zone_map->has_null = statistics.hasNull();
@@ -882,7 +884,7 @@ bool build_zone_map_from_orc_statistics(const ::orc::Type& type,
         return set_date_zone_map(statistics, zone_map);
     case ::orc::TypeKind::TIMESTAMP:
     case ::orc::TypeKind::TIMESTAMP_INSTANT:
-        return set_timestamp_zone_map(statistics, zone_map);
+        return set_timestamp_zone_map(statistics, timezone, zone_map);
     case ::orc::TypeKind::DECIMAL:
         return set_decimal_zone_map(type, statistics, zone_map);
     default:
@@ -2393,7 +2395,8 @@ Status OrcReader::get_aggregate_result(const format::FileAggregateRequest& reque
             }
 
             segment_v2::ZoneMap zone_map;
-            if (!build_zone_map_from_orc_statistics(*leaf_type, *column_statistics, &zone_map)) {
+            if (!build_zone_map_from_orc_statistics(*leaf_type, *column_statistics,
+                                                    _state->timezone_obj, &zone_map)) {
                 return Status::NotSupported(
                         "Missing ORC min/max statistics for column kind {} in stripe {}",
                         static_cast<int>(leaf_type->getKind()), stripe_index);
