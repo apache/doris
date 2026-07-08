@@ -941,6 +941,11 @@ public class CreateTableInfo {
                 return ENGINE_PAIMON;
             case "iceberg":
                 return ENGINE_ICEBERG;
+            case "hms":
+                // A flipped HMS external catalog uses the hive engine for CREATE TABLE (legacy hms
+                // catalogs always create hive-engine tables); the user-visible DISPLAY engine "hms"
+                // is a separate concern handled by PluginDrivenExternalTable.getEngine().
+                return ENGINE_HIVE;
             default:
                 return null;
         }

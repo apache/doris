@@ -1015,6 +1015,13 @@ public class PluginDrivenExternalTable extends ExternalTable {
                 // TableType.PAIMON_EXTERNAL_TABLE.toEngineName() returns "paimon",
                 // preserving the legacy PaimonExternalTable engine name.
                 return TableType.PAIMON_EXTERNAL_TABLE.toEngineName();
+            case "hms":
+                // Post-flip an HMS external catalog is a PluginDrivenExternalCatalog (type "hms");
+                // legacy HMSExternalTable displayed engine "hms" (TableType.HMS_EXTERNAL_TABLE.toEngineName()),
+                // NOT "hive" — the CREATE-TABLE engine (CreateTableInfo.pluginCatalogTypeToEngine -> "hive")
+                // is a separate concern. Falling through to "Plugin" would regress SHOW TABLE STATUS /
+                // information_schema.tables.
+                return TableType.HMS_EXTERNAL_TABLE.toEngineName();
             default:
                 return super.getEngine();
         }
@@ -1037,6 +1044,8 @@ public class PluginDrivenExternalTable extends ExternalTable {
                 return TableType.MAX_COMPUTE_EXTERNAL_TABLE.name();
             case "paimon":
                 return TableType.PAIMON_EXTERNAL_TABLE.name();
+            case "hms":
+                return TableType.HMS_EXTERNAL_TABLE.name();
             default:
                 return TableType.PLUGIN_EXTERNAL_TABLE.name();
         }
