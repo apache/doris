@@ -22,6 +22,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnionCount;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapCount;
+import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.collect.ImmutableList;
 
@@ -46,12 +47,11 @@ class IvmAggBitmapUnionCountProcessor extends IvmAggBitmapProcessor {
 
     @Override
     public void appendApplyExpressions(IvmAggTarget target, IvmAggApplyContext applyContext) {
-        IvmAggExpressionBuilder ctx = applyContext.expressions();
         // Keep the bitmap union as hidden MV state; the visible BITMAP_UNION_COUNT value is bitmap_count(state).
         Slot oldBitmap = applyContext.rawMvSlot(target.getHiddenStateSlot(IvmAggStateKey.BITMAP_UNION).getName());
         Expression newBitmap = buildGuardedNewBitmap(target, applyContext, oldBitmap);
         applyContext.putFinalExpression(target.getHiddenStateSlot(IvmAggStateKey.BITMAP_UNION).getName(), newBitmap);
-        applyContext.putFinalExpression(target.getVisibleSlot().getName(),
-                ctx.castIfNeeded(new BitmapCount(newBitmap), target.getVisibleSlot().getDataType()));
+        applyContext.putFinalExpression(target.getVisibleSlot().getName(), TypeCoercionUtils.castIfNotMatchType(
+                new BitmapCount(newBitmap), target.getVisibleSlot().getDataType()));
     }
 }

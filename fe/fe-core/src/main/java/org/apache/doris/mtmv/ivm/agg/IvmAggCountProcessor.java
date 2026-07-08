@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunctio
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
+import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.collect.ImmutableList;
 
@@ -85,7 +86,8 @@ class IvmAggCountProcessor extends IvmAggFunctionProcessor {
         IvmAggExpressionBuilder ctx = applyContext.expressions();
         if (target.isCountStar()) {
             applyContext.putFinalExpression(target.getVisibleSlot().getName(),
-                    ctx.castIfNeeded(applyContext.newGroupCount(), target.getVisibleSlot().getDataType()));
+                    TypeCoercionUtils.castIfNotMatchType(
+                            applyContext.newGroupCount(), target.getVisibleSlot().getDataType()));
             return;
         }
 
@@ -95,7 +97,7 @@ class IvmAggCountProcessor extends IvmAggFunctionProcessor {
                 "negative count for " + target.getVisibleSlot().getName());
         applyContext.putFinalExpression(target.getVisibleSlot().getName(),
                 new If(ctx.isPositive(newCount),
-                        ctx.castIfNeeded(newCount, target.getVisibleSlot().getDataType()),
+                        TypeCoercionUtils.castIfNotMatchType(newCount, target.getVisibleSlot().getDataType()),
                         ctx.zeroOf(target.getVisibleSlot().getDataType())));
     }
 }

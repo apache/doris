@@ -34,6 +34,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
+import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.collect.ImmutableList;
 
@@ -131,7 +132,7 @@ abstract class IvmAggExtremalProcessor extends IvmAggFunctionProcessor {
         applyContext.putFinalExpression(target.getHiddenStateSlot(IvmAggStateKey.COUNT).getName(), newCount);
         applyContext.putFinalExpression(target.getVisibleSlot().getName(),
                 new If(ctx.isPositive(newCount),
-                        ctx.castIfNeeded(newExtremeGuarded, target.getVisibleSlot().getDataType()),
+                        TypeCoercionUtils.castIfNotMatchType(newExtremeGuarded, target.getVisibleSlot().getDataType()),
                         new NullLiteral(target.getVisibleSlot().getDataType())));
     }
 
