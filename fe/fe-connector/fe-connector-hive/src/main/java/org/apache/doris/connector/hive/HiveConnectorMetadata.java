@@ -237,6 +237,19 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
         }
         HmsTableInfo tableInfo = hmsClient.getTable(dbName, tableName);
         HiveTableType tableType = HiveTableFormatDetector.detect(tableInfo);
+        // Iceberg-on-HMS divert: an iceberg table registered in this HMS catalog is served by the embedded
+        // iceberg SIBLING connector, not by hive. Return the sibling's OWN table handle (the raw foreign iceberg
+        // handle) verbatim — NOT a HiveTableHandle stamped ICEBERG — so iceberg's scan/metadata path, which
+        // unconditionally casts the handle to its concrete IcebergTableHandle, succeeds. This is the pivot that
+        // activates the guard-and-forward overrides throughout this class: every gateway consumer discriminates by
+        // `instanceof HiveTableHandle` (the gateway's OWN hive-loader type) and forwards any non-hive handle to
+        // the sibling; the foreign iceberg handle is NEVER cast here (its concrete type is invisible across the
+        // classloader split). HUDI is intentionally NOT diverted — hudi-on-HMS delegation is a later substep, so a
+        // hudi table stays on the hive-handle path below (dormant, unchanged). Dormant overall until hms enters
+        // SPI_READY_TYPES: today getTableHandle is never called for this connector.
+        if (tableType == HiveTableType.ICEBERG) {
+            return siblingMetadata(session).getTableHandle(session, dbName, tableName);
+        }
         // Fail-loud parity with legacy HMSExternalTable.supportedHiveTable(), which threw on a null or
         // unrecognized input format instead of silently degrading (the old detector returned UNKNOWN). A view
         // short-circuits: legacy returns true for a view before the format check — a view has no data files so
