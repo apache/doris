@@ -41,13 +41,13 @@ import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.connectivity.CatalogConnectivityTestCoordinator;
 import org.apache.doris.datasource.doris.RemoteDorisExternalDatabase;
-import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalDatabase;
 import org.apache.doris.datasource.infoschema.ExternalInfoSchemaDatabase;
 import org.apache.doris.datasource.infoschema.ExternalMysqlDatabase;
 import org.apache.doris.datasource.lakesoul.LakeSoulExternalDatabase;
 import org.apache.doris.datasource.metacache.MetaCache;
 import org.apache.doris.datasource.operations.ExternalMetadataOps;
+import org.apache.doris.datasource.property.storage.BrokerProperties;
 import org.apache.doris.datasource.test.TestExternalCatalog;
 import org.apache.doris.datasource.test.TestExternalDatabase;
 import org.apache.doris.kerberos.ExecutionAuthenticator;
@@ -1418,7 +1418,7 @@ public abstract class ExternalCatalog
     }
 
     public String bindBrokerName() {
-        return catalogProperty.getProperties().get(HMSExternalCatalog.BIND_BROKER_NAME);
+        return catalogProperty.getProperties().get(BrokerProperties.BIND_BROKER_NAME_KEY);
     }
 
     // ATTN: this method only return all cached databases.
