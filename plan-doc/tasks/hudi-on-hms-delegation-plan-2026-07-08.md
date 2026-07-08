@@ -283,7 +283,7 @@ touches `SPI_READY_TYPES`.
 
 ### Group B — Gateway divert (mirror iceberg + the ONE new design decision)
 
-#### HD-B1 — Three-way foreign-handle routing (THE new design decision — needs sign-off)
+#### HD-B1 — Three-way foreign-handle routing (SIGNED 2026-07-08: **Option 1 — `Connector.ownsHandle(handle)` neutral SPI**; the other option below is retained only for context, do not re-litigate)
 - **Problem:** with two siblings, the binary `if (handle instanceof HiveTableHandle) hive else iceberg` breaks
   — a `HudiTableHandle` (raw hudi-loader type, cast-invisible across the loader split) would be wrong-routed to
   the iceberg sibling → cross-loader `ClassCastException` or silently-wrong answers. `ConnectorTableHandle`
