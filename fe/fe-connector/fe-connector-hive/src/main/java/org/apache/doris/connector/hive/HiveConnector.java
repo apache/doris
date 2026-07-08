@@ -91,7 +91,10 @@ public class HiveConnector implements Connector {
 
     @Override
     public ConnectorMetadata getMetadata(ConnectorSession session) {
-        return new HiveConnectorMetadata(getOrCreateClient(), properties, context);
+        // Pass the sibling supplier (not the built sibling): a pure-hive query never invokes it, so a hive-only
+        // deployment without the iceberg plugin never builds/throws. The metadata diverts a foreign iceberg
+        // handle through it (per-handle guard-and-forward).
+        return new HiveConnectorMetadata(getOrCreateClient(), properties, context, this::getOrCreateIcebergSibling);
     }
 
     @Override

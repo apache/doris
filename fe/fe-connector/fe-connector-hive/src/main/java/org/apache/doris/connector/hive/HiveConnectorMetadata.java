@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector.hive;
 
+import org.apache.doris.connector.api.Connector;
 import org.apache.doris.connector.api.ConnectorCapability;
 import org.apache.doris.connector.api.ConnectorColumn;
 import org.apache.doris.connector.api.ConnectorColumnStatistics;
@@ -35,8 +36,10 @@ import org.apache.doris.connector.api.ddl.ConnectorPartitionSpec;
 import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.handle.ConnectorTransaction;
+import org.apache.doris.connector.api.mvcc.ConnectorMvccPartitionView;
 import org.apache.doris.connector.api.mvcc.ConnectorMvccSnapshot;
 import org.apache.doris.connector.api.mvcc.ConnectorTableFreshness;
+import org.apache.doris.connector.api.mvcc.ConnectorTimeTravelSpec;
 import org.apache.doris.connector.api.pushdown.ConnectorAnd;
 import org.apache.doris.connector.api.pushdown.ConnectorComparison;
 import org.apache.doris.connector.api.pushdown.ConnectorExpression;
@@ -80,6 +83,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
+import java.util.function.Supplier;
 import java.util.function.ToLongFunction;
 import java.util.stream.Collectors;
 
@@ -155,6 +159,13 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
     // Upper bound on partitions listed from HMS for the file-list estimate, matching HiveScanPlanProvider.
     private static final int MAX_PARTITIONS_FOR_STATS = 100000;
 
+    // A Supplier installed by the 3-arg constructor when no iceberg sibling is available (hive-only
+    // construction, e.g. unit tests exercising only hive-handle paths). It is invoked only when a NON-hive
+    // handle is delegated — which such a construction never does — so it fails loud instead of NPEing.
+    private static final Supplier<Connector> NO_ICEBERG_SIBLING = () -> {
+        throw new DorisConnectorException("no iceberg sibling connector configured for this hive metadata");
+    };
+
     private final HmsClient hmsClient;
     private final Map<String, String> properties;
     private final HmsTypeMapping.Options typeMappingOptions;
@@ -163,12 +174,34 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
     // read from FE Config. The default getEnvironment() is an empty map, so direct-construction tests that
     // pass a bare context degrade to the hard-coded fallbacks in createTable.
     private final ConnectorContext context;
+    // Supplies the embedded iceberg SIBLING connector for delegating a NON-hive (iceberg-on-HMS) table handle
+    // (see the guard-and-forward methods). Lazy: HiveConnector.getOrCreateIcebergSibling builds it only on first
+    // use, so a pure-hive query never triggers it. The sibling is used ONLY through the parent-first Connector /
+    // ConnectorMetadata interfaces — its concrete iceberg types are never cast here (cross-loader CCE).
+    private final Supplier<Connector> icebergSiblingSupplier;
 
     public HiveConnectorMetadata(HmsClient hmsClient, Map<String, String> properties, ConnectorContext context) {
+        this(hmsClient, properties, context, NO_ICEBERG_SIBLING);
+    }
+
+    public HiveConnectorMetadata(HmsClient hmsClient, Map<String, String> properties, ConnectorContext context,
+            Supplier<Connector> icebergSiblingSupplier) {
         this.hmsClient = hmsClient;
         this.properties = properties;
         this.context = context;
         this.typeMappingOptions = buildTypeMappingOptions(properties);
+        this.icebergSiblingSupplier = icebergSiblingSupplier;
+    }
+
+    /**
+     * The embedded iceberg sibling's metadata, for delegating a NON-hive (foreign iceberg) table handle in the
+     * guard-and-forward methods below. Obtained fresh per call — parity with fe-core, which acquires a
+     * ConnectorMetadata per operation; the heavy catalog/caches live on the single (memoized) sibling connector,
+     * so this is cheap. The returned metadata and any handle it produces are used ONLY through the parent-first
+     * SPI interfaces and MUST NOT be cast (the sibling's concrete iceberg types would CCE across the loader split).
+     */
+    private ConnectorMetadata siblingMetadata(ConnectorSession session) {
+        return icebergSiblingSupplier.get().getMetadata(session);
     }
 
     // ========== ConnectorSchemaOps ==========
@@ -240,6 +273,9 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
     @Override
     public ConnectorTableSchema getTableSchema(
             ConnectorSession session, ConnectorTableHandle handle) {
+        if (!(handle instanceof HiveTableHandle)) {
+            return siblingMetadata(session).getTableSchema(session, handle);
+        }
         HiveTableHandle hiveHandle = (HiveTableHandle) handle;
         String dbName = hiveHandle.getDbName();
         String tableName = hiveHandle.getTableName();
@@ -295,6 +331,9 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
     @Override
     public Map<String, ConnectorColumnHandle> getColumnHandles(
             ConnectorSession session, ConnectorTableHandle handle) {
+        if (!(handle instanceof HiveTableHandle)) {
+            return siblingMetadata(session).getColumnHandles(session, handle);
+        }
         HiveTableHandle hiveHandle = (HiveTableHandle) handle;
         HmsTableInfo tableInfo = hmsClient.getTable(
                 hiveHandle.getDbName(), hiveHandle.getTableName());
@@ -485,6 +524,9 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
     @Override
     public Optional<ConnectorTableStatistics> getTableStatistics(
             ConnectorSession session, ConnectorTableHandle handle) {
+        if (!(handle instanceof HiveTableHandle)) {
+            return siblingMetadata(session).getTableStatistics(session, handle);
+        }
         Map<String, String> params = ((HiveTableHandle) handle).getTableParameters();
         if (params == null) {
             return Optional.empty();
@@ -528,6 +570,9 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
     @Override
     public Optional<ConnectorColumnStatistics> getColumnStatistics(
             ConnectorSession session, ConnectorTableHandle handle, String columnName) {
+        if (!(handle instanceof HiveTableHandle)) {
+            return siblingMetadata(session).getColumnStatistics(session, handle, columnName);
+        }
         HiveTableHandle hiveHandle = (HiveTableHandle) handle;
         if (hiveHandle.getTableType() != HiveTableType.HIVE) {
             return Optional.empty();
@@ -580,6 +625,9 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
      */
     @Override
     public long estimateDataSizeByListingFiles(ConnectorSession session, ConnectorTableHandle handle) {
+        if (!(handle instanceof HiveTableHandle)) {
+            return siblingMetadata(session).estimateDataSizeByListingFiles(session, handle);
+        }
         HiveTableHandle hiveHandle = (HiveTableHandle) handle;
         if (hiveHandle.getTableType() != HiveTableType.HIVE) {
             return -1;
@@ -727,6 +775,10 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
     public Optional<FilterApplicationResult<ConnectorTableHandle>> applyFilter(
             ConnectorSession session, ConnectorTableHandle handle,
             ConnectorFilterConstraint constraint) {
+        if (!(handle instanceof HiveTableHandle)) {
+            // Forward AND return the sibling's result UNMODIFIED (a rewrap would poison a downstream scan cast).
+            return siblingMetadata(session).applyFilter(session, handle, constraint);
+        }
         HiveTableHandle hiveHandle = (HiveTableHandle) handle;
         List<String> partKeyNames = hiveHandle.getPartitionKeyNames();
         if (partKeyNames == null || partKeyNames.isEmpty()) {
@@ -779,6 +831,9 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
      */
     @Override
     public List<String> listPartitionNames(ConnectorSession session, ConnectorTableHandle handle) {
+        if (!(handle instanceof HiveTableHandle)) {
+            return siblingMetadata(session).listPartitionNames(session, handle);
+        }
         return collectPartitionNames((HiveTableHandle) handle);
     }
 
@@ -799,6 +854,9 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
     @Override
     public List<ConnectorPartitionInfo> listPartitions(ConnectorSession session,
             ConnectorTableHandle handle, Optional<ConnectorExpression> filter) {
+        if (!(handle instanceof HiveTableHandle)) {
+            return siblingMetadata(session).listPartitions(session, handle, filter);
+        }
         HiveTableHandle hiveHandle = (HiveTableHandle) handle;
         List<String> partKeyNames = hiveHandle.getPartitionKeyNames();
         List<String> partitionNames = collectPartitionNames(hiveHandle);
@@ -863,6 +921,12 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
     @Override
     public Optional<ConnectorMvccSnapshot> beginQuerySnapshot(ConnectorSession session,
             ConnectorTableHandle handle) {
+        if (!(handle instanceof HiveTableHandle)) {
+            // Diverts in lockstep with getTableFreshness/getPartitionFreshnessMillis: the pin's
+            // isLastModifiedFreshness flag (false for an iceberg snapshot-id pin) gates whether fe-core consults
+            // freshness at all, so half-diverting the pin would corrupt MVCC.
+            return siblingMetadata(session).beginQuerySnapshot(session, handle);
+        }
         return Optional.of(ConnectorMvccSnapshot.builder().snapshotId(-1L).lastModifiedFreshness(true).build());
     }
 
@@ -883,6 +947,9 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
     @Override
     public Optional<ConnectorTableFreshness> getTableFreshness(ConnectorSession session,
             ConnectorTableHandle handle) {
+        if (!(handle instanceof HiveTableHandle)) {
+            return siblingMetadata(session).getTableFreshness(session, handle);
+        }
         HiveTableHandle hiveHandle = (HiveTableHandle) handle;
         List<String> partKeyNames = hiveHandle.getPartitionKeyNames();
         if (partKeyNames == null || partKeyNames.isEmpty()) {
@@ -921,6 +988,9 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
     @Override
     public OptionalLong getPartitionFreshnessMillis(ConnectorSession session, ConnectorTableHandle handle,
             String partitionName) {
+        if (!(handle instanceof HiveTableHandle)) {
+            return siblingMetadata(session).getPartitionFreshnessMillis(session, handle, partitionName);
+        }
         HiveTableHandle hiveHandle = (HiveTableHandle) handle;
         List<HmsPartitionInfo> partitions = hmsClient.getPartitions(hiveHandle.getDbName(),
                 hiveHandle.getTableName(), Collections.singletonList(partitionName));
@@ -940,6 +1010,94 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
             return 0L;
         }
         return Long.parseLong(parameters.get(TRANSIENT_LAST_DDL_TIME)) * 1000;
+    }
+
+    // ========== Iceberg-on-HMS sibling delegation (forward-absent) ==========
+    // Handle-based methods hive does NOT implement (it uses the SPI default) but iceberg DOES. Without an
+    // override here a delegated iceberg-on-HMS table would get hive's SPI default — a SILENT wrong answer
+    // (empty MVCC/time-travel/sys-tables, or an unthreaded snapshot pin), not a fail-loud. Each forwards a
+    // foreign handle to the sibling and reproduces the SPI default for a real hive handle. The handle-out
+    // methods (apply* / getSysTableHandle) return the sibling's handle UNMODIFIED — a rewrap would poison a
+    // downstream scan cast.
+
+    @Override
+    public ConnectorTableSchema getTableSchema(ConnectorSession session, ConnectorTableHandle handle,
+            ConnectorMvccSnapshot snapshot) {
+        if (!(handle instanceof HiveTableHandle)) {
+            return siblingMetadata(session).getTableSchema(session, handle, snapshot);
+        }
+        // Hive has no schema-at-snapshot; the SPI default ignores the snapshot and returns the latest schema.
+        return getTableSchema(session, handle);
+    }
+
+    @Override
+    public Optional<ConnectorMvccPartitionView> getMvccPartitionView(ConnectorSession session,
+            ConnectorTableHandle handle) {
+        if (!(handle instanceof HiveTableHandle)) {
+            return siblingMetadata(session).getMvccPartitionView(session, handle);
+        }
+        // Hive has no range-aware partition view; fe-core builds it from listPartitions (SPI default empty).
+        return Optional.empty();
+    }
+
+    @Override
+    public Optional<ConnectorMvccSnapshot> resolveTimeTravel(ConnectorSession session,
+            ConnectorTableHandle handle, ConnectorTimeTravelSpec spec) {
+        if (!(handle instanceof HiveTableHandle)) {
+            return siblingMetadata(session).resolveTimeTravel(session, handle, spec);
+        }
+        // Hive has no time travel (SPI default empty): an explicit spec on a hive table is unsupported upstream.
+        return Optional.empty();
+    }
+
+    @Override
+    public ConnectorTableHandle applySnapshot(ConnectorSession session, ConnectorTableHandle handle,
+            ConnectorMvccSnapshot snapshot) {
+        if (!(handle instanceof HiveTableHandle)) {
+            return siblingMetadata(session).applySnapshot(session, handle, snapshot);
+        }
+        // Hive's empty pin carries no scan options; the SPI default returns the handle unchanged.
+        return handle;
+    }
+
+    @Override
+    public ConnectorTableHandle applyRewriteFileScope(ConnectorSession session, ConnectorTableHandle handle,
+            Set<String> rawDataFilePaths) {
+        if (!(handle instanceof HiveTableHandle)) {
+            return siblingMetadata(session).applyRewriteFileScope(session, handle, rawDataFilePaths);
+        }
+        // Hive has no distributed rewrite scope; the SPI default returns the handle unchanged.
+        return handle;
+    }
+
+    @Override
+    public ConnectorTableHandle applyTopnLazyMaterialization(ConnectorSession session,
+            ConnectorTableHandle handle) {
+        if (!(handle instanceof HiveTableHandle)) {
+            return siblingMetadata(session).applyTopnLazyMaterialization(session, handle);
+        }
+        // Hive scan metadata already spans all columns; the SPI default returns the handle unchanged.
+        return handle;
+    }
+
+    @Override
+    public List<String> listSupportedSysTables(ConnectorSession session, ConnectorTableHandle baseTableHandle) {
+        if (!(baseTableHandle instanceof HiveTableHandle)) {
+            return siblingMetadata(session).listSupportedSysTables(session, baseTableHandle);
+        }
+        // Hive exposes no system tables (SPI default empty).
+        return Collections.emptyList();
+    }
+
+    @Override
+    public Optional<ConnectorTableHandle> getSysTableHandle(ConnectorSession session,
+            ConnectorTableHandle baseTableHandle, String sysName) {
+        if (!(baseTableHandle instanceof HiveTableHandle)) {
+            // Return the sibling's sys-table handle UNMODIFIED (a rewrap would poison a downstream scan cast).
+            return siblingMetadata(session).getSysTableHandle(session, baseTableHandle, sysName);
+        }
+        // Hive exposes no system tables (SPI default empty).
+        return Optional.empty();
     }
 
     /**
@@ -1128,6 +1286,10 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
      */
     @Override
     public void dropTable(ConnectorSession session, ConnectorTableHandle handle) {
+        if (!(handle instanceof HiveTableHandle)) {
+            siblingMetadata(session).dropTable(session, handle);
+            return;
+        }
         HiveTableHandle hiveHandle = (HiveTableHandle) handle;
         try {
             // The handle was just built by the bridge's getTableHandle (which loaded the table), so its
@@ -1148,6 +1310,10 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
      */
     @Override
     public void truncateTable(ConnectorSession session, ConnectorTableHandle handle, List<String> partitions) {
+        if (!(handle instanceof HiveTableHandle)) {
+            siblingMetadata(session).truncateTable(session, handle, partitions);
+            return;
+        }
         HiveTableHandle hiveHandle = (HiveTableHandle) handle;
         try {
             hmsClient.truncateTable(hiveHandle.getDbName(), hiveHandle.getTableName(), partitions);
