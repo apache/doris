@@ -992,6 +992,9 @@ struct OrcReaderScanState {
     std::map<format::LocalColumnId, size_t> column_to_selected_batch_index;
 
     uint64_t current_batch_first_row = 0;
+    uint64_t row_reader_range_first_row = 0;
+    uint64_t row_reader_range_end_row = 0;
+    uint64_t row_reader_range_rows = 0;
     uint64_t condition_cache_next_row = 0;
     std::shared_ptr<ConditionCacheContext> condition_cache_ctx;
 
@@ -1154,12 +1157,22 @@ Status OrcReader::init(RuntimeState* state) {
 void OrcReader::set_condition_cache_context(std::shared_ptr<ConditionCacheContext> ctx) {
     DORIS_CHECK(_state != nullptr);
     _state->condition_cache_ctx = std::move(ctx);
+    if (_state->condition_cache_ctx != nullptr &&
+        _state->condition_cache_ctx->filter_result != nullptr) {
+        _state->condition_cache_ctx->base_granule = static_cast<int64_t>(
+                _state->row_reader_range_first_row / ConditionCacheContext::GRANULE_SIZE);
+    }
 }
 
 int64_t OrcReader::get_total_rows() const {
     DORIS_CHECK(_state != nullptr);
-    DORIS_CHECK(_state->reader != nullptr);
-    return cast_set<int64_t>(_state->reader->getNumberOfRows());
+    if (_state->row_reader != nullptr) {
+        return cast_set<int64_t>(_state->row_reader_range_rows);
+    }
+    if (_state->reader != nullptr) {
+        return cast_set<int64_t>(_state->reader->getNumberOfRows());
+    }
+    return 0;
 }
 
 DataTypePtr OrcReader::_convert_to_doris_type(const ::orc::Type& type) const {
@@ -1452,7 +1465,7 @@ Status OrcReader::open(std::shared_ptr<format::FileScanRequest> request) {
     _apply_current_stripe_range();
 
     RETURN_IF_ERROR(_create_row_reader());
-    _eof = _state->reader->getNumberOfRows() == 0;
+    _eof = get_total_rows() == 0;
     return Status::OK();
 }
 
@@ -1771,10 +1784,22 @@ Status OrcReader::_create_row_reader() {
         _state->orc_lazy_selection_valid = false;
         _state->orc_lazy_selected_rows.clear();
         _state->orc_lazy_input_rows = 0;
+        const uint64_t file_total_rows = _state->reader->getNumberOfRows();
         const auto initial_row_number = _state->row_reader->getRowNumber();
-        _state->orc_lazy_next_batch_first_row =
-                initial_row_number == std::numeric_limits<uint64_t>::max() ? 0
-                                                                           : initial_row_number + 1;
+        _state->row_reader_range_rows = _state->row_reader->getNumberOfRows();
+        if (initial_row_number == std::numeric_limits<uint64_t>::max()) {
+            _state->row_reader_range_first_row = 0;
+        } else if (initial_row_number >= file_total_rows) {
+            _state->row_reader_range_first_row = file_total_rows;
+        } else {
+            _state->row_reader_range_first_row = initial_row_number + 1;
+        }
+        DORIS_CHECK(_state->row_reader_range_first_row <= file_total_rows);
+        DORIS_CHECK(_state->row_reader_range_rows <=
+                    file_total_rows - _state->row_reader_range_first_row);
+        _state->row_reader_range_end_row =
+                _state->row_reader_range_first_row + _state->row_reader_range_rows;
+        _state->orc_lazy_next_batch_first_row = _state->row_reader_range_first_row;
         _state->condition_cache_next_row = _state->orc_lazy_next_batch_first_row;
         _state->column_to_selected_batch_index.clear();
         size_t physical_read_column_count = 0;
@@ -1810,28 +1835,61 @@ void OrcReader::_skip_condition_cache_false_granules(size_t* rows, bool* eof) {
         return;
     }
     DORIS_CHECK(_state->condition_cache_ctx->filter_result != nullptr);
+    const auto base_granule = _state->condition_cache_ctx->base_granule;
     const auto& cache = *_state->condition_cache_ctx->filter_result;
     constexpr uint64_t granule_size = ConditionCacheContext::GRANULE_SIZE;
-    const uint64_t total_rows = _state->reader->getNumberOfRows();
-    DORIS_CHECK(_state->condition_cache_next_row <= total_rows);
+    const uint64_t file_total_rows = _state->reader->getNumberOfRows();
+    DORIS_CHECK(_state->condition_cache_next_row <= file_total_rows);
 
-    uint64_t cache_idx = _state->condition_cache_next_row / granule_size;
+    const auto current_granule =
+            static_cast<int64_t>(_state->condition_cache_next_row / granule_size);
+    const auto cache_idx_offset = current_granule - base_granule;
+    if (cache_idx_offset < 0 || static_cast<size_t>(cache_idx_offset) >= cache.size()) {
+        return;
+    }
+    size_t cache_idx = static_cast<size_t>(cache_idx_offset);
     while (cache_idx < cache.size() && !cache[cache_idx]) {
         ++cache_idx;
     }
     if (cache_idx >= cache.size()) {
-        if (_io_ctx != nullptr) {
-            _io_ctx->condition_cache_filtered_rows += total_rows - _state->condition_cache_next_row;
+        if (_state->row_reader_range_end_row <= _state->condition_cache_next_row) {
+            return;
         }
-        *rows = 0;
-        *eof = true;
-        _eof = true;
+        const auto last_range_granule =
+                static_cast<int64_t>((_state->row_reader_range_end_row - 1) / granule_size);
+        const auto last_cache_idx_offset = last_range_granule - base_granule;
+        if (last_cache_idx_offset < 0 ||
+            static_cast<size_t>(last_cache_idx_offset) >= cache.size()) {
+            return;
+        }
+        _state->row_reader->seekToRow(_state->row_reader_range_end_row);
+        if (_io_ctx != nullptr) {
+            _io_ctx->condition_cache_filtered_rows +=
+                    _state->row_reader_range_end_row - _state->condition_cache_next_row;
+        }
+        _state->condition_cache_next_row = _state->row_reader_range_end_row;
+        _state->orc_lazy_next_batch_first_row = _state->row_reader_range_end_row;
         return;
     }
 
-    const uint64_t target_row = cache_idx * granule_size;
+    const auto target_granule_offset = base_granule + static_cast<int64_t>(cache_idx);
+    DORIS_CHECK(target_granule_offset >= 0);
+    const auto target_granule = static_cast<uint64_t>(target_granule_offset);
+    const uint64_t target_row = target_granule * granule_size;
+    if (target_row >= _state->row_reader_range_end_row) {
+        if (_state->row_reader_range_end_row > _state->condition_cache_next_row) {
+            _state->row_reader->seekToRow(_state->row_reader_range_end_row);
+            if (_io_ctx != nullptr) {
+                _io_ctx->condition_cache_filtered_rows +=
+                        _state->row_reader_range_end_row - _state->condition_cache_next_row;
+            }
+            _state->condition_cache_next_row = _state->row_reader_range_end_row;
+            _state->orc_lazy_next_batch_first_row = _state->row_reader_range_end_row;
+        }
+        return;
+    }
     if (target_row > _state->condition_cache_next_row) {
-        DORIS_CHECK(target_row <= total_rows);
+        DORIS_CHECK(target_row <= file_total_rows);
         _state->row_reader->seekToRow(target_row);
         if (_io_ctx != nullptr) {
             _io_ctx->condition_cache_filtered_rows += target_row - _state->condition_cache_next_row;
@@ -1848,16 +1906,19 @@ void OrcReader::_mark_condition_cache_surviving_rows(const IColumn::Filter& keep
         return;
     }
     DORIS_CHECK(_state->condition_cache_ctx->filter_result != nullptr);
+    const auto base_granule = _state->condition_cache_ctx->base_granule;
     auto& cache = *_state->condition_cache_ctx->filter_result;
     constexpr uint64_t granule_size = ConditionCacheContext::GRANULE_SIZE;
     for (size_t row = 0; row < rows; ++row) {
         if (keep_filter[row] == 0) {
             continue;
         }
-        const auto cache_idx =
-                static_cast<size_t>((_state->current_batch_first_row + row) / granule_size);
-        DORIS_CHECK(cache_idx < cache.size());
-        cache[cache_idx] = true;
+        const auto granule =
+                static_cast<int64_t>((_state->current_batch_first_row + row) / granule_size);
+        const auto cache_idx = granule - base_granule;
+        if (cache_idx >= 0 && static_cast<size_t>(cache_idx) < cache.size()) {
+            cache[static_cast<size_t>(cache_idx)] = true;
+        }
     }
 }
 

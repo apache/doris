@@ -3289,6 +3289,39 @@ void write_multi_stripe_orc_int_file(const std::string& file_path,
     out.write(memory_stream.getData(), static_cast<std::streamsize>(memory_stream.getLength()));
 }
 
+void write_multi_stripe_orc_int_only_file(const std::string& file_path,
+                                          const std::vector<int64_t>& first_values) {
+    auto type = std::unique_ptr<::orc::Type>(::orc::Type::buildTypeFromString("struct<id:int>"));
+
+    MemoryOutputStream memory_stream(1024 * 1024);
+    ::orc::WriterOptions options;
+    options.setCompression(::orc::CompressionKind_NONE);
+    options.setMemoryPool(::orc::getDefaultPool());
+    options.setStripeSize(1);
+    auto writer = ::orc::createWriter(*type, &memory_stream, options);
+
+    auto add_batch = [&](int64_t first_value) {
+        constexpr int64_t ROWS_PER_STRIPE = 200;
+        auto batch = writer->createRowBatch(ROWS_PER_STRIPE);
+        auto& struct_batch = dynamic_cast<::orc::StructVectorBatch&>(*batch);
+        auto& id_batch = dynamic_cast<::orc::LongVectorBatch&>(*struct_batch.fields[0]);
+        for (int64_t row = 0; row < ROWS_PER_STRIPE; ++row) {
+            id_batch.data[row] = first_value + row;
+        }
+        struct_batch.numElements = ROWS_PER_STRIPE;
+        id_batch.numElements = ROWS_PER_STRIPE;
+        writer->add(*batch);
+    };
+
+    for (const auto first_value : first_values) {
+        add_batch(first_value);
+    }
+    writer->close();
+
+    std::ofstream out(file_path, std::ios::binary);
+    out.write(memory_stream.getData(), static_cast<std::streamsize>(memory_stream.getLength()));
+}
+
 void write_large_orc_int_file(const std::string& file_path, int64_t row_count) {
     auto type = std::unique_ptr<::orc::Type>(::orc::Type::buildTypeFromString("struct<id:int>"));
 
@@ -3974,6 +4007,7 @@ uint64_t get_orc_stripe_count(const std::string& file_path) {
 struct OrcStripeLayout {
     uint64_t offset = 0;
     uint64_t length = 0;
+    uint64_t rows = 0;
 };
 
 std::vector<OrcStripeLayout> get_orc_stripe_layout(const std::string& file_path) {
@@ -3993,7 +4027,9 @@ std::vector<OrcStripeLayout> get_orc_stripe_layout(const std::string& file_path)
     layout.reserve(stripe_count);
     for (uint64_t i = 0; i < stripe_count; ++i) {
         const auto stripe = reader->getStripe(i);
-        layout.push_back({.offset = stripe->getOffset(), .length = stripe->getLength()});
+        layout.push_back({.offset = stripe->getOffset(),
+                          .length = stripe->getLength(),
+                          .rows = stripe->getNumberOfRows()});
     }
     return layout;
 }
@@ -4959,6 +4995,115 @@ TEST_F(NewOrcReaderTest, ConditionCacheHitSkipsFalseGranulesBeforeColumnRead) {
     ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
     EXPECT_TRUE(eof);
     EXPECT_EQ(rows, 0);
+}
+
+TEST_F(NewOrcReaderTest, ConditionCacheHitHandlesSplitWithoutSelectedStripe) {
+    const auto multi_stripe_file_path = (_test_dir / "condition_cache_empty_split.orc").string();
+    write_multi_stripe_orc_int_file(multi_stripe_file_path);
+    ASSERT_EQ(get_orc_stripe_count(multi_stripe_file_path), 2);
+    const auto layout = get_orc_stripe_layout(multi_stripe_file_path);
+    ASSERT_EQ(layout.size(), 2);
+
+    const int64_t window_start =
+            layout[0].offset > 0 ? static_cast<int64_t>(layout[0].offset) - 1 : 0;
+    auto reader = create_reader_with_range(multi_stripe_file_path, window_start, 1);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    ASSERT_EQ(schema.size(), 2);
+
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->predicate_columns = {field_projection(0)};
+    request->non_predicate_columns = {field_projection(0)};
+    request->local_positions.emplace(format::LocalColumnId(0), format::LocalIndex(0));
+    request->conjuncts.push_back(
+            VExprContext::create_shared(std::make_shared<NullableInt32GreaterThanExpr>(0, 1)));
+    ASSERT_TRUE(reader->open(request).ok());
+    EXPECT_EQ(reader->get_total_rows(), 0);
+
+    auto ctx = std::make_shared<ConditionCacheContext>();
+    ctx->is_hit = true;
+    ctx->filter_result = std::make_shared<std::vector<bool>>(std::vector<bool> {false});
+    reader->set_condition_cache_context(ctx);
+
+    Block block = build_file_block({schema[0]});
+    size_t rows = 0;
+    bool eof = false;
+    ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+    EXPECT_TRUE(eof);
+    EXPECT_EQ(rows, 0);
+}
+
+TEST_F(NewOrcReaderTest, ConditionCacheHitUsesSplitBaseGranule) {
+    const auto multi_stripe_file_path = (_test_dir / "condition_cache_split_base.orc").string();
+    std::vector<int64_t> first_values;
+    for (int64_t stripe = 0; stripe < 24; ++stripe) {
+        first_values.push_back(stripe * 1000 + 1);
+    }
+    write_multi_stripe_orc_int_only_file(multi_stripe_file_path, first_values);
+
+    const auto layout = get_orc_stripe_layout(multi_stripe_file_path);
+    ASSERT_FALSE(layout.empty());
+    size_t stripe_index = 0;
+    uint64_t stripe_first_row = 0;
+    uint64_t accumulated_rows = 0;
+    for (size_t i = 0; i < layout.size(); ++i) {
+        if (accumulated_rows / ConditionCacheContext::GRANULE_SIZE > 0) {
+            stripe_index = i;
+            stripe_first_row = accumulated_rows;
+            break;
+        }
+        accumulated_rows += layout[i].rows;
+    }
+    ASSERT_GT(stripe_first_row / ConditionCacheContext::GRANULE_SIZE, 0);
+    ASSERT_LT(stripe_index, layout.size());
+    auto reader = create_reader_with_range(multi_stripe_file_path,
+                                           static_cast<int64_t>(layout[stripe_index].offset),
+                                           static_cast<int64_t>(layout[stripe_index].length));
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    ASSERT_EQ(schema.size(), 1);
+
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->predicate_columns = {field_projection(0)};
+    request->non_predicate_columns = {field_projection(0)};
+    request->local_positions.emplace(format::LocalColumnId(0), format::LocalIndex(0));
+    request->conjuncts.push_back(
+            VExprContext::create_shared(std::make_shared<NullableInt32GreaterThanExpr>(0, 0)));
+    ASSERT_TRUE(reader->open(request).ok());
+    EXPECT_EQ(reader->get_total_rows(), layout[stripe_index].rows);
+
+    auto ctx = std::make_shared<ConditionCacheContext>();
+    ctx->is_hit = true;
+    const auto base_granule = stripe_first_row / ConditionCacheContext::GRANULE_SIZE;
+    const auto last_granule = (stripe_first_row + layout[stripe_index].rows - 1) /
+                              ConditionCacheContext::GRANULE_SIZE;
+    ctx->filter_result = std::make_shared<std::vector<bool>>(last_granule - base_granule + 1, true);
+    reader->set_condition_cache_context(ctx);
+    EXPECT_EQ(ctx->base_granule, base_granule);
+
+    Block block = build_file_block({schema[0]});
+    size_t rows = 0;
+    bool eof = false;
+    ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+    EXPECT_FALSE(eof);
+    ASSERT_EQ(rows, layout[stripe_index].rows);
+
+    const auto& ids = assert_cast<const ColumnInt32&>(
+            assert_cast<const ColumnNullable&>(*block.get_by_position(0).column)
+                    .get_nested_column());
+    auto value_for_file_row = [](uint64_t file_row) {
+        constexpr uint64_t ROWS_PER_BATCH = 200;
+        return static_cast<int32_t>((file_row / ROWS_PER_BATCH) * 1000 + 1 +
+                                    file_row % ROWS_PER_BATCH);
+    };
+    EXPECT_EQ(ids.get_element(0), value_for_file_row(stripe_first_row));
+    EXPECT_EQ(ids.get_element(rows - 1), value_for_file_row(stripe_first_row + rows - 1));
 }
 
 TEST_F(NewOrcReaderTest, OrcLazySkipsNonPredicateColumnsWhenFilterEliminatesBatch) {
