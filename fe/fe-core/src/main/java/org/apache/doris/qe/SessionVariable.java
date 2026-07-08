@@ -570,6 +570,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String DUMP_NEREIDS_MEMO = "dump_nereids_memo";
 
+    public static final String MEMO_LOGICAL_ROW_COUNT_AGGREGATION_POLICY = "memo_logical_row_count_aggregation_policy";
+
     // fix replica to query. If num = 1, query the smallest replica, if 2 is the second smallest replica.
     public static final String USE_FIX_REPLICA = "use_fix_replica";
 
@@ -859,6 +861,8 @@ public class SessionVariable implements Serializable, Writable {
     );
 
     public static final String ENABLE_STATS = "enable_stats";
+    public static final String ENABLE_LOW_CONFIDENCE_EQ_JOIN_REMAINING_CONDITION_DECAY
+            = "enable_low_confidence_eq_join_remaining_condition_decay";
 
     public static final String LIMIT_ROWS_FOR_SINGLE_INSTANCE = "limit_rows_for_single_instance";
 
@@ -1077,6 +1081,13 @@ public class SessionVariable implements Serializable, Writable {
      */
     @VariableMgr.VarAttr(name = ENABLE_STATS)
     public boolean enableStats = true;
+
+    @VariableMgr.VarAttr(name = ENABLE_LOW_CONFIDENCE_EQ_JOIN_REMAINING_CONDITION_DECAY, needForward = true,
+            description = {
+                    "是否在低置信度等值 join 只有 untrust 条件时，基于最小 ratio 对剩余条件继续做衰减",
+                    "Whether to continue decaying remaining low-confidence equality join conditions after "
+                    + "applying the minimum ratio when all equality predicates are untrustworthy" })
+    public boolean enableLowConfidenceEqJoinRemainingConditionDecay = true;
 
     // session origin value
     public Map<SessionVariableField, String> sessionOriginValue = new HashMap<>();
@@ -2489,11 +2500,22 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = DUMP_NEREIDS_MEMO)
     public boolean dumpNereidsMemo = false;
 
+    @VariableMgr.VarAttr(name = MEMO_LOGICAL_ROW_COUNT_AGGREGATION_POLICY, needForward = true,
+            checker = "checkMemoLogicalRowCountAggregationPolicy", setter = "setMemoLogicalRowCountAggregationPolicy",
+            options = {"trust_join_count", "average", "median", "min" }, description = {
+                    "控制 MemoStatsAndCostRecomputer 在多个逻辑候选统计之间如何聚合 group row count。"
+                            + "支持 trust_join_count, average、median、min。",
+                    "Controls how MemoStatsAndCostRecomputer aggregates group row count across multiple logical "
+                            + "statistics candidates. Supported values: trust_join_count, average, median, min." },
+                            affectQueryResultInPlan = true)
+    public String memoLogicalRowCountAggregationPolicy = "median";
+
     @VariableMgr.VarAttr(name = "memo_max_group_expression_size")
     public int memoMaxGroupExpressionSize = 10000;
 
+    // 2600 is an empirical value proven favorable for TPC-DS tests
     @VariableMgr.VarAttr(name = DPHYPER_LIMIT)
-    public int dphyperLimit = 1000;
+    public int dphyperLimit = 2600;
 
     @VariableMgr.VarAttr(name = "eager_aggregation_mode", needForward = true,
             description = {"0: 根据统计信息决定是使用eager aggregation，"
@@ -4227,6 +4249,10 @@ public class SessionVariable implements Serializable, Writable {
         return enableJoinReorderBasedCost;
     }
 
+    public boolean isEnableLowConfidenceEqJoinRemainingConditionDecay() {
+        return enableLowConfidenceEqJoinRemainingConditionDecay;
+    }
+
     public boolean enableMultiClusterSyncLoad() {
         return cloudEnableMultiClusterSyncLoad;
     }
@@ -5307,6 +5333,10 @@ public class SessionVariable implements Serializable, Writable {
         this.enableJoinReorderBasedCost = enableJoinReorderBasedCost;
     }
 
+    public void setEnableLowConfidenceEqJoinRemainingConditionDecay(boolean enable) {
+        this.enableLowConfidenceEqJoinRemainingConditionDecay = enable;
+    }
+
     public void setDisableJoinReorder(boolean disableJoinReorder) {
         this.disableJoinReorder = disableJoinReorder;
     }
@@ -6229,6 +6259,31 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setDumpNereidsMemo(boolean dumpNereidsMemo) {
         this.dumpNereidsMemo = dumpNereidsMemo;
+    }
+
+    public String getMemoLogicalRowCountAggregationPolicy() {
+        return memoLogicalRowCountAggregationPolicy;
+    }
+
+    public void setMemoLogicalRowCountAggregationPolicy(String memoLogicalRowCountAggregationPolicy) {
+        checkMemoLogicalRowCountAggregationPolicy(memoLogicalRowCountAggregationPolicy);
+        this.memoLogicalRowCountAggregationPolicy = memoLogicalRowCountAggregationPolicy.toLowerCase(Locale.ROOT);
+    }
+
+    public void checkMemoLogicalRowCountAggregationPolicy(String memoLogicalRowCountAggregationPolicy) {
+        if (memoLogicalRowCountAggregationPolicy == null) {
+            throw new UnsupportedOperationException("memo logical row count aggregation policy is null");
+        }
+        switch (memoLogicalRowCountAggregationPolicy.toLowerCase(Locale.ROOT)) {
+            case "average":
+            case "median":
+            case "min":
+            case "trust_join_count":
+                return;
+            default:
+                throw new UnsupportedOperationException("memo logical row count aggregation policy is invalid: "
+                        + memoLogicalRowCountAggregationPolicy);
+        }
     }
 
     public boolean isEnableStrictConsistencyDml() {

@@ -22,6 +22,7 @@ import org.apache.doris.nereids.cost.Cost;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
@@ -62,6 +63,7 @@ public class Group {
     private final Map<GroupExpression, GroupExpression> enforcers = Maps.newHashMap();
     private boolean isStatsReliable = true;
     private LogicalProperties logicalProperties;
+    private final GroupPlan groupPlan;
 
     // Map of cost lower bounds
     // Map required plan props to cost lower bound of corresponding plan
@@ -89,6 +91,7 @@ public class Group {
         this.groupId = groupId;
         addGroupExpression(groupExpression);
         this.logicalProperties = logicalProperties;
+        this.groupPlan = new GroupPlan(this);
     }
 
     /**
@@ -99,6 +102,7 @@ public class Group {
     public Group(GroupId groupId, LogicalProperties logicalProperties) {
         this.groupId = groupId;
         this.logicalProperties = logicalProperties;
+        this.groupPlan = new GroupPlan(this);
     }
 
     public GroupId getGroupId() {
@@ -171,6 +175,10 @@ public class Group {
 
     public List<GroupExpression> getPhysicalExpressions() {
         return physicalExpressions;
+    }
+
+    public GroupPlan getGroupPlan() {
+        return groupPlan;
     }
 
     /**
@@ -263,6 +271,10 @@ public class Group {
         } else {
             lowestCostPlans.put(properties, Pair.of(cost, expression));
         }
+    }
+
+    public void putBestPlan(GroupExpression expression, Cost cost, PhysicalProperties properties) {
+        setBestPlan(expression, cost, properties);
     }
 
     /**
