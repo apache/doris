@@ -31,6 +31,9 @@ public class SchemaChangeHelper {
     private static final Logger LOG = LoggerFactory.getLogger(SchemaChangeHelper.class);
     private static final String ADD_DDL = "ALTER TABLE %s ADD COLUMN %s %s";
     private static final String DROP_DDL = "ALTER TABLE %s DROP COLUMN %s";
+    private static final int MAX_DECIMAL128_PRECISION = 38;
+    private static final int MAX_CHAR_LENGTH = 255;
+    private static final int MAX_VARCHAR_LENGTH = 65533;
 
     private SchemaChangeHelper() {}
 
@@ -150,7 +153,9 @@ public class SchemaChangeHelper {
                     if (unsigned) {
                         precision++;
                     }
-                    precision = Math.min(precision, 38);
+                    if (precision > MAX_DECIMAL128_PRECISION) {
+                        return DorisType.STRING;
+                    }
                     int decimalScale = scale >= 0 ? scale : 0;
                     return String.format("%s(%d, %d)", DorisType.DECIMAL, precision, decimalScale);
                 }
@@ -159,19 +164,15 @@ public class SchemaChangeHelper {
             case "DATETIME":
             case "TIMESTAMP":
                 {
-                    int timeScale = (scale >= 0 && scale <= 6) ? scale : 0;
+                    int timeScale = mysqlTimeScale(length, scale);
                     return String.format("%s(%d)", DorisType.DATETIME, timeScale);
                 }
             case "CHAR":
             case "NCHAR":
-                return length > 0
-                        ? String.format("%s(%d)", DorisType.CHAR, length)
-                        : DorisType.STRING;
+                return mysqlCharToDorisType(length);
             case "VARCHAR":
             case "NVARCHAR":
-                return length > 0
-                        ? String.format("%s(%d)", DorisType.VARCHAR, length)
-                        : DorisType.STRING;
+                return mysqlVarcharToDorisType(length);
             case "BIT":
                 return length == 1 ? DorisType.BOOLEAN : DorisType.STRING;
             case "JSON":
@@ -195,6 +196,38 @@ public class SchemaChangeHelper {
                 LOG.warn("Unrecognized MySQL type '{}', defaulting to STRING", mysqlTypeName);
                 return DorisType.STRING;
         }
+    }
+
+    private static int mysqlTimeScale(int length, int scale) {
+        if (scale >= 0 && scale <= 6) {
+            return scale;
+        }
+        if (length >= 0 && length <= 6) {
+            return length;
+        }
+        return 0;
+    }
+
+    private static String mysqlCharToDorisType(int length) {
+        if (length <= 0) {
+            return DorisType.STRING;
+        }
+        int len = length * 3;
+        if (len > MAX_CHAR_LENGTH) {
+            return String.format("%s(%d)", DorisType.VARCHAR, len);
+        }
+        return String.format("%s(%d)", DorisType.CHAR, len);
+    }
+
+    private static String mysqlVarcharToDorisType(int length) {
+        if (length <= 0) {
+            return DorisType.STRING;
+        }
+        int len = length * 3;
+        if (len > MAX_VARCHAR_LENGTH) {
+            return DorisType.STRING;
+        }
+        return String.format("%s(%d)", DorisType.VARCHAR, len);
     }
 
     /** Map a PostgreSQL native type name to a Doris type string. */

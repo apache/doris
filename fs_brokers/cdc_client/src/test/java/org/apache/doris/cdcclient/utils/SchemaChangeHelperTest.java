@@ -241,14 +241,19 @@ class SchemaChangeHelperTest {
     void mysqlDecimalAndTimeTypes() {
         assertEquals("DECIMAL(20, 6)", mysql("DECIMAL", Types.DECIMAL, 20, 6));
         assertEquals("DECIMAL(21, 6)", mysql("DECIMAL UNSIGNED", Types.DECIMAL, 20, 6));
+        assertEquals(DorisType.STRING, mysql("DECIMAL", Types.DECIMAL, 65, 30));
         assertEquals("DATETIME(6)", mysql("DATETIME", Types.TIMESTAMP, -1, 6));
+        assertEquals("DATETIME(6)", mysql("DATETIME", Types.TIMESTAMP, 6, -1));
+        assertEquals("DATETIME(6)", mysql("TIMESTAMP", Types.TIMESTAMP, 6, -1));
         assertEquals("DATETIME(0)", mysql("TIMESTAMP", Types.TIMESTAMP, -1, -1));
     }
 
     @Test
     void mysqlStringJsonAndContainerTypes() {
-        assertEquals("CHAR(8)", mysql("CHAR", Types.CHAR, 8, -1));
-        assertEquals("VARCHAR(30)", mysql("VARCHAR", Types.VARCHAR, 30, -1));
+        assertEquals("CHAR(24)", mysql("CHAR", Types.CHAR, 8, -1));
+        assertEquals("VARCHAR(300)", mysql("CHAR", Types.CHAR, 100, -1));
+        assertEquals("VARCHAR(90)", mysql("VARCHAR", Types.VARCHAR, 30, -1));
+        assertEquals(DorisType.STRING, mysql("VARCHAR", Types.VARCHAR, 30000, -1));
         assertEquals(DorisType.JSON, mysql("JSON", Types.OTHER, -1, -1));
         assertEquals(DorisType.STRING, mysql("ENUM", Types.CHAR, 1, -1));
         assertEquals(DorisType.STRING, mysql("SET", Types.CHAR, 3, -1));
