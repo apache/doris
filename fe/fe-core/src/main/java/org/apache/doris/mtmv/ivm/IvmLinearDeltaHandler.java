@@ -66,7 +66,7 @@ class IvmLinearDeltaHandler {
         Alias baseOpAlias = new Alias(factorExpr, Column.IVM_BASE_OP_COL);
         ImmutableList.Builder<NamedExpression> outputs = ImmutableList.builderWithExpectedSize(
                 scan.getOutput().size() + 2);
-        scan.getOutput().forEach(slot -> outputs.add((NamedExpression) slot));
+        scan.getOutput().forEach(outputs::add);
         outputs.add(factorAlias);
         outputs.add(baseOpAlias);
         LogicalProject<?> project = new LogicalProject<>(outputs.build(), scan);
@@ -80,7 +80,7 @@ class IvmLinearDeltaHandler {
      * Builds the dml_factor expression from the stream change type column.
      * APPEND, UPDATE_AFTER → dml_factor = +1, DELETE, UPDATE_BEFORE → dml_factor = -1
      */
-    private Expression buildDmlFactorExpr(LogicalOlapScan scan) {
+    private Expression buildDmlFactorExpr(LogicalOlapTableStreamScan scan) {
         Slot opSlot = IvmDeltaRewriteHelper.INSTANCE.findSlotByName(
                 scan.getOutput(), Column.STREAM_CHANGE_TYPE_COL);
         return new If(

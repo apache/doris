@@ -23,7 +23,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 /**
  * Result of one delta rewrite visitor step.
  */
-class IvmDeltaRewriteResult {
+public class IvmDeltaRewriteResult {
     final Plan plan;
     final Slot dmlFactorSlot;
     final Slot baseOpSlot;
