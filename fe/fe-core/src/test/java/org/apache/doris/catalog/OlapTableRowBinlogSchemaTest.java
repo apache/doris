@@ -121,7 +121,7 @@ public class OlapTableRowBinlogSchemaTest {
     }
 
     @Test
-    public void testRowBinlogSchemaRejectsVisibleColumnAfterHiddenNonKeyColumn() {
+    public void testRowBinlogSchemaSkipsHiddenNonKeyColumnBeforeVisibleColumn() {
         Column key = new Column("k1", PrimitiveType.INT);
         key.setIsKey(true);
         Column hiddenValue = new Column("__DORIS_TEST_HIDDEN_VALUE__", PrimitiveType.INT);
@@ -130,10 +130,13 @@ public class OlapTableRowBinlogSchemaTest {
         Column value = new Column("v1", PrimitiveType.INT);
         value.setIsKey(false);
 
-        OlapTable table = newTestTable(BinlogTestUtils.newTestRowBinlogConfig(false, false),
+        OlapTable table = newTestTable(BinlogTestUtils.newTestRowBinlogConfig(true, false),
                 Lists.newArrayList(key, hiddenValue, value));
-        IllegalStateException exception = Assertions.assertThrows(IllegalStateException.class,
-                table::generateTableRowBinlogSchema);
-        Assertions.assertTrue(exception.getMessage().contains("visible/key column after hidden non-key column"));
+        List<String> columnNames = table.getRowBinlogMeta().getSchema(true).stream().map(Column::getName)
+                .collect(Collectors.toList());
+        Assertions.assertEquals("k1", columnNames.get(0));
+        Assertions.assertEquals("v1", columnNames.get(1));
+        Assertions.assertFalse(columnNames.contains("__DORIS_TEST_HIDDEN_VALUE__"));
+        Assertions.assertEquals(2, columnNames.indexOf(Column.BINLOG_LSN_COL));
     }
 }

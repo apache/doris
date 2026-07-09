@@ -51,12 +51,16 @@ public:
 
     std::unique_ptr<OlapBlockDataConvertor>& olap_data_convertor() { return _olap_data_convertor; }
 
-    size_t normal_column_count() const { return _normal_column_count; }
+    size_t normal_column_count() const { return _normal_column_ids.size(); }
+
+    bool is_normal_column(uint32_t source_cid) const;
+
+    size_t normal_column_ordinal(uint32_t source_cid) const;
 
 private:
     const SegmentWriteBinlogOptions& _opt;
     std::unique_ptr<OlapBlockDataConvertor> _olap_data_convertor;
-    size_t _normal_column_count = 0;
+    std::vector<uint32_t> _normal_column_ids;
     std::vector<IOlapColumnDataAccessor*> _converted_columns;
     size_t _num_rows = 0;
 

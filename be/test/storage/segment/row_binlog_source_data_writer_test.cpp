@@ -97,7 +97,7 @@ TEST(RowBinlogSourceDataWriterTest, collectHiddenKeyInNormalPrefix) {
               *reinterpret_cast<const int128_t*>(key_columns[1]->get_data_at(1)));
 }
 
-TEST(RowBinlogSourceDataWriterTest, rejectVisibleColumnAfterHiddenNonKeyColumn) {
+TEST(RowBinlogSourceDataWriterTest, skipHiddenNonKeyBeforeVisibleColumn) {
     auto source_schema = std::make_shared<TabletSchema>();
     source_schema->append_column(
             create_column(0, "k1", FieldType::OLAP_FIELD_TYPE_INT, true, true));
@@ -111,10 +111,13 @@ TEST(RowBinlogSourceDataWriterTest, rejectVisibleColumnAfterHiddenNonKeyColumn) 
     options.source.tablet_schema = source_schema;
 
     RowBinlogSourceDataWriter writer(options);
-    auto status = writer.init();
-    EXPECT_FALSE(status.ok());
-    EXPECT_NE(std::string::npos,
-              status.to_string().find("visible/key column after hidden non-key"));
+    ASSERT_TRUE(writer.init().ok());
+    EXPECT_EQ(2, writer.normal_column_count());
+    EXPECT_TRUE(writer.is_normal_column(0));
+    EXPECT_FALSE(writer.is_normal_column(1));
+    EXPECT_TRUE(writer.is_normal_column(2));
+    EXPECT_EQ(0, writer.normal_column_ordinal(0));
+    EXPECT_EQ(1, writer.normal_column_ordinal(2));
 }
 
 } // namespace doris::segment_v2
