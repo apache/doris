@@ -72,6 +72,9 @@ public:
             if (columns[i]->name() == std::string(kRowBinlogTimestampColName)) {
                 _tso_col_idx = i;
             }
+            if (columns[i]->name() == COMMIT_TSO_COL) {
+                _commit_tso_col_idx = i;
+            }
         }
         _init(columns, col_ids, num_key_columns);
     }
@@ -104,6 +107,7 @@ public:
     int32_t version_col_idx() const { return _version_col_idx; }
     int32_t lsn_col_idx() const { return _lsn_col_idx; }
     int32_t tso_col_idx() const { return _tso_col_idx; }
+    int32_t commit_tso_col_idx() const { return _commit_tso_col_idx; }
     // Don't use.
     // TODO: memory size of Schema cannot be accurately tracked.
     // In some places, temporarily use num_columns() as Schema size.
@@ -131,6 +135,7 @@ private:
     int32_t _version_col_idx = -1;
     int32_t _lsn_col_idx = -1;
     int32_t _tso_col_idx = -1;
+    int32_t _commit_tso_col_idx = -1;
     int64_t _mem_size = 0;
 };
 

@@ -140,6 +140,7 @@ suite("test_compaction_uniq_keys_row_store", "p0") {
                 `min_dwell_time` INT DEFAULT "99999" COMMENT "用户最小停留时间")
             UNIQUE KEY(`user_id`, `date`, `datev2`, `datetimev2_1`, `datetimev2_2`, `city`, `age`, `sex`) DISTRIBUTED BY HASH(`user_id`)
             PROPERTIES ( "replication_num" = "1",
+                    "disable_auto_compaction" = "true",
                     "enable_unique_key_merge_on_write" = "true",
                     "light_schema_change" = "true",
                     "enable_unique_key_skip_bitmap_column" = "false",

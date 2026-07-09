@@ -67,10 +67,10 @@ import org.apache.paimon.table.source.TableScan;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
@@ -92,6 +92,14 @@ public class PaimonScanNode extends FileQueryScanNode {
     private static final String DORIS_START_TIMESTAMP = "startTimestamp";
     private static final String DORIS_END_TIMESTAMP = "endTimestamp";
     private static final String DORIS_INCREMENTAL_BETWEEN_SCAN_MODE = "incrementalBetweenScanMode";
+    private static final String PAIMON_PROPERTY_PREFIX = "paimon.";
+    private static final String DORIS_ENABLE_JNI_IO_MANAGER = "doris.enable_jni_io_manager";
+    private static final String DORIS_JNI_IO_MANAGER_TMP_DIR = "doris.jni_io_manager.tmp_dir";
+    private static final String DORIS_JNI_IO_MANAGER_IMPL_CLASS = "doris.jni_io_manager.impl_class";
+    private static final List<String> BACKEND_PAIMON_OPTIONS = Arrays.asList(
+            DORIS_ENABLE_JNI_IO_MANAGER,
+            DORIS_JNI_IO_MANAGER_TMP_DIR,
+            DORIS_JNI_IO_MANAGER_IMPL_CLASS);
     private static final String PAIMON_BINLOG_SYSTEM_TABLE_TYPE = "binlog";
     private static final String PAIMON_AUDIT_LOG_SYSTEM_TABLE_TYPE = "audit_log";
 
@@ -229,9 +237,7 @@ public class PaimonScanNode extends FileQueryScanNode {
                 && !((PaimonSysExternalTable) externalTable).isDataTable()) {
             return Collections.emptyList();
         }
-        return source.getPaimonTable().partitionKeys().stream()
-                .map(key -> key.toLowerCase(Locale.ROOT))
-                .collect(Collectors.toList());
+        return source.getPaimonTable().partitionKeys();
     }
 
     private void putHistorySchemaInfo(Long schemaId) {
@@ -516,12 +522,24 @@ public class PaimonScanNode extends FileQueryScanNode {
             return Collections.emptyMap();
         }
         PaimonExternalCatalog catalog = (PaimonExternalCatalog) source.getCatalog();
+        Map<String, String> backendOptions = new HashMap<>();
+        Map<String, String> catalogProperties = catalog.getCatalogProperty().getProperties();
+        if (catalogProperties == null) {
+            catalogProperties = Collections.emptyMap();
+        }
+        for (String option : BACKEND_PAIMON_OPTIONS) {
+            String catalogProperty = PAIMON_PROPERTY_PREFIX + option;
+            if (catalogProperties.containsKey(catalogProperty)) {
+                backendOptions.put(option, catalogProperties.get(catalogProperty));
+            }
+        }
         if (!(catalog.getCatalogProperty().getMetastoreProperties() instanceof PaimonJdbcMetaStoreProperties)) {
-            return Collections.emptyMap();
+            return backendOptions;
         }
         PaimonJdbcMetaStoreProperties jdbcMetaStoreProperties =
                 (PaimonJdbcMetaStoreProperties) catalog.getCatalogProperty().getMetastoreProperties();
-        return jdbcMetaStoreProperties.getBackendPaimonOptions();
+        backendOptions.putAll(jdbcMetaStoreProperties.getBackendPaimonOptions());
+        return backendOptions;
     }
 
     @VisibleForTesting
@@ -586,13 +604,9 @@ public class PaimonScanNode extends FileQueryScanNode {
         long startTime = System.currentTimeMillis();
         try {
             Table paimonTable = getProcessedTable();
+            List<String> fieldNames = paimonTable.rowType().getFieldNames();
             int[] projected = desc.getSlots().stream().mapToInt(
-                    slot -> paimonTable.rowType()
-                            .getFieldNames()
-                            .stream()
-                            .map(String::toLowerCase)
-                            .collect(Collectors.toList())
-                            .indexOf(slot.getColumn().getName()))
+                    slot -> getFieldIndex(fieldNames, slot.getColumn().getName()))
                     .filter(i -> i >= 0)
                     .toArray();
             ReadBuilder readBuilder = paimonTable.newReadBuilder();
@@ -614,6 +628,16 @@ public class PaimonScanNode extends FileQueryScanNode {
                 getSummaryProfile().addExternalTableGetFileScanTasksTime(System.currentTimeMillis() - startTime);
             }
         }
+    }
+
+    @VisibleForTesting
+    static int getFieldIndex(List<String> fieldNames, String columnName) {
+        for (int i = 0; i < fieldNames.size(); i++) {
+            if (fieldNames.get(i).equalsIgnoreCase(columnName)) {
+                return i;
+            }
+        }
+        return -1;
     }
 
     private String getFileFormat(String path) {

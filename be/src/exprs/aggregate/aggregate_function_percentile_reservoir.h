@@ -21,6 +21,7 @@
 
 #include <memory>
 
+#include "core/column/column_vector.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/primitive_type.h"
 #include "exprs/aggregate/aggregate_function.h"
@@ -94,6 +95,11 @@ public:
         auto level = assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(*columns[1])
                              .get_data()[0];
         this->data(place).add(value, level);
+    }
+
+    void check_input_columns_type(const IColumn** columns) const override {
+        this->template check_argument_column_type<ColumnFloat64>(columns[0]);
+        this->template check_argument_column_type<ColumnFloat64>(columns[1]);
     }
 
     void add_batch_single_place(size_t batch_size, AggregateDataPtr place, const IColumn** columns,

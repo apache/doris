@@ -24,6 +24,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/cast_set.h"
 #include "common/status.h"
 #include "core/data_type/data_type.h"
 #include "core/field.h"
@@ -35,7 +36,6 @@
 
 namespace doris {
 class Block;
-class ColumnPredicate;
 struct ConditionCacheContext;
 
 namespace io {
@@ -47,16 +47,6 @@ namespace doris::format {
 
 class TableColumnMapper;
 struct TableColumnMapperOptions;
-
-// File-local single-column predicates for file-layer pruning, such as min/max, page index,
-// dictionary and bloom filter. Predicates must all belong to file_column_id.
-// These predicates are pruning hints only and are not row-level conjuncts.
-struct FileColumnPredicateFilter {
-    LocalColumnId file_column_id = LocalColumnId::invalid();
-    std::vector<std::shared_ptr<ColumnPredicate>> predicates;
-
-    std::string debug_string() const;
-};
 
 enum class FileFormat {
     PARQUET,
@@ -86,9 +76,6 @@ struct FileScanRequest {
     VExprContextSPtrs conjuncts;
     // Delete predicates converted to file-local expressions.
     VExprContextSPtrs delete_conjuncts;
-    // Single-column predicates used only for file-layer pruning, such as statistics, page index,
-    // dictionary and bloom filter. They must not be used for batch row-level filtering.
-    std::vector<FileColumnPredicateFilter> column_predicate_filters;
 };
 
 // Helper for constructing the scan-column layout in FileScanRequest.
@@ -333,6 +320,13 @@ public:
 
 protected:
     virtual void _init_profile() {}
+    void _record_scan_rows(int64_t rows) {
+        DORIS_CHECK(rows >= 0);
+        _reader_statistics.read_rows += rows;
+        if (_io_ctx != nullptr && _io_ctx->file_reader_stats != nullptr) {
+            _io_ctx->file_reader_stats->read_rows += cast_set<size_t>(rows);
+        }
+    }
 
     io::FileReaderSPtr _file_reader;
     // _tracing_file_reader wraps _file_reader.

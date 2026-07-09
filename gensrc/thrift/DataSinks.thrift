@@ -310,6 +310,15 @@ struct TOlapTableSink {
     23: optional double max_filter_ratio
 
     24: optional string storage_vault_id
+
+    // When true, FE should assign each sink a receiver bucket_be_id/load_tablet_idx pair for
+    // random distribution partitions. Sinks routed to the same receiver BE for the same
+    // partition share one ordered tablet sequence. BE then derives the bucket sequence owned by
+    // bucket_be_id from the location info and rotates within that sequence once per-tablet write
+    // volume exceeds the threshold (default 200 MB). This flag is set regardless of whether the
+    // initial partition list is empty, so auto-partition tables whose first partitions arrive at
+    // runtime still enter the correct mode from the start.
+    25: optional bool enable_adaptive_random_bucket
 }
 
 struct THiveLocationParams {

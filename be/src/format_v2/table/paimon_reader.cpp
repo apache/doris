@@ -19,12 +19,12 @@
 
 #include <glog/logging.h>
 
-#include <cstring>
 #include <string>
 #include <utility>
 
 #include "exprs/vexpr_context.h"
 #include "format/table/deletion_vector_reader.h"
+#include "format/table/paimon_reader.h"
 #include "format_v2/column_mapper.h"
 #include "format_v2/jni/paimon_jni_reader.h"
 #include "format_v2/table/schema_history_util.h"
@@ -66,14 +66,7 @@ Status PaimonReader::_parse_deletion_vector_file(const TTableFormatFileDesc& t_d
     }
     const auto& deletion_file = table_desc.deletion_file;
 
-    const std::string key_prefix = "paimon_dv:";
-    desc->key.resize(key_prefix.size() + deletion_file.path.size() + sizeof(deletion_file.offset));
-    char* key_data = desc->key.data();
-    memcpy(key_data, key_prefix.data(), key_prefix.size());
-    key_data += key_prefix.size();
-    memcpy(key_data, deletion_file.path.data(), deletion_file.path.size());
-    key_data += deletion_file.path.size();
-    memcpy(key_data, &deletion_file.offset, sizeof(deletion_file.offset));
+    desc->key = build_paimon_deletion_vector_cache_key(deletion_file);
     desc->path = deletion_file.path;
     desc->start_offset = deletion_file.offset;
     desc->size = deletion_file.length + 4;
@@ -143,7 +136,6 @@ Status PaimonHybridReader::_init_child_reader(format::TableReader* reader,
     RETURN_IF_ERROR(_clone_conjuncts(&conjuncts));
     return reader->init({
             .projected_columns = _projected_columns,
-            .column_predicates = _table_column_predicates,
             .conjuncts = std::move(conjuncts),
             .format = file_format,
             .scan_params = _scan_params,

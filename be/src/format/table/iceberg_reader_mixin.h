@@ -19,6 +19,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -33,8 +34,8 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "format/generic_reader.h"
-#include "format/table/deletion_vector_reader.h"
 #include "format/table/equality_delete.h"
+#include "format/table/iceberg_delete_file_reader_helper.h"
 #include "format/table/table_schema_change_helper.h"
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
@@ -106,6 +107,16 @@ public:
     void set_create_row_id_column_iterator_func(
             std::function<std::shared_ptr<segment_v2::RowIdColumnIteratorV2>()> create_func) {
         _create_topn_row_id_column_iterator = create_func;
+    }
+
+    Status TEST_read_deletion_vector(const std::string& data_file_path,
+                                     const TIcebergDeleteFileDesc& delete_file_desc) {
+        return read_deletion_vector(data_file_path, delete_file_desc);
+    }
+
+    Status TEST_position_delete_base(const std::string& data_file_path,
+                                     const std::vector<TIcebergDeleteFileDesc>& delete_files) {
+        return _position_delete_base(data_file_path, delete_files);
     }
 
 protected:
@@ -627,18 +638,19 @@ Status IcebergReaderMixin<BaseReader>::_position_delete_base(
         Status create_status = Status::OK();
         auto* delete_file_cache = _kv_cache->template get<DeleteFile>(
                 _delet_file_cache_key(delete_file.path), [&]() -> DeleteFile* {
-                    auto* position_delete = new DeleteFile;
+                    auto position_delete = std::make_unique<DeleteFile>();
                     TFileRangeDesc delete_file_range;
                     delete_file_range.__set_fs_name(this->get_scan_range().fs_name);
                     delete_file_range.path = delete_file.path;
                     delete_file_range.start_offset = 0;
                     delete_file_range.size = -1;
                     delete_file_range.file_size = -1;
-                    create_status = _read_position_delete_file(&delete_file_range, position_delete);
+                    create_status =
+                            _read_position_delete_file(&delete_file_range, position_delete.get());
                     if (!create_status) {
                         return nullptr;
                     }
-                    return position_delete;
+                    return position_delete.release();
                 });
         if (create_status.is<ErrorCode::END_OF_FILE>()) {
             continue;
@@ -660,10 +672,10 @@ Status IcebergReaderMixin<BaseReader>::_position_delete_base(
         SCOPED_TIMER(_iceberg_profile.delete_rows_sort_time);
         _iceberg_delete_rows =
                 _kv_cache->template get<DeleteRows>(data_file_path, [&]() -> DeleteRows* {
-                    auto* data_file_position_delete = new DeleteRows;
+                    auto data_file_position_delete = std::make_unique<DeleteRows>();
                     _sort_delete_rows(delete_rows_array, num_delete_rows,
                                       *data_file_position_delete);
-                    return data_file_position_delete;
+                    return data_file_position_delete.release();
                 });
         set_delete_rows();
         COUNTER_UPDATE(_iceberg_profile.num_delete_rows, num_delete_rows);
@@ -805,67 +817,31 @@ Status IcebergReaderMixin<BaseReader>::read_deletion_vector(
         const std::string& data_file_path, const TIcebergDeleteFileDesc& delete_file_desc) {
     Status create_status = Status::OK();
     SCOPED_TIMER(_iceberg_profile.delete_files_read_time);
-    _iceberg_delete_rows = _kv_cache->template get<
-            DeleteRows>(data_file_path, [&]() -> DeleteRows* {
-        auto* delete_rows = new DeleteRows;
+    _iceberg_delete_rows = _kv_cache->template get<DeleteRows>(
+            build_iceberg_deletion_vector_cache_key(data_file_path, delete_file_desc),
+            [&]() -> DeleteRows* {
+                auto delete_rows = std::make_unique<DeleteRows>();
 
-        TFileRangeDesc delete_range;
-        delete_range.__set_fs_name(this->get_scan_range().fs_name);
-        delete_range.path = delete_file_desc.path;
-        delete_range.start_offset = delete_file_desc.content_offset;
-        delete_range.size = delete_file_desc.content_size_in_bytes;
-        delete_range.file_size = -1;
+                roaring::Roaring64Map bitmap;
+                IcebergDeleteFileReaderOptions options;
+                options.state = this->get_state();
+                options.profile = this->get_profile();
+                options.scan_params = &this->get_scan_params();
+                options.io_ctx = this->get_io_ctx();
+                options.fs_name = &this->get_scan_range().fs_name;
+                create_status = read_iceberg_deletion_vector(delete_file_desc, options, &bitmap);
+                if (!create_status.ok()) [[unlikely]] {
+                    return nullptr;
+                }
 
-        DeletionVectorReader dv_reader(this->get_state(), this->get_profile(),
-                                       this->get_scan_params(), delete_range, this->get_io_ctx());
-        create_status = dv_reader.open();
-        if (!create_status.ok()) [[unlikely]] {
-            return nullptr;
-        }
-
-        size_t buffer_size = delete_range.size;
-        std::vector<char> buf(buffer_size);
-        if (buffer_size < 12) [[unlikely]] {
-            create_status = Status::DataQualityError("Deletion vector file size too small: {}",
-                                                     buffer_size);
-            return nullptr;
-        }
-
-        create_status = dv_reader.read_at(delete_range.start_offset, {buf.data(), buffer_size});
-        if (!create_status) [[unlikely]] {
-            return nullptr;
-        }
-
-        auto total_length = BigEndian::Load32(buf.data());
-        if (total_length + 8 != buffer_size) [[unlikely]] {
-            create_status = Status::DataQualityError(
-                    "Deletion vector length mismatch, expected: {}, actual: {}", total_length + 8,
-                    buffer_size);
-            return nullptr;
-        }
-
-        constexpr static char MAGIC_NUMBER[] = {'\xD1', '\xD3', '\x39', '\x64'};
-        if (memcmp(buf.data() + sizeof(total_length), MAGIC_NUMBER, 4)) [[unlikely]] {
-            create_status = Status::DataQualityError("Deletion vector magic number mismatch");
-            return nullptr;
-        }
-
-        roaring::Roaring64Map bitmap;
-        SCOPED_TIMER(_iceberg_profile.parse_delete_file_time);
-        try {
-            bitmap = roaring::Roaring64Map::readSafe(buf.data() + 8, buffer_size - 12);
-        } catch (const std::runtime_error& e) {
-            create_status = Status::DataQualityError("Decode roaring bitmap failed, {}", e.what());
-            return nullptr;
-        }
-
-        delete_rows->reserve(bitmap.cardinality());
-        for (auto it = bitmap.begin(); it != bitmap.end(); it++) {
-            delete_rows->push_back(*it);
-        }
-        COUNTER_UPDATE(_iceberg_profile.num_delete_rows, delete_rows->size());
-        return delete_rows;
-    });
+                SCOPED_TIMER(_iceberg_profile.parse_delete_file_time);
+                delete_rows->reserve(bitmap.cardinality());
+                for (auto it = bitmap.begin(); it != bitmap.end(); it++) {
+                    delete_rows->push_back(*it);
+                }
+                COUNTER_UPDATE(_iceberg_profile.num_delete_rows, delete_rows->size());
+                return delete_rows.release();
+            });
 
     RETURN_IF_ERROR(create_status);
     if (!_iceberg_delete_rows->empty()) [[likely]] {

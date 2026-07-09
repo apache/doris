@@ -45,6 +45,7 @@
 #include "core/value/large_int_value.h"
 #include "core/value/timestamptz_value.h"
 #include "exprs/aggregate/aggregate_function.h"
+#include "exprs/expr_zonemap_filter.h"
 #include "exprs/function/cast/cast_to_string.h"
 #include "exprs/function/function.h"
 #include "exprs/function_context.h"
@@ -186,6 +187,10 @@ public:
 
     virtual ZoneMapFilterResult evaluate_zonemap_filter(const ZoneMapEvalContext& ctx) const;
     virtual bool can_evaluate_zonemap_filter() const { return false; }
+    virtual ZoneMapFilterResult evaluate_dictionary_filter(const DictionaryEvalContext& ctx) const;
+    virtual bool can_evaluate_dictionary_filter() const { return false; }
+    virtual ZoneMapFilterResult evaluate_bloom_filter(const BloomFilterEvalContext& ctx) const;
+    virtual bool can_evaluate_bloom_filter() const { return false; }
 
     // Get analyzer key for inverted index queries (overridden by VMatchPredicate)
     [[nodiscard]] virtual const std::string& get_analyzer_key() const {

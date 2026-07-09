@@ -31,8 +31,10 @@
 #include <optional>
 #include <string>
 #include <typeinfo>
+#include <utility>
 #include <vector>
 
+#include "common/config.h"
 #include "common/consts.h"
 #include "core/assert_cast.h"
 #include "core/block/block.h"
@@ -64,8 +66,8 @@
 #include "roaring/roaring64map.hh"
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
-#include "storage/predicate/predicate_creator.h"
 #include "storage/segment/condition_cache.h"
+#include "util/debug_points.h"
 
 namespace doris::format {
 namespace {
@@ -181,7 +183,6 @@ public:
         _state = std::make_unique<RuntimeState>(*_query_options, *_query_globals);
         RETURN_IF_ERROR(init({
                 .projected_columns = std::move(projected_columns),
-                .column_predicates = {},
                 .conjuncts = {},
                 .format = FileFormat::PARQUET,
                 .scan_params = nullptr,
@@ -427,6 +428,24 @@ int64_t write_iceberg_deletion_vector_file(const std::string& file_path,
     EXPECT_TRUE(output.good());
     return static_cast<int64_t>(blob.size());
 }
+
+class ScopedDebugPoint {
+public:
+    explicit ScopedDebugPoint(std::string name)
+            : _name(std::move(name)), _enable_debug_points(config::enable_debug_points) {
+        config::enable_debug_points = true;
+        DebugPoints::instance()->add(_name);
+    }
+
+    ~ScopedDebugPoint() {
+        DebugPoints::instance()->remove(_name);
+        config::enable_debug_points = _enable_debug_points;
+    }
+
+private:
+    std::string _name;
+    bool _enable_debug_points;
+};
 
 Block build_table_block(const std::vector<ColumnDefinition>& columns) {
     Block block;
@@ -712,12 +731,6 @@ void set_name_identifiers(std::vector<ColumnDefinition>* columns) {
     }
 }
 
-void add_column_predicate(TableColumnPredicates* column_predicates, GlobalIndex global_index,
-                          std::shared_ptr<ColumnPredicate> predicate) {
-    auto& entry = (*column_predicates)[global_index];
-    entry.push_back(std::move(predicate));
-}
-
 VExprContextSPtr prepared_conjunct(RuntimeState* state, const VExprSPtr& expr) {
     auto ctx = VExprContext::create_shared(expr);
     auto status = ctx->prepare(state, RowDescriptor());
@@ -750,7 +763,6 @@ TEST(IcebergV2ReaderTest, IcebergVirtualColumnsUseRowLineageMetadata) {
     doris::format::iceberg::IcebergTableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
-                                    .column_predicates = {},
                                     .conjuncts = {prepared_conjunct(
                                             &state, table_int32_greater_than_expr(2, 2, 1))},
                                     .format = FileFormat::PARQUET,
@@ -804,7 +816,6 @@ TEST(IcebergV2ReaderTest, IcebergRowLineageUsesPhysicalRowIdAndFillsNulls) {
     doris::format::iceberg::IcebergTableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
-                                    .column_predicates = {},
                                     .conjuncts = {},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = nullptr,
@@ -854,7 +865,6 @@ TEST(IcebergV2ReaderTest, IcebergPhysicalRowIdKeepsNullsWithoutFirstRowId) {
     doris::format::iceberg::IcebergTableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
-                                    .column_predicates = {},
                                     .conjuncts = {},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = nullptr,
@@ -902,7 +912,6 @@ TEST(IcebergV2ReaderTest, IcebergMissingRowIdStaysNullWithoutFirstRowId) {
     doris::format::iceberg::IcebergTableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
-                                    .column_predicates = {},
                                     .conjuncts = {},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = nullptr,
@@ -957,7 +966,6 @@ TEST(IcebergV2ReaderTest, IcebergRowIdPredicateFiltersAfterRowLineageMaterializa
     doris::format::iceberg::IcebergTableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
-                                    .column_predicates = {},
                                     .conjuncts = conjuncts,
                                     .format = FileFormat::PARQUET,
                                     .scan_params = nullptr,
@@ -1012,7 +1020,6 @@ TEST(IcebergV2ReaderTest, IcebergLastUpdatedSequencePredicateFiltersAfterMateria
     doris::format::iceberg::IcebergTableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
-                                    .column_predicates = {},
                                     .conjuncts = conjuncts,
                                     .format = FileFormat::PARQUET,
                                     .scan_params = nullptr,
@@ -1060,7 +1067,6 @@ TEST(IcebergV2ReaderTest, IcebergRowidVirtualColumnUsesDataFilePosition) {
     doris::format::iceberg::IcebergTableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
-                                    .column_predicates = {},
                                     .conjuncts = {prepared_conjunct(
                                             &state, table_int32_greater_than_expr(1, 1, 1))},
                                     .format = FileFormat::PARQUET,
@@ -1109,7 +1115,6 @@ TEST(IcebergV2ReaderTest, IcebergVirtualColumnsKeepRowLineageAfterConjunctFilter
     doris::format::iceberg::IcebergTableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
-                                    .column_predicates = {},
                                     .conjuncts = {prepared_conjunct(
                                             &state, table_int32_greater_than_expr(2, 2, 1))},
                                     .format = FileFormat::PARQUET,
@@ -1148,8 +1153,8 @@ TEST(IcebergV2ReaderTest, IcebergVirtualColumnsKeepRowLineageAfterRowGroupPredic
     std::filesystem::create_directories(test_dir);
 
     const auto file_path = (test_dir / "split.parquet").string();
-    // ColumnPredicate is used for row-group/statistics pruning. Keep one row per row group so
-    // id > 2 prunes the first two row groups and leaves only the third file-local row.
+    // Keep one row per row group so the VExpr ZoneMap path can prune the first two row groups and
+    // leave only the third file-local row.
     write_int_pair_parquet_file(file_path, {1, 2, 3}, {10, 20, 30}, {"one", "two", "three"}, 1);
 
     std::vector<ColumnDefinition> projected_columns;
@@ -1157,18 +1162,12 @@ TEST(IcebergV2ReaderTest, IcebergVirtualColumnsKeepRowLineageAfterRowGroupPredic
     projected_columns.push_back(make_iceberg_last_updated_sequence_number_column());
     projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
 
-    TableColumnPredicates column_predicates;
-    add_column_predicate(&column_predicates, GlobalIndex(2),
-                         create_comparison_predicate<PredicateType::GT>(
-                                 0, "id", make_nullable(std::make_shared<DataTypeInt32>()),
-                                 Field::create_field<TYPE_INT>(2), false));
-
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     doris::format::iceberg::IcebergTableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
-                                    .column_predicates = std::move(column_predicates),
-                                    .conjuncts = {},
+                                    .conjuncts = {prepared_conjunct(
+                                            &state, table_int32_greater_than_expr(2, 2, 2))},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = nullptr,
                                     .io_ctx = nullptr,
@@ -1201,6 +1200,7 @@ TEST(IcebergV2ReaderTest, IcebergDeletionVectorUsesTableReaderDeleteFileInterfac
     TTableFormatFileDesc table_format_desc;
     TIcebergFileDesc iceberg_desc;
     iceberg_desc.__set_format_version(2);
+    iceberg_desc.__set_original_file_path("data-a.parquet");
     iceberg_desc.__set_delete_files({make_iceberg_deletion_vector("dv.bin", 8, 128)});
     table_format_desc.__set_iceberg_params(iceberg_desc);
 
@@ -1217,6 +1217,52 @@ TEST(IcebergV2ReaderTest, IcebergDeletionVectorUsesTableReaderDeleteFileInterfac
     EXPECT_EQ(desc.format, DeleteFileDesc::Format::ICEBERG);
 }
 
+TEST(IcebergV2ReaderTest, IcebergDeletionVectorCacheKeyIncludesDataFileAndRange) {
+    // Scenario: Iceberg Puffin deletion vectors are scoped to the data file. The same Puffin blob
+    // referenced by different data files, offsets or lengths must not share a DeleteFileDesc key.
+    const auto shared_dv =
+            make_iceberg_deletion_vector("s3://bucket/table/shared-dv.puffin", 8, 128);
+    IcebergTableReaderDeleteFileTestHelper reader;
+
+    DeleteFileDesc first_desc;
+    bool has_delete_file = false;
+    ASSERT_TRUE(reader.parse_deletion_vector_file(
+                              make_iceberg_table_format_desc("s3://bucket/table/data-a.parquet",
+                                                             {shared_dv}),
+                              &first_desc, &has_delete_file)
+                        .ok());
+    EXPECT_TRUE(has_delete_file);
+
+    DeleteFileDesc different_data_file_desc;
+    ASSERT_TRUE(reader.parse_deletion_vector_file(
+                              make_iceberg_table_format_desc("s3://bucket/table/data-b.parquet",
+                                                             {shared_dv}),
+                              &different_data_file_desc, &has_delete_file)
+                        .ok());
+
+    DeleteFileDesc different_offset_desc;
+    ASSERT_TRUE(reader.parse_deletion_vector_file(
+                              make_iceberg_table_format_desc(
+                                      "s3://bucket/table/data-a.parquet",
+                                      {make_iceberg_deletion_vector(
+                                              "s3://bucket/table/shared-dv.puffin", 16, 128)}),
+                              &different_offset_desc, &has_delete_file)
+                        .ok());
+
+    DeleteFileDesc different_length_desc;
+    ASSERT_TRUE(reader.parse_deletion_vector_file(
+                              make_iceberg_table_format_desc(
+                                      "s3://bucket/table/data-a.parquet",
+                                      {make_iceberg_deletion_vector(
+                                              "s3://bucket/table/shared-dv.puffin", 8, 256)}),
+                              &different_length_desc, &has_delete_file)
+                        .ok());
+
+    EXPECT_NE(first_desc.key, different_data_file_desc.key);
+    EXPECT_NE(first_desc.key, different_offset_desc.key);
+    EXPECT_NE(first_desc.key, different_length_desc.key);
+}
+
 TEST(IcebergV2ReaderTest, IcebergDeletionVectorRejectsMultipleDeleteFiles) {
     TTableFormatFileDesc table_format_desc;
     TIcebergFileDesc iceberg_desc;
@@ -1231,6 +1277,28 @@ TEST(IcebergV2ReaderTest, IcebergDeletionVectorRejectsMultipleDeleteFiles) {
     auto status = reader.parse_deletion_vector_file(table_format_desc, &desc, &has_delete_file);
 
     EXPECT_FALSE(status.ok());
+}
+
+TEST(IcebergV2ReaderTest, IcebergDeletionVectorRejectsMissingRange) {
+    TIcebergDeleteFileDesc delete_file;
+    delete_file.__set_content(3);
+    delete_file.__set_path("dv.bin");
+
+    TTableFormatFileDesc table_format_desc;
+    TIcebergFileDesc iceberg_desc;
+    iceberg_desc.__set_format_version(2);
+    iceberg_desc.__set_delete_files({delete_file});
+    table_format_desc.__set_iceberg_params(iceberg_desc);
+
+    IcebergTableReaderDeleteFileTestHelper reader;
+    DeleteFileDesc desc;
+    bool has_delete_file = false;
+    auto status = reader.parse_deletion_vector_file(table_format_desc, &desc, &has_delete_file);
+
+    EXPECT_FALSE(status.ok());
+    EXPECT_TRUE(status.is<ErrorCode::INTERNAL_ERROR>());
+    EXPECT_NE(status.to_string().find("missing content offset or length"), std::string::npos);
+    EXPECT_FALSE(has_delete_file);
 }
 
 TEST(IcebergV2ReaderTest, IcebergTableReaderAppliesDeletionVectorFile) {
@@ -1258,7 +1326,6 @@ TEST(IcebergV2ReaderTest, IcebergTableReaderAppliesDeletionVectorFile) {
     doris::format::iceberg::IcebergTableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
-                                    .column_predicates = {},
                                     .conjuncts = {},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = &scan_params,
@@ -1277,6 +1344,155 @@ TEST(IcebergV2ReaderTest, IcebergTableReaderAppliesDeletionVectorFile) {
 
     EXPECT_EQ(read_iceberg_ids(&reader, projected_columns), std::vector<int32_t>({2, 3, 4}));
 
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
+TEST(IcebergV2ReaderTest, IcebergTableReaderReportsInjectedDeletionVectorReadError) {
+    const auto test_dir = std::filesystem::temp_directory_path() /
+                          "doris_iceberg_v2_deletion_vector_injected_read_error_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+
+    const auto file_path = (test_dir / "split.parquet").string();
+    const auto dv_path = (test_dir / "delete-vector.bin").string();
+    write_int_pair_parquet_file(file_path, {1, 2, 3}, {10, 20, 30}, {"one", "two", "three"});
+    const auto dv_size = write_iceberg_deletion_vector_file(dv_path, {0});
+
+    std::vector<ColumnDefinition> projected_columns;
+    projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+
+    RuntimeProfile profile("test_profile");
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto scan_params = make_local_parquet_scan_params();
+    io::FileReaderStats file_reader_stats;
+    io::FileCacheStatistics file_cache_stats;
+    auto io_ctx = make_io_context(&file_reader_stats, &file_cache_stats);
+    ShardedKVCache cache(1);
+    doris::format::iceberg::IcebergTableReader reader;
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .conjuncts = {},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = &scan_params,
+                                    .io_ctx = io_ctx,
+                                    .runtime_state = &state,
+                                    .scanner_profile = &profile,
+                            })
+                        .ok());
+
+    auto split_options = build_split_options(file_path);
+    split_options.cache = &cache;
+    split_options.current_range.__set_table_format_params(make_iceberg_table_format_desc(
+            file_path, {make_iceberg_deletion_vector(dv_path, 0, dv_size)}));
+
+    ScopedDebugPoint debug_point("TableReader.parse_deletion_vector.io_error");
+    auto status = reader.prepare_split(split_options);
+
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("injected format v2 deletion vector read failure"),
+              std::string::npos);
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
+TEST(IcebergV2ReaderTest, IcebergTableReaderStopsDuringDeletionVectorRead) {
+    const auto test_dir = std::filesystem::temp_directory_path() /
+                          "doris_iceberg_v2_deletion_vector_should_stop_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+
+    const auto file_path = (test_dir / "split.parquet").string();
+    const auto dv_path = (test_dir / "delete-vector.bin").string();
+    write_int_pair_parquet_file(file_path, {1, 2, 3}, {10, 20, 30}, {"one", "two", "three"});
+    const auto dv_size = write_iceberg_deletion_vector_file(dv_path, {0});
+
+    std::vector<ColumnDefinition> projected_columns;
+    projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+
+    RuntimeProfile profile("test_profile");
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto scan_params = make_local_parquet_scan_params();
+    io::FileReaderStats file_reader_stats;
+    io::FileCacheStatistics file_cache_stats;
+    auto io_ctx = make_io_context(&file_reader_stats, &file_cache_stats);
+    ShardedKVCache cache(1);
+    doris::format::iceberg::IcebergTableReader reader;
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .conjuncts = {},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = &scan_params,
+                                    .io_ctx = io_ctx,
+                                    .runtime_state = &state,
+                                    .scanner_profile = &profile,
+                            })
+                        .ok());
+
+    auto split_options = build_split_options(file_path);
+    split_options.cache = &cache;
+    split_options.current_range.__set_table_format_params(make_iceberg_table_format_desc(
+            file_path, {make_iceberg_deletion_vector(dv_path, 0, dv_size)}));
+
+    ScopedDebugPoint debug_point("TableReader.parse_deletion_vector.should_stop");
+    auto status = reader.prepare_split(split_options);
+
+    EXPECT_TRUE(status.is<ErrorCode::END_OF_FILE>());
+    EXPECT_NE(status.to_string().find("stop read"), std::string::npos);
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
+TEST(IcebergV2ReaderTest, IcebergTableReaderRejectsCorruptDeletionVectorPayload) {
+    const auto test_dir =
+            std::filesystem::temp_directory_path() / "doris_iceberg_v2_corrupt_dv_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+
+    const auto file_path = (test_dir / "split.parquet").string();
+    const auto dv_path = (test_dir / "delete-vector.bin").string();
+    write_int_pair_parquet_file(file_path, {1, 2, 3}, {10, 20, 30}, {"one", "two", "three"});
+    std::vector<char> corrupted(12, 0);
+    BigEndian::Store32(corrupted.data(), 4);
+    memcpy(corrupted.data() + 4, "BAD!", 4);
+    {
+        std::ofstream output(dv_path, std::ios::binary);
+        ASSERT_TRUE(output.is_open());
+        output.write(corrupted.data(), static_cast<std::streamsize>(corrupted.size()));
+        ASSERT_TRUE(output.good());
+    }
+
+    std::vector<ColumnDefinition> projected_columns;
+    projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+
+    RuntimeProfile profile("test_profile");
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto scan_params = make_local_parquet_scan_params();
+    io::FileReaderStats file_reader_stats;
+    io::FileCacheStatistics file_cache_stats;
+    auto io_ctx = make_io_context(&file_reader_stats, &file_cache_stats);
+    ShardedKVCache cache(1);
+    doris::format::iceberg::IcebergTableReader reader;
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .conjuncts = {},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = &scan_params,
+                                    .io_ctx = io_ctx,
+                                    .runtime_state = &state,
+                                    .scanner_profile = &profile,
+                            })
+                        .ok());
+
+    auto split_options = build_split_options(file_path);
+    split_options.cache = &cache;
+    split_options.current_range.__set_table_format_params(make_iceberg_table_format_desc(
+            file_path,
+            {make_iceberg_deletion_vector(dv_path, 0, static_cast<int64_t>(corrupted.size()))}));
+    auto status = reader.prepare_split(split_options);
+
+    EXPECT_TRUE(status.is<ErrorCode::DATA_QUALITY_ERROR>());
+    EXPECT_NE(status.to_string().find("magic number mismatch"), std::string::npos);
     ASSERT_TRUE(reader.close().ok());
     std::filesystem::remove_all(test_dir);
 }
@@ -1305,7 +1521,6 @@ TEST(IcebergV2ReaderTest, IcebergTableReaderDoesNotPushDownAggregateWithDeletes)
     doris::format::iceberg::IcebergTableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
-                                    .column_predicates = {},
                                     .conjuncts = {},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = &scan_params,
@@ -1390,7 +1605,6 @@ TEST(IcebergV2ReaderTest, IcebergTableReaderDoesNotPushDownAggregateWithPosition
     doris::format::iceberg::IcebergTableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
-                                    .column_predicates = {},
                                     .conjuncts = {},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = &scan_params,
@@ -1440,7 +1654,6 @@ TEST(IcebergV2ReaderTest, IcebergTableLevelCountUsesAssignedRowCountWithPosition
     doris::format::iceberg::IcebergTableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
-                                    .column_predicates = {},
                                     .conjuncts = {},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = nullptr,
@@ -1496,7 +1709,6 @@ TEST(IcebergV2ReaderTest, IcebergPositionDeleteFallsBackToSplitPath) {
     doris::format::iceberg::IcebergTableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
-                                    .column_predicates = {},
                                     .conjuncts = {},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = &scan_params,
@@ -1546,7 +1758,6 @@ TEST(IcebergV2ReaderTest, IcebergTableReaderDoesNotPushDownAggregateWithEquality
     doris::format::iceberg::IcebergTableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
-                                    .column_predicates = {},
                                     .conjuncts = {},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = &scan_params,
@@ -1600,7 +1811,6 @@ TEST(IcebergV2ReaderTest, IcebergEqualityDeleteCastsDataColumnToDeleteKeyType) {
     doris::format::iceberg::IcebergTableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
-                                    .column_predicates = {},
                                     .conjuncts = {},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = &scan_params,
@@ -1647,7 +1857,6 @@ TEST(IcebergV2ReaderTest, IcebergPositionDeleteOnlyMatchesOriginalDataFilePath) 
     doris::format::iceberg::IcebergTableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
-                                    .column_predicates = {},
                                     .conjuncts = {},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = &scan_params,
@@ -1694,7 +1903,6 @@ TEST(IcebergV2ReaderTest, IcebergRowLineageRemainsFileLocalAfterDeleteFiltering)
     doris::format::iceberg::IcebergTableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
-                                    .column_predicates = {},
                                     .conjuncts = {},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = &scan_params,
@@ -1751,7 +1959,6 @@ TEST(IcebergV2ReaderTest, IcebergTableReaderAppliesPositionDeleteFile) {
     doris::format::iceberg::IcebergTableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
-                                    .column_predicates = {},
                                     .conjuncts = {},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = &scan_params,
@@ -1773,7 +1980,7 @@ TEST(IcebergV2ReaderTest, IcebergTableReaderAppliesPositionDeleteFile) {
     std::filesystem::remove_all(test_dir);
 }
 
-TEST(IcebergV2ReaderTest, IcebergTableReaderMergesDeletionVectorAndPositionDeleteFiles) {
+TEST(IcebergV2ReaderTest, IcebergTableReaderIgnoresPositionDeleteFilesWhenDeletionVectorPresent) {
     const auto test_dir =
             std::filesystem::temp_directory_path() / "doris_iceberg_delete_files_merge_test";
     std::filesystem::remove_all(test_dir);
@@ -1800,7 +2007,6 @@ TEST(IcebergV2ReaderTest, IcebergTableReaderMergesDeletionVectorAndPositionDelet
     doris::format::iceberg::IcebergTableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
-                                    .column_predicates = {},
                                     .conjuncts = {},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = &scan_params,
@@ -1817,7 +2023,7 @@ TEST(IcebergV2ReaderTest, IcebergTableReaderMergesDeletionVectorAndPositionDelet
                         make_iceberg_position_delete_file(position_delete_path)}));
     ASSERT_TRUE(reader.prepare_split(split_options).ok());
 
-    EXPECT_EQ(read_iceberg_ids(&reader, projected_columns), std::vector<int32_t>({2, 3, 5}));
+    EXPECT_EQ(read_iceberg_ids(&reader, projected_columns), std::vector<int32_t>({2, 3, 4, 5}));
 
     ASSERT_TRUE(reader.close().ok());
     std::filesystem::remove_all(test_dir);

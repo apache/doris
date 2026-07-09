@@ -43,13 +43,6 @@ std::string join_debug_strings(const std::vector<T>& values, Formatter formatter
 
 } // namespace
 
-std::string FileColumnPredicateFilter::debug_string() const {
-    std::ostringstream out;
-    out << "FileColumnPredicateFilter{file_column_id=" << file_column_id
-        << ", predicate_count=" << predicates.size() << "}";
-    return out.str();
-}
-
 std::string FileScanRequest::debug_string() const {
     std::ostringstream out;
     out << "FileScanRequest{predicate_columns="
@@ -69,11 +62,7 @@ std::string FileScanRequest::debug_string() const {
         out << column_id << ":" << block_position;
     }
     out << "}, conjunct_count=" << conjuncts.size()
-        << ", delete_conjunct_count=" << delete_conjuncts.size() << ", column_predicate_filters="
-        << join_debug_strings(
-                   column_predicate_filters,
-                   [](const FileColumnPredicateFilter& filter) { return filter.debug_string(); })
-        << "}";
+        << ", delete_conjunct_count=" << delete_conjuncts.size() << "}";
     return out.str();
 }
 

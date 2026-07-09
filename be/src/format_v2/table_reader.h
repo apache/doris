@@ -62,12 +62,12 @@
 #include "format_v2/parquet/reader/column_reader.h"
 #include "format_v2/schema_projection.h"
 #include "gen_cpp/PlanNodes_types.h"
+#include "io/io_common.h"
 #include "runtime/descriptors.h"
 #include "storage/segment/condition_cache.h"
 
 namespace doris {
 class Block;
-class ColumnPredicate;
 struct DeleteFileDesc;
 class RuntimeState;
 } // namespace doris
@@ -113,8 +113,6 @@ struct TableReadOptions {
     // Columns need to be read from file and output by table reader. They are all in table/global
     // schema semantics.
     const std::vector<ColumnDefinition> projected_columns;
-    // Simple predicates for a single column, which is parsed on scan operator.
-    const TableColumnPredicates column_predicates;
     // All complex conjuncts from scan operator
     const VExprContextSPtrs conjuncts;
     // File format of the underlying data files, needed for reader initialization and reader-level
@@ -182,6 +180,10 @@ public:
             if (*eos) {
                 return Status::OK();
             }
+            if (_io_ctx != nullptr && _io_ctx->should_stop) {
+                *eos = true;
+                return Status::OK();
+            }
             if (!_data_reader.reader) {
                 if (_is_table_level_count_active()) {
                     RETURN_IF_ERROR(_read_table_level_count(block, eos));
@@ -201,7 +203,15 @@ public:
             if (!_aggregate_pushdown_tried) {
                 SCOPED_TIMER(_profile.pushdown_agg_timer);
                 bool pushed_down = false;
-                RETURN_IF_ERROR(_try_materialize_aggregate_pushdown_rows(block, &pushed_down));
+                const auto status = _try_materialize_aggregate_pushdown_rows(block, &pushed_down);
+                if (!status.ok()) {
+                    if (_io_ctx != nullptr && _io_ctx->should_stop &&
+                        status.is<ErrorCode::END_OF_FILE>()) {
+                        *eos = true;
+                        return Status::OK();
+                    }
+                    return status;
+                }
                 if (pushed_down) {
                     return Status::OK();
                 }
@@ -305,12 +315,10 @@ protected:
 
         // 3. Create file scan request based on column mapping and table filters, then open file
         // reader with the request. File scan request carries row-level expression filters and
-        // file-level pruning hints. Only expression filters decide returned rows; column predicates
-        // are pruning hints.
+        // file-level pruning hints. Only expression filters decide returned rows.
         auto file_request = std::make_shared<FileScanRequest>();
         RETURN_IF_ERROR(_data_reader.column_mapper->create_scan_request(
-                _table_filters, _table_column_predicates, _projected_columns, file_request.get(),
-                _runtime_state));
+                _table_filters, _projected_columns, file_request.get(), _runtime_state));
         bool constant_filter_pruned_split = false;
         RETURN_IF_ERROR(_evaluate_constant_filters(&constant_filter_pruned_split));
         if (constant_filter_pruned_split) {
@@ -569,6 +577,12 @@ protected:
         _current_file_description.reset();
         _current_reader_reached_eof = false;
         return Status::OK();
+    }
+
+    void _record_scan_rows(size_t rows) {
+        if (_io_ctx != nullptr && _io_ctx->file_reader_stats != nullptr) {
+            _io_ctx->file_reader_stats->read_rows += rows;
+        }
     }
 
     // Finalize file-local block to table/global schema block.
@@ -846,13 +860,13 @@ protected:
         if (agg_type != TPushAggOp::type::COUNT && agg_type != TPushAggOp::type::MINMAX) {
             return false;
         }
-        // Only support aggregate pushdown when there is no delete, filter and column predicate, so
+        // Only support aggregate pushdown when there is no delete or filter, so
         // the reduced rows consumed by the upper aggregate remain semantically equivalent to a
         // normal scan.
         if (_delete_rows != nullptr && !_delete_rows->empty()) {
             return false;
         }
-        if (!_table_filters.empty() || !_table_column_predicates.empty()) {
+        if (!_table_filters.empty()) {
             return false;
         }
         if (agg_type == TPushAggOp::type::COUNT) {
@@ -980,8 +994,12 @@ protected:
         }
 
         DataTypePtr input_type = file_type;
+        // Cast wrappers unwrap nullable inputs according to the declared input type, so keep the
+        // root nullability of the declared type aligned with the actual column shape.
         if ((*column)->is_nullable() && !input_type->is_nullable()) {
             input_type = make_nullable(input_type);
+        } else if (!(*column)->is_nullable() && input_type->is_nullable()) {
+            input_type = remove_nullable(input_type);
         }
         Block cast_block;
         cast_block.insert({*column, input_type, column_name});
@@ -1457,7 +1475,6 @@ protected:
     std::map<std::string, Field> _partition_values;
     // Predicates built from scan conjuncts before file-level localization.
     std::vector<TableFilter> _table_filters;
-    TableColumnPredicates _table_column_predicates;
     VExprContextSPtrs _conjuncts;
     ReadProfile _profile;
     // Parsed from row-position based delete files, including position delete and deletion vector.

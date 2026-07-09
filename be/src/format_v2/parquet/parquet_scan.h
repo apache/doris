@@ -44,6 +44,7 @@ class time_zone;
 
 namespace doris {
 class Block;
+class RuntimeState;
 
 namespace format {
 struct FileScanRequest;
@@ -86,7 +87,8 @@ Status plan_parquet_row_groups(const ::parquet::FileMetaData& metadata,
                                const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
                                const format::FileScanRequest& request,
                                const ParquetScanRange& scan_range, bool enable_bloom_filter,
-                               RowGroupScanPlan* plan, const cctz::time_zone* timezone = nullptr);
+                               RowGroupScanPlan* plan, const cctz::time_zone* timezone = nullptr,
+                               const RuntimeState* runtime_state = nullptr);
 
 IColumn::Filter selection_to_filter(const SelectionVector& selection, uint16_t selected_rows,
                                     int64_t batch_rows);
@@ -130,6 +132,7 @@ public:
     bool empty() const { return _row_group_plans.empty(); }
     int64_t condition_cache_filtered_rows() const { return _condition_cache_filtered_rows; }
     int64_t predicate_filtered_rows() const { return _predicate_filtered_rows; }
+    int64_t raw_rows_read() const { return _raw_rows_read; }
 
     Status read_next_batch(ParquetFileContext& file_context,
                            const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
@@ -199,6 +202,7 @@ private:
     std::shared_ptr<ConditionCacheContext> _condition_cache_ctx;
     int64_t _condition_cache_filtered_rows = 0;
     int64_t _predicate_filtered_rows = 0;
+    int64_t _raw_rows_read = 0;
 };
 
 } // namespace doris::format::parquet

@@ -20,16 +20,8 @@ package org.apache.doris.cdcclient.utils;
 import org.apache.doris.cdcclient.common.DorisType;
 
 import org.apache.flink.util.Preconditions;
-import org.apache.kafka.connect.data.Field;
-import org.apache.kafka.connect.data.Schema;
-
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
 
 import io.debezium.relational.Column;
-import io.debezium.relational.history.TableChanges;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -41,67 +33,6 @@ public class SchemaChangeHelper {
     private static final String DROP_DDL = "ALTER TABLE %s DROP COLUMN %s";
 
     private SchemaChangeHelper() {}
-
-    // ─── Schema diff result ────────────────────────────────────────────────────
-
-    /**
-     * Holds the result of a full schema comparison between an after-schema and stored TableChange.
-     */
-    public static class SchemaDiff {
-        /** Fields present in afterSchema but absent from stored. */
-        public final List<Field> added;
-
-        /** Column names present in stored but absent from afterSchema. */
-        public final List<String> dropped;
-
-        /** Same-named columns whose Doris type or default value differs. */
-        public final Map<String, Field> modified;
-
-        public SchemaDiff(List<Field> added, List<String> dropped, Map<String, Field> modified) {
-            this.added = added;
-            this.dropped = dropped;
-            this.modified = modified;
-        }
-
-        public boolean isEmpty() {
-            return added.isEmpty() && dropped.isEmpty() && modified.isEmpty();
-        }
-    }
-
-    // ─── Schema-diff helpers (Kafka Connect schema ↔ stored TableChange) ──────
-
-    /**
-     * Name-only schema diff: compare field names in {@code afterSchema} against the stored {@link
-     * TableChanges.TableChange}, detecting added and dropped columns by name only.
-     *
-     * <p>Only support add and drop and not support modify and rename
-     *
-     * <p>When {@code stored} is null or empty, both lists are empty (no baseline to diff against).
-     */
-    public static SchemaDiff diffSchemaByName(Schema afterSchema, TableChanges.TableChange stored) {
-        List<Field> added = new ArrayList<>();
-        List<String> dropped = new ArrayList<>();
-
-        if (afterSchema == null || stored == null || stored.getTable() == null) {
-            return new SchemaDiff(added, dropped, new LinkedHashMap<>());
-        }
-
-        // Detect added: fields present in afterSchema but absent from stored
-        for (Field field : afterSchema.fields()) {
-            if (stored.getTable().columnWithName(field.name()) == null) {
-                added.add(field);
-            }
-        }
-
-        // Detect dropped: columns present in stored but absent from afterSchema
-        for (Column col : stored.getTable().columns()) {
-            if (afterSchema.field(col.name()) == null) {
-                dropped.add(col.name());
-            }
-        }
-
-        return new SchemaDiff(added, dropped, new LinkedHashMap<>());
-    }
 
     // ─── Quoting helpers ──────────────────────────────────────────────────────
 
