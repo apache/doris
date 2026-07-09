@@ -721,9 +721,7 @@ static VExprContextSPtrs create_predicates(DescriptorTbl* desc_tbl, RuntimeState
         texpr_node.__set_is_nullable(true);
         root = VectorizedFnCall::create_shared(texpr_node);
     }
-    {
-        root->add_child(VSlotRef::create_shared(tuple_desc->slots()[0]));
-    }
+    { root->add_child(VSlotRef::create_shared(tuple_desc->slots()[0])); }
     {
         TExprNode texpr_node;
         texpr_node.__set_node_type(TExprNodeType::STRING_LITERAL);
@@ -767,9 +765,7 @@ static VExprContextSPtrs create_predicates(DescriptorTbl* desc_tbl, RuntimeState
         texpr_node.__set_is_nullable(true);
         root2 = VectorizedFnCall::create_shared(texpr_node);
     }
-    {
-        root2->add_child(VSlotRef::create_shared(tuple_desc->slots()[1]));
-    }
+    { root2->add_child(VSlotRef::create_shared(tuple_desc->slots()[1])); }
     {
         TExprNode texpr_node;
         texpr_node.__set_node_type(TExprNodeType::INT_LITERAL);

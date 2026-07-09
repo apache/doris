@@ -303,8 +303,7 @@ TExprNode make_compound_node(TExprOpcode::type opcode, int num_children) {
 
 VExprContextSPtr create_string_dictionary_and_residual_conjunct(
         int column_id, std::vector<std::string> dictionary_values, std::string row_value) {
-    auto compound =
-            VCompoundPred::create_shared(make_compound_node(TExprOpcode::COMPOUND_AND, 2));
+    auto compound = VCompoundPred::create_shared(make_compound_node(TExprOpcode::COMPOUND_AND, 2));
     compound->add_child(std::make_shared<StringInExpr>(column_id, std::move(dictionary_values)));
     compound->add_child(std::make_shared<StringEqualsExpr>(column_id, std::move(row_value)));
     auto ctx = VExprContext::create_shared(std::move(compound));
