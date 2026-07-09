@@ -60,6 +60,7 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
 
     private Map<String, String> icebergRestCatalogProperties;
     private S3Properties s3Properties;
+
     // The session-aware Iceberg REST catalog. We build a RESTSessionCatalog directly (instead of the
     // all-in-one RESTCatalog) so that per-user delegated credentials can be attached per request via
     // asCatalog(SessionContext) / asViewCatalog(SessionContext), without reflecting RESTCatalog's private

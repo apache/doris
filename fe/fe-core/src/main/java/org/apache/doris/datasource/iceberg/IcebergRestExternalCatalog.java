@@ -40,6 +40,7 @@ import java.util.Optional;
 import java.util.stream.Collectors;
 
 public class IcebergRestExternalCatalog extends IcebergExternalCatalog implements IcebergUserSessionCatalog {
+
     private static final Logger LOG = LogManager.getLogger(IcebergRestExternalCatalog.class);
 
     public IcebergRestExternalCatalog(long catalogId, String name, String resource, Map<String, String> props,
@@ -202,8 +203,8 @@ public class IcebergRestExternalCatalog extends IcebergExternalCatalog implement
      *
      * <p>Three outcomes:
      * <ul>
-     *   <li>dynamic identity disabled: {@code false} - use the shared default path;</li>
-     *   <li>dynamic identity enabled and the request carries a delegated credential: {@code true} - use the
+     *   <li>dynamic identity disabled: {@code false} — use the shared default path;</li>
+     *   <li>dynamic identity enabled and the request carries a delegated credential: {@code true} — use the
      *       per-user session catalog;</li>
      *   <li>dynamic identity enabled but the request has <em>no</em> delegated credential: throw. A catalog
      *       configured with {@code iceberg.rest.session=user} has no shared/default identity to fall back on,
@@ -253,22 +254,18 @@ public class IcebergRestExternalCatalog extends IcebergExternalCatalog implement
      *
      * <p>This is REST-specific behavior, so it lives on {@link IcebergRestExternalCatalog} rather than the
      * generic {@link IcebergExternalCatalog} base class. The decision is made purely from catalog
-     * properties and is safe to call before catalog initialization, e.g. from the cache-bypass decision in
-     * {@link #getDbNames()} and {@link #getDbNullable(String)} which runs before initialization.
+     * properties via {@code CatalogProperty#getMetastoreProperties()}, which lazily parses and never
+     * returns null. It therefore does <em>not</em> force {@code makeSureInitialized()}, and is safe to
+     * call before catalog initialization, e.g. from the cache-bypass decision in {@link #getDbNames()} /
+     * {@link #getDbNullable(String)} which runs before initialization.
      */
     public boolean isIcebergRestUserSessionEnabled() {
         IcebergRestProperties props = restProperties();
-        if (props != null) {
-            return props.isIcebergRestUserSessionEnabled();
-        }
-        // Session gating may be checked before metastore properties are lazily materialized,
-        // so fall back to the raw catalog property to preserve fail-fast behavior.
-        return "user".equalsIgnoreCase(catalogProperty.getOrDefault("iceberg.rest.session", "none"));
+        return props != null && props.isIcebergRestUserSessionEnabled();
     }
 
     private IcebergRestProperties restProperties() {
         MetastoreProperties metaProps = catalogProperty.getMetastoreProperties();
         return metaProps instanceof IcebergRestProperties ? (IcebergRestProperties) metaProps : null;
     }
-
 }
