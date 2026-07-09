@@ -122,12 +122,15 @@ public class HudiSchemaParityTest {
     }
 
     @Test
-    public void metaCommitTimeColumnIsExposedVisibleAndStringForRowFilterBinding() {
-        // The synthetic incremental row filter references a scan-output slot named EXACTLY "_hoodie_commit_time"
-        // (byte-faithful to legacy LogicalHudiScan.generateIncrementalExpression). getTableAvroSchema(true) always
-        // carries the 5 `_hoodie_*` meta fields as nullable strings; avroSchemaToColumns must preserve the
-        // commit-time field as a VISIBLE STRING column with that exact lower-case name, or the filter would
-        // silently fail to bind and the incremental scan would over-read out-of-window rows.
+    public void avroSchemaToColumnsPreservesMetaCommitTimeAsBindableStringColumn() {
+        // The synthetic incremental row filter binds a ConnectorColumnRef to a scan-output slot named EXACTLY
+        // "_hoodie_commit_time" (byte-faithful to legacy LogicalHudiScan.generateIncrementalExpression). This test
+        // pins avroSchemaToColumns' HALF of that binding precondition: GIVEN an avro schema that carries the meta
+        // field (which the getSchemaFromMetaClient getTableAvroSchema(true) call guarantees at runtime),
+        // avroSchemaToColumns must surface it as a column with that exact lower-case name, STRING type, and
+        // visible — never dropped/renamed/mistyped/hidden — or the filter's ConnectorColumnRef fails to bind.
+        // The getTableAvroSchema(true) call itself runs only against a live metaClient, so the end-to-end
+        // meta-column EXPOSURE for a populate.meta.fields=false table is an e2e guard, NOT this unit test.
         String metaInclusive =
                 "{\"type\":\"record\",\"name\":\"hudi_t\",\"fields\":["
                 + "{\"name\":\"_hoodie_commit_time\",\"type\":[\"null\",\"string\"],\"default\":null},"
