@@ -1704,6 +1704,11 @@ TEST_F(NewParquetReaderTest, DictionaryPredicateFiltersRowsInsideRowGroup) {
     EXPECT_EQ(ids, std::vector<int32_t>({2, 5}));
     EXPECT_EQ(values, std::vector<std::string>({"az", "za"}));
     EXPECT_EQ(profile.get_counter("RowsFilteredByConjunct")->value(), 4);
+    EXPECT_EQ(profile.get_counter("RowsFilteredByDictFilter")->value(), 4);
+    EXPECT_EQ(profile.get_counter("DictFilterCandidateColumns")->value(), 1);
+    EXPECT_EQ(profile.get_counter("DictFilterColumns")->value(), 1);
+    EXPECT_EQ(profile.get_counter("DictFilterUnsupportedColumns")->value(), 0);
+    EXPECT_EQ(profile.get_counter("DictFilterReadFailures")->value(), 0);
     EXPECT_EQ(profile.get_counter("SelectedRows")->value(), 2);
     EXPECT_GE(profile.get_counter("ReaderSelectRows")->value(), 8);
 }
@@ -1736,6 +1741,11 @@ TEST_F(NewParquetReaderTest, DictionaryPredicateSkipsRemainingPredicateColumnsWh
 
     EXPECT_EQ(total_rows, 0);
     EXPECT_EQ(profile.get_counter("RowsFilteredByConjunct")->value(), 6);
+    EXPECT_EQ(profile.get_counter("RowsFilteredByDictFilter")->value(), 6);
+    EXPECT_EQ(profile.get_counter("DictFilterCandidateColumns")->value(), 1);
+    EXPECT_EQ(profile.get_counter("DictFilterColumns")->value(), 1);
+    EXPECT_EQ(profile.get_counter("DictFilterUnsupportedColumns")->value(), 0);
+    EXPECT_EQ(profile.get_counter("DictFilterReadFailures")->value(), 0);
     EXPECT_EQ(profile.get_counter("SelectedRows")->value(), 0);
     // The first dictionary predicate column is read once to produce a compact row filter. The
     // second predicate column is skipped after the selection becomes empty, which verifies the

@@ -15,7 +15,6 @@
 
 #include "format_v2/parquet/parquet_scan.h"
 
-#include <parquet/column_page.h>
 #include <parquet/encoding.h>
 
 #include <algorithm>
@@ -33,7 +32,6 @@
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/column/column_vector.h"
-#include "core/string_ref.h"
 #include "exprs/vexpr_context.h"
 #include "format_v2/parquet/parquet_column_schema.h"
 #include "format_v2/parquet/parquet_file_context.h"
@@ -111,79 +109,6 @@ bool supports_row_level_dictionary_filter(const ParquetColumnSchema& column_sche
     // only when every data page is dictionary encoded. Mixed dictionary/plain chunks are left on
     // the normal decoded-value path, matching the safety rule used by StarRocks and Doris v1.
     return is_fully_dictionary_encoded_chunk(column_metadata);
-}
-
-struct OwnedDictionaryWords {
-    std::vector<std::string> values;
-    std::vector<StringRef> refs;
-
-    void build_refs() {
-        refs.clear();
-        refs.reserve(values.size());
-        for (const auto& value : values) {
-            refs.emplace_back(value.data(), value.size());
-        }
-    }
-};
-
-bool read_byte_array_dictionary_words(::parquet::ParquetFileReader* file_reader, int row_group_idx,
-                                      int leaf_column_id, const ParquetColumnSchema& column_schema,
-                                      OwnedDictionaryWords* dict_words) {
-    DORIS_CHECK(dict_words != nullptr);
-    dict_words->values.clear();
-    dict_words->refs.clear();
-    if (file_reader == nullptr || leaf_column_id < 0) {
-        return false;
-    }
-
-    auto row_group_reader = file_reader->RowGroup(row_group_idx);
-    if (row_group_reader == nullptr) {
-        return false;
-    }
-    auto page_reader = row_group_reader->GetColumnPageReader(leaf_column_id);
-    if (page_reader == nullptr) {
-        return false;
-    }
-
-    std::shared_ptr<::parquet::Page> page;
-    try {
-        page = page_reader->NextPage();
-    } catch (const ::parquet::ParquetException&) {
-        return false;
-    } catch (const std::exception&) {
-        return false;
-    }
-    if (page == nullptr || page->type() != ::parquet::PageType::DICTIONARY_PAGE) {
-        return false;
-    }
-    const auto* dictionary_page = static_cast<const ::parquet::DictionaryPage*>(page.get());
-    if (dictionary_page->encoding() != ::parquet::Encoding::PLAIN &&
-        dictionary_page->encoding() != ::parquet::Encoding::PLAIN_DICTIONARY) {
-        return false;
-    }
-    const int32_t dictionary_length = dictionary_page->num_values();
-    if (dictionary_length <= 0) {
-        return false;
-    }
-
-    const auto* dictionary_data = dictionary_page->data();
-    const int dictionary_size = dictionary_page->size();
-    auto decoder = ::parquet::MakeTypedDecoder<::parquet::ByteArrayType>(::parquet::Encoding::PLAIN,
-                                                                         column_schema.descriptor);
-    decoder->SetData(dictionary_length, dictionary_data, dictionary_size);
-    std::vector<::parquet::ByteArray> byte_array_values(static_cast<size_t>(dictionary_length));
-    if (decoder->Decode(byte_array_values.data(), dictionary_length) != dictionary_length) {
-        return false;
-    }
-
-    dict_words->values.reserve(static_cast<size_t>(dictionary_length));
-    for (int32_t dict_idx = 0; dict_idx < dictionary_length; ++dict_idx) {
-        dict_words->values.emplace_back(
-                reinterpret_cast<const char*>(byte_array_values[dict_idx].ptr),
-                byte_array_values[dict_idx].len);
-    }
-    dict_words->build_refs();
-    return true;
 }
 
 void collect_all_leaf_column_ids(const ParquetColumnSchema& column_schema,
@@ -873,7 +798,7 @@ size_t file_block_column_count(const format::FileScanRequest& request) {
 }
 
 Status build_dictionary_value_column(const ParquetColumnSchema& column_schema,
-                                     const OwnedDictionaryWords& dict_words,
+                                     const ParquetDictionaryWords& dict_words,
                                      ColumnWithTypeAndName* column) {
     DORIS_CHECK(column != nullptr);
     auto string_column = ColumnString::create();
@@ -894,7 +819,7 @@ Status build_dictionary_value_column(const ParquetColumnSchema& column_schema,
 Status build_dictionary_filter_block(
         const format::FileScanRequest& request,
         const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
-        format::LocalColumnId dictionary_column_id, const OwnedDictionaryWords& dict_words,
+        format::LocalColumnId dictionary_column_id, const ParquetDictionaryWords& dict_words,
         Block* dict_block) {
     DORIS_CHECK(dict_block != nullptr);
     dict_block->clear();
@@ -970,6 +895,7 @@ Status ParquetScanScheduler::prepare_current_dictionary_filters(
             !can_evaluate_all_with_dictionary(conjunct_it->second)) {
             continue;
         }
+        COUNTER_UPDATE(_scan_profile.dict_filter_candidate_columns, 1);
 
         // This optimization is deliberately limited to single-column predicates that all support
         // dictionary evaluation. Mixed predicates still run after predicate columns are read, using
@@ -978,18 +904,20 @@ Status ParquetScanScheduler::prepare_current_dictionary_filters(
         DORIS_CHECK(column_schema != nullptr);
         if (column_schema->leaf_column_id < 0 ||
             column_schema->leaf_column_id >= row_group_metadata.num_columns()) {
+            COUNTER_UPDATE(_scan_profile.dict_filter_unsupported_columns, 1);
             continue;
         }
         auto column_chunk = row_group_metadata.ColumnChunk(column_schema->leaf_column_id);
         if (column_chunk == nullptr ||
             !supports_row_level_dictionary_filter(*column_schema, *column_chunk)) {
+            COUNTER_UPDATE(_scan_profile.dict_filter_unsupported_columns, 1);
             continue;
         }
 
-        OwnedDictionaryWords dict_words;
-        if (!read_byte_array_dictionary_words(file_context.file_reader.get(), row_group_idx,
-                                              column_schema->leaf_column_id, *column_schema,
-                                              &dict_words)) {
+        ParquetDictionaryWords dict_words;
+        if (!read_dictionary_words(file_context.file_reader.get(), row_group_idx,
+                                   column_schema->leaf_column_id, *column_schema, &dict_words)) {
+            COUNTER_UPDATE(_scan_profile.dict_filter_read_failures, 1);
             continue;
         }
 
@@ -1011,6 +939,7 @@ Status ParquetScanScheduler::prepare_current_dictionary_filters(
         // The bitmap is keyed by Parquet dictionary id. Later data-page reads evaluate the
         // predicate with an integer lookup and only materialize STRING values for surviving rows.
         _current_dictionary_filters.emplace(local_id, std::move(dictionary_filter));
+        COUNTER_UPDATE(_scan_profile.dict_filter_columns, 1);
     }
     return Status::OK();
 }
@@ -1054,10 +983,12 @@ Status ParquetScanScheduler::read_filter_columns(int64_t batch_rows,
             if (used_filter) {
                 DORIS_CHECK(compact_filter.size() == selected_rows_before);
                 const uint16_t new_selected_rows = count_selected_rows(compact_filter);
+                const auto filtered_rows = static_cast<int64_t>(selected_rows_before) -
+                                           static_cast<int64_t>(new_selected_rows);
                 if (conjunct_filtered_rows != nullptr) {
-                    *conjunct_filtered_rows += static_cast<int64_t>(selected_rows_before) -
-                                               static_cast<int64_t>(new_selected_rows);
+                    *conjunct_filtered_rows += filtered_rows;
                 }
+                COUNTER_UPDATE(_scan_profile.rows_filtered_by_dict_filter, filtered_rows);
                 if (new_selected_rows != selected_rows_before) {
                     // The dictionary reader has already appended only surviving values for the
                     // current column. Apply the compact row filter only to columns read before this
