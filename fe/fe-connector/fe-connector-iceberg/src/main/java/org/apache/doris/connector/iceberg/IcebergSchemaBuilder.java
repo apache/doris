@@ -164,7 +164,10 @@ public final class IcebergSchemaBuilder {
         for (ConnectorPartitionField field : spec.getFields()) {
             String transform = field.getTransform() == null
                     ? "identity" : field.getTransform().toLowerCase(Locale.ROOT);
-            String column = field.getColumnName();
+            // #65094: resolve the partition column back to the schema's canonical (case-preserving)
+            // name; the schema now keeps the original column-name case, so a case-mismatched DDL
+            // reference would otherwise fail Iceberg's case-sensitive PartitionSpec builder lookup.
+            String column = resolveColumnName(schema, field.getColumnName());
             switch (transform) {
                 case "identity":
                     builder.identity(column);
@@ -219,13 +222,28 @@ public final class IcebergSchemaBuilder {
         SortOrder.Builder builder = SortOrder.builderFor(schema);
         for (ConnectorSortField field : sortFields) {
             NullOrder nullOrder = field.isNullFirst() ? NullOrder.NULLS_FIRST : NullOrder.NULLS_LAST;
+            // #65094: resolve the sort column to the schema's canonical (case-preserving) name so a
+            // case-mismatched DDL reference does not fail Iceberg's case-sensitive SortOrder lookup.
+            String column = resolveColumnName(schema, field.getColumnName());
             if (field.isAscending()) {
-                builder.asc(field.getColumnName(), nullOrder);
+                builder.asc(column, nullOrder);
             } else {
-                builder.desc(field.getColumnName(), nullOrder);
+                builder.desc(column, nullOrder);
             }
         }
         return builder.build();
+    }
+
+    /**
+     * Resolves an external column name to the schema's canonical (case-preserving) spelling, matching
+     * case-insensitively. #65094: the built schema now preserves the original column-name case
+     * ({@code col.getName()}), so a partition / sort column referenced in DDL with different case must be
+     * mapped back to the canonical name — otherwise Iceberg's case-sensitive {@code PartitionSpec} /
+     * {@code SortOrder} builder throws "Cannot find field". Mirrors {@code IcebergUtils.getIcebergColumnName}.
+     */
+    private static String resolveColumnName(Schema schema, String columnName) {
+        Types.NestedField field = schema.caseInsensitiveFindField(columnName);
+        return field == null ? columnName : field.name();
     }
 
     /**

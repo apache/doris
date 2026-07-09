@@ -1654,6 +1654,32 @@ public class PaimonScanPlanProviderTest {
         Assertions.assertTrue(provider.getBackendPaimonOptions().isEmpty());
     }
 
+    @Test
+    public void backendOptionsForwardJniIoManagerRegardlessOfMetastore() {
+        Map<String, String> props = new HashMap<>();
+        // filesystem (non-jdbc) metastore: the common Paimon primary-key merge-read case #65332
+        // targets. The three JNI IOManager options MUST still reach BE.
+        props.put("paimon.catalog.type", "filesystem");
+        props.put("paimon.doris.enable_jni_io_manager", "true");
+        props.put("paimon.doris.jni_io_manager.tmp_dir", "/tmp/doris-paimon");
+        props.put("paimon.doris.jni_io_manager.impl_class", "org.example.CustomIOManager");
+        PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
+                props, new RecordingPaimonCatalogOps(), envContext(Collections.emptyMap()));
+
+        Map<String, String> opts = provider.getBackendPaimonOptions();
+
+        // WHY (#65332): BE's PaimonJniScanner spills through the Paimon IOManager only when FE ships
+        // doris.enable_jni_io_manager (BE re-adds the paimon. prefix). Before the fix a non-jdbc
+        // catalog returned emptyMap(), so the flag never reached BE and primary-key merge reads
+        // could OOM. The "paimon." connector prefix must be stripped exactly once.
+        // MUTATION: gating the JNI collection behind the jdbc check (or dropping the prefix strip)
+        // -> keys absent/misnamed -> red.
+        Assertions.assertEquals("true", opts.get("doris.enable_jni_io_manager"));
+        Assertions.assertEquals("/tmp/doris-paimon", opts.get("doris.jni_io_manager.tmp_dir"));
+        Assertions.assertEquals("org.example.CustomIOManager", opts.get("doris.jni_io_manager.impl_class"));
+        Assertions.assertEquals(3, opts.size());
+    }
+
     // ---- FIX-SCHEMA-EVOLUTION (B-1a): native-reader schema dictionary ----
 
     @Test

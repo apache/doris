@@ -82,6 +82,7 @@ import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Base64;
 import java.util.Collections;
 import java.util.HashMap;
@@ -1121,13 +1122,33 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         return table.options().get("path");
     }
 
+    // #65332: JNI IOManager backend options. Paimon primary-key merge reads (the most common
+    // filesystem/hive-metastore case) need withIOManager to spill through the Paimon IOManager;
+    // BE's PaimonJniScanner enables it only when FE ships these keys. Catalog properties carry the
+    // connector "paimon." prefix (e.g. properties.get("paimon.catalog.type")); the prefix is stripped
+    // so BE receives doris.enable_jni_io_manager etc. (BE re-adds the paimon. prefix).
+    private static final String PAIMON_PROPERTY_PREFIX = "paimon.";
+    private static final List<String> BACKEND_PAIMON_JNI_OPTIONS = Arrays.asList(
+            "doris.enable_jni_io_manager",
+            "doris.jni_io_manager.tmp_dir",
+            "doris.jni_io_manager.impl_class");
+
     // Package-private for direct unit testing (PaimonScanPlanProviderTest).
     Map<String, String> getBackendPaimonOptions() {
+        Map<String, String> options = new HashMap<>();
+        // #65332: forward the JNI IOManager options for ALL metastore flavors (mirrors upstream
+        // PaimonScanNode.getBackendPaimonOptions returning them before the jdbc-only branch), so
+        // non-jdbc catalogs are no longer silently stripped of the enable flag.
+        for (String option : BACKEND_PAIMON_JNI_OPTIONS) {
+            String prefixed = PAIMON_PROPERTY_PREFIX + option;
+            if (properties.containsKey(prefixed)) {
+                options.put(option, properties.get(prefixed));
+            }
+        }
         String metastoreType = properties.get("paimon.catalog.type");
         if (!"jdbc".equalsIgnoreCase(metastoreType)) {
-            return Collections.emptyMap();
+            return options;
         }
-        Map<String, String> options = new HashMap<>();
         // Forward relevant JDBC catalog properties for BE's paimon-cpp reader
         for (Map.Entry<String, String> entry : properties.entrySet()) {
             String key = entry.getKey();
