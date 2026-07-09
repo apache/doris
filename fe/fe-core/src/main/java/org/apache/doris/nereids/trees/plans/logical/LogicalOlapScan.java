@@ -32,6 +32,8 @@ import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.trees.TableSample;
+import org.apache.doris.nereids.trees.copier.DeepCopierContext;
+import org.apache.doris.nereids.trees.copier.LogicalPlanDeepCopier;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -952,14 +954,8 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
 
     /** Build a post-refresh snapshot as a regular olap scan. */
     public LogicalPlan withPostSnapshot() {
-        return new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), (Table) table, qualifier,
-                groupExpression, Optional.empty(),
-                selectedPartitionIds, partitionPruned, hasPartitionPredicate, selectedTabletIds,
-                selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions,
-                hints, cacheSlotWithSlotName, cachedOutput, tableSample, directMvScan, colToSubPathsMap,
-                manuallySpecifiedTabletIds, operativeSlots, virtualColumns, scoreOrderKeys, scoreLimit,
-                scoreRangeInfo, annOrderKeys, annLimit, tableAlias,
-                partitionPrunablePredicates, scanParams);
+        return LogicalPlanDeepCopier.INSTANCE.deepCopy(
+                (LogicalPlan) this, new DeepCopierContext());
     }
 
     private List<SlotReference> createSlotsVectorized(List<Column> columns, boolean skipBinlogBeforeColumn) {
