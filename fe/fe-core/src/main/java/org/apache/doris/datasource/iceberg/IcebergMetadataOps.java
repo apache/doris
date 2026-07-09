@@ -416,8 +416,8 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
                 .map(col -> new StructField(col.getName(), col.getType(), col.getComment(), col.isAllowNull()))
                 .collect(Collectors.toList());
         StructType structType = new StructType(new ArrayList<>(collect));
-        Type visit =
-                DorisTypeVisitor.visit(structType, new DorisTypeToIcebergType(structType));
+        List<String> rootFieldNames = columns.stream().map(Column::getName).collect(Collectors.toList());
+        Type visit = DorisTypeVisitor.visit(structType, new DorisTypeToIcebergType(structType, rootFieldNames));
         Schema schema = new Schema(visit.asNestedType().asStructType().fields());
         Map<String, String> properties = createTableInfo.getProperties();
         properties.put(ExternalCatalog.DORIS_VERSION, ExternalCatalog.DORIS_VERSION_VALUE);
@@ -1455,7 +1455,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
 
         org.apache.iceberg.SortOrder.Builder builder = org.apache.iceberg.SortOrder.builderFor(schema);
         for (SortFieldInfo sortField : sortFields) {
-            String columnName = sortField.getColumnName();
+            String columnName = getIcebergColumnName(schema, sortField.getColumnName());
             if (sortField.isAscending()) {
                 if (sortField.isNullFirst()) {
                     builder.asc(columnName, org.apache.iceberg.NullOrder.NULLS_FIRST);
@@ -1471,5 +1471,10 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
             }
         }
         return builder.build();
+    }
+
+    private static String getIcebergColumnName(Schema schema, String columnName) {
+        NestedField field = schema.caseInsensitiveFindField(columnName);
+        return field == null ? columnName : field.name();
     }
 }
