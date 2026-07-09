@@ -45,6 +45,10 @@ public class PaimonJniScannerTest {
     @Test
     public void testConstructorAcceptsEmptyProjection() {
         new PaimonJniScanner(128, createBaseParams());
+        Assert.assertArrayEquals(new String[0], PaimonJniScanner.splitRequiredParam("", ","));
+        Assert.assertArrayEquals(new String[0], PaimonJniScanner.splitRequiredParam("", "#"));
+        Assert.assertArrayEquals(new String[] {"id", "name"},
+                PaimonJniScanner.splitRequiredParam("id,name", ","));
     }
 
     @Test

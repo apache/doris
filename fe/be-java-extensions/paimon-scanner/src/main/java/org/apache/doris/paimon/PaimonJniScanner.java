@@ -96,8 +96,11 @@ public class PaimonJniScanner extends JniScanner {
             LOG.debug("params:{}", params);
         }
         this.params = params;
-        String[] requiredFields = params.get("required_fields").split(",");
-        String[] requiredTypes = params.get("columns_types").split("#");
+        String[] requiredFields = splitRequiredParam(params.get("required_fields"), ",");
+        String[] requiredTypes = splitRequiredParam(params.get("columns_types"), "#");
+        Preconditions.checkArgument(requiredFields.length == requiredTypes.length,
+                "Required fields size %s is not matched with required types size %s",
+                requiredFields.length, requiredTypes.length);
         ColumnType[] columnTypes = new ColumnType[requiredTypes.length];
         for (int i = 0; i < requiredTypes.length; i++) {
             columnTypes[i] = ColumnType.parseType(requiredFields[i], requiredTypes[i]);
@@ -261,6 +264,13 @@ public class PaimonJniScanner extends JniScanner {
             }
         }
         return -1;
+    }
+
+    static String[] splitRequiredParam(String value, String delimiterRegex) {
+        if (value == null || value.isEmpty()) {
+            return new String[0];
+        }
+        return value.split(delimiterRegex);
     }
 
     private List<Predicate> getPredicates() {
