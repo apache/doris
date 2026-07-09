@@ -310,13 +310,13 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
             // Emit "partition_columns" (NOT "partition_keys"): the generic fe-core consumer
             // PluginDrivenExternalTable.initSchema reads "partition_columns" — keying it under
             // "partition_keys" left the FE treating paimon as non-partitioned. Mirrors MaxCompute.
-            // #65094 consistency: column names are lowercased above (mapFields/getColumnHandles use bare
-            // toLowerCase()), and PluginDrivenExternalTable.initSchema matches each partition_columns
-            // entry against those (lowercased) column names via a case-sensitive byName lookup (paimon
-            // does not override fromRemoteColumnName). A mixed-case paimon partition key would therefore
-            // be silently missed and the table treated as non-partitioned, so lower-case the entries with
-            // the SAME bare toLowerCase() the column names use to keep the two sides matchable.
-            schemaProps.put("partition_columns", String.join(",", partitionKeys).toLowerCase());
+            // #65094 read-path alignment: column names are case-preserved above (mapFields/getColumnHandles
+            // use bare .name()), and PluginDrivenExternalTable.initSchema matches each partition_columns
+            // entry against those column names via a case-sensitive byName lookup (paimon does not override
+            // fromRemoteColumnName), so the entries carry the SAME case as the columns to keep the two sides
+            // matchable (a mixed-case paimon partition key would otherwise be silently missed and the table
+            // treated as non-partitioned).
+            schemaProps.put("partition_columns", String.join(",", partitionKeys));
         }
         if (primaryKeys != null && !primaryKeys.isEmpty()) {
             schemaProps.put("primary_keys", String.join(",", primaryKeys));
@@ -934,7 +934,7 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
         List<DataField> fields = rowType.getFields();
         Map<String, ConnectorColumnHandle> handles = new LinkedHashMap<>(fields.size());
         for (int i = 0; i < fields.size(); i++) {
-            String name = fields.get(i).name().toLowerCase();
+            String name = fields.get(i).name();
             handles.put(name, new PaimonColumnHandle(name, i));
         }
         return handles;
@@ -1149,7 +1149,7 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
             // system table) with isKey=true (3rd positional Column arg), so DESC shows Key=true for all
             // paimon columns. The 5-arg ConnectorColumn ctor defaults isKey=false; pass true explicitly.
             ConnectorColumn column = new ConnectorColumn(
-                    field.name().toLowerCase(),
+                    field.name(),
                     connectorType,
                     comment,
                     nullable,

@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector.iceberg;
 
+import org.apache.doris.connector.api.ConnectorPartitionInfo;
 import org.apache.doris.connector.api.mvcc.ConnectorMvccPartition;
 import org.apache.doris.connector.api.mvcc.ConnectorMvccPartitionView;
 
@@ -148,8 +149,8 @@ public class IcebergPartitionUtilsTest {
     // ---- getIdentityPartitionColumns ----
 
     @Test
-    public void identityPartitionColumnsAreIdentityOnlyLowercasedAndDeduped() {
-        // Schema with an UPPERCASE column to prove lowercasing; spec mixes identity + a bucket transform.
+    public void identityPartitionColumnsAreIdentityOnlyCasePreservedAndDeduped() {
+        // Schema with an UPPERCASE column to prove case preservation; spec mixes identity + a bucket transform.
         Schema schema = new Schema(
                 Types.NestedField.required(1, "id", Types.IntegerType.get()),
                 Types.NestedField.required(2, "P", Types.IntegerType.get()),
@@ -163,15 +164,16 @@ public class IcebergPartitionUtilsTest {
 
         List<String> cols = IcebergPartitionUtils.getIdentityPartitionColumns(table);
 
-        // Only the two identity columns, lowercased, in spec order; the bucket(id) transform is excluded.
-        // MUTATION: including non-identity transforms -> "id_bucket"/"id" leaks -> red.
-        Assertions.assertEquals(java.util.Arrays.asList("p", "region"), cols);
+        // Only the two identity columns, CASE-PRESERVED (#65094 read-path alignment), in spec order; the
+        // bucket(id) transform is excluded. MUTATION: including non-identity transforms -> "id_bucket"/"id"
+        // leaks -> red. MUTATION: re-lowercasing -> "p" != "P" -> red.
+        Assertions.assertEquals(java.util.Arrays.asList("P", "region"), cols);
     }
 
     // ---- getIdentityPartitionInfoMap ----
 
     @Test
-    public void identityPartitionInfoMapSkipsNonIdentityAndLowercasesKeys() {
+    public void identityPartitionInfoMapSkipsNonIdentityAndPreservesKeyCase() {
         Schema schema = new Schema(
                 Types.NestedField.required(1, "id", Types.IntegerType.get()),
                 Types.NestedField.required(2, "P", Types.IntegerType.get()));
@@ -187,8 +189,9 @@ public class IcebergPartitionUtilsTest {
         Map<String, String> info =
                 IcebergPartitionUtils.getIdentityPartitionInfoMap(pd, spec, table, ZoneOffset.UTC);
 
-        // Only the identity column survives, key lowercased. MUTATION: emitting id_bucket -> size 2 -> red.
-        Assertions.assertEquals(Collections.singletonMap("p", "7"), info);
+        // Only the identity column survives, key CASE-PRESERVED (#65094 read-path alignment). MUTATION:
+        // emitting id_bucket -> size 2 -> red. MUTATION: re-lowercasing the key -> "p" != "P" -> red.
+        Assertions.assertEquals(Collections.singletonMap("P", "7"), info);
     }
 
     @Test
@@ -853,5 +856,40 @@ public class IcebergPartitionUtilsTest {
                 PartitionSpec.builderFor(RELATED_SCHEMA).bucket("id", 4).build(), "id_bucket=1");
         Assertions.assertEquals(Collections.singletonList("id_bucket=1"),
                 IcebergPartitionUtils.listPartitionNames(table));
+    }
+
+    @Test
+    public void listPartitionsKeepsPartitionColumnCaseForNameLookup() {
+        // #65094 read-path alignment regression: the ConnectorPartitionInfo value map that listPartitions
+        // returns is keyed by the partition-field SOURCE column name (generateRawPartition). fe-core
+        // PluginDrivenExternalTable.getNameToPartitionItems looks each value up by the CASE-PRESERVED
+        // partition_columns remote name (IcebergConnectorMetadata.buildTableSchema emits the source name
+        // verbatim). If the key were lower-cased, a mixed-case partition column ("Pt") would key the map "pt"
+        // while the lookup uses "Pt" -> the partition value is silently dropped (MTMV / partition pruning sees
+        // null). Pin the key to the case-preserving name.
+        InMemoryCatalog catalog = new InMemoryCatalog();
+        catalog.initialize("test", Collections.emptyMap());
+        catalog.createNamespace(Namespace.of("db1"));
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.required(2, "Pt", Types.IntegerType.get()));
+        TableIdentifier id = TableIdentifier.of("db1", "t");
+        Table table = catalog.createTable(id, schema,
+                PartitionSpec.builderFor(schema).identity("Pt").build());
+        table.newAppend().appendFile(DataFiles.builder(table.spec())
+                .withPath("s3://b/db1/t/f0.parquet").withFileSizeInBytes(100).withRecordCount(1)
+                .withPartitionPath("Pt=7").withFormat(FileFormat.PARQUET).build()).commit();
+
+        List<ConnectorPartitionInfo> parts = IcebergPartitionUtils.listPartitions(catalog.loadTable(id));
+
+        Assertions.assertEquals(1, parts.size());
+        Map<String, String> values = parts.get(0).getPartitionValues();
+        // Case-preserved key so getNameToPartitionItems' "Pt" remote-name lookup hits.
+        Assertions.assertTrue(values.containsKey("Pt"),
+                "partition value map must be keyed by the case-preserved partition column name");
+        Assertions.assertEquals("7", values.get("Pt"));
+        // MUTATION: re-lowercase generateRawPartition's key -> "pt" present, "Pt" absent -> the case-preserving
+        // remote-name lookup misses -> red.
+        Assertions.assertFalse(values.containsKey("pt"));
     }
 }
