@@ -207,6 +207,67 @@ public class HudiIncrementalTest {
         Assertions.assertNull(result.getEndInstant());
     }
 
+    // ── raw @incr option-param threading (glob / fallback / policy → handle) ────────────────────────────
+
+    @Test
+    public void resolveThreadsRawIncrParamsOntoHandleExcludingWindowCarriers() {
+        // The raw @incr option params (glob / fallback / hollow policy) must ride the FE-internal transport to
+        // the handle so planScan can feed them to the ported relations; the begin/end WINDOW carriers (their own
+        // "hudi.incremental-*" keys) must NOT leak into that opt-param map. Guards both the copy AND the namespace
+        // isolation (a mutation that dropped the prefix filter would pollute the relations' optParams with the
+        // internal carriers).
+        HudiConnectorMetadata md = metadata(stub(Optional.of(LATEST)));
+        Map<String, String> params = window("20240101000000", "20240101120000");
+        params.put("hoodie.datasource.read.incr.path.glob", "*/2024/*");
+        params.put("hoodie.datasource.read.incr.fallback.fulltablescan.enable", "true");
+        params.put("hoodie.read.timeline.holes.resolution.policy", "USE_TRANSITION_TIME");
+        HudiTableHandle pinned = resolveAndApply(md, params);
+
+        Map<String, String> incr = pinned.getIncrementalParams();
+        Assertions.assertEquals("*/2024/*", incr.get("hoodie.datasource.read.incr.path.glob"));
+        Assertions.assertEquals("true", incr.get("hoodie.datasource.read.incr.fallback.fulltablescan.enable"));
+        Assertions.assertEquals("USE_TRANSITION_TIME", incr.get("hoodie.read.timeline.holes.resolution.policy"));
+        // The resolved window rides begin/endInstant separately; the FE-internal carriers must not leak into the
+        // opt-param map the relations read.
+        Assertions.assertFalse(incr.containsKey("hudi.incremental-begin"),
+                "the FE-internal begin carrier must not appear in the relations' opt-param map");
+        Assertions.assertFalse(incr.containsKey("hudi.incremental-end"),
+                "the FE-internal end carrier must not appear in the relations' opt-param map");
+        // beginTime/endTime aliases are carried verbatim (legacy passed the full optParams); they are inert for
+        // the relations (which read only glob/fallback/policy) but round-trip fidelity is asserted.
+        Assertions.assertEquals("20240101000000", incr.get("beginTime"));
+        Assertions.assertEquals("20240101120000", incr.get("endTime"));
+        // And the window itself still lands on the dedicated fields.
+        Assertions.assertEquals("20240101000000", pinned.getBeginInstant());
+        Assertions.assertEquals("20240101120000", pinned.getEndInstant());
+    }
+
+    @Test
+    public void nonIncrementalPinsLeaveIncrementalParamsEmpty() {
+        // A FOR TIME AS OF pin and a plain (latest) handle must both carry an EMPTY incrementalParams — only an
+        // @incr read populates it. Guards accidental cross-wiring in applySnapshot.
+        HudiConnectorMetadata md = metadata(stub(Optional.of(LATEST)));
+        ConnectorMvccSnapshot ttPin = md.resolveTimeTravel(null, partitioned(),
+                ConnectorTimeTravelSpec.timestamp("2024-01-01 12:00:00", false)).orElseThrow(AssertionError::new);
+        HudiTableHandle ttStamped = (HudiTableHandle) md.applySnapshot(null, partitioned(), ttPin);
+        Assertions.assertTrue(ttStamped.getIncrementalParams().isEmpty(),
+                "a FOR TIME AS OF pin must not populate incrementalParams");
+        Assertions.assertTrue(partitioned().getIncrementalParams().isEmpty(),
+                "a plain handle has empty incrementalParams");
+    }
+
+    @Test
+    public void toBuilderRoundTripsIncrementalParams() {
+        // Guards the toBuilder() copy line for incrementalParams: a dropped copy would silently lose glob/
+        // fallback/policy when applyFilter/applySnapshot rebuild the handle, so the relations would read defaults.
+        Map<String, String> params = new HashMap<>();
+        params.put("hoodie.datasource.read.incr.path.glob", "*/x/*");
+        HudiTableHandle original = new HudiTableHandle.Builder("db", "t", "s3://b/t", "MERGE_ON_READ")
+                .beginInstant("20240101000000").endInstant("20240101120000").incrementalParams(params).build();
+        HudiTableHandle copy = original.toBuilder().build();
+        Assertions.assertEquals("*/x/*", copy.getIncrementalParams().get("hoodie.datasource.read.incr.path.glob"));
+    }
+
     // ── handle field round-trip ─────────────────────────────────────────────────────────────────────────
 
     @Test

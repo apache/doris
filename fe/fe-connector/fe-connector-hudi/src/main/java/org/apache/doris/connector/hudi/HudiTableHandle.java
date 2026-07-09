@@ -63,6 +63,13 @@ public class HudiTableHandle implements ConnectorTableHandle {
     private final String beginInstant;
     private final String endInstant;
 
+    // Set after applySnapshot for an @incr incremental read: the RAW @incr option params fe-core threaded via
+    // getIncrementalParams() (e.g. hoodie.datasource.read.incr.path.glob / ...fallback.fulltablescan.enable /
+    // hoodie.read.timeline.holes.resolution.policy). planScan feeds this map straight to the ported
+    // IncrementalRelation constructors as their optParams (and derives HollowCommitHandling from it), so the
+    // relations read the glob / fallback / policy exactly as legacy did. Empty for a non-incremental read.
+    private final Map<String, String> incrementalParams;
+
     private HudiTableHandle(Builder builder) {
         this.dbName = builder.dbName;
         this.tableName = builder.tableName;
@@ -80,6 +87,9 @@ public class HudiTableHandle implements ConnectorTableHandle {
         this.queryInstant = builder.queryInstant;
         this.beginInstant = builder.beginInstant;
         this.endInstant = builder.endInstant;
+        this.incrementalParams = builder.incrementalParams != null
+                ? Collections.unmodifiableMap(builder.incrementalParams)
+                : Collections.emptyMap();
     }
 
     /** Legacy constructor for Phase 1 compatibility (metadata-only). */
@@ -141,6 +151,14 @@ public class HudiTableHandle implements ConnectorTableHandle {
         return endInstant;
     }
 
+    /**
+     * The raw {@code @incr} option params (glob / fallback-full-table-scan / hollow-commit policy), fed verbatim
+     * to the ported incremental relations at scan time. Empty (never null) for a non-incremental read.
+     */
+    public Map<String, String> getIncrementalParams() {
+        return incrementalParams;
+    }
+
     /** Returns a builder pre-populated with this handle's state, for creating modified copies. */
     public Builder toBuilder() {
         Builder b = new Builder(dbName, tableName, basePath, hudiTableType);
@@ -152,6 +170,7 @@ public class HudiTableHandle implements ConnectorTableHandle {
         b.queryInstant = this.queryInstant;
         b.beginInstant = this.beginInstant;
         b.endInstant = this.endInstant;
+        b.incrementalParams = this.incrementalParams;
         return b;
     }
 
@@ -177,6 +196,7 @@ public class HudiTableHandle implements ConnectorTableHandle {
         private String queryInstant;
         private String beginInstant;
         private String endInstant;
+        private Map<String, String> incrementalParams;
 
         public Builder(String dbName, String tableName, String basePath, String hudiTableType) {
             this.dbName = dbName;
@@ -222,6 +242,11 @@ public class HudiTableHandle implements ConnectorTableHandle {
 
         public Builder endInstant(String val) {
             this.endInstant = val;
+            return this;
+        }
+
+        public Builder incrementalParams(Map<String, String> val) {
+            this.incrementalParams = val;
             return this;
         }
 

@@ -31,6 +31,7 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.hudi.common.config.HoodieMetadataConfig;
 import org.apache.hudi.common.engine.HoodieLocalEngineContext;
 import org.apache.hudi.common.model.BaseFile;
+import org.apache.hudi.common.model.FileSlice;
 import org.apache.hudi.common.model.HoodieBaseFile;
 import org.apache.hudi.common.model.HoodieLogFile;
 import org.apache.hudi.common.model.HoodieTableType;
@@ -38,15 +39,19 @@ import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.table.TableSchemaResolver;
 import org.apache.hudi.common.table.timeline.HoodieInstant;
 import org.apache.hudi.common.table.timeline.HoodieTimeline;
+import org.apache.hudi.common.table.timeline.TimelineUtils.HollowCommitHandling;
 import org.apache.hudi.common.table.view.FileSystemViewManager;
 import org.apache.hudi.common.table.view.HoodieTableFileSystemView;
+import org.apache.hudi.common.util.Option;
 import org.apache.hudi.metadata.HoodieTableMetadata;
 import org.apache.hudi.metadata.HoodieTableMetadataUtil;
 import org.apache.hudi.storage.StoragePath;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -70,8 +75,9 @@ import java.util.stream.Collectors;
  *   </li>
  * </ol>
  *
- * <p>Scope: Snapshot reads of non-incremental tables.
- * Incremental reads, schema evolution, and time travel are deferred.</p>
+ * <p>Scope: snapshot reads, {@code FOR TIME AS OF} time travel (a pinned {@code queryInstant}), and {@code @incr}
+ * incremental FILE selection (a resolved {@code (begin, end]} window). Incremental row-level filtering to the
+ * window (a synthetic {@code _hoodie_commit_time} predicate) and schema evolution are deferred to later steps.</p>
  */
 public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
 
@@ -162,6 +168,34 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
             columnTypes = Collections.emptyList();
         }
 
+        String inputFormat = hudiHandle.getInputFormat();
+        String serdeLib = hudiHandle.getSerdeLib();
+
+        // @incr incremental read: a non-null beginInstant is the marker (INC-1 stamped the resolved (begin, end]
+        // window onto the handle). Select the files the window touches via the ported IncrementalRelation family
+        // instead of the latest-snapshot partition scan below. NOTE: this selects FILES only — row-level
+        // filtering to (begin, end] is a LATER step (an FE-side synthetic _hoodie_commit_time predicate), so a
+        // bare @incr read would over-read until that lands (harmless while the connector is dormant). The COW-vs-
+        // MOR relation choice is driven by the SAME isCow the snapshot path uses (metaClient.getTableType(),
+        // hoodie.properties-authoritative): this SUBSUMES the legacy RO-as-RT flip (LogicalHudiScan:251-260 /
+        // HudiScanNode:187-199), which existed only because legacy classifies from the hive inputFormat (a MOR
+        // _ro facade uses HoodieParquetInputFormat, so legacy misreads it as COW and the flip re-routes it to
+        // MOR). metaClient.getTableType() reads MERGE_ON_READ for that facade directly, so no flip — and no serde
+        // params are needed on the handle. Do NOT restore the flip.
+        if (hudiHandle.getBeginInstant() != null) {
+            IncrementalRelation relation = buildIncrementalRelation(metaClient, conf, hudiHandle, isCow);
+            Optional<List<ConnectorScanRange>> incrementalRanges = incrementalRanges(relation, isCow, forceJni,
+                    basePath, inputFormat, serdeLib, columnNames, columnTypes, partitionFieldNames(metaClient));
+            if (incrementalRanges.isPresent()) {
+                LOG.info("Hudi incremental scan planning: {}.{} window=({}, {}] splits={}",
+                        hudiHandle.getDbName(), hudiHandle.getTableName(),
+                        hudiHandle.getBeginInstant(), hudiHandle.getEndInstant(), incrementalRanges.get().size());
+                return incrementalRanges.get();
+            }
+            // relation.fallbackFullTableScan() (archived instant / missing file) → degrade to the normal
+            // latest-snapshot partition scan below (legacy HudiScanNode.getSplits:470), reading the latest instant.
+        }
+
         // Build file system view via FileSystemViewManager (Hudi 1.0.2 API)
         HoodieMetadataConfig metadataConfig = HoodieMetadataConfig.newBuilder()
                 .enable(HoodieTableMetadataUtil.isFilesPartitionAvailable(metaClient))
@@ -172,9 +206,6 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
 
         // Resolve partitions
         List<String> partitionPaths = resolvePartitions(hudiHandle, metaClient);
-
-        String inputFormat = hudiHandle.getInputFormat();
-        String serdeLib = hudiHandle.getSerdeLib();
 
         List<ConnectorScanRange> ranges = new ArrayList<>();
         for (String partitionPath : partitionPaths) {
@@ -283,50 +314,143 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
             Map<String, String> partValues, boolean forceJni,
             List<ConnectorScanRange> ranges) {
         fsView.getLatestMergedFileSlicesBeforeOrOn(partitionPath, queryInstant)
-                .forEach(fileSlice -> {
-                    Optional<HoodieBaseFile> baseFileOpt = fileSlice.getBaseFile().toJavaOptional();
-                    String filePath = baseFileOpt.map(BaseFile::getPath).orElse("");
-                    long fileSize = baseFileOpt.map(BaseFile::getFileSize).orElse(0L);
+                .forEach(fileSlice -> ranges.add(buildMorRange(fileSlice, partValues, queryInstant,
+                        forceJni, basePath, inputFormat, serdeLib, columnNames, columnTypes)));
+    }
 
-                    List<String> logs = fileSlice.getLogFiles()
-                            .map(HoodieLogFile::getPath)
-                            .map(StoragePath::toString)
-                            .collect(Collectors.toList());
+    /**
+     * Builds one MOR {@link HudiScanRange} from a merged {@link FileSlice}, shared by the snapshot MOR path
+     * ({@link #collectMorSplits}) and the {@code @incr} MOR path ({@link #incrementalRanges}). Byte-faithful port
+     * of legacy {@code HudiScanNode.generateHudiSplit}: a slice with no delta logs reads natively (parquet/orc)
+     * UNLESS {@code force_jni} keeps it on JNI, a log-only slice uses its first log as the agency path, and a JNI
+     * slice carries the full merge metadata. The {@code jniInstant} is the merge instant BE reads: the snapshot
+     * path passes its {@code queryInstant}, the incremental path passes the resolved window END
+     * ({@code relation.getEndTs()}). Package-private static so the mapping is unit-testable with a hand-built
+     * {@link FileSlice} and reused by both paths without duplication.
+     */
+    static HudiScanRange buildMorRange(FileSlice fileSlice, Map<String, String> partValues, String jniInstant,
+            boolean forceJni, String basePath, String inputFormat, String serdeLib,
+            List<String> columnNames, List<String> columnTypes) {
+        Optional<HoodieBaseFile> baseFileOpt = fileSlice.getBaseFile().toJavaOptional();
+        String filePath = baseFileOpt.map(BaseFile::getPath).orElse("");
+        long fileSize = baseFileOpt.map(BaseFile::getFileSize).orElse(0L);
 
-                    // Dynamic format decision: no logs → native reader, UNLESS force_jni keeps it on JNI
-                    // (legacy HudiScanNode.setScanParams' !isForceJniScanner() guard on the no-log downgrade).
-                    boolean useNative = logs.isEmpty() && !filePath.isEmpty() && !forceJni;
-                    String format = useNative ? detectFileFormat(filePath) : "jni";
+        List<String> logs = fileSlice.getLogFiles()
+                .map(HoodieLogFile::getPath)
+                .map(StoragePath::toString)
+                .collect(Collectors.toList());
 
-                    // For log-only slices, use first log as agency path
-                    String agencyPath = filePath.isEmpty() && !logs.isEmpty()
-                            ? logs.get(0) : filePath;
+        // Dynamic format decision: no logs → native reader, UNLESS force_jni keeps it on JNI
+        // (legacy HudiScanNode.setScanParams' !isForceJniScanner() guard on the no-log downgrade).
+        boolean useNative = logs.isEmpty() && !filePath.isEmpty() && !forceJni;
+        String format = useNative ? detectFileFormat(filePath) : "jni";
 
-                    HudiScanRange.Builder builder = new HudiScanRange.Builder()
-                            .path(agencyPath)
-                            .start(0)
-                            .length(fileSize)
-                            .fileSize(fileSize)
-                            .fileFormat(format)
-                            .partitionValues(partValues)
-                            // Bake force_jni so populateRangeParams (no session) keeps this slice on JNI too.
-                            .forceJni(forceJni);
+        // For log-only slices, use first log as agency path
+        String agencyPath = filePath.isEmpty() && !logs.isEmpty()
+                ? logs.get(0) : filePath;
 
-                    if (!useNative) {
-                        // JNI reader needs full metadata
-                        builder.instantTime(queryInstant)
-                                .serde(serdeLib)
-                                .inputFormat(inputFormat)
-                                .basePath(basePath)
-                                .dataFilePath(filePath)
-                                .dataFileLength(fileSize)
-                                .deltaLogs(logs)
-                                .columnNames(columnNames)
-                                .columnTypes(columnTypes);
-                    }
+        HudiScanRange.Builder builder = new HudiScanRange.Builder()
+                .path(agencyPath)
+                .start(0)
+                .length(fileSize)
+                .fileSize(fileSize)
+                .fileFormat(format)
+                .partitionValues(partValues)
+                // Bake force_jni so populateRangeParams (no session) keeps this slice on JNI too.
+                .forceJni(forceJni);
 
-                    ranges.add(builder.build());
-                });
+        if (!useNative) {
+            // JNI reader needs full metadata
+            builder.instantTime(jniInstant)
+                    .serde(serdeLib)
+                    .inputFormat(inputFormat)
+                    .basePath(basePath)
+                    .dataFilePath(filePath)
+                    .dataFileLength(fileSize)
+                    .deltaLogs(logs)
+                    .columnNames(columnNames)
+                    .columnTypes(columnTypes);
+        }
+
+        return builder.build();
+    }
+
+    /**
+     * Builds the ported {@link IncrementalRelation} for a resolved {@code @incr} window: a COW relation when
+     * {@code isCow} (metaClient-authoritative), else a MOR relation. The relation consumes the ALREADY-RESOLVED
+     * {@code begin/endInstant} from the handle (INC-1) and the raw {@code @incr} option params (glob / fallback /
+     * hollow-commit policy) threaded onto the handle, and does file selection only. Runs inline in {@code
+     * planScan}, reusing its metaClient + Hadoop conf, so the relation's filesystem/timeline I/O inherits the
+     * scan thread's plugin classloader pin (the same context the snapshot path's metaClient I/O runs in). The
+     * ctor's {@link IOException} is re-typed to {@link DorisConnectorException} (parity with {@link
+     * #resolvePartitions}).
+     */
+    private static IncrementalRelation buildIncrementalRelation(HoodieTableMetaClient metaClient,
+            Configuration conf, HudiTableHandle handle, boolean isCow) {
+        Map<String, String> optParams = handle.getIncrementalParams();
+        HollowCommitHandling policy = IncrementalRelation.hollowCommitHandling(optParams);
+        try {
+            return isCow
+                    ? new COWIncrementalRelation(metaClient, conf, handle.getBeginInstant(),
+                            handle.getEndInstant(), policy, optParams)
+                    : new MORIncrementalRelation(metaClient, conf, handle.getBeginInstant(),
+                            handle.getEndInstant(), policy, optParams);
+        } catch (IOException e) {
+            throw new DorisConnectorException(
+                    "Failed to build incremental relation for " + handle.getBasePath(), e);
+        }
+    }
+
+    /**
+     * The incremental split set for a resolved {@code @incr} window, or {@link Optional#empty()} to signal the
+     * caller must DEGRADE to the normal latest-snapshot scan. Byte-parity with legacy {@code
+     * HudiScanNode.getSplits:470} + {@code getIncrementalSplits}, but routing on the relation TYPE
+     * ({@code isCow}) rather than legacy's {@code canUseNativeReader()}:
+     * <ul>
+     *   <li>{@code relation.fallbackFullTableScan()} (an archived instant / missing file) &rarr;
+     *       {@link Optional#empty()} = degrade to the latest-snapshot scan (NOT an error), legacy {@code :470}.</li>
+     *   <li>COW &rarr; {@link IncrementalRelation#collectSplits()} yields native ranges directly.
+     *       <b>{@code force_jni} is intentionally IGNORED for a COW incremental read</b> (it always reads native)
+     *       &mdash; a signed, deliberate deviation from legacy, which routes {@code force_jni}+COW to the MOR-style
+     *       branch and calls {@code collectFileSlices()} on a COW relation &rarr; {@code UnsupportedOperationException}
+     *       (a latent legacy crash). Routing on the relation type never calls the unsupported shape.</li>
+     *   <li>MOR &rarr; {@link IncrementalRelation#collectFileSlices()} (a FLAT cross-partition slice list) turned
+     *       into JNI ranges at the resolved window END ({@code relation.getEndTs()}), with per-slice partition
+     *       values parsed from the slice's own partition path against the Hudi table-config partition fields
+     *       (the same non-handle source the COW relation uses). {@code force_jni} still keeps a no-log MOR slice
+     *       on JNI via {@link #buildMorRange}.</li>
+     * </ul>
+     * Package-private static, pure over the {@link IncrementalRelation} contract, so file-selection routing +
+     * the degrade decision are unit-testable with a fake relation (no live metaClient).
+     */
+    static Optional<List<ConnectorScanRange>> incrementalRanges(IncrementalRelation relation, boolean isCow,
+            boolean forceJni, String basePath, String inputFormat, String serdeLib,
+            List<String> columnNames, List<String> columnTypes, List<String> partitionFieldNames) {
+        if (relation.fallbackFullTableScan()) {
+            return Optional.empty();
+        }
+        List<ConnectorScanRange> ranges = new ArrayList<>();
+        if (isCow) {
+            ranges.addAll(relation.collectSplits());
+            return Optional.of(ranges);
+        }
+        String endTs = relation.getEndTs();
+        for (FileSlice fileSlice : relation.collectFileSlices()) {
+            Map<String, String> partValues = parsePartitionValues(fileSlice.getPartitionPath(), partitionFieldNames);
+            ranges.add(buildMorRange(fileSlice, partValues, endTs, forceJni,
+                    basePath, inputFormat, serdeLib, columnNames, columnTypes));
+        }
+        return Optional.of(ranges);
+    }
+
+    /**
+     * The Hudi table-config partition-field names (byte-faithful to legacy {@code HudiScanNode:391-393}), the
+     * source the incremental MOR path parses per-slice partition values against &mdash; NOT the HMS-sourced
+     * handle partition keys the snapshot path uses (the two coincide only for hive-synced tables).
+     */
+    private static List<String> partitionFieldNames(HoodieTableMetaClient metaClient) {
+        Option<String[]> fields = metaClient.getTableConfig().getPartitionFields();
+        return fields.isPresent() ? Arrays.asList(fields.get()) : Collections.emptyList();
     }
 
     /**

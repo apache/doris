@@ -23,6 +23,7 @@ import org.apache.hudi.common.model.FileSlice;
 import org.apache.hudi.common.table.timeline.TimelineUtils.HollowCommitHandling;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * Selects the files an {@code @incr(...)} incremental read must scan over a resolved {@code (begin, end]}
@@ -81,6 +82,21 @@ interface IncrementalRelation {
             throw new DorisConnectorException(
                     "Incremental queries are not supported when meta fields are disabled");
         }
+    }
+
+    /**
+     * Maps the {@code @incr} hollow-commit policy option to its {@link HollowCommitHandling} enum, byte-faithful
+     * to legacy ({@code COWIncrementalRelation:74-75} / {@code MORIncrementalRelation:76-77}): the policy key
+     * defaults to {@code FAIL} and any explicit value is passed to {@link HollowCommitHandling#valueOf} (which
+     * THROWS {@link IllegalArgumentException} on a bogus value — legacy parity, same terminal error). The
+     * policy-key literal is RE-DECLARED here rather than imported from fe-core's {@code IncrementalRelation}
+     * across the plugin boundary, and matches {@code HudiConnectorMetadata.INCR_HOLLOW_POLICY_KEY} (the ONE place
+     * the END-axis resolution reads the same key). Called by {@code HudiScanPlanProvider.planScan} so the ported
+     * relation's OWN completion-time file selection uses the SAME policy that drove the window END resolution.
+     */
+    static HollowCommitHandling hollowCommitHandling(Map<String, String> optParams) {
+        return HollowCommitHandling.valueOf(
+                optParams.getOrDefault("hoodie.read.timeline.holes.resolution.policy", "FAIL"));
     }
 
     /**

@@ -23,6 +23,10 @@ import org.apache.hudi.common.table.timeline.TimelineUtils.HollowCommitHandling;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.Map;
+
 /**
  * Tests the OFFLINE-verifiable surface of the ported {@code @incr} IncrementalRelation family (INC-2): the pure
  * fail-loud guards extracted onto {@link IncrementalRelation} and the {@link EmptyIncrementalRelation}. Each
@@ -149,6 +153,38 @@ public class HudiIncrementalRelationTest {
         // A window that did NOT fall back must pass the guard (the normal incremental path). Guards a condition
         // inversion.
         Assertions.assertDoesNotThrow(() -> IncrementalRelation.checkNotFullTableScan(false));
+    }
+
+    // ── hollow-commit policy → HollowCommitHandling enum (byte-faithful to legacy COW:74-75 / MOR:76-77) ─────
+
+    @Test
+    public void hollowCommitHandlingDefaultsToFailWhenPolicyAbsent() {
+        // No policy param -> FAIL (legacy getOrDefault(policyKey, "FAIL")). This is the default axis
+        // (requested-time); guards a mutation that drops the "FAIL" default (which would NPE valueOf(null)).
+        Assertions.assertEquals(HollowCommitHandling.FAIL,
+                IncrementalRelation.hollowCommitHandling(Collections.emptyMap()));
+    }
+
+    @Test
+    public void hollowCommitHandlingReadsUseTransitionTime() {
+        // The one non-default value that matters: USE_TRANSITION_TIME switches the relation's own file selection
+        // to the completion-time axis (COW:93-97 / MOR:100-104), which must match the END axis resolveIncremental
+        // resolved on the SAME policy. Guards dropping/misreading the policy key.
+        Map<String, String> params = new HashMap<>();
+        params.put("hoodie.read.timeline.holes.resolution.policy", "USE_TRANSITION_TIME");
+        Assertions.assertEquals(HollowCommitHandling.USE_TRANSITION_TIME,
+                IncrementalRelation.hollowCommitHandling(params));
+    }
+
+    @Test
+    public void hollowCommitHandlingThrowsOnBogusPolicyLikeLegacy() {
+        // A bogus policy value reaches HollowCommitHandling.valueOf and THROWS IllegalArgumentException — legacy
+        // parity (legacy also valueOf's it, COW:74-75 / MOR:76-77). Same terminal error, one phase later (at
+        // planScan rather than the relation ctor). Guards a mutation that would swallow the bad value.
+        Map<String, String> params = new HashMap<>();
+        params.put("hoodie.read.timeline.holes.resolution.policy", "NOT_A_POLICY");
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> IncrementalRelation.hollowCommitHandling(params));
     }
 
     // ── empty relation (empty completed timeline) ────────────────────────────────────────────────────────────

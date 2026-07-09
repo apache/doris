@@ -95,6 +95,16 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
     private static final String HUDI_INCREMENTAL_BEGIN_PROPERTY = "hudi.incremental-begin";
     private static final String HUDI_INCREMENTAL_END_PROPERTY = "hudi.incremental-end";
 
+    // Prefix under which the RAW @incr option params ride the same FE-internal MVCC-snapshot transport, so the
+    // ported IncrementalRelation family reads its glob / fallback / hollow-commit-policy options at planScan
+    // exactly as legacy did (planScan has only the handle, not the original scan params). Each raw key becomes
+    // "hudi.incr-opt.<key>" in the snapshot properties and is stripped back in applySnapshot into
+    // HudiTableHandle.incrementalParams. The "hudi." prefix (never "hoodie.") keeps it namespace-consistent with
+    // the other FE-internal carriers and guarantees no raw hoodie.* key masquerades as a BE-facing property (and
+    // the transport is FE-only regardless: fe-core consumes the snapshot ONLY via applySnapshot, never
+    // serializing its properties to BE).
+    private static final String HUDI_INCR_OPT_PREFIX = "hudi.incr-opt.";
+
     // The @incr window param keys fe-core threads verbatim via getIncrementalParams() (byte-faithful to legacy
     // LogicalHudiScan.withScanParams, which reads "beginTime"/"endTime" from the scan params).
     private static final String INCR_BEGIN_TIME_KEY = "beginTime";
@@ -398,10 +408,19 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
                 end = latestTime.get();
             }
         }
-        return ConnectorMvccSnapshot.builder()
+        ConnectorMvccSnapshot.Builder builder = ConnectorMvccSnapshot.builder()
                 .property(HUDI_INCREMENTAL_BEGIN_PROPERTY, begin)
-                .property(HUDI_INCREMENTAL_END_PROPERTY, end)
-                .build();
+                .property(HUDI_INCREMENTAL_END_PROPERTY, end);
+        // Carry the raw @incr option params forward so planScan can feed them to the ported relations (glob /
+        // fallback / hollow-commit policy). Skip null values (Builder.property NPEs on null; the begin/end keys
+        // above are their own carriers and are not re-copied here — they use the "hudi.incremental-*" namespace,
+        // which does not match HUDI_INCR_OPT_PREFIX).
+        params.forEach((k, v) -> {
+            if (v != null) {
+                builder.property(HUDI_INCR_OPT_PREFIX + k, v);
+            }
+        });
+        return builder.build();
     }
 
     /**
@@ -434,9 +453,19 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
         }
         String beginInstant = properties.get(HUDI_INCREMENTAL_BEGIN_PROPERTY);
         if (beginInstant != null) {
+            // Reconstruct the raw @incr option params from their prefixed carriers (the begin/end keys use a
+            // different "hudi.incremental-*" namespace, so they are not collected here).
+            Map<String, String> incrementalParams = new HashMap<>();
+            for (Map.Entry<String, String> entry : properties.entrySet()) {
+                if (entry.getKey().startsWith(HUDI_INCR_OPT_PREFIX)) {
+                    incrementalParams.put(
+                            entry.getKey().substring(HUDI_INCR_OPT_PREFIX.length()), entry.getValue());
+                }
+            }
             return ((HudiTableHandle) handle).toBuilder()
                     .beginInstant(beginInstant)
                     .endInstant(properties.get(HUDI_INCREMENTAL_END_PROPERTY))
+                    .incrementalParams(incrementalParams)
                     .build();
         }
         return handle;
