@@ -30,6 +30,7 @@
 #include "core/assert_cast.h"
 #include "core/block/block.h"
 #include "core/column/column_vector.h"
+#include "exprs/vcompound_pred.h"
 #include "exprs/vexpr_context.h"
 #include "format_v2/parquet/parquet_column_schema.h"
 #include "format_v2/parquet/parquet_file_context.h"
@@ -337,6 +338,15 @@ Status plan_parquet_row_groups(const ::parquet::FileMetaData& metadata,
 
 namespace {
 
+using DictionaryResidualConjunct = std::pair<VExprContextSPtr, VExprSPtr>;
+using DictionaryResidualConjuncts = std::vector<DictionaryResidualConjunct>;
+
+void update_counter_if_not_null(RuntimeProfile::Counter* counter, int64_t value) {
+    if (counter != nullptr) {
+        COUNTER_UPDATE(counter, value);
+    }
+}
+
 uint16_t apply_filter_to_selection(const IColumn::Filter& filter, SelectionVector* selection,
                                    uint16_t selected_rows) {
     uint16_t new_selected_rows = 0;
@@ -362,6 +372,34 @@ Status execute_compact_filter_conjuncts(const VExprContextSPtrs& conjuncts, size
         bool conjunct_can_filter_all = false;
         RETURN_IF_ERROR(conjunct->execute_filter(file_block, filter.data(), rows, false,
                                                  &conjunct_can_filter_all));
+        if (conjunct_can_filter_all) {
+            std::ranges::fill(*compact_filter, 0);
+            *can_filter_all = true;
+            break;
+        }
+        for (size_t row = 0; row < rows; ++row) {
+            (*compact_filter)[row] &= filter[row];
+        }
+    }
+    return Status::OK();
+}
+
+Status execute_compact_dictionary_residual_conjuncts(const DictionaryResidualConjuncts& conjuncts,
+                                                     size_t rows, Block* file_block,
+                                                     IColumn::Filter* compact_filter,
+                                                     bool* can_filter_all) {
+    DORIS_CHECK(compact_filter != nullptr);
+    DORIS_CHECK(can_filter_all != nullptr);
+    compact_filter->resize_fill(rows, 1);
+    *can_filter_all = false;
+    for (const auto& [owner_context, residual_expr] : conjuncts) {
+        DORIS_CHECK(owner_context != nullptr);
+        DORIS_CHECK(residual_expr != nullptr);
+        IColumn::Filter filter(rows, 1);
+        bool conjunct_can_filter_all = false;
+        RETURN_IF_ERROR(residual_expr->execute_filter(owner_context.get(), file_block,
+                                                      filter.data(), rows, false,
+                                                      &conjunct_can_filter_all));
         if (conjunct_can_filter_all) {
             std::ranges::fill(*compact_filter, 0);
             *can_filter_all = true;
@@ -601,6 +639,7 @@ void ParquetScanScheduler::reset_current_row_group() {
     _current_predicate_columns.clear();
     _current_non_predicate_columns.clear();
     _current_dictionary_filters.clear();
+    _current_dictionary_residual_conjuncts.clear();
     _current_row_group_rows = 0;
     _current_row_group_id = -1;
     _current_row_group_rows_read = 0;
@@ -787,6 +826,40 @@ bool can_evaluate_all_with_dictionary(const VExprContextSPtrs& conjuncts) {
     });
 }
 
+void collect_dictionary_residual_exprs(const VExprContextSPtr& owner_context, const VExprSPtr& expr,
+                                       DictionaryResidualConjuncts* residual_conjuncts) {
+    DORIS_CHECK(owner_context != nullptr);
+    DORIS_CHECK(expr != nullptr);
+    DORIS_CHECK(residual_conjuncts != nullptr);
+
+    // The dictionary interface is exact for a single dictionary-aware predicate and for OR only
+    // when every child is dictionary-aware. AND is different: VCompoundPred evaluates only the
+    // dictionary-aware children as a prefilter. Split AND recursively so the already-applied
+    // dictionary children are not executed again on materialized rows, while non-dictionary
+    // residual children still keep the original row-level semantics.
+    const auto* compound_pred = dynamic_cast<const VCompoundPred*>(expr.get());
+    if (compound_pred != nullptr && compound_pred->op() == TExprOpcode::COMPOUND_AND) {
+        for (const auto& child : expr->children()) {
+            collect_dictionary_residual_exprs(owner_context, child, residual_conjuncts);
+        }
+        return;
+    }
+
+    if (!expr->can_evaluate_dictionary_filter()) {
+        residual_conjuncts->emplace_back(owner_context, expr);
+    }
+}
+
+DictionaryResidualConjuncts build_dictionary_residual_conjuncts(
+        const VExprContextSPtrs& conjuncts) {
+    DictionaryResidualConjuncts residual_conjuncts;
+    for (const auto& conjunct : conjuncts) {
+        DORIS_CHECK(conjunct != nullptr);
+        collect_dictionary_residual_exprs(conjunct, conjunct->root(), &residual_conjuncts);
+    }
+    return residual_conjuncts;
+}
+
 uint16_t count_selected_rows(const IColumn::Filter& filter) {
     uint16_t selected_rows = 0;
     for (const auto value : filter) {
@@ -837,10 +910,15 @@ Status ParquetScanScheduler::prepare_current_dictionary_filters(
         const format::FileScanRequest& request, int row_group_idx,
         const ::parquet::RowGroupMetaData& row_group_metadata) {
     _current_dictionary_filters.clear();
+    _current_dictionary_residual_conjuncts.clear();
     if (request.conjuncts.empty()) {
         return Status::OK();
     }
-    const auto schedule = build_predicate_conjunct_schedule(request);
+    PredicateConjunctSchedule schedule;
+    {
+        SCOPED_TIMER(_scan_profile.dict_filter_expr_rewrite_time);
+        schedule = build_predicate_conjunct_schedule(request);
+    }
     if (schedule.single_column_conjuncts.empty()) {
         return Status::OK();
     }
@@ -859,43 +937,54 @@ Status ParquetScanScheduler::prepare_current_dictionary_filters(
             !can_evaluate_all_with_dictionary(conjunct_it->second)) {
             continue;
         }
-        COUNTER_UPDATE(_scan_profile.dict_filter_candidate_columns, 1);
+        update_counter_if_not_null(_scan_profile.dict_filter_candidate_columns, 1);
 
-        // This optimization is deliberately limited to single-column predicates that all support
-        // dictionary evaluation. Mixed predicates still run after predicate columns are read, using
-        // the normal row-level expression path.
+        // This optimization is deliberately limited to single-column predicates with a dictionary
+        // evaluable part. Mixed AND predicates are split so dictionary-covered children run as a
+        // dict-id prefilter and residual children keep the normal row-level expression path.
         const auto& column_schema = file_schema[local_id];
         DORIS_CHECK(column_schema != nullptr);
         if (column_schema->leaf_column_id < 0 ||
             column_schema->leaf_column_id >= row_group_metadata.num_columns()) {
-            COUNTER_UPDATE(_scan_profile.dict_filter_unsupported_columns, 1);
+            update_counter_if_not_null(_scan_profile.dict_filter_unsupported_columns, 1);
             continue;
         }
         auto column_chunk = row_group_metadata.ColumnChunk(column_schema->leaf_column_id);
         if (column_chunk == nullptr ||
             !supports_row_level_dictionary_filter(*column_schema, *column_chunk)) {
-            COUNTER_UPDATE(_scan_profile.dict_filter_unsupported_columns, 1);
+            update_counter_if_not_null(_scan_profile.dict_filter_unsupported_columns, 1);
             continue;
         }
 
         ParquetDictionaryWords dict_words;
-        if (!read_dictionary_words(file_context.file_reader.get(), row_group_idx,
-                                   column_schema->leaf_column_id, *column_schema, &dict_words)) {
-            COUNTER_UPDATE(_scan_profile.dict_filter_read_failures, 1);
-            continue;
+        {
+            SCOPED_TIMER(_scan_profile.dict_filter_read_dict_time);
+            if (!read_dictionary_words(file_context.file_reader.get(), row_group_idx,
+                                       column_schema->leaf_column_id, *column_schema,
+                                       &dict_words)) {
+                update_counter_if_not_null(_scan_profile.dict_filter_read_failures, 1);
+                continue;
+            }
         }
 
         // Build a safe dictionary prefilter from the dictionary-filter interface instead of
         // executing the row expression on a temporary dictionary block. For compound AND,
         // VCompoundPred intentionally evaluates only dictionary-capable children, so residual
         // predicates still run later on surviving rows.
-        auto dictionary_filter = build_dictionary_entry_filter(block_position, *column_schema,
-                                                               conjunct_it->second, dict_words);
+        IColumn::Filter dictionary_filter;
+        DictionaryResidualConjuncts residual_conjuncts;
+        {
+            SCOPED_TIMER(_scan_profile.dict_filter_build_time);
+            dictionary_filter = build_dictionary_entry_filter(block_position, *column_schema,
+                                                              conjunct_it->second, dict_words);
+            residual_conjuncts = build_dictionary_residual_conjuncts(conjunct_it->second);
+        }
 
         // The bitmap is keyed by Parquet dictionary id. Later data-page reads evaluate the
         // predicate with an integer lookup and only materialize STRING values for surviving rows.
         _current_dictionary_filters.emplace(local_id, std::move(dictionary_filter));
-        COUNTER_UPDATE(_scan_profile.dict_filter_columns, 1);
+        _current_dictionary_residual_conjuncts.emplace(local_id, std::move(residual_conjuncts));
+        update_counter_if_not_null(_scan_profile.dict_filter_columns, 1);
     }
     return Status::OK();
 }
@@ -944,7 +1033,8 @@ Status ParquetScanScheduler::read_filter_columns(int64_t batch_rows,
                 if (conjunct_filtered_rows != nullptr) {
                     *conjunct_filtered_rows += filtered_rows;
                 }
-                COUNTER_UPDATE(_scan_profile.rows_filtered_by_dict_filter, filtered_rows);
+                update_counter_if_not_null(_scan_profile.rows_filtered_by_dict_filter,
+                                           filtered_rows);
                 if (new_selected_rows != selected_rows_before) {
                     // The dictionary reader has already appended only surviving values for the
                     // current column. Apply the compact row filter only to columns read before this
@@ -1017,6 +1107,39 @@ Status ParquetScanScheduler::read_filter_columns(int64_t batch_rows,
         return Status::OK();
     };
 
+    auto execute_scheduled_dictionary_residual_conjuncts =
+            [&](const DictionaryResidualConjuncts& conjuncts) -> Status {
+        if (conjuncts.empty() || *selected_rows == 0) {
+            return Status::OK();
+        }
+        const uint16_t selected_rows_before = *selected_rows;
+        IColumn::Filter compact_filter;
+        bool can_filter_all = false;
+        RETURN_IF_ERROR(execute_compact_dictionary_residual_conjuncts(
+                conjuncts, selected_rows_before, file_block, &compact_filter, &can_filter_all));
+        if (can_filter_all) {
+            compact_filter.resize_fill(selected_rows_before, 0);
+        }
+        const uint16_t new_selected_rows = can_filter_all ? 0 : count_selected_rows(compact_filter);
+        if (conjunct_filtered_rows != nullptr) {
+            *conjunct_filtered_rows += static_cast<int64_t>(selected_rows_before) -
+                                       static_cast<int64_t>(new_selected_rows);
+        }
+        if (new_selected_rows != selected_rows_before) {
+            // Dictionary-covered children have already reduced the compact block. Apply only the
+            // residual child filters here, then keep the same compacted-column invariant as the
+            // normal conjunct path for later predicate rounds.
+            RETURN_IF_ERROR(filter_read_predicate_columns(file_block, read_column_positions,
+                                                          compact_filter));
+            *selected_rows = can_filter_all
+                                     ? 0
+                                     : apply_compact_filter_to_selection(compact_filter, selection,
+                                                                         selected_rows_before);
+            *predicate_columns_filtered = true;
+        }
+        return Status::OK();
+    };
+
     auto execute_scheduled_conjuncts_with_profile =
             [&](const VExprContextSPtrs& conjuncts) -> Status {
         if (_scan_profile.predicate_filter_time == nullptr) {
@@ -1024,6 +1147,15 @@ Status ParquetScanScheduler::read_filter_columns(int64_t batch_rows,
         }
         SCOPED_TIMER(_scan_profile.predicate_filter_time);
         return execute_scheduled_conjuncts(conjuncts);
+    };
+
+    auto execute_scheduled_dictionary_residual_conjuncts_with_profile =
+            [&](const DictionaryResidualConjuncts& conjuncts) -> Status {
+        if (_scan_profile.predicate_filter_time == nullptr) {
+            return execute_scheduled_dictionary_residual_conjuncts(conjuncts);
+        }
+        SCOPED_TIMER(_scan_profile.predicate_filter_time);
+        return execute_scheduled_dictionary_residual_conjuncts(conjuncts);
     };
 
     auto execute_scheduled_delete_conjuncts = [&]() -> Status {
@@ -1102,10 +1234,14 @@ Status ParquetScanScheduler::read_filter_columns(int64_t batch_rows,
             if (conjunct_it == schedule.single_column_conjuncts.end()) {
                 continue;
             }
-            // The dictionary bitmap is a prefilter. It may be equivalent for simple dictionary
-            // predicates, but compound AND can contain residual children that are not safe to
-            // evaluate on dictionary entries. Always run the original conjuncts on survivors.
-            RETURN_IF_ERROR(execute_scheduled_conjuncts_with_profile(conjunct_it->second));
+            if (used_dictionary_filter) {
+                const auto residual_it = _current_dictionary_residual_conjuncts.find(fid);
+                DORIS_CHECK(residual_it != _current_dictionary_residual_conjuncts.end());
+                RETURN_IF_ERROR(execute_scheduled_dictionary_residual_conjuncts_with_profile(
+                        residual_it->second));
+            } else {
+                RETURN_IF_ERROR(execute_scheduled_conjuncts_with_profile(conjunct_it->second));
+            }
             if (*selected_rows != 0) {
                 continue;
             }

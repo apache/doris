@@ -53,6 +53,11 @@ struct ParquetScanProfile {
     RuntimeProfile::Counter* column_read_time = nullptr;       // column read time (ns)
     RuntimeProfile::Counter* predicate_filter_time = nullptr;  // predicate filter time (ns)
     RuntimeProfile::Counter* dict_filter_rewrite_time = nullptr; // dictionary rewrite time (ns)
+    RuntimeProfile::Counter* dict_filter_expr_rewrite_time =
+            nullptr; // expression/residual rewrite time (ns)
+    RuntimeProfile::Counter* dict_filter_read_dict_time = nullptr; // dictionary page read time (ns)
+    RuntimeProfile::Counter* dict_filter_build_time =
+            nullptr; // dictionary entry bitmap build time (ns)
     RuntimeProfile::Counter* dict_filter_candidate_columns = nullptr;   // candidate columns
     RuntimeProfile::Counter* dict_filter_columns = nullptr;             // optimized columns
     RuntimeProfile::Counter* dict_filter_unsupported_columns = nullptr; // unsupported columns
@@ -143,6 +148,9 @@ struct ParquetProfile {
 
     RuntimeProfile::Counter* predicate_filter_time = nullptr;
     RuntimeProfile::Counter* dict_filter_rewrite_time = nullptr;
+    RuntimeProfile::Counter* dict_filter_expr_rewrite_time = nullptr;
+    RuntimeProfile::Counter* dict_filter_read_dict_time = nullptr;
+    RuntimeProfile::Counter* dict_filter_build_time = nullptr;
     RuntimeProfile::Counter* dict_filter_candidate_columns = nullptr;
     RuntimeProfile::Counter* dict_filter_columns = nullptr;
     RuntimeProfile::Counter* dict_filter_unsupported_columns = nullptr;

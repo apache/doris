@@ -20,6 +20,7 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <utility>
 #include <vector>
 
 #include "common/status.h"
@@ -191,11 +192,13 @@ private:
     std::map<ColumnId, std::unique_ptr<ParquetColumnReader>>
             _current_non_predicate_columns; // non-predicate ColumnReaders
     std::map<ColumnId, IColumn::Filter>
-            _current_dictionary_filters;      // local id -> dict entry bitmap
-    int64_t _current_row_group_rows = 0;      // current row group row count
-    int _current_row_group_id = -1;           // current row group id in parquet metadata
-    int64_t _current_row_group_rows_read = 0; // rows read in the current row group (cursor)
-    int64_t _current_row_group_first_row = 0; // first file row of the current row group
+            _current_dictionary_filters; // local id -> dict entry bitmap
+    std::map<ColumnId, std::vector<std::pair<VExprContextSPtr, VExprSPtr>>>
+            _current_dictionary_residual_conjuncts; // local id -> row-level residual conjuncts
+    int64_t _current_row_group_rows = 0;            // current row group row count
+    int _current_row_group_id = -1;                 // current row group id in parquet metadata
+    int64_t _current_row_group_rows_read = 0;       // rows read in the current row group (cursor)
+    int64_t _current_row_group_first_row = 0;       // first file row of the current row group
     std::vector<RowRange>
             _current_selected_ranges; // selected ranges for the current row group after page-index pruning
     size_t _current_range_idx = 0;        // current selected_range index

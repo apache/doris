@@ -48,6 +48,7 @@
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type/primitive_type.h"
 #include "core/field.h"
+#include "exprs/vcompound_pred.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vslot_ref.h"
@@ -232,13 +233,11 @@ private:
     const std::string _expr_name = "StringInExpr";
 };
 
-class StringDictionaryPrefilterExpr final : public VExpr {
+class StringEqualsExpr final : public VExpr {
 public:
-    StringDictionaryPrefilterExpr(int column_id, std::vector<std::string> dictionary_values,
-                                  std::string row_value)
+    StringEqualsExpr(int column_id, std::string row_value)
             : VExpr(std::make_shared<DataTypeUInt8>(), false),
               _column_id(column_id),
-              _dictionary_values(std::move(dictionary_values)),
               _row_value(std::move(row_value)) {}
 
     Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
@@ -257,34 +256,14 @@ public:
 
     const std::string& expr_name() const override { return _expr_name; }
 
-    bool can_evaluate_dictionary_filter() const override { return true; }
-
-    ZoneMapFilterResult evaluate_dictionary_filter(
-            const DictionaryEvalContext& ctx) const override {
-        const auto* dictionary = ctx.slot(_column_id);
-        if (dictionary == nullptr) {
-            return ZoneMapFilterResult::kUnsupported;
-        }
-        for (const auto& value : _dictionary_values) {
-            const auto field = Field::create_field<TYPE_STRING>(value);
-            for (const auto& dictionary_value : dictionary->values) {
-                if (dictionary_value == field) {
-                    return ZoneMapFilterResult::kMayMatch;
-                }
-            }
-        }
-        return ZoneMapFilterResult::kNoMatch;
-    }
-
     void collect_slot_column_ids(std::set<int>& column_ids) const override {
         column_ids.insert(_column_id);
     }
 
 private:
     const int _column_id;
-    const std::vector<std::string> _dictionary_values;
     const std::string _row_value;
-    const std::string _expr_name = "StringDictionaryPrefilterExpr";
+    const std::string _expr_name = "StringEqualsExpr";
 };
 
 VExprContextSPtr create_int32_greater_than_conjunct(int column_id, int32_t value) {
@@ -312,10 +291,23 @@ VExprContextSPtr create_string_in_conjunct(int column_id, std::vector<std::strin
     return ctx;
 }
 
-VExprContextSPtr create_string_dictionary_prefilter_conjunct(
+TExprNode make_compound_node(TExprOpcode::type opcode, int num_children) {
+    TExprNode node;
+    node.__set_type(create_type_desc(PrimitiveType::TYPE_BOOLEAN));
+    node.__set_node_type(TExprNodeType::COMPOUND_PRED);
+    node.__set_opcode(opcode);
+    node.__set_num_children(num_children);
+    node.__set_is_nullable(false);
+    return node;
+}
+
+VExprContextSPtr create_string_dictionary_and_residual_conjunct(
         int column_id, std::vector<std::string> dictionary_values, std::string row_value) {
-    auto ctx = VExprContext::create_shared(std::make_shared<StringDictionaryPrefilterExpr>(
-            column_id, std::move(dictionary_values), std::move(row_value)));
+    auto compound =
+            VCompoundPred::create_shared(make_compound_node(TExprOpcode::COMPOUND_AND, 2));
+    compound->add_child(std::make_shared<StringInExpr>(column_id, std::move(dictionary_values)));
+    compound->add_child(std::make_shared<StringEqualsExpr>(column_id, std::move(row_value)));
+    auto ctx = VExprContext::create_shared(std::move(compound));
     ctx->_prepared = true;
     ctx->_opened = true;
     return ctx;
@@ -1773,8 +1765,49 @@ TEST_F(NewParquetReaderTest, DictionaryPredicateFiltersRowsInsideRowGroup) {
     EXPECT_EQ(profile.get_counter("DictFilterColumns")->value(), 1);
     EXPECT_EQ(profile.get_counter("DictFilterUnsupportedColumns")->value(), 0);
     EXPECT_EQ(profile.get_counter("DictFilterReadFailures")->value(), 0);
+    ASSERT_NE(profile.get_counter("DictFilterExprRewriteTime"), nullptr);
+    ASSERT_NE(profile.get_counter("DictFilterReadDictTime"), nullptr);
+    ASSERT_NE(profile.get_counter("DictFilterBuildTime"), nullptr);
     EXPECT_EQ(profile.get_counter("SelectedRows")->value(), 2);
     EXPECT_GE(profile.get_counter("ReaderSelectRows")->value(), 8);
+}
+
+TEST_F(NewParquetReaderTest, DictionaryPredicateWorksWithoutRuntimeProfile) {
+    write_single_row_group_dictionary_filter_parquet_file(_file_path);
+
+    auto reader = create_reader();
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->predicate_columns = {field_projection(1)};
+    request->non_predicate_columns = {field_projection(0)};
+    request->conjuncts.push_back(create_string_in_conjunct(1, {"az", "za"}));
+    use_schema_order_positions(request.get(), schema);
+    ASSERT_TRUE(reader->open(request).ok());
+
+    std::vector<int32_t> ids;
+    std::vector<std::string> values;
+    bool eof = false;
+    while (!eof) {
+        Block block = build_file_block(schema);
+        size_t rows = 0;
+        ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+        if (rows == 0) {
+            continue;
+        }
+        const auto& id_column = nullable_nested_column<ColumnInt32>(block, 0);
+        const auto& value_column = nullable_nested_column<ColumnString>(block, 1);
+        for (size_t row = 0; row < rows; ++row) {
+            ids.push_back(id_column.get_element(row));
+            values.push_back(value_column.get_data_at(row).to_string());
+        }
+    }
+
+    EXPECT_EQ(ids, std::vector<int32_t>({2, 5}));
+    EXPECT_EQ(values, std::vector<std::string>({"az", "za"}));
 }
 
 TEST_F(NewParquetReaderTest, DictionaryPredicateSkipsRemainingPredicateColumnsWhenEmpty) {
@@ -1832,7 +1865,7 @@ TEST_F(NewParquetReaderTest, DictionaryPredicateRunsResidualConjunctOnSurvivors)
     request->predicate_columns = {field_projection(1)};
     request->non_predicate_columns = {field_projection(0)};
     request->conjuncts.push_back(
-            create_string_dictionary_prefilter_conjunct(1, {"az", "za"}, "za"));
+            create_string_dictionary_and_residual_conjunct(1, {"az", "za"}, "za"));
     use_schema_order_positions(request.get(), schema);
     ASSERT_TRUE(reader->open(request).ok());
 
@@ -1857,7 +1890,7 @@ TEST_F(NewParquetReaderTest, DictionaryPredicateRunsResidualConjunctOnSurvivors)
     EXPECT_EQ(ids, std::vector<int32_t>({5}));
     EXPECT_EQ(values, std::vector<std::string>({"za"}));
     EXPECT_EQ(profile.get_counter("RowsFilteredByDictFilter")->value(), 4);
-    EXPECT_EQ(profile.get_counter("RowsFilteredByConjunct")->value(), 5);
+    EXPECT_EQ(profile.get_counter("RowsFilteredByConjunct")->value(), 1);
     EXPECT_EQ(profile.get_counter("SelectedRows")->value(), 1);
 }
 
