@@ -181,8 +181,8 @@ public:
     }
 
     [[nodiscard]] virtual bool is_deterministic() const {
-        return std::ranges::all_of(_children,
-                                   [](const VExprSPtr& child) { return child->is_deterministic(); });
+        return std::ranges::all_of(
+                _children, [](const VExprSPtr& child) { return child->is_deterministic(); });
     }
 
     // execute current expr with inverted index to filter block. Given a roaring bitmap of match rows
