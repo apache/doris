@@ -44,7 +44,9 @@ public class SessionContext {
     }
 
     /**
-     * Return the session context bound to the current connection, or an empty context for background callers.
+     * Returns the {@link SessionContext} bound to the current connection, or {@link #empty()} when
+     * there is no active connection or no session context has been set (for example background
+     * threads and internal callers). Callers can rely on a non-null result.
      */
     public static SessionContext current() {
         ConnectContext context = ConnectContext.get();
