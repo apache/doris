@@ -135,25 +135,6 @@ private:
     Status _decode_column(const ::orc::Type& file_type, const ::orc::Type& selected_type,
                           const ::orc::ColumnVectorBatch& batch, MutableColumnPtr& column,
                           size_t rows, const std::vector<size_t>* selected_rows = nullptr) const;
-    Status _decode_timestamp_column(const ::orc::ColumnVectorBatch& batch,
-                                    const cctz::time_zone& timezone,
-                                    MutableColumnPtr& nested_column, size_t rows,
-                                    const std::vector<size_t>* selected_rows) const;
-    Status _decode_timestamp_tz_column(const ::orc::ColumnVectorBatch& batch,
-                                       MutableColumnPtr& nested_column, size_t rows,
-                                       const std::vector<size_t>* selected_rows) const;
-    Status _decode_list_column(const ::orc::Type& file_type, const ::orc::Type& selected_type,
-                               const ::orc::ColumnVectorBatch& batch,
-                               MutableColumnPtr& nested_column, size_t rows,
-                               const std::vector<size_t>* selected_rows) const;
-    Status _decode_map_column(const ::orc::Type& file_type, const ::orc::Type& selected_type,
-                              const ::orc::ColumnVectorBatch& batch,
-                              MutableColumnPtr& nested_column, size_t rows,
-                              const std::vector<size_t>* selected_rows) const;
-    Status _decode_struct_column(const ::orc::Type& file_type, const ::orc::Type& selected_type,
-                                 const ::orc::ColumnVectorBatch& batch,
-                                 MutableColumnPtr& nested_column, size_t rows,
-                                 const std::vector<size_t>* selected_rows) const;
     Status _decode_column_into_block(const ::orc::StructVectorBatch& struct_batch,
                                      format::LocalColumnId file_column_id, size_t rows,
                                      Block* file_block,

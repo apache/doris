@@ -42,6 +42,7 @@ namespace cctz {
 class time_zone;
 } // namespace cctz
 namespace orc {
+class Type;
 struct ColumnVectorBatch;
 } // namespace orc
 
@@ -89,6 +90,8 @@ class Arena;
 class IDataType;
 struct CastParameters;
 
+using DataTypePtr = std::shared_ptr<const IDataType>;
+
 class DataTypeSerDe;
 using DataTypeSerDeSPtr = std::shared_ptr<DataTypeSerDe>;
 using DataTypeSerDeSPtrs = std::vector<DataTypeSerDeSPtr>;
@@ -110,6 +113,16 @@ struct FieldInfo {
     // decimal info
     int scale = 0;
     int precision = 0;
+};
+
+struct OrcDecodedColumnView {
+    const orc::Type* file_type = nullptr;
+    const orc::Type* selected_type = nullptr;
+    const orc::ColumnVectorBatch* batch = nullptr;
+    size_t rows = 0;
+    const std::vector<size_t>* selected_rows = nullptr;
+    const cctz::time_zone* timezone = nullptr;
+    bool enable_mapping_timestamp_tz = false;
 };
 
 // Deserialize means read from different file format or memory format,
@@ -501,6 +514,8 @@ public:
                                        int64_t end, Arena& arena,
                                        const FormatOptions& options) const = 0;
     // ORC deserializer
+    virtual Status read_column_from_orc(const DataTypePtr& data_type, IColumn& column,
+                                        const OrcDecodedColumnView& view) const;
 
     virtual void set_return_object_as_string(bool value) { _return_object_as_string = value; }
 

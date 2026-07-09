@@ -21,13 +21,11 @@
 #include <gen_cpp/Types_types.h>
 
 #include <algorithm>
-#include <array>
 #include <atomic>
 #include <cctype>
 #include <charconv>
 #include <cmath>
 #include <cstdint>
-#include <cstring>
 #include <limits>
 #include <list>
 #include <map>
@@ -49,12 +47,8 @@
 #include "common/consts.h"
 #include "common/exception.h"
 #include "core/block/block.h"
-#include "core/column/column_array.h"
-#include "core/column/column_decimal.h"
-#include "core/column/column_map.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
-#include "core/column/column_struct.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_date_or_datetime_v2.h"
@@ -91,7 +85,6 @@ constexpr uint64_t DEFAULT_ORC_READ_BATCH_SIZE = 4096;
 constexpr uint64_t DEFAULT_ORC_NATURAL_READ_SIZE = 128 * 1024;
 constexpr int DECIMAL_PRECISION_FOR_HIVE11 = BeConsts::MAX_DECIMAL128_PRECISION;
 constexpr int DECIMAL_SCALE_FOR_HIVE11 = 10;
-constexpr int32_t DORIS_DATE_EPOCH_DAYNR = 719528;
 constexpr const char* ORC_LIST_ELEMENT_NAME = "element";
 constexpr const char* ORC_MAP_KEY_NAME = "key";
 constexpr const char* ORC_MAP_VALUE_NAME = "value";
@@ -197,10 +190,6 @@ private:
 
 // selected_rows is a source-row remap produced by ORC lazy callback:
 // predicate columns are decoded first, then surviving row ids drive follower decodes.
-bool is_null_at(const ::orc::ColumnVectorBatch& batch, size_t row) {
-    return batch.hasNulls && !batch.notNull[row];
-}
-
 size_t decode_row_count(size_t rows, const std::vector<size_t>* selected_rows) {
     if (selected_rows == nullptr) {
         return rows;
@@ -215,27 +204,6 @@ size_t source_row_at(size_t row, const std::vector<size_t>* selected_rows) {
     return (*selected_rows)[row];
 }
 
-DecodedColumnView make_orc_decoded_view(size_t rows, const std::vector<size_t>* selected_rows,
-                                        DecodedValueKind value_kind) {
-    DecodedColumnView view;
-    view.value_kind = value_kind;
-    view.row_count = cast_set<int64_t>(decode_row_count(rows, selected_rows));
-    return view;
-}
-
-void fill_orc_decoded_null_map(const ::orc::ColumnVectorBatch& batch, size_t rows,
-                               const std::vector<size_t>* selected_rows, NullMap* null_map) {
-    DORIS_CHECK(null_map != nullptr);
-    if (!batch.hasNulls) {
-        return;
-    }
-    const auto output_rows = decode_row_count(rows, selected_rows);
-    null_map->resize(output_rows);
-    for (size_t row = 0; row < output_rows; ++row) {
-        (*null_map)[row] = !batch.notNull[source_row_at(row, selected_rows)];
-    }
-}
-
 size_t trim_right_spaces(const char* value, size_t length) {
     while (length > 0 && value[length - 1] == ' ') {
         --length;
@@ -243,292 +211,10 @@ size_t trim_right_spaces(const char* value, size_t length) {
     return length;
 }
 
-Status append_orc_string_ref(const ::orc::Type& file_type, const char* data, int64_t length,
-                             std::vector<StringRef>& binary_values) {
-    if (length < 0) {
-        return Status::Corruption("Invalid negative ORC string length {}", length);
-    }
-    auto value_length = static_cast<size_t>(length);
-    if (file_type.getKind() == ::orc::TypeKind::CHAR) {
-        value_length = trim_right_spaces(data, value_length);
-    }
-    binary_values.emplace_back(value_length == 0 ? "" : data, value_length);
-    return Status::OK();
-}
-
 Int128 to_int128(::orc::Int128 value) {
     const auto high_bits = static_cast<__uint128_t>(static_cast<uint64_t>(value.getHighBits()));
     const auto low_bits = static_cast<__uint128_t>(value.getLowBits());
     return static_cast<Int128>((high_bits << 64) | low_bits);
-}
-
-::orc::Int128 to_orc_int128(Int128 value) {
-    const auto unsigned_value = static_cast<__uint128_t>(value);
-    return ::orc::Int128(static_cast<int64_t>(static_cast<uint64_t>(unsigned_value >> 64)),
-                         static_cast<uint64_t>(unsigned_value));
-}
-
-Status scale_decimal_value(Int128 value, int32_t source_scale, int32_t target_scale,
-                           Int128* scaled_value) {
-    DORIS_CHECK(scaled_value != nullptr);
-    if (source_scale == target_scale) {
-        *scaled_value = value;
-        return Status::OK();
-    }
-    if (source_scale < target_scale) {
-        bool overflow = false;
-        const auto scaled = ::orc::scaleUpInt128ByPowerOfTen(to_orc_int128(value),
-                                                             target_scale - source_scale, overflow);
-        if (overflow) {
-            return Status::DataQualityError(
-                    "ORC decimal value overflows when scaling from {} to {}", source_scale,
-                    target_scale);
-        }
-        *scaled_value = to_int128(scaled);
-        return Status::OK();
-    }
-    *scaled_value = to_int128(
-            ::orc::scaleDownInt128ByPowerOfTen(to_orc_int128(value), source_scale - target_scale));
-    return Status::OK();
-}
-
-void fill_decimal_big_endian_value(Int128 value, std::array<uint8_t, sizeof(Int128)>* bytes) {
-    DORIS_CHECK(bytes != nullptr);
-    const auto unsigned_value = static_cast<__uint128_t>(value);
-    for (size_t byte_idx = 0; byte_idx < bytes->size(); ++byte_idx) {
-        const auto shift = (bytes->size() - byte_idx - 1) * 8;
-        (*bytes)[byte_idx] = static_cast<uint8_t>(unsigned_value >> shift);
-    }
-}
-
-Status read_decoded_values(DataTypePtr data_type, IColumn& column, DecodedColumnView* view) {
-    DORIS_CHECK(data_type != nullptr);
-    DORIS_CHECK(view != nullptr);
-    RETURN_IF_ERROR(data_type->get_serde()->read_column_from_decoded_values(column, *view));
-    return Status::OK();
-}
-
-template <typename SourceType>
-void fill_selected_values(const SourceType* source_values, size_t rows,
-                          const std::vector<size_t>* selected_rows,
-                          std::vector<SourceType>* selected_values) {
-    DORIS_CHECK(source_values != nullptr);
-    DORIS_CHECK(selected_values != nullptr);
-    const auto output_rows = decode_row_count(rows, selected_rows);
-    selected_values->resize(output_rows);
-    for (size_t row = 0; row < output_rows; ++row) {
-        (*selected_values)[row] = source_values[source_row_at(row, selected_rows)];
-    }
-}
-
-template <typename OrcBatchType, typename SourceType>
-Status decode_fixed_values_with_serde(DataTypePtr data_type, IColumn& column,
-                                      const ::orc::ColumnVectorBatch& batch, size_t rows,
-                                      const std::vector<size_t>* selected_rows,
-                                      DecodedValueKind value_kind) {
-    const auto* orc_batch = dynamic_cast<const OrcBatchType*>(&batch);
-    if (orc_batch == nullptr) {
-        return Status::InternalError("Unexpected ORC scalar batch type {}", batch.toString());
-    }
-    auto view = make_orc_decoded_view(rows, selected_rows, value_kind);
-    NullMap null_map;
-    fill_orc_decoded_null_map(batch, rows, selected_rows, &null_map);
-    view.null_map = null_map.empty() ? nullptr : null_map.data();
-    std::vector<SourceType> selected_values;
-    if (selected_rows == nullptr) {
-        view.values = reinterpret_cast<const uint8_t*>(orc_batch->data.data());
-    } else {
-        fill_selected_values(orc_batch->data.data(), rows, selected_rows, &selected_values);
-        view.values = reinterpret_cast<const uint8_t*>(selected_values.data());
-    }
-    RETURN_IF_ERROR(read_decoded_values(std::move(data_type), column, &view));
-    return Status::OK();
-}
-
-Status decode_float_values_with_serde(DataTypePtr data_type, IColumn& column,
-                                      const ::orc::ColumnVectorBatch& batch, size_t rows,
-                                      const std::vector<size_t>* selected_rows) {
-    const auto* orc_batch = dynamic_cast<const ::orc::DoubleVectorBatch*>(&batch);
-    if (orc_batch == nullptr) {
-        return Status::InternalError("Unexpected ORC float batch type {}", batch.toString());
-    }
-    auto view = make_orc_decoded_view(rows, selected_rows, DecodedValueKind::FLOAT);
-    NullMap null_map;
-    fill_orc_decoded_null_map(batch, rows, selected_rows, &null_map);
-    view.null_map = null_map.empty() ? nullptr : null_map.data();
-    const auto output_rows = decode_row_count(rows, selected_rows);
-    std::vector<float> float_values;
-    float_values.resize(output_rows);
-    for (size_t row = 0; row < output_rows; ++row) {
-        float_values[row] = static_cast<float>(orc_batch->data[source_row_at(row, selected_rows)]);
-    }
-    view.values = reinterpret_cast<const uint8_t*>(float_values.data());
-    RETURN_IF_ERROR(read_decoded_values(std::move(data_type), column, &view));
-    return Status::OK();
-}
-
-Status decode_boolean_values_with_serde(DataTypePtr data_type, IColumn& column,
-                                        const ::orc::ColumnVectorBatch& batch, size_t rows,
-                                        const std::vector<size_t>* selected_rows) {
-    const auto* orc_batch = dynamic_cast<const ::orc::LongVectorBatch*>(&batch);
-    if (orc_batch == nullptr) {
-        return Status::InternalError("Unexpected ORC boolean batch type {}", batch.toString());
-    }
-    auto view = make_orc_decoded_view(rows, selected_rows, DecodedValueKind::BOOL);
-    NullMap null_map;
-    fill_orc_decoded_null_map(batch, rows, selected_rows, &null_map);
-    view.null_map = null_map.empty() ? nullptr : null_map.data();
-    const auto output_rows = decode_row_count(rows, selected_rows);
-    std::unique_ptr<bool[]> bool_values = std::make_unique<bool[]>(output_rows);
-    for (size_t row = 0; row < output_rows; ++row) {
-        bool_values[row] = orc_batch->data[source_row_at(row, selected_rows)] != 0;
-    }
-    view.values = reinterpret_cast<const uint8_t*>(bool_values.get());
-    RETURN_IF_ERROR(read_decoded_values(std::move(data_type), column, &view));
-    return Status::OK();
-}
-
-Status decode_string_values_with_serde(DataTypePtr data_type, IColumn& column,
-                                       const ::orc::Type& file_type,
-                                       const ::orc::ColumnVectorBatch& batch, size_t rows,
-                                       const std::vector<size_t>* selected_rows) {
-    if (const auto* encoded_batch = dynamic_cast<const ::orc::EncodedStringVectorBatch*>(&batch);
-        encoded_batch != nullptr && encoded_batch->isEncoded) {
-        if (encoded_batch->dictionary == nullptr) {
-            return Status::InternalError("Encoded ORC string batch has no dictionary");
-        }
-        auto view = make_orc_decoded_view(rows, selected_rows, DecodedValueKind::BINARY);
-        NullMap null_map;
-        fill_orc_decoded_null_map(batch, rows, selected_rows, &null_map);
-        view.null_map = null_map.empty() ? nullptr : null_map.data();
-        const auto output_rows = decode_row_count(rows, selected_rows);
-        std::vector<StringRef> binary_values;
-        binary_values.reserve(output_rows);
-        for (size_t row = 0; row < output_rows; ++row) {
-            const auto source_row = source_row_at(row, selected_rows);
-            if (is_null_at(batch, source_row)) {
-                binary_values.emplace_back("", 0);
-                continue;
-            }
-            char* data = nullptr;
-            int64_t length = 0;
-            encoded_batch->dictionary->getValueByIndex(encoded_batch->index[source_row], data,
-                                                       length);
-            RETURN_IF_ERROR(append_orc_string_ref(file_type, data, length, binary_values));
-        }
-        view.binary_values = &binary_values;
-        RETURN_IF_ERROR(read_decoded_values(std::move(data_type), column, &view));
-        return Status::OK();
-    }
-
-    const auto* orc_batch = dynamic_cast<const ::orc::StringVectorBatch*>(&batch);
-    if (orc_batch == nullptr) {
-        return Status::InternalError("Unexpected ORC string batch type {}", batch.toString());
-    }
-    auto view = make_orc_decoded_view(rows, selected_rows, DecodedValueKind::BINARY);
-    NullMap null_map;
-    fill_orc_decoded_null_map(batch, rows, selected_rows, &null_map);
-    view.null_map = null_map.empty() ? nullptr : null_map.data();
-    const auto output_rows = decode_row_count(rows, selected_rows);
-    std::vector<StringRef> binary_values;
-    binary_values.reserve(output_rows);
-    for (size_t row = 0; row < output_rows; ++row) {
-        const auto source_row = source_row_at(row, selected_rows);
-        if (is_null_at(batch, source_row)) {
-            binary_values.emplace_back("", 0);
-            continue;
-        }
-        RETURN_IF_ERROR(append_orc_string_ref(file_type, orc_batch->data[source_row],
-                                              orc_batch->length[source_row], binary_values));
-    }
-    view.binary_values = &binary_values;
-    RETURN_IF_ERROR(read_decoded_values(std::move(data_type), column, &view));
-    return Status::OK();
-}
-
-Status decode_date_values_with_serde(DataTypePtr data_type, IColumn& column,
-                                     const ::orc::ColumnVectorBatch& batch, size_t rows,
-                                     const std::vector<size_t>* selected_rows) {
-    const auto* orc_batch = dynamic_cast<const ::orc::LongVectorBatch*>(&batch);
-    if (orc_batch == nullptr) {
-        return Status::InternalError("Unexpected ORC date batch type {}", batch.toString());
-    }
-    auto view = make_orc_decoded_view(rows, selected_rows, DecodedValueKind::INT32);
-    NullMap null_map;
-    fill_orc_decoded_null_map(batch, rows, selected_rows, &null_map);
-    view.null_map = null_map.empty() ? nullptr : null_map.data();
-    const auto output_rows = decode_row_count(rows, selected_rows);
-    std::vector<int32_t> date_values;
-    date_values.resize(output_rows);
-    auto& date_dict = date_day_offset_dict::get();
-    for (size_t row = 0; row < output_rows; ++row) {
-        const auto source_row = source_row_at(row, selected_rows);
-        // Match the v1 ORC reader for legacy Hive/ORC dates, including underflow fallback.
-        const auto date = date_dict[cast_set<int>(orc_batch->data[source_row])];
-        date_values[row] = cast_set<int32_t>(date.daynr() - DORIS_DATE_EPOCH_DAYNR);
-    }
-    view.values = reinterpret_cast<const uint8_t*>(date_values.data());
-    RETURN_IF_ERROR(read_decoded_values(std::move(data_type), column, &view));
-    return Status::OK();
-}
-
-Status decode_decimal_values_with_serde(DataTypePtr data_type, IColumn& column,
-                                        const ::orc::Type& file_type,
-                                        const ::orc::ColumnVectorBatch& batch, size_t rows,
-                                        const std::vector<size_t>* selected_rows) {
-    auto view = make_orc_decoded_view(rows, selected_rows, DecodedValueKind::FIXED_BINARY);
-    view.decimal_precision = file_type.getPrecision() == 0
-                                     ? DECIMAL_PRECISION_FOR_HIVE11
-                                     : cast_set<int>(file_type.getPrecision());
-    NullMap null_map;
-    fill_orc_decoded_null_map(batch, rows, selected_rows, &null_map);
-    view.null_map = null_map.empty() ? nullptr : null_map.data();
-    view.fixed_length = sizeof(Int128);
-
-    std::vector<StringRef> binary_values;
-    std::vector<std::array<uint8_t, sizeof(Int128)>> decimal_values;
-    const auto output_rows = decode_row_count(rows, selected_rows);
-    decimal_values.resize(output_rows);
-    binary_values.reserve(output_rows);
-    const auto target_scale = cast_set<int32_t>(remove_nullable(data_type)->get_scale());
-
-    if (const auto* decimal64_batch = dynamic_cast<const ::orc::Decimal64VectorBatch*>(&batch);
-        decimal64_batch != nullptr) {
-        view.decimal_scale = decimal64_batch->scale;
-        for (size_t row = 0; row < output_rows; ++row) {
-            Int128 value = 0;
-            const auto source_row = source_row_at(row, selected_rows);
-            if (!is_null_at(batch, source_row)) {
-                RETURN_IF_ERROR(scale_decimal_value(decimal64_batch->values[source_row],
-                                                    decimal64_batch->scale, target_scale, &value));
-            }
-            fill_decimal_big_endian_value(value, &decimal_values[row]);
-            binary_values.emplace_back(reinterpret_cast<const char*>(decimal_values[row].data()),
-                                       decimal_values[row].size());
-        }
-        view.binary_values = &binary_values;
-        RETURN_IF_ERROR(read_decoded_values(std::move(data_type), column, &view));
-        return Status::OK();
-    }
-    const auto* decimal128_batch = dynamic_cast<const ::orc::Decimal128VectorBatch*>(&batch);
-    if (decimal128_batch == nullptr) {
-        return Status::InternalError("Unexpected ORC decimal batch type {}", batch.toString());
-    }
-    view.decimal_scale = decimal128_batch->scale;
-    for (size_t row = 0; row < output_rows; ++row) {
-        Int128 value = 0;
-        const auto source_row = source_row_at(row, selected_rows);
-        if (!is_null_at(batch, source_row)) {
-            RETURN_IF_ERROR(scale_decimal_value(to_int128(decimal128_batch->values[source_row]),
-                                                decimal128_batch->scale, target_scale, &value));
-        }
-        fill_decimal_big_endian_value(value, &decimal_values[row]);
-        binary_values.emplace_back(reinterpret_cast<const char*>(decimal_values[row].data()),
-                                   decimal_values[row].size());
-    }
-    view.binary_values = &binary_values;
-    RETURN_IF_ERROR(read_decoded_values(std::move(data_type), column, &view));
-    return Status::OK();
 }
 
 // ORC nested projection is type-id based. These helpers translate Doris'
@@ -625,63 +311,6 @@ Status collect_projected_type_ids(const ::orc::Type& type,
         RETURN_IF_ERROR(collect_projected_type_ids(*child_type, child_projection, type_ids));
     }
     return Status::OK();
-}
-
-// For arrays/maps, selected parent rows expand into selected element rows. The
-// returned offsets are compacted so downstream child decoding can append densely.
-Status append_orc_offsets(ColumnArray::Offsets64& doris_offsets,
-                          const ::orc::DataBuffer<int64_t>& orc_offsets, size_t rows,
-                          size_t* element_size, const std::vector<size_t>* selected_rows = nullptr,
-                          std::vector<size_t>* element_selection = nullptr) {
-    if (selected_rows != nullptr) {
-        DORIS_CHECK(element_selection != nullptr);
-        const auto prev_offset = doris_offsets.empty() ? 0 : doris_offsets.back();
-        ColumnArray::Offset64 current_offset = prev_offset;
-        element_selection->clear();
-        for (size_t row = 0; row < selected_rows->size(); ++row) {
-            const auto source_row = (*selected_rows)[row];
-            DORIS_CHECK(source_row < rows);
-            const auto begin_offset = orc_offsets[source_row];
-            const auto end_offset = orc_offsets[source_row + 1];
-            if (end_offset < begin_offset) {
-                return Status::Corruption("Invalid ORC offsets");
-            }
-            const auto delta = static_cast<size_t>(end_offset - begin_offset);
-            for (size_t element_idx = 0; element_idx < delta; ++element_idx) {
-                element_selection->push_back(static_cast<size_t>(begin_offset) + element_idx);
-            }
-            current_offset += static_cast<ColumnArray::Offset64>(delta);
-            doris_offsets.push_back(current_offset);
-        }
-        *element_size = element_selection->size();
-        return Status::OK();
-    }
-
-    const auto prev_offset = doris_offsets.empty() ? 0 : doris_offsets.back();
-    const auto base_offset = orc_offsets[0];
-    for (size_t idx = 1; idx <= rows; ++idx) {
-        const auto delta = orc_offsets[idx] - base_offset;
-        if (delta < 0) {
-            return Status::Corruption("Invalid ORC offsets");
-        }
-        doris_offsets.push_back(prev_offset + static_cast<ColumnArray::Offset64>(delta));
-    }
-    const auto total_delta = orc_offsets[rows] - base_offset;
-    if (total_delta < 0) {
-        return Status::Corruption("Invalid ORC offsets");
-    }
-    *element_size = static_cast<size_t>(total_delta);
-    return Status::OK();
-}
-
-int64_t find_struct_child_index(const ::orc::Type& type, const std::string& field_name) {
-    DORIS_CHECK(type.getKind() == ::orc::TypeKind::STRUCT);
-    for (uint64_t child_idx = 0; child_idx < type.getSubtypeCount(); ++child_idx) {
-        if (type.getFieldName(child_idx) == field_name) {
-            return static_cast<int64_t>(child_idx);
-        }
-    }
-    return -1;
 }
 
 bool is_row_position_column(format::LocalColumnId file_column_id) {
@@ -2154,242 +1783,16 @@ Status OrcReader::_decode_column(const ::orc::Type& file_type, const ::orc::Type
                                  size_t rows, const std::vector<size_t>* selected_rows) const {
     DORIS_CHECK(file_type.getKind() == selected_type.getKind());
     DORIS_CHECK(column->is_nullable());
-    const auto output_rows = decode_row_count(rows, selected_rows);
-    if (output_rows == 0) {
-        return Status::OK();
-    }
     const auto column_type = _convert_to_doris_type(selected_type);
-
-    switch (file_type.getKind()) {
-    case ::orc::TypeKind::BOOLEAN:
-        return decode_boolean_values_with_serde(column_type, *column, batch, rows, selected_rows);
-    case ::orc::TypeKind::BYTE:
-    case ::orc::TypeKind::SHORT:
-    case ::orc::TypeKind::INT:
-    case ::orc::TypeKind::LONG:
-        return decode_fixed_values_with_serde<::orc::LongVectorBatch, int64_t>(
-                column_type, *column, batch, rows, selected_rows, DecodedValueKind::INT64);
-    case ::orc::TypeKind::FLOAT:
-        return decode_float_values_with_serde(column_type, *column, batch, rows, selected_rows);
-    case ::orc::TypeKind::DOUBLE:
-        return decode_fixed_values_with_serde<::orc::DoubleVectorBatch, double>(
-                column_type, *column, batch, rows, selected_rows, DecodedValueKind::DOUBLE);
-    case ::orc::TypeKind::STRING:
-    case ::orc::TypeKind::BINARY:
-    case ::orc::TypeKind::VARCHAR:
-    case ::orc::TypeKind::CHAR:
-        return decode_string_values_with_serde(column_type, *column, file_type, batch, rows,
-                                               selected_rows);
-    case ::orc::TypeKind::DATE:
-        return decode_date_values_with_serde(column_type, *column, batch, rows, selected_rows);
-    case ::orc::TypeKind::DECIMAL:
-        return decode_decimal_values_with_serde(column_type, *column, file_type, batch, rows,
-                                                selected_rows);
-    default:
-        break;
-    }
-
-    auto& nullable_column = assert_cast<ColumnNullable&>(*column);
-    auto nested_column = nullable_column.get_nested_column_ptr();
-    auto& null_map = nullable_column.get_null_map_data();
-    const size_t old_size = null_map.size();
-    null_map.resize(old_size + output_rows);
-    if (batch.hasNulls) {
-        for (size_t row = 0; row < output_rows; ++row) {
-            null_map[old_size + row] = !batch.notNull[source_row_at(row, selected_rows)];
-        }
-    } else {
-        std::memset(null_map.data() + old_size, 0, output_rows);
-    }
-
-    switch (file_type.getKind()) {
-    case ::orc::TypeKind::TIMESTAMP:
-        // ORC timestamp decoding currently applies reader timezone directly to epoch seconds.
-        // Keep this path until DecodedColumnView exposes the same format-level semantics.
-        return _decode_timestamp_column(batch, _state->timezone_obj, nested_column, rows,
-                                        selected_rows);
-    case ::orc::TypeKind::TIMESTAMP_INSTANT:
-        if (_enable_mapping_timestamp_tz) {
-            return _decode_timestamp_tz_column(batch, nested_column, rows, selected_rows);
-        }
-        return _decode_timestamp_column(batch, _state->timezone_obj, nested_column, rows,
-                                        selected_rows);
-    case ::orc::TypeKind::LIST:
-        return _decode_list_column(file_type, selected_type, batch, nested_column, rows,
-                                   selected_rows);
-    case ::orc::TypeKind::MAP:
-        return _decode_map_column(file_type, selected_type, batch, nested_column, rows,
-                                  selected_rows);
-    case ::orc::TypeKind::STRUCT:
-        return _decode_struct_column(file_type, selected_type, batch, nested_column, rows,
-                                     selected_rows);
-    default:
-        return Status::NotSupported("ORC type {} is not supported by new ORC reader",
-                                    static_cast<int>(file_type.getKind()));
-    }
-}
-
-Status OrcReader::_decode_timestamp_column(const ::orc::ColumnVectorBatch& batch,
-                                           const cctz::time_zone& timezone,
-                                           MutableColumnPtr& nested_column, size_t rows,
-                                           const std::vector<size_t>* selected_rows) const {
-    const auto* orc_batch = dynamic_cast<const ::orc::TimestampVectorBatch*>(&batch);
-    if (orc_batch == nullptr) {
-        return Status::InternalError("Unexpected ORC timestamp batch type {}", batch.toString());
-    }
-    auto& data = assert_cast<ColumnDateTimeV2&>(*nested_column).get_data();
-    const size_t old_data_size = data.size();
-    const auto output_rows = decode_row_count(rows, selected_rows);
-    data.resize(old_data_size + output_rows);
-    for (size_t row = 0; row < output_rows; ++row) {
-        const auto source_row = source_row_at(row, selected_rows);
-        if (is_null_at(batch, source_row)) {
-            data[old_data_size + row] = DateV2Value<DateTimeV2ValueType> {};
-            continue;
-        }
-        auto& value =
-                reinterpret_cast<DateV2Value<DateTimeV2ValueType>&>(data[old_data_size + row]);
-        value.from_unixtime(orc_batch->data[source_row], timezone);
-        value.set_microsecond(cast_set<uint64_t>(orc_batch->nanoseconds[source_row] / 1000));
-    }
-    return Status::OK();
-}
-
-Status OrcReader::_decode_timestamp_tz_column(const ::orc::ColumnVectorBatch& batch,
-                                              MutableColumnPtr& nested_column, size_t rows,
-                                              const std::vector<size_t>* selected_rows) const {
-    const auto* orc_batch = dynamic_cast<const ::orc::TimestampVectorBatch*>(&batch);
-    if (orc_batch == nullptr) {
-        return Status::InternalError("Unexpected ORC timestamp batch type {}", batch.toString());
-    }
-    auto& data = assert_cast<ColumnTimeStampTz&>(*nested_column).get_data();
-    const size_t old_data_size = data.size();
-    const auto output_rows = decode_row_count(rows, selected_rows);
-    data.resize(old_data_size + output_rows);
-    static const auto utc_time_zone = cctz::utc_time_zone();
-    for (size_t row = 0; row < output_rows; ++row) {
-        const auto source_row = source_row_at(row, selected_rows);
-        if (is_null_at(batch, source_row)) {
-            data[old_data_size + row] = TimestampTzValue {};
-            continue;
-        }
-        auto& value = data[old_data_size + row];
-        value.from_unixtime(orc_batch->data[source_row], utc_time_zone);
-        value.set_microsecond(cast_set<uint64_t>(orc_batch->nanoseconds[source_row] / 1000));
-    }
-    return Status::OK();
-}
-
-Status OrcReader::_decode_list_column(const ::orc::Type& file_type,
-                                      const ::orc::Type& selected_type,
-                                      const ::orc::ColumnVectorBatch& batch,
-                                      MutableColumnPtr& nested_column, size_t rows,
-                                      const std::vector<size_t>* selected_rows) const {
-    const auto* orc_list = dynamic_cast<const ::orc::ListVectorBatch*>(&batch);
-    if (orc_list == nullptr) {
-        return Status::InternalError("Unexpected ORC list batch type {}", batch.toString());
-    }
-    DORIS_CHECK(file_type.getSubtypeCount() == 1);
-    DORIS_CHECK(selected_type.getSubtypeCount() == 1);
-    DORIS_CHECK(orc_list->elements != nullptr);
-    const auto* file_element_type = file_type.getSubtype(0);
-    const auto* selected_element_type = selected_type.getSubtype(0);
-    DORIS_CHECK(file_element_type != nullptr);
-    DORIS_CHECK(selected_element_type != nullptr);
-
-    auto& array_column = assert_cast<ColumnArray&>(*nested_column);
-    size_t element_size = 0;
-    std::vector<size_t> element_selection;
-    RETURN_IF_ERROR(append_orc_offsets(array_column.get_offsets(), orc_list->offsets, rows,
-                                       &element_size, selected_rows, &element_selection));
-    auto element_column = array_column.get_data_ptr()->assert_mutable();
-    const auto child_rows = selected_rows == nullptr
-                                    ? element_size
-                                    : static_cast<size_t>(orc_list->elements->numElements);
-    const auto* child_selection = selected_rows == nullptr ? nullptr : &element_selection;
-    RETURN_IF_ERROR(_decode_column(*file_element_type, *selected_element_type, *orc_list->elements,
-                                   element_column, child_rows, child_selection));
-    array_column.get_data_ptr() = std::move(element_column);
-    return Status::OK();
-}
-
-Status OrcReader::_decode_map_column(const ::orc::Type& file_type, const ::orc::Type& selected_type,
-                                     const ::orc::ColumnVectorBatch& batch,
-                                     MutableColumnPtr& nested_column, size_t rows,
-                                     const std::vector<size_t>* selected_rows) const {
-    const auto* orc_map = dynamic_cast<const ::orc::MapVectorBatch*>(&batch);
-    if (orc_map == nullptr) {
-        return Status::InternalError("Unexpected ORC map batch type {}", batch.toString());
-    }
-    DORIS_CHECK(file_type.getSubtypeCount() == 2);
-    DORIS_CHECK(selected_type.getSubtypeCount() == 2);
-    DORIS_CHECK(orc_map->keys != nullptr);
-    DORIS_CHECK(orc_map->elements != nullptr);
-    auto& map_column = assert_cast<ColumnMap&>(*nested_column);
-    size_t element_size = 0;
-    std::vector<size_t> element_selection;
-    RETURN_IF_ERROR(append_orc_offsets(map_column.get_offsets(), orc_map->offsets, rows,
-                                       &element_size, selected_rows, &element_selection));
-
-    auto key_column = map_column.get_keys_ptr()->assert_mutable();
-    const auto* file_key_type = file_type.getSubtype(0);
-    const auto* selected_key_type = selected_type.getSubtype(0);
-    DORIS_CHECK(file_key_type != nullptr);
-    DORIS_CHECK(selected_key_type != nullptr);
-    const auto child_rows = selected_rows == nullptr
-                                    ? element_size
-                                    : static_cast<size_t>(orc_map->keys->numElements);
-    const auto* child_selection = selected_rows == nullptr ? nullptr : &element_selection;
-    RETURN_IF_ERROR(_decode_column(*file_key_type, *selected_key_type, *orc_map->keys, key_column,
-                                   child_rows, child_selection));
-    map_column.get_keys_ptr() = std::move(key_column);
-    auto value_column = map_column.get_values_ptr()->assert_mutable();
-    const auto* file_value_type = file_type.getSubtype(1);
-    const auto* selected_value_type = selected_type.getSubtype(1);
-    DORIS_CHECK(file_value_type != nullptr);
-    DORIS_CHECK(selected_value_type != nullptr);
-    RETURN_IF_ERROR(_decode_column(
-            *file_value_type, *selected_value_type, *orc_map->elements, value_column,
-            selected_rows == nullptr ? element_size
-                                     : static_cast<size_t>(orc_map->elements->numElements),
-            child_selection));
-    map_column.get_values_ptr() = std::move(value_column);
-    return Status::OK();
-}
-
-Status OrcReader::_decode_struct_column(const ::orc::Type& file_type,
-                                        const ::orc::Type& selected_type,
-                                        const ::orc::ColumnVectorBatch& batch,
-                                        MutableColumnPtr& nested_column, size_t rows,
-                                        const std::vector<size_t>* selected_rows) const {
-    const auto* orc_struct = dynamic_cast<const ::orc::StructVectorBatch*>(&batch);
-    if (orc_struct == nullptr) {
-        return Status::InternalError("Unexpected ORC struct batch type {}", batch.toString());
-    }
-    DORIS_CHECK(selected_type.getSubtypeCount() == orc_struct->fields.size());
-    auto& struct_column = assert_cast<ColumnStruct&>(*nested_column);
-    DORIS_CHECK(struct_column.tuple_size() == selected_type.getSubtypeCount());
-
-    for (uint64_t selected_idx = 0; selected_idx < selected_type.getSubtypeCount();
-         ++selected_idx) {
-        const auto field_name = selected_type.getFieldName(selected_idx);
-        const auto file_child_idx = find_struct_child_index(file_type, field_name);
-        if (file_child_idx < 0) {
-            return Status::InternalError("Selected ORC field {} is not in file struct", field_name);
-        }
-        const auto* file_child_type = file_type.getSubtype(static_cast<uint64_t>(file_child_idx));
-        const auto* selected_child_type = selected_type.getSubtype(selected_idx);
-        DORIS_CHECK(file_child_type != nullptr);
-        DORIS_CHECK(selected_child_type != nullptr);
-        DORIS_CHECK(selected_idx < orc_struct->fields.size());
-        auto child_column =
-                struct_column.get_column_ptr(static_cast<size_t>(selected_idx))->assert_mutable();
-        RETURN_IF_ERROR(_decode_column(*file_child_type, *selected_child_type,
-                                       *orc_struct->fields[selected_idx], child_column, rows,
-                                       selected_rows));
-        struct_column.get_column_ptr(static_cast<size_t>(selected_idx)) = std::move(child_column);
-    }
-    return Status::OK();
+    OrcDecodedColumnView view;
+    view.file_type = &file_type;
+    view.selected_type = &selected_type;
+    view.batch = &batch;
+    view.rows = rows;
+    view.selected_rows = selected_rows;
+    view.timezone = &_state->timezone_obj;
+    view.enable_mapping_timestamp_tz = _enable_mapping_timestamp_tz;
+    return column_type->get_serde()->read_column_from_orc(column_type, *column, view);
 }
 
 Status OrcReader::get_block(Block* file_block, size_t* rows, bool* eof) {
