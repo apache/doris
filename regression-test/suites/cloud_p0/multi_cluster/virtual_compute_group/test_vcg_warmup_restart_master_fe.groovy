@@ -16,6 +16,7 @@
 // under the License.
 
 import groovy.json.JsonOutput
+import groovy.json.JsonSlurper
 import org.apache.doris.regression.suite.ClusterOptions
 import org.apache.doris.regression.util.WarmupMetricsUtils
 
@@ -40,6 +41,7 @@ suite('test_vcg_warmup_restart_master_fe', 'docker') {
         def vcgName = "vcgWarmupRestartMasterFe"
         def vcgId = "vcgWarmupRestartMasterFeId"
         def knownJobIds = []
+        def jsonSlurper = new JsonSlurper()
 
         cluster.addBackend(1, srcCluster)
         cluster.addBackend(1, dstCluster)
@@ -68,6 +70,31 @@ suite('test_vcg_warmup_restart_master_fe', 'docker') {
             context.reconnectFe()
         }
 
+        def getVcgWarmupJobIds = {
+            def groups = sql_return_maparray """SHOW COMPUTE GROUPS"""
+            def vcg = groups.find { it.Name == vcgName }
+            if (vcg == null) {
+                return []
+            }
+            def policy = jsonSlurper.parseText(vcg.Policy)
+            def rawJobIds = policy.cacheWarmupJobIds ?: "[]"
+            if (rawJobIds instanceof Collection) {
+                return rawJobIds.collect { it.toString() }
+            }
+            return jsonSlurper.parseText(rawJobIds.toString()).collect { it.toString() }
+        }
+
+        def waitForVcgWarmupJobIds = { Collection<String> excludedJobIds ->
+            List<String> jobIds = []
+            awaitUntil(120, 1) {
+                jobIds = getVcgWarmupJobIds().findAll {
+                    !excludedJobIds.contains(it)
+                }
+                jobIds.size() >= 2
+            }
+            return jobIds
+        }
+
         def vcgBody = JsonOutput.toJson([
                 instance_id: instanceId,
                 cluster: [
@@ -90,17 +117,17 @@ suite('test_vcg_warmup_restart_master_fe', 'docker') {
             knownJobIds.addAll(beforeRestartRows*.jobId)
             assertTrue(beforeRestartRows.any { it.syncMode.startsWith("PERIODIC") })
             assertTrue(beforeRestartRows.any { it.syncMode.startsWith("EVENT_DRIVEN") })
+            assertTrue(getVcgWarmupJobIds().containsAll(knownJobIds))
 
-            Map<String, Map> snapshot = WarmupMetricsUtils.snapshotWarmupJobsById(sqlRunner)
             restartMasterFe()
-            def afterRestart = WarmupMetricsUtils.waitForWarmupJobsRecovered(sqlRunner, snapshot, { before, current ->
-                knownJobIds.every { current.containsKey(it) }
-            }, 60000)
-            assertTrue(afterRestart.keySet().containsAll(knownJobIds))
 
-            def rowsAfterRestart = knownJobIds.collect { WarmupMetricsUtils.showWarmupJob(sqlRunner, it) }
+            WarmupMetricsUtils.assertHistoricalJobsCancelled(sqlRunner, knownJobIds, 120000)
+            def newJobIds = waitForVcgWarmupJobIds(knownJobIds)
+            assertTrue(newJobIds.size() >= 2)
+            def rowsAfterRestart = newJobIds.collect { WarmupMetricsUtils.showWarmupJob(sqlRunner, it) }
             assertTrue(rowsAfterRestart.any { it.syncMode.startsWith("PERIODIC") && it.status in ["RUNNING", "PENDING", "WAITING"] })
             assertTrue(rowsAfterRestart.any { it.syncMode.startsWith("EVENT_DRIVEN") && it.status in ["RUNNING", "PENDING"] })
+            knownJobIds.addAll(newJobIds)
         } finally {
             knownJobIds.each { jobId ->
                 try {

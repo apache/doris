@@ -22,6 +22,7 @@ suite('test_warm_up_event_on_tables_overlap_semantics', 'docker') {
     def options = new ClusterOptions()
     options.feConfigs += [
         'cloud_cluster_check_interval_second=1',
+        'cloud_warm_up_job_scheduler_interval_millisecond=100',
         'cloud_warm_up_table_filter_refresh_interval_ms=1000',
     ]
     options.beConfigs += [
@@ -86,6 +87,10 @@ suite('test_warm_up_event_on_tables_overlap_semantics', 'docker') {
         assert WarmupMetricsUtils.waitForMatchedTables(sqlRunner, containerJobId,
                 ["${dbName}.${tableName}".toString(), "${dbName}.${otherTable}".toString()] as Set)
                 .containsAll(["${dbName}.${tableName}".toString(), "${dbName}.${otherTable}".toString()] as Set)
+        jobIds.each { jobId ->
+            WarmupMetricsUtils.waitForJobStatus(sqlRunner, jobId, ["RUNNING"], 60000)
+        }
+        Thread.sleep(1000)
 
         def baseMetrics = WarmupMetricsUtils.getWarmupMetrics(sqlRunner, srcCluster, dstCluster)
         for (int i = 0; i < 4; i++) {

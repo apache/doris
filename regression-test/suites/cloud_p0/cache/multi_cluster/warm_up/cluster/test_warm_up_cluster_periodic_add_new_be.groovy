@@ -84,11 +84,73 @@ suite('test_warm_up_cluster_periodic_add_new_be', 'docker') {
         }
     }
 
-    def getTTLCacheSize = { ip, port ->
-        return getBrpcMetrics(ip, port, "ttl_cache_size")
+    def logFileCacheQueueMetrics = { cluster, phase ->
+        def queueMetrics = [
+                normal    : [
+                        size : "file_cache_normal_queue_cache_size",
+                        count: "file_cache_normal_queue_element_count",
+                        evict: "file_cache_normal_queue_evict_size",
+                ],
+                index     : [
+                        size : "file_cache_index_queue_cache_size",
+                        count: "file_cache_index_queue_element_count",
+                        evict: "file_cache_index_queue_evict_size",
+                ],
+                disposable: [
+                        size : "file_cache_disposable_queue_cache_size",
+                        count: "file_cache_disposable_queue_element_count",
+                        evict: "file_cache_disposable_queue_evict_size",
+                ],
+                ttl       : [
+                        size : "file_cache_ttl_cache_lru_queue_size",
+                        count: "file_cache_ttl_cache_lru_queue_element_count",
+                        evict: "file_cache_ttl_cache_evict_size",
+                ],
+        ]
+
+        def backends = sql """SHOW BACKENDS"""
+        def cluster_bes = backends.findAll { it[19].contains("""\"compute_group_name\" : \"${cluster}\"""") }
+        for (be in cluster_bes) {
+            def ip = be[1]
+            def port = be[5]
+            def fileCacheSize = getBrpcMetrics(ip, port, "file_cache_cache_size")
+            def queueMetricDetails = []
+            queueMetrics.each { queueName, metrics ->
+                def size = getBrpcMetrics(ip, port, metrics.size)
+                def count = getBrpcMetrics(ip, port, metrics.count)
+                def evict = getBrpcMetrics(ip, port, metrics.evict)
+                queueMetricDetails.add("${queueName}_queue{size=${size}, element_count=${count}, evict_size=${evict}}")
+            }
+            logger.info("${phase} ${cluster} be ${ip}:${port} file_cache_size=${fileCacheSize}, "
+                    + "file_cache_queue_metrics: ${queueMetricDetails.join(', ')}")
+        }
     }
 
-    def getClusterTTLCacheSizeSum = { cluster ->
+    def logFileCacheQueueCacheSizeMetrics = { cluster, phase ->
+        def queueCacheSizeMetrics = [
+                normal    : "file_cache_normal_queue_cache_size",
+                index     : "file_cache_index_queue_cache_size",
+                disposable: "file_cache_disposable_queue_cache_size",
+                ttl       : "file_cache_ttl_cache_lru_queue_size",
+        ]
+
+        def backends = sql """SHOW BACKENDS"""
+        def cluster_bes = backends.findAll { it[19].contains("""\"compute_group_name\" : \"${cluster}\"""") }
+        for (be in cluster_bes) {
+            def ip = be[1]
+            def port = be[5]
+            queueCacheSizeMetrics.each { queueName, metricName ->
+                def size = getBrpcMetrics(ip, port, metricName)
+                logger.info("${phase} ${cluster} be ${ip}:${port} ${queueName}_queue cache_size=${size}")
+            }
+        }
+    }
+
+    def getFileCacheSize = { ip, port ->
+        return getBrpcMetrics(ip, port, "file_cache_cache_size")
+    }
+
+    def getClusterFileCacheSizeSum = { cluster ->
         def backends = sql """SHOW BACKENDS"""
 
         def cluster_bes = backends.findAll { it[19].contains("""\"compute_group_name\" : \"${cluster}\"""") }
@@ -97,44 +159,79 @@ suite('test_warm_up_cluster_periodic_add_new_be', 'docker') {
         for (be in cluster_bes) {
             def ip = be[1]
             def port = be[5]
-            def size = getTTLCacheSize(ip, port)
+            def size = getFileCacheSize(ip, port)
             sum += size
-            logger.info("be be ${ip}:${port} ttl cache size ${size}")
+            logger.info("${cluster} be ${ip}:${port} file cache size ${size}")
         }
 
         return sum
     }
 
-    def checkTTLCacheSizeSumEqual = { cluster1, cluster2 ->
-        def backends = sql """SHOW BACKENDS"""
+    def checkFileCacheSizeSumEqual = { cluster1, cluster2 ->
+        def srcSum = getClusterFileCacheSizeSum(cluster1)
+        def dstSum = getClusterFileCacheSizeSum(cluster2)
 
-        def srcBes = backends.findAll { it[19].contains("""\"compute_group_name\" : \"${cluster1}\"""") }
-        def tgtBes = backends.findAll { it[19].contains("""\"compute_group_name\" : \"${cluster2}\"""") }
-
-        long srcSum = 0
-        for (src in srcBes) {
-            def ip = src[1]
-            def port = src[5]
-            def size = getTTLCacheSize(ip, port)
-            srcSum += size
-            logger.info("src be ${ip}:${port} ttl cache size ${size}")
-        }
-
-        long tgtSum = 0
-        for (tgt in tgtBes) {
-            def ip = tgt[1]
-            def port = tgt[5]
-            def size = getTTLCacheSize(ip, port)
-            tgtSum += size
-            logger.info("dst be ${ip}:${port} ttl cache size ${size}")
-        }
-
-        logger.info("ttl_cache_size: src=${srcSum} dst=${tgtSum}")
-        assertTrue(srcSum > 0, "ttl_cache_size should > 0")
-        assertEquals(srcSum, tgtSum)
+        logger.info("file_cache_cache_size: src=${srcSum} dst=${dstSum}")
+        assertTrue(srcSum > 0, "file_cache_cache_size should > 0")
+        assertEquals(srcSum, dstSum)
     }
 
-    def waitUntil = { condition, timeoutMs ->
+    def getClusterMetricSum = { cluster, metricName ->
+        def backends = sql """SHOW BACKENDS"""
+
+        def cluster_bes = backends.findAll { it[19].contains("""\"compute_group_name\" : \"${cluster}\"""") }
+
+        long sum = 0
+        for (be in cluster_bes) {
+            def ip = be[1]
+            def port = be[5]
+            def value = getBrpcMetrics(ip, port, metricName)
+            sum += value
+            logger.info("${cluster} be ${ip}:${port} ${metricName} ${value}")
+        }
+
+        return sum
+    }
+
+    def getPeriodicWarmupMetrics = { cluster ->
+        [
+                submitted: getClusterMetricSum(cluster, "file_cache_once_or_periodic_warm_up_submitted_segment_num"),
+                finished : getClusterMetricSum(cluster, "file_cache_once_or_periodic_warm_up_finished_segment_num"),
+        ]
+    }
+
+    def loadCustomerData = { clusterName, tableName, rowCount ->
+        sql """use @${clusterName}"""
+
+        def dataFile = File.createTempFile("test_warm_up_cluster_periodic_add_new_be_", ".csv")
+        dataFile.deleteOnExit()
+        dataFile.withWriter("UTF-8") { writer ->
+            for (int i = 1; i <= rowCount; i++) {
+                writer.write("${i},name_${i}\n")
+            }
+        }
+
+        streamLoad {
+            table tableName
+            set 'column_separator', ','
+            set 'compute_group', clusterName
+            file dataFile.getAbsolutePath()
+            time 60000
+
+            check { result, exception, startTime, endTime ->
+                if (exception != null) {
+                    throw exception
+                }
+                logger.info("Stream load result: ${result}".toString())
+                def json = parseJson(result)
+                assertEquals("success", json.Status.toLowerCase())
+                assertEquals(rowCount, json.NumberTotalRows)
+                assertEquals(rowCount, json.NumberLoadedRows)
+            }
+        }
+    }
+
+    def waitUntil = { condition, timeoutMs, description ->
         long start = System.currentTimeMillis()
         while (System.currentTimeMillis() - start < timeoutMs) {
             if (condition()) {
@@ -142,6 +239,7 @@ suite('test_warm_up_cluster_periodic_add_new_be', 'docker') {
             }
             sleep(1000)
         }
+        throw new RuntimeException("Timed out after ${timeoutMs}ms waiting for ${description}")
     }
 
     docker(options) {
@@ -172,7 +270,9 @@ suite('test_warm_up_cluster_periodic_add_new_be', 'docker') {
 
         // Simple setup to simulate data load and access
         sql """CREATE TABLE IF NOT EXISTS customer (id INT, name STRING) DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 3 PROPERTIES ("file_cache_ttl_seconds" = "3600")"""
-        sql """INSERT INTO customer VALUES (1, 'A'), (2, 'B'), (3, 'C')"""
+        loadCustomerData(clusterName1, "customer", 3000)
+        logFileCacheQueueCacheSizeMetrics(clusterName1, "after load before clear cache")
+        logFileCacheQueueCacheSizeMetrics(clusterName2, "after load before clear cache")
 
         // Start warm up job
         def jobId_ = sql """
@@ -193,19 +293,35 @@ suite('test_warm_up_cluster_periodic_add_new_be', 'docker') {
         sql """truncate table __internal_schema.cloud_cache_hotspot;"""
         clearFileCacheOnAllBackends()
 
-        for (int i = 0; i < 1000; i++) {
+        def beforeWarmupMetrics = getPeriodicWarmupMetrics(clusterName2)
+        logFileCacheQueueMetrics(clusterName1, "after clear cache before warmup")
+        logFileCacheQueueMetrics(clusterName2, "after clear cache before warmup")
+        for (int i = 0; i < 500; i++) {
             sql """SELECT * FROM customer"""
         }
 
-        waitUntil({ getClusterTTLCacheSizeSum(clusterName1) > 0 }, 60000)
-        waitUntil({ getClusterTTLCacheSizeSum(clusterName1) == getClusterTTLCacheSizeSum(clusterName2) }, 60000)
+        waitUntil({
+            def metrics = getPeriodicWarmupMetrics(clusterName2)
+            metrics.submitted > beforeWarmupMetrics.submitted && metrics.finished > beforeWarmupMetrics.finished
+        }, 120000, "periodic warmup metrics to advance from ${beforeWarmupMetrics}")
 
-        def hotspot = sql """select * from __internal_schema.cloud_cache_hotspot;"""
-        logger.info("hotspot: {}", hotspot)
+        waitUntil({ getClusterFileCacheSizeSum(clusterName1) > 0 },
+                60000, "${clusterName1} file cache size > 0")
+        waitUntil({
+            logFileCacheQueueMetrics(clusterName1, "wait for warmup")
+            logFileCacheQueueMetrics(clusterName2, "wait for warmup")
+            getClusterFileCacheSizeSum(clusterName1) == getClusterFileCacheSizeSum(clusterName2)
+        }, 60000, "${clusterName1} and ${clusterName2} file cache size to match")
 
         logFileCacheDownloadMetrics(clusterName2)
-        assertTrue(getClusterTTLCacheSizeSum(clusterName1) > 0)
-        checkTTLCacheSizeSumEqual(clusterName1, clusterName2)
+        logFileCacheQueueMetrics(clusterName1, "after warmup")
+        logFileCacheQueueMetrics(clusterName2, "after warmup")
+        def afterWarmupMetrics = getPeriodicWarmupMetrics(clusterName2)
+        assertTrue(afterWarmupMetrics.submitted > beforeWarmupMetrics.submitted,
+                "periodic warmup should submit segments, before=${beforeWarmupMetrics}, after=${afterWarmupMetrics}")
+        assertTrue(afterWarmupMetrics.finished > beforeWarmupMetrics.finished,
+                "periodic warmup should finish segments, before=${beforeWarmupMetrics}, after=${afterWarmupMetrics}")
+        checkFileCacheSizeSumEqual(clusterName1, clusterName2)
 
         def jobInfo = sql """SHOW WARM UP JOB WHERE ID = ${jobId}"""
         assertEquals(jobInfo[0][0], jobId)

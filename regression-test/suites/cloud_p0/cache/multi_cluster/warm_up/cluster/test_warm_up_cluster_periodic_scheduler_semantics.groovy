@@ -57,6 +57,31 @@ suite('test_warm_up_cluster_periodic_scheduler_semantics', 'docker') {
             context.reconnectFe()
         }
 
+        def getPeriodicWarmupMetrics = {
+            [
+                    submitted: WarmupMetricsUtils.getClusterMetricSum(sqlRunner, dstCluster,
+                            "file_cache_once_or_periodic_warm_up_submitted_segment_num"),
+                    finished : WarmupMetricsUtils.getClusterMetricSum(sqlRunner, dstCluster,
+                            "file_cache_once_or_periodic_warm_up_finished_segment_num"),
+            ]
+        }
+
+        def waitForPeriodicWarmupFinish = { Map before, long timeoutMs ->
+            long deadline = System.currentTimeMillis() + timeoutMs
+            Map latest = getPeriodicWarmupMetrics()
+            while (System.currentTimeMillis() < deadline) {
+                latest = getPeriodicWarmupMetrics()
+                if (latest.submitted > before.submitted && latest.finished > before.finished
+                        && latest.finished >= latest.submitted) {
+                    return latest
+                }
+                sleep(2000)
+            }
+            logger.warn("periodic warmup metrics did not advance after ${timeoutMs}ms, "
+                    + "before=${before}, latest=${latest}")
+            return latest
+        }
+
         sql """use @${srcCluster}"""
         sql """CREATE DATABASE IF NOT EXISTS ${dbName}"""
         sql """use ${dbName}"""
@@ -94,12 +119,14 @@ suite('test_warm_up_cluster_periodic_scheduler_semantics', 'docker') {
         assertTrue(timelineAfterRestart*.status.any { it in ["RUNNING", "PENDING", "WAITING"] },
                 "periodic job should continue after FE restart, timeline=${timelineAfterRestart}")
 
-        def beforeMetrics = WarmupMetricsUtils.getWarmupMetrics(sqlRunner, srcCluster, dstCluster)
+        def beforeMetrics = getPeriodicWarmupMetrics()
         for (int i = 12; i < 16; i++) {
             sql """INSERT INTO ${tableName} VALUES (${i}, 'after_restart_${i}')"""
         }
-        def afterMetrics = WarmupMetricsUtils.waitForWarmupFinish(sqlRunner, srcCluster, dstCluster,
-                beforeMetrics.finished + 1, 120000)
+        for (int i = 0; i < 1000; i++) {
+            sql """SELECT * FROM ${tableName}"""
+        }
+        def afterMetrics = waitForPeriodicWarmupFinish(beforeMetrics, 120000)
         assertTrue(afterMetrics.finished > beforeMetrics.finished,
                 "periodic job should trigger another round after restart, before=${beforeMetrics}, after=${afterMetrics}")
 

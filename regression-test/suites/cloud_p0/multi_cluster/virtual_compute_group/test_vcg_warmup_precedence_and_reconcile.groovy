@@ -108,7 +108,7 @@ suite('test_vcg_warmup_precedence_and_reconcile', 'docker') {
                     PROPERTIES ("sync_mode" = "event_driven", "sync_event" = "load")
                 """)
             })
-            WarmupMetricsUtils.assertConflictMessage(clusterConflict, ["conflicting", srcCluster, dstCluster])
+            WarmupMetricsUtils.assertConflictMessage(clusterConflict, ["Cannot create warm up job", srcCluster, dstCluster])
 
             String tableConflict = WarmupMetricsUtils.expectCreateConflict(sqlRunner, {
                 sql("""
@@ -117,7 +117,7 @@ suite('test_vcg_warmup_precedence_and_reconcile', 'docker') {
                     PROPERTIES ("sync_mode" = "event_driven", "sync_event" = "load")
                 """)
             })
-            WarmupMetricsUtils.assertConflictMessage(tableConflict, ["conflicting", srcCluster, dstCluster])
+            WarmupMetricsUtils.assertConflictMessage(tableConflict, ["Cannot create warm up job", srcCluster, dstCluster])
 
             def secondBody = JsonOutput.toJson([
                     instance_id: instanceId,

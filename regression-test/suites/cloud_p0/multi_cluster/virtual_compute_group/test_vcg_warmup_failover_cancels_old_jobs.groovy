@@ -77,8 +77,24 @@ suite('test_vcg_warmup_failover_cancels_old_jobs', 'docker') {
             assertTrue(oldRows.any { it.syncMode.startsWith("PERIODIC") })
             assertTrue(oldRows.any { it.syncMode.startsWith("EVENT_DRIVEN") })
 
+            sql """USE @${vcgName}"""
+            sql """DROP TABLE IF EXISTS test_vcg_warmup_failover_cancel_tbl"""
+            sql """
+                CREATE TABLE test_vcg_warmup_failover_cancel_tbl (
+                    k1 INT
+                )
+                DUPLICATE KEY(k1)
+                DISTRIBUTED BY HASH(k1) BUCKETS 1
+                PROPERTIES (
+                    "replication_num" = "1"
+                )
+            """
+            sql """INSERT INTO test_vcg_warmup_failover_cancel_tbl VALUES (1)"""
+
             cluster.stopBackends(4, 5)
             awaitUntil(50, 3) {
+                sql """USE @${vcgName}"""
+                sql """SELECT COUNT(*) FROM test_vcg_warmup_failover_cancel_tbl"""
                 def groups = sql_return_maparray """SHOW COMPUTE GROUPS"""
                 def vcg = groups.find { it.Name == vcgName }
                 vcg != null && vcg.Policy.contains("\"activeComputeGroup\":\"${clusterB}\"")

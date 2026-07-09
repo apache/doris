@@ -227,8 +227,8 @@ def detect_docker_compose_cmd():
     Priority:
     1. DORIS_DOCKER_COMPOSE_CMD env override
        e.g. "docker compose" or "docker-compose" or "/path/to/docker-compose"
-    2. docker compose v2
-    3. docker-compose v1 / wrapper
+    2. the first compose client that can talk to the current daemon
+       (prefer docker compose v2, then docker-compose v1 / wrapper)
     """
     def _command_available(cmd):
         try:
@@ -242,6 +242,24 @@ def detect_docker_compose_cmd():
         except (subprocess.CalledProcessError, FileNotFoundError):
             return False
 
+    def _compose_v2_usable(cmd):
+        if not _command_available(cmd + ["version"]):
+            return False
+        try:
+            # `ls` talks to the daemon and catches API-version mismatches that
+            # `version` alone misses on mixed docker/compose installations.
+            subprocess.run(
+                cmd + ["ls"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=True,
+            )
+            return True
+        except subprocess.CalledProcessError:
+            return False
+        except FileNotFoundError:
+            return False
+
     override = os.environ.get("DORIS_DOCKER_COMPOSE_CMD")
     if override:
         cmd = shlex.split(override)
@@ -251,17 +269,17 @@ def detect_docker_compose_cmd():
             )
         return cmd
 
-    # Prefer Compose v2.
-    if _command_available(["docker", "compose", "version"]):
+    # Prefer Compose v2 when it can talk to the daemon.
+    if _compose_v2_usable(["docker", "compose"]):
         return ["docker", "compose"]
 
-    # Fallback for old machines.
+    # Fallback for old machines or environments with a newer standalone client.
     if _command_available(["docker-compose", "version"]):
         return ["docker-compose"]
 
     raise RuntimeError(
-        "Neither 'docker compose' nor 'docker-compose' is available. "
-        "Please install Docker Compose v2 plugin or legacy docker-compose."
+        "Neither 'docker compose' nor 'docker-compose' is usable with the current "
+        "Docker daemon. Please install a compatible Docker Compose client."
     )
 
 

@@ -43,6 +43,18 @@ suite('test_vcg_warmup_switch_and_drop_cancels_history', 'docker') {
         cluster.addBackend(1, srcCluster)
         cluster.addBackend(1, dstCluster)
 
+        def logShowClusters = { String message ->
+            def rows = sql """SHOW CLUSTERS"""
+            log.info("{}: {}", message, rows)
+        }
+
+        def logWarmupJobs = { String message, Collection jobIds ->
+            jobIds.each { jobId ->
+                def rows = sql """SHOW WARM UP JOB WHERE ID = ${jobId}"""
+                log.info("{} jobId={}: {}", message, jobId, rows)
+            }
+        }
+
         def addClusterApi = { requestBody, Closure checkFunc ->
             httpTest {
                 endpoint msHttpPort
@@ -74,9 +86,12 @@ suite('test_vcg_warmup_switch_and_drop_cancels_history', 'docker') {
                 def json = parseJson(body)
                 assertTrue(json.code.equalsIgnoreCase("OK"))
             }
+            logShowClusters("show clusters after vcg create")
 
             def initialRows = WarmupMetricsUtils.waitForWarmupJobsByPair(sqlRunner, srcCluster, dstCluster, 2, 120000)
             def initialJobIds = initialRows*.jobId
+            log.info("show warm up jobs after vcg create: {}", initialRows)
+            logWarmupJobs("show warm up job detail after vcg create", initialJobIds)
             assertTrue(initialRows.any { it.type == "CLUSTER" && it.syncMode.startsWith("PERIODIC") })
             assertTrue(initialRows.any { it.type == "CLUSTER" && it.syncMode.startsWith("EVENT_DRIVEN") })
 
@@ -90,11 +105,14 @@ suite('test_vcg_warmup_switch_and_drop_cancels_history', 'docker') {
                     initialJobIds, 2, 120000)
             assertTrue(switchedJobIds.size() >= 2)
             def switchedRows = switchedJobIds.collect { WarmupMetricsUtils.showWarmupJob(sqlRunner, it) }
+            log.info("show warm up jobs after vcg switch: {}", switchedRows)
+            logWarmupJobs("show warm up job detail after vcg switch", switchedJobIds)
             assertTrue(switchedRows.any { it.type == "CLUSTER" && it.syncMode.startsWith("PERIODIC") })
             assertTrue(switchedRows.any { it.type == "CLUSTER" && it.syncMode.startsWith("EVENT_DRIVEN") })
 
             drop_cluster(vcgName, vcgId, ms)
             WarmupMetricsUtils.assertHistoricalJobsCancelled(sqlRunner, switchedJobIds, 120000)
+            logWarmupJobs("show warm up job detail after vcg drop", switchedJobIds)
         } finally {
             WarmupMetricsUtils.showWarmupJobs(sqlRunner).findAll {
                 it.jobId != null && (
