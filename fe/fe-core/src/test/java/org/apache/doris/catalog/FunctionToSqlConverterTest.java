@@ -49,9 +49,23 @@ public class FunctionToSqlConverterTest {
         Assertions.assertTrue(sql.contains("\"TYPE\"=\"JAVA_UDF\""));
         Assertions.assertTrue(sql.contains("\"VOLATILITY\"=\"volatile\""));
         Assertions.assertTrue(sql.contains("\"ALWAYS_NULLABLE\"="));
+        Assertions.assertTrue(sql.contains("\"STATIC_LOAD\"=\"false\""));
         Assertions.assertFalse(sql.contains("OBJECT_FILE"));
         Assertions.assertFalse(sql.contains("IF NOT EXISTS"));
         Assertions.assertFalse(sql.contains("GLOBAL"));
+    }
+
+    @Test
+    void testScalarFunction_javaUdf_staticLoad() {
+        FunctionName name = new FunctionName("testDb", "static_load_fn");
+        Type[] argTypes = {Type.INT};
+        ScalarFunction fn = ScalarFunction.createUdf(BinaryType.JAVA_UDF, name, argTypes,
+                Type.INT, false, null, "com.example.StaticLoadFn", null, null);
+        fn.setStaticLoad(true);
+
+        String sql = FunctionToSqlConverter.toSql(fn, false);
+
+        Assertions.assertTrue(sql.contains("\"STATIC_LOAD\"=\"true\""));
     }
 
     @Test
@@ -275,11 +289,31 @@ public class FunctionToSqlConverterTest {
         Assertions.assertTrue(sql.contains("\"TYPE\"=\"JAVA_UDF\""));
         Assertions.assertTrue(sql.contains("\"VOLATILITY\"=\"stable\""));
         Assertions.assertTrue(sql.contains("\"ALWAYS_NULLABLE\"="));
+        Assertions.assertTrue(sql.contains("\"STATIC_LOAD\"=\"false\""));
         Assertions.assertFalse(sql.contains("INIT_FN"));
         Assertions.assertFalse(sql.contains("UPDATE_FN"));
         Assertions.assertFalse(sql.contains("MERGE_FN"));
         Assertions.assertFalse(sql.contains("IF NOT EXISTS"));
         Assertions.assertFalse(sql.contains("GLOBAL"));
+    }
+
+    @Test
+    void testAggregateFunction_javaUdf_staticLoad() {
+        FunctionName name = new FunctionName("testDb", "static_load_sum");
+        Type[] argTypes = {Type.BIGINT};
+        AggregateFunction fn = AggregateFunction.AggregateFunctionBuilder.createUdfBuilder()
+                .name(name)
+                .argsType(argTypes)
+                .retType(Type.BIGINT)
+                .intermediateType(Type.BIGINT)
+                .hasVarArgs(false)
+                .symbolName("com.example.StaticLoadSum")
+                .build();
+        fn.setStaticLoad(true);
+
+        String sql = FunctionToSqlConverter.toSql(fn, false);
+
+        Assertions.assertTrue(sql.contains("\"STATIC_LOAD\"=\"true\""));
     }
 
     @Test
