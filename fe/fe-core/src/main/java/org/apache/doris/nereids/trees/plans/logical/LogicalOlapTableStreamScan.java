@@ -28,14 +28,13 @@ import org.apache.doris.common.IdGenerator;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.OrderKey;
+import org.apache.doris.nereids.rules.analysis.BindRelation;
 import org.apache.doris.nereids.trees.TableSample;
-import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
-import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.PartitionPrunablePredicate;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -47,7 +46,6 @@ import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.commons.lang3.tuple.Pair;
@@ -500,85 +498,26 @@ public class LogicalOlapTableStreamScan extends LogicalOlapScan {
 
     @Override
     public LogicalPlan withPreSnapshot(Optional<OlapTableStream> stream) {
-        return new LogicalOlapTableStreamScan(
-                relationId,
-                (Table) table,
-                qualifier,
-                groupExpression,
-                Optional.empty(),
-                selectedPartitionIds,
-                partitionPruned,
-                hasPartitionPredicate,
-                selectedTabletIds,
-                selectedIndexId,
-                indexSelected,
-                preAggStatus,
-                manuallySpecifiedPartitions,
-                hints,
-                cacheSlotWithSlotName,
-                Optional.empty(),
-                tableSample,
-                directMvScan,
-                colToSubPathsMap,
-                manuallySpecifiedTabletIds,
-                operativeSlots,
-                virtualColumns,
-                scoreOrderKeys,
-                scoreLimit,
-                scoreRangeInfo,
-                annOrderKeys,
-                annLimit,
-                tableAlias,
-                partitionPrunablePredicates,
-                scanParams,
-                isNormalized,
-                false,
-                false,
-                true);
+        return withReadMode(StreamReadMode.SNAPSHOT);
     }
 
     @Override
     public LogicalPlan withPostSnapshot() {
+        OlapTable baseTable = getTable().getBaseTable();
         LogicalOlapScan scan = new LogicalOlapScan(
                 StatementScopeIdGenerator.newRelationId(),
-                getTable().getBaseTable(),
+                baseTable,
                 qualifier,
-                groupExpression,
+                ImmutableList.of(),
+                baseTable.getPartitionIds(),
+                baseTable.getBaseIndexId(),
+                PreAggStatus.unset(),
+                ImmutableList.of(),
+                ImmutableList.of(),
                 Optional.empty(),
-                selectedPartitionIds,
-                partitionPruned,
-                hasPartitionPredicate,
-                selectedTabletIds,
-                selectedIndexId,
-                indexSelected,
-                preAggStatus,
-                manuallySpecifiedPartitions,
-                hints,
-                cacheSlotWithSlotName,
-                Optional.empty(),
-                tableSample,
-                directMvScan,
-                colToSubPathsMap,
-                manuallySpecifiedTabletIds,
-                operativeSlots,
-                virtualColumns,
-                scoreOrderKeys,
-                scoreLimit,
-                scoreRangeInfo,
-                annOrderKeys,
-                annLimit,
-                tableAlias,
-                partitionPrunablePredicates,
-                scanParams);
-        LogicalPlan plan = scan;
-        for (Slot slot : scan.getOutput()) {
-            if (Column.DELETE_SIGN.equals(slot.getName())) {
-                plan = new LogicalFilter<>(ImmutableSet.of(
-                        new EqualTo(slot, new TinyIntLiteral((byte) 0))), plan);
-                break;
-            }
-        }
-        return plan;
+                ImmutableList.of());
+        return BindRelation.checkAndAddDeleteSignFilter(
+                scan, ConnectContext.get(), baseTable);
     }
 
     @Override

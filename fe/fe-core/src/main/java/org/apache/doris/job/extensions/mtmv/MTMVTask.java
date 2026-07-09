@@ -503,18 +503,34 @@ public class MTMVTask extends AbstractTask {
             throw new JobException("Cannot use " + request.refreshMode
                     + " refresh on a materialized view without INCREMENTAL capability.");
         }
-        IvmRefreshManager ivmRefreshManager = new IvmRefreshManager();
+        this.completedPartitions = Lists.newCopyOnWriteArrayList();
+        this.partitionSnapshots = Maps.newConcurrentMap();
         ivmFallbackPlanSignature = null;
         ivmFallbackPlanCanonicalString = null;
+        // Determine which partitions need refresh, same as partition-based flow.
+        MTMVRefreshContext refreshContext;
+        try {
+            refreshContext = buildRefreshContext(tableIfs);
+        } catch (Exception e) {
+            throw new JobException("IVM context build failed for mv=" + mtmv.getName(), e);
+        }
+        this.needRefreshPartitions = MTMVPartitionUtil.getMTMVNeedRefreshPartitions(refreshContext,
+                relation.getBaseTablesOneLevelAndFromView());
+        List<String> allPartitions = Lists.newArrayList(mtmv.getPartitionNames());
+        if (CollectionUtils.isEmpty(needRefreshPartitions)) {
+            LOG.info("IVM incremental refresh skipped for mv={}: all partitions are synced, taskId={}",
+                    mtmv.getName(), getTaskId());
+            return AttemptResultType.SUCCESS;
+        }
+        IvmRefreshManager ivmRefreshManager = new IvmRefreshManager();
         // Capture base table snapshots under read lock before execution, same as
         // partition-based refresh. This ensures snapshot versions are consistent
         // with the data the INSERT will read.
         Map<String, MTMVRefreshPartitionSnapshot> capturedSnapshots;
         try {
-            MTMVRefreshContext refreshContext = buildRefreshContext(tableIfs);
             capturedSnapshots = MTMVPartitionUtil.generatePartitionSnapshots(
                     refreshContext, relation.getBaseTablesOneLevelAndFromView(),
-                    Sets.newHashSet(mtmv.getPartitionNames()));
+                    Sets.newHashSet(allPartitions));
         } catch (Exception e) {
             throw new JobException("IVM snapshot generation failed for mv=" + mtmv.getName(), e);
         }
@@ -534,7 +550,8 @@ public class MTMVTask extends AbstractTask {
                     + ", detail=" + e.getMessage(), e);
         }
         if (ivmResult.isSuccess()) {
-            this.partitionSnapshots = capturedSnapshots;
+            this.partitionSnapshots.putAll(capturedSnapshots);
+            this.completedPartitions.addAll(allPartitions);
             LOG.info("IVM incremental refresh succeeded for mv={}, taskId={}",
                     mtmv.getName(), getTaskId());
             return AttemptResultType.SUCCESS;
