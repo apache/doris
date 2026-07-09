@@ -300,8 +300,7 @@ Status RowBinlogSegmentWriter::_append_direct_block(const Block* block, size_t r
 
 Status RowBinlogSegmentWriter::_fill_binlog_columns(size_t num_rows,
                                                     const std::vector<int64_t>& op_types) {
-    std::vector<uint32_t> binlog_cids = {_binlog_tso_col_id, _binlog_lsn_col_id,
-                                         _binlog_op_col_id};
+    std::vector<uint32_t> binlog_cids = {_binlog_tso_col_id, _binlog_lsn_col_id, _binlog_op_col_id};
     Block binlog_prefix_block = _tablet_schema->create_block_by_cids(binlog_cids);
     {
         auto binlog_prefix_columns_guard = binlog_prefix_block.mutate_columns_scoped();
