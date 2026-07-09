@@ -300,7 +300,6 @@ Status IcebergPositionDeleteSysTableV2Reader::_init_position_delete_reader() {
     _position_reader = std::make_unique<PositionDeleteFileTableReader>();
     RETURN_IF_ERROR(_position_reader->init({
             .projected_columns = std::move(projected_columns),
-            .column_predicates = {},
             .conjuncts = {},
             .format = format::FileFormat::PARQUET,
             .scan_params = _scan_params,
