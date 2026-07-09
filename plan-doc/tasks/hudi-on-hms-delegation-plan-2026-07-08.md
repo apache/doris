@@ -463,6 +463,16 @@ All Group C steps build a shared spine: a **pin field on `HudiTableHandle`** (e.
 ### Group D — Write-reject safety net (hudi is read-only)
 
 #### HD-D1 — Explicit read-only reject for hudi write / procedure / DDL
+> **STATUS: DONE** (`7ae9404af25`, dormant). This "Lands" bullet was written BEFORE HD-B1 landed and is now
+> partly stale: a hudi handle routes to the HUDI sibling (never iceberg), and the SPI defaults already reject all
+> writes/procedures/DDL fail-loud. Signed-off deviations (user 2026-07-09): (Q1) do NOT make `getWritePlanProvider`
+> throw — the admission gate `supportedWriteOperations` DERIVES from it, so a throw there misclassifies as an
+> internal error; keep it `null` and reject explicitly only at `beginTransaction` (execution-stage, message-quality
+> defense). (Q2) STRICT — reject ALL DDL including DROP/RENAME TABLE (a behavior change vs legacy HMS). Net code =
+> one `beginTransaction` override + a `HudiReadOnlyWriteRejectTest` lock. Review `wf_36fd1c6c-e58`: 0 defects.
+> Residual: `DROP DATABASE … FORCE` still name-cascades `hmsClient.dropTable` (legacy-parity, out of per-table
+> scope). See HANDOFF ⭐ Hudi HD-D1 bullet.
+
 - **Problem:** once HD-B2 diverts HUDI to a foreign handle, that handle is non-hive, so the gateway's
   per-handle `getWritePlanProvider(handle)` (`:142-146`), `getProcedureOps(handle)` (`:160-164`), and
   `supportedWriteOperations(handle)` (SPI default derives from `getWritePlanProvider(handle)`) — plus the
