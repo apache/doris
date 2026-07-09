@@ -40,4 +40,25 @@ public class ConfigTest {
         ConfigBase.setMutableConfig("s3_load_endpoint_white_list", "");
         Assert.assertEquals("array length should be 0", 0, Config.s3_load_endpoint_white_list.length);
     }
+
+    @Test
+    public void testRejectDeprecatedInvertedIndexV1WithWhitespace() throws Exception {
+        String originFormat = Config.inverted_index_storage_format;
+        try {
+            ConfigBase.setMutableConfig("inverted_index_storage_format", "V2");
+            ConfigException dynamicException = Assert.assertThrows(ConfigException.class,
+                    () -> ConfigBase.setMutableConfig("inverted_index_storage_format", " V1 "));
+            Assert.assertTrue(dynamicException.getMessage().contains("Inverted index V1 is deprecated"));
+            Assert.assertEquals("V2", Config.inverted_index_storage_format);
+
+            Config.inverted_index_storage_format = "V2";
+            ConfigException startupException = Assert.assertThrows(ConfigException.class,
+                    () -> new ConfigBase.RejectStartupInvertedIndexV1Handler().handle(
+                            Config.class.getField("inverted_index_storage_format"), " V1 "));
+            Assert.assertTrue(startupException.getMessage().contains("inverted_index_storage_format=V1"));
+            Assert.assertEquals("V2", Config.inverted_index_storage_format);
+        } finally {
+            Config.inverted_index_storage_format = originFormat;
+        }
+    }
 }

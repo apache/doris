@@ -84,11 +84,12 @@ public class ConfigBase {
     public static class RejectDeprecatedV1Handler implements ConfHandler {
         @Override
         public void handle(Field field, String confVal) throws Exception {
-            if ("V1".equalsIgnoreCase(confVal)) {
+            String normalizedConfVal = confVal.trim();
+            if ("V1".equalsIgnoreCase(normalizedConfVal)) {
                 throw new ConfigException("Inverted index V1 is deprecated and no longer allowed"
                         + " for new index creation. Please use inverted index V2.");
             }
-            setConfigField(field, confVal);
+            setConfigField(field, normalizedConfVal);
         }
     }
 
@@ -98,12 +99,13 @@ public class ConfigBase {
     public static class RejectStartupInvertedIndexV1Handler implements ConfHandler {
         @Override
         public void handle(Field field, String confVal) throws Exception {
-            if ("V1".equalsIgnoreCase(confVal)) {
+            String normalizedConfVal = confVal.trim();
+            if ("V1".equalsIgnoreCase(normalizedConfVal)) {
                 throw new ConfigException(
                         "inverted_index_storage_format=V1 is no longer supported. "
                         + "Please update fe.conf (or fe_custom.conf): set inverted_index_storage_format=V2.");
             }
-            setConfigField(field, confVal);
+            setConfigField(field, normalizedConfVal);
         }
     }
 
