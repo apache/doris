@@ -191,7 +191,6 @@ public class IcebergRestExternalCatalog extends IcebergExternalCatalog implement
         return useSessionCatalog(ctx);
     }
 
-    @Override
     /**
      * Whether the given request should use a per-user session catalog. This is the single source of truth for
      * that decision, shared by the cache-bypass logic above and by {@link IcebergMetadataOps} via
@@ -208,6 +207,7 @@ public class IcebergRestExternalCatalog extends IcebergExternalCatalog implement
      *       without a token (e.g. a password login) is rejected here rather than served by the default path.</li>
      * </ul>
      */
+    @Override
     public boolean useSessionCatalog(SessionContext ctx) {
         if (!isIcebergRestUserSessionEnabled()) {
             return false;
@@ -248,9 +248,9 @@ public class IcebergRestExternalCatalog extends IcebergExternalCatalog implement
      * Whether REST user-session mode is enabled for this catalog.
      *
      * <p>This is REST-specific behavior, so it lives on {@link IcebergRestExternalCatalog} rather than the
-     * generic {@link IcebergExternalCatalog} base class. The decision is made from catalog properties and is
-     * safe to call before catalog initialization, e.g. from the cache-bypass decision in {@link #getDbNames()}
-     * and {@link #getDbNullable(String)} which runs before initialization.
+     * generic {@link IcebergExternalCatalog} base class. The decision is made purely from catalog
+     * properties and is safe to call before catalog initialization, e.g. from the cache-bypass decision in
+     * {@link #getDbNames()} and {@link #getDbNullable(String)} which runs before initialization.
      */
     public boolean isIcebergRestUserSessionEnabled() {
         IcebergRestProperties props = restProperties();

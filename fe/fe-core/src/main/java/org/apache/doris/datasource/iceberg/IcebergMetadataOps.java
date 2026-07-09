@@ -107,9 +107,14 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     protected Catalog catalog;
     protected ExternalCatalog dorisCatalog;
     protected SupportsNamespaces nsCatalog;
-    // The default view catalog comes from the shared identity path.
+    // The view catalog used by the non-delegated (default) path. For REST this is the session catalog's
+    // asViewCatalog(empty) (the default Catalog from asCatalog() is not itself a ViewCatalog); for other
+    // catalog types it is the catalog itself when it implements ViewCatalog. Empty when views are unsupported
+    // or disabled.
     private final Optional<ViewCatalog> defaultViewCatalog;
-    // Session-aware catalogs expose the decision of whether a request should use per-user credentials.
+    // Non-null only when the backing catalog supports per-user dynamic session (an Iceberg REST catalog with
+    // iceberg.rest.session=user). Captured once at construction; the per-request decision is delegated to it so
+    // this class never re-checks the catalog type or reads REST properties directly.
     private final IcebergUserSessionCatalog userSessionCatalog;
     private final IcebergSessionCatalogAdapter sessionCatalogAdapter;
     private ExecutionAuthenticator executionAuthenticator;
@@ -123,6 +128,10 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     public IcebergMetadataOps(ExternalCatalog dorisCatalog, Catalog catalog) {
         this.dorisCatalog = dorisCatalog;
         this.catalog = catalog;
+        // Session-aware behavior exists only when the backing catalog advertises the IcebergUserSessionCatalog
+        // capability (an Iceberg REST catalog with dynamic identity). Capture it once and read what we need
+        // from the capability, so no call-time path has to know about the concrete REST catalog or its
+        // properties. For any other catalog type this is null (session disabled).
         this.userSessionCatalog = dorisCatalog instanceof IcebergUserSessionCatalog
                 ? (IcebergUserSessionCatalog) dorisCatalog : null;
         RESTSessionCatalog restSessionCatalog =
@@ -1402,6 +1411,9 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
 
     private Optional<ViewCatalog> resolveDefaultViewCatalog(Catalog catalog, RESTSessionCatalog restSessionCatalog,
             boolean viewEnabled) {
+        // Branch on whether this is a REST (session-aware) catalog, not on whether restSessionCatalog happens to
+        // be built: for REST the default Catalog (asCatalog) is not a ViewCatalog, so views must come from the
+        // session catalog's asViewCatalog, gated on the REST view-enabled flag.
         if (userSessionCatalog != null) {
             if (!viewEnabled || restSessionCatalog == null) {
                 return Optional.empty();
@@ -1411,6 +1423,11 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         return catalog instanceof ViewCatalog ? Optional.of((ViewCatalog) catalog) : Optional.empty();
     }
 
+    /**
+     * Whether the current request should use a per-user session catalog. The decision (delegated credential
+     * present + dynamic identity enabled) is owned by the catalog via {@link IcebergUserSessionCatalog}; non
+     * session-aware catalogs never take this path.
+     */
     private boolean useSessionCatalog(SessionContext ctx) {
         return userSessionCatalog != null && userSessionCatalog.useSessionCatalog(ctx);
     }
