@@ -46,8 +46,10 @@ import org.apache.avro.Schema;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.table.TableSchemaResolver;
+import org.apache.hudi.common.util.Option;
 import org.apache.hudi.internal.schema.InternalSchema;
 import org.apache.hudi.internal.schema.Types;
+import org.apache.hudi.internal.schema.convert.AvroInternalSchemaConverter;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -267,12 +269,41 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
     @Override
     public ConnectorTableSchema getTableSchema(
             ConnectorSession session, ConnectorTableHandle handle) {
+        // Latest schema (no time-travel pin). Shares the single build path with the at-instant overload below
+        // (null instant = latest) so the two can never drift.
+        return buildTableSchema((HudiTableHandle) handle, null);
+    }
+
+    /**
+     * Returns the schema AS OF the pinned instant for a {@code FOR TIME AS OF} read under schema evolution
+     * (HD-C5a), closing HD-C2 residual #1 (the SPI default previously returned the LATEST schema, ignoring the
+     * pin). Keys off {@link HudiTableHandle#getQueryInstant()} &mdash; the instant {@link #applySnapshot} stamps
+     * onto the handle &mdash; NOT {@code snapshot.getSchemaId()}, which stays {@code -1} for hudi (hudi pins by
+     * instant, not by a numeric schema id, so the generic schema-id carrier is inert here; fe-core passes the
+     * post-{@code applySnapshot} handle, so the instant is already on it). A {@code null} instant (a plain read,
+     * or a non-{@code FOR TIME} pin such as {@code @incr}, whose {@code loadSnapshot} branch lists the LATEST
+     * schema itself and never reaches here) resolves via the SAME shared build method with a null instant, so
+     * latest and at-instant cannot drift. Hive gateway delegation for this 3-arg overload already shipped
+     * ({@code HiveConnectorMetadata}), so no hive change is needed.
+     */
+    @Override
+    public ConnectorTableSchema getTableSchema(ConnectorSession session,
+            ConnectorTableHandle handle, ConnectorMvccSnapshot snapshot) {
         HudiTableHandle hudiHandle = (HudiTableHandle) handle;
+        return buildTableSchema(hudiHandle, hudiHandle.getQueryInstant());
+    }
+
+    /**
+     * Single build path for {@link #getTableSchema}: reads the columns from the Hudi metaClient AS OF
+     * {@code queryInstant} ({@code null} = latest) and wraps them in a {@link ConnectorTableSchema}. Shared by
+     * the latest (2-arg) and at-instant (3-arg) entry points so they cannot diverge.
+     */
+    private ConnectorTableSchema buildTableSchema(HudiTableHandle hudiHandle, String queryInstant) {
         String basePath = hudiHandle.getBasePath();
 
         List<ConnectorColumn> columns;
         if (basePath != null && !basePath.isEmpty()) {
-            columns = getSchemaFromMetaClient(basePath);
+            columns = getSchemaFromMetaClient(basePath, queryInstant);
         } else {
             columns = getSchemaFromHms(hudiHandle.getDbName(), hudiHandle.getTableName());
         }
@@ -660,30 +691,72 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
     // ========== Internal helpers ==========
 
     /**
-     * Read schema from HoodieTableMetaClient's latest Avro schema.
-     * This is the authoritative schema for Hudi tables.
+     * Reads the columns from the Hudi metaClient AS OF {@code queryInstant} ({@code null} = the latest Avro
+     * schema, the authoritative schema for a plain read). The whole metaClient touch runs under
+     * {@link HudiMetaClientExecutor#execute} (plugin UGI {@code doAs} + TCCL pin) &mdash; HD-C5a closes the
+     * previously-unwrapped auth/TCCL gap, because {@code getTableSchema} can be called off the TCCL-pinned scan
+     * thread (e.g. catalog metadata load / MTMV refresh).
+     *
+     * <p><b>At-instant ({@code queryInstant != null}, {@code FOR TIME AS OF}).</b> Byte-faithful to legacy
+     * {@code HiveMetaStoreClientHelper.getHudiTableSchema} + {@code HMSExternalTable.initHudiSchema}: reload the
+     * active timeline, then {@code getTableInternalSchemaFromCommitMetadata(instant)}. When present
+     * ({@code hoodie.schema.on.read.enable} is ON) the columns/ids come from that AT-INSTANT
+     * {@link InternalSchema} (stable ids across renames), so a renamed column shows its historical name and BE
+     * matches its old files BY FIELD ID. When absent (evolution off) it falls through to the latest path &mdash;
+     * byte-equivalent for a non-evolution table whose schema never changed (legacy's latest-fallback, design
+     * decision D3).</p>
+     *
+     * <p>Package-private (not static) so a same-loader test can override it to assert the {@code queryInstant}
+     * is threaded from the handle without a live metaClient (the actual at-instant read is e2e).</p>
      */
-    private List<ConnectorColumn> getSchemaFromMetaClient(String basePath) {
+    List<ConnectorColumn> getSchemaFromMetaClient(String basePath, String queryInstant) {
         try {
-            Configuration conf = buildHadoopConf();
-            HoodieTableMetaClient metaClient = HoodieTableMetaClient.builder()
-                    .setConf(new org.apache.hudi.storage.hadoop.HadoopStorageConfiguration(conf))
-                    .setBasePath(basePath)
-                    .build();
-            TableSchemaResolver schemaResolver = new TableSchemaResolver(metaClient);
-            // include the 5 `_hoodie_*` meta columns (byte-faithful to legacy getHudiTableSchema, which passes
-            // `true` unconditionally at HiveMetaStoreClientHelper). The no-arg overload only includes them when
-            // hoodie.populate.meta.fields defaults true, so the explicit `true` (a) restores legacy SELECT *
-            // / DESCRIBE parity even for a populate.meta.fields=false table and (b) guarantees `_hoodie_commit_time`
-            // is a visible, name-bindable output column for the synthetic incremental row filter to reference.
-            Schema avroSchema = schemaResolver.getTableAvroSchema(true);
-            List<ConnectorColumn> columns = avroSchemaToColumns(avroSchema);
-            return attachHudiFieldIds(schemaResolver, avroSchema, columns);
+            return metaClientExecutor.execute(() -> {
+                HoodieTableMetaClient metaClient =
+                        HudiScanPlanProvider.buildMetaClient(buildHadoopConf(), basePath);
+                TableSchemaResolver schemaResolver = new TableSchemaResolver(metaClient);
+                if (queryInstant != null) {
+                    // Reload so a recently-committed instant's schema file is readable, not a stale cached one
+                    // (legacy getHudiTableSchema reloads for exactly this reason).
+                    metaClient.reloadActiveTimeline();
+                    Option<InternalSchema> atInstant =
+                            schemaResolver.getTableInternalSchemaFromCommitMetadata(queryInstant);
+                    if (atInstant.isPresent()) {
+                        return columnsFromInternalSchema(atInstant.get());
+                    }
+                    // schema.on.read off -> no commit-metadata InternalSchema -> latest fallback (D3):
+                    // byte-equivalent for a non-evolution table (its schema never changed).
+                }
+                // Latest schema. Include the 5 `_hoodie_*` meta columns (byte-faithful to legacy
+                // getHudiTableSchema, which passes `true` unconditionally). The explicit `true` (a) restores
+                // legacy SELECT * / DESCRIBE parity even for a populate.meta.fields=false table and (b) keeps
+                // `_hoodie_commit_time` a visible, name-bindable column for the synthetic incremental row filter.
+                Schema avroSchema = schemaResolver.getTableAvroSchema(true);
+                List<ConnectorColumn> columns = avroSchemaToColumns(avroSchema);
+                return attachHudiFieldIds(schemaResolver, avroSchema, columns);
+            });
         } catch (Exception e) {
-            LOG.warn("Failed to get schema from Hudi MetaClient for path '{}': {}",
-                    basePath, e.getMessage());
+            // Pass the throwable (not e.getMessage()) so the full cause chain + stack survives the
+            // HudiMetaClientExecutor.execute DorisConnectorException wrapper (whose fixed message would otherwise
+            // mask WHY this best-effort read degraded to an empty column list / BY_NAME).
+            LOG.warn("Failed to get schema from Hudi MetaClient for path '{}' (instant={})",
+                    basePath, queryInstant, e);
             return Collections.emptyList();
         }
+    }
+
+    /**
+     * Builds the column list from an AT-INSTANT {@link InternalSchema} (schema-on-read time travel). Mirror of
+     * legacy {@code HMSExternalTable.initHudiSchema}: convert the InternalSchema to Avro to derive the column
+     * names/types AT the instant, then attach each top-level field id from the SAME InternalSchema (stable
+     * across renames). The record name passed to {@code convert} is cosmetic (only the ROOT record is named; the
+     * derived columns come from its fields), so a constant is used. Field-id resolution and lowercasing match
+     * the latest path exactly (shared {@link #attachTopLevelFieldIds}).
+     */
+    private List<ConnectorColumn> columnsFromInternalSchema(InternalSchema internalSchema) {
+        Schema avroSchema = AvroInternalSchemaConverter.convert(internalSchema, "hudi_table");
+        List<ConnectorColumn> columns = avroSchemaToColumns(avroSchema);
+        return attachTopLevelFieldIds(columns, internalSchema);
     }
 
     /**
@@ -701,10 +774,9 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
      *
      * <p>Unlike legacy (which sources columns AND ids from the same InternalSchema and zips positionally), the
      * connector keeps its independent {@code getTableAvroSchema(true)} column source (preserving the shipped
-     * meta-column-inclusive schema), so ids are matched BY NAME in {@link #attachTopLevelFieldIds}. NOTE(C5a):
-     * this metaClient touch is not yet wrapped in {@code HudiMetaClientExecutor.execute} — closing the existing
-     * unwrapped {@code getSchemaFromMetaClient} auth/TCCL gap is deferred to the at-instant step (C5a), which
-     * restructures this whole read.</p>
+     * meta-column-inclusive schema), so ids are matched BY NAME in {@link #attachTopLevelFieldIds}. This runs
+     * inside the {@link HudiMetaClientExecutor#execute} wrapper that {@link #getSchemaFromMetaClient} now
+     * establishes (HD-C5a closed the previously-unwrapped auth/TCCL gap).</p>
      */
     private List<ConnectorColumn> attachHudiFieldIds(TableSchemaResolver schemaResolver, Schema latestAvro,
             List<ConnectorColumn> columns) {
