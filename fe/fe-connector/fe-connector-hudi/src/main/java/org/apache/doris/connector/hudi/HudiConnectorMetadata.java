@@ -26,6 +26,7 @@ import org.apache.doris.connector.api.ConnectorType;
 import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
+import org.apache.doris.connector.api.handle.ConnectorTransaction;
 import org.apache.doris.connector.api.mvcc.ConnectorMvccSnapshot;
 import org.apache.doris.connector.api.mvcc.ConnectorTimeTravelSpec;
 import org.apache.doris.connector.api.pushdown.ConnectorAnd;
@@ -317,6 +318,31 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
     @Override
     public Map<String, String> getProperties() {
         return properties;
+    }
+
+    // ========== Read-only write-reject safety net ==========
+
+    /**
+     * Hudi-on-HMS tables are READ-ONLY in this catalog (data is written by Spark/Flink; Doris only reads). A hudi
+     * table's write is already rejected UP FRONT by the engine's admission gate — {@code
+     * supportedWriteOperations(handle)} derives from {@link #getWritePlanProvider(ConnectorTableHandle)} which
+     * this connector leaves at the SPI default {@code null} &rarr; empty operation set &rarr; the {@code
+     * PhysicalPlanTranslator} INSERT/row-level-DML gates throw a clean {@code AnalysisException} before ever
+     * opening a transaction; {@code EXECUTE} is rejected by {@code getProcedureOps} &rarr; {@code null}; every DDL
+     * op throws the SPI default {@code "... not supported"}. This override is the explicit LAST-LINE DEFENSE: it
+     * replaces the generic {@code "Transactions not supported"} default with a hudi-specific read-only message so
+     * that any future write path reaching transaction-open (bypassing the gate) fails loud with the RIGHT reason
+     * rather than a confusing generic one. Overriding the no-arg form covers the per-handle overload too (its SPI
+     * default delegates here). It is deliberately NOT placed on {@code getWritePlanProvider}: the admission gate
+     * calls {@code getWritePlanProvider} to DECIDE, so throwing there would make the gate throw a {@code
+     * DorisConnectorException} the engine misclassifies as an internal error instead of the clean "does not
+     * support INSERT" — keep the provider {@code null} and reject explicitly only here (dormant until hms enters
+     * {@code SPI_READY_TYPES}).
+     */
+    @Override
+    public ConnectorTransaction beginTransaction(ConnectorSession session) {
+        throw new DorisConnectorException(
+                "Hudi tables are read-only in this catalog; INSERT/UPDATE/DELETE/MERGE are not supported");
     }
 
     // ========== ConnectorMvccOps (MTMV freshness) ==========
