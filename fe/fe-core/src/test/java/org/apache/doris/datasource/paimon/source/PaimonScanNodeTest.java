@@ -442,6 +442,31 @@ public class PaimonScanNodeTest {
     }
 
     @Test
+    public void testGetBackendPaimonOptionsForJdbcDriver() {
+        Map<String, String> props = new HashMap<>();
+        props.put("paimon.jdbc.driver_url", "file:///tmp/postgresql.jar");
+        props.put("paimon.jdbc.driver_class", "org.postgresql.Driver");
+
+        CatalogProperty catalogProperty = Mockito.mock(CatalogProperty.class);
+        Mockito.when(catalogProperty.getProperties()).thenReturn(props);
+
+        PaimonExternalCatalog catalog = Mockito.mock(PaimonExternalCatalog.class);
+        Mockito.when(catalog.getCatalogProperty()).thenReturn(catalogProperty);
+
+        PaimonSource source = Mockito.mock(PaimonSource.class);
+        Mockito.when(source.getCatalog()).thenReturn(catalog);
+
+        PaimonScanNode node = new PaimonScanNode(new PlanNodeId(0),
+                new TupleDescriptor(new TupleId(0)), false, sv, ScanContext.EMPTY);
+        node.setSource(source);
+
+        Map<String, String> backendOptions = node.getBackendPaimonOptions();
+        Assert.assertEquals("file:///tmp/postgresql.jar", backendOptions.get("jdbc.driver_url"));
+        Assert.assertEquals("org.postgresql.Driver", backendOptions.get("jdbc.driver_class"));
+        Assert.assertEquals(2, backendOptions.size());
+    }
+
+    @Test
     public void testGetFieldIndexMatchesMixedCaseColumns() {
         List<String> fieldNames = Arrays.asList("data", "mIxEd_COL", "PART");
 

@@ -19,6 +19,7 @@ package org.apache.doris.datasource.paimon.source;
 
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.catalog.JdbcResource;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
@@ -35,7 +36,6 @@ import org.apache.doris.datasource.paimon.PaimonUtil;
 import org.apache.doris.datasource.paimon.PaimonUtils;
 import org.apache.doris.datasource.paimon.profile.PaimonMetricRegistry;
 import org.apache.doris.datasource.paimon.profile.PaimonScanMetricsReporter;
-import org.apache.doris.datasource.property.metastore.PaimonJdbcMetaStoreProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
@@ -95,6 +95,9 @@ public class PaimonScanNode extends FileQueryScanNode {
     private static final String DORIS_ENABLE_JNI_IO_MANAGER = "doris.enable_jni_io_manager";
     private static final String DORIS_JNI_IO_MANAGER_TMP_DIR = "doris.jni_io_manager.tmp_dir";
     private static final String DORIS_JNI_IO_MANAGER_IMPL_CLASS = "doris.jni_io_manager.impl_class";
+    private static final String JDBC_PREFIX = "jdbc.";
+    private static final String JDBC_DRIVER_URL = JDBC_PREFIX + JdbcResource.DRIVER_URL;
+    private static final String JDBC_DRIVER_CLASS = JDBC_PREFIX + JdbcResource.DRIVER_CLASS;
     private static final List<String> BACKEND_PAIMON_OPTIONS = Arrays.asList(
             DORIS_ENABLE_JNI_IO_MANAGER,
             DORIS_JNI_IO_MANAGER_TMP_DIR,
@@ -467,13 +470,29 @@ public class PaimonScanNode extends FileQueryScanNode {
                 backendOptions.put(option, catalogProperties.get(catalogProperty));
             }
         }
-        if (!(catalog.getCatalogProperty().getMetastoreProperties() instanceof PaimonJdbcMetaStoreProperties)) {
+        String driverUrl = getCatalogProperty(catalogProperties, JdbcResource.DRIVER_URL);
+        if (driverUrl == null) {
             return backendOptions;
         }
-        PaimonJdbcMetaStoreProperties jdbcMetaStoreProperties =
-                (PaimonJdbcMetaStoreProperties) catalog.getCatalogProperty().getMetastoreProperties();
-        backendOptions.putAll(jdbcMetaStoreProperties.getBackendPaimonOptions());
+        String driverClass = getCatalogProperty(catalogProperties, JdbcResource.DRIVER_CLASS);
+        if (driverClass == null) {
+            throw new IllegalArgumentException("jdbc.driver_class or paimon.jdbc.driver_class is required when "
+                    + "jdbc.driver_url or paimon.jdbc.driver_url is specified");
+        }
+        backendOptions.put(JDBC_DRIVER_URL, JdbcResource.getFullDriverUrl(driverUrl));
+        backendOptions.put(JDBC_DRIVER_CLASS, driverClass);
         return backendOptions;
+    }
+
+    private String getCatalogProperty(Map<String, String> catalogProperties, String property) {
+        String value = catalogProperties.get(PAIMON_PROPERTY_PREFIX + JDBC_PREFIX + property);
+        if (value == null || value.trim().isEmpty()) {
+            value = catalogProperties.get(JDBC_PREFIX + property);
+        }
+        if (value == null || value.trim().isEmpty()) {
+            return null;
+        }
+        return value;
     }
 
     private long determineTargetFileSplitSize(List<DataSplit> dataSplits,
