@@ -48,6 +48,14 @@ suite("test_streaming_mysql_job_sc_during_snapshot", "p0,external,mysql,external
                 rows.size() == 1 && String.valueOf(rows[0][0]) == expected
             })
         }
+        def waitForSucceedTasks = { int expected ->
+            Awaitility.await().atMost(300, SECONDS).pollInterval(2, SECONDS).until({
+                def cnt = sql """SELECT SucceedTaskCount FROM jobs("type"="insert")
+                                  WHERE Name='${jobName}' AND ExecuteType='STREAMING'"""
+                log.info("SucceedTaskCount before schema change: " + cnt)
+                cnt.size() == 1 && (cnt[0][0] as int) >= expected
+            })
+        }
         def dumpJobState = {
             log.info("jobs  : " + sql("""SELECT * FROM jobs("type"="insert") WHERE Name='${jobName}'"""))
             log.info("tasks : " + sql("""SELECT * FROM tasks("type"="insert") WHERE JobName='${jobName}'"""))
@@ -91,6 +99,17 @@ suite("test_streaming_mysql_job_sc_during_snapshot", "p0,external,mysql,external
                 TO DATABASE ${currentDb} (
                     "table.create.properties.replication_num" = "1"
                 )"""
+
+        // Issue the DDL only after at least one snapshot split has committed. This keeps
+        // the later binlog split start offset before the DDL, while the remaining snapshot
+        // splits may still exercise automatic task/reader retry if they see the new
+        // ResultSet with the cached old source schema.
+        try {
+            waitForSucceedTasks(1)
+        } catch (Exception ex) {
+            dumpJobState()
+            throw ex
+        }
 
         connect("root", "123456", "jdbc:mysql://${externalEnvIp}:${mysqlPort}") {
             sql """ALTER TABLE ${mysqlDb}.${table1} ADD COLUMN sc_note VARCHAR(50)"""
