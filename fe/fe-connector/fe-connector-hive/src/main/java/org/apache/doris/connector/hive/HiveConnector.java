@@ -106,14 +106,26 @@ public class HiveConnector implements Connector {
 
     @Override
     public ConnectorMetadata getMetadata(ConnectorSession session) {
-        // Two sibling seams for the metadata's guard-and-forward:
-        //  - getOrCreateIcebergSibling (by-TYPE, force-build): only the getTableHandle ICEBERG divert uses it, to
-        //    build+ask the iceberg sibling for a table detected as iceberg (no handle exists yet to route by).
-        //  - resolveSiblingOwner (by-HANDLE, peek): every per-handle site routes a foreign handle to whichever
-        //    ALREADY-BUILT sibling owns it. Passing the resolver (not a built sibling) keeps a pure-hive query
-        //    from ever building/throwing a sibling.
-        return new HiveConnectorMetadata(getOrCreateClient(), properties, context,
-                this::getOrCreateIcebergSibling, this::resolveSiblingOwner);
+        return newMetadata(getOrCreateClient());
+    }
+
+    /**
+     * Builds the connector's metadata with its sibling seams wired in. Extracted (package-private) from
+     * {@link #getMetadata} so a unit test can assert the wiring WITHOUT {@link #getOrCreateClient()} building a
+     * real ThriftHmsClient (whose Hadoop stack is absent from connector unit tests). The seams:
+     * <ul>
+     *   <li>getOrCreateIcebergSibling / getOrCreateHudiSibling (by-TYPE, force-build): only the getTableHandle
+     *       ICEBERG / HUDI diverts use them, to build+ask the matching sibling for a table detected as iceberg/hudi
+     *       (no handle exists yet to route by). These two args share the static type {@code Supplier<Connector>},
+     *       so a transposition would compile clean &mdash; HiveConnectorThreeWayRoutingTest pins the pairing.</li>
+     *   <li>resolveSiblingOwner (by-HANDLE, peek): every per-handle site routes a foreign handle to whichever
+     *       ALREADY-BUILT sibling owns it. Passing the resolver (not a built sibling) keeps a pure-hive query from
+     *       ever building/throwing a sibling.</li>
+     * </ul>
+     */
+    HiveConnectorMetadata newMetadata(HmsClient client) {
+        return new HiveConnectorMetadata(client, properties, context,
+                this::getOrCreateIcebergSibling, this::getOrCreateHudiSibling, this::resolveSiblingOwner);
     }
 
     /**

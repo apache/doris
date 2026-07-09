@@ -101,7 +101,7 @@ public class HiveConnectorMetadataSiblingDelegationTest {
      */
     private HiveConnectorMetadata withSibling() {
         return new HiveConnectorMetadata(null, Collections.emptyMap(), new FakeConnectorContext(),
-                SUPPLIER_MUST_NOT_BE_USED, handle -> siblingConnector);
+                SUPPLIER_MUST_NOT_BE_USED, SUPPLIER_MUST_NOT_BE_USED, handle -> siblingConnector);
     }
 
     private HiveTableHandle hiveHandle() {
@@ -315,7 +315,7 @@ public class HiveConnectorMetadataSiblingDelegationTest {
         // sibling. The selection must be symmetric — hive and iceberg write plans downcast to different types.
         ConnectorTransaction hiveTxn = new NoOpConnectorTransaction(70099L, "HIVE");
         HiveConnectorMetadata md = new HiveConnectorMetadata(null, Collections.emptyMap(), new FakeConnectorContext(),
-                SUPPLIER_MUST_NOT_BE_USED, handle -> siblingConnector) {
+                SUPPLIER_MUST_NOT_BE_USED, SUPPLIER_MUST_NOT_BE_USED, handle -> siblingConnector) {
             @Override
             public ConnectorTransaction beginTransaction(ConnectorSession session) {
                 return hiveTxn;

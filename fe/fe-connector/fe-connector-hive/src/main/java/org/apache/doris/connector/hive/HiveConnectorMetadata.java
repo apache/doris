@@ -173,6 +173,13 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
         throw new DorisConnectorException("no iceberg sibling connector configured for this hive metadata");
     };
 
+    // The hudi analog of NO_ICEBERG_SIBLING installed by the 3-arg constructor (hive-only construction). Invoked
+    // only when a HUDI table is diverted BY TYPE — which such a construction never triggers — so it fails loud
+    // instead of NPEing.
+    private static final Supplier<Connector> NO_HUDI_SIBLING = () -> {
+        throw new DorisConnectorException("no hudi sibling connector configured for this hive metadata");
+    };
+
     // The by-handle owner resolver installed by the 3-arg constructor (hive-only construction). Invoked only when
     // a NON-hive handle reaches a per-handle guard-and-forward site — which such a construction never does — so it
     // fails loud instead of NPEing.
@@ -194,6 +201,11 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
     // triggers it. Used ONLY through the parent-first Connector / ConnectorMetadata interfaces — its concrete
     // iceberg types are never cast here (cross-loader CCE).
     private final Supplier<Connector> icebergSiblingSupplier;
+    // The hudi analog of icebergSiblingSupplier: supplies the embedded hudi SIBLING connector BY TYPE, for the
+    // getTableHandle HUDI divert only (a hudi-detected table has no handle yet to route by). Lazy via
+    // HiveConnector.getOrCreateHudiSibling; used ONLY through the parent-first Connector / ConnectorMetadata
+    // interfaces — its concrete hudi types are never cast here (cross-loader CCE).
+    private final Supplier<Connector> hudiSiblingSupplier;
     // Resolves the embedded sibling connector that OWNS a foreign (non-hive) table handle, for the per-handle
     // guard-and-forward methods below. Backed by HiveConnector.resolveSiblingOwner (a 3-way ownsHandle dispatch
     // over the ALREADY-BUILT iceberg / hudi siblings). Used ONLY through the parent-first Connector /
@@ -201,17 +213,19 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
     private final Function<ConnectorTableHandle, Connector> siblingOwnerResolver;
 
     public HiveConnectorMetadata(HmsClient hmsClient, Map<String, String> properties, ConnectorContext context) {
-        this(hmsClient, properties, context, NO_ICEBERG_SIBLING, NO_SIBLING_OWNER);
+        this(hmsClient, properties, context, NO_ICEBERG_SIBLING, NO_HUDI_SIBLING, NO_SIBLING_OWNER);
     }
 
     public HiveConnectorMetadata(HmsClient hmsClient, Map<String, String> properties, ConnectorContext context,
             Supplier<Connector> icebergSiblingSupplier,
+            Supplier<Connector> hudiSiblingSupplier,
             Function<ConnectorTableHandle, Connector> siblingOwnerResolver) {
         this.hmsClient = hmsClient;
         this.properties = properties;
         this.context = context;
         this.typeMappingOptions = buildTypeMappingOptions(properties);
         this.icebergSiblingSupplier = icebergSiblingSupplier;
+        this.hudiSiblingSupplier = hudiSiblingSupplier;
         this.siblingOwnerResolver = siblingOwnerResolver;
     }
 
@@ -222,9 +236,28 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
      * live on the single (memoized) sibling connector, so this is cheap. The returned metadata and any handle it
      * produces are used ONLY through the parent-first SPI interfaces and MUST NOT be cast (the sibling's concrete
      * iceberg types would CCE across the loader split).
+     *
+     * <p>Package-private (not private) so HiveConnectorThreeWayRoutingTest can assert that
+     * {@link HiveConnector#getMetadata} wires the iceberg by-TYPE supplier to THIS arm (the two same-typed
+     * supplier args are otherwise transposable at that sole production wiring point).
      */
-    private ConnectorMetadata icebergSiblingMetadata(ConnectorSession session) {
+    ConnectorMetadata icebergSiblingMetadata(ConnectorSession session) {
         return icebergSiblingSupplier.get().getMetadata(session);
+    }
+
+    /**
+     * The embedded hudi sibling's metadata resolved BY TYPE, for the getTableHandle HUDI divert only (a
+     * hudi-detected table has no handle yet, so the sibling is force-built and asked directly). Same lifecycle and
+     * casting contract as {@link #icebergSiblingMetadata}: obtained fresh per call, used ONLY through the
+     * parent-first SPI interfaces, and never cast (the sibling's concrete hudi types would CCE across the loader
+     * split).
+     *
+     * <p>Package-private (not private) so HiveConnectorThreeWayRoutingTest can assert that
+     * {@link HiveConnector#getMetadata} wires the hudi by-TYPE supplier to THIS arm (see
+     * {@link #icebergSiblingMetadata}).
+     */
+    ConnectorMetadata hudiSiblingMetadata(ConnectorSession session) {
+        return hudiSiblingSupplier.get().getMetadata(session);
     }
 
     /**
@@ -271,18 +304,22 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
         }
         HmsTableInfo tableInfo = hmsClient.getTable(dbName, tableName);
         HiveTableType tableType = HiveTableFormatDetector.detect(tableInfo);
-        // Iceberg-on-HMS divert: an iceberg table registered in this HMS catalog is served by the embedded
-        // iceberg SIBLING connector, not by hive. Return the sibling's OWN table handle (the raw foreign iceberg
-        // handle) verbatim — NOT a HiveTableHandle stamped ICEBERG — so iceberg's scan/metadata path, which
-        // unconditionally casts the handle to its concrete IcebergTableHandle, succeeds. This is the pivot that
-        // activates the guard-and-forward overrides throughout this class: every gateway consumer discriminates by
-        // `instanceof HiveTableHandle` (the gateway's OWN hive-loader type) and forwards any non-hive handle to
-        // the sibling; the foreign iceberg handle is NEVER cast here (its concrete type is invisible across the
-        // classloader split). HUDI is intentionally NOT diverted — hudi-on-HMS delegation is a later substep, so a
-        // hudi table stays on the hive-handle path below (dormant, unchanged). Dormant overall until hms enters
-        // SPI_READY_TYPES: today getTableHandle is never called for this connector.
+        // Foreign-handle divert: an iceberg-on-HMS or hudi-on-HMS table registered in this HMS catalog is served by
+        // the embedded iceberg / hudi SIBLING connector, not by hive. Return the sibling's OWN table handle (the
+        // raw foreign iceberg/hudi handle) verbatim — NOT a HiveTableHandle stamped ICEBERG/HUDI — so the sibling's
+        // scan/metadata path, which unconditionally casts the handle to its concrete IcebergTableHandle /
+        // HudiTableHandle, succeeds. This is the pivot that activates the guard-and-forward overrides throughout
+        // this class: every gateway consumer discriminates by `instanceof HiveTableHandle` (the gateway's OWN
+        // hive-loader type) and forwards any non-hive handle to whichever sibling OWNS it (3-way ownsHandle
+        // dispatch); the foreign handle is NEVER cast here (its concrete type is invisible across the classloader
+        // split). Iceberg is checked before hudi, matching the detector's own precedence (a table carrying both
+        // resolves iceberg). Dormant overall until hms enters SPI_READY_TYPES: today getTableHandle is never called
+        // for this connector.
         if (tableType == HiveTableType.ICEBERG) {
             return icebergSiblingMetadata(session).getTableHandle(session, dbName, tableName);
+        }
+        if (tableType == HiveTableType.HUDI) {
+            return hudiSiblingMetadata(session).getTableHandle(session, dbName, tableName);
         }
         // Fail-loud parity with legacy HMSExternalTable.supportedHiveTable(), which threw on a null or
         // unrecognized input format instead of silently degrading (the old detector returned UNKNOWN). A view

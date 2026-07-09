@@ -175,6 +175,36 @@ public class HiveConnectorThreeWayRoutingTest {
                 "routing an iceberg handle must NOT build (or require) the hudi sibling");
     }
 
+    @Test
+    public void getMetadataWiresEachByTypeSupplierToItsOwnSibling() {
+        // The by-HANDLE routing above is one brain (resolveSiblingOwner). getTableHandle instead diverts BY TYPE
+        // (no handle exists yet), and HiveConnector.newMetadata (extracted from getMetadata) is the SOLE production
+        // point that wires those two by-TYPE suppliers: `this::getOrCreateIcebergSibling,
+        // this::getOrCreateHudiSibling`. They share the static type Supplier<Connector>, so a transposition compiles
+        // clean and would silently send getTableHandle's ICEBERG arm to the hudi sibling (and vice versa) at flip.
+        // The per-handle DivertTest builds the metadata DIRECTLY with hand-labeled lambdas and cannot observe this
+        // order — guard it here, at the real wiring. newMetadata(null) exercises that wiring without getMetadata's
+        // eager ThriftHmsClient build (whose Hadoop stack is absent from unit tests); the null client is never
+        // dereferenced because only the by-TYPE sibling arms are driven.
+        RoutingSibling iceberg = new RoutingSibling("iceberg", IcebergLikeHandle.class);
+        RoutingSibling hudi = new RoutingSibling("hudi", HudiLikeHandle.class);
+        TwoSiblingContext ctx = new TwoSiblingContext(iceberg, hudi);
+        HiveConnector connector = new HiveConnector(props(), ctx);
+
+        HiveConnectorMetadata md = connector.newMetadata(null);
+
+        // The getTableHandle ICEBERG arm resolves BY TYPE via icebergSiblingMetadata, which force-builds the
+        // iceberg sibling (createSiblingConnector("iceberg")). A transposed getMetadata would build hudi here.
+        md.icebergSiblingMetadata(null);
+        Assertions.assertEquals(1, ctx.icebergBuilds, "the iceberg by-TYPE arm must force-build the iceberg sibling");
+        Assertions.assertEquals(0, ctx.hudiBuilds, "the iceberg by-TYPE arm must NOT build the hudi sibling");
+
+        // Symmetrically the HUDI arm must resolve the hudi sibling, not rebuild iceberg.
+        md.hudiSiblingMetadata(null);
+        Assertions.assertEquals(1, ctx.hudiBuilds, "the hudi by-TYPE arm must force-build the hudi sibling");
+        Assertions.assertEquals(1, ctx.icebergBuilds, "the hudi by-TYPE arm must not rebuild the iceberg sibling");
+    }
+
     private static Map<String, String> props() {
         Map<String, String> props = new HashMap<>();
         props.put("hive.metastore.uris", METASTORE_URI);
