@@ -430,13 +430,14 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             // table's partition columns SOLELY from a "partition_columns" CSV property (toSchemaCacheValue),
             // the same key MaxCompute/paimon emit. Mirror legacy IcebergUtils.loadTableSchemaCacheValue:
             // walk the CURRENT spec, resolve each partition field's SOURCE column name (NO identity filter,
-            // NO dedupe), lowercased to match parseSchema's lowercased column names (fromRemoteColumnName is
-            // identity for iceberg, so the FE consumer looks the names up case-sensitively).
+            // NO dedupe), case-preserved to match parseSchema's case-preserved column names (#65094 read-path
+            // alignment; fromRemoteColumnName is identity for iceberg, so the FE consumer looks the names up
+            // case-sensitively).
             List<String> partitionColumns = new ArrayList<>();
             for (PartitionField field : table.spec().fields()) {
                 Types.NestedField source = table.schema().findField(field.sourceId());
                 if (source != null) {
-                    partitionColumns.add(source.name().toLowerCase(Locale.ROOT));
+                    partitionColumns.add(source.name());
                 }
             }
             if (!partitionColumns.isEmpty()) {
@@ -557,13 +558,13 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     }
 
     /**
-     * Column handles keyed by (lowercased) column name, mirroring {@code PaimonConnectorMetadata}. The generic
+     * Column handles keyed by (case-preserved) column name, mirroring {@code PaimonConnectorMetadata}. The generic
      * {@code PluginDrivenScanNode.buildColumnHandles} looks each query slot up here by name, so the provider
      * receives the PRUNED set of requested columns — which the T06 field-id schema dictionary keys its
      * {@code current_schema_id = -1} entry off (the CI #969249 fix: the dict's top-level names == the BE
      * scan-slot names BY CONSTRUCTION). The field id is the iceberg {@code NestedField.fieldId()} (a permanent
-     * invariant). The name is lowercased with {@code Locale.ROOT} to byte-match {@link #parseSchema} (so the
-     * handle key == the Doris slot name).
+     * invariant). The name is case-preserved (byte-matching {@link #parseSchema}) so the handle key == the
+     * Doris slot name (#65094 read-path alignment: top-level names keep their remote case).
      */
     @Override
     public Map<String, ConnectorColumnHandle> getColumnHandles(
@@ -576,7 +577,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         List<Types.NestedField> fields = table.schema().columns();
         Map<String, ConnectorColumnHandle> handles = new LinkedHashMap<>(fields.size());
         for (Types.NestedField field : fields) {
-            String name = field.name().toLowerCase(Locale.ROOT);
+            String name = field.name();
             handles.put(name, new IcebergColumnHandle(name, field.fieldId()));
         }
         return handles;
@@ -1701,11 +1702,12 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
 
         for (Types.NestedField field : fields) {
             // Legacy IcebergUtils.parseSchema parity (mirrors PaimonConnectorMetadata): the column name is
-            // lowercased (Locale.ROOT), isKey is always true (external-table semantics: DESC shows Key=true),
+            // case-preserved (#65094 read-path alignment; top-level slot names keep their remote case),
+            // isKey is always true (external-table semantics: DESC shows Key=true),
             // and isAllowNull is always true regardless of the Iceberg required/optional flag (rows can
             // still read NULL under schema-evolution default-fill; do NOT propagate the NOT NULL constraint).
             ConnectorColumn column = new ConnectorColumn(
-                    field.name().toLowerCase(Locale.ROOT),
+                    field.name(),
                     IcebergTypeMapping.fromIcebergType(
                             field.type(), enableVarbinary, enableTimestampTz),
                     field.doc() != null ? field.doc() : "",

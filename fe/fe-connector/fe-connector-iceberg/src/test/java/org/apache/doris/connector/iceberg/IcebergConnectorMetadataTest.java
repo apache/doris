@@ -976,11 +976,11 @@ public class IcebergConnectorMetadataTest {
     }
 
     @Test
-    public void getTableSchemaLowercasesColumnNames() {
-        // WHY: legacy IcebergUtils.parseSchema builds each column name as
-        // field.name().toLowerCase(Locale.ROOT), so a mixed-case Iceberg field surfaces as a lowercase
-        // Doris column. The connector must lowercase itself (the SPI bridge only layers user identifier
-        // mapping on top). MUTATION: emitting field.name() verbatim -> "ID" -> red.
+    public void getTableSchemaPreservesColumnNameCase() {
+        // WHY (#65094 read-path alignment): post-cutover IcebergConnectorMetadata.parseSchema surfaces each
+        // column name VERBATIM (field.name(), no toLowerCase), so a mixed-case Iceberg field keeps its case as
+        // the Doris column name (byte-matching the case-preserving scan slots). The SPI bridge only layers user
+        // identifier mapping on top. MUTATION: re-lowercasing field.name() -> "id" -> red.
         RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
         Schema upperSchema = new Schema(
                 Types.NestedField.required(1, "ID", Types.IntegerType.get()),
@@ -992,10 +992,10 @@ public class IcebergConnectorMetadataTest {
         ConnectorTableSchema schema =
                 metadataWith(ops).getTableSchema(null, new IcebergTableHandle("db1", "t1"));
 
-        Assertions.assertEquals("id", schema.getColumns().get(0).getName(),
-                "an uppercase Iceberg field name must be lowercased (legacy toLowerCase(ROOT))");
-        Assertions.assertEquals("mixed_name", schema.getColumns().get(1).getName(),
-                "a mixed-case Iceberg field name must be fully lowercased");
+        Assertions.assertEquals("ID", schema.getColumns().get(0).getName(),
+                "an uppercase Iceberg field name must be preserved (post-#65094, no toLowerCase)");
+        Assertions.assertEquals("Mixed_Name", schema.getColumns().get(1).getName(),
+                "a mixed-case Iceberg field name must keep its case");
     }
 
     @Test
@@ -1181,13 +1181,13 @@ public class IcebergConnectorMetadataTest {
     // ---------------------------------------------------------------------
 
     @Test
-    public void getColumnHandlesKeysByLowercasedNameAndCarriesIcebergFieldId() {
-        // The generic PluginDrivenScanNode looks each query slot up here by (lowercased) name to build the
-        // pruned column list the T06 field-id dictionary keys its -1 entry off. So the map MUST be keyed by the
-        // lowercased name (== the Doris slot name from parseSchema) and the handle MUST carry the iceberg field
-        // id (the permanent rename-safe join key). MUTATION: key by the raw iceberg case -> the slot lookup
-        // misses -> empty columns -> dict falls back to all-fields. MUTATION: carry the ordinal not the field
-        // id -> the dict's field ids are wrong -> BE field-id match fails.
+    public void getColumnHandlesKeysByCasePreservedNameAndCarriesIcebergFieldId() {
+        // The generic PluginDrivenScanNode looks each query slot up here by name to build the pruned column
+        // list the T06 field-id dictionary keys its -1 entry off. Post-#65094 the map is keyed by the
+        // CASE-PRESERVED name (== the Doris slot name from parseSchema, which now keeps the iceberg case) and
+        // the handle MUST carry the iceberg field id (the permanent rename-safe join key). MUTATION: re-lowercase
+        // the key -> the case-preserving slot lookup misses -> empty columns -> dict falls back to all-fields.
+        // MUTATION: carry the ordinal not the field id -> the dict's field ids are wrong -> BE field-id match fails.
         RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
         Schema mixed = new Schema(
                 Types.NestedField.required(7, "ID", Types.IntegerType.get()),
@@ -1199,10 +1199,11 @@ public class IcebergConnectorMetadataTest {
                 metadataWith(ops).getColumnHandles(null, new IcebergTableHandle("db1", "t1"));
 
         Assertions.assertEquals(2, handles.size());
-        Assertions.assertTrue(handles.containsKey("id"));
-        Assertions.assertTrue(handles.containsKey("name"));
-        Assertions.assertEquals(7, ((IcebergColumnHandle) handles.get("id")).getFieldId());
-        Assertions.assertEquals(9, ((IcebergColumnHandle) handles.get("name")).getFieldId());
+        Assertions.assertTrue(handles.containsKey("ID"));
+        Assertions.assertTrue(handles.containsKey("Name"));
+        Assertions.assertFalse(handles.containsKey("id"), "post-#65094 the handle key keeps the iceberg case");
+        Assertions.assertEquals(7, ((IcebergColumnHandle) handles.get("ID")).getFieldId());
+        Assertions.assertEquals(9, ((IcebergColumnHandle) handles.get("Name")).getFieldId());
         // The remote load must go through the seam (auth-wrapped), mirroring getTableSchema.
         Assertions.assertTrue(ops.log.contains("loadTable:db1.t1"),
                 "getColumnHandles must load the table via the seam using the handle coordinates");
