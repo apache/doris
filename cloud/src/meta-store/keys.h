@@ -245,6 +245,16 @@ using MowTabletJobInfo = BasicKeyInfo<__LINE__ , std::tuple<std::string, int64_t
 //                                                        0:instance_id  1:packed_file_path
 using PackedFileKeyInfo = BasicKeyInfo<30, std::tuple<std::string, std::string>>;
 
+// 0x01 "meta" ${instance_id} "time_travel_table" ${table_id}   -> empty (presence = TT enabled)
+//                                                      0:instance_id  1:table_id
+using TimeTravelTableKeyInfo = BasicKeyInfo<55, std::tuple<std::string, int64_t>>;
+
+// 0x01 "meta" ${instance_id} "tt_compaction" ${tablet_id} ${start_v} ${end_v}
+//                                                           -> TtCompactionManifestPB
+// One entry per compaction event. Range scan by tablet_id prefix finds all checkpoints.
+//                                          0:instance_id  1:tablet_id  2:start_v  3:end_v
+using TtCompactionKeyInfo = BasicKeyInfo<57, std::tuple<std::string, int64_t, int64_t, int64_t>>;
+
 namespace versioned {
 
 // ATTN: Key info definitions in this namespace do not include timestamp and subsequent attributes.
@@ -375,6 +385,8 @@ void meta_pending_delete_bitmap_key(const MetaPendingDeleteBitmapInfo& in, std::
 void meta_schema_pb_dictionary_key(const MetaSchemaPBDictionaryInfo& in, std::string* out);
 void mow_tablet_job_key(const MowTabletJobInfo& in, std::string* out);
 void packed_file_key(const PackedFileKeyInfo& in, std::string* out);
+void time_travel_table_key(const TimeTravelTableKeyInfo& in, std::string* out);
+void tt_compaction_key(const TtCompactionKeyInfo& in, std::string* out);
 static inline std::string meta_rowset_key(const MetaRowsetKeyInfo& in) { std::string s; meta_rowset_key(in, &s); return s; }
 static inline std::string meta_rowset_tmp_key(const MetaRowsetTmpKeyInfo& in) { std::string s; meta_rowset_tmp_key(in, &s); return s; }
 static inline std::string meta_tablet_idx_key(const MetaTabletIdxKeyInfo& in) { std::string s; meta_tablet_idx_key(in, &s); return s; }
@@ -388,6 +400,16 @@ static inline std::string mow_tablet_job_key(const MowTabletJobInfo& in) { std::
 static inline std::string packed_file_key(const PackedFileKeyInfo& in) {
     std::string s;
     packed_file_key(in, &s);
+    return s;
+}
+static inline std::string time_travel_table_key(const TimeTravelTableKeyInfo& in) {
+    std::string s;
+    time_travel_table_key(in, &s);
+    return s;
+}
+static inline std::string tt_compaction_key(const TtCompactionKeyInfo& in) {
+    std::string s;
+    tt_compaction_key(in, &s);
     return s;
 }
 

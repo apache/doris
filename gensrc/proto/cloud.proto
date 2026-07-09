@@ -1230,6 +1230,89 @@ message GetVersionResponse {
     repeated int64 version_update_time_ms = 7;
 };
 
+// Time travel: resolve a wall-clock timestamp to the committed partition version
+// that was visible at that time.
+//
+// Used by the FE query planner to resolve `FOR TIME AS OF '<timestamp>'` on
+// cloud/decoupled OLAP tables. Only valid for tables with enable_time_travel=true.
+message GetVersionAtTimeRequest {
+    optional string cloud_unique_id = 1; // For auth; instance_id is derived server-side
+    optional int64  partition_id    = 3; // Single-partition mode (legacy)
+    // Wall-clock timestamp in milliseconds (epoch). The RPC returns the highest
+    // committed version whose update_time_ms <= this value.
+    optional int64  timestamp_ms    = 4;
+    // Maximum history window the table was created with (time_travel_retention_days).
+    // Used server-side to reject queries beyond the retention window without a
+    // full FDB scan.
+    optional int32  retention_days  = 5;
+    optional string request_ip      = 6; // set by retry_rpc
+
+    // Batch mode: resolve timestamp for multiple partitions in one RPC.
+    // When batch_mode=true, partition_id is ignored; partition_ids is used instead.
+    // db_ids, table_ids, and partition_ids must have the same length.
+    optional bool        batch_mode    = 7;
+    repeated int64       db_ids        = 8;
+    repeated int64       table_ids     = 9;
+    repeated int64       partition_ids = 10;
+    // Per-partition tablet_ids (parallel to partition_ids). When set, the RPC also
+    // fetches compaction checkpoints in the same FDB transaction (no extra round trip).
+    repeated TtPartitionTabletsInfo tablet_infos = 11;
+};
+
+message GetVersionAtTimeResponse {
+    optional MetaServiceResponseStatus status  = 1;
+    // Single-partition mode (field 2/3).
+    optional int64  version                    = 2;
+    optional int64  version_update_time_ms     = 3;
+    // Batch mode: versions in the same order as request.partition_ids.
+    // -1 means no committed version at or before timestamp_ms for that partition.
+    repeated int64  versions                   = 4;
+    repeated int64  version_update_times_ms    = 5;
+    // Per-tablet compaction manifests; populated when request.tablet_infos is set.
+    // An empty entry (no rowset_metas) means the version is still in the active rowset chain.
+    repeated TtTabletRowsetsPB tablet_rowsets  = 6;
+};
+
+// Rowsets for a single tablet returned alongside the resolved version.
+// Covers compaction start through query_version; empty = version still in the active chain.
+message TtTabletRowsetsPB {
+    optional int64              tablet_id    = 1;
+    repeated RowsetMetaCloudPB  rowset_metas = 2;
+};
+
+// Tablet_ids for one partition, embedded in GetVersionAtTimeRequest.
+// Enables manifest fetch in the same FDB transaction as version resolution.
+message TtPartitionTabletsInfo {
+    repeated int64 tablet_ids = 1;
+};
+
+// One entry per version within a compaction checkpoint.
+message TtVersionEntry {
+    optional int64             version     = 1;
+    optional RowsetMetaCloudPB rowset_meta = 2;
+};
+
+// Compaction checkpoint — written once per compaction event per tablet.
+// Keyed by tt_compaction_key({instance_id, tablet_id, start_version, end_version}).
+// TTL is anchored to the oldest rowset's original commit time, not the compaction time.
+message TtCompactionManifestPB {
+    repeated TtVersionEntry entries    = 1;
+    optional int64          created_ms = 2;
+};
+
+// Disables time travel on a table: removes the persistent FDB marker key so that the
+// meta-service stops writing versioned partition keys for this table.
+message DisableTimeTravelTableRequest {
+    optional string cloud_unique_id = 1;
+    optional string instance_id     = 2;
+    optional int64  table_id        = 3;
+    optional string request_ip      = 4;
+};
+
+message DisableTimeTravelTableResponse {
+    optional MetaServiceResponseStatus status = 1;
+};
+
 message GetObjStoreInfoRequest {
     optional string cloud_unique_id = 1; // For auth
     optional string request_ip = 2;
@@ -2303,6 +2386,8 @@ service MetaService {
     rpc get_prepare_txn_by_coordinator(GetPrepareTxnByCoordinatorRequest) returns (GetPrepareTxnByCoordinatorResponse);
 
     rpc get_version(GetVersionRequest) returns (GetVersionResponse);
+    rpc get_version_at_time(GetVersionAtTimeRequest) returns (GetVersionAtTimeResponse);
+    rpc disable_time_travel_table(DisableTimeTravelTableRequest) returns (DisableTimeTravelTableResponse);
     rpc create_tablets(CreateTabletsRequest) returns (CreateTabletsResponse);
     rpc update_tablet(UpdateTabletRequest) returns (UpdateTabletResponse);
 

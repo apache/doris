@@ -29,6 +29,7 @@
 #include "cpp/sync_point.h"
 #include "meta-service/meta_service_helper.h"
 #include "meta-store/keys.h"
+#include "meta-store/codec.h"
 #include "meta-store/txn_kv_error.h"
 #include "snapshot/snapshot_manager.h"
 
@@ -114,6 +115,34 @@ int ResourceManager::init() {
         }
         if (inst.has_multi_version_status()) {
             instance_multi_version_status_[inst_id] = inst.multi_version_status();
+        }
+    }
+
+    // Pre-populate the time-travel table cache from FDB to avoid a burst of point reads
+    // on the first commit after a process restart.
+    {
+        std::unique_ptr<Transaction> tt_txn;
+        if (txn_kv_->create_txn(&tt_txn) == TxnErrorCode::TXN_OK) {
+            for (auto& [inst_id, inst] : instances) {
+                std::string tt_begin, tt_end;
+                time_travel_table_key({inst_id, 0}, &tt_begin);
+                time_travel_table_key({inst_id, std::numeric_limits<int64_t>::max()}, &tt_end);
+                tt_end.push_back('\xff');
+                std::unique_ptr<RangeGetIterator> tt_it;
+                if (tt_txn->get(tt_begin, tt_end, &tt_it) != TxnErrorCode::TXN_OK || !tt_it) {
+                    continue;
+                }
+                while (tt_it->has_next()) {
+                    auto [k, v] = tt_it->next();
+                    // time_travel_table_key encodes table_id as the last 9 bytes.
+                    if (k.size() < 9) continue;
+                    std::string_view tail = k.substr(k.size() - 9, 9);
+                    int64_t table_id = 0;
+                    if (decode_int64(&tail, &table_id) == 0 && table_id > 0) {
+                        time_travel_tables_[inst_id].insert(table_id);
+                    }
+                }
+            }
         }
     }
 
@@ -1475,6 +1504,95 @@ bool ResourceManager::is_version_write_enabled(std::string_view instance_id) con
     return status == MultiVersionStatus::MULTI_VERSION_WRITE_ONLY ||
            status == MultiVersionStatus::MULTI_VERSION_READ_WRITE ||
            status == MultiVersionStatus::MULTI_VERSION_ENABLED;
+}
+
+bool ResourceManager::is_table_time_travel_enabled(std::string_view instance_id,
+                                                    int64_t table_id) const {
+    std::string inst(instance_id);
+    // Fast path: check in-memory caches under a shared lock.
+    {
+        std::shared_lock lock(mtx_);
+        auto pit = time_travel_tables_.find(inst);
+        if (pit != time_travel_tables_.end() && pit->second.count(table_id) > 0) {
+            return true;
+        }
+        auto nit = time_travel_neg_cache_.find(inst);
+        if (nit != time_travel_neg_cache_.end() && nit->second.count(table_id) > 0) {
+            return false;
+        }
+    }
+    // Cache miss: lazily query FDB (e.g. after process restart).
+    // A transient FDB error returns nullopt; do NOT cache it as a confirmed negative.
+    std::optional<bool> result = check_time_travel_in_fdb(inst, table_id);
+    if (!result.has_value()) {
+        return false; // transient FDB error; will retry on next commit
+    }
+    {
+        std::unique_lock lock(mtx_);
+        if (*result) {
+            time_travel_tables_[inst].insert(table_id);
+            // Remove from negative cache in case a stale entry exists.
+            auto nit = time_travel_neg_cache_.find(inst);
+            if (nit != time_travel_neg_cache_.end()) nit->second.erase(table_id);
+        } else {
+            // Cache confirmed-negative entries to skip FDB reads on subsequent commits.
+            // Capped at 10,000 per instance to bound memory growth; tables beyond the
+            // cap incur one O(1) FDB point-read per commit instead.
+            static constexpr size_t kNegCacheMaxPerInstance = 10000;
+            auto& neg_set = time_travel_neg_cache_[inst];
+            if (neg_set.size() < kNegCacheMaxPerInstance) {
+                neg_set.insert(table_id);
+            } else {
+                LOG_EVERY_N(WARNING, 10000)
+                        << "time_travel_neg_cache full for instance=" << inst
+                        << ", FDB reads not cached for table_id=" << table_id;
+            }
+        }
+    }
+    return *result;
+}
+
+std::optional<bool> ResourceManager::check_time_travel_in_fdb(const std::string& instance_id,
+                                                               int64_t table_id) const {
+    std::unique_ptr<Transaction> txn;
+    if (TxnErrorCode err = txn_kv_->create_txn(&txn); err != TxnErrorCode::TXN_OK) {
+        LOG(WARNING) << "check_time_travel_in_fdb: failed to create txn, instance=" << instance_id
+                     << " table_id=" << table_id;
+        return std::nullopt; // transient error; caller must not cache this result
+    }
+    std::string val;
+    TxnErrorCode err = txn->get(time_travel_table_key({instance_id, table_id}), &val);
+    if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+        return false;
+    }
+    if (err != TxnErrorCode::TXN_OK) {
+        LOG(WARNING) << "check_time_travel_in_fdb: FDB read failed, instance=" << instance_id
+                     << " table_id=" << table_id << " err=" << err;
+        return std::nullopt; // transient error; caller must not cache this result
+    }
+    return true;
+}
+
+void ResourceManager::register_time_travel_table(const std::string& instance_id,
+                                                   int64_t table_id) {
+    std::unique_lock lock(mtx_);
+    time_travel_tables_[instance_id].insert(table_id);
+    // Evict any stale negative cache entry so the positive state is authoritative.
+    auto nit = time_travel_neg_cache_.find(instance_id);
+    if (nit != time_travel_neg_cache_.end()) nit->second.erase(table_id);
+    LOG(INFO) << "registered time travel table, instance=" << instance_id
+              << " table_id=" << table_id;
+}
+
+void ResourceManager::unregister_time_travel_table(const std::string& instance_id,
+                                                     int64_t table_id) {
+    std::unique_lock lock(mtx_);
+    auto pit = time_travel_tables_.find(instance_id);
+    if (pit != time_travel_tables_.end()) pit->second.erase(table_id);
+    auto nit = time_travel_neg_cache_.find(instance_id);
+    if (nit != time_travel_neg_cache_.end()) nit->second.erase(table_id);
+    LOG(INFO) << "unregistered time travel table, instance=" << instance_id
+              << " table_id=" << table_id;
 }
 
 MultiVersionStatus ResourceManager::get_instance_multi_version_status(

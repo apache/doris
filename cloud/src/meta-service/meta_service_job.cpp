@@ -1169,14 +1169,69 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
     compaction_log.set_end_version(end);
     int num_rowsets = 0;
 
+    // Read time_travel_retention_days from the exact compacting tablet's meta.
+    // A direct point lookup is used (table_id + index_id + partition_id + tablet_id)
+    // to avoid reading a different tablet's meta from the same table.
+    int32_t tt_retention_days = 0;
+    {
+        std::string tk;
+        meta_tablet_key({instance_id, table_id, index_id, partition_id, tablet_id}, &tk);
+        std::string tv;
+        if (txn->get(tk, &tv, true /* snapshot */) == TxnErrorCode::TXN_OK) {
+            doris::TabletMetaCloudPB tablet_meta;
+            if (tablet_meta.ParseFromString(tv)) {
+                tt_retention_days = tablet_meta.time_travel_retention_days();
+            }
+        }
+    }
+
+    // Read input rowsets once. For time-travel tables this snapshot feeds the checkpoint write;
+    // for non-versioned tables it feeds the cleanup scan. Avoids duplicate FDB reads.
+    // Per-table TT tables use versioned_write=false, so rowsets live in meta_rowset_key space
+    // (not the versioned key space scanned by CloneChainReader).
+    std::vector<RowsetMetaCloudPB> input_rowsets_snapshot;
+    if (tt_retention_days > 0 || !is_versioned_read) {
+        if (tt_retention_days > 0 && !is_versioned_read) {
+            // Per-table TT with non-versioned instance: scan meta_rowset_key directly.
+            auto begin_key = meta_rowset_key({instance_id, tablet_id, start});
+            auto end_key   = meta_rowset_key({instance_id, tablet_id, end + 1});
+            std::unique_ptr<RangeGetIterator> it;
+            TxnErrorCode snap_err = txn->get(begin_key, end_key, &it);
+            if (snap_err == TxnErrorCode::TXN_OK) {
+                while (it->has_next()) {
+                    auto [k, v] = it->next();
+                    RowsetMetaCloudPB rs;
+                    if (rs.ParseFromString(std::string(v))) {
+                        input_rowsets_snapshot.push_back(std::move(rs));
+                    }
+                }
+            } else {
+                LOG(WARNING) << "time travel: failed to scan rowset range for TT checkpoint"
+                             << " tablet_id=" << tablet_id << " err=" << snap_err;
+            }
+        } else {
+            TxnErrorCode snap_err = meta_reader.get_rowset_metas(
+                    txn.get(), tablet_id, start, end, &input_rowsets_snapshot);
+            if (snap_err != TxnErrorCode::TXN_OK) {
+                LOG(WARNING) << "failed to read compaction input rowset metas, tablet_id="
+                             << tablet_id << " err=" << snap_err;
+            }
+        }
+    }
+
     auto handle_compaction_input_rowset_meta = [&](doris::RowsetMetaCloudPB rs) {
-        // remove delete bitmap of input rowset for MoW table
         if (compaction.has_delete_bitmap_lock_initiator()) {
-            auto delete_bitmap_start =
-                    meta_delete_bitmap_key({instance_id, tablet_id, rs.rowset_id_v2(), 0, 0});
-            auto delete_bitmap_end = meta_delete_bitmap_key(
-                    {instance_id, tablet_id, rs.rowset_id_v2(), INT64_MAX, INT64_MAX});
-            txn->remove(delete_bitmap_start, delete_bitmap_end);
+            if (tt_retention_days > 0) {
+                // Retain delete bitmaps for MoW tables with time travel enabled so that
+                // historical reads can reconstruct per-version delete state. The recycler
+                // removes them when the compaction checkpoint expires.
+            } else {
+                auto delete_bitmap_start =
+                        meta_delete_bitmap_key({instance_id, tablet_id, rs.rowset_id_v2(), 0, 0});
+                auto delete_bitmap_end = meta_delete_bitmap_key(
+                        {instance_id, tablet_id, rs.rowset_id_v2(), INT64_MAX, INT64_MAX});
+                txn->remove(delete_bitmap_start, delete_bitmap_end);
+            }
         }
 
         auto recycle_key = recycle_rowset_key({instance_id, tablet_id, rs.rowset_id_v2()});
@@ -1184,7 +1239,6 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
         recycle_rowset.set_creation_time(now);
         recycle_rowset.mutable_rowset_meta()->CopyFrom(rs);
         if (config::enable_recycle_rowset_strip_key_bounds) {
-            // Strip key bounds to shrink operation log for ts compaction recycle entries
             recycle_rowset.mutable_rowset_meta()->clear_segments_key_bounds();
             recycle_rowset.mutable_rowset_meta()->clear_segments_key_bounds_truncated();
         }
@@ -1199,28 +1253,94 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
                                << " key=" << hex(recycle_key);
         }
     };
+
+    // Write the compaction checkpoint before the cleanup transaction commits.
+    // This ordering guarantees that if the cleanup succeeds, the checkpoint exists in FDB.
+    // Failure is non-fatal — compaction proceeds without TT support for this version range.
+    if (tt_retention_days > 0) {
+        if (input_rowsets_snapshot.empty()) {
+            LOG(WARNING) << "TT checkpoint skipped: no input rowsets found, tablet_id=" << tablet_id
+                         << " range=[" << start << "," << end << "]";
+        } else {
+            TtCompactionManifestPB checkpoint;
+            int64_t min_created_ms = INT64_MAX;
+            for (auto& rs : input_rowsets_snapshot) {
+                for (int64_t v = rs.start_version(); v <= rs.end_version(); ++v) {
+                    auto* entry = checkpoint.add_entries();
+                    entry->set_version(v);
+                    RowsetMetaCloudPB rs_copy(rs);
+                    rs_copy.clear_segments_key_bounds();
+                    rs_copy.clear_segments_key_bounds_truncated();
+                    entry->mutable_rowset_meta()->Swap(&rs_copy);
+                }
+                min_created_ms = std::min(min_created_ms,
+                                          static_cast<int64_t>(rs.creation_time()) * static_cast<int64_t>(1000));
+            }
+            checkpoint.set_created_ms(min_created_ms);
+
+            std::unique_ptr<Transaction> ck_txn;
+            TxnErrorCode p1_err = txn_kv->create_txn(&ck_txn);
+            if (p1_err == TxnErrorCode::TXN_OK) {
+                std::string ck_key = tt_compaction_key({instance_id, tablet_id, start, end});
+                std::string ck_val;
+                if (checkpoint.SerializeToString(&ck_val)) {
+                    ck_txn->put(ck_key, ck_val);
+                    p1_err = ck_txn->commit();
+                } else {
+                    p1_err = TxnErrorCode::TXN_INVALID_DATA;
+                }
+            }
+            if (p1_err != TxnErrorCode::TXN_OK) {
+                LOG(WARNING) << "TT checkpoint commit failed (non-fatal), tablet_id=" << tablet_id
+                             << " err=" << p1_err;
+                // Fall through — compaction cleanup still runs.
+            } else {
+                LOG(INFO) << "TT checkpoint written tablet_id=" << tablet_id
+                          << " [" << start << "," << end << "]"
+                          << " entries=" << checkpoint.entries_size();
+            }
+        }
+    }
+
     if (!is_versioned_read) {
-        std::tie(code, msg) =
-                scan_compaction_input_rowsets(txn.get(), instance_id, tablet_id, rs_start, rs_end,
-                                              num_rowsets, handle_compaction_input_rowset_meta);
-        if (code != MetaServiceCode::OK) {
-            LOG(WARNING) << msg;
-            return;
+        // Reuse the snapshot already read above to avoid a second FDB scan.
+        if (!input_rowsets_snapshot.empty()) {
+            for (auto&& rs : input_rowsets_snapshot) {
+                handle_compaction_input_rowset_meta(std::move(rs));
+            }
+            num_rowsets = static_cast<int>(input_rowsets_snapshot.size());
+        } else {
+            std::tie(code, msg) = scan_compaction_input_rowsets(
+                    txn.get(), instance_id, tablet_id, rs_start, rs_end,
+                    num_rowsets, handle_compaction_input_rowset_meta);
+            if (code != MetaServiceCode::OK) {
+                LOG(WARNING) << msg;
+                return;
+            }
         }
     } else {
-        std::vector<RowsetMetaCloudPB> rowset_metas;
-        TxnErrorCode err =
-                meta_reader.get_rowset_metas(txn.get(), tablet_id, start, end, &rowset_metas);
-        if (err != TxnErrorCode::TXN_OK) {
-            code = cast_as<ErrCategory::READ>(err);
-            msg = fmt::format("failed to get rowset metas, tablet_id={}, start={}, end={}, err={}",
-                              tablet_id, start, end, err);
-            LOG(WARNING) << msg;
-            return;
-        }
-        num_rowsets = rowset_metas.size();
-        for (auto&& rowset_meta : rowset_metas) {
-            handle_compaction_input_rowset_meta(std::move(rowset_meta));
+        // Versioned-read path: use the pre-fetched snapshot if available.
+        if (!input_rowsets_snapshot.empty()) {
+            num_rowsets = static_cast<int>(input_rowsets_snapshot.size());
+            for (auto&& rs : input_rowsets_snapshot) {
+                handle_compaction_input_rowset_meta(std::move(rs));
+            }
+        } else {
+            std::vector<RowsetMetaCloudPB> rowset_metas;
+            TxnErrorCode err = meta_reader.get_rowset_metas(
+                    txn.get(), tablet_id, start, end, &rowset_metas);
+            if (err != TxnErrorCode::TXN_OK) {
+                code = cast_as<ErrCategory::READ>(err);
+                msg = fmt::format(
+                        "failed to get rowset metas, tablet_id={}, start={}, end={}, err={}",
+                        tablet_id, start, end, err);
+                LOG(WARNING) << msg;
+                return;
+            }
+            num_rowsets = rowset_metas.size();
+            for (auto&& rowset_meta : rowset_metas) {
+                handle_compaction_input_rowset_meta(std::move(rowset_meta));
+            }
         }
     }
 

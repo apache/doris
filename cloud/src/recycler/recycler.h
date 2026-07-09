@@ -306,6 +306,10 @@ public:
     // returns 0 for success otherwise error
     int recycle_rowsets();
 
+    // Scan and delete expired TT compaction checkpoint entries (tt_compaction_key).
+    // An entry expires when created_ms/1000 + table's retention_seconds < now.
+    int recycle_tt_compaction();
+
     // like `recycle_rowsets`, but for versioned rowsets.
     int recycle_versioned_rowsets();
 

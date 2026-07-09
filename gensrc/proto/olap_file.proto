@@ -784,6 +784,10 @@ message TabletMetaCloudPB {
     optional string table_name = 101;
     optional int64 ttl_seconds = 102;
     optional int32 schema_version = 103; // index_id, schema_version -> schema
+    // Time travel: retention window set at CREATE TABLE time (days).
+    // 0 means time travel is not enabled for this table.
+    // The recycler uses this to extend compacted rowset retention beyond the global default.
+    optional int32 time_travel_retention_days = 104 [default = 0];
 }
 
 message OLAPRawDeltaHeaderMessage {

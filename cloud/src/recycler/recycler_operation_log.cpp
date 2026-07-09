@@ -40,6 +40,7 @@
 #include "common/util.h"
 #include "meta-service/meta_service.h"
 #include "meta-service/meta_service_schema.h"
+#include "resource-manager/resource_manager.h"
 #include "meta-store/blob_message.h"
 #include "meta-store/document_message.h"
 #include "meta-store/keys.h"
@@ -143,12 +144,14 @@ bool OperationLogRecycleChecker::can_recycle(const Versionstamp& log_versionstam
 class OperationLogRecycler {
 public:
     OperationLogRecycler(std::string_view instance_id, TxnKv* txn_kv, Versionstamp log_version,
-                         int64_t min_read_version, const std::vector<std::string>& raw_keys)
+                         int64_t min_read_version, const std::vector<std::string>& raw_keys,
+                         ResourceManager* resource_mgr)
             : instance_id_(instance_id),
               txn_kv_(txn_kv),
               log_version_(log_version),
               min_read_versionstamp_(min_read_version),
-              raw_keys_(raw_keys) {}
+              raw_keys_(raw_keys),
+              resource_mgr_(resource_mgr) {}
     OperationLogRecycler(const OperationLogRecycler&) = delete;
     OperationLogRecycler& operator=(const OperationLogRecycler&) = delete;
 
@@ -177,7 +180,9 @@ private:
     int recycle_tablet_meta(int64_t tablet_id);
     int recycle_tablet_load_stats(int64_t tablet_id);
     int recycle_tablet_compact_stats(int64_t tablet_id);
-    int recycle_partition_version(int64_t partition_id);
+    // table_id is needed to check whether this partition belongs to a TT-enabled table,
+    // in which case we must not delete the old versioned partition key (it holds history).
+    int recycle_partition_version(int64_t partition_id, int64_t table_id);
     int recycle_rowset_meta(int64_t tablet_id, int64_t end_version, const std::string& rowset_id);
 
     std::string_view instance_id_;
@@ -185,6 +190,7 @@ private:
     Versionstamp log_version_;
     Versionstamp min_read_versionstamp_;
     const std::vector<std::string>& raw_keys_;
+    ResourceManager* resource_mgr_; // nullable; nullptr disables TT checks (non-TT path unchanged)
 
     std::unique_ptr<Transaction> txn_;
 };
@@ -267,8 +273,12 @@ int OperationLogRecycler::recycle_commit_txn_log(const CommitTxnLogPB& commit_tx
 
     int64_t txn_id = commit_txn_log.txn_id();
     AnnotateTag txn_tag("txn_id", txn_id);
+
+    // Doris INSERT/DELETE/UPDATE transactions are always single-table.
+    // table_ids has exactly one entry for normal DML. Using index 0 is safe.
+    int64_t table_id = commit_txn_log.table_ids_size() > 0 ? commit_txn_log.table_ids(0) : -1;
     for (const auto& [partition_id, _] : commit_txn_log.partition_version_map()) {
-        RETURN_ON_FAILURE(recycle_partition_version(partition_id));
+        RETURN_ON_FAILURE(recycle_partition_version(partition_id, table_id));
     }
 
     for (const auto& [tablet_id, _] : commit_txn_log.tablet_to_partition_map()) {
@@ -533,7 +543,7 @@ int OperationLogRecycler::recycle_tablet_compact_stats(int64_t tablet_id) {
     }
 }
 
-int OperationLogRecycler::recycle_partition_version(int64_t partition_id) {
+int OperationLogRecycler::recycle_partition_version(int64_t partition_id, int64_t table_id) {
     MetaReader meta_reader(instance_id_, log_version_);
     Versionstamp prev_version;
     TxnErrorCode err =
@@ -545,6 +555,19 @@ int OperationLogRecycler::recycle_partition_version(int64_t partition_id) {
                     .tag("prev_version", prev_version.to_string())
                     .tag("min_read_version", min_read_versionstamp_.version());
         }
+
+        // For time-travel tables, the old versioned partition key holds history that
+        // time-travel queries depend on. Skip deletion — the dedicated TT recycler
+        // (calculate_rowset_expired_time gate in recycler.cpp) will clean it up
+        // once the retention window expires.
+        // Non-TT tables: resource_mgr_ returns false immediately, no extra cost.
+        if (resource_mgr_ != nullptr && table_id > 0 &&
+            resource_mgr_->is_table_time_travel_enabled(std::string(instance_id_), table_id)) {
+            VLOG_DEBUG << "skip recycle versioned partition key for TT table"
+                       << " partition_id=" << partition_id << " table_id=" << table_id;
+            return 0;
+        }
+
         std::string partition_version_key =
                 versioned::partition_version_key({instance_id_, partition_id});
         versioned_remove(txn_.get(), partition_version_key, prev_version);
@@ -878,7 +901,8 @@ int InstanceRecycler::recycle_operation_log(Versionstamp log_version,
     // Track which oplog type was recycled (only one per log entry)
     std::atomic<int64_t>* recycled_counter = nullptr;
     OperationLogRecycler log_recycler(instance_id_, txn_kv_.get(), log_version,
-                                      operation_log.min_timestamp(), raw_keys);
+                                      operation_log.min_timestamp(), raw_keys,
+                                      resource_mgr_.get());
     RETURN_ON_FAILURE(log_recycler.begin());
 
 #define RECYCLE_OPERATION_LOG(log_type, method_name)                      \

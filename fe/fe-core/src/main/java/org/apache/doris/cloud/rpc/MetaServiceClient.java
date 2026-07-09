@@ -143,6 +143,31 @@ public class MetaServiceClient {
                 .getVersion(request);
     }
 
+    public Cloud.GetVersionAtTimeResponse getVersionAtTime(Cloud.GetVersionAtTimeRequest request) {
+        if (!request.hasCloudUniqueId()) {
+            Cloud.GetVersionAtTimeRequest.Builder builder = Cloud.GetVersionAtTimeRequest.newBuilder();
+            builder.mergeFrom(request);
+            return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                    .getVersionAtTime(builder.setCloudUniqueId(Config.cloud_unique_id).build());
+        }
+        return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                .getVersionAtTime(request);
+    }
+
+    public Cloud.DisableTimeTravelTableResponse disableTimeTravelTable(
+            Cloud.DisableTimeTravelTableRequest request) {
+        if (!request.hasCloudUniqueId()) {
+            Cloud.DisableTimeTravelTableRequest.Builder builder =
+                    Cloud.DisableTimeTravelTableRequest.newBuilder();
+            builder.mergeFrom(request);
+            return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms,
+                    TimeUnit.MILLISECONDS)
+                    .disableTimeTravelTable(builder.setCloudUniqueId(Config.cloud_unique_id).build());
+        }
+        return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms,
+                TimeUnit.MILLISECONDS).disableTimeTravelTable(request);
+    }
+
     public Cloud.CreateTabletsResponse createTablets(Cloud.CreateTabletsRequest request) {
         if (!request.hasCloudUniqueId()) {
             Cloud.CreateTabletsRequest.Builder builder = Cloud.CreateTabletsRequest.newBuilder();

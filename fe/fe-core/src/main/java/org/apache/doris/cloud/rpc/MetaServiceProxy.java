@@ -365,6 +365,22 @@ public class MetaServiceProxy {
                 Cloud.GetVersionResponse::getStatus);
     }
 
+    /**
+     * Time travel: resolve timestamp_ms to the committed partition version visible at that time.
+     * Supports both single-partition (field partition_id) and batch (batch_mode=true) modes.
+     * In batch mode, returns versions in the same order as partition_ids; -1 means no data.
+     */
+    public Cloud.GetVersionAtTimeResponse getVersionAtTime(Cloud.GetVersionAtTimeRequest request)
+            throws RpcException {
+        return executeWithMetrics("getVersionAtTime", (client) -> client.getVersionAtTime(request));
+    }
+
+    public Cloud.DisableTimeTravelTableResponse disableTimeTravelTable(
+            Cloud.DisableTimeTravelTableRequest request) throws RpcException {
+        return executeWithMetrics("disableTimeTravelTable",
+                (client) -> client.disableTimeTravelTable(request));
+    }
+
     public Cloud.CreateTabletsResponse createTablets(Cloud.CreateTabletsRequest request) throws RpcException {
         return executeWithMetrics("createTablets", (client) -> client.createTablets(request),
                 Cloud.CreateTabletsResponse::getStatus);

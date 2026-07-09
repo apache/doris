@@ -810,6 +810,9 @@ int InstanceRecycler::do_recycle() {
                 .add(task_wrapper(
                         [this]() -> int { return InstanceRecycler::recycle_tmp_rowsets(); }))
                 .add(task_wrapper([this]() -> int { return InstanceRecycler::recycle_rowsets(); }))
+                .add(task_wrapper([this]() -> int {
+                    return InstanceRecycler::recycle_tt_compaction();
+                }))
                 .add(task_wrapper(
                         [this]() -> int { return InstanceRecycler::recycle_packed_files(); }))
                 .add(task_wrapper(
@@ -1635,6 +1638,17 @@ int64_t calculate_rowset_expired_time(const std::string& instance_id_, const Rec
         g_bvar_recycler_recycle_rowset_earlest_ts.put(instance_id_, *earlest_ts);
     }
     return final_expiration;
+}
+
+// Time travel gate: given a table's time_travel_retention_days (0 = not enabled),
+// return the extended retention seconds that should override compacted_rowset_retention.
+// Hard-capped at 90 days matching the FE-enforced maximum.
+static int64_t time_travel_retention_seconds(int32_t retention_days) {
+    if (retention_days <= 0) {
+        return 0;
+    }
+    int64_t seconds = static_cast<int64_t>(retention_days) * 86400LL;
+    return std::min(seconds, static_cast<int64_t>(90LL * 86400LL));
 }
 
 int64_t calculate_partition_expired_time(
@@ -4546,6 +4560,15 @@ int InstanceRecycler::recycle_tablet(int64_t tablet_id, RecyclerMetricsContext& 
     LOG(INFO) << "remove delete bitmap kv, tablet=" << tablet_id << ", begin=" << hex(dbm_start_key)
               << " end=" << hex(dbm_end_key);
 
+    // Drop all compaction checkpoint keys for this tablet. The TTL recycler cannot resolve
+    // table_id after tablet drop (index is gone), so cleanup must happen here.
+    std::string ck_begin, ck_end;
+    tt_compaction_key({instance_id_, tablet_id, 0, 0}, &ck_begin);
+    tt_compaction_key({instance_id_, tablet_id, std::numeric_limits<int64_t>::max(),
+                       std::numeric_limits<int64_t>::max()}, &ck_end);
+    ck_end.push_back('\xff');
+    txn->remove(ck_begin, ck_end);
+
     TxnErrorCode err = txn->commit();
     if (err != TxnErrorCode::TXN_OK) {
         LOG(WARNING) << "failed to delete rowset kv of tablet " << tablet_id << ", err=" << err;
@@ -5070,6 +5093,64 @@ int InstanceRecycler::recycle_rowsets() {
 
     int64_t earlest_ts = std::numeric_limits<int64_t>::max();
 
+    // Per-scan cache: tablet_id → table_id via tablet index.
+    // rowset_meta.table_id() (field 116) is never set by BE; always resolve via the index.
+    std::unordered_map<int64_t, int64_t> tablet_to_table_cache;
+
+    // Resolve tablet_id → table_id via the tablet index key, with per-scan caching.
+    auto get_table_id_for_tablet = [&](int64_t tablet_id) -> int64_t {
+        auto it = tablet_to_table_cache.find(tablet_id);
+        if (it != tablet_to_table_cache.end()) return it->second;
+        int64_t table_id = 0;
+        std::unique_ptr<Transaction> txn;
+        if (txn_kv_->create_txn(&txn) == TxnErrorCode::TXN_OK) {
+            std::string idx_key = meta_tablet_idx_key({instance_id_, tablet_id});
+            std::string idx_val;
+            if (txn->get(idx_key, &idx_val) == TxnErrorCode::TXN_OK) {
+                TabletIndexPB idx;
+                if (idx.ParseFromString(idx_val)) table_id = idx.table_id();
+            }
+        }
+        tablet_to_table_cache[tablet_id] = table_id;
+        return table_id;
+    };
+
+    // Per-scan cache: table_id → time_travel_retention_days (0 = not enabled).
+    // Populated lazily on first COMPACT rowset seen for each table_id.
+    // Avoids repeated FDB reads for the same table across thousands of rowsets.
+    std::unordered_map<int64_t, int32_t> table_tt_retention_cache;
+
+    auto get_time_travel_retention_days = [&](int64_t table_id) -> int32_t {
+        auto it = table_tt_retention_cache.find(table_id);
+        if (it != table_tt_retention_cache.end()) {
+            return it->second;
+        }
+        // Read one tablet meta for this table to get time_travel_retention_days.
+        // All tablets of the same table share the same table property.
+        int32_t days = 0;
+        if (table_id == std::numeric_limits<int64_t>::max()) {
+            table_tt_retention_cache[table_id] = 0;
+            return 0;
+        }
+        std::string tablet_key_begin, tablet_key_end;
+        meta_tablet_key({instance_id_, table_id, 0, 0, 0}, &tablet_key_begin);
+        meta_tablet_key({instance_id_, table_id + 1, 0, 0, 0}, &tablet_key_end);
+        std::unique_ptr<Transaction> txn;
+        if (txn_kv_->create_txn(&txn) == TxnErrorCode::TXN_OK) {
+            std::unique_ptr<RangeGetIterator> iter;
+            if (txn->get(tablet_key_begin, tablet_key_end, &iter, false, 1) == TxnErrorCode::TXN_OK
+                    && iter && iter->has_next()) {
+                auto [k, v] = iter->next();
+                doris::TabletMetaCloudPB tablet_meta;
+                if (tablet_meta.ParseFromArray(v.data(), v.size())) {
+                    days = tablet_meta.time_travel_retention_days();
+                }
+            }
+        }
+        table_tt_retention_cache[table_id] = days;
+        return days;
+    };
+
     auto handle_rowset_kv = [&](std::string_view k, std::string_view v) -> int {
         ++num_scanned;
         total_rowset_key_size += k.size();
@@ -5082,6 +5163,25 @@ int InstanceRecycler::recycle_rowsets() {
 
         int64_t current_time = ::time(nullptr);
         int64_t expiration = calculate_rowset_expired_time(instance_id_, rowset, &earlest_ts);
+
+        // For COMPACT/DROP rowsets, extend expiration by the table's time-travel retention
+        // if applicable. Resolve table_id via the tablet index (rowset_meta.table_id() is
+        // never set by BE and is always 0).
+        if ((rowset.type() == RecycleRowsetPB::COMPACT || rowset.type() == RecycleRowsetPB::DROP)
+                && rowset.has_rowset_meta()) {
+            int64_t tablet_id = rowset.rowset_meta().tablet_id();
+            if (tablet_id > 0) {
+                int64_t table_id = get_table_id_for_tablet(tablet_id);
+                if (table_id > 0) {
+                    int32_t tt_days = get_time_travel_retention_days(table_id);
+                    int64_t tt_seconds = time_travel_retention_seconds(tt_days);
+                    if (tt_seconds > 0) {
+                        int64_t tt_expiration = rowset.creation_time() + tt_seconds;
+                        expiration = std::max(expiration, tt_expiration);
+                    }
+                }
+            }
+        }
 
         VLOG_DEBUG << "recycle rowset scan, key=" << hex(k) << " num_scanned=" << num_scanned
                    << " num_expired=" << num_expired << " expiration=" << expiration
@@ -5548,6 +5648,131 @@ int InstanceRecycler::recycle_restore_jobs() {
 
     return scan_and_recycle(restore_job_key0, restore_job_key1, std::move(recycle_func),
                             std::move(loop_done));
+}
+
+int InstanceRecycler::recycle_tt_compaction() {
+    // Scan all tt_compaction_key entries and delete those where
+    // created_ms + retention_seconds < now. created_ms is anchored to the oldest
+    // input rowset's creation time, not the compaction time.
+    RecyclerMetricsContext metrics_context(instance_id_, "recycle_tt_compaction");
+
+    std::string begin_key, end_key;
+    tt_compaction_key({instance_id_, 0, 0, 0}, &begin_key);
+    tt_compaction_key({instance_id_, std::numeric_limits<int64_t>::max(),
+                       std::numeric_limits<int64_t>::max(),
+                       std::numeric_limits<int64_t>::max()}, &end_key);
+    end_key.push_back('\xff');
+
+    // Per-scan caches for tablet_id → table_id and table_id → retention_seconds.
+    // Populated lazily to avoid repeated FDB reads within a single recycle pass.
+    std::unordered_map<int64_t, int64_t> tt_retention_cache;
+    std::unordered_map<int64_t, int64_t> tablet_table_cache;
+
+    auto get_retention_for_tablet = [&](int64_t tablet_id) -> int64_t {
+        auto tit = tablet_table_cache.find(tablet_id);
+        int64_t table_id = 0;
+        if (tit != tablet_table_cache.end()) {
+            table_id = tit->second;
+        } else {
+            std::unique_ptr<Transaction> txn;
+            if (txn_kv_->create_txn(&txn) == TxnErrorCode::TXN_OK) {
+                std::string idx_key = meta_tablet_idx_key({instance_id_, tablet_id});
+                std::string idx_val;
+                if (txn->get(idx_key, &idx_val) == TxnErrorCode::TXN_OK) {
+                    TabletIndexPB idx;
+                    if (idx.ParseFromString(idx_val)) table_id = idx.table_id();
+                }
+            }
+            tablet_table_cache[tablet_id] = table_id;
+        }
+        if (table_id == 0) return 0;
+        auto rit = tt_retention_cache.find(table_id);
+        if (rit != tt_retention_cache.end()) return rit->second;
+        int64_t seconds = 0;
+        std::unique_ptr<Transaction> txn;
+        if (txn_kv_->create_txn(&txn) == TxnErrorCode::TXN_OK) {
+            std::string tk_begin, tk_end;
+            meta_tablet_key({instance_id_, table_id, 0, 0, 0}, &tk_begin);
+            meta_tablet_key({instance_id_, table_id + 1, 0, 0, 0}, &tk_end);
+            std::unique_ptr<RangeGetIterator> iter;
+            if (txn->get(tk_begin, tk_end, &iter, false, 1) == TxnErrorCode::TXN_OK
+                    && iter && iter->has_next()) {
+                auto [k, v] = iter->next();
+                doris::TabletMetaCloudPB meta;
+                if (meta.ParseFromArray(v.data(), v.size()))
+                    seconds = time_travel_retention_seconds(meta.time_travel_retention_days());
+            }
+        }
+        tt_retention_cache[table_id] = seconds;
+        return seconds;
+    };
+
+    int64_t num_scanned = 0, num_expired = 0;
+    int64_t now_sec = ::time(nullptr);
+    std::vector<std::string> expired_keys;
+    // For MoW tables: also delete retained delete bitmaps when checkpoint expires.
+    // Each entry: {tablet_id, rowset_id_v2} for each version in the expired checkpoint.
+    std::vector<std::pair<int64_t, std::string>> expired_bitmap_rowsets;
+
+    auto recycle_func = [&](std::string_view k, std::string_view v) -> int {
+        ++num_scanned;
+        TtCompactionManifestPB checkpoint;
+        if (!checkpoint.ParseFromArray(v.data(), v.size())) return 0;
+
+        // tt_compaction_key trailing layout: tablet_id(9) + start_v(9) + end_v(9) = 27 bytes.
+        if (k.size() < 27) return 0;
+        std::string_view tid_sv = k.substr(k.size() - 27, 9);
+        int64_t tablet_id = 0;
+        if (decode_int64(&tid_sv, &tablet_id) != 0 || tablet_id == 0) return 0;
+
+        int64_t retention_sec = get_retention_for_tablet(tablet_id);
+        if (retention_sec <= 0) return 0;
+
+        int64_t created_sec = checkpoint.created_ms() / 1000;
+        if (now_sec < created_sec + retention_sec) return 0;
+
+        ++num_expired;
+        expired_keys.emplace_back(k);
+        // Collect rowset_ids for retained delete bitmaps to clean up alongside this checkpoint.
+        for (const auto& entry : checkpoint.entries()) {
+            if (entry.has_rowset_meta() && !entry.rowset_meta().rowset_id_v2().empty()) {
+                expired_bitmap_rowsets.emplace_back(tablet_id,
+                                                     entry.rowset_meta().rowset_id_v2());
+            }
+        }
+        return 0;
+    };
+
+    auto loop_done = [&]() -> int {
+        if (expired_keys.empty()) return 0;
+        std::unique_ptr<Transaction> txn;
+        if (txn_kv_->create_txn(&txn) != TxnErrorCode::TXN_OK) return -1;
+        for (auto& key : expired_keys) txn->remove(key);
+        // Also delete retained delete bitmaps for expired MoW checkpoints.
+        for (auto& [tid, rowset_id] : expired_bitmap_rowsets) {
+            txn->remove(meta_delete_bitmap_key({instance_id_, tid, rowset_id, 0, 0}),
+                        meta_delete_bitmap_key({instance_id_, tid, rowset_id,
+                                                INT64_MAX, INT64_MAX}));
+        }
+        expired_keys.clear();
+        expired_bitmap_rowsets.clear();
+        TxnErrorCode err = txn->commit();
+        if (err != TxnErrorCode::TXN_OK) {
+            LOG(WARNING) << "recycle_tt_compaction: failed to delete expired checkpoints err="
+                         << err;
+            return -1;
+        }
+        return 0;
+    };
+
+    LOG_INFO("start recycle TT compaction checkpoints").tag("instance_id", instance_id_);
+    int ret = scan_and_recycle(begin_key, end_key, std::move(recycle_func),
+                               std::move(loop_done));
+    LOG_INFO("end recycle TT compaction checkpoints")
+            .tag("instance_id", instance_id_)
+            .tag("num_scanned", num_scanned)
+            .tag("num_expired", num_expired);
+    return ret;
 }
 
 int InstanceRecycler::recycle_versioned_rowsets() {
