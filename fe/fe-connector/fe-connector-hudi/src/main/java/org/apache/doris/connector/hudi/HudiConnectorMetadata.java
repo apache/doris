@@ -46,6 +46,10 @@ import org.apache.avro.Schema;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.table.TableSchemaResolver;
+import org.apache.hudi.common.util.Option;
+import org.apache.hudi.internal.schema.InternalSchema;
+import org.apache.hudi.internal.schema.Types;
+import org.apache.hudi.internal.schema.convert.AvroInternalSchemaConverter;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -205,9 +209,11 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
         for (ConnectorColumn col : schema.getColumns()) {
             boolean isPartKey = partKeyNames != null
                     && partKeyNames.contains(col.getName());
+            // Thread the Hudi InternalSchema field id (set by getSchemaFromMetaClient) onto the handle so
+            // schema-evolution reads match old files BY FIELD ID (HD-C4b). UNSET (-1) -> BE BY_NAME.
             handles.put(col.getName(),
                     new HudiColumnHandle(col.getName(),
-                            col.getType().getTypeName(), isPartKey));
+                            col.getType().getTypeName(), isPartKey, col.getUniqueId()));
         }
         return handles;
     }
@@ -672,12 +678,69 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
             // / DESCRIBE parity even for a populate.meta.fields=false table and (b) guarantees `_hoodie_commit_time`
             // is a visible, name-bindable output column for the synthetic incremental row filter to reference.
             Schema avroSchema = schemaResolver.getTableAvroSchema(true);
-            return avroSchemaToColumns(avroSchema);
+            List<ConnectorColumn> columns = avroSchemaToColumns(avroSchema);
+            return attachHudiFieldIds(schemaResolver, avroSchema, columns);
         } catch (Exception e) {
             LOG.warn("Failed to get schema from Hudi MetaClient for path '{}': {}",
                     basePath, e.getMessage());
             return Collections.emptyList();
         }
+    }
+
+    /**
+     * Resolve the mode-aware InternalSchema for the LATEST commit and attach each column's top-level field id
+     * (HD-C4b). Mirror of legacy {@code HiveMetaStoreClientHelper.getHudiTableSchema}: when {@code
+     * hoodie.schema.on.read.enable} is on, the ids come from the commit-metadata {@link InternalSchema} (STABLE
+     * across renames, so a renamed column keeps its id and BE matches its old files BY FIELD ID); otherwise from
+     * {@code AvroInternalSchemaConverter.convert(latest avro)} (positional ids). The no-arg {@code
+     * getTableInternalSchemaFromCommitMetadata()} pins the latest commit — steady-state / no time-travel pin (an
+     * at-instant variant is a later step).
+     *
+     * <p>On ANY resolution failure the columns are returned unchanged (ids stay {@code UNSET_UNIQUE_ID} -> BE
+     * BY_NAME, the safe baseline) rather than dropping the whole schema — a schema-evolution id hiccup must not
+     * fail a plain read.</p>
+     *
+     * <p>Unlike legacy (which sources columns AND ids from the same InternalSchema and zips positionally), the
+     * connector keeps its independent {@code getTableAvroSchema(true)} column source (preserving the shipped
+     * meta-column-inclusive schema), so ids are matched BY NAME in {@link #attachTopLevelFieldIds}. NOTE(C5a):
+     * this metaClient touch is not yet wrapped in {@code HudiMetaClientExecutor.execute} — closing the existing
+     * unwrapped {@code getSchemaFromMetaClient} auth/TCCL gap is deferred to the at-instant step (C5a), which
+     * restructures this whole read.</p>
+     */
+    private List<ConnectorColumn> attachHudiFieldIds(TableSchemaResolver schemaResolver, Schema latestAvro,
+            List<ConnectorColumn> columns) {
+        try {
+            Option<InternalSchema> fromCommit = schemaResolver.getTableInternalSchemaFromCommitMetadata();
+            InternalSchema internalSchema = fromCommit.isPresent()
+                    ? fromCommit.get()
+                    : AvroInternalSchemaConverter.convert(latestAvro);
+            return attachTopLevelFieldIds(columns, internalSchema);
+        } catch (Exception e) {
+            LOG.warn("Failed to resolve Hudi field ids; falling back to name-based (BY_NAME) matching: {}",
+                    e.getMessage());
+            return columns;
+        }
+    }
+
+    /**
+     * Attach each column's top-level field id from {@code internalSchema}, matched by (lower-cased) name. Port of
+     * legacy {@code HudiUtils.updateHudiColumnUniqueId} at the top level only: the handle carries the top-level
+     * field id, while nested field ids for the BE schema dictionary come straight from the InternalSchema via
+     * {@link HudiSchemaUtils}. A column with no matching InternalSchema field (e.g. a {@code _hoodie_*} meta
+     * column absent from a commit-metadata schema) keeps {@link ConnectorColumn#UNSET_UNIQUE_ID} -> BE BY_NAME
+     * (correct: meta columns are never renamed). Package-private + static for same-loader unit testing.
+     */
+    static List<ConnectorColumn> attachTopLevelFieldIds(List<ConnectorColumn> columns, InternalSchema internalSchema) {
+        Map<String, Integer> idByName = new HashMap<>();
+        for (Types.Field field : internalSchema.getRecord().fields()) {
+            idByName.put(field.name().toLowerCase(Locale.ROOT), field.fieldId());
+        }
+        List<ConnectorColumn> result = new ArrayList<>(columns.size());
+        for (ConnectorColumn col : columns) {
+            Integer id = idByName.get(col.getName().toLowerCase(Locale.ROOT));
+            result.add(id != null ? col.withUniqueId(id) : col);
+        }
+        return result;
     }
 
     /**
