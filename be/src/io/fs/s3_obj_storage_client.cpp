@@ -121,6 +121,7 @@ ObjectStorageUploadResponse S3ObjStorageClient::create_multipart_upload(
     CreateMultipartUploadRequest request;
     request.WithBucket(opts.bucket).WithKey(opts.key);
     request.SetContentType("application/octet-stream");
+    _apply_bearer_token(request);
 
     MonotonicStopWatch watch;
     watch.start();
@@ -157,6 +158,7 @@ ObjectStorageResponse S3ObjStorageClient::put_object(const ObjectStoragePathOpti
                                                      std::string_view stream) {
     Aws::S3::Model::PutObjectRequest request;
     request.WithBucket(opts.bucket).WithKey(opts.key);
+    _apply_bearer_token(request);
     auto string_view_stream = std::make_shared<StringViewStream>(stream.data(), stream.size());
     Aws::Utils::ByteBuffer part_md5(Aws::Utils::HashingUtils::CalculateMD5(*string_view_stream));
     request.SetContentMD5(Aws::Utils::HashingUtils::Base64Encode(part_md5));
@@ -198,6 +200,7 @@ ObjectStorageUploadResponse S3ObjStorageClient::upload_part(const ObjectStorageP
             .WithKey(opts.key)
             .WithPartNumber(part_num)
             .WithUploadId(*opts.upload_id);
+    _apply_bearer_token(request);
     auto string_view_stream = std::make_shared<StringViewStream>(stream.data(), stream.size());
 
     request.SetBody(string_view_stream);
@@ -248,6 +251,7 @@ ObjectStorageResponse S3ObjStorageClient::complete_multipart_upload(
         const std::vector<ObjectCompleteMultiPart>& completed_parts) {
     CompleteMultipartUploadRequest request;
     request.WithBucket(opts.bucket).WithKey(opts.key).WithUploadId(*opts.upload_id);
+    _apply_bearer_token(request);
 
     CompletedMultipartUpload completed_upload;
     std::vector<CompletedPart> complete_parts;
@@ -294,6 +298,7 @@ ObjectStorageResponse S3ObjStorageClient::complete_multipart_upload(
 ObjectStorageHeadResponse S3ObjStorageClient::head_object(const ObjectStoragePathOptions& opts) {
     Aws::S3::Model::HeadObjectRequest request;
     request.WithBucket(opts.bucket).WithKey(opts.key);
+    _apply_bearer_token(request);
 
     SCOPED_BVAR_LATENCY(s3_bvar::s3_head_latency);
     auto outcome = SYNC_POINT_HOOK_RETURN_VALUE(
@@ -318,6 +323,7 @@ ObjectStorageResponse S3ObjStorageClient::get_object(const ObjectStoragePathOpti
                                                      size_t* size_return) {
     Aws::S3::Model::GetObjectRequest request;
     request.WithBucket(opts.bucket).WithKey(opts.key);
+    _apply_bearer_token(request);
     request.SetRange(fmt::format("bytes={}-{}", offset, offset + bytes_read - 1));
     request.SetResponseStreamFactory(AwsWriteableStreamFactory(buffer, bytes_read));
 
@@ -346,6 +352,8 @@ ObjectStorageResponse S3ObjStorageClient::list_objects(const ObjectStoragePathOp
     request.WithBucket(opts.bucket).WithPrefix(opts.prefix);
     bool is_trucated = false;
     do {
+        // Re-applied per page: the token may rotate during a long listing.
+        _apply_bearer_token(request);
         Aws::S3::Model::ListObjectsV2Outcome outcome;
         {
             SCOPED_BVAR_LATENCY(s3_bvar::s3_list_latency);
@@ -393,6 +401,7 @@ ObjectStorageResponse S3ObjStorageClient::delete_objects(const ObjectStoragePath
                                                          std::vector<std::string> objs) {
     Aws::S3::Model::DeleteObjectsRequest delete_request;
     delete_request.SetBucket(opts.bucket);
+    _apply_bearer_token(delete_request);
     Aws::S3::Model::Delete del;
     Aws::Vector<Aws::S3::Model::ObjectIdentifier> objects;
     std::ranges::transform(objs, std::back_inserter(objects), [](auto&& obj_key) {
@@ -426,6 +435,7 @@ ObjectStorageResponse S3ObjStorageClient::delete_objects(const ObjectStoragePath
 ObjectStorageResponse S3ObjStorageClient::delete_object(const ObjectStoragePathOptions& opts) {
     Aws::S3::Model::DeleteObjectRequest request;
     request.WithBucket(opts.bucket).WithKey(opts.key);
+    _apply_bearer_token(request);
 
     SCOPED_BVAR_LATENCY(s3_bvar::s3_delete_object_latency);
     auto outcome = s3_put_rate_limit([&]() { return _client->DeleteObject(request); });
@@ -447,6 +457,8 @@ ObjectStorageResponse S3ObjStorageClient::delete_objects_recursively(
     delete_request.SetBucket(opts.bucket);
     bool is_trucated = false;
     do {
+        // Re-applied per page: the token may rotate during a long listing.
+        _apply_bearer_token(request);
         Aws::S3::Model::ListObjectsV2Outcome outcome;
         {
             SCOPED_BVAR_LATENCY(s3_bvar::s3_list_latency);
@@ -468,6 +480,7 @@ ObjectStorageResponse S3ObjStorageClient::delete_objects_recursively(
         if (!objects.empty()) {
             Aws::S3::Model::Delete del;
             del.WithObjects(std::move(objects)).SetQuiet(true);
+            _apply_bearer_token(delete_request);
             delete_request.SetDelete(std::move(del));
             SCOPED_BVAR_LATENCY(s3_bvar::s3_delete_objects_latency);
             auto delete_outcome =
@@ -498,6 +511,12 @@ ObjectStorageResponse S3ObjStorageClient::delete_objects_recursively(
 std::string S3ObjStorageClient::generate_presigned_url(const ObjectStoragePathOptions& opts,
                                                        int64_t expiration_secs,
                                                        const S3ClientConf&) {
+    if (_bearer_token_provider != nullptr) {
+        // SigV4 presigning needs a signing key; GCP_ADC only carries a
+        // short-lived OAuth2 token, which cannot be embedded in a URL.
+        LOG(WARNING) << "presigned URLs are not supported with the GCP_ADC credentials provider";
+        return "";
+    }
     return _client->GeneratePresignedUrl(opts.bucket, opts.key, Aws::Http::HttpMethod::HTTP_GET,
                                          expiration_secs);
 }

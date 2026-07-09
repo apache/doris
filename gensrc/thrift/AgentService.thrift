@@ -106,7 +106,11 @@ enum TCredProviderType {
     SYSTEM_PROPERTIES = 4,  // SystemPropertiesCredentialsProvider
     WEB_IDENTITY = 5,  // STSAssumeRoleWebIdentityCredentialsProvider
     CONTAINER = 6,  // TaskRoleCredentialsProvider
-    ANONYMOUS = 7  // AnonymousAWSCredentialsProvider
+    ANONYMOUS = 7,  // AnonymousAWSCredentialsProvider
+    // GCP Application Default Credentials; only valid with provider GCP.
+    // GCS S3-compatible XML API requests are authenticated with an OAuth2
+    // bearer token obtained via ADC instead of HMAC keys.
+    GCP_ADC = 8
 }
 
 struct TS3StorageParam {

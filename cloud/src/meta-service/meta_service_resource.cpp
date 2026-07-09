@@ -768,6 +768,10 @@ static bool use_credential_provider(const ObjectStoreInfoPB& obj) {
     return obj.has_cred_provider_type() || has_non_empty_role_arn(obj);
 }
 
+static bool is_gcp_adc_cred_provider(const ObjectStoreInfoPB& obj) {
+    return obj.has_cred_provider_type() && obj.cred_provider_type() == CredProviderTypePB::GCP_ADC;
+}
+
 static void create_object_info_with_encrypt(const InstanceInfoPB& instance, ObjectStoreInfoPB* obj,
                                             bool sse_enabled, MetaServiceCode& code,
                                             std::string& msg) {
@@ -1146,6 +1150,28 @@ static int alter_s3_storage_vault_by_id(InstanceInfoPB& instance, std::unique_pt
         return -1;
     }
 
+    if (is_gcp_adc_cred_provider(obj_info)) {
+        if (obj_info.has_ak() || obj_info.has_role_arn()) {
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            msg = "invalid argument, GCP_ADC can not be set together with ak/sk or role_arn";
+            LOG(WARNING) << msg;
+            return -1;
+        }
+        if (!new_vault.obj_info().has_provider() ||
+            new_vault.obj_info().provider() != ObjectStoreInfoPB::GCP) {
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            msg = "GCP_ADC credentials provider is only supported for provider GCP";
+            LOG(WARNING) << msg;
+            return -1;
+        }
+        new_vault.mutable_obj_info()->clear_ak();
+        new_vault.mutable_obj_info()->clear_sk();
+        new_vault.mutable_obj_info()->clear_encryption_info();
+        new_vault.mutable_obj_info()->clear_role_arn();
+        new_vault.mutable_obj_info()->clear_external_id();
+        new_vault.mutable_obj_info()->set_cred_provider_type(CredProviderTypePB::GCP_ADC);
+    }
+
     if (obj_info.has_ak()) {
         EncryptionInfoPB encryption_info = new_vault.obj_info().encryption_info();
         AkSkPair new_ak_sk_pair {new_vault.obj_info().ak(), new_vault.obj_info().sk()};
@@ -1496,7 +1522,17 @@ void MetaServiceImpl::alter_storage_vault(google::protobuf::RpcController* contr
         }
 
         if (use_credential_provider(obj)) {
-            if (!obj.has_provider() || obj.provider() != ObjectStoreInfoPB::S3) {
+            if (is_gcp_adc_cred_provider(obj)) {
+                // GCP_ADC authenticates the GCS S3-compatible endpoint with an
+                // OAuth2 bearer token; role_arn is an AWS-only concept.
+                if (!obj.has_provider() || obj.provider() != ObjectStoreInfoPB::GCP ||
+                    has_non_empty_role_arn(obj)) {
+                    code = MetaServiceCode::INVALID_ARGUMENT;
+                    msg = "GCP_ADC credentials provider requires provider GCP and no role_arn, "
+                          "please check it";
+                    return;
+                }
+            } else if (!obj.has_provider() || obj.provider() != ObjectStoreInfoPB::S3) {
                 code = MetaServiceCode::INVALID_ARGUMENT;
                 msg = "s3 conf info err with credentials_provider_type, please check it";
                 return;

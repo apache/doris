@@ -54,6 +54,7 @@
 #include "common/status.h"
 #include "cpp/aws_logger.h"
 #include "cpp/custom_aws_credentials_provider_chain.h"
+#include "cpp/gcp_adc_token_provider.h"
 #include "cpp/obj_retry_strategy.h"
 #include "cpp/sync_point.h"
 #include "cpp/util.h"
@@ -436,6 +437,12 @@ std::shared_ptr<Aws::Auth::AWSCredentialsProvider> S3ClientFactory::_create_cred
         return std::make_shared<Aws::Auth::InstanceProfileCredentialsProvider>();
     case CredProviderType::Anonymous:
         return std::make_shared<Aws::Auth::AnonymousAWSCredentialsProvider>();
+    case CredProviderType::GcpAdc:
+        // Anonymous credentials make the SDK's SigV4 signer a no-op; the
+        // request-level `Authorization: Bearer` header (see
+        // S3ObjStorageClient) authenticates against the GCS S3-compatible
+        // endpoint instead.
+        return std::make_shared<Aws::Auth::AnonymousAWSCredentialsProvider>();
     case CredProviderType::Default:
     default:
         return std::make_shared<CustomAwsCredentialsProviderChain>();
@@ -532,7 +539,12 @@ std::shared_ptr<io::ObjStorageClient> S3ClientFactory::_create_s3_client(
             Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never,
             s3_conf.use_virtual_addressing);
 
-    auto obj_client = std::make_shared<io::S3ObjStorageClient>(std::move(new_client));
+    std::shared_ptr<GcpAdcTokenProvider> bearer_token_provider;
+    if (s3_conf.cred_provider_type == CredProviderType::GcpAdc) {
+        bearer_token_provider = global_gcp_adc_token_provider();
+    }
+    auto obj_client = std::make_shared<io::S3ObjStorageClient>(std::move(new_client),
+                                                               std::move(bearer_token_provider));
     LOG_INFO("create one s3 client with {}", s3_conf.to_string());
     return obj_client;
 }
@@ -635,6 +647,8 @@ static CredProviderType cred_provider_type_from_thrift(TCredProviderType::type c
         return CredProviderType::Container;
     case TCredProviderType::ANONYMOUS:
         return CredProviderType::Anonymous;
+    case TCredProviderType::GCP_ADC:
+        return CredProviderType::GcpAdc;
     default:
         __builtin_unreachable();
         LOG(WARNING) << "Invalid TCredProviderType value: " << cred_provider_type

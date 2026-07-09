@@ -112,6 +112,15 @@ public class S3Resource extends Resource {
         String region = S3Properties.getRegionOfEndpoint(pingEndpoint);
         properties.putIfAbsent(S3Properties.REGION, region);
 
+        if (needCheck && S3Properties.isGcpAdcCredentialsProvider(properties)) {
+            // The FE's S3 client signs with static credentials and cannot attach
+            // the ADC bearer token, so the connectivity probe would always fail;
+            // BE probes the vault with the real credentials at startup instead.
+            LOG.info("skip s3 connectivity check: {}={} authenticates on BE via "
+                    + "application default credentials",
+                    S3Properties.CREDENTIALS_PROVIDER_TYPE, S3Properties.GCP_ADC_CREDENTIALS_PROVIDER);
+            needCheck = false;
+        }
         if (needCheck) {
             String bucketName = properties.get(S3Properties.BUCKET);
             String rootPath = properties.get(S3Properties.ROOT_PATH);

@@ -48,6 +48,7 @@
 #include "common/util.h"
 #include "cpp/aws_logger.h"
 #include "cpp/custom_aws_credentials_provider_chain.h"
+#include "cpp/gcp_adc_token_provider.h"
 #include "cpp/obj_retry_strategy.h"
 #include "cpp/sync_point.h"
 #include "cpp/token_bucket_rate_limiter.h"
@@ -296,6 +297,10 @@ std::shared_ptr<Aws::Auth::AWSCredentialsProvider> S3Accessor::_get_aws_credenti
         return std::make_shared<Aws::Auth::SimpleAWSCredentialsProvider>(std::move(aws_cred));
     }
 
+    if (s3_conf.cred_provider_type == CredProviderType::GcpAdc) {
+        return _create_credentials_provider(s3_conf.cred_provider_type);
+    }
+
     if (s3_conf.cred_provider_type == CredProviderType::InstanceProfile) {
         if (s3_conf.role_arn.empty()) {
             return std::make_shared<Aws::Auth::InstanceProfileCredentialsProvider>();
@@ -337,6 +342,11 @@ std::shared_ptr<Aws::Auth::AWSCredentialsProvider> S3Accessor::_create_credentia
     case CredProviderType::InstanceProfile:
         return std::make_shared<Aws::Auth::InstanceProfileCredentialsProvider>();
     case CredProviderType::Anonymous:
+        return std::make_shared<Aws::Auth::AnonymousAWSCredentialsProvider>();
+    case CredProviderType::GcpAdc:
+        // Anonymous credentials make the SDK's SigV4 signer a no-op; the
+        // request-level `Authorization: Bearer` header (see S3ObjClient)
+        // authenticates against the GCS S3-compatible endpoint instead.
         return std::make_shared<Aws::Auth::AnonymousAWSCredentialsProvider>();
     case CredProviderType::Default:
     default:
@@ -455,7 +465,12 @@ int S3Accessor::init() {
                 get_aws_credentials_provider(conf_), std::move(aws_config),
                 Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never,
                 conf_.use_virtual_addressing /* useVirtualAddressing */);
-        obj_client_ = std::make_shared<S3ObjClient>(std::move(s3_client), conf_.endpoint);
+        std::shared_ptr<GcpAdcTokenProvider> bearer_token_provider;
+        if (conf_.cred_provider_type == CredProviderType::GcpAdc) {
+            bearer_token_provider = global_gcp_adc_token_provider();
+        }
+        obj_client_ = std::make_shared<S3ObjClient>(std::move(s3_client), conf_.endpoint,
+                                                    std::move(bearer_token_provider));
         return 0;
     }
     }

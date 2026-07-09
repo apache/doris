@@ -19,6 +19,7 @@
 
 #include <memory>
 
+#include "cpp/gcp_adc_token_provider.h"
 #include "recycler/obj_storage_client.h"
 
 namespace Aws::S3 {
@@ -29,8 +30,11 @@ namespace doris::cloud {
 
 class S3ObjClient final : public ObjStorageClient {
 public:
-    S3ObjClient(std::shared_ptr<Aws::S3::S3Client> client, std::string endpoint)
-            : s3_client_(std::move(client)), endpoint_(std::move(endpoint)) {}
+    S3ObjClient(std::shared_ptr<Aws::S3::S3Client> client, std::string endpoint,
+                std::shared_ptr<GcpAdcTokenProvider> bearer_token_provider = nullptr)
+            : s3_client_(std::move(client)),
+              endpoint_(std::move(endpoint)),
+              bearer_token_provider_(std::move(bearer_token_provider)) {}
     ~S3ObjClient() override;
 
     ObjectStorageResponse put_object(ObjectStoragePathRef path, std::string_view stream) override;
@@ -59,6 +63,8 @@ public:
 private:
     std::shared_ptr<Aws::S3::S3Client> s3_client_;
     std::string endpoint_;
+    // Set iff the vault uses the GCP_ADC credentials provider type.
+    std::shared_ptr<GcpAdcTokenProvider> bearer_token_provider_;
 };
 
 } // namespace doris::cloud

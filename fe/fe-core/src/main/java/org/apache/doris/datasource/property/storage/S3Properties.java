@@ -64,6 +64,16 @@ public class S3Properties extends AbstractS3CompatibleProperties {
     public static final String EXTERNAL_ID = "s3.external_id";
     public static final String CREDENTIALS_PROVIDER_TYPE = "s3.credentials_provider_type";
 
+    /**
+     * Credentials provider value for GCP storage vaults: authenticate the GCS
+     * S3-compatible endpoint with an OAuth2 bearer token obtained via Google
+     * Application Default Credentials (a service account json pointed to by
+     * GOOGLE_APPLICATION_CREDENTIALS, or the GCE/GKE metadata server — i.e.
+     * Workload Identity) instead of static HMAC keys.
+     * Only valid for storage vaults with provider GCP.
+     */
+    public static final String GCP_ADC_CREDENTIALS_PROVIDER = "gcp_adc";
+
     private static final String[] ENDPOINT_NAMES_FOR_GUESSING = {
             "s3.endpoint", "AWS_ENDPOINT", "endpoint", "ENDPOINT", "aws.endpoint", "glue.endpoint",
             "aws.glue.endpoint"
@@ -662,6 +672,14 @@ public class S3Properties extends AbstractS3CompatibleProperties {
                 || properties.containsKey(Env.CREDENTIALS_PROVIDER_TYPE);
     }
 
+    public static boolean isGcpAdcCredentialsProvider(Map<String, String> properties) {
+        String mode = properties.get(CREDENTIALS_PROVIDER_TYPE);
+        if (StringUtils.isBlank(mode)) {
+            mode = properties.get(Env.CREDENTIALS_PROVIDER_TYPE);
+        }
+        return GCP_ADC_CREDENTIALS_PROVIDER.equalsIgnoreCase(mode);
+    }
+
     public static Cloud.ObjectStoreInfoPB.Builder getObjStoreInfoPB(Map<String, String> properties) {
         Cloud.ObjectStoreInfoPB.Builder builder = Cloud.ObjectStoreInfoPB.newBuilder();
         if (properties.containsKey(S3Properties.ENDPOINT)) {
@@ -702,7 +720,20 @@ public class S3Properties extends AbstractS3CompatibleProperties {
         }
 
         if (hasCredentialsProviderType(properties)) {
-            builder.setCredProviderType(getCredProviderTypePB(properties));
+            if (isGcpAdcCredentialsProvider(properties)) {
+                Preconditions.checkArgument(builder.hasProvider() && builder.getProvider() == Provider.GCP,
+                        "%s=%s is only supported with provider GCP",
+                        CREDENTIALS_PROVIDER_TYPE, GCP_ADC_CREDENTIALS_PROVIDER);
+                Preconditions.checkArgument(!builder.hasAk() && !builder.hasSk(),
+                        "%s=%s cannot be used together with %s/%s",
+                        CREDENTIALS_PROVIDER_TYPE, GCP_ADC_CREDENTIALS_PROVIDER, ACCESS_KEY, SECRET_KEY);
+                Preconditions.checkArgument(Strings.isNullOrEmpty(properties.get(S3Properties.ROLE_ARN)),
+                        "%s=%s cannot be used together with %s",
+                        CREDENTIALS_PROVIDER_TYPE, GCP_ADC_CREDENTIALS_PROVIDER, ROLE_ARN);
+                builder.setCredProviderType(CredProviderTypePB.GCP_ADC);
+            } else {
+                builder.setCredProviderType(getCredProviderTypePB(properties));
+            }
         }
 
         if (properties.containsKey(S3Properties.ROLE_ARN)) {

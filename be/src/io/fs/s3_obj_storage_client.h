@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "cpp/gcp_adc_token_provider.h"
 #include "io/fs/obj_storage_client.h"
 #include "io/fs/s3_file_system.h"
 
@@ -32,7 +33,10 @@ class ObjClientHolder;
 
 class S3ObjStorageClient final : public ObjStorageClient {
 public:
-    S3ObjStorageClient(std::shared_ptr<Aws::S3::S3Client> client) : _client(std::move(client)) {}
+    S3ObjStorageClient(std::shared_ptr<Aws::S3::S3Client> client,
+                       std::shared_ptr<GcpAdcTokenProvider> bearer_token_provider = nullptr)
+            : _client(std::move(client)),
+              _bearer_token_provider(std::move(bearer_token_provider)) {}
     ~S3ObjStorageClient() override = default;
     ObjectStorageUploadResponse create_multipart_upload(
             const ObjectStoragePathOptions& opts) override;
@@ -57,7 +61,15 @@ public:
                                        int64_t expiration_secs, const S3ClientConf&) override;
 
 private:
+    template <typename Request>
+    void _apply_bearer_token(Request& request) const {
+        apply_gcp_bearer_token(request, _bearer_token_provider);
+    }
+
     std::shared_ptr<Aws::S3::S3Client> _client;
+    // Set iff the client authenticates via the GCP_ADC credentials provider
+    // type (OAuth2 bearer token on the GCS S3-compatible endpoint).
+    std::shared_ptr<GcpAdcTokenProvider> _bearer_token_provider;
 };
 
 } // namespace doris::io

@@ -51,6 +51,9 @@ TEST_F(S3ClientFactoryTest, AwsCredentialsProvider) {
     S3ClientConf web_identity_conf;
     web_identity_conf.cred_provider_type = CredProviderType::WebIdentity;
 
+    S3ClientConf gcp_adc_conf;
+    gcp_adc_conf.cred_provider_type = CredProviderType::GcpAdc;
+
     config::aws_credentials_provider_version = "v2";
     {
         auto provider_v2 = factory.get_aws_credentials_provider(anonymous_conf);
@@ -71,6 +74,15 @@ TEST_F(S3ClientFactoryTest, AwsCredentialsProvider) {
                 std::dynamic_pointer_cast<Aws::Auth::InstanceProfileCredentialsProvider>(
                         provider_v2);
         ASSERT_NE(instance_profile_v2, nullptr);
+    }
+
+    {
+        // GcpAdc must yield anonymous credentials: SigV4 signing is skipped
+        // and requests carry an OAuth2 bearer header instead.
+        auto provider_v2 = factory.get_aws_credentials_provider(gcp_adc_conf);
+        auto anonymous_v2 =
+                std::dynamic_pointer_cast<Aws::Auth::AnonymousAWSCredentialsProvider>(provider_v2);
+        ASSERT_NE(anonymous_v2, nullptr);
     }
 
     {

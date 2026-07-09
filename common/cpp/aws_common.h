@@ -22,22 +22,26 @@
 #include <filesystem>
 
 namespace doris {
-    //AWS Credentials Provider Type
-    enum class CredProviderType {
-        Default = 0,
-        Simple = 1,
-        InstanceProfile = 2,
-        Env = 3,
-        SystemProperties = 4,
-        WebIdentity = 5,
-        Container = 6,
-        Anonymous = 7
-    };
+//AWS Credentials Provider Type
+enum class CredProviderType {
+    Default = 0,
+    Simple = 1,
+    InstanceProfile = 2,
+    Env = 3,
+    SystemProperties = 4,
+    WebIdentity = 5,
+    Container = 6,
+    Anonymous = 7,
+    // GCP Application Default Credentials; only valid with provider GCP.
+    // The S3 client is created with anonymous credentials (SigV4 signing
+    // is skipped) and requests carry an OAuth2 bearer token instead.
+    GcpAdc = 8
+};
 
-    CredProviderType cred_provider_type_from_pb(cloud::CredProviderTypePB cred_provider_type);
+CredProviderType cred_provider_type_from_pb(cloud::CredProviderTypePB cred_provider_type);
 
-    CredProviderType cred_provider_type_from_string(const std::string& type);
+CredProviderType cred_provider_type_from_string(const std::string& type);
 
-    std::string get_valid_ca_cert_path(const std::vector<std::string>& ca_cert_file_paths);
+std::string get_valid_ca_cert_path(const std::vector<std::string>& ca_cert_file_paths);
 
-    } // namespace doris
+} // namespace doris

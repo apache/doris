@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.property.storage;
 
 import org.apache.doris.catalog.S3StorageVault;
+import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.proto.Cloud.CredProviderTypePB;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ExceptionChecker;
@@ -290,6 +291,57 @@ public class S3PropertiesTest {
         s3StorageParam = S3Properties.getS3TStorageParam(origProps);
         Assertions.assertEquals(TCredProviderType.ENV, s3StorageParam.getCredProviderType());
         Assertions.assertTrue(S3StorageVault.ALLOW_ALTER_PROPERTIES.contains(S3Properties.CREDENTIALS_PROVIDER_TYPE));
+    }
+
+    @Test
+    public void testGcpAdcCredentialsProviderForCloud() {
+        origProps.put("s3.endpoint", "storage.googleapis.com");
+        origProps.put("s3.region", "us-central1");
+        origProps.put("s3.bucket", "bucket");
+        origProps.put("s3.root.path", "root");
+        origProps.put("provider", "GCP");
+        origProps.put("s3.credentials_provider_type", "gcp_adc");
+
+        Cloud.ObjectStoreInfoPB.Builder builder = S3Properties.getObjStoreInfoPB(origProps);
+        Assertions.assertEquals(CredProviderTypePB.GCP_ADC, builder.getCredProviderType());
+        Assertions.assertFalse(builder.hasAk());
+        Assertions.assertFalse(builder.hasSk());
+        Assertions.assertFalse(builder.hasRoleArn());
+        Assertions.assertTrue(S3StorageVault.ALLOW_ALTER_PROPERTIES.contains(S3Properties.CREDENTIALS_PROVIDER_TYPE));
+    }
+
+    @Test
+    public void testGcpAdcCredentialsProviderRequiresGcpProvider() {
+        origProps.put("s3.endpoint", "s3.us-west-2.amazonaws.com");
+        origProps.put("s3.region", "us-west-2");
+        origProps.put("s3.bucket", "bucket");
+        origProps.put("s3.root.path", "root");
+        origProps.put("provider", "S3");
+        origProps.put("s3.credentials_provider_type", "gcp_adc");
+
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> S3Properties.getObjStoreInfoPB(origProps));
+    }
+
+    @Test
+    public void testGcpAdcCredentialsProviderRejectsStaticCredentials() {
+        origProps.put("s3.endpoint", "storage.googleapis.com");
+        origProps.put("s3.region", "us-central1");
+        origProps.put("s3.bucket", "bucket");
+        origProps.put("s3.root.path", "root");
+        origProps.put("provider", "GCP");
+        origProps.put("s3.credentials_provider_type", "gcp_adc");
+
+        origProps.put("s3.access_key", "hmac_id");
+        origProps.put("s3.secret_key", "hmac_secret");
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> S3Properties.getObjStoreInfoPB(origProps));
+
+        origProps.remove("s3.access_key");
+        origProps.remove("s3.secret_key");
+        origProps.put("s3.role_arn", "arn:aws:iam::123456789012:role/MyTestRole");
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> S3Properties.getObjStoreInfoPB(origProps));
     }
 
     @Test

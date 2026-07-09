@@ -39,6 +39,8 @@ CredProviderType cred_provider_type_from_pb(cloud::CredProviderTypePB cred_provi
         return CredProviderType::Container;
     case cloud::CredProviderTypePB::ANONYMOUS:
         return CredProviderType::Anonymous;
+    case cloud::CredProviderTypePB::GCP_ADC:
+        return CredProviderType::GcpAdc;
     default:
         __builtin_unreachable();
         LOG(WARNING) << "Invalid CredProviderTypePB value: " << cred_provider_type
@@ -72,6 +74,9 @@ CredProviderType cred_provider_type_from_string(const std::string& type) {
     if (type == "ANONYMOUS") {
         return CredProviderType::Anonymous;
     }
+    if (type == "GCP_ADC") {
+        return CredProviderType::GcpAdc;
+    }
     LOG(WARNING) << "Unknown credentials provider type: " << type << ", use default instead.";
     return CredProviderType::Default;
 }
@@ -84,4 +89,4 @@ std::string get_valid_ca_cert_path(const std::vector<std::string>& ca_cert_file_
     }
     return "";
 }
-}
+} // namespace doris

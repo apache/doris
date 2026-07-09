@@ -10559,6 +10559,181 @@ TEST(MetaServiceTest, CreateS3VaultWithIamRole) {
     SyncPoint::get_instance()->clear_all_call_backs();
 }
 
+TEST(MetaServiceTest, CreateAndAlterS3VaultWithGcpAdc) {
+    auto sp = SyncPoint::get_instance();
+    sp->enable_processing();
+    sp->set_call_back("encrypt_ak_sk:get_encryption_key", [](auto&& args) {
+        auto* ret = try_any_cast<int*>(args[0]);
+        *ret = 0;
+        auto* key = try_any_cast<std::string*>(args[1]);
+        *key = "selectdbselectdbselectdbselectdb";
+        auto* key_id = try_any_cast<int64_t*>(args[2]);
+        *key_id = 1;
+    });
+
+    auto meta_service = get_meta_service();
+
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::string key;
+    std::string val;
+    InstanceKeyInfo key_info {"test_instance"};
+    instance_key(key_info, &key);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id("GetObjStoreInfoTestInstance");
+    instance.set_enable_storage_vault(true);
+    val = instance.SerializeAsString();
+    txn->put(key, val);
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    txn = nullptr;
+
+    auto add_vault = [&](StorageVaultPB vault, AlterObjStoreInfoResponse* res) {
+        AlterObjStoreInfoRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_op(AlterObjStoreInfoRequest::ADD_S3_VAULT);
+        req.mutable_vault()->CopyFrom(vault);
+        brpc::Controller cntl;
+        meta_service->alter_storage_vault(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, res, nullptr);
+    };
+
+    auto get_vault = [&](const std::string& vault_id, StorageVaultPB* vault) {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string val;
+        ASSERT_EQ(txn->get(storage_vault_key({"GetObjStoreInfoTestInstance", vault_id}), &val),
+                  TxnErrorCode::TXN_OK);
+        vault->ParseFromString(val);
+    };
+
+    std::string adc_vault_id;
+    {
+        // A keyless GCP vault with the GCP_ADC credentials provider is accepted.
+        StorageVaultPB vault;
+        vault.mutable_obj_info()->set_endpoint("storage.googleapis.com");
+        vault.mutable_obj_info()->set_region("us-central1");
+        vault.mutable_obj_info()->set_bucket("test_bucket");
+        vault.mutable_obj_info()->set_prefix("test_prefix");
+        vault.mutable_obj_info()->set_provider(
+                ObjectStoreInfoPB::Provider::ObjectStoreInfoPB_Provider_GCP);
+        vault.mutable_obj_info()->set_cred_provider_type(CredProviderTypePB::GCP_ADC);
+        vault.set_name("gcp_adc_vault");
+
+        AlterObjStoreInfoResponse res;
+        add_vault(vault, &res);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+        adc_vault_id = res.storage_vault_id();
+
+        StorageVaultPB get_obj;
+        get_vault(adc_vault_id, &get_obj);
+        ASSERT_FALSE(get_obj.obj_info().has_ak());
+        ASSERT_FALSE(get_obj.obj_info().has_role_arn());
+        ASSERT_EQ(get_obj.obj_info().cred_provider_type(), CredProviderTypePB::GCP_ADC)
+                << get_obj.obj_info().cred_provider_type();
+    }
+
+    {
+        // GCP_ADC is rejected for any provider other than GCP.
+        StorageVaultPB vault;
+        vault.mutable_obj_info()->set_endpoint("s3.us-east-1.amazonaws.com");
+        vault.mutable_obj_info()->set_region("us-east-1");
+        vault.mutable_obj_info()->set_bucket("test_bucket");
+        vault.mutable_obj_info()->set_prefix("test_prefix");
+        vault.mutable_obj_info()->set_provider(
+                ObjectStoreInfoPB::Provider::ObjectStoreInfoPB_Provider_S3);
+        vault.mutable_obj_info()->set_cred_provider_type(CredProviderTypePB::GCP_ADC);
+        vault.set_name("gcp_adc_wrong_provider_vault");
+
+        AlterObjStoreInfoResponse res;
+        add_vault(vault, &res);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT) << res.status().msg();
+    }
+
+    {
+        // GCP_ADC cannot be combined with role_arn.
+        StorageVaultPB vault;
+        vault.mutable_obj_info()->set_endpoint("storage.googleapis.com");
+        vault.mutable_obj_info()->set_region("us-central1");
+        vault.mutable_obj_info()->set_bucket("test_bucket");
+        vault.mutable_obj_info()->set_prefix("test_prefix");
+        vault.mutable_obj_info()->set_provider(
+                ObjectStoreInfoPB::Provider::ObjectStoreInfoPB_Provider_GCP);
+        vault.mutable_obj_info()->set_cred_provider_type(CredProviderTypePB::GCP_ADC);
+        vault.mutable_obj_info()->set_role_arn("arn:aws:iam::123456789012:role/test-role");
+        vault.set_name("gcp_adc_role_arn_vault");
+
+        AlterObjStoreInfoResponse res;
+        add_vault(vault, &res);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT) << res.status().msg();
+    }
+
+    std::string hmac_vault_id;
+    {
+        // A GCP vault created with HMAC keys...
+        StorageVaultPB vault;
+        vault.mutable_obj_info()->set_endpoint("storage.googleapis.com");
+        vault.mutable_obj_info()->set_region("us-central1");
+        vault.mutable_obj_info()->set_bucket("test_bucket");
+        vault.mutable_obj_info()->set_prefix("test_prefix_hmac");
+        vault.mutable_obj_info()->set_ak("hmac_ak");
+        vault.mutable_obj_info()->set_sk("hmac_sk");
+        vault.mutable_obj_info()->set_provider(
+                ObjectStoreInfoPB::Provider::ObjectStoreInfoPB_Provider_GCP);
+        vault.set_name("gcp_hmac_vault");
+
+        AlterObjStoreInfoResponse res;
+        add_vault(vault, &res);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+        hmac_vault_id = res.storage_vault_id();
+    }
+
+    {
+        // ...can be altered to GCP_ADC, which clears the stored keys.
+        AlterObjStoreInfoRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_op(AlterObjStoreInfoRequest::ALTER_S3_VAULT);
+        req.mutable_vault()->set_name("gcp_hmac_vault");
+        req.mutable_vault()->mutable_obj_info()->set_cred_provider_type(
+                CredProviderTypePB::GCP_ADC);
+
+        brpc::Controller cntl;
+        AlterObjStoreInfoResponse res;
+        meta_service->alter_storage_vault(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+
+        StorageVaultPB get_obj;
+        get_vault(hmac_vault_id, &get_obj);
+        ASSERT_FALSE(get_obj.obj_info().has_ak());
+        ASSERT_FALSE(get_obj.obj_info().has_sk());
+        ASSERT_FALSE(get_obj.obj_info().has_encryption_info());
+        ASSERT_EQ(get_obj.obj_info().cred_provider_type(), CredProviderTypePB::GCP_ADC)
+                << get_obj.obj_info().cred_provider_type();
+    }
+
+    {
+        // Altering to GCP_ADC together with ak/sk in one request is rejected.
+        AlterObjStoreInfoRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_op(AlterObjStoreInfoRequest::ALTER_S3_VAULT);
+        req.mutable_vault()->set_name("gcp_hmac_vault");
+        req.mutable_vault()->mutable_obj_info()->set_cred_provider_type(
+                CredProviderTypePB::GCP_ADC);
+        req.mutable_vault()->mutable_obj_info()->set_ak("new_ak");
+        req.mutable_vault()->mutable_obj_info()->set_sk("new_sk");
+
+        brpc::Controller cntl;
+        AlterObjStoreInfoResponse res;
+        meta_service->alter_storage_vault(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT) << res.status().msg();
+    }
+
+    SyncPoint::get_instance()->disable_processing();
+    SyncPoint::get_instance()->clear_all_call_backs();
+}
+
 TEST(MetaServiceTest, AddObjInfoWithRole) {
     auto meta_service = get_meta_service();
 
