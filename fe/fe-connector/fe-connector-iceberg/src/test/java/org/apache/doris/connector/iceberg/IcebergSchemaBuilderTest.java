@@ -285,6 +285,36 @@ public class IcebergSchemaBuilderTest {
         Assertions.assertNull(IcebergSchemaBuilder.buildSortOrder(Collections.emptyList(), partSchema()));
     }
 
+    @Test
+    public void testPartitionColumnResolvedCaseInsensitively() {
+        // #65094: the schema keeps the original column case ("mIxEd_COL"); a partition column referenced
+        // with a different case ("mixed_col") must resolve back to the canonical name, else Iceberg's
+        // case-sensitive PartitionSpec.Builder lookup throws ValidationException.
+        // MUTATION: dropping resolveColumnName -> builder.identity("mixed_col") can't find the field ->
+        // buildPartitionSpec throws -> red.
+        Schema schema = IcebergSchemaBuilder.buildSchema(Collections.singletonList(
+                col("mIxEd_COL", ConnectorType.of("BIGINT"), true)));
+        PartitionSpec result = IcebergSchemaBuilder.buildPartitionSpec(spec(
+                new ConnectorPartitionField("mixed_col", "identity", Collections.emptyList())), schema);
+        Assertions.assertEquals(1, result.fields().size());
+        Assertions.assertEquals(schema.findField("mIxEd_COL").fieldId(), result.fields().get(0).sourceId(),
+                "partition must bind to the canonical (case-preserving) column");
+    }
+
+    @Test
+    public void testSortColumnResolvedCaseInsensitively() {
+        // #65094: same case-insensitive resolution for a write-order (sort) column.
+        // MUTATION: dropping resolveColumnName -> builder.asc("mixed_col") can't find the field ->
+        // buildSortOrder throws -> red.
+        Schema schema = IcebergSchemaBuilder.buildSchema(Collections.singletonList(
+                col("mIxEd_COL", ConnectorType.of("BIGINT"), true)));
+        SortOrder order = IcebergSchemaBuilder.buildSortOrder(Collections.singletonList(
+                new ConnectorSortField("mixed_col", true, true)), schema);
+        Assertions.assertEquals(1, order.fields().size());
+        Assertions.assertEquals(schema.findField("mIxEd_COL").fieldId(), order.fields().get(0).sourceId(),
+                "sort field must bind to the canonical (case-preserving) column");
+    }
+
     // ---------- buildTableProperties ----------
 
     @Test
