@@ -74,8 +74,8 @@ public class PaimonJniScanner extends JniScanner {
 
     private final Map<String, String> params;
     private final Map<String, String> hadoopOptionParams;
-    private final String paimonSplit;
     private final String paimonPredicate;
+    private String currentPaimonSplit;
     private Table table;
     private RecordReader<InternalRow> reader;
     private IOManager ioManager;
@@ -83,6 +83,7 @@ public class PaimonJniScanner extends JniScanner {
     private final PaimonColumnValue columnValue = new PaimonColumnValue();
     private List<String> paimonAllFieldNames;
     private List<DataType> paimonDataTypeList;
+    private int[] projected;
     private RecordReader.RecordIterator<InternalRow> recordIterator = null;
     private final ClassLoader classLoader;
     private PreExecutionAuthenticator preExecutionAuthenticator;
@@ -108,7 +109,6 @@ public class PaimonJniScanner extends JniScanner {
         for (int i = 0; i < requiredTypes.length; i++) {
             columnTypes[i] = ColumnType.parseType(requiredFields[i], requiredTypes[i]);
         }
-        paimonSplit = params.get("paimon_split");
         paimonPredicate = params.get("paimon_predicate");
         String timeZone = params.getOrDefault("time_zone", TimeZone.getDefault().getID());
         columnValue.setTimeZone(timeZone);
@@ -133,7 +133,8 @@ public class PaimonJniScanner extends JniScanner {
             preExecutionAuthenticator.execute(() -> {
                 PaimonJdbcDriverUtils.registerDriverIfNeeded(params, classLoader);
                 initTable();
-                initReader();
+                initProjection();
+                initIOManagerIfNeeded();
                 return null;
             });
             resetDatetimeV2Precision();
@@ -151,8 +152,53 @@ public class PaimonJniScanner extends JniScanner {
         }
     }
 
-    private void initReader() throws IOException {
-        ReadBuilder readBuilder = table.newReadBuilder();
+    @Override
+    public void prepareForSplit(Map<String, String> splitParams) throws IOException {
+        Preconditions.checkArgument(splitParams != null, "Paimon split params are required");
+        String paimonSplit = splitParams.get("paimon_split");
+        Preconditions.checkArgument(paimonSplit != null && !paimonSplit.isEmpty(), "paimon_split is required");
+        try {
+            Thread.currentThread().setContextClassLoader(classLoader);
+            preExecutionAuthenticator.execute(() -> {
+                resetCurrentSplit();
+                currentPaimonSplit = paimonSplit;
+                initReader();
+                return null;
+            });
+        } catch (IOException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new IOException(e);
+        }
+    }
+
+    @Override
+    public void resetCurrentSplit() throws IOException {
+        IOException exception = null;
+        try {
+            releaseRecordIterator();
+        } catch (RuntimeException e) {
+            exception = new IOException("Failed to release Paimon record iterator", e);
+        }
+        if (reader != null) {
+            try {
+                reader.close();
+                reader = null;
+            } catch (IOException e) {
+                if (exception == null) {
+                    exception = e;
+                } else {
+                    exception.addSuppressed(e);
+                }
+            }
+        }
+        if (exception != null) {
+            throw exception;
+        }
+        currentPaimonSplit = null;
+    }
+
+    private void initProjection() throws IOException {
         if (this.fields.length > this.paimonAllFieldNames.size()) {
             throw new IOException(
                     String.format(
@@ -160,12 +206,19 @@ public class PaimonJniScanner extends JniScanner {
                                     + " Please refresh table and try again",
                             fields.length, paimonAllFieldNames.size()));
         }
-        int[] projected = getProjected();
+        projected = getProjected();
+        paimonDataTypeList =
+                Arrays.stream(projected).mapToObj(i -> table.rowType().getTypeAt(i)).collect(Collectors.toList());
+    }
+
+    private void initReader() throws IOException {
+        Preconditions.checkState(table != null, "Paimon scanner is not opened");
+        Preconditions.checkState(projected != null, "Paimon scanner projection is not initialized");
+        Preconditions.checkState(currentPaimonSplit != null, "Paimon split is not prepared");
+        ReadBuilder readBuilder = table.newReadBuilder();
         readBuilder.withProjection(projected);
         readBuilder.withFilter(getPredicates());
         reader = newReadWithOptionalIOManager(readBuilder).executeFilter().createReader(getSplit());
-        paimonDataTypeList =
-                Arrays.stream(projected).mapToObj(i -> table.rowType().getTypeAt(i)).collect(Collectors.toList());
     }
 
     private TableRead newReadWithOptionalIOManager(ReadBuilder readBuilder) throws IOException {
@@ -173,11 +226,18 @@ public class PaimonJniScanner extends JniScanner {
         if (!isIOManagerEnabled(params)) {
             return tableRead;
         }
+        Preconditions.checkState(ioManager != null, "Paimon JNI IOManager is not initialized");
+        return tableRead.withIOManager(ioManager);
+    }
+
+    private void initIOManagerIfNeeded() throws IOException {
+        if (!isIOManagerEnabled(params) || ioManager != null) {
+            return;
+        }
         ioManagerTempDirs = getIOManagerTempDirs(params);
         ioManager = createIOManager(ioManagerTempDirs, getIOManagerImplClass(params));
         LOG.info("Enable Paimon JNI IOManager with temp dirs: {}, implementation: {}",
                 ioManagerTempDirs, ioManager.getClass().getName());
-        return tableRead.withIOManager(ioManager);
     }
 
     static boolean isIOManagerEnabled(Map<String, String> params) {
@@ -279,7 +339,8 @@ public class PaimonJniScanner extends JniScanner {
     }
 
     private Split getSplit() {
-        Split split = PaimonUtils.deserialize(paimonSplit);
+        Preconditions.checkState(currentPaimonSplit != null, "Paimon split is not prepared");
+        Split split = PaimonUtils.deserialize(currentPaimonSplit);
         if (LOG.isDebugEnabled()) {
             LOG.debug("split:{}", split);
         }
@@ -306,23 +367,11 @@ public class PaimonJniScanner extends JniScanner {
     public void close() throws IOException {
         IOException exception = null;
         try {
-            try {
-                releaseRecordIterator();
-            } catch (RuntimeException e) {
-                exception = new IOException("Failed to release Paimon record iterator", e);
-            }
-            if (reader != null) {
-                try {
-                    reader.close();
-                    reader = null;
-                } catch (IOException e) {
-                    if (exception == null) {
-                        exception = e;
-                    } else {
-                        exception.addSuppressed(e);
-                    }
-                }
-            }
+            resetCurrentSplit();
+        } catch (IOException e) {
+            exception = e;
+        }
+        try {
             if (ioManager != null) {
                 try {
                     ioManager.close();
@@ -354,6 +403,7 @@ public class PaimonJniScanner extends JniScanner {
     private int readAndProcessNextBatch() throws IOException {
         int rows = 0;
         try {
+            Preconditions.checkState(reader != null, "Paimon split is not prepared");
             if (recordIterator == null) {
                 recordIterator = readBatchWithMetrics();
             }
@@ -388,10 +438,14 @@ public class PaimonJniScanner extends JniScanner {
             }
             rowsRead += rows;
         } catch (Exception e) {
-            close();
             LOG.warn("Failed to get the next batch of paimon. "
                             + "split: {}, requiredFieldNames: {}, paimonAllFieldNames: {}, dataType: {}",
-                    getSplit(), params.get("required_fields"), paimonAllFieldNames, paimonDataTypeList, e);
+                    currentPaimonSplit, params.get("required_fields"), paimonAllFieldNames, paimonDataTypeList, e);
+            try {
+                close();
+            } catch (IOException closeException) {
+                e.addSuppressed(closeException);
+            }
             throw new IOException(e);
         }
         return rows;
@@ -434,7 +488,7 @@ public class PaimonJniScanner extends JniScanner {
         statistics.put("gauge:PaimonJniAsyncReaderThreadCount",
                 String.valueOf(currentAsyncReaderThreadCount()));
         statistics.put("gauge:PaimonJniRequiredFieldCount", String.valueOf(fields.length));
-        statistics.put("counter:PaimonJniSplitEncodedLength", String.valueOf(lengthOfParam("paimon_split")));
+        statistics.put("counter:PaimonJniSplitEncodedLength", String.valueOf(lengthOfCurrentPaimonSplit()));
         statistics.put("counter:PaimonJniPredicateEncodedLength", String.valueOf(lengthOfParam("paimon_predicate")));
         statistics.put("gauge:PaimonJniAsyncThresholdConfigured",
                 hasPaimonOption(FILE_READER_ASYNC_THRESHOLD) ? "1" : "0");
@@ -452,6 +506,10 @@ public class PaimonJniScanner extends JniScanner {
     private int lengthOfParam(String key) {
         String value = params.get(key);
         return value == null ? 0 : value.length();
+    }
+
+    private int lengthOfCurrentPaimonSplit() {
+        return currentPaimonSplit == null ? 0 : currentPaimonSplit.length();
     }
 
     private boolean hasPaimonOption(String key) {

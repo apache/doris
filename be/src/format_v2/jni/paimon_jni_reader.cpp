@@ -18,6 +18,7 @@
 #include "format_v2/jni/paimon_jni_reader.h"
 
 #include <string_view>
+#include <utility>
 
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
@@ -91,7 +92,6 @@ Status PaimonJniReader::build_scanner_params(std::map<std::string, std::string>*
     const auto& paimon_params = _current_range.table_format_params.paimon_params;
     const auto* paimon_predicate = get_paimon_predicate(_scan_params, paimon_params);
     DORIS_CHECK(paimon_predicate != nullptr);
-    (*params)["paimon_split"] = paimon_params.paimon_split;
     (*params)["paimon_predicate"] = *paimon_predicate;
     (*params)["serialized_table"] = _scan_params->serialized_table;
 
@@ -130,6 +130,59 @@ Status PaimonJniReader::build_scanner_params(std::map<std::string, std::string>*
     }
     // TODO: Remove legacy split-level paimon_predicate, paimon_options and hadoop_conf from thrift
     // after the minimum supported FE always sends their scan-level replacements.
+    return Status::OK();
+}
+
+Status PaimonJniReader::open_jni_scanner_for_split() {
+    if (!jni_scanner_opened()) {
+        RETURN_IF_ERROR(JniTableReader::open_jni_scanner_for_split());
+    }
+    return _prepare_for_split();
+}
+
+Status PaimonJniReader::close_jni_scanner_for_split() {
+    return _reset_current_split();
+}
+
+Status PaimonJniReader::_prepare_for_split() {
+    DORIS_CHECK(jni_scanner_opened());
+    DORIS_CHECK(!_current_split_prepared);
+    std::map<std::string, std::string> split_params;
+    split_params["paimon_split"] = _current_range.table_format_params.paimon_params.paimon_split;
+
+    JNIEnv* env = nullptr;
+    RETURN_IF_ERROR(Jni::Env::Get(&env));
+    Jni::LocalObject hashmap_object;
+    RETURN_IF_ERROR(Jni::Util::convert_to_java_map(env, split_params, &hashmap_object));
+    RETURN_IF_ERROR(jni_scanner_obj()
+                            .call_void_method(env, jni_scanner_prepare_for_split())
+                            .with_arg(hashmap_object)
+                            .call());
+    RETURN_ERROR_IF_EXC(env);
+    _current_split_prepared = true;
+    reset_jni_eof();
+    return Status::OK();
+}
+
+Status PaimonJniReader::close() {
+    auto reset_status = _reset_current_split();
+    auto close_status = JniTableReader::close();
+    if (reset_status.ok() && !close_status.ok()) {
+        reset_status = std::move(close_status);
+    }
+    return reset_status;
+}
+
+Status PaimonJniReader::_reset_current_split() {
+    if (!_current_split_prepared) {
+        return Status::OK();
+    }
+    JNIEnv* env = nullptr;
+    RETURN_IF_ERROR(Jni::Env::Get(&env));
+    RETURN_IF_ERROR(
+            jni_scanner_obj().call_void_method(env, jni_scanner_reset_current_split()).call());
+    RETURN_ERROR_IF_EXC(env);
+    _current_split_prepared = false;
     return Status::OK();
 }
 

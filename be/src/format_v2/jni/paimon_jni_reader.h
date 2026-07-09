@@ -32,6 +32,7 @@ namespace doris::format::paimon {
 class PaimonJniReader final : public format::JniTableReader {
 public:
     ~PaimonJniReader() override = default;
+    Status close() override;
 
 #ifdef BE_TEST
     void TEST_set_scan_params(TFileScanRangeParams* params) { _scan_params = params; }
@@ -51,9 +52,15 @@ protected:
     Status validate_scan_range(const TFileRangeDesc& range) const override;
     Status build_scanner_params(std::map<std::string, std::string>* params) const override;
     bool supports_batch_size_update_after_open() const override { return false; }
+    Status open_jni_scanner_for_split() override;
+    Status close_jni_scanner_for_split() override;
 
 private:
+    Status _prepare_for_split();
+    Status _reset_current_split();
     static std::string build_default_io_manager_tmp_dirs(const std::vector<StorePath>& store_paths);
+
+    bool _current_split_prepared = false;
 };
 
 } // namespace doris::format::paimon

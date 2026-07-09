@@ -61,7 +61,6 @@ Status JniTableReader::prepare_split(const SplitReadOptions& options) {
         return Status::OK();
     }
     DORIS_CHECK(!_closed);
-    DORIS_CHECK(!_scanner_opened);
     if (_is_table_level_count_active()) {
         return Status::OK();
     }
@@ -74,7 +73,7 @@ Status JniTableReader::prepare_split(const SplitReadOptions& options) {
     }
     // Subclasses populate split-specific scanner params before calling this method, so the Java
     // scanner can be opened here instead of being lazily opened by the first get_block() call.
-    return _open_jni_scanner();
+    return open_jni_scanner_for_split();
 }
 
 Status JniTableReader::get_block(Block* output_block, bool* eos) {
@@ -110,7 +109,7 @@ Status JniTableReader::get_block(Block* output_block, bool* eos) {
         RETURN_IF_ERROR(_get_next_jni_block(&current_rows, &current_eof));
         if (current_eof) {
             _eof = true;
-            RETURN_IF_ERROR(_close_jni_scanner());
+            RETURN_IF_ERROR(close_jni_scanner_for_split());
             *eos = true;
             return Status::OK();
         }
@@ -384,6 +383,10 @@ Status JniTableReader::close() {
     return close_status;
 }
 
+Status JniTableReader::close_jni_scanner_for_split() {
+    return _close_jni_scanner();
+}
+
 Status JniTableReader::_close_jni_scanner() {
     if (!_scanner_opened) {
         JNIEnv* env = nullptr;
@@ -428,7 +431,12 @@ void JniTableReader::_reset_split_state(JNIEnv* env) {
     _split_profile_published = false;
 }
 
+Status JniTableReader::open_jni_scanner_for_split() {
+    return _open_jni_scanner();
+}
+
 Status JniTableReader::_open_jni_scanner() {
+    DORIS_CHECK(!_scanner_opened);
     // subclasses build map<string,string> _scanner_params to JAVA side
     RETURN_IF_ERROR(build_scanner_params(&_scanner_params));
     // subclasses build _jni_columns info to JAVA side, including column name and column type
@@ -542,6 +550,10 @@ Status JniTableReader::_register_jni_class_functions_once(JNIEnv* env) {
                                                 &_jni_scanner_get_statistics));
     RETURN_IF_ERROR(
             _jni_scanner_cls.get_method(env, "setBatchSize", "(I)V", &_jni_scanner_set_batch_size));
+    RETURN_IF_ERROR(_jni_scanner_cls.get_method(env, "prepareForSplit", "(Ljava/util/Map;)V",
+                                                &_jni_scanner_prepare_for_split));
+    RETURN_IF_ERROR(_jni_scanner_cls.get_method(env, "resetCurrentSplit", "()V",
+                                                &_jni_scanner_reset_current_split));
     return Status::OK();
 }
 

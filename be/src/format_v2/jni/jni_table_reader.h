@@ -75,6 +75,17 @@ protected:
     // Subclasses can override this method when Java transfer types differ from output types.
     virtual Status build_jni_columns(std::vector<JniColumn>* columns) const;
     virtual Status finalize_jni_block(Block* jni_block, Block* output_block, size_t* rows);
+    virtual Status open_jni_scanner_for_split();
+    virtual Status close_jni_scanner_for_split();
+    void reset_jni_eof() { _eof = false; }
+    bool jni_scanner_opened() const { return _scanner_opened; }
+    Jni::GlobalObject& jni_scanner_obj() { return _jni_scanner_obj; }
+    const Jni::MethodId& jni_scanner_prepare_for_split() const {
+        return _jni_scanner_prepare_for_split;
+    }
+    const Jni::MethodId& jni_scanner_reset_current_split() const {
+        return _jni_scanner_reset_current_split;
+    }
     // used for profile
     virtual int64_t self_split_weight() const;
     virtual Status _get_next_jni_block(size_t* rows, bool* eof);
@@ -91,7 +102,6 @@ private:
     // init
     void _init_profile();
     std::string _connector_name() const;
-    // open
     void _reset_split_state(JNIEnv* env);
     void _prepare_jni_scanner_schema();
     Status _register_jni_class_functions_once(JNIEnv* env);
@@ -135,6 +145,8 @@ private:
     Jni::MethodId _jni_scanner_release_table;
     Jni::MethodId _jni_scanner_get_statistics;
     Jni::MethodId _jni_scanner_set_batch_size;
+    Jni::MethodId _jni_scanner_prepare_for_split;
+    Jni::MethodId _jni_scanner_reset_current_split;
 };
 
 } // namespace doris::format

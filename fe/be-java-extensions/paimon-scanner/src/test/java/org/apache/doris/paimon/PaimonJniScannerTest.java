@@ -107,10 +107,10 @@ public class PaimonJniScannerTest {
     @Test
     public void testStatisticsIncludePaimonDiagnostics() throws Exception {
         Map<String, String> params = createBaseParams();
-        params.put("paimon_split", "encoded-split");
         params.put("paimon_predicate", "encoded-predicate");
         PaimonJniScanner scanner = new PaimonJniScanner(128, params);
         setTableOptions(scanner, Collections.singletonMap("file-reader-async-threshold", "10 MiB"));
+        setCurrentPaimonSplit(scanner, "encoded-split");
 
         Map<String, String> statistics = scanner.getStatistics();
 
@@ -169,18 +169,7 @@ public class PaimonJniScannerTest {
     public void testCloseReleasesActiveRecordIterator() throws Exception {
         PaimonJniScanner scanner = new PaimonJniScanner(128, createBaseParams());
         AtomicBoolean released = new AtomicBoolean(false);
-        RecordReader.RecordIterator<InternalRow> recordIterator =
-                new RecordReader.RecordIterator<InternalRow>() {
-                    @Override
-                    public InternalRow next() {
-                        return null;
-                    }
-
-                    @Override
-                    public void releaseBatch() {
-                        released.set(true);
-                    }
-                };
+        RecordReader.RecordIterator<InternalRow> recordIterator = createRecordIterator(released);
 
         Field recordIteratorField = PaimonJniScanner.class.getDeclaredField("recordIterator");
         recordIteratorField.setAccessible(true);
@@ -225,7 +214,6 @@ public class PaimonJniScannerTest {
             }
         };
         RetryableIOManager ioManager = new RetryableIOManager();
-
         Field recordIteratorField = PaimonJniScanner.class.getDeclaredField("recordIterator");
         recordIteratorField.setAccessible(true);
         recordIteratorField.set(scanner, recordIterator);
@@ -255,11 +243,38 @@ public class PaimonJniScannerTest {
         Assert.assertEquals(2, ioManager.closeCalls.get());
     }
 
+    @Test
+    public void testResetCurrentSplitReleasesActiveRecordIterator() throws Exception {
+        PaimonJniScanner scanner = new PaimonJniScanner(128, createBaseParams());
+        AtomicBoolean released = new AtomicBoolean(false);
+        RecordReader.RecordIterator<InternalRow> recordIterator = createRecordIterator(released);
+
+        Field recordIteratorField = PaimonJniScanner.class.getDeclaredField("recordIterator");
+        recordIteratorField.setAccessible(true);
+        recordIteratorField.set(scanner, recordIterator);
+
+        scanner.resetCurrentSplit();
+
+        Assert.assertTrue(released.get());
+        Assert.assertNull(recordIteratorField.get(scanner));
+    }
+
+    @Test
+    public void testPrepareForSplitRequiresSplitParam() throws Exception {
+        PaimonJniScanner scanner = new PaimonJniScanner(128, createBaseParams());
+
+        try {
+            scanner.prepareForSplit(new HashMap<>());
+            Assert.fail("Expected prepareForSplit to reject missing paimon_split");
+        } catch (IllegalArgumentException e) {
+            Assert.assertTrue(e.getMessage().contains("paimon_split"));
+        }
+    }
+
     private Map<String, String> createBaseParams() {
         Map<String, String> params = new HashMap<>();
         params.put("required_fields", "");
         params.put("columns_types", "");
-        params.put("paimon_split", "");
         params.put("paimon_predicate", "");
         return params;
     }
@@ -278,6 +293,26 @@ public class PaimonJniScannerTest {
         Field tableField = PaimonJniScanner.class.getDeclaredField("table");
         tableField.setAccessible(true);
         tableField.set(scanner, table);
+    }
+
+    private void setCurrentPaimonSplit(PaimonJniScanner scanner, String split) throws Exception {
+        Field currentPaimonSplitField = PaimonJniScanner.class.getDeclaredField("currentPaimonSplit");
+        currentPaimonSplitField.setAccessible(true);
+        currentPaimonSplitField.set(scanner, split);
+    }
+
+    private RecordReader.RecordIterator<InternalRow> createRecordIterator(AtomicBoolean released) {
+        return new RecordReader.RecordIterator<InternalRow>() {
+            @Override
+            public InternalRow next() {
+                return null;
+            }
+
+            @Override
+            public void releaseBatch() {
+                released.set(true);
+            }
+        };
     }
 
     public static class TestIOManager implements IOManager {
