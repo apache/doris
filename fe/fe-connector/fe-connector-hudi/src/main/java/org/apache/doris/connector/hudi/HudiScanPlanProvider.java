@@ -57,6 +57,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
@@ -153,6 +154,10 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
         // Resolve column names and types for JNI reader
         List<String> columnNames;
         List<String> columnTypes;
+        // The mode-aware table InternalSchema (+ evolution flag), resolved ONCE, drives the per-file
+        // THudiFileDesc.schema_id stamped on native slices for BE's field-id path. Null when unresolved ->
+        // no schema_id -> BE BY_NAME (the safe baseline). schema_id is dormant/inert until the dict is emitted.
+        HudiSchemaUtils.ResolvedInternalSchema resolvedSchema = null;
         try {
             TableSchemaResolver schemaResolver = new TableSchemaResolver(metaClient);
             // include the 5 `_hoodie_*` meta columns (explicit `true` = legacy parity, in lockstep with
@@ -164,12 +169,28 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
             columnTypes = avroSchema.getFields().stream()
                     .map(f -> HudiTypeMapping.toHiveTypeString(f.schema()))
                     .collect(Collectors.toList());
+            resolvedSchema = HudiSchemaUtils.resolveTableInternalSchema(schemaResolver, avroSchema);
         } catch (Exception e) {
             LOG.warn("Failed to resolve Hudi schema for JNI reader, JNI splits may fail: {}",
                     e.getMessage());
             columnNames = Collections.emptyList();
             columnTypes = Collections.emptyList();
         }
+
+        // Per-file native-reader schema_id resolver (base-file path -> version), or null to skip stamping
+        // (base schema unresolved -> BY_NAME). A per-file resolution failure logs and returns null for that file
+        // (BY_NAME) rather than failing the whole scan. Runs on this TCCL-pinned scan thread.
+        final HudiSchemaUtils.ResolvedInternalSchema baseSchema = resolvedSchema;
+        Function<String, Long> schemaIdResolver = baseSchema == null ? null
+                : filePath -> {
+                    try {
+                        return HudiSchemaUtils.resolveFileInternalSchema(filePath,
+                                baseSchema.enableSchemaEvolution, baseSchema.internalSchema, metaClient).schemaId();
+                    } catch (Exception e) {
+                        LOG.warn("Failed to resolve Hudi per-file schema_id for {}: {}", filePath, e.getMessage());
+                        return null;
+                    }
+                };
 
         String inputFormat = hudiHandle.getInputFormat();
         String serdeLib = hudiHandle.getSerdeLib();
@@ -217,11 +238,11 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
 
             if (useNativeCowPath) {
                 collectCowSplits(fsView, partitionPath, queryInstant,
-                        basePath, partValues, ranges);
+                        basePath, partValues, ranges, schemaIdResolver);
             } else {
                 collectMorSplits(fsView, partitionPath, queryInstant,
                         basePath, inputFormat, serdeLib,
-                        columnNames, columnTypes, partValues, forceJni, ranges);
+                        columnNames, columnTypes, partValues, forceJni, ranges, schemaIdResolver);
             }
         }
 
@@ -286,21 +307,27 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
             String partitionPath, String queryInstant,
             String basePath,
             Map<String, String> partValues,
-            List<ConnectorScanRange> ranges) {
+            List<ConnectorScanRange> ranges,
+            Function<String, Long> schemaIdResolver) {
         fsView.getLatestBaseFilesBeforeOrOn(partitionPath, queryInstant)
                 .forEach(baseFile -> {
                     String filePath = baseFile.getPath();
                     long fileSize = baseFile.getFileSize();
                     String format = detectFileFormat(filePath);
 
-                    ranges.add(new HudiScanRange.Builder()
+                    HudiScanRange.Builder builder = new HudiScanRange.Builder()
                             .path(filePath)
                             .start(0)
                             .length(fileSize)
                             .fileSize(fileSize)
                             .fileFormat(format)
-                            .partitionValues(partValues)
-                            .build());
+                            .partitionValues(partValues);
+                    // COW base files always read native -> stamp the per-file schema version for BE's field-id path.
+                    Long schemaId = schemaIdResolver == null ? null : schemaIdResolver.apply(filePath);
+                    if (schemaId != null) {
+                        builder.schemaId(schemaId);
+                    }
+                    ranges.add(builder.build());
                 });
     }
 
@@ -315,10 +342,11 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
             String basePath, String inputFormat, String serdeLib,
             List<String> columnNames, List<String> columnTypes,
             Map<String, String> partValues, boolean forceJni,
-            List<ConnectorScanRange> ranges) {
+            List<ConnectorScanRange> ranges,
+            Function<String, Long> schemaIdResolver) {
         fsView.getLatestMergedFileSlicesBeforeOrOn(partitionPath, queryInstant)
                 .forEach(fileSlice -> ranges.add(buildMorRange(fileSlice, partValues, queryInstant,
-                        forceJni, basePath, inputFormat, serdeLib, columnNames, columnTypes)));
+                        forceJni, basePath, inputFormat, serdeLib, columnNames, columnTypes, schemaIdResolver)));
     }
 
     /**
@@ -330,10 +358,15 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
      * path passes its {@code queryInstant}, the incremental path passes the resolved window END
      * ({@code relation.getEndTs()}). Package-private static so the mapping is unit-testable with a hand-built
      * {@link FileSlice} and reused by both paths without duplication.
+     *
+     * <p>{@code schemaIdResolver} (base-file path -&gt; native schema version) is applied ONLY to a native
+     * (no-log, non-force-jni) slice — the JNI merge reader consumes no schema_id. {@code null} skips stamping
+     * (the {@code @incr} path passes null: {@code @incr} lists the latest schema, no per-file dict).</p>
      */
     static HudiScanRange buildMorRange(FileSlice fileSlice, Map<String, String> partValues, String jniInstant,
             boolean forceJni, String basePath, String inputFormat, String serdeLib,
-            List<String> columnNames, List<String> columnTypes) {
+            List<String> columnNames, List<String> columnTypes,
+            Function<String, Long> schemaIdResolver) {
         Optional<HoodieBaseFile> baseFileOpt = fileSlice.getBaseFile().toJavaOptional();
         String filePath = baseFileOpt.map(BaseFile::getPath).orElse("");
         long fileSize = baseFileOpt.map(BaseFile::getFileSize).orElse(0L);
@@ -373,6 +406,12 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
                     .deltaLogs(logs)
                     .columnNames(columnNames)
                     .columnTypes(columnTypes);
+        } else if (schemaIdResolver != null) {
+            // Native no-log slice reads via the field-id native reader -> stamp its base file's schema version.
+            Long schemaId = schemaIdResolver.apply(filePath);
+            if (schemaId != null) {
+                builder.schemaId(schemaId);
+            }
         }
 
         return builder.build();
@@ -440,8 +479,9 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
         String endTs = relation.getEndTs();
         for (FileSlice fileSlice : relation.collectFileSlices()) {
             Map<String, String> partValues = parsePartitionValues(fileSlice.getPartitionPath(), partitionFieldNames);
+            // @incr lists the LATEST schema (no per-file schema_id dict on the incremental path) -> null resolver.
             ranges.add(buildMorRange(fileSlice, partValues, endTs, forceJni,
-                    basePath, inputFormat, serdeLib, columnNames, columnTypes));
+                    basePath, inputFormat, serdeLib, columnNames, columnTypes, null));
         }
         return Optional.of(ranges);
     }

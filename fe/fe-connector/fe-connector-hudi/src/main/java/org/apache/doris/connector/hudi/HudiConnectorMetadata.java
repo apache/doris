@@ -46,10 +46,8 @@ import org.apache.avro.Schema;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.table.TableSchemaResolver;
-import org.apache.hudi.common.util.Option;
 import org.apache.hudi.internal.schema.InternalSchema;
 import org.apache.hudi.internal.schema.Types;
-import org.apache.hudi.internal.schema.convert.AvroInternalSchemaConverter;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -710,10 +708,8 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
     private List<ConnectorColumn> attachHudiFieldIds(TableSchemaResolver schemaResolver, Schema latestAvro,
             List<ConnectorColumn> columns) {
         try {
-            Option<InternalSchema> fromCommit = schemaResolver.getTableInternalSchemaFromCommitMetadata();
-            InternalSchema internalSchema = fromCommit.isPresent()
-                    ? fromCommit.get()
-                    : AvroInternalSchemaConverter.convert(latestAvro);
+            InternalSchema internalSchema =
+                    HudiSchemaUtils.resolveTableInternalSchema(schemaResolver, latestAvro).internalSchema;
             return attachTopLevelFieldIds(columns, internalSchema);
         } catch (Exception e) {
             LOG.warn("Failed to resolve Hudi field ids; falling back to name-based (BY_NAME) matching: {}",

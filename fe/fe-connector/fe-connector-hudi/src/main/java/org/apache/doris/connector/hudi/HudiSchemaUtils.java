@@ -28,12 +28,20 @@ import org.apache.doris.thrift.schema.external.TNestedField;
 import org.apache.doris.thrift.schema.external.TSchema;
 import org.apache.doris.thrift.schema.external.TStructField;
 
+import org.apache.avro.Schema;
+import org.apache.hudi.common.fs.FSUtils;
+import org.apache.hudi.common.table.HoodieTableMetaClient;
+import org.apache.hudi.common.table.TableSchemaResolver;
+import org.apache.hudi.common.util.InternalSchemaCache;
+import org.apache.hudi.common.util.Option;
 import org.apache.hudi.internal.schema.InternalSchema;
 import org.apache.hudi.internal.schema.Types;
+import org.apache.hudi.internal.schema.convert.AvroInternalSchemaConverter;
 import org.apache.thrift.TDeserializer;
 import org.apache.thrift.TSerializer;
 import org.apache.thrift.protocol.TBinaryProtocol;
 
+import java.io.File;
 import java.util.Base64;
 import java.util.List;
 import java.util.Locale;
@@ -211,5 +219,54 @@ public final class HudiSchemaUtils {
         TFieldPtr ptr = new TFieldPtr();
         ptr.setFieldPtr(field);
         return ptr;
+    }
+
+    // ========== mode-aware InternalSchema resolvers (shared by field-id / schema-id / dict steps) ==========
+
+    /** The mode-aware table {@link InternalSchema} for the latest commit + whether schema-on-read evolution is on. */
+    static final class ResolvedInternalSchema {
+        final InternalSchema internalSchema;
+        final boolean enableSchemaEvolution;
+
+        ResolvedInternalSchema(InternalSchema internalSchema, boolean enableSchemaEvolution) {
+            this.internalSchema = internalSchema;
+            this.enableSchemaEvolution = enableSchemaEvolution;
+        }
+    }
+
+    /**
+     * Resolve the mode-aware table {@link InternalSchema} for the LATEST commit. Mirror of legacy
+     * {@code HiveMetaStoreClientHelper.getHudiTableSchema}: when {@code hoodie.schema.on.read.enable} is on, the
+     * ids come from the commit-metadata {@link InternalSchema} (STABLE across renames) and evolution is flagged
+     * true; otherwise from {@code AvroInternalSchemaConverter.convert(latestAvro)} (positional ids, version 0)
+     * with evolution false. The no-arg {@code getTableInternalSchemaFromCommitMetadata()} pins the latest commit
+     * (steady-state / no time-travel pin). Shared by the field-id ({@code HudiConnectorMetadata}) and the
+     * per-file schema-id / dict scan paths so both agree on the id source.
+     */
+    static ResolvedInternalSchema resolveTableInternalSchema(TableSchemaResolver schemaResolver, Schema latestAvro) {
+        Option<InternalSchema> fromCommit = schemaResolver.getTableInternalSchemaFromCommitMetadata();
+        if (fromCommit.isPresent()) {
+            return new ResolvedInternalSchema(fromCommit.get(), true);
+        }
+        return new ResolvedInternalSchema(AvroInternalSchemaConverter.convert(latestAvro), false);
+    }
+
+    /**
+     * Resolve the {@link InternalSchema} of the commit that WROTE a given base file — its {@code schemaId()} is
+     * the per-split {@code THudiFileDesc.schema_id} BE stamps native files with on the field-id path. Port of
+     * legacy {@code HudiScanNode.setHudiParams}: evolution on &rarr; {@code FSUtils.getCommitTime(fileName)}
+     * &rarr; {@code InternalSchemaCache.searchSchemaAndCache} (the real committed versionId); off &rarr; the base
+     * (non-evolution) InternalSchema ({@code convert(latestAvro)}, version {@code 0}). The base schema is passed
+     * in (resolved once per scan via {@link #resolveTableInternalSchema}) so a non-evolution scan pays no
+     * per-file metaClient touch. Runs on the TCCL-pinned scan thread; shared with the dict step (which reuses the
+     * returned InternalSchema to build the history entry for that version).
+     */
+    static InternalSchema resolveFileInternalSchema(String filePath, boolean enableSchemaEvolution,
+            InternalSchema baseInternalSchema, HoodieTableMetaClient metaClient) {
+        if (!enableSchemaEvolution) {
+            return baseInternalSchema;
+        }
+        long commitTime = Long.parseLong(FSUtils.getCommitTime(new File(filePath).getName()));
+        return InternalSchemaCache.searchSchemaAndCache(commitTime, metaClient);
     }
 }

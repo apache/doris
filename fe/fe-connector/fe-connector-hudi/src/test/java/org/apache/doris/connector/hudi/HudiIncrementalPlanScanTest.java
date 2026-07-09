@@ -160,11 +160,13 @@ public class HudiIncrementalPlanScanTest {
         Map<String, String> partValues = HudiScanPlanProvider.parsePartitionValues(
                 slice.getPartitionPath(), YEAR_MONTH);
         HudiScanRange range = HudiScanPlanProvider.buildMorRange(slice, partValues, END_TS, /*forceJni*/ true,
-                BASE_PATH, INPUT_FORMAT, SERDE, Arrays.asList("c1"), Arrays.asList("int"));
+                BASE_PATH, INPUT_FORMAT, SERDE, Arrays.asList("c1"), Arrays.asList("int"), p -> 7L);
         Assertions.assertEquals("jni", range.getFileFormat());
         Assertions.assertEquals(END_TS, range.getProperties().get("hudi.instant_time"));
         Assertions.assertEquals(SERDE, range.getProperties().get("hudi.serde"));
         Assertions.assertEquals(BASE_PATH, range.getProperties().get("hudi.base_path"));
+        // C4c: a JNI slice NEVER carries schema_id even when the resolver returns one (native field-id path only).
+        Assertions.assertNull(range.getProperties().get("hudi.schema_id"));
     }
 
     @Test
@@ -175,9 +177,11 @@ public class HudiIncrementalPlanScanTest {
                 "s3://b/t/year=2024/month=01/fileid-1_0_20240101000000.parquet");
         HudiScanRange range = HudiScanPlanProvider.buildMorRange(slice, Collections.emptyMap(), END_TS,
                 /*forceJni*/ false, BASE_PATH, INPUT_FORMAT, SERDE,
-                Arrays.asList("c1"), Arrays.asList("int"));
+                Arrays.asList("c1"), Arrays.asList("int"), p -> 7L);
         Assertions.assertEquals("parquet", range.getFileFormat(),
                 "a no-log slice without force_jni must downgrade to the native parquet reader");
+        // C4c: a native downgraded slice carries the per-file schema_id from the resolver (native field-id path).
+        Assertions.assertEquals("7", range.getProperties().get("hudi.schema_id"));
     }
 
     // ── helpers ────────────────────────────────────────────────────────────────────────────────────────────

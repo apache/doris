@@ -133,4 +133,64 @@ public class HudiScanRangeTest {
         Assertions.assertEquals(TFileFormatType.FORMAT_ORC, rangeDesc.getFormatType(),
                 "a native orc slice must set FORMAT_ORC, not inherit the parquet node default");
     }
+
+    @Test
+    public void nativeSliceStampsSchemaId() {
+        // C4c: a native slice carrying a schema_id must stamp THudiFileDesc.schema_id (field 12) so BE's native
+        // field-id reader can match old files across schema evolution. MUTATION: skip the native-branch stamp ->
+        // isSetSchemaId false -> red.
+        HudiScanRange range = new HudiScanRange.Builder()
+                .path("s3://bucket/t/base.parquet")
+                .fileFormat("parquet")
+                .fileSize(456L)
+                .schemaId(20240101000000000L)
+                .build();
+
+        TTableFormatFileDesc formatDesc = new TTableFormatFileDesc();
+        TFileRangeDesc rangeDesc = new TFileRangeDesc();
+        range.populateRangeParams(formatDesc, rangeDesc);
+
+        Assertions.assertTrue(formatDesc.getHudiParams().isSetSchemaId());
+        Assertions.assertEquals(20240101000000000L, formatDesc.getHudiParams().getSchemaId());
+    }
+
+    @Test
+    public void jniSliceNeverStampsSchemaId() {
+        // C4c: schema_id is a NATIVE-only field (the JNI merge reader reads column_names/types @instant and
+        // consumes no schema_id). Even if a schema_id is set on the Builder, a JNI (log-bearing) slice must NOT
+        // stamp it. MUTATION: stamp schema_id in the JNI branch -> isSetSchemaId true -> red.
+        HudiScanRange range = new HudiScanRange.Builder()
+                .path("s3://bucket/t/file")
+                .fileFormat("jni")
+                .instantTime("20240101000000000")
+                .basePath("s3://bucket/t")
+                .dataFilePath("s3://bucket/t/base.parquet")
+                .deltaLogs(Arrays.asList("s3://bucket/t/.f.log.1_0"))
+                .schemaId(20240101000000000L)
+                .build();
+
+        TTableFormatFileDesc formatDesc = new TTableFormatFileDesc();
+        TFileRangeDesc rangeDesc = new TFileRangeDesc();
+        range.populateRangeParams(formatDesc, rangeDesc);
+
+        Assertions.assertEquals(TFileFormatType.FORMAT_JNI, rangeDesc.getFormatType());
+        Assertions.assertFalse(formatDesc.getHudiParams().isSetSchemaId());
+    }
+
+    @Test
+    public void nativeSliceWithoutSchemaIdLeavesItUnset() {
+        // A native slice with no resolved schema_id (non-evolution unresolved / BY_NAME baseline) must not stamp
+        // field 12. MUTATION: default schema_id to 0/-1 unconditionally -> isSetSchemaId true -> red.
+        HudiScanRange range = new HudiScanRange.Builder()
+                .path("s3://bucket/t/base.parquet")
+                .fileFormat("parquet")
+                .fileSize(456L)
+                .build();
+
+        TTableFormatFileDesc formatDesc = new TTableFormatFileDesc();
+        TFileRangeDesc rangeDesc = new TFileRangeDesc();
+        range.populateRangeParams(formatDesc, rangeDesc);
+
+        Assertions.assertFalse(formatDesc.getHudiParams().isSetSchemaId());
+    }
 }

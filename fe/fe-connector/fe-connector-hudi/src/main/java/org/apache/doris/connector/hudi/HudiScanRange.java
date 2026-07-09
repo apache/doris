@@ -99,6 +99,12 @@ public class HudiScanRange implements ConnectorScanRange {
             props.put("hudi.data_file_path", builder.dataFilePath);
         }
         props.put("hudi.data_file_length", String.valueOf(builder.dataFileLength));
+        // Per-split native-reader schema version (mirror paimon.schema_id). Only carried when the provider
+        // resolved one for a native slice; populateRangeParams stamps THudiFileDesc.schema_id (field 12) from it
+        // ONLY on the native branch (never JNI). Absent -> BE BY_NAME.
+        if (builder.schemaId != null) {
+            props.put("hudi.schema_id", String.valueOf(builder.schemaId));
+        }
         this.properties = Collections.unmodifiableMap(props);
 
         this.deltaLogs = builder.deltaLogs != null
@@ -218,6 +224,13 @@ public class HudiScanRange implements ConnectorScanRange {
             }
         } else {
             rangeDesc.setFormatType(nativeFormatType(props));
+            // Native field-id path only (paimon parity): the per-split schema version the native reader matches
+            // the base file's columns against. The JNI reader consumes no schema_id (it reads column_names/types
+            // @instant), so this is NEVER set on the JNI branch. Absent -> BE BY_NAME (no evolution).
+            String schemaId = props.get("hudi.schema_id");
+            if (schemaId != null) {
+                fileDesc.setSchemaId(Long.parseLong(schemaId));
+            }
         }
 
         formatDesc.setHudiParams(fileDesc);
@@ -277,6 +290,8 @@ public class HudiScanRange implements ConnectorScanRange {
         private List<String> columnNames;
         private List<String> columnTypes;
         private boolean forceJni;
+        // Native-reader per-split schema version (nullable = not stamped; JNI slices never carry one).
+        private Long schemaId;
 
         public Builder path(String path) {
             this.path = path;
@@ -355,6 +370,11 @@ public class HudiScanRange implements ConnectorScanRange {
 
         public Builder forceJni(boolean forceJni) {
             this.forceJni = forceJni;
+            return this;
+        }
+
+        public Builder schemaId(long schemaId) {
+            this.schemaId = schemaId;
             return this;
         }
 
