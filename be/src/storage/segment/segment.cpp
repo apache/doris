@@ -144,6 +144,49 @@ Status build_segment_zonemap_context(Segment* segment, const Schema& schema,
     return Status::OK();
 }
 
+void fill_missing_decimal_precision(const TabletColumn& column, ColumnMetaPB* meta) {
+    auto meta_type = static_cast<FieldType>(meta->type());
+    if (meta_type != column.type()) {
+        return;
+    }
+
+    if (field_is_decimal_type(meta_type)) {
+        if ((!meta->has_precision() || meta->precision() <= 0) && column.precision() > 0) {
+            meta->set_precision(column.precision());
+        }
+        if ((!meta->has_frac() || meta->frac() < 0) && column.frac() >= 0) {
+            meta->set_frac(column.frac());
+        }
+    }
+
+    // Complex column meta may also include storage helper children, such as
+    // array offsets. Only schema children have matching TabletColumn subtypes.
+    int child_count =
+            std::min(meta->children_columns_size(), static_cast<int>(column.get_subtype_count()));
+    for (int i = 0; i < child_count; ++i) {
+        fill_missing_decimal_precision(column.get_sub_column(i), meta->mutable_children_columns(i));
+    }
+}
+
+void fill_missing_decimal_precision_from_schema(const TabletSchemaSPtr& tablet_schema,
+                                                ColumnMetaPB* meta) {
+    if (!meta->has_unique_id()) {
+        return;
+    }
+    int32_t col_idx = tablet_schema->field_index(static_cast<int32_t>(meta->unique_id()));
+    if (col_idx < 0) {
+        return;
+    }
+    fill_missing_decimal_precision(tablet_schema->column(col_idx), meta);
+}
+
+void fill_footer_missing_decimal_precision(const TabletSchemaSPtr& tablet_schema,
+                                           SegmentFooterPB* footer) {
+    for (int i = 0; i < footer->columns_size(); ++i) {
+        fill_missing_decimal_precision_from_schema(tablet_schema, footer->mutable_columns(i));
+    }
+}
+
 } // namespace
 
 Status Segment::open(io::FileSystemSPtr fs, const std::string& path, int64_t tablet_id,
@@ -604,6 +647,7 @@ Status Segment::_parse_footer(std::shared_ptr<SegmentFooterPB>& footer,
                 _file_reader->path().native(), file_size,
                 file_cache_key_str(_file_reader->path().native()));
     }
+    fill_footer_missing_decimal_precision(_tablet_schema, footer.get());
 
     VLOG_DEBUG << fmt::format("Loading segment footer from {} finished",
                               _file_reader->path().native());
