@@ -91,8 +91,8 @@ public class MaterializedViewAggregateOnNoneAggregateRule extends AbstractMateri
         PlanCheckContext scanCheckContext = PlanCheckContext.of(ImmutableSet.of());
         return structInfo.getTopPlan().accept(StructInfo.SCAN_PLAN_PATTERN_CHECKER, scanCheckContext)
                 && !scanCheckContext.isContainsTopAggregate()
-                && !joinCheckContext.isContainsTopLimit() && !joinCheckContext.isContainsTopTopN()
-                && !joinCheckContext.isContainsTopWindow();
+                && !scanCheckContext.isContainsTopLimit() && !scanCheckContext.isContainsTopTopN()
+                && !scanCheckContext.isContainsTopWindow();
     }
 
     @Override
