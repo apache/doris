@@ -318,7 +318,7 @@ class CostModel extends PlanVisitor<Cost, PlanContext> {
             return Cost.of(context.getSessionVariable(),
                     0,
                     0,
-                    intputRowCount * dataSizeFactor);
+                    Math.sqrt(beNumForDist) * intputRowCount * dataSizeFactor);
 
         }
 
