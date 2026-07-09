@@ -449,6 +449,7 @@ public class PaimonScanNodeTest {
         Assert.assertEquals(2, PaimonScanNode.getFieldIndex(fieldNames, "part"));
         Assert.assertEquals(-1, PaimonScanNode.getFieldIndex(fieldNames, "missing_col"));
     }
+
     private void mockJniReader(PaimonScanNode spyNode) {
         Mockito.doReturn(false).when(spyNode).supportNativeReader(ArgumentMatchers.any(Optional.class));
     }

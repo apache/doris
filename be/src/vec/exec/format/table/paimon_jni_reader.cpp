@@ -21,8 +21,8 @@
 #include <string_view>
 #include <vector>
 
-#include "runtime/exec_env.h"
 #include "runtime/descriptors.h"
+#include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "runtime/types.h"
 #include "util/string_util.h"
@@ -83,17 +83,14 @@ PaimonJniReader::PaimonJniReader(const std::vector<SlotDescriptor*>& file_slot_d
     for (const auto& kv : range.table_format_params.paimon_params.paimon_options) {
         params[PAIMON_OPTION_PREFIX + kv.first] = kv.second;
     }
-    const std::string enable_io_manager_key =
-            PAIMON_OPTION_PREFIX + DORIS_ENABLE_JNI_IO_MANAGER;
-    const std::string io_manager_tmp_dir_key =
-            PAIMON_OPTION_PREFIX + DORIS_JNI_IO_MANAGER_TMP_DIR;
+    const std::string enable_io_manager_key = PAIMON_OPTION_PREFIX + DORIS_ENABLE_JNI_IO_MANAGER;
+    const std::string io_manager_tmp_dir_key = PAIMON_OPTION_PREFIX + DORIS_JNI_IO_MANAGER_TMP_DIR;
     auto enable_io_manager_it = params.find(enable_io_manager_key);
     if (enable_io_manager_it != params.end() && iequal(enable_io_manager_it->second, "true") &&
         params.find(io_manager_tmp_dir_key) == params.end()) {
         std::vector<std::string> tmp_dirs;
         for (const auto& store_path : state->exec_env()->store_paths()) {
-            tmp_dirs.push_back(store_path.path + "/" +
-                               std::string(PAIMON_JNI_SCANNER_IO_TMP_DIR));
+            tmp_dirs.push_back(store_path.path + "/" + std::string(PAIMON_JNI_SCANNER_IO_TMP_DIR));
         }
         DORIS_CHECK(!tmp_dirs.empty());
         // Paimon's IOManager creates and later removes its own paimon-* child
