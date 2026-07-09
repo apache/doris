@@ -662,8 +662,12 @@ Status ParquetScanScheduler::open_next_row_group(
     }
     const RowGroupReadPlan& row_group_plan = _row_group_plans[_next_row_group_plan_idx++];
     const int row_group_idx = row_group_plan.row_group_id;
-    _current_merge_range_active =
-            prepare_current_row_group_reader(file_context, file_schema, request, row_group_idx);
+    // Row-level dictionary filters read dictionary pages before Arrow RecordReaders are created.
+    // Keep that probe on the base reader: MergeRangeFileReader expects each registered range to be
+    // consumed as one forward pass, while the later RecordReader opens the same column chunk again
+    // for the data-page stream.
+    file_context.reset_random_access_ranges();
+    _current_merge_range_active = false;
     try {
         _current_row_group = file_context.file_reader->RowGroup(row_group_idx);
     } catch (const ::parquet::ParquetException& e) {
@@ -691,6 +695,8 @@ Status ParquetScanScheduler::open_next_row_group(
     _current_dictionary_filters.clear();
     RETURN_IF_ERROR(prepare_current_dictionary_filters(file_context, file_schema, request,
                                                        row_group_idx, *row_group_metadata));
+    _current_merge_range_active =
+            prepare_current_row_group_reader(file_context, file_schema, request, row_group_idx);
 
     ParquetColumnReaderFactory column_reader_factory(
             _current_row_group, file_context.schema->num_columns(), &row_group_plan.page_skip_plans,

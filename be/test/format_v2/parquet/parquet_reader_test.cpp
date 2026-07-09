@@ -780,6 +780,33 @@ void write_single_row_group_dictionary_filter_parquet_file(const std::string& fi
                                                       builder.build()));
 }
 
+void write_dictionary_filter_with_trailing_column_parquet_file(const std::string& file_path) {
+    auto schema = arrow::schema({
+            arrow::field("id", arrow::int32(), false),
+            arrow::field("value", arrow::utf8(), false),
+            arrow::field("payload", arrow::int32(), false),
+    });
+    auto table = arrow::Table::Make(
+            schema, {build_int32_array({1, 2, 3, 4, 5, 6}),
+                     build_string_array({"aa", "az", "lm", "lz", "za", "zz"}),
+                     build_int32_array({10, 20, 30, 40, 50, 60})});
+
+    auto file_result = arrow::io::FileOutputStream::Open(file_path);
+    ASSERT_TRUE(file_result.ok()) << file_result.status();
+    std::shared_ptr<arrow::io::FileOutputStream> out = *file_result;
+
+    ::parquet::WriterProperties::Builder builder;
+    builder.version(::parquet::ParquetVersion::PARQUET_2_6);
+    builder.data_page_version(::parquet::ParquetDataPageVersion::V2);
+    builder.compression(::parquet::Compression::UNCOMPRESSED);
+    builder.disable_dictionary("id");
+    builder.enable_dictionary("value");
+    builder.disable_dictionary("payload");
+    builder.disable_statistics();
+    PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), out, 6,
+                                                      builder.build()));
+}
+
 void write_nested_dictionary_filter_parquet_file(const std::string& file_path) {
     auto id_field = arrow::field("id", arrow::int32(), false);
     auto name_field = arrow::field("name", arrow::utf8(), false);
@@ -1988,6 +2015,52 @@ TEST_F(NewParquetReaderTest, DictionaryPredicateFiltersRowsInsideRowGroup) {
     ASSERT_NE(profile.get_counter("DictFilterBuildTime"), nullptr);
     EXPECT_EQ(profile.get_counter("SelectedRows")->value(), 2);
     EXPECT_GE(profile.get_counter("ReaderSelectRows")->value(), 8);
+}
+
+TEST_F(NewParquetReaderTest, DictionaryPredicateProbeDoesNotUseMergeRangeReader) {
+    write_dictionary_filter_with_trailing_column_parquet_file(_file_path);
+
+    RuntimeProfile profile("new_parquet_reader_dictionary_filter_merge_profile");
+    auto reader = create_reader(0, -1, &profile);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->predicate_columns = {field_projection(1)};
+    request->non_predicate_columns = {field_projection(0), field_projection(2)};
+    request->conjuncts.push_back(create_string_in_conjunct(1, {"az", "za"}));
+    use_schema_order_positions(request.get(), schema);
+    ASSERT_TRUE(reader->open(request).ok());
+
+    std::vector<int32_t> ids;
+    std::vector<std::string> values;
+    std::vector<int32_t> payloads;
+    bool eof = false;
+    while (!eof) {
+        Block block = build_file_block(schema);
+        size_t rows = 0;
+        ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+        if (rows == 0) {
+            continue;
+        }
+        const auto& id_column = nullable_nested_column<ColumnInt32>(block, 0);
+        const auto& value_column = nullable_nested_column<ColumnString>(block, 1);
+        const auto& payload_column = nullable_nested_column<ColumnInt32>(block, 2);
+        for (size_t row = 0; row < rows; ++row) {
+            ids.push_back(id_column.get_element(row));
+            values.push_back(value_column.get_data_at(row).to_string());
+            payloads.push_back(payload_column.get_element(row));
+        }
+    }
+
+    EXPECT_EQ(ids, std::vector<int32_t>({2, 5}));
+    EXPECT_EQ(values, std::vector<std::string>({"az", "za"}));
+    EXPECT_EQ(payloads, std::vector<int32_t>({20, 50}));
+    EXPECT_EQ(profile.get_counter("RowsFilteredByDictFilter")->value(), 4);
+    ASSERT_NE(profile.get_counter("MergedIO"), nullptr);
+    EXPECT_GT(profile.get_counter("MergedBytes")->value(), 0);
 }
 
 TEST_F(NewParquetReaderTest, DictionaryPredicateWorksWithoutRuntimeProfile) {
