@@ -89,21 +89,20 @@ suite("test_segcompaction_agg_keys") {
         // Cannot use qt_select_default here: S3 Load parallelizes across multiple BE workers,
         // each creating separate segments with non-deterministic sequence numbers.
         // REPLACE aggregation picks the value from the segment with the highest sequence,
-        // so validate stable invariants instead of pinning a specific duplicate-key winner.
+        // so accept any complete source row instead of pinning one deterministic winner.
         def result = sql """ SELECT * FROM ${tableName} WHERE col_0=47; """
         assertEquals(1, result.size(), "Expected exactly 1 row for col_0=47 after REPLACE aggregation")
         assertEquals(50, result[0].size())
         assertEquals("47", result[0][0].toString())
 
-        def validValues = [
-            "Apple", "Avocado", "Banana", "Blueberry", "Cherry", "Grapes",
-            "Kiwi", "Lemon", "Lychee", "Mango", "Orange", "Peach",
-            "Pineapple", "Plum", "Raspberry", "Strawberry", "Watermelon"
-        ] as Set
-        for (int i = 1; i < result[0].size(); i++) {
-            assertTrue(validValues.contains(result[0][i]),
-                    "unexpected value for col_${i}: ${result[0][i]}")
-        }
+        def sourceRows = new File(context.dataPath, "test_segcompaction_dup_keys.out")
+                .readLines()
+                .findAll { it.startsWith("47\t") }
+                .collect { it.split("\t", -1).toList() }
+        assertEquals(12, sourceRows.size(), "Unexpected col_0=47 source row count")
+        def row = result[0].collect { it?.toString() }
+        assertTrue(sourceRows.contains(row),
+                "Result for col_0=47 is not one complete source row: ${row}")
 
         String[][] tablets = sql """ show tablets from ${tableName}; """
 
