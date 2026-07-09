@@ -178,9 +178,14 @@ Suite.metaClass.trigger_and_wait_compaction = { String table_name, String compac
                 }
                 def success_time_unchanged = (oldStatus["last ${compaction_type} success time"] == tabletStatus["last ${compaction_type} success time"])
                 def failure_time_unchanged = (oldStatus["last ${compaction_type} failure time"] == tabletStatus["last ${compaction_type} failure time"])
-                def currentCompactionTimestampChanged = !success_time_unchanged || !failure_time_unchanged
+                if (!running && !handedOffToBaseCompactionAfterDeleteVersion &&
+                        !completedByBaseCompactionAfterDeleteVersion &&
+                        success_time_unchanged && !failure_time_unchanged) {
+                    throw new Exception("compaction failed, be host: ${be_host}, tablet id: ${tablet.TabletId}, " +
+                            "run status: ${compactionStatus.run_status}, old status: ${oldStatus}, new status: ${tabletStatus}")
+                }
                 def compactionFinished = completedByBaseCompactionAfterDeleteVersion ||
-                        (!handedOffToBaseCompactionAfterDeleteVersion && currentCompactionTimestampChanged)
+                        (!handedOffToBaseCompactionAfterDeleteVersion && !success_time_unchanged)
                 running = running || !compactionFinished
                 if (running) {
                     logger.info("compaction is still running, be host: ${be_host}, tablet id: ${tablet.TabletId}, run status: ${compactionStatus.run_status}, old status: ${oldStatus}, new status: ${tabletStatus}")
