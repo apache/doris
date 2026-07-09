@@ -1022,6 +1022,15 @@ struct TOlapScanNode {
   27: optional list<TPartitionBoundary> partition_boundaries
   // Slot ids of extra storage key columns used only to align the scan tuple with storage schema.
   28: optional set<i32> extra_key_column_slot_ids
+  // Time travel: timestamp_ms (epoch ms) from FOR TIME AS OF. -1 = read current version.
+  // The BE resolves this per-partition via get_version_at_time RPC during scan init.
+  29: optional i64 time_travel_timestamp_ms
+  // Retention days from the table property — used by BE to validate the time travel window.
+  30: optional i32 time_travel_retention_days
+  // Per-tablet rowset manifests for post-compaction time travel reads.
+  // Key = tablet_id. Value = list of serialised RowsetMetaCloudPB proto bytes,
+  // one per compacted-away version needed to reconstruct the historical state.
+  31: optional map<i64, list<binary>> tt_rowset_manifests
 }
 
 struct TEqJoinCondition {

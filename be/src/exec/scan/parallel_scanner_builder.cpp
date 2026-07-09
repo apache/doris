@@ -80,7 +80,7 @@ Status ParallelScannerBuilder::build_scanners(std::list<ScannerSPtr>& scanners) 
 Status ParallelScannerBuilder::_build_scanners_by_rowid(std::list<ScannerSPtr>& scanners) {
     DCHECK_GE(_rows_per_scanner, _min_rows_per_scanner);
 
-    for (auto&& [tablet, version] : _tablets) {
+    for (auto&& [tablet, version, tt_extra_rowsets, tt_has_manifest] : _tablets) {
         DCHECK(_all_read_sources.contains(tablet->tablet_id()));
         auto& entire_read_source = _all_read_sources[tablet->tablet_id()];
 
@@ -208,7 +208,7 @@ Status ParallelScannerBuilder::_build_scanners_by_rowid(std::list<ScannerSPtr>& 
 Status ParallelScannerBuilder::_build_scanners_by_per_segment(std::list<ScannerSPtr>& scanners) {
     DCHECK_GE(_rows_per_scanner, _min_rows_per_scanner);
 
-    for (auto&& [tablet, version] : _tablets) {
+    for (auto&& [tablet, version, tt_extra_rowsets, tt_has_manifest] : _tablets) {
         DCHECK(_all_read_sources.contains(tablet->tablet_id()));
         auto& entire_read_source = _all_read_sources[tablet->tablet_id()];
 
@@ -262,7 +262,7 @@ Status ParallelScannerBuilder::_load() {
     bool enable_segment_cache = _state->query_options().__isset.enable_segment_cache
                                         ? _state->query_options().enable_segment_cache
                                         : true;
-    for (auto&& [tablet, version] : _tablets) {
+    for (auto&& [tablet, version, tt_extra_rowsets, tt_has_manifest] : _tablets) {
         const auto tablet_id = tablet->tablet_id();
         _all_read_sources[tablet_id] = _read_sources[idx];
         const auto& read_source = _all_read_sources[tablet_id];

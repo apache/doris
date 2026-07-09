@@ -54,6 +54,13 @@ class FixedReadPlan;
 struct TabletWithVersion {
     BaseTabletSPtr tablet;
     int64_t version;
+    // Pre-compaction rowsets from the FDB manifest; scan-local only.
+    // Never written to the shared tablet object; discarded after the scan.
+    std::vector<RowsetSharedPtr> tt_extra_rowsets;
+    // True when the meta service returned a manifest entry for this tablet.
+    // An empty manifest means the tablet was compacted at this version (0 rows);
+    // the BE must use the time-travel read path rather than capture_read_source.
+    bool tt_has_manifest = false;
 };
 
 enum class CompactionStage { NOT_SCHEDULED, PENDING, EXECUTING };
