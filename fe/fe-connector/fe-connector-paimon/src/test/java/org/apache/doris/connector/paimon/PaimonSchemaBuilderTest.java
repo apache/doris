@@ -113,6 +113,41 @@ public class PaimonSchemaBuilderTest {
     }
 
     @Test
+    public void primaryKeysResolvedToCanonicalColumnCase() {
+        // #65094: columns keep their original case ("Id"); a primary key referenced with a different
+        // case ("id") must resolve back to the canonical column name, else Paimon's case-sensitive
+        // Schema.Builder validation rejects the table. MUTATION: dropping resolveColumnNames -> the pk
+        // stays "id" while the only column is "Id" -> Schema.build() throws -> red.
+        ConnectorCreateTableRequest.Builder req = ConnectorCreateTableRequest.builder()
+                .dbName("db").tableName("t")
+                .columns(Arrays.asList(
+                        col("Id", ConnectorType.of("INT"), false),
+                        col("name", ConnectorType.of("STRING"), true)));
+        Map<String, String> props = new LinkedHashMap<>();
+        props.put("primary-key", "id");
+        Schema schema = PaimonSchemaBuilder.build(req.properties(props).build());
+        Assertions.assertEquals(Collections.singletonList("Id"), schema.primaryKeys());
+    }
+
+    @Test
+    public void partitionKeysResolvedToCanonicalColumnCase() {
+        // #65094: same case-insensitive resolution for partition keys ("pt" -> canonical "Pt").
+        // MUTATION: dropping resolveColumnNames -> partition key "pt" not among columns {id,Pt} ->
+        // Schema.build() throws -> red.
+        ConnectorCreateTableRequest.Builder req = ConnectorCreateTableRequest.builder()
+                .dbName("db").tableName("t")
+                .columns(Arrays.asList(
+                        col("id", ConnectorType.of("INT"), false),
+                        col("Pt", ConnectorType.of("STRING"), false)));
+        ConnectorPartitionSpec spec = new ConnectorPartitionSpec(
+                ConnectorPartitionSpec.Style.IDENTITY,
+                Collections.singletonList(new ConnectorPartitionField("pt", "identity", Collections.emptyList())),
+                Collections.emptyList());
+        Schema schema = PaimonSchemaBuilder.build(req.partitionSpec(spec).build());
+        Assertions.assertEquals(Collections.singletonList("Pt"), schema.partitionKeys());
+    }
+
+    @Test
     public void nullPartitionSpecYieldsNoPartitionKeys() {
         Schema schema = PaimonSchemaBuilder.build(baseRequest().build());
         // WHY: a non-partitioned table (null spec) must yield no partition keys. MUTATION: NPE on
