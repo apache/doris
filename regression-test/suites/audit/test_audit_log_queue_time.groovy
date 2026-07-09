@@ -105,6 +105,8 @@ suite("test_audit_log_queue_time", "nonConcurrent") {
         select query_id, queue_time_ms, stmt
         from __internal_schema.audit_log
         where stmt like '%${testMarker}%'
+        and stmt like '%sleep(${sqlSleepTime})%'
+        and stmt not like '%__internal_schema.audit_log%'
         and queue_time_ms > 0
         order by time
     """
@@ -123,8 +125,8 @@ suite("test_audit_log_queue_time", "nonConcurrent") {
     assertTrue(auditResult.size() >= queuedSqlCnt)
     // The workers are released together above, so this lower bound proves queue wait behind a sleep query.
     def minExpectedQueueTimeMs = sqlSleepTime * 1000 - queueTimeToleranceMs
-    def hasExpectedQueuedQuery = auditResult.any { row -> row[1] >= minExpectedQueueTimeMs }
-    assertTrue(hasExpectedQueuedQuery)
+    def maxQueueTimeMs = auditResult.collect { row -> Long.parseLong(row[1].toString()) }.max()
+    assertTrue(maxQueueTimeMs >= minExpectedQueueTimeMs)
 
     // Cleanup
     sql "drop table if exists ${tableName}"
