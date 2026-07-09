@@ -160,11 +160,10 @@ public:
 
     // Build a read source for spec_version, merging tt_extra_rowsets for compacted-away versions.
     // Does not modify shared tablet state; caller provides pre-compaction rowsets from FDB.
-    Status capture_rs_readers_with_tt_rowsets(
-            const Version& spec_version,
-            const std::vector<RowsetSharedPtr>& tt_extra_rowsets,
-            std::vector<RowSetSplits>* rs_splits,
-            bool skip_missing_version = false);
+    Status capture_rs_readers_with_tt_rowsets(const Version& spec_version,
+                                              const std::vector<RowsetSharedPtr>& tt_extra_rowsets,
+                                              std::vector<RowSetSplits>* rs_splits,
+                                              bool skip_missing_version = false);
 
     // MUST hold EXCLUSIVE `_meta_lock`.
     void delete_rowsets(const std::vector<RowsetSharedPtr>& to_delete,

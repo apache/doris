@@ -524,4 +524,94 @@ public class PropertyAnalyzerTest {
             Assert.fail();
         }
     }
+
+    @Test
+    public void testAnalyzeTimeTravelConfig_invalidBooleanValue() {
+        String prev = Config.deploy_mode;
+        Config.deploy_mode = "cloud";
+        try {
+            Map<String, String> props = new HashMap<>();
+            props.put(PropertyAnalyzer.PROPERTIES_ENABLE_TIME_TRAVEL, "yes");
+            PropertyAnalyzer.analyzeTimeTravelConfig(props);
+            Assert.fail("Expected AnalysisException for invalid boolean");
+        } catch (AnalysisException e) {
+            Assert.assertTrue(e.getMessage().contains("true") || e.getMessage().contains("false"));
+        } finally {
+            Config.deploy_mode = prev;
+        }
+    }
+
+    @Test
+    public void testAnalyzeTimeTravelConfig_retentionDaysTooLarge() {
+        String prev = Config.deploy_mode;
+        Config.deploy_mode = "cloud";
+        try {
+            Map<String, String> props = new HashMap<>();
+            props.put(PropertyAnalyzer.PROPERTIES_TIME_TRAVEL_RETENTION_DAYS, "91");
+            PropertyAnalyzer.analyzeTimeTravelConfig(props);
+            Assert.fail("Expected AnalysisException for retention_days > 90");
+        } catch (AnalysisException e) {
+            Assert.assertTrue(e.getMessage().contains("90"));
+        } finally {
+            Config.deploy_mode = prev;
+        }
+    }
+
+    @Test
+    public void testAnalyzeTimeTravelConfig_retentionDaysZero() {
+        String prev = Config.deploy_mode;
+        Config.deploy_mode = "cloud";
+        try {
+            Map<String, String> props = new HashMap<>();
+            props.put(PropertyAnalyzer.PROPERTIES_TIME_TRAVEL_RETENTION_DAYS, "0");
+            PropertyAnalyzer.analyzeTimeTravelConfig(props);
+            Assert.fail("Expected AnalysisException for retention_days = 0");
+        } catch (AnalysisException e) {
+            Assert.assertTrue(e.getMessage().contains("1"));
+        } finally {
+            Config.deploy_mode = prev;
+        }
+    }
+
+    @Test
+    public void testAnalyzeTimeTravelConfig_retentionDaysNegative() {
+        String prev = Config.deploy_mode;
+        Config.deploy_mode = "cloud";
+        try {
+            Map<String, String> props = new HashMap<>();
+            props.put(PropertyAnalyzer.PROPERTIES_TIME_TRAVEL_RETENTION_DAYS, "-5");
+            PropertyAnalyzer.analyzeTimeTravelConfig(props);
+            Assert.fail("Expected AnalysisException for negative retention_days");
+        } catch (AnalysisException e) {
+            Assert.assertNotNull(e.getMessage());
+        } finally {
+            Config.deploy_mode = prev;
+        }
+    }
+
+    @Test
+    public void testAnalyzeTimeTravelConfig_retentionDaysNotANumber() {
+        String prev = Config.deploy_mode;
+        Config.deploy_mode = "cloud";
+        try {
+            Map<String, String> props = new HashMap<>();
+            props.put(PropertyAnalyzer.PROPERTIES_TIME_TRAVEL_RETENTION_DAYS, "thirty");
+            PropertyAnalyzer.analyzeTimeTravelConfig(props);
+            Assert.fail("Expected AnalysisException for non-numeric days");
+        } catch (AnalysisException e) {
+            Assert.assertNotNull(e.getMessage());
+        } finally {
+            Config.deploy_mode = prev;
+        }
+    }
+
+    @Test
+    public void testTimeTravelConstants() {
+        // Guard against accidental constant changes that would silently break behaviour.
+        Assert.assertEquals(90, PropertyAnalyzer.TIME_TRAVEL_MAX_RETENTION_DAYS);
+        Assert.assertEquals(7, PropertyAnalyzer.TIME_TRAVEL_DEFAULT_RETENTION_DAYS);
+        Assert.assertEquals("enable_time_travel", PropertyAnalyzer.PROPERTIES_ENABLE_TIME_TRAVEL);
+        Assert.assertEquals("time_travel_retention_days",
+                PropertyAnalyzer.PROPERTIES_TIME_TRAVEL_RETENTION_DAYS);
+    }
 }

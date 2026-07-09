@@ -40,7 +40,6 @@
 #include "common/util.h"
 #include "meta-service/meta_service.h"
 #include "meta-service/meta_service_schema.h"
-#include "resource-manager/resource_manager.h"
 #include "meta-store/blob_message.h"
 #include "meta-store/document_message.h"
 #include "meta-store/keys.h"
@@ -52,6 +51,7 @@
 #include "recycler/checker.h"
 #include "recycler/recycler.h"
 #include "recycler/util.h"
+#include "resource-manager/resource_manager.h"
 
 #define RETURN_ON_FAILURE(stmt) \
     do {                        \
@@ -901,8 +901,7 @@ int InstanceRecycler::recycle_operation_log(Versionstamp log_version,
     // Track which oplog type was recycled (only one per log entry)
     std::atomic<int64_t>* recycled_counter = nullptr;
     OperationLogRecycler log_recycler(instance_id_, txn_kv_.get(), log_version,
-                                      operation_log.min_timestamp(), raw_keys,
-                                      resource_mgr_.get());
+                                      operation_log.min_timestamp(), raw_keys, resource_mgr_.get());
     RETURN_ON_FAILURE(log_recycler.begin());
 
 #define RECYCLE_OPERATION_LOG(log_type, method_name)                      \

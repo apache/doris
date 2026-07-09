@@ -1194,7 +1194,7 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
         if (tt_retention_days > 0 && !is_versioned_read) {
             // Per-table TT with non-versioned instance: scan meta_rowset_key directly.
             auto begin_key = meta_rowset_key({instance_id, tablet_id, start});
-            auto end_key   = meta_rowset_key({instance_id, tablet_id, end + 1});
+            auto end_key = meta_rowset_key({instance_id, tablet_id, end + 1});
             std::unique_ptr<RangeGetIterator> it;
             TxnErrorCode snap_err = txn->get(begin_key, end_key, &it);
             if (snap_err == TxnErrorCode::TXN_OK) {
@@ -1210,8 +1210,8 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
                              << " tablet_id=" << tablet_id << " err=" << snap_err;
             }
         } else {
-            TxnErrorCode snap_err = meta_reader.get_rowset_metas(
-                    txn.get(), tablet_id, start, end, &input_rowsets_snapshot);
+            TxnErrorCode snap_err = meta_reader.get_rowset_metas(txn.get(), tablet_id, start, end,
+                                                                 &input_rowsets_snapshot);
             if (snap_err != TxnErrorCode::TXN_OK) {
                 LOG(WARNING) << "failed to read compaction input rowset metas, tablet_id="
                              << tablet_id << " err=" << snap_err;
@@ -1273,8 +1273,8 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
                     rs_copy.clear_segments_key_bounds_truncated();
                     entry->mutable_rowset_meta()->Swap(&rs_copy);
                 }
-                min_created_ms = std::min(min_created_ms,
-                                          static_cast<int64_t>(rs.creation_time()) * static_cast<int64_t>(1000));
+                min_created_ms = std::min(min_created_ms, static_cast<int64_t>(rs.creation_time()) *
+                                                                  static_cast<int64_t>(1000));
             }
             checkpoint.set_created_ms(min_created_ms);
 
@@ -1295,8 +1295,8 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
                              << " err=" << p1_err;
                 // Fall through — compaction cleanup still runs.
             } else {
-                LOG(INFO) << "TT checkpoint written tablet_id=" << tablet_id
-                          << " [" << start << "," << end << "]"
+                LOG(INFO) << "TT checkpoint written tablet_id=" << tablet_id << " [" << start << ","
+                          << end << "]"
                           << " entries=" << checkpoint.entries_size();
             }
         }
@@ -1311,8 +1311,8 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
             num_rowsets = static_cast<int>(input_rowsets_snapshot.size());
         } else {
             std::tie(code, msg) = scan_compaction_input_rowsets(
-                    txn.get(), instance_id, tablet_id, rs_start, rs_end,
-                    num_rowsets, handle_compaction_input_rowset_meta);
+                    txn.get(), instance_id, tablet_id, rs_start, rs_end, num_rowsets,
+                    handle_compaction_input_rowset_meta);
             if (code != MetaServiceCode::OK) {
                 LOG(WARNING) << msg;
                 return;
@@ -1327,8 +1327,8 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
             }
         } else {
             std::vector<RowsetMetaCloudPB> rowset_metas;
-            TxnErrorCode err = meta_reader.get_rowset_metas(
-                    txn.get(), tablet_id, start, end, &rowset_metas);
+            TxnErrorCode err =
+                    meta_reader.get_rowset_metas(txn.get(), tablet_id, start, end, &rowset_metas);
             if (err != TxnErrorCode::TXN_OK) {
                 code = cast_as<ErrCategory::READ>(err);
                 msg = fmt::format(

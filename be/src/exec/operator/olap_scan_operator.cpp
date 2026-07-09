@@ -29,6 +29,7 @@
 #include "cloud/cloud_tablet.h"
 #include "cloud/cloud_tablet_hotspot.h"
 #include "cloud/config.h"
+#include "cloud/pb_convert.h"
 #include "exec/operator/scan_operator.h"
 #include "exec/runtime_filter/runtime_filter_consumer_helper.h"
 #include "exec/scan/olap_scanner.h"
@@ -47,10 +48,9 @@
 #include "runtime/runtime_state.h"
 #include "service/backend_options.h"
 #include "storage/index/ann/ann_topn_runtime.h"
+#include "storage/rowset/rowset_factory.h"
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet.h"
-#include "cloud/pb_convert.h"
-#include "storage/rowset/rowset_factory.h"
 #include "storage/tablet/tablet_manager.h"
 #include "util/to_string.h"
 
@@ -844,10 +844,9 @@ Status OlapScanLocalState::_sync_cloud_tablets(RuntimeState* state) {
             // FE has already resolved timestamp_ms → partition version and stored it in
             // TPaloScanRange.version. tt_timestamp_ms is retained here for MoW delete bitmap capping.
             const auto& p = _parent->cast<OlapScanOperatorX>();
-            const int64_t tt_timestamp_ms =
-                    p._olap_scan_node.__isset.time_travel_timestamp_ms
-                            ? p._olap_scan_node.time_travel_timestamp_ms
-                            : -1;
+            const int64_t tt_timestamp_ms = p._olap_scan_node.__isset.time_travel_timestamp_ms
+                                                    ? p._olap_scan_node.time_travel_timestamp_ms
+                                                    : -1;
 
             for (size_t i = 0; i < _scan_ranges.size(); i++) {
                 auto* sync_stats = &_sync_statistics[i];
@@ -855,8 +854,7 @@ Status OlapScanLocalState::_sync_cloud_tablets(RuntimeState* state) {
                 // For time travel, FE pre-resolved it via batch getVersionsAtTime().
                 int64_t version = 0;
                 std::from_chars(_scan_ranges[i]->version.data(),
-                                _scan_ranges[i]->version.data() +
-                                        _scan_ranges[i]->version.size(),
+                                _scan_ranges[i]->version.data() + _scan_ranges[i]->version.size(),
                                 version);
                 auto task_ctx = state->get_task_execution_context();
                 auto task_create_time = std::chrono::steady_clock::now();
@@ -881,8 +879,8 @@ Status OlapScanLocalState::_sync_cloud_tablets(RuntimeState* state) {
                         }
                     });
                     // Fetch tablet. Version is already resolved by FE — use it directly.
-                    auto tablet = DORIS_TRY(ExecEnv::get_tablet(
-                            _scan_ranges[i]->tablet_id, sync_stats));
+                    auto tablet =
+                            DORIS_TRY(ExecEnv::get_tablet(_scan_ranges[i]->tablet_id, sync_stats));
                     _tablets[i] = {std::move(tablet), version, {}};
                     SyncOptions options;
                     options.query_version = version;
@@ -911,8 +909,7 @@ Status OlapScanLocalState::_sync_cloud_tablets(RuntimeState* state) {
                                 rs_meta->init_from_pb(rs_meta_pb);
                                 RowsetSharedPtr rs;
                                 auto schema = _tablets[i].tablet->tablet_schema();
-                                if (RowsetFactory::create_rowset(schema, "", rs_meta, &rs)
-                                        .ok()) {
+                                if (RowsetFactory::create_rowset(schema, "", rs_meta, &rs).ok()) {
                                     _tablets[i].tt_extra_rowsets.push_back(std::move(rs));
                                 }
                             }
@@ -1030,12 +1027,10 @@ Status OlapScanLocalState::prepare(RuntimeState* state) {
         // For time-travel reads with a manifest, augment the version path with
         // pre-compaction rowsets without modifying the shared tablet state.
         if (!_tablets[i].tt_extra_rowsets.empty() || _tablets[i].tt_has_manifest) {
-            auto cloud_tablet =
-                    std::dynamic_pointer_cast<CloudTablet>(_tablets[i].tablet);
+            auto cloud_tablet = std::dynamic_pointer_cast<CloudTablet>(_tablets[i].tablet);
             RETURN_IF_ERROR(cloud_tablet->capture_rs_readers_with_tt_rowsets(
                     {0, _tablets[i].version}, _tablets[i].tt_extra_rowsets,
-                    &_read_sources[i].rs_splits,
-                    _state->skip_missing_version()));
+                    &_read_sources[i].rs_splits, _state->skip_missing_version()));
         } else {
             _read_sources[i] = DORIS_TRY(_tablets[i].tablet->capture_read_source(
                     {0, _tablets[i].version},
@@ -1044,14 +1039,12 @@ Status OlapScanLocalState::prepare(RuntimeState* state) {
                              config::enable_fetch_rowsets_from_peer_replicas,
                      .capture_row_binlog = olap_scan_node().__isset.read_row_binlog &&
                                            olap_scan_node().read_row_binlog,
-                     .enable_prefer_cached_rowset =
-                             config::is_cloud_mode()
-                                     ? _state->enable_prefer_cached_rowset()
-                                     : false,
+                     .enable_prefer_cached_rowset = config::is_cloud_mode()
+                                                            ? _state->enable_prefer_cached_rowset()
+                                                            : false,
                      .query_freshness_tolerance_ms =
-                             config::is_cloud_mode()
-                                     ? _state->query_freshness_tolerance_ms()
-                                     : -1}));
+                             config::is_cloud_mode() ? _state->query_freshness_tolerance_ms()
+                                                     : -1}));
         }
         if (!PipelineXLocalState<>::_state->skip_delete_predicate()) {
             _read_sources[i].fill_delete_predicates();

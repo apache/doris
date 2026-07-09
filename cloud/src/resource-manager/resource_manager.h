@@ -224,8 +224,7 @@ public:
     // Returns true if the given table has time travel enabled.
     // Used by meta_service_txn to write versioned partition keys per-table
     // without enabling MULTI_VERSION_WRITE_ONLY for the whole instance.
-    virtual bool is_table_time_travel_enabled(std::string_view instance_id,
-                                              int64_t table_id) const;
+    virtual bool is_table_time_travel_enabled(std::string_view instance_id, int64_t table_id) const;
 
     // Called by CreateTablets RPC when time_travel_retention_days > 0.
     virtual void register_time_travel_table(const std::string& instance_id, int64_t table_id);
@@ -249,7 +248,7 @@ private:
     // FDB point read for the time-travel marker key.
     // Returns true/false on definitive result, nullopt on transient FDB error (must not be cached).
     std::optional<bool> check_time_travel_in_fdb(const std::string& instance_id,
-                                                  int64_t table_id) const;
+                                                 int64_t table_id) const;
 
     mutable std::shared_mutex mtx_;
     // cloud_unique_id -> NodeInfo

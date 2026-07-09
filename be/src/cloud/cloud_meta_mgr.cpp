@@ -842,10 +842,9 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
                 // the historical subset — skip them for the time travel path.
                 tablet->tablet_meta()->delete_bitmap().merge(delete_bitmap);
             } else {
-                auto st = sync_tablet_delete_bitmap(tablet, old_max_version, resp.rowset_meta(),
-                                                    resp.stats(), req.idx(), &delete_bitmap,
-                                                    options.full_sync, sync_stats, read_version,
-                                                    false);
+                auto st = sync_tablet_delete_bitmap(
+                        tablet, old_max_version, resp.rowset_meta(), resp.stats(), req.idx(),
+                        &delete_bitmap, options.full_sync, sync_stats, read_version, false);
                 if (st.is<ErrorCode::ROWSETS_EXPIRED>() && tried++ < retry_times) {
                     LOG_INFO("rowset meta is expired, need to retry, " + tablet_info)
                             .tag("tried", tried)
@@ -857,9 +856,8 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
                     return st;
                 }
                 tablet->tablet_meta()->delete_bitmap().merge(delete_bitmap);
-                RETURN_IF_ERROR(_log_mow_delete_bitmap(tablet, resp, delete_bitmap,
-                                                       old_max_version, options.full_sync,
-                                                       read_version));
+                RETURN_IF_ERROR(_log_mow_delete_bitmap(tablet, resp, delete_bitmap, old_max_version,
+                                                       options.full_sync, read_version));
                 RETURN_IF_ERROR(
                         _check_delete_bitmap_v2_correctness(tablet, req, resp, old_max_version));
             }

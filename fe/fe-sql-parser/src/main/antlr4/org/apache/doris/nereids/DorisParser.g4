@@ -1951,6 +1951,7 @@ sampleMethod
 tableSnapshot
     : FOR VERSION AS OF version=(INTEGER_VALUE | STRING_LITERAL)
     | FOR TIME AS OF time=(STRING_LITERAL | INTEGER_VALUE)
+    | FOR SYSTEM_TIME AS OF systemTime=(STRING_LITERAL | INTEGER_VALUE)
     ;
 
 // this rule is used for explicitly capturing wrong identifiers such as test-table, which should actually be `test-table`

@@ -810,9 +810,8 @@ int InstanceRecycler::do_recycle() {
                 .add(task_wrapper(
                         [this]() -> int { return InstanceRecycler::recycle_tmp_rowsets(); }))
                 .add(task_wrapper([this]() -> int { return InstanceRecycler::recycle_rowsets(); }))
-                .add(task_wrapper([this]() -> int {
-                    return InstanceRecycler::recycle_tt_compaction();
-                }))
+                .add(task_wrapper(
+                        [this]() -> int { return InstanceRecycler::recycle_tt_compaction(); }))
                 .add(task_wrapper(
                         [this]() -> int { return InstanceRecycler::recycle_packed_files(); }))
                 .add(task_wrapper(
@@ -4565,7 +4564,8 @@ int InstanceRecycler::recycle_tablet(int64_t tablet_id, RecyclerMetricsContext& 
     std::string ck_begin, ck_end;
     tt_compaction_key({instance_id_, tablet_id, 0, 0}, &ck_begin);
     tt_compaction_key({instance_id_, tablet_id, std::numeric_limits<int64_t>::max(),
-                       std::numeric_limits<int64_t>::max()}, &ck_end);
+                       std::numeric_limits<int64_t>::max()},
+                      &ck_end);
     ck_end.push_back('\xff');
     txn->remove(ck_begin, ck_end);
 
@@ -5138,8 +5138,9 @@ int InstanceRecycler::recycle_rowsets() {
         std::unique_ptr<Transaction> txn;
         if (txn_kv_->create_txn(&txn) == TxnErrorCode::TXN_OK) {
             std::unique_ptr<RangeGetIterator> iter;
-            if (txn->get(tablet_key_begin, tablet_key_end, &iter, false, 1) == TxnErrorCode::TXN_OK
-                    && iter && iter->has_next()) {
+            if (txn->get(tablet_key_begin, tablet_key_end, &iter, false, 1) ==
+                        TxnErrorCode::TXN_OK &&
+                iter && iter->has_next()) {
                 auto [k, v] = iter->next();
                 doris::TabletMetaCloudPB tablet_meta;
                 if (tablet_meta.ParseFromArray(v.data(), v.size())) {
@@ -5167,8 +5168,8 @@ int InstanceRecycler::recycle_rowsets() {
         // For COMPACT/DROP rowsets, extend expiration by the table's time-travel retention
         // if applicable. Resolve table_id via the tablet index (rowset_meta.table_id() is
         // never set by BE and is always 0).
-        if ((rowset.type() == RecycleRowsetPB::COMPACT || rowset.type() == RecycleRowsetPB::DROP)
-                && rowset.has_rowset_meta()) {
+        if ((rowset.type() == RecycleRowsetPB::COMPACT || rowset.type() == RecycleRowsetPB::DROP) &&
+            rowset.has_rowset_meta()) {
             int64_t tablet_id = rowset.rowset_meta().tablet_id();
             if (tablet_id > 0) {
                 int64_t table_id = get_table_id_for_tablet(tablet_id);
@@ -5659,8 +5660,8 @@ int InstanceRecycler::recycle_tt_compaction() {
     std::string begin_key, end_key;
     tt_compaction_key({instance_id_, 0, 0, 0}, &begin_key);
     tt_compaction_key({instance_id_, std::numeric_limits<int64_t>::max(),
-                       std::numeric_limits<int64_t>::max(),
-                       std::numeric_limits<int64_t>::max()}, &end_key);
+                       std::numeric_limits<int64_t>::max(), std::numeric_limits<int64_t>::max()},
+                      &end_key);
     end_key.push_back('\xff');
 
     // Per-scan caches for tablet_id → table_id and table_id → retention_seconds.
@@ -5695,8 +5696,8 @@ int InstanceRecycler::recycle_tt_compaction() {
             meta_tablet_key({instance_id_, table_id, 0, 0, 0}, &tk_begin);
             meta_tablet_key({instance_id_, table_id + 1, 0, 0, 0}, &tk_end);
             std::unique_ptr<RangeGetIterator> iter;
-            if (txn->get(tk_begin, tk_end, &iter, false, 1) == TxnErrorCode::TXN_OK
-                    && iter && iter->has_next()) {
+            if (txn->get(tk_begin, tk_end, &iter, false, 1) == TxnErrorCode::TXN_OK && iter &&
+                iter->has_next()) {
                 auto [k, v] = iter->next();
                 doris::TabletMetaCloudPB meta;
                 if (meta.ParseFromArray(v.data(), v.size()))
@@ -5736,8 +5737,7 @@ int InstanceRecycler::recycle_tt_compaction() {
         // Collect rowset_ids for retained delete bitmaps to clean up alongside this checkpoint.
         for (const auto& entry : checkpoint.entries()) {
             if (entry.has_rowset_meta() && !entry.rowset_meta().rowset_id_v2().empty()) {
-                expired_bitmap_rowsets.emplace_back(tablet_id,
-                                                     entry.rowset_meta().rowset_id_v2());
+                expired_bitmap_rowsets.emplace_back(tablet_id, entry.rowset_meta().rowset_id_v2());
             }
         }
         return 0;
@@ -5750,9 +5750,9 @@ int InstanceRecycler::recycle_tt_compaction() {
         for (auto& key : expired_keys) txn->remove(key);
         // Also delete retained delete bitmaps for expired MoW checkpoints.
         for (auto& [tid, rowset_id] : expired_bitmap_rowsets) {
-            txn->remove(meta_delete_bitmap_key({instance_id_, tid, rowset_id, 0, 0}),
-                        meta_delete_bitmap_key({instance_id_, tid, rowset_id,
-                                                INT64_MAX, INT64_MAX}));
+            txn->remove(
+                    meta_delete_bitmap_key({instance_id_, tid, rowset_id, 0, 0}),
+                    meta_delete_bitmap_key({instance_id_, tid, rowset_id, INT64_MAX, INT64_MAX}));
         }
         expired_keys.clear();
         expired_bitmap_rowsets.clear();
@@ -5766,8 +5766,7 @@ int InstanceRecycler::recycle_tt_compaction() {
     };
 
     LOG_INFO("start recycle TT compaction checkpoints").tag("instance_id", instance_id_);
-    int ret = scan_and_recycle(begin_key, end_key, std::move(recycle_func),
-                               std::move(loop_done));
+    int ret = scan_and_recycle(begin_key, end_key, std::move(recycle_func), std::move(loop_done));
     LOG_INFO("end recycle TT compaction checkpoints")
             .tag("instance_id", instance_id_)
             .tag("num_scanned", num_scanned)

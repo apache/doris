@@ -405,7 +405,7 @@ static int64_t resolve_version_at_time(Transaction* txn, const std::string& inst
     FullRangeGetOptions options;
     options.reverse = true;
     options.begin_key_selector = RangeKeySelector::FIRST_GREATER_OR_EQUAL;
-    options.end_key_selector   = RangeKeySelector::FIRST_GREATER_THAN;
+    options.end_key_selector = RangeKeySelector::FIRST_GREATER_THAN;
 
     std::unique_ptr<FullRangeGetIterator> iter =
             txn->full_range_get(begin_key, end_key, std::move(options));
@@ -414,7 +414,7 @@ static int64_t resolve_version_at_time(Transaction* txn, const std::string& inst
         auto item = iter->next();
         if (!item.has_value()) break;
 
-        std::string_view raw_key   = item->first;
+        std::string_view raw_key = item->first;
         std::string_view raw_value = item->second;
 
         // Strip the trailing versionstamp suffix before deserialising the value.
@@ -464,7 +464,7 @@ void MetaServiceImpl::get_version_at_time(::google::protobuf::RpcController* con
         return;
     }
 
-    int64_t timestamp_ms   = request->timestamp_ms();
+    int64_t timestamp_ms = request->timestamp_ms();
     int32_t retention_days = request->has_retention_days() ? request->retention_days() : 90;
 
     // Validate timestamp window — same logic for both single and batch.
@@ -482,8 +482,8 @@ void MetaServiceImpl::get_version_at_time(::google::protobuf::RpcController* con
     // Allow configurable clock skew to prevent spurious future-timestamp rejections.
     if (timestamp_ms > now_ms + config::time_travel_clock_skew_tolerance_ms) {
         code = MetaServiceCode::INVALID_ARGUMENT;
-        msg = fmt::format("Requested timestamp {} ms is in the future (now={} ms).",
-                          timestamp_ms, now_ms);
+        msg = fmt::format("Requested timestamp {} ms is in the future (now={} ms).", timestamp_ms,
+                          now_ms);
         return;
     }
 
@@ -510,9 +510,9 @@ void MetaServiceImpl::get_version_at_time(::google::protobuf::RpcController* con
         std::vector<int64_t> resolved_times(n);
         for (int i = 0; i < n; ++i) {
             int64_t update_time_ms = -1;
-            int64_t version = resolve_version_at_time(txn.get(), instance_id,
-                                                      request->partition_ids(i),
-                                                      timestamp_ms, &update_time_ms);
+            int64_t version =
+                    resolve_version_at_time(txn.get(), instance_id, request->partition_ids(i),
+                                            timestamp_ms, &update_time_ms);
             if (version == -2) {
                 code = MetaServiceCode::KV_TXN_GET_ERR;
                 msg = fmt::format("FDB scan error during time travel for partition {}",
@@ -543,15 +543,14 @@ void MetaServiceImpl::get_version_at_time(::google::protobuf::RpcController* con
                     // Each encoded int64 in the key is 9 bytes (1 tag + 8 data).
                     std::string ck_begin, ck_end;
                     tt_compaction_key({instance_id, tablet_id, 0, 0}, &ck_begin);
-                    tt_compaction_key({instance_id, tablet_id,
-                                       std::numeric_limits<int64_t>::max(),
-                                       std::numeric_limits<int64_t>::max()}, &ck_end);
+                    tt_compaction_key({instance_id, tablet_id, std::numeric_limits<int64_t>::max(),
+                                       std::numeric_limits<int64_t>::max()},
+                                      &ck_end);
                     ck_end.push_back('\xff');
 
                     std::unique_ptr<RangeGetIterator> ck_iter;
                     bool found_checkpoint = false;
-                    if (txn->get(ck_begin, ck_end, &ck_iter) == TxnErrorCode::TXN_OK
-                            && ck_iter) {
+                    if (txn->get(ck_begin, ck_end, &ck_iter) == TxnErrorCode::TXN_OK && ck_iter) {
                         // Trailing key layout: start_v(9) + end_v(9) = 18 bytes.
                         int64_t best_start = INT64_MAX;
                         std::string best_val;
@@ -559,14 +558,14 @@ void MetaServiceImpl::get_version_at_time(::google::protobuf::RpcController* con
                             auto [k, v] = ck_iter->next();
                             if (k.size() < 18) continue;
                             std::string_view sv = k.substr(k.size() - 18, 9);
-                            std::string_view ev = k.substr(k.size() - 9,  9);
+                            std::string_view ev = k.substr(k.size() - 9, 9);
                             int64_t start_v = 0, end_v = 0;
                             if (decode_int64(&sv, &start_v) != 0) continue;
-                            if (decode_int64(&ev, &end_v)   != 0) continue;
+                            if (decode_int64(&ev, &end_v) != 0) continue;
                             if (start_v <= version && version <= end_v) {
                                 if (start_v < best_start) {
                                     best_start = start_v;
-                                    best_val   = std::string(v);
+                                    best_val = std::string(v);
                                 }
                                 found_checkpoint = true;
                             }
@@ -605,8 +604,7 @@ void MetaServiceImpl::get_version_at_time(::google::protobuf::RpcController* con
     }
 
     int64_t update_time_ms = -1;
-    int64_t version = resolve_version_at_time(txn.get(), instance_id,
-                                              request->partition_id(),
+    int64_t version = resolve_version_at_time(txn.get(), instance_id, request->partition_id(),
                                               timestamp_ms, &update_time_ms);
     if (version == -2) {
         code = MetaServiceCode::KV_TXN_GET_ERR;
@@ -626,11 +624,22 @@ void MetaServiceImpl::get_version_at_time(::google::protobuf::RpcController* con
     response->set_version_update_time_ms(update_time_ms);
 }
 
-void MetaServiceImpl::disable_time_travel_table(
-        ::google::protobuf::RpcController* controller,
-        const DisableTimeTravelTableRequest* request, DisableTimeTravelTableResponse* response,
-        ::google::protobuf::Closure* done) {
+void MetaServiceImpl::disable_time_travel_table(::google::protobuf::RpcController* controller,
+                                                const DisableTimeTravelTableRequest* request,
+                                                DisableTimeTravelTableResponse* response,
+                                                ::google::protobuf::Closure* done) {
     RPC_PREPROCESS(disable_time_travel_table, get, del);
+
+    if (request->has_instance_id() && !request->instance_id().empty()) {
+        instance_id = request->instance_id();
+    } else {
+        instance_id = get_instance_id(resource_mgr_, request->cloud_unique_id());
+    }
+    if (instance_id.empty()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "empty instance_id";
+        return;
+    }
 
     if (!request->has_table_id() || request->table_id() <= 0) {
         code = MetaServiceCode::INVALID_ARGUMENT;
@@ -639,9 +648,16 @@ void MetaServiceImpl::disable_time_travel_table(
     }
     int64_t table_id = request->table_id();
 
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        code = MetaServiceCode::KV_TXN_CREATE_ERR;
+        msg = fmt::format("failed to create txn, err={}", err);
+        return;
+    }
+
     std::string key = time_travel_table_key({instance_id, table_id});
     std::string val;
-    TxnErrorCode err = txn->get(key, &val);
+    err = txn->get(key, &val);
     if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
         // Already absent — idempotent success.
         return;
@@ -656,8 +672,7 @@ void MetaServiceImpl::disable_time_travel_table(
     err = txn->commit();
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::COMMIT>(err);
-        msg = fmt::format("failed to remove time travel marker, table_id={} err={}", table_id,
-                          err);
+        msg = fmt::format("failed to remove time travel marker, table_id={} err={}", table_id, err);
         return;
     }
 

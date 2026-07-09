@@ -363,17 +363,17 @@ void packed_file_key(const PackedFileKeyInfo& in, std::string* out) {
 }
 
 void time_travel_table_key(const TimeTravelTableKeyInfo& in, std::string* out) {
-    encode_prefix(in, out);                               // 0x01 "meta" ${instance_id}
-    encode_bytes(META_KEY_INFIX_TIME_TRAVEL_TABLE, out);  // "time_travel_table"
-    encode_int64(std::get<1>(in), out);                   // table_id
+    encode_prefix(in, out);                              // 0x01 "meta" ${instance_id}
+    encode_bytes(META_KEY_INFIX_TIME_TRAVEL_TABLE, out); // "time_travel_table"
+    encode_int64(std::get<1>(in), out);                  // table_id
 }
 
 void tt_compaction_key(const TtCompactionKeyInfo& in, std::string* out) {
-    encode_prefix(in, out);                               // 0x01 "meta" ${instance_id}
-    encode_bytes(META_KEY_INFIX_TT_COMPACTION, out);      // "tt_compaction"
-    encode_int64(std::get<1>(in), out);                   // tablet_id
-    encode_int64(std::get<2>(in), out);                   // start_version
-    encode_int64(std::get<3>(in), out);                   // end_version
+    encode_prefix(in, out);                          // 0x01 "meta" ${instance_id}
+    encode_bytes(META_KEY_INFIX_TT_COMPACTION, out); // "tt_compaction"
+    encode_int64(std::get<1>(in), out);              // tablet_id
+    encode_int64(std::get<2>(in), out);              // start_version
+    encode_int64(std::get<3>(in), out);              // end_version
 }
 
 void meta_pending_delete_bitmap_key(const MetaPendingDeleteBitmapInfo& in, std::string* out) {

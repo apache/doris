@@ -28,8 +28,8 @@
 #include "common/util.h"
 #include "cpp/sync_point.h"
 #include "meta-service/meta_service_helper.h"
-#include "meta-store/keys.h"
 #include "meta-store/codec.h"
+#include "meta-store/keys.h"
 #include "meta-store/txn_kv_error.h"
 #include "snapshot/snapshot_manager.h"
 
@@ -1507,7 +1507,7 @@ bool ResourceManager::is_version_write_enabled(std::string_view instance_id) con
 }
 
 bool ResourceManager::is_table_time_travel_enabled(std::string_view instance_id,
-                                                    int64_t table_id) const {
+                                                   int64_t table_id) const {
     std::string inst(instance_id);
     // Fast path: check in-memory caches under a shared lock.
     {
@@ -1543,9 +1543,8 @@ bool ResourceManager::is_table_time_travel_enabled(std::string_view instance_id,
             if (neg_set.size() < kNegCacheMaxPerInstance) {
                 neg_set.insert(table_id);
             } else {
-                LOG_EVERY_N(WARNING, 10000)
-                        << "time_travel_neg_cache full for instance=" << inst
-                        << ", FDB reads not cached for table_id=" << table_id;
+                LOG_EVERY_N(WARNING, 10000) << "time_travel_neg_cache full for instance=" << inst
+                                            << ", FDB reads not cached for table_id=" << table_id;
             }
         }
     }
@@ -1553,7 +1552,7 @@ bool ResourceManager::is_table_time_travel_enabled(std::string_view instance_id,
 }
 
 std::optional<bool> ResourceManager::check_time_travel_in_fdb(const std::string& instance_id,
-                                                               int64_t table_id) const {
+                                                              int64_t table_id) const {
     std::unique_ptr<Transaction> txn;
     if (TxnErrorCode err = txn_kv_->create_txn(&txn); err != TxnErrorCode::TXN_OK) {
         LOG(WARNING) << "check_time_travel_in_fdb: failed to create txn, instance=" << instance_id
@@ -1573,8 +1572,7 @@ std::optional<bool> ResourceManager::check_time_travel_in_fdb(const std::string&
     return true;
 }
 
-void ResourceManager::register_time_travel_table(const std::string& instance_id,
-                                                   int64_t table_id) {
+void ResourceManager::register_time_travel_table(const std::string& instance_id, int64_t table_id) {
     std::unique_lock lock(mtx_);
     time_travel_tables_[instance_id].insert(table_id);
     // Evict any stale negative cache entry so the positive state is authoritative.
@@ -1585,7 +1583,7 @@ void ResourceManager::register_time_travel_table(const std::string& instance_id,
 }
 
 void ResourceManager::unregister_time_travel_table(const std::string& instance_id,
-                                                     int64_t table_id) {
+                                                   int64_t table_id) {
     std::unique_lock lock(mtx_);
     auto pit = time_travel_tables_.find(instance_id);
     if (pit != time_travel_tables_.end()) pit->second.erase(table_id);

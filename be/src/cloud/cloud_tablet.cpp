@@ -523,10 +523,8 @@ void CloudTablet::delete_rowsets(const std::vector<RowsetSharedPtr>& to_delete,
 }
 
 Status CloudTablet::capture_rs_readers_with_tt_rowsets(
-        const Version& spec_version,
-        const std::vector<RowsetSharedPtr>& tt_extra_rowsets,
-        std::vector<RowSetSplits>* rs_splits,
-        bool skip_missing_version) {
+        const Version& spec_version, const std::vector<RowsetSharedPtr>& tt_extra_rowsets,
+        std::vector<RowSetSplits>* rs_splits, bool skip_missing_version) {
     // Build a version path from the shared rowset map, then merge in tt_extra_rowsets
     // for versions already compacted away. Only a shared lock is held; tablet state is unchanged.
     std::shared_lock rlock(_meta_lock);
@@ -538,16 +536,15 @@ Status CloudTablet::capture_rs_readers_with_tt_rowsets(
     for (auto& rs : tt_extra_rowsets) {
         if (!rs || rs->end_version() > spec_version.second) continue;
         bool covered = std::any_of(path.begin(), path.end(), [&rs](const RowsetSharedPtr& a) {
-            return a->start_version() <= rs->start_version()
-                   && rs->end_version() <= a->end_version();
+            return a->start_version() <= rs->start_version() &&
+                   rs->end_version() <= a->end_version();
         });
         if (!covered) path.push_back(rs);
     }
 
-    std::sort(path.begin(), path.end(),
-              [](const RowsetSharedPtr& a, const RowsetSharedPtr& b) {
-                  return a->start_version() < b->start_version();
-              });
+    std::sort(path.begin(), path.end(), [](const RowsetSharedPtr& a, const RowsetSharedPtr& b) {
+        return a->start_version() < b->start_version();
+    });
 
     int64_t expected = 0;
     for (auto& rs : path) {

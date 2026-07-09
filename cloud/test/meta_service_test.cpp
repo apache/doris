@@ -13350,4 +13350,327 @@ TEST(MetaServiceTest, CleanTxnLabelVersionedWriteMixedTxns) {
     }
 }
 
+// =============================================================================
+// Time travel: get_version_at_time tests
+// =============================================================================
+
+// Helper: write a versioned partition version entry with a specific update_time_ms.
+static void write_versioned_partition_version(TxnKv* txn_kv, const std::string& instance_id,
+                                              int64_t partition_id, int64_t version,
+                                              int64_t update_time_ms) {
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+    VersionPB version_pb;
+    version_pb.set_version(version);
+    version_pb.set_update_time_ms(update_time_ms);
+    std::string val;
+    ASSERT_TRUE(version_pb.SerializeToString(&val));
+
+    std::string key = versioned::partition_version_key({instance_id, partition_id});
+    versioned_put(txn.get(), key, val);
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+}
+
+TEST(MetaServiceTest, GetVersionAtTimeBasic) {
+    auto meta_service = get_meta_service();
+    const std::string instance_id = mock_instance;
+    const int64_t partition_id = 12345;
+    const int64_t version = 42;
+
+    // Write a version committed 100 seconds ago
+    int64_t now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                             std::chrono::system_clock::now().time_since_epoch())
+                             .count();
+    int64_t commit_time_ms = now_ms - 100'000; // 100s ago
+
+    // Need to write directly to the underlying txn_kv since we're testing the RPC
+    // Get txn_kv from a fresh meta service setup
+    auto txn_kv = std::dynamic_pointer_cast<TxnKv>(std::make_shared<MemTxnKv>());
+    ASSERT_EQ(txn_kv->init(), 0);
+    write_versioned_partition_version(txn_kv.get(), instance_id, partition_id, version,
+                                      commit_time_ms);
+
+    auto rs = std::make_shared<MockResourceManager>(txn_kv);
+    auto rl = std::make_shared<RateLimiter>();
+    auto snapshot = std::make_shared<SnapshotManager>(txn_kv);
+    auto ms = std::make_unique<MetaServiceImpl>(txn_kv, rs, rl, snapshot);
+    auto proxy = std::make_unique<MetaServiceProxy>(std::move(ms));
+
+    // Query at now → should find version 42
+    brpc::Controller cntl;
+    GetVersionAtTimeRequest req;
+    req.set_cloud_unique_id("test");
+    req.set_partition_id(partition_id);
+    req.set_timestamp_ms(now_ms);
+    req.set_retention_days(30);
+    GetVersionAtTimeResponse resp;
+    proxy->get_version_at_time(&cntl, &req, &resp, nullptr);
+    ASSERT_EQ(resp.status().code(), MetaServiceCode::OK) << resp.status().msg();
+    ASSERT_EQ(resp.version(), version);
+}
+
+TEST(MetaServiceTest, GetVersionAtTimeFuture) {
+    brpc::Controller cntl;
+    auto meta_service = get_meta_service();
+    int64_t future_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                std::chrono::system_clock::now().time_since_epoch())
+                                .count() +
+                        3600'000LL; // 1 hour in future
+    GetVersionAtTimeRequest req;
+    req.set_cloud_unique_id("test");
+    req.set_partition_id(99999);
+    req.set_timestamp_ms(future_ms);
+    req.set_retention_days(30);
+    GetVersionAtTimeResponse resp;
+    meta_service->get_version_at_time(&cntl, &req, &resp, nullptr);
+    ASSERT_EQ(resp.status().code(), MetaServiceCode::INVALID_ARGUMENT)
+            << "future timestamp must be rejected";
+}
+
+TEST(MetaServiceTest, GetVersionAtTimeBeyondRetention) {
+    brpc::Controller cntl;
+    auto meta_service = get_meta_service();
+    // Timestamp 91 days ago — beyond the 30-day retention window
+    int64_t old_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                             std::chrono::system_clock::now().time_since_epoch())
+                             .count() -
+                     91LL * 86400LL * 1000LL;
+    GetVersionAtTimeRequest req;
+    req.set_cloud_unique_id("test");
+    req.set_partition_id(99999);
+    req.set_timestamp_ms(old_ms);
+    req.set_retention_days(30);
+    GetVersionAtTimeResponse resp;
+    meta_service->get_version_at_time(&cntl, &req, &resp, nullptr);
+    ASSERT_EQ(resp.status().code(), MetaServiceCode::INVALID_ARGUMENT)
+            << "timestamp beyond retention window must be rejected";
+}
+
+TEST(MetaServiceTest, GetVersionAtTimeMissingFields) {
+    brpc::Controller cntl;
+    auto meta_service = get_meta_service();
+
+    // Missing partition_id
+    GetVersionAtTimeRequest req;
+    req.set_cloud_unique_id("test");
+    req.set_timestamp_ms(std::chrono::duration_cast<std::chrono::milliseconds>(
+                                 std::chrono::system_clock::now().time_since_epoch())
+                                 .count());
+    GetVersionAtTimeResponse resp;
+    meta_service->get_version_at_time(&cntl, &req, &resp, nullptr);
+    ASSERT_EQ(resp.status().code(), MetaServiceCode::INVALID_ARGUMENT)
+            << "missing partition_id must be rejected";
+}
+
+TEST(MetaServiceTest, GetVersionAtTimeBatchMode) {
+    // Set up a fresh meta service with versioned partition version entries.
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    const std::string instance_id = mock_instance;
+    const int64_t p1 = 1001, p2 = 1002, p3 = 1003;
+
+    int64_t now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                             std::chrono::system_clock::now().time_since_epoch())
+                             .count();
+    // p1: committed 2 hours ago at version 5
+    write_versioned_partition_version(txn_kv.get(), instance_id, p1, 5, now_ms - 7200000);
+    // p2: committed 1 hour ago at version 10
+    write_versioned_partition_version(txn_kv.get(), instance_id, p2, 10, now_ms - 3600000);
+    // p3: no data (nothing written)
+
+    auto rs = std::make_shared<MockResourceManager>(txn_kv);
+    auto rl = std::make_shared<RateLimiter>();
+    auto snapshot = std::make_shared<SnapshotManager>(txn_kv);
+    auto ms_impl = std::make_unique<MetaServiceImpl>(txn_kv, rs, rl, snapshot);
+    auto proxy = std::make_unique<MetaServiceProxy>(std::move(ms_impl));
+
+    // Query at 30 minutes ago — should find p1(v5) and p2(v10), p3 returns -1
+    int64_t query_ts = now_ms - 1800000; // 30 minutes ago
+
+    brpc::Controller cntl;
+    GetVersionAtTimeRequest req;
+    req.set_cloud_unique_id("test");
+    req.set_timestamp_ms(query_ts);
+    req.set_retention_days(30);
+    req.set_batch_mode(true);
+    req.add_db_ids(1);
+    req.add_table_ids(10);
+    req.add_partition_ids(p1);
+    req.add_db_ids(1);
+    req.add_table_ids(10);
+    req.add_partition_ids(p2);
+    req.add_db_ids(1);
+    req.add_table_ids(10);
+    req.add_partition_ids(p3);
+
+    GetVersionAtTimeResponse resp;
+    proxy->get_version_at_time(&cntl, &req, &resp, nullptr);
+    ASSERT_EQ(resp.status().code(), MetaServiceCode::OK) << resp.status().msg();
+    ASSERT_EQ(resp.versions_size(), 3) << "must return one version per partition";
+    ASSERT_EQ(resp.versions(0), 5) << "p1 should be at version 5";
+    ASSERT_EQ(resp.versions(1), 10) << "p2 should be at version 10";
+    ASSERT_EQ(resp.versions(2), -1) << "p3 has no data — should return -1";
+}
+
+TEST(MetaServiceTest, GetVersionAtTimeBatchMode_MismatchedArrays) {
+    brpc::Controller cntl;
+    auto meta_service = get_meta_service();
+    GetVersionAtTimeRequest req;
+    req.set_cloud_unique_id("test");
+    req.set_timestamp_ms(std::chrono::duration_cast<std::chrono::milliseconds>(
+                                 std::chrono::system_clock::now().time_since_epoch())
+                                 .count());
+    req.set_retention_days(30);
+    req.set_batch_mode(true);
+    req.add_db_ids(1); // 1 db_id
+    // but no table_ids or partition_ids → length mismatch
+    GetVersionAtTimeResponse resp;
+    meta_service->get_version_at_time(&cntl, &req, &resp, nullptr);
+    ASSERT_EQ(resp.status().code(), MetaServiceCode::INVALID_ARGUMENT)
+            << "mismatched array lengths must be rejected";
+}
+
+// Verifies that when multiple versions exist for a partition, the reverse scan
+// returns the latest version AT OR BEFORE the requested timestamp, not just any version.
+TEST(MetaServiceTest, GetVersionAtTime_MultipleVersionsSelectsCorrectOne) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    const std::string instance_id = mock_instance;
+    const int64_t partition_id = 77777;
+    int64_t now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                             std::chrono::system_clock::now().time_since_epoch())
+                             .count();
+
+    // Three versions at different times
+    write_versioned_partition_version(txn_kv.get(), instance_id, partition_id, 10,
+                                      now_ms - 6000000); // 100 min ago
+    write_versioned_partition_version(txn_kv.get(), instance_id, partition_id, 20,
+                                      now_ms - 3600000); // 60 min ago
+    write_versioned_partition_version(txn_kv.get(), instance_id, partition_id, 30,
+                                      now_ms - 1800000); // 30 min ago
+
+    auto rs = std::make_shared<MockResourceManager>(txn_kv);
+    auto rl = std::make_shared<RateLimiter>();
+    auto snapshot = std::make_shared<SnapshotManager>(txn_kv);
+    auto ms_impl = std::make_unique<MetaServiceImpl>(txn_kv, rs, rl, snapshot);
+    auto proxy = std::make_unique<MetaServiceProxy>(std::move(ms_impl));
+
+    brpc::Controller cntl;
+    GetVersionAtTimeRequest req;
+    req.set_cloud_unique_id("test");
+    req.set_partition_id(partition_id);
+    req.set_retention_days(30);
+
+    // Query at 45 min ago → should pick version 20 (60 min ago), not 30 (30 min ago)
+    {
+        GetVersionAtTimeResponse resp;
+        req.set_timestamp_ms(now_ms - 2700000); // 45 min ago
+        proxy->get_version_at_time(&cntl, &req, &resp, nullptr);
+        ASSERT_EQ(resp.status().code(), MetaServiceCode::OK) << resp.status().msg();
+        ASSERT_EQ(resp.version(), 20) << "45-min-ago query should return version 20 (60 min ago)";
+    }
+
+    // Query at 80 min ago → should pick version 10 (100 min ago)
+    {
+        GetVersionAtTimeResponse resp;
+        req.set_timestamp_ms(now_ms - 4800000); // 80 min ago
+        proxy->get_version_at_time(&cntl, &req, &resp, nullptr);
+        ASSERT_EQ(resp.status().code(), MetaServiceCode::OK) << resp.status().msg();
+        ASSERT_EQ(resp.version(), 10) << "80-min-ago query should return version 10 (100 min ago)";
+    }
+
+    // Query at now → should pick the latest, version 30
+    {
+        GetVersionAtTimeResponse resp;
+        req.set_timestamp_ms(now_ms);
+        proxy->get_version_at_time(&cntl, &req, &resp, nullptr);
+        ASSERT_EQ(resp.status().code(), MetaServiceCode::OK) << resp.status().msg();
+        ASSERT_EQ(resp.version(), 30) << "current-time query should return the latest version 30";
+    }
+}
+
+// Verifies that DisableTimeTravelTable RPC deletes the FDB marker key idempotently.
+TEST(MetaServiceTest, DisableTimeTravelTable_DeletesMarkerKey) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    const std::string instance_id = "test_instance_tt_disable";
+    const int64_t table_id = 12345;
+
+    // Write a time_travel_table marker key as create_tablets would
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->put(time_travel_table_key({instance_id, table_id}), "");
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    // Verify marker key exists
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string val;
+        ASSERT_EQ(txn->get(time_travel_table_key({instance_id, table_id}), &val),
+                  TxnErrorCode::TXN_OK)
+                << "marker key should exist before disable";
+    }
+
+    auto rs = std::make_shared<MockResourceManager>(txn_kv);
+    auto rl = std::make_shared<RateLimiter>();
+    auto snapshot = std::make_shared<SnapshotManager>(txn_kv);
+    auto ms_impl = std::make_unique<MetaServiceImpl>(txn_kv, rs, rl, snapshot);
+    auto proxy = std::make_unique<MetaServiceProxy>(std::move(ms_impl));
+
+    brpc::Controller cntl;
+    DisableTimeTravelTableRequest req;
+    req.set_cloud_unique_id("test");
+    req.set_instance_id(instance_id);
+    req.set_table_id(table_id);
+    DisableTimeTravelTableResponse resp;
+    proxy->disable_time_travel_table(&cntl, &req, &resp, nullptr);
+    ASSERT_EQ(resp.status().code(), MetaServiceCode::OK) << resp.status().msg();
+
+    // Verify marker key is gone
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string val;
+        ASSERT_EQ(txn->get(time_travel_table_key({instance_id, table_id}), &val),
+                  TxnErrorCode::TXN_KEY_NOT_FOUND)
+                << "marker key should be deleted after disable";
+    }
+}
+
+// Verifies that DisableTimeTravelTable is idempotent — calling it when the key
+// does not exist returns OK, not an error.
+TEST(MetaServiceTest, DisableTimeTravelTable_IdempotentWhenKeyAbsent) {
+    brpc::Controller cntl;
+    auto meta_service = get_meta_service();
+
+    DisableTimeTravelTableRequest req;
+    req.set_cloud_unique_id("test");
+    req.set_table_id(99999); // key never written
+    DisableTimeTravelTableResponse resp;
+    meta_service->disable_time_travel_table(&cntl, &req, &resp, nullptr);
+    ASSERT_EQ(resp.status().code(), MetaServiceCode::OK)
+            << "disable on absent key must be idempotent (return OK)";
+}
+
+// Verifies that DisableTimeTravelTable rejects a request with no table_id.
+TEST(MetaServiceTest, DisableTimeTravelTable_MissingTableId) {
+    brpc::Controller cntl;
+    auto meta_service = get_meta_service();
+
+    DisableTimeTravelTableRequest req;
+    req.set_cloud_unique_id("test");
+    // table_id not set
+    DisableTimeTravelTableResponse resp;
+    meta_service->disable_time_travel_table(&cntl, &req, &resp, nullptr);
+    ASSERT_EQ(resp.status().code(), MetaServiceCode::INVALID_ARGUMENT)
+            << "missing table_id must be rejected";
+}
+
 } // namespace doris::cloud

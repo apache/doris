@@ -298,24 +298,48 @@ public class BindRelation extends OneAnalysisRuleFactory {
             return checkAndAddChangeScanFilter(scan, changeScanType,
                     parseTimestampRange(unboundRelation.getScanParams()), false);
         }
-        // Time-travel (FOR VERSION/TIME AS OF): wrap the scan with a __DORIS_COMMIT_TSO_COL__
-        // predicate (dup) or a base/binlog union (mow).
+        // FOR VERSION/TIME AS OF: two independent implementations share the same SQL syntax.
+        // Routed by enable_time_travel table property — not by deployment mode.
+        //
+        //   enable_time_travel=true  → metadata-driven MVCC path:
+        //                              point-in-time analytics snapshot, no binlog required.
+        //                              Currently backed by FDB in cloud mode; coupled mode
+        //                              will use EditLog + local checkpoints via the same path.
+        //
+        //   everything else          → binlog/TSO path:
+        //                              filters rows by __DORIS_COMMIT_TSO_COL__ (DUP) or
+        //                              base UNION binlog before-images (MoW). Requires
+        //                              binlog.enable=true on the table.
+        //
+        // Note: CREATE STREAM (SELECT * FROM stream_table) uses its own separate code path
+        // FOR VERSION/TIME AS OF: two independent implementations, disambiguated by SQL syntax.
+        //
+        //   FOR SYSTEM_TIME AS OF '<timestamp>'  → metadata-driven MVCC path (this feature):
+        //                                          ISO SQL 2011 standard syntax. Requires
+        //                                          enable_time_travel=true on the table.
+        //                                          No binlog required.
+        //
+        //   FOR TIME/VERSION AS OF               → binlog/TSO path (upstream feature):
+        //                                          requires binlog.enable=true on the table.
+        //
+        // Syntax is the routing key — not the table property. This eliminates ambiguity
+        // when a table has both features enabled. FOR SYSTEM_TIME AS OF always means
+        // metadata MVCC; FOR TIME AS OF always means binlog/TSO.
+        //
+        // Note: CREATE STREAM (SELECT * FROM stream_table) uses its own separate code path
+        // via NormalizeOlapTableStreamScan and does NOT go through this block.
         if (unboundRelation.getTableSnapshot().isPresent()) {
-            return buildTimeTravelPlan(scan, (OlapTable) table,
-                    unboundRelation.getTableSnapshot().get(), unboundRelation, qualifier,
-                    partIds, tabletIds, cascadesContext);
+            OlapTable olapTable = (OlapTable) table;
+            TableSnapshot snapshot = unboundRelation.getTableSnapshot().get();
+            if (snapshot.getType() == TableSnapshot.VersionType.SYSTEM_TIME) {
+                scan = validateAndStoreTimeTravelSnapshot(scan, olapTable, snapshot);
+            } else {
+                return buildTimeTravelPlan(scan, olapTable, snapshot, unboundRelation, qualifier,
+                        partIds, tabletIds, cascadesContext);
+            }
         }
         if (cascadesContext.getStatementContext().isHintForcePreAggOn()) {
             return scan.withPreAggStatus(PreAggStatus.on());
-        }
-
-        // Time travel: validate FOR TIME AS OF and store timestamp_ms on the scan.
-        // Only valid for cloud/decoupled mode tables with enable_time_travel=true.
-        // Version resolution is done per-partition at BE scan time using timestamp_ms,
-        // so multi-partition tables work correctly without N FE→meta-service round trips.
-        Optional<TableSnapshot> snapshot = unboundRelation.getTableSnapshot();
-        if (snapshot.isPresent()) {
-            scan = validateAndStoreTimeTravelSnapshot(scan, (OlapTable) table, snapshot.get());
         }
 
         if (needGenerateLogicalAggForRandomDistAggTable(scan)) {
@@ -338,7 +362,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
      * <ul>
      *   <li>Not running in cloud/decoupled mode</li>
      *   <li>Table does not have enable_time_travel=true</li>
-     *   <li>FOR VERSION AS OF is used (only FOR TIME AS OF is supported)</li>
+     *   <li>FOR VERSION AS OF is used (only FOR SYSTEM_TIME AS OF is supported)</li>
      *   <li>Timestamp cannot be parsed</li>
      *   <li>Timestamp is in the future or beyond the retention window</li>
      * </ul>
@@ -347,18 +371,20 @@ public class BindRelation extends OneAnalysisRuleFactory {
             TableSnapshot snapshot) {
         if (!Config.isCloudMode()) {
             throw new AnalysisException(
-                    "FOR TIME AS OF is only supported in cloud/decoupled mode. "
+                    "FOR SYSTEM_TIME AS OF is only supported in cloud/decoupled mode. "
                             + "Table: " + olapTable.getName());
         }
         if (!olapTable.isEnableTimeTravel()) {
             throw new AnalysisException(
                     "Table '" + olapTable.getName() + "' does not have time travel enabled. "
-                            + "Set PROPERTIES (\"enable_time_travel\" = \"true\") at CREATE TABLE time.");
+                            + "Use: CREATE TABLE ... PROPERTIES (\"enable_time_travel\" = \"true\"). "
+                            + "If this table has binlog enabled for CDC, use FOR TIME AS OF instead.");
         }
-        if (snapshot.getType() != TableSnapshot.VersionType.TIME) {
+        // Only FOR SYSTEM_TIME AS OF reaches here — reject FOR VERSION AS OF.
+        if (snapshot.getType() == TableSnapshot.VersionType.VERSION) {
             throw new AnalysisException(
-                    "FOR VERSION AS OF is not supported for internal OLAP tables. "
-                            + "Use FOR TIME AS OF '<timestamp>' instead.");
+                    "FOR VERSION AS OF is not supported for internal OLAP time travel. "
+                            + "Use FOR SYSTEM_TIME AS OF '<timestamp>' instead.");
         }
 
         // Parse the timestamp using the session timezone (same as Doris DATETIME semantics).
