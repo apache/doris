@@ -536,10 +536,11 @@ public class IcebergScanPlanProviderTest {
         Map<String, String> props = provider.getScanNodeProperties(
                 null, new IcebergTableHandle("db1", "pt"), Collections.emptyList(), Optional.empty());
 
-        // path_partition_keys = lowercased, comma-joined identity columns (the CI #968880 double-fill guard);
+        // path_partition_keys = case-preserved, comma-joined identity columns (the CI #968880 double-fill guard);
         // file_format_type=jni makes the parent default to FORMAT_JNI, overridden per native range.
         // MUTATION: omitting path_partition_keys -> BE double-fills partition columns -> DCHECK -> this red.
-        Assertions.assertEquals("p,region", props.get("path_partition_keys"));
+        // MUTATION: re-lowercasing "P" -> "p,region" != "P,region" -> red.
+        Assertions.assertEquals("P,region", props.get("path_partition_keys"));
         Assertions.assertEquals("jni", props.get("file_format_type"));
     }
 
