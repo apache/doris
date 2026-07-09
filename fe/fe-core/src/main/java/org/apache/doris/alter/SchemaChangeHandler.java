@@ -2835,12 +2835,31 @@ public class SchemaChangeHandler extends AlterHandler {
                 add(PropertyAnalyzer.PROPERTIES_AUTO_ANALYZE_POLICY);
                 add(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM);
                 add(PropertyAnalyzer.PROPERTIES_PARTITION_RETENTION_COUNT);
+                add(PropertyAnalyzer.PROPERTIES_ENABLE_TIME_TRAVEL); // disable only; enforced above
             }
         };
         List<String> notAllowedProps = properties.keySet().stream().filter(s -> !allowedProps.contains(s))
                 .collect(Collectors.toList());
         if (!notAllowedProps.isEmpty()) {
-            throw new UserException("modifying property " + notAllowedProps + " is forbidden");
+            if (notAllowedProps.contains(PropertyAnalyzer.PROPERTIES_TIME_TRAVEL_RETENTION_DAYS)) {
+                throw new UserException(
+                        "'time_travel_retention_days' cannot be changed after table creation. "
+                                + "It can only be set at CREATE TABLE time.");
+            }
+            if (notAllowedProps.contains(PropertyAnalyzer.PROPERTIES_ENABLE_TIME_TRAVEL)) {
+                String val = properties.get(PropertyAnalyzer.PROPERTIES_ENABLE_TIME_TRAVEL);
+                if (!"false".equalsIgnoreCase(val)) {
+                    throw new UserException(
+                            "Time travel can only be enabled at CREATE TABLE time. "
+                                    + "ALTER TABLE only allows disabling it "
+                                    + "('enable_time_travel' = 'false').");
+                }
+                // 'false' is allowed — falls through to normal processing below
+                notAllowedProps.remove(PropertyAnalyzer.PROPERTIES_ENABLE_TIME_TRAVEL);
+            }
+            if (!notAllowedProps.isEmpty()) {
+                throw new UserException("modifying property " + notAllowedProps + " is forbidden");
+            }
         }
 
         Env.getCurrentEnv().getAlterInstance().checkNoForceProperty(properties);
@@ -3000,6 +3019,16 @@ public class SchemaChangeHandler extends AlterHandler {
             Env.getCurrentEnv().modifyTableProperties(db, olapTable, properties);
         } finally {
             olapTable.writeUnlock();
+        }
+
+        // In cloud mode, if time travel is being disabled, remove the FDB marker key so the
+        // meta-service stops writing versioned partition keys for this table.
+        // Best-effort: FE metadata is already committed. RPC failure is logged but not fatal —
+        // the marker key being present causes no correctness issue once the FE flag is false.
+        if (Config.isCloudMode()
+                && "false".equalsIgnoreCase(
+                        properties.get(PropertyAnalyzer.PROPERTIES_ENABLE_TIME_TRAVEL))) {
+            InternalCatalog.disableTimeTravelMarkerIfNeeded(olapTable);
         }
 
         // after modifyTableProperties, buildPartitionRetentionCount has been done.

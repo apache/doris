@@ -202,6 +202,11 @@ public class OlapScanNode extends ScanNode {
     private Set<Long> sampleTabletIds = Sets.newHashSet();
     private Set<Long> nereidsPrunedTabletIds = Sets.newHashSet();
     private TableSample tableSample;
+    // Time travel: timestamp_ms from FOR TIME AS OF. -1 = read current version.
+    private long timeTravelTimestampMs = -1L;
+    private int timeTravelRetentionDays = -1;
+    // tablet_id → serialised RowsetMetaCloudPB bytes for compacted-away versions.
+    private java.util.Map<Long, List<byte[]>> ttRowsetManifests = null;
 
     private Map<Long, Integer> tabletId2BucketSeq = Maps.newHashMap();
     // a bucket seq may map to many tablets, and each tablet has a
@@ -267,6 +272,30 @@ public class OlapScanNode extends ScanNode {
 
     public void setTableSample(TableSample tSample) {
         this.tableSample = tSample;
+    }
+
+    public void setTimeTravelTimestampMs(long version) {
+        this.timeTravelTimestampMs = version;
+    }
+
+    public long getTimeTravelTimestampMs() {
+        return timeTravelTimestampMs;
+    }
+
+    public boolean hasTimeTravelTimestampMs() {
+        return timeTravelTimestampMs >= 0;
+    }
+
+    public void setTimeTravelRetentionDays(int days) {
+        this.timeTravelRetentionDays = days;
+    }
+
+    public int getTimeTravelRetentionDays() {
+        return timeTravelRetentionDays;
+    }
+
+    public void setTtRowsetManifests(java.util.Map<Long, List<byte[]>> manifests) {
+        this.ttRowsetManifests = manifests;
     }
 
     public Set<Integer> getExtraKeyColumnSlotIds() {
@@ -1358,6 +1387,26 @@ public class OlapScanNode extends ScanNode {
             setPartitionBoundaries(msg.olap_scan_node);
         }
 
+        if (timeTravelTimestampMs >= 0) {
+            msg.olap_scan_node.setTimeTravelTimestampMs(timeTravelTimestampMs);
+            if (timeTravelRetentionDays > 0) {
+                msg.olap_scan_node.setTimeTravelRetentionDays(timeTravelRetentionDays);
+            }
+            if (ttRowsetManifests != null && !ttRowsetManifests.isEmpty()) {
+                // Thrift binary fields use ByteBuffer; wrap each byte[] before serialising.
+                java.util.Map<Long, List<java.nio.ByteBuffer>> thriftManifests =
+                        new java.util.HashMap<>();
+                for (java.util.Map.Entry<Long, List<byte[]>> e : ttRowsetManifests.entrySet()) {
+                    List<java.nio.ByteBuffer> bufs = new java.util.ArrayList<>();
+                    for (byte[] b : e.getValue()) {
+                        bufs.add(java.nio.ByteBuffer.wrap(b));
+                    }
+                    thriftManifests.put(e.getKey(), bufs);
+                }
+                msg.olap_scan_node.setTtRowsetManifests(thriftManifests);
+            }
+        }
+
         super.toThrift(msg);
     }
 
@@ -1385,7 +1434,7 @@ public class OlapScanNode extends ScanNode {
             return;
         }
 
-        // Build partition column name → slot ID mapping
+        // Build partition column name to slot ID mapping
         Map<String, Integer> partColToSlotId = Maps.newHashMap();
         for (SlotDescriptor slot : desc.getSlots()) {
             if (slot.getColumn() == null) {
@@ -1429,14 +1478,14 @@ public class OlapScanNode extends ScanNode {
         // boundaries. Projection rules (lex compare semantics):
         //
         //   single column [L, U):
-        //       projection = [L, U)              → range_end_inclusive = false
+        //       projection = [L, U)              -> range_end_inclusive = false
         //
         //   multi-column [(L1, L2, ...), (U1, U2, ...)):
-        //       k1 = L1 is reachable (inner tuple can be ≥ (L2, ...))
-        //       k1 ∈ (L1, U1) is fully reachable
+        //       k1 = L1 is reachable (inner tuple can be >= (L2, ...))
+        //       k1 in (L1, U1) is fully reachable
         //       k1 = U1 may be reachable via inner tuple < (U2, ...)
         //       projection = [L1, U1] (CLOSED both ends, conservative)
-        //                                        → range_end_inclusive = true
+        //                                        -> range_end_inclusive = true
         //
         // The half-open form [L1, U1) for multi-column would be a strict
         // UNDER-approximation. Example: partition [(1,1), (1,5)) projects to

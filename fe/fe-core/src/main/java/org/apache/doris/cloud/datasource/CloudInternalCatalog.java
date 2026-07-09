@@ -196,7 +196,8 @@ public class CloudInternalCatalog extends InternalCatalog {
                         tbl.storagePageSize(), tbl.getTDEAlgorithmPB(),
                         tbl.storageDictPageSize(), true,
                         tbl.getColumnSeqMapping(),
-                                    tbl.getVerticalCompactionNumColumnsPerGroup());
+                        tbl.getVerticalCompactionNumColumnsPerGroup(),
+                        tbl.isEnableTimeTravel() ? tbl.getTimeTravelRetentionDays() : 0);
                 requestBuilder.addTabletMetas(builder);
             }
             requestBuilder.setDbId(dbId);
@@ -231,7 +232,7 @@ public class CloudInternalCatalog extends InternalCatalog {
             boolean variantEnableFlattenNested, List<Integer> clusterKeyUids,
             long storagePageSize, EncryptionAlgorithmPB encryptionAlgorithm, long storageDictPageSize,
             boolean createInitialRowset, Map<String, List<String>> columnSeqMapping,
-            int verticalCompactionNumColumnsPerGroup) throws DdlException {
+            int verticalCompactionNumColumnsPerGroup, int timeTravelRetentionDays) throws DdlException {
         OlapFile.TabletMetaCloudPB.Builder builder = OlapFile.TabletMetaCloudPB.newBuilder();
         builder.setTableId(tableId);
         builder.setIndexId(indexId);
@@ -267,6 +268,9 @@ public class CloudInternalCatalog extends InternalCatalog {
         builder.setTimeSeriesCompactionEmptyRowsetsThreshold(timeSeriesCompactionEmptyRowsetsThreshold);
         builder.setTimeSeriesCompactionLevelThreshold(timeSeriesCompactionLevelThreshold);
         builder.setVerticalCompactionNumColumnsPerGroup(verticalCompactionNumColumnsPerGroup);
+        if (timeTravelRetentionDays > 0) {
+            builder.setTimeTravelRetentionDays(timeTravelRetentionDays);
+        }
 
         OlapFile.TabletSchemaCloudPB.Builder schemaBuilder = OlapFile.TabletSchemaCloudPB.newBuilder();
         schemaBuilder.setSchemaVersion(schemaVersion);

@@ -308,6 +308,16 @@ public class BindRelation extends OneAnalysisRuleFactory {
         if (cascadesContext.getStatementContext().isHintForcePreAggOn()) {
             return scan.withPreAggStatus(PreAggStatus.on());
         }
+
+        // Time travel: validate FOR TIME AS OF and store timestamp_ms on the scan.
+        // Only valid for cloud/decoupled mode tables with enable_time_travel=true.
+        // Version resolution is done per-partition at BE scan time using timestamp_ms,
+        // so multi-partition tables work correctly without N FE→meta-service round trips.
+        Optional<TableSnapshot> snapshot = unboundRelation.getTableSnapshot();
+        if (snapshot.isPresent()) {
+            scan = validateAndStoreTimeTravelSnapshot(scan, (OlapTable) table, snapshot.get());
+        }
+
         if (needGenerateLogicalAggForRandomDistAggTable(scan)) {
             // it's a random distribution agg table
             // add agg on olap scan
@@ -317,6 +327,72 @@ public class BindRelation extends OneAnalysisRuleFactory {
             // add delete sign filter on olap scan if needed
             return checkAndAddDeleteSignFilter(scan, ConnectContext.get(), (OlapTable) table);
         }
+    }
+
+    /**
+     * Validates a FOR TIME AS OF clause and stamps the parsed timestamp (ms) onto the scan.
+     * Version resolution happens at the BE per partition during scan execution, not here,
+     * so multi-partition tables work correctly.
+     *
+     * <p>Rejects with AnalysisException if:
+     * <ul>
+     *   <li>Not running in cloud/decoupled mode</li>
+     *   <li>Table does not have enable_time_travel=true</li>
+     *   <li>FOR VERSION AS OF is used (only FOR TIME AS OF is supported)</li>
+     *   <li>Timestamp cannot be parsed</li>
+     *   <li>Timestamp is in the future or beyond the retention window</li>
+     * </ul>
+     */
+    private LogicalOlapScan validateAndStoreTimeTravelSnapshot(LogicalOlapScan scan, OlapTable olapTable,
+            TableSnapshot snapshot) {
+        if (!Config.isCloudMode()) {
+            throw new AnalysisException(
+                    "FOR TIME AS OF is only supported in cloud/decoupled mode. "
+                            + "Table: " + olapTable.getName());
+        }
+        if (!olapTable.isEnableTimeTravel()) {
+            throw new AnalysisException(
+                    "Table '" + olapTable.getName() + "' does not have time travel enabled. "
+                            + "Set PROPERTIES (\"enable_time_travel\" = \"true\") at CREATE TABLE time.");
+        }
+        if (snapshot.getType() != TableSnapshot.VersionType.TIME) {
+            throw new AnalysisException(
+                    "FOR VERSION AS OF is not supported for internal OLAP tables. "
+                            + "Use FOR TIME AS OF '<timestamp>' instead.");
+        }
+
+        // Parse the timestamp using the session timezone (same as Doris DATETIME semantics).
+        long timestampMs;
+        try {
+            java.time.ZoneId sessionZone = org.apache.doris.nereids.util.DateUtils.getTimeZone();
+            java.time.LocalDateTime ldt = java.time.LocalDateTime.parse(
+                    snapshot.getValue().trim(),
+                    java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+            timestampMs = ldt.atZone(sessionZone).toInstant().toEpochMilli();
+        } catch (Exception e) {
+            throw new AnalysisException(
+                    "Invalid timestamp for FOR TIME AS OF: '" + snapshot.getValue()
+                            + "'. Expected format: 'yyyy-MM-dd HH:mm:ss'. Cause: " + e.getMessage());
+        }
+
+        // Validate timestamp is not in the future or beyond the retention window.
+        long nowMs = System.currentTimeMillis();
+        if (timestampMs > nowMs) {
+            throw new AnalysisException(
+                    "FOR TIME AS OF timestamp '" + snapshot.getValue() + "' is in the future.");
+        }
+        long retentionMs = (long) olapTable.getTimeTravelRetentionDays() * 86400L * 1000L;
+        if (timestampMs < nowMs - retentionMs) {
+            throw new AnalysisException(
+                    "FOR TIME AS OF timestamp '" + snapshot.getValue()
+                            + "' is beyond the retention window of "
+                            + olapTable.getTimeTravelRetentionDays() + " days for table '"
+                            + olapTable.getName() + "'.");
+        }
+
+        // Store timestamp_ms on the scan. The BE resolves it to the correct version
+        // per partition during scan execution via get_version_at_time RPC.
+        return scan.withTimeTravelTimestampMs(timestampMs);
     }
 
     private LogicalOlapTableStreamScan makeOlapTableStreamScan(OlapTableStream olapTableStream,

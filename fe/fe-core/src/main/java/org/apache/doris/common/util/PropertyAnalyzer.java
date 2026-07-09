@@ -259,6 +259,12 @@ public class PropertyAnalyzer {
     public static final boolean PROPERTIES_ENABLE_MOW_LIGHT_DELETE_DEFAULT_VALUE
             = Config.enable_mow_light_delete;
 
+    // Time travel properties (cloud/decoupled mode only)
+    public static final String PROPERTIES_ENABLE_TIME_TRAVEL = "enable_time_travel";
+    public static final String PROPERTIES_TIME_TRAVEL_RETENTION_DAYS = "time_travel_retention_days";
+    public static final int TIME_TRAVEL_MAX_RETENTION_DAYS = 90;
+    public static final int TIME_TRAVEL_DEFAULT_RETENTION_DAYS = 7;
+
     public static final String PROPERTIES_AUTO_ANALYZE_POLICY = "auto_analyze_policy";
     public static final String ENABLE_AUTO_ANALYZE_POLICY = "enable";
     public static final String DISABLE_AUTO_ANALYZE_POLICY = "disable";
@@ -2319,5 +2325,66 @@ public class PropertyAnalyzer {
             return type;
         }
         return BaseTableStream.StreamScanType.MIN_DELTA;
+    }
+
+    /**
+     * Validates and extracts time travel properties from the given property map.
+     *
+     * <p>Rules:
+     * <ul>
+     *   <li>Only allowed in cloud/decoupled mode. Throws if attempted on a coupled cluster.</li>
+     *   <li>{@code enable_time_travel} must be {@code true} or {@code false}.</li>
+     *   <li>{@code time_travel_retention_days} must be an integer in [1, 90].</li>
+     * </ul>
+     *
+     * @param properties mutable property map; validated keys are removed
+     * @return map with time-travel keys extracted, or null if no time-travel keys present
+     */
+    public static Map<String, String> analyzeTimeTravelConfig(Map<String, String> properties)
+            throws AnalysisException {
+        if (properties == null || properties.isEmpty()) {
+            return null;
+        }
+        boolean hasTimeTravelKey = properties.containsKey(PROPERTIES_ENABLE_TIME_TRAVEL)
+                || properties.containsKey(PROPERTIES_TIME_TRAVEL_RETENTION_DAYS);
+        if (!hasTimeTravelKey) {
+            return null;
+        }
+        if (!Config.isCloudMode()) {
+            throw new AnalysisException(
+                    "Time travel is only supported in cloud/decoupled mode. "
+                            + "The properties 'enable_time_travel' and 'time_travel_retention_days' "
+                            + "are not allowed on coupled-mode tables.");
+        }
+        Map<String, String> timeTravelMap = Maps.newHashMap();
+        if (properties.containsKey(PROPERTIES_ENABLE_TIME_TRAVEL)) {
+            String value = properties.get(PROPERTIES_ENABLE_TIME_TRAVEL);
+            if (!"true".equalsIgnoreCase(value) && !"false".equalsIgnoreCase(value)) {
+                throw new AnalysisException(
+                        "Invalid value for '" + PROPERTIES_ENABLE_TIME_TRAVEL + "': '" + value
+                                + "'. Must be 'true' or 'false'.");
+            }
+            timeTravelMap.put(PROPERTIES_ENABLE_TIME_TRAVEL, value.toLowerCase());
+            properties.remove(PROPERTIES_ENABLE_TIME_TRAVEL);
+        }
+        if (properties.containsKey(PROPERTIES_TIME_TRAVEL_RETENTION_DAYS)) {
+            String value = properties.get(PROPERTIES_TIME_TRAVEL_RETENTION_DAYS);
+            int days;
+            try {
+                days = Integer.parseInt(value);
+            } catch (NumberFormatException e) {
+                throw new AnalysisException(
+                        "Invalid value for '" + PROPERTIES_TIME_TRAVEL_RETENTION_DAYS + "': '"
+                                + value + "'. Must be an integer.");
+            }
+            if (days < 1 || days > TIME_TRAVEL_MAX_RETENTION_DAYS) {
+                throw new AnalysisException(
+                        "'" + PROPERTIES_TIME_TRAVEL_RETENTION_DAYS + "' must be between 1 and "
+                                + TIME_TRAVEL_MAX_RETENTION_DAYS + ", got " + days + ".");
+            }
+            timeTravelMap.put(PROPERTIES_TIME_TRAVEL_RETENTION_DAYS, String.valueOf(days));
+            properties.remove(PROPERTIES_TIME_TRAVEL_RETENTION_DAYS);
+        }
+        return timeTravelMap;
     }
 }

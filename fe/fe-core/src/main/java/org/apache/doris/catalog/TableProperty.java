@@ -76,6 +76,10 @@ public class TableProperty implements GsonPostProcessable {
     private Boolean isBeingSynced = null;
     private BinlogConfig binlogConfig;
 
+    // Time travel (cloud/decoupled mode only)
+    private boolean enableTimeTravel = false;
+    private int timeTravelRetentionDays = PropertyAnalyzer.TIME_TRAVEL_DEFAULT_RETENTION_DAYS;
+
     private TStorageMedium storageMedium = null;
 
     // which columns stored in RowStore column
@@ -643,6 +647,26 @@ public class TableProperty implements GsonPostProcessable {
         this.binlogConfig = newBinlogConfig;
     }
 
+    public TableProperty buildTimeTravelConfig() {
+        if (properties.containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_TIME_TRAVEL)) {
+            this.enableTimeTravel = Boolean.parseBoolean(
+                    properties.get(PropertyAnalyzer.PROPERTIES_ENABLE_TIME_TRAVEL));
+        }
+        if (properties.containsKey(PropertyAnalyzer.PROPERTIES_TIME_TRAVEL_RETENTION_DAYS)) {
+            this.timeTravelRetentionDays = Integer.parseInt(
+                    properties.get(PropertyAnalyzer.PROPERTIES_TIME_TRAVEL_RETENTION_DAYS));
+        }
+        return this;
+    }
+
+    public boolean isEnableTimeTravel() {
+        return enableTimeTravel;
+    }
+
+    public int getTimeTravelRetentionDays() {
+        return timeTravelRetentionDays;
+    }
+
     public TableProperty buildDataSortInfo() {
         HashMap<String, String> dataSortInfoProperties = new HashMap<>();
         for (Map.Entry<String, String> entry : properties.entrySet()) {
@@ -966,6 +990,7 @@ public class TableProperty implements GsonPostProcessable {
         buildReplicaAllocation();
         buildTDEAlgorithm();
         buildColumnSeqMapping();
+        buildTimeTravelConfig();
     }
 
     // For some historical reason,

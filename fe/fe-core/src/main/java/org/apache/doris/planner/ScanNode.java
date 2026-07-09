@@ -73,6 +73,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -645,59 +646,191 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
             return;
         }
 
-        List<CloudPartition> partitions = new ArrayList<>();
-        Set<Long> partitionSet = new HashSet<>();
+        // Separate time-travel scans (historical timestamp, one batch RPC)
+        // from normal scans (current visible version, existing batch RPC path).
+
+        // partition_id → timestamp/retentionDays for all time-travel partitions.
+        Map<Long, Long> timeTravelPartitionTimestamps = new LinkedHashMap<>(); // partition_id → timestampMs
+        Map<Long, Integer> timeTravelPartitionRetentions = new LinkedHashMap<>();
+        List<OlapScanNode> timeTravelScanNodes = new ArrayList<>();
+
+        List<CloudPartition> normalPartitions = new ArrayList<>();
+        Set<Long> normalPartitionSet = new HashSet<>();
+
         for (ScanNode node : scanNodes) {
             if (!(node instanceof OlapScanNode)) {
                 continue;
             }
-
             OlapScanNode scanNode = (OlapScanNode) node;
-            OlapTable table = scanNode.getOlapTable();
-            for (Long id : scanNode.getSelectedPartitionIds()) {
-                if (!partitionSet.contains(id)) {
-                    partitionSet.add(id);
-                    partitions.add((CloudPartition) table.getPartition(id));
+            if (scanNode.hasTimeTravelTimestampMs()) {
+                // Time-travel scan: collect partitions for batch historical version resolution.
+                timeTravelScanNodes.add(scanNode);
+                long timestampMs = scanNode.getTimeTravelTimestampMs();
+                int retentionDays = scanNode.getTimeTravelRetentionDays() > 0
+                        ? scanNode.getTimeTravelRetentionDays() : 90;
+                for (Long id : scanNode.getSelectedPartitionIds()) {
+                    // If two scans reference the same partition at the same timestamp, use first seen.
+                    timeTravelPartitionTimestamps.putIfAbsent(id, timestampMs);
+                    timeTravelPartitionRetentions.putIfAbsent(id, retentionDays);
+                }
+            } else {
+                // Normal scan: deduplicate partitions and collect for current visible version batch.
+                OlapTable table = scanNode.getOlapTable();
+                for (Long id : scanNode.getSelectedPartitionIds()) {
+                    if (!normalPartitionSet.contains(id)) {
+                        normalPartitionSet.add(id);
+                        normalPartitions.add((CloudPartition) table.getPartition(id));
+                    }
                 }
             }
         }
 
-        if (partitions.isEmpty()) {
+        // -----------------------------------------------------------------------
+        // Time-travel path: one batch RPC resolves all N partitions in a single query.
+        // All time-travel partitions in a query must share the same timestamp.
+        // -----------------------------------------------------------------------
+        if (!timeTravelPartitionTimestamps.isEmpty()) {
+            long timestampMs = timeTravelPartitionTimestamps.values().iterator().next();
+            int retentionDays = timeTravelPartitionRetentions.values().iterator().next();
+            for (Map.Entry<Long, Long> e : timeTravelPartitionTimestamps.entrySet()) {
+                if (!e.getValue().equals(timestampMs)) {
+                    throw new UserException(
+                            "Time travel queries with multiple different timestamps "
+                            + "in the same query are not supported. "
+                            + "Found timestamps: " + timestampMs + " and " + e.getValue());
+                }
+            }
+
+            List<CloudPartition> ttPartitions = new ArrayList<>();
+            for (Map.Entry<Long, Long> entry : timeTravelPartitionTimestamps.entrySet()) {
+                long partId = entry.getKey();
+                org.apache.doris.catalog.Partition p = null;
+                for (OlapScanNode ttNode : timeTravelScanNodes) {
+                    p = ttNode.getOlapTable().getPartition(partId);
+                    if (p != null) {
+                        break;
+                    }
+                }
+                if (p == null) {
+                    throw new UserException("time travel: partition " + partId + " not found");
+                }
+                ttPartitions.add((CloudPartition) p);
+            }
+
+            // Build partition_id → tablet_ids once so the meta service can fetch manifests
+            // alongside version resolution in the same RPC.
+            java.util.Map<Long, List<Long>> partitionToTablets = new java.util.HashMap<>();
+            for (OlapScanNode node : timeTravelScanNodes) {
+                for (long partId : node.getSelectedPartitionIds()) {
+                    org.apache.doris.catalog.Partition part =
+                            node.getOlapTable().getPartition(partId);
+                    if (part == null) {
+                        continue;
+                    }
+                    org.apache.doris.catalog.MaterializedIndex idx =
+                            node.getOlapTable().getPartitionIndex(part, node.getSelectedIndexId());
+                    if (idx == null) {
+                        continue;
+                    }
+                    List<Long> tids = partitionToTablets.computeIfAbsent(partId,
+                            k -> new java.util.ArrayList<>());
+                    for (org.apache.doris.catalog.Tablet t : idx.getTablets()) {
+                        tids.add(t.getId());
+                    }
+                }
+            }
+
+            java.util.function.Function<org.apache.doris.cloud.catalog.CloudPartition, List<Long>>
+                    tabletIdsProvider = partition ->
+                        partitionToTablets.getOrDefault(partition.getId(),
+                                java.util.Collections.emptyList());
+
+            org.apache.doris.cloud.catalog.CloudPartition.VersionAtTimeResult versionResult;
+            try {
+                versionResult = org.apache.doris.cloud.catalog.CloudPartition
+                        .getVersionsAtTime(ttPartitions, timestampMs, retentionDays,
+                                tabletIdsProvider);
+            } catch (RpcException e) {
+                throw new UserException("time travel: get version at time failed", e);
+            }
+
+            // Build partition_id → version map.
+            Map<Long, Long> ttVersionMap = new LinkedHashMap<>();
+            for (int i = 0; i < ttPartitions.size(); i++) {
+                long v = versionResult.versions.get(i);
+                ttVersionMap.put(ttPartitions.get(i).getId(),
+                        v < 0 ? org.apache.doris.catalog.Partition.PARTITION_INIT_VERSION : v);
+            }
+
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("time travel resolved versions={}, tablet manifests={}",
+                        ttVersionMap, versionResult.tabletManifests.size());
+            }
+            for (OlapScanNode ttNode : timeTravelScanNodes) {
+                ttNode.updateScanRangeVersions(ttVersionMap);
+            }
+
+            // Distribute manifests to each scan node. Include empty-list entries:
+            // an empty manifest signals that compaction covered this tablet but it
+            // had zero rows at the query version; BE must use the time-travel read path.
+            if (!versionResult.tabletManifests.isEmpty()) {
+                for (OlapScanNode ttNode : timeTravelScanNodes) {
+                    java.util.Map<Long, List<byte[]>> nodeManifests = new java.util.HashMap<>();
+                    for (long tid : ttNode.getScanTabletIds()) {
+                        List<byte[]> mlist = versionResult.tabletManifests.get(tid);
+                        if (mlist != null) {
+                            nodeManifests.put(tid, mlist);
+                        }
+                    }
+                    if (!nodeManifests.isEmpty()) {
+                        ttNode.setTtRowsetManifests(nodeManifests);
+                    }
+                }
+            }
+        }
+
+        // -----------------------------------------------------------------------
+        // Normal path: current visible version batch (existing behaviour, unchanged).
+        // -----------------------------------------------------------------------
+        if (normalPartitions.isEmpty()) {
             return;
         }
 
         List<Long> versions;
         try {
-            versions = CloudPartition.getSnapshotVisibleVersion(partitions);
+            versions = org.apache.doris.cloud.catalog.CloudPartition
+                    .getSnapshotVisibleVersion(normalPartitions);
         } catch (RpcException e) {
             throw new UserException("get visible version for OlapScanNode failed", e);
         }
 
-        assert versions.size() == partitions.size() : "the got num versions is not equals to acquired num versions";
+        assert versions.size() == normalPartitions.size()
+                : "the got num versions is not equals to acquired num versions";
         if (versions.stream().anyMatch(x -> x <= 0)) {
             int size = versions.size();
             for (int i = 0; i < size; ++i) {
                 if (versions.get(i) <= 0) {
                     LOG.warn("partition {} getVisibleVersion error, the visibleVersion is {}",
-                            partitions.get(i).getId(), versions.get(i));
-                    throw new UserException("partition " + partitions.get(i).getId()
+                            normalPartitions.get(i).getId(), versions.get(i));
+                    throw new UserException("partition " + normalPartitions.get(i).getId()
                         + " getVisibleVersion error, the visibleVersion is " + versions.get(i));
                 }
             }
         }
 
-        // ATTN: the table ids are ignored here because the both id are allocated from a same id generator.
+        // ATTN: the table ids are ignored here because both ids are allocated from the same id generator.
         Map<Long, Long> visibleVersionMap = IntStream.range(0, versions.size())
                 .boxed()
-                .collect(Collectors.toMap(i -> partitions.get(i).getId(), versions::get));
+                .collect(Collectors.toMap(i -> normalPartitions.get(i).getId(), versions::get));
 
         for (ScanNode node : scanNodes) {
             if (!(node instanceof OlapScanNode)) {
                 continue;
             }
-
             OlapScanNode scanNode = (OlapScanNode) node;
-            scanNode.updateScanRangeVersions(visibleVersionMap);
+            if (!scanNode.hasTimeTravelTimestampMs()) {
+                scanNode.updateScanRangeVersions(visibleVersionMap);
+            }
         }
     }
 

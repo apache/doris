@@ -369,6 +369,16 @@ public class ModifyTablePropertiesOp extends AlterTableOp {
             throw new AnalysisException("You can not modify storage_page_size|storage_dict_page_size property.");
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM)) {
             this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_TIME_TRAVEL)) {
+            String val = properties.get(PropertyAnalyzer.PROPERTIES_ENABLE_TIME_TRAVEL);
+            if (!"false".equalsIgnoreCase(val)) {
+                throw new AnalysisException(
+                        "enable_time_travel can only be set to false via ALTER TABLE "
+                                + "(to disable it); enable it at CREATE TABLE time");
+            }
+            this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_TIME_TRAVEL_RETENTION_DAYS)) {
+            throw new AnalysisException("time_travel_retention_days cannot be modified after table creation");
         } else {
             throw new AnalysisException("Unknown table property: " + properties.keySet());
         }
