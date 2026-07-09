@@ -196,11 +196,41 @@ When the handle carries a window: branch to incremental split enumeration — CO
 ---
 
 ## 4. Proposed dormant-commit decomposition (each independently committable + same-loader unit test)
-- **INC-1 — handle pin spine + `resolveTimeTravel(INCREMENTAL)` + `applySnapshot`** (connector, dormant). Window
-  resolution → LATEST-pinned snapshot carrying begin/end; handle stamped. *Test:* non-empty snapshot with window
-  props; handle carries window + preserves pruning; never empty for a valid window.
+- **✅ INC-1 DONE (`9327261ec52`) — handle pin spine + `resolveTimeTravel(INCREMENTAL)` + `applySnapshot`**
+  (connector, dormant). Window resolution consolidated into ONE connector locus (`resolveIncremental`): begin
+  required (byte-faithful fail-loud), `"earliest"`→`"000"`, end default-to-latest, `"latest"`→latest completed
+  instant tested on the RESOLVED end value (legacy COW form, inherently avoiding the dead-code `MOR:92` bug);
+  empty timeline → `(000, 000]` without the begin-required check; NON-EMPTY property-only pin (snapshotId/schemaId
+  inert — fe-core's INCREMENTAL `loadSnapshot` branch lists LATEST partitions + LATEST schema and reads only the
+  window props). `applySnapshot` stamps `begin/endInstant` (mutually exclusive with the FOR TIME `queryInstant`
+  carrier), preserving `prunedPartitionPaths`. New `HudiTableHandle.begin/endInstant` + `HudiScanPlanProvider.
+  latestCompletedInstantTime(String)` (extracted from `latestCompletedInstant`). `HudiIncrementalTest` +11 (stubbed
+  executor). Adversarial review (4 dims) + hudi-1.0.2 **bytecode** verification: 0 confirmed defects.
+  - **Timeline byte-parity (blocker REFUTED, bytecode-verified):** the single `getCommitsAndCompactionTimeline()`
+    resolves per table type to exactly legacy's per-type timeline — COW → `getActiveTimeline().getCommitAndReplaceTimeline()`
+    = `{commit, replacecommit, clustering}` = legacy COW's `metaClient.getCommitTimeline()` (that metaClient method
+    is NOT commit-only; it delegates to `getCommitAndReplaceTimeline`, so it includes the replacecommit/clustering
+    a COW table produces via INSERT OVERWRITE / clustering); MOR → `getWriteTimeline()` = legacy MOR's
+    `getCommitsAndCompactionTimeline()`. (The review's "COW uses commit-only `getCommitTimeline`" premise conflated
+    the metaClient method with the timeline-level `BaseHoodieTimeline.getCommitTimeline()` — different methods.)
+  - ⚠**Deferred by design (documented, fail-loud, NOT silently dropped) — INC-2/INC-4 must pick up:**
+    1. **`populateMetaFields()` fail-loud → INC-2** (relation-family port): legacy COW/MOR throw
+       `"Incremental queries are not supported when meta fields are disabled"` (`COWIncrementalRelation:81-83` /
+       `MORIncrementalRelation:73-75`) for a non-empty timeline, before the begin check. That guard lives
+       structurally in the relation constructors = INC-2's port. INC-1 (window resolution) does not check it;
+       it will be enforced when INC-2 ports the relations at planScan (same query-planning-time failure, one step
+       later). **INC-2 MUST port this check byte-faithfully; add a meta-fields-disabled fixture to the §5 e2e.**
+    2. **Hollow-commit `USE_TRANSITION_TIME` latestTime (`getCompletionTime()` vs `requestedTime()`) + the
+       FAIL-on-hollow-commit throw → INC-2/INC-3** (relation port): INC-1 uses `requestedTime()` (default FAIL
+       policy). The non-default `hoodie.read.timeline.holes.resolution.policy` variant + `handleHollowCommitIfNeeded`
+       are tied to the relation's file selection.
+    3. **Raw `hoodie.datasource.read.{begin,end}.instanttime` window keys → INC-4:** INC-1 reads the standard
+       `@incr` aliases `beginTime`/`endTime` from `getIncrementalParams()` (= legacy `withScanParams`). Whether the
+       neutral SPI should also accept the raw hoodie keys (legacy `withScanParams:244-248` forwards `hoodie.*`) is
+       an INC-4 decision.
 - **INC-2 — port IncrementalRelation family** (connector, dormant). COW/MOR/Empty + interface; re-home helpers;
-  fix `MOR:92`. *Test:* start/end resolution, commit-range selection, Empty path, throw-on-fullTableScan.
+  fix `MOR:92`; **port the `populateMetaFields()` fail-loud + hollow-commit handling deferred from INC-1 (above).**
+  *Test:* start/end resolution, commit-range selection, Empty path, throw-on-fullTableScan, meta-fields-disabled throw.
 - **INC-3 — incremental `planScan`** (connector, dormant). COW/MOR/RO-as-RT/fallback branch; no hoodie params
   emitted. *Test:* split set + fallback degrades to snapshot path (not throw) + RO-as-RT routes MOR.
 - **INC-4 — neutral synthetic-predicate SPI + fe-core rule + reverse converter + hidden `_hoodie_commit_time`**
