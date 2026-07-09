@@ -150,10 +150,20 @@ Status IcebergTableReader::PositionDeleteRowsCollector::collect(const Block& blo
     if (read_rows == 0) {
         return Status::OK();
     }
-    const auto& file_path_column = assert_cast<const ColumnString&>(
-            *remove_nullable((block.get_by_position(ICEBERG_FILE_PATH_BLOCK_POSITION).column)));
-    const auto& pos_column = assert_cast<const ColumnInt64&>(
-            *remove_nullable(block.get_by_position(ICEBERG_ROW_POS_BLOCK_POSITION).column));
+    const auto& file_path_column_ptr =
+            block.get_by_position(ICEBERG_FILE_PATH_BLOCK_POSITION).column;
+    const auto& pos_column_ptr = block.get_by_position(ICEBERG_ROW_POS_BLOCK_POSITION).column;
+    if (const auto* nullable_column = check_and_get_column<ColumnNullable>(*file_path_column_ptr);
+        nullable_column != nullptr && nullable_column->has_null(0, read_rows)) {
+        return Status::Corruption("Iceberg position delete column file_path contains null values");
+    }
+    if (const auto* nullable_column = check_and_get_column<ColumnNullable>(*pos_column_ptr);
+        nullable_column != nullptr && nullable_column->has_null(0, read_rows)) {
+        return Status::Corruption("Iceberg position delete column pos contains null values");
+    }
+    const auto& file_path_column =
+            assert_cast<const ColumnString&>(*remove_nullable(file_path_column_ptr));
+    const auto& pos_column = assert_cast<const ColumnInt64&>(*remove_nullable(pos_column_ptr));
     for (size_t row = 0; row < read_rows; ++row) {
         const auto file_path = file_path_column.get_data_at(row).to_string();
         if (file_path == _data_file_path) {

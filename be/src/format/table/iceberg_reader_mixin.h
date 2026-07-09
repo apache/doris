@@ -247,8 +247,9 @@ protected:
     PositionDeleteRange _get_range(const ColumnString& file_path_column);
     static void _sort_delete_rows(const std::vector<std::vector<int64_t>*>& delete_rows_array,
                                   int64_t num_delete_rows, std::vector<int64_t>& result);
-    void _gen_position_delete_file_range(Block& block, DeleteFile* position_delete,
-                                         size_t read_rows, bool file_path_column_dictionary_coded);
+    Status _gen_position_delete_file_range(Block& block, DeleteFile* position_delete,
+                                           size_t read_rows,
+                                           bool file_path_column_dictionary_coded);
     void _generate_equality_delete_block(Block* block,
                                          const std::vector<std::string>& equality_delete_col_names,
                                          const std::vector<DataTypePtr>& equality_delete_col_types);
@@ -776,7 +777,7 @@ void IcebergReaderMixin<BaseReader>::_sort_delete_rows(
 }
 
 template <typename BaseReader>
-void IcebergReaderMixin<BaseReader>::_gen_position_delete_file_range(
+Status IcebergReaderMixin<BaseReader>::_gen_position_delete_file_range(
         Block& block, DeleteFile* position_delete, size_t read_rows,
         bool file_path_column_dictionary_coded) {
     SCOPED_TIMER(_iceberg_profile.parse_delete_file_time);
@@ -784,6 +785,21 @@ void IcebergReaderMixin<BaseReader>::_gen_position_delete_file_range(
     ColumnPtr path_column = block.get_by_position(name_to_pos_map[ICEBERG_FILE_PATH]).column;
     DCHECK_EQ(path_column->size(), read_rows);
     ColumnPtr pos_column = block.get_by_position(name_to_pos_map[ICEBERG_ROW_POS]).column;
+    if (const auto* nullable_col = check_and_get_column<ColumnNullable>(*path_column);
+        nullable_col != nullptr) {
+        if (nullable_col->has_null(0, read_rows)) {
+            return Status::Corruption(
+                    "Iceberg position delete column file_path contains null values");
+        }
+        path_column = remove_nullable(path_column);
+    }
+    if (const auto* nullable_col = check_and_get_column<ColumnNullable>(*pos_column);
+        nullable_col != nullptr) {
+        if (nullable_col->has_null(0, read_rows)) {
+            return Status::Corruption("Iceberg position delete column pos contains null values");
+        }
+        pos_column = remove_nullable(pos_column);
+    }
     using ColumnType = typename PrimitiveTypeTraits<TYPE_BIGINT>::ColumnType;
     const int64_t* src_data = assert_cast<const ColumnType&>(*pos_column).get_data().data();
     PositionDeleteRange range;
@@ -810,6 +826,7 @@ void IcebergReaderMixin<BaseReader>::_gen_position_delete_file_range(
         int64_t* dest_position = &(*delete_rows)[origin_size];
         memcpy(dest_position, cpy_start, cpy_count * sizeof(int64_t));
     }
+    return Status::OK();
 }
 
 template <typename BaseReader>
