@@ -31,7 +31,11 @@ import org.apache.doris.connector.api.ConnectorViewDefinition;
 import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.handle.WriteOperation;
+import org.apache.doris.connector.api.mvcc.ConnectorMvccSnapshot;
+import org.apache.doris.connector.api.pushdown.ConnectorColumnRef;
+import org.apache.doris.connector.api.pushdown.ConnectorExpression;
 import org.apache.doris.connector.api.write.ConnectorWritePlanProvider;
+import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
@@ -178,6 +182,63 @@ public class PluginDrivenExternalTableTest {
                 "an unresolvable write-target handle must fail loud, not return null");
         Assertions.assertTrue(e.getMessage().startsWith("Cannot resolve the connector table handle for write target"),
                 "the fail-loud message must name the unresolved write target");
+    }
+
+    // ============= HD-C3 INC-4: synthetic scan predicate (connector residual predicate) plumbing =============
+
+    // A CALLS_REAL_METHODS table whose connector resolves the handle to `resolved` (null => empty) and returns
+    // `predicates` from getSyntheticScanPredicates.
+    private static PluginDrivenExternalTable syntheticPredicateTable(ConnectorTableHandle resolved,
+            List<ConnectorExpression> predicates) {
+        ConnectorMetadata metadata = Mockito.mock(ConnectorMetadata.class);
+        Mockito.when(metadata.getTableHandle(Mockito.any(), Mockito.any(), Mockito.any()))
+                .thenReturn(Optional.ofNullable(resolved));
+        Mockito.when(metadata.getSyntheticScanPredicates(Mockito.any(), Mockito.any(), Mockito.any()))
+                .thenReturn(predicates);
+        Connector connector = Mockito.mock(Connector.class);
+        Mockito.when(connector.getMetadata(Mockito.any())).thenReturn(metadata);
+        PluginDrivenExternalCatalog catalog = Mockito.mock(PluginDrivenExternalCatalog.class);
+        Mockito.when(catalog.getConnector()).thenReturn(connector);
+        Mockito.when(catalog.buildConnectorSession()).thenReturn(Mockito.mock(ConnectorSession.class));
+        PluginDrivenExternalTable table = Mockito.mock(PluginDrivenExternalTable.class, Mockito.CALLS_REAL_METHODS);
+        Deencapsulation.setField(table, "catalog", catalog);
+        return table;
+    }
+
+    private static PluginDrivenMvccSnapshot pluginSnapshot() {
+        return new PluginDrivenMvccSnapshot(ConnectorMvccSnapshot.builder().build(),
+                Collections.emptyMap(), Collections.emptyMap());
+    }
+
+    @Test
+    public void getSyntheticScanPredicatesDelegatesToTheConnectorForAPluginSnapshot() {
+        // The analysis rule retrieves the resolved snapshot and asks the connector for its residual predicate
+        // (the hudi @incr _hoodie_commit_time window); the table threads it verbatim from the SPI.
+        List<ConnectorExpression> sentinel = Collections.singletonList(
+                new ConnectorColumnRef("_hoodie_commit_time", ConnectorType.of("STRING")));
+        PluginDrivenExternalTable table =
+                syntheticPredicateTable(Mockito.mock(ConnectorTableHandle.class), sentinel);
+        Assertions.assertSame(sentinel, table.getSyntheticScanPredicates(pluginSnapshot()),
+                "the residual predicate must be threaded verbatim from the connector SPI");
+    }
+
+    @Test
+    public void getSyntheticScanPredicatesEmptyForNonPluginSnapshot() {
+        // A non-plugin MvccSnapshot carries no ConnectorMvccSnapshot to hand the SPI -> empty (and the guard
+        // avoids a ClassCastException). The rule then adds no filter.
+        MvccSnapshot foreign = Mockito.mock(MvccSnapshot.class);
+        Assertions.assertTrue(syntheticPredicateTable(Mockito.mock(ConnectorTableHandle.class),
+                        Collections.emptyList()).getSyntheticScanPredicates(foreign).isEmpty(),
+                "a non-plugin snapshot must yield no synthetic predicates");
+    }
+
+    @Test
+    public void getSyntheticScanPredicatesEmptyWhenHandleUnresolvable() {
+        // An unresolvable handle (concurrent DROP / transient metadata error) degrades to empty rather than
+        // handing the gateway a null handle -> the rule simply adds no filter.
+        Assertions.assertTrue(syntheticPredicateTable(null, Collections.emptyList())
+                        .getSyntheticScanPredicates(pluginSnapshot()).isEmpty(),
+                "an unresolvable handle must degrade to no synthetic predicates");
     }
 
     /**

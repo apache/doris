@@ -37,6 +37,8 @@ import org.apache.doris.connector.api.ConnectorViewDefinition;
 import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.handle.WriteOperation;
+import org.apache.doris.connector.api.mvcc.ConnectorMvccSnapshot;
+import org.apache.doris.connector.api.pushdown.ConnectorExpression;
 import org.apache.doris.connector.api.write.ConnectorWritePlanProvider;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.systable.PluginDrivenSysTable;
@@ -121,6 +123,35 @@ public class PluginDrivenExternalTable extends ExternalTable {
         return resolveConnectorTableHandle(session, pluginCatalog.getConnector().getMetadata(session))
                 .orElseThrow(() -> new DorisConnectorException(
                         "Cannot resolve the connector table handle for write target " + getName()));
+    }
+
+    /**
+     * Returns the connector's synthetic scan predicates for this table at the given resolved MVCC
+     * {@code snapshot} — a connector "residual predicate" the read cannot enforce by file selection alone
+     * (e.g. a hudi incremental {@code _hoodie_commit_time} commit-time window), expressed in the neutral
+     * {@link ConnectorExpression} grammar. The analysis-time synthetic-predicate rule reverse-converts these
+     * into a {@code LogicalFilter} over this table's scan.
+     *
+     * <p>The {@code snapshot} is the one {@link org.apache.doris.datasource.mvcc.MvccTable#loadSnapshot}
+     * resolved at analysis time (retrieved from {@code StatementContext}), so the row-filter window is the
+     * SAME single resolution the scan-time {@code applySnapshot} threads onto the handle — file selection and
+     * the row filter can never diverge. Returns empty when the snapshot is not a plugin MVCC snapshot, the
+     * handle cannot be resolved, or the connector has no residual predicate (iceberg/paimon/... and every
+     * non-incremental read inherit the empty SPI default) — so the plan stays byte-identical.</p>
+     */
+    public List<ConnectorExpression> getSyntheticScanPredicates(MvccSnapshot snapshot) {
+        if (!(snapshot instanceof PluginDrivenMvccSnapshot) || !(catalog instanceof PluginDrivenExternalCatalog)) {
+            return Collections.emptyList();
+        }
+        ConnectorMvccSnapshot connectorSnapshot = ((PluginDrivenMvccSnapshot) snapshot).getConnectorSnapshot();
+        PluginDrivenExternalCatalog pluginCatalog = (PluginDrivenExternalCatalog) catalog;
+        ConnectorSession session = pluginCatalog.buildConnectorSession();
+        ConnectorMetadata metadata = pluginCatalog.getConnector().getMetadata(session);
+        Optional<ConnectorTableHandle> handleOpt = resolveConnectorTableHandle(session, metadata);
+        if (!handleOpt.isPresent()) {
+            return Collections.emptyList();
+        }
+        return metadata.getSyntheticScanPredicates(session, handleOpt.get(), connectorSnapshot);
     }
 
     /**
