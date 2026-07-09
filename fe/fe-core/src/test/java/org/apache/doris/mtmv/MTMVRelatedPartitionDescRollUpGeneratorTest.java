@@ -22,9 +22,13 @@ import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.PartitionKey;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -115,5 +119,73 @@ public class MTMVRelatedPartitionDescRollUpGeneratorTest {
             partitionValues.add(partitionValue);
         }
         return PartitionKeyDesc.createIn(partitionValues);
+    }
+
+    @Test
+    public void testRollUpRangeTimestampTz() throws AnalysisException {
+        FunctionCallExpr expr = new FunctionCallExpr("date_trunc",
+                Lists.newArrayList(new SlotRef(null, null), new StringLiteral("day")), true);
+        ConnectContext context = new ConnectContext();
+        context.getSessionVariable().setTimeZone("America/New_York");
+        context.setThreadLocalInfo();
+        try (MockedStatic<MTMVPartitionUtil> mtmvPartitionUtilStatic = Mockito.mockStatic(MTMVPartitionUtil.class)) {
+            mtmvPartitionUtilStatic.when(() -> MTMVPartitionUtil.getPartitionColumnType(
+                    Mockito.nullable(MTMVRelatedTableIf.class), Mockito.nullable(String.class)))
+                    .thenReturn(ScalarType.createTimeStampTzType(6));
+            Mockito.when(mtmvPartitionInfo.getRelatedTable()).thenReturn(null);
+            Mockito.when(mtmvPartitionInfo.getExpr()).thenReturn(expr);
+            Mockito.when(mtmvPartitionInfo.getPartitionType()).thenReturn(MTMVPartitionType.EXPR);
+
+            MTMVRelatedPartitionDescRollUpGenerator generator = new MTMVRelatedPartitionDescRollUpGenerator();
+            Map<PartitionKeyDesc, Set<String>> relatedPartitionDescs = Maps.newHashMap();
+
+            // Two adjacent partitions within the same UTC day.
+            // With session tz America/New_York (UTC-5), DateTimeV2Literal would
+            // convert +00:00 to NY local time, shifting the date-trunc result to
+            // the previous day. TimestampTzLiteral preserves UTC so date_trunc
+            // correctly keeps both partitions in the same day.
+            PartitionKeyDesc desc1 = PartitionKeyDesc.createFixed(
+                    Lists.newArrayList(new PartitionValue("2024-01-15 02:00:00.000000+00:00")),
+                    Lists.newArrayList(new PartitionValue("2024-01-15 12:00:00.000000+00:00")));
+            PartitionKeyDesc desc2 = PartitionKeyDesc.createFixed(
+                    Lists.newArrayList(new PartitionValue("2024-01-15 12:00:00.000000+00:00")),
+                    Lists.newArrayList(new PartitionValue("2024-01-15 22:00:00.000000+00:00")));
+            relatedPartitionDescs.put(desc1, Sets.newHashSet("name1"));
+            relatedPartitionDescs.put(desc2, Sets.newHashSet("name2"));
+
+            Map<PartitionKeyDesc, Set<String>> res = generator.rollUpRange(relatedPartitionDescs,
+                    mtmvPartitionInfo, null);
+
+            // Both partitions should roll up to the same UTC day range.
+            // The +00:00 suffix ensures TimestampTzLiteral.fromSessionTimeZone
+            // treats the bounds as explicit UTC rather than session-local time.
+            PartitionKeyDesc expectDesc = PartitionKeyDesc.createFixed(
+                    Lists.newArrayList(new PartitionValue("2024-01-15 00:00:00+00:00")),
+                    Lists.newArrayList(new PartitionValue("2024-01-16 00:00:00+00:00")));
+            Assert.assertEquals(1, res.size());
+            Assert.assertEquals(Sets.newHashSet("name1", "name2"), res.get(expectDesc));
+
+            // Verify that the rolled-up PartitionKeyDesc produces correct UTC partition keys
+            // regardless of session timezone (America/New_York = UTC-5).
+            // Without the +00:00 suffix, TimestampTzLiteral.fromSessionTimeZone would
+            // interpret "2024-01-15 00:00:00" as session-local, shifting the UTC bound
+            // to 2024-01-15 05:00:00+00:00.
+            List<Column> partitionColumns = Lists.newArrayList(
+                    new Column("k1", ScalarType.createTimeStampTzType(6)));
+            PartitionKey lowKey = PartitionKey.createPartitionKey(
+                    expectDesc.getLowerValues(), partitionColumns);
+            PartitionKey upperKey = PartitionKey.createPartitionKey(
+                    expectDesc.getUpperValues(), partitionColumns);
+
+            // Both should be stored as midnight UTC, not shifted to session-local time.
+            String lowKeyStr = lowKey.getKeys().get(0).getStringValue();
+            String upperKeyStr = upperKey.getKeys().get(0).getStringValue();
+            Assert.assertTrue("Lower bound should be 2024-01-15 midnight UTC, but was: " + lowKeyStr,
+                    lowKeyStr.startsWith("2024-01-15 00:00:00"));
+            Assert.assertTrue("Upper bound should be 2024-01-16 midnight UTC, but was: " + upperKeyStr,
+                    upperKeyStr.startsWith("2024-01-16 00:00:00"));
+        } finally {
+            ConnectContext.remove();
+        }
     }
 }

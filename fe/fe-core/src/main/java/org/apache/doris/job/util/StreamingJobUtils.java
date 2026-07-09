@@ -284,6 +284,7 @@ public class StreamingJobUtils {
                     .getBackendsByClusterName(cloudCluster)
                     .stream()
                     .filter(Backend::isLoadAvailable)
+                    .filter(backend -> !backend.isDecommissioned() && !backend.isDecommissioning())
                     .collect(Collectors.toList());
             if (bes.isEmpty()) {
                 throw new JobException(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG

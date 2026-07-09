@@ -68,7 +68,6 @@
 #include "exprs/aggregate/aggregate_function.h"
 #include "exprs/json_functions.h"
 #include "storage/olap_common.h"
-#include "util/defer_op.h"
 #include "util/json/path_in_data.h"
 #include "util/jsonb_document.h"
 #include "util/jsonb_document_cast.h"
@@ -826,15 +825,14 @@ size_t ColumnVariant::allocated_bytes() const {
     return res;
 }
 
-void ColumnVariant::for_each_subcolumn(MutableColumnCallback callback) {
+void ColumnVariant::mutate_subcolumns() {
     for (auto& entry : subcolumns) {
         for (auto& part : entry->data.data) {
-            callback(part);
+            mutate_subcolumn(part);
         }
     }
-    callback(serialized_sparse_column);
-    callback(serialized_doc_value_column);
-    // callback may be filter, so the row count may be changed
+    mutate_subcolumn(serialized_sparse_column);
+    mutate_subcolumn(serialized_doc_value_column);
     num_rows = serialized_sparse_column->size();
     ENABLE_CHECK_CONSISTENCY(this);
 }
@@ -2385,7 +2383,7 @@ size_t ColumnVariant::filter(const Filter& filter) {
         for (auto& subcolumn : subcolumns) {
             subcolumn->data.num_rows = count;
         }
-        MutableColumnCallback callback = [&](IColumn::WrappedPtr& part) {
+        auto filter_part = [&](IColumn::WrappedPtr& part) {
             if (part->size() != count) {
                 if (part->is_exclusive()) {
                     const auto result_size = part->filter(filter);
@@ -2401,7 +2399,13 @@ size_t ColumnVariant::filter(const Filter& filter) {
                 }
             }
         };
-        for_each_subcolumn(callback);
+        for (auto& entry : subcolumns) {
+            for (auto& part : entry->data.data) {
+                filter_part(part);
+            }
+        }
+        filter_part(serialized_sparse_column);
+        filter_part(serialized_doc_value_column);
     }
     num_rows = count;
     ENABLE_CHECK_CONSISTENCY(this);

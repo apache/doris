@@ -23,6 +23,7 @@
 
 #include "core/arena.h"
 #include "storage/tablet/tablet_schema.h"
+#include "storage/utils.h"
 #include "util/slice.h"
 
 namespace doris {
@@ -56,6 +57,19 @@ TabletColumnPtr create_int_value(int32_t id, FieldAggregationMethod agg_method, 
         column->_default_value = default_value;
     }
     column->_is_bf_column = is_bf_column;
+    return column;
+}
+
+TabletColumnPtr create_commit_tso_column(int32_t id) {
+    auto column = std::make_shared<TabletColumn>();
+    column->set_unique_id(id);
+    column->set_name(COMMIT_TSO_COL);
+    column->set_type(FieldType::OLAP_FIELD_TYPE_BIGINT);
+    column->set_is_key(false);
+    column->set_is_nullable(false);
+    column->set_length(8);
+    column->set_index_length(8);
+    column->set_aggregation_method(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE);
     return column;
 }
 

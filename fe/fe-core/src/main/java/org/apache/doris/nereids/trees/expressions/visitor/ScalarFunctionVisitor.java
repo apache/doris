@@ -173,6 +173,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentTime;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentUser;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CutIpv6;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CutToFirstSignificantSubdomain;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.DamerauLevenshteinDistance;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Database;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Date;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateDiff;
@@ -1267,6 +1268,11 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitDaysSub(DaysSub daysSub, C context) {
         return visitScalarFunction(daysSub, context);
+    }
+
+    default R visitDamerauLevenshteinDistance(DamerauLevenshteinDistance damerauLevenshteinDistance,
+            C context) {
+        return visitScalarFunction(damerauLevenshteinDistance, context);
     }
 
     default R visitDictGet(DictGet dictGet, C context) {

@@ -1466,8 +1466,7 @@ public class Env {
                 getClusterIdFromStorage(storage);
                 token = storage.getToken();
                 try {
-                    String url = "http://" + NetUtils
-                            .getHostPortInAccessibleFormat(rightHelperNode.getHost(), Config.http_port) + "/check";
+                    String url = HttpURLUtil.buildInternalFeUrl(rightHelperNode.getHost(), "/check", null);
                     HttpURLConnection conn = HttpURLUtil.getConnectionWithNodeIdent(url);
                     conn.setConnectTimeout(2 * 1000);
                     conn.setReadTimeout(2 * 1000);
@@ -1563,9 +1562,8 @@ public class Env {
             try {
                 // For upgrade compatibility, the host parameter name remains the same
                 // and the new hostname parameter is added
-                String url = "http://" + NetUtils.getHostPortInAccessibleFormat(helperNode.getHost(), Config.http_port)
-                        + "/role?host=" + selfNode.getHost()
-                        + "&port=" + selfNode.getPort();
+                String queryParams = "host=" + selfNode.getHost() + "&port=" + selfNode.getPort();
+                String url = HttpURLUtil.buildInternalFeUrl(helperNode.getHost(), "/role", queryParams);
                 HttpURLConnection conn = HttpURLUtil.getConnectionWithNodeIdent(url);
                 if (conn.getResponseCode() != 200) {
                     LOG.warn("failed to get fe node type from helper node: {}. response code: {}", helperNode,
@@ -1599,7 +1597,8 @@ public class Env {
             }
 
             LOG.info("get fe node type {}, name {} from {}:{}:{}", role, nodeName,
-                    helperNode.getHost(), helperNode.getHost(), Config.http_port);
+                    helperNode.getHost(), helperNode.getPort(),
+                    HttpURLUtil.getHttpPort());
             rightHelperNode = helperNode;
             break;
         }
@@ -1828,7 +1827,7 @@ public class Env {
 
             toMasterProgress = "log master info";
             this.masterInfo = new MasterInfo(Env.getCurrentEnv().getSelfNode().getHost(),
-                    Config.http_port,
+                    HttpURLUtil.getHttpPort(),
                     Config.rpc_port);
             editLog.logMasterInfo(masterInfo);
             LOG.info("logMasterInfo:{}", masterInfo);
@@ -2286,8 +2285,7 @@ public class Env {
 
     protected boolean getVersionFileFromHelper(HostInfo helperNode) throws IOException {
         try {
-            String url = "http://" + NetUtils.getHostPortInAccessibleFormat(helperNode.getHost(), Config.http_port)
-                    + "/version";
+            String url = HttpURLUtil.buildInternalFeUrl(helperNode.getHost(), "/version", null);
             File dir = new File(this.imageDir);
             MetaHelper.getRemoteFile(url, HTTP_TIMEOUT_SECOND * 1000,
                     MetaHelper.getFile(Storage.VERSION_FILE, dir));
@@ -2306,8 +2304,7 @@ public class Env {
         localImageVersion = storage.getLatestImageSeq();
 
         try {
-            String hostPort = NetUtils.getHostPortInAccessibleFormat(helperNode.getHost(), Config.http_port);
-            String infoUrl = "http://" + hostPort + "/info";
+            String infoUrl = HttpURLUtil.buildInternalFeUrl(helperNode.getHost(), "/info", null);
             ResponseBody<StorageInfo> responseBody = MetaHelper
                     .doGet(infoUrl, HTTP_TIMEOUT_SECOND * 1000, StorageInfo.class);
             if (responseBody.getCode() != RestApiStatusCode.OK.code) {
@@ -2317,7 +2314,7 @@ public class Env {
             StorageInfo info = responseBody.getData();
             long version = info.getImageSeq();
             if (version > localImageVersion) {
-                String url = "http://" + hostPort + "/image?version=" + version;
+                String url = HttpURLUtil.buildInternalFeUrl(helperNode.getHost(), "/image", "version=" + version);
                 String filename = Storage.IMAGE + "." + version;
                 File dir = new File(this.imageDir);
                 MetaHelper.getRemoteFile(url, Config.sync_image_timeout_second * 1000,

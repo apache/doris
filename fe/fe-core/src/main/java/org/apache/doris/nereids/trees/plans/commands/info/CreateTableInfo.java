@@ -24,6 +24,7 @@ import org.apache.doris.analysis.KeysDesc;
 import org.apache.doris.analysis.PartitionDesc;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.AggregateType;
+import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Index;
@@ -49,6 +50,7 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
+import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
 import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -379,6 +381,9 @@ public class CreateTableInfo {
                 throw new AnalysisException("Cannot create olap table out of internal catalog."
                     + " Make sure 'engine' type is specified when use the catalog: " + ctlName);
             }
+        }
+        if (Strings.isNullOrEmpty(ctlName)) {
+            return;
         }
         CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(ctlName);
         if (catalog instanceof HMSExternalCatalog && !engineName.equals(ENGINE_HIVE)) {
@@ -791,6 +796,10 @@ public class CreateTableInfo {
                         + "and you can use 'bucket(num, column)' in 'PARTITIONED BY'.");
             }
 
+            if (engineName.equalsIgnoreCase(ENGINE_ICEBERG)) {
+                validateIcebergRowLineageColumns();
+            }
+
             // Validate Iceberg sort order columns
             if (sortOrderFields != null && !sortOrderFields.isEmpty()) {
                 if (!engineName.equalsIgnoreCase(ENGINE_ICEBERG)) {
@@ -1103,6 +1112,34 @@ public class CreateTableInfo {
                 }
             }
         }
+    }
+
+    /**
+     * Validate that Iceberg v3 tables do not define row lineage reserved columns.
+     */
+    public void validateIcebergRowLineageColumns(int formatVersion) {
+        if (formatVersion < IcebergUtils.ICEBERG_ROW_LINEAGE_MIN_VERSION) {
+            return;
+        }
+        for (ColumnDefinition columnDef : columns) {
+            if (IcebergUtils.isIcebergRowLineageColumn(columnDef.getName())) {
+                throw new AnalysisException("Cannot create Iceberg v" + formatVersion
+                        + " table with reserved row lineage column: " + columnDef.getName());
+            }
+        }
+    }
+
+    private void validateIcebergRowLineageColumns() {
+        validateIcebergRowLineageColumns(getEffectiveIcebergFormatVersion());
+    }
+
+    private int getEffectiveIcebergFormatVersion() {
+        CatalogIf catalog = Strings.isNullOrEmpty(ctlName) ? null
+                : Env.getCurrentEnv().getCatalogMgr().getCatalog(ctlName);
+        if (catalog instanceof IcebergExternalCatalog) {
+            return IcebergUtils.getEffectiveIcebergFormatVersion(properties, catalog.getProperties());
+        }
+        return IcebergUtils.getEffectiveIcebergFormatVersion(properties, Collections.emptyMap());
     }
 
     /**
@@ -1708,6 +1745,20 @@ public class CreateTableInfo {
             String sortCol = sortField.getColumnName();
             if (!sortColSet.add(sortCol)) {
                 throw new AnalysisException("Duplicate sort order column: " + sortCol);
+            }
+        }
+    }
+
+    /**
+     * check if add Commit TSO Column
+     */
+    public void createCommitTSOColumnIfNecessary(BinlogConfig binlogConfig) {
+        // __DORIS_COMMIT_TSO_COL__ injection for time-travel:
+        // only on dup / mow tables with row binlog enabled (binlog.enable=true && binlog.format=ROW).
+        if (keysType.equals(KeysType.DUP_KEYS)
+                || (keysType.equals(KeysType.UNIQUE_KEYS) && isEnableMergeOnWrite)) {
+            if (binlogConfig.isRowFormat()) {
+                columns.add(ColumnDefinition.newCommitTsoColumnDefinition(AggregateType.NONE));
             }
         }
     }

@@ -31,6 +31,7 @@
 #include "core/block/column_numbers.h"
 #include "core/block/column_with_type_and_name.h"
 #include "core/column/column.h"
+#include "core/column/column_array_view.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type.h"
@@ -57,28 +58,28 @@ template <typename T>
 class ColumnStr;
 using ColumnString = ColumnStr<UInt32>;
 
-template <typename T>
+template <PrimitiveType PType>
 struct OverlapSetImpl {
-    using ElementNativeType = typename NativeType<typename T::value_type>::Type;
+    using ArrayView = ArrayDataView<PType>;
+    using ElementNativeType =
+            typename NativeType<typename PrimitiveTypeTraits<PType>::ColumnType::value_type>::Type;
     using Set = phmap::flat_hash_set<ElementNativeType, DefaultHash<ElementNativeType>>;
     Set set;
     bool has_null = false;
 
-    void insert_array(const IColumn* column, const UInt8* nullmap, size_t start, size_t size) {
-        const auto& vec = assert_cast<const T&>(*column).get_data();
-        for (size_t i = start; i < start + size; ++i) {
-            if (nullmap[i]) {
+    void insert_array(const ArrayView& array) {
+        for (size_t i = 0; i < array.size(); ++i) {
+            if (array.is_null_at(i)) {
                 has_null = true;
                 continue;
             }
-            set.insert(vec[i]);
+            set.insert(array.value_at(i));
         }
     }
 
-    bool find_any(const IColumn* column, const UInt8* nullmap, size_t start, size_t size) {
-        const auto& vec = assert_cast<const T&>(*column).get_data();
-        for (size_t i = start; i < start + size; ++i) {
-            if (nullmap[i]) {
+    bool find_any(const ArrayView& array) {
+        for (size_t i = 0; i < array.size(); ++i) {
+            if (array.is_null_at(i)) {
                 if (has_null) {
                     return true;
                 } else {
@@ -86,7 +87,7 @@ struct OverlapSetImpl {
                 }
             }
 
-            if (set.contains(vec[i])) {
+            if (set.contains(array.value_at(i))) {
                 return true;
             }
         }
@@ -95,27 +96,26 @@ struct OverlapSetImpl {
 };
 
 template <>
-struct OverlapSetImpl<ColumnDecimal128V2> {
+struct OverlapSetImpl<TYPE_DECIMALV2> {
+    using ArrayView = ArrayDataView<TYPE_DECIMALV2>;
     using ElementNativeType = Int128;
     using Set = phmap::flat_hash_set<ElementNativeType, DefaultHash<ElementNativeType>>;
     Set set;
     bool has_null = false;
 
-    void insert_array(const IColumn* column, const UInt8* nullmap, size_t start, size_t size) {
-        const auto& vec = assert_cast<const ColumnDecimal128V2&>(*column).get_data();
-        for (size_t i = start; i < start + size; ++i) {
-            if (nullmap[i]) {
+    void insert_array(const ArrayView& array) {
+        for (size_t i = 0; i < array.size(); ++i) {
+            if (array.is_null_at(i)) {
                 has_null = true;
                 continue;
             }
-            set.insert(vec[i].value());
+            set.insert(array.value_at(i).value());
         }
     }
 
-    bool find_any(const IColumn* column, const UInt8* nullmap, size_t start, size_t size) {
-        const auto& vec = assert_cast<const ColumnDecimal128V2&>(*column).get_data();
-        for (size_t i = start; i < start + size; ++i) {
-            if (nullmap[i]) {
+    bool find_any(const ArrayView& array) {
+        for (size_t i = 0; i < array.size(); ++i) {
+            if (array.is_null_at(i)) {
                 if (has_null) {
                     return true;
                 } else {
@@ -123,7 +123,7 @@ struct OverlapSetImpl<ColumnDecimal128V2> {
                 }
             }
 
-            if (set.contains(vec[i].value())) {
+            if (set.contains(array.value_at(i).value())) {
                 return true;
             }
         }
@@ -132,24 +132,25 @@ struct OverlapSetImpl<ColumnDecimal128V2> {
 };
 
 template <>
-struct OverlapSetImpl<ColumnString> {
+struct OverlapSetImpl<TYPE_STRING> {
+    using ArrayView = ArrayDataView<TYPE_STRING>;
     using Set = phmap::flat_hash_set<StringRef, DefaultHash<StringRef>>;
     Set set;
     bool has_null = false;
 
-    void insert_array(const IColumn* column, const UInt8* nullmap, size_t start, size_t size) {
-        for (size_t i = start; i < start + size; ++i) {
-            if (nullmap[i]) {
+    void insert_array(const ArrayView& array) {
+        for (size_t i = 0; i < array.size(); ++i) {
+            if (array.is_null_at(i)) {
                 has_null = true;
                 continue;
             }
-            set.insert(column->get_data_at(i));
+            set.insert(array.value_at(i));
         }
     }
 
-    bool find_any(const IColumn* column, const UInt8* nullmap, size_t start, size_t size) {
-        for (size_t i = start; i < start + size; ++i) {
-            if (nullmap[i]) {
+    bool find_any(const ArrayView& array) {
+        for (size_t i = 0; i < array.size(); ++i) {
+            if (array.is_null_at(i)) {
                 if (has_null) {
                     return true;
                 } else {
@@ -157,7 +158,7 @@ struct OverlapSetImpl<ColumnString> {
                 }
             }
 
-            if (set.contains(column->get_data_at(i))) {
+            if (set.contains(array.value_at(i))) {
                 return true;
             }
         }
@@ -279,30 +280,14 @@ public:
                     "with rows: {}",
                     get_name(), req_id, input_rows_count);
         });
-        auto left_column =
-                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
-        auto right_column =
-                block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
-        ColumnArrayExecutionData left_exec_data;
-        ColumnArrayExecutionData right_exec_data;
-
         Status ret = Status::InvalidArgument(
                 "execute failed, unsupported types for function {}({}, {})", get_name(),
                 block.get_by_position(arguments[0]).type->get_name(),
                 block.get_by_position(arguments[1]).type->get_name());
-
-        // extract array column
-        if (!extract_column_array_info(*left_column, left_exec_data) ||
-            !extract_column_array_info(*right_column, right_exec_data)) {
-            return ret;
-        }
         // prepare return column
         auto dst_nested_col = ColumnUInt8::create(input_rows_count, 0);
         auto dst_null_map = ColumnUInt8::create(input_rows_count, 0);
         UInt8* dst_null_map_data = dst_null_map->get_data().data();
-
-        RETURN_IF_ERROR(_execute_nullable(left_exec_data, dst_null_map_data));
-        RETURN_IF_ERROR(_execute_nullable(right_exec_data, dst_null_map_data));
 
         // execute overlap check
         auto array_type = remove_nullable(block.get_by_position(arguments[0]).type);
@@ -311,12 +296,15 @@ public:
 
         auto call = [&](const auto& type) -> bool {
             using DispatchType = std::decay_t<decltype(type)>;
-            ret = _execute_internal<typename DispatchType::ColumnType>(
-                    left_exec_data, right_exec_data, dst_null_map_data,
-                    dst_nested_col->get_data().data());
+            constexpr PrimitiveType PType = DispatchType::PType;
+            auto left_view =
+                    ColumnArrayView<PType>::create(block.get_by_position(arguments[0]).column);
+            auto right_view =
+                    ColumnArrayView<PType>::create(block.get_by_position(arguments[1]).column);
+            ret = _execute_internal<PType>(left_view, right_view, dst_null_map_data,
+                                           dst_nested_col->get_data().data());
             return true;
         };
-
         if (!dispatch_switch_all(left_element_type->get_primitive_type(), call)) {
             ret = Status::InvalidArgument("execute failed, not support type {} in function {}",
                                           left_element_type->get_name(), get_name());
@@ -331,13 +319,14 @@ public:
     }
 
 private:
-    static Status _execute_nullable(const ColumnArrayExecutionData& data, UInt8* dst_nullmap_data) {
-        for (ssize_t row = 0; row < data.offsets_ptr->size(); ++row) {
+    template <PrimitiveType PType>
+    static Status _execute_nullable(const ColumnArrayView<PType>& data, UInt8* dst_nullmap_data) {
+        for (ssize_t row = 0; row < data.size(); ++row) {
             if (dst_nullmap_data[row]) {
                 continue;
             }
 
-            if (data.array_nullmap_data && data.array_nullmap_data[row]) {
+            if (data.is_null_at(row)) {
                 dst_nullmap_data[row] = 1;
                 continue;
             }
@@ -345,44 +334,34 @@ private:
         return Status::OK();
     }
 
-    template <typename T>
-    Status _execute_internal(const ColumnArrayExecutionData& left_data,
-                             const ColumnArrayExecutionData& right_data, UInt8* dst_nullmap_data,
+    template <PrimitiveType PType>
+    Status _execute_internal(const ColumnArrayView<PType>& left_data,
+                             const ColumnArrayView<PType>& right_data, UInt8* dst_nullmap_data,
                              UInt8* dst_data) const {
-        using ExecutorImpl = OverlapSetImpl<T>;
-        for (ssize_t row = 0; row < left_data.offsets_ptr->size(); ++row) {
+        using ExecutorImpl = OverlapSetImpl<PType>;
+        RETURN_IF_ERROR(_execute_nullable(left_data, dst_nullmap_data));
+        RETURN_IF_ERROR(_execute_nullable(right_data, dst_nullmap_data));
+        for (ssize_t row = 0; row < left_data.size(); ++row) {
             // arrays_overlap(null, null) -> null
             if (dst_nullmap_data[row]) {
                 continue;
             }
             dst_nullmap_data[row] = 0;
-            ssize_t left_start = (*left_data.offsets_ptr)[row - 1];
-            ssize_t left_size = (*left_data.offsets_ptr)[row] - left_start;
-            ssize_t right_start = (*right_data.offsets_ptr)[row - 1];
-            ssize_t right_size = (*right_data.offsets_ptr)[row] - right_start;
-            if (left_size == 0 || right_size == 0) {
+            const auto left_array = left_data[row];
+            const auto right_array = right_data[row];
+            if (left_array.size() == 0 || right_array.size() == 0) {
                 dst_data[row] = 0;
                 continue;
             }
 
-            const auto* small_data = &left_data;
-            const auto* large_data = &right_data;
-
-            ssize_t small_start = left_start;
-            ssize_t large_start = right_start;
-            ssize_t small_size = left_size;
-            ssize_t large_size = right_size;
-            if (right_size < left_size) {
-                std::swap(small_data, large_data);
-                std::swap(small_start, large_start);
-                std::swap(small_size, large_size);
-            }
+            const auto& small_data =
+                    right_array.size() < left_array.size() ? right_array : left_array;
+            const auto& large_data =
+                    right_array.size() < left_array.size() ? left_array : right_array;
 
             ExecutorImpl impl;
-            impl.insert_array(small_data->nested_col.get(), small_data->nested_nullmap_data,
-                              small_start, small_size);
-            dst_data[row] = impl.find_any(large_data->nested_col.get(),
-                                          large_data->nested_nullmap_data, large_start, large_size);
+            impl.insert_array(small_data);
+            dst_data[row] = impl.find_any(large_data);
         }
         return Status::OK();
     }

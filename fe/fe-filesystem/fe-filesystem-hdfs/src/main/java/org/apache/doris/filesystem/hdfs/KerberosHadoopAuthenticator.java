@@ -14,11 +14,16 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is based on code available under the Apache license here:
+// https://github.com/trinodb/trino/blob/435/lib/trino-plugin-toolkit/src/main/java/io/trino/plugin/base/authentication/KerberosAuthentication.java
+// https://github.com/trinodb/trino/blob/435/lib/trino-hdfs/src/main/java/io/trino/hdfs/authentication/CachingKerberosHadoopAuthentication.java
+// and modified by Doris
 
 package org.apache.doris.filesystem.hdfs;
 
 import org.apache.doris.filesystem.spi.HadoopAuthenticator;
 import org.apache.doris.filesystem.spi.IOCallable;
+import org.apache.doris.foundation.security.KerberosTicketUtils;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.security.SecurityUtil;
@@ -29,10 +34,29 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.security.PrivilegedExceptionAction;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+import javax.security.auth.Subject;
+import javax.security.auth.kerberos.KerberosPrincipal;
+import javax.security.auth.login.AppConfigurationEntry;
+import javax.security.auth.login.LoginContext;
+import javax.security.auth.login.LoginException;
 
 /**
  * Kerberos-based implementation of {@link HadoopAuthenticator}.
- * Logs in from a keytab and executes actions as the Kerberos principal via UGI.doAs().
+ *
+ * <p>Logs in from a keytab via an explicit JAAS {@code Krb5LoginModule} configuration
+ * ({@code doNotPrompt=true}) and proactively refreshes the TGT once it passes 80% of
+ * its lifetime, swapping the new credentials into the existing Subject in place. This
+ * is a port of trino's {@code KerberosAuthentication} +
+ * {@code CachingKerberosHadoopAuthentication}. It deliberately does NOT use
+ * {@code UserGroupInformation.checkTGTAndReloginFromKeytab()}: its hard-coded
+ * 60-second relogin throttle can leave an expired TGT in the Subject, after which the
+ * SASL/GSS layer falls back to the JVM-default interactive JAAS login and fails with
+ * "LoginException: Cannot read from System.in".
  *
  * <p>Note: {@link UserGroupInformation#setConfiguration(Configuration)} mutates
  * JVM-global state — all UGI instances in the process share the same authentication
@@ -51,7 +75,14 @@ public class KerberosHadoopAuthenticator implements HadoopAuthenticator {
 
     private final String principal;
     private final String keytab;
-    private volatile UserGroupInformation ugi;
+
+    // The Subject/UGI pair is created once and never replaced: refreshes swap new
+    // Kerberos credentials into this same Subject so Hadoop code that caches the
+    // UGI (e.g. DFSClient) transparently sees the new ticket.
+    private final Subject subject;
+    private final UserGroupInformation ugi;
+    // Guarded by "this" (only touched in the constructor and synchronized getUGI()).
+    private long nextRefreshTime;
 
     public KerberosHadoopAuthenticator(String principal, String keytab, Configuration conf) {
         this.principal = principal;
@@ -62,10 +93,14 @@ public class KerberosHadoopAuthenticator implements HadoopAuthenticator {
                 if (!shouldSkipSetConfiguration(desired)) {
                     UserGroupInformation.setConfiguration(conf);
                 }
-                this.ugi = UserGroupInformation.loginUserFromKeytabAndReturnUGI(principal, keytab);
+                this.subject = loginSubject();
+                this.ugi = Objects.requireNonNull(UserGroupInformation.getUGIFromSubject(subject),
+                        "getUGIFromSubject returned null");
             }
+            this.nextRefreshTime = KerberosTicketUtils.getRefreshTime(
+                    KerberosTicketUtils.getTicketGrantingTicket(subject));
             LOG.info("Kerberos login succeeded for principal={}", principal);
-        } catch (IOException e) {
+        } catch (IOException | RuntimeException e) {
             throw new RuntimeException("Failed to login with Kerberos principal=" + principal
                     + ", keytab=" + keytab, e);
         }
@@ -98,20 +133,99 @@ public class KerberosHadoopAuthenticator implements HadoopAuthenticator {
 
     @Override
     public <T> T doAs(IOCallable<T> action) throws IOException {
-        // Refresh the Kerberos TGT from the keytab if it's close to expiry. This is
-        // a no-op when the ticket is still valid, so it's safe and cheap to call on
-        // every request and avoids long-lived FE processes failing with
-        // "GSSException: No valid credentials" after the initial ticket expires.
+        UserGroupInformation currentUgi;
         try {
-            ugi.checkTGTAndReloginFromKeytab();
-        } catch (IOException e) {
+            currentUgi = getUGI();
+        } catch (IOException | RuntimeException e) {
+            // Keep the SPI's checked-IOException contract: a relogin failure (unchecked
+            // RuntimeException from the JAAS login) must not escape doAs unchecked.
             throw new IOException("Kerberos relogin failed for principal=" + principal, e);
         }
         try {
-            return ugi.doAs((PrivilegedExceptionAction<T>) action::call);
+            return currentUgi.doAs((PrivilegedExceptionAction<T>) action::call);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new IOException("Kerberos doAs interrupted for principal=" + principal, e);
         }
+    }
+
+    /**
+     * Returns the cached UGI, first refreshing the TGT if it is past 80% of its
+     * lifetime. Ported from trino's
+     * {@code CachingKerberosHadoopAuthentication.getUserGroupInformation()} — note
+     * there is intentionally no relogin throttle.
+     * If the refresh login fails, {@code nextRefreshTime} is not advanced, so each
+     * subsequent call retries the login until the KDC recovers (no backoff) — same
+     * trade-off as trino.
+     */
+    private synchronized UserGroupInformation getUGI() throws IOException {
+        if (nextRefreshTime < System.currentTimeMillis()) {
+            Subject newSubject = loginSubject();
+            Objects.requireNonNull(UserGroupInformation.getUGIFromSubject(newSubject),
+                    "getUGIFromSubject returned null");
+            // We modify the existing UGI's credentials in-place instead of returning a new UGI
+            // because some parts of Hadoop code reuse UGI (e.g. DFSClient).
+            // We also need to clear the old credentials because the JDK assumes that the first
+            // credential is the TGT, which is not always true.
+            subject.getPrincipals().addAll(newSubject.getPrincipals());
+            Set<Object> privateCredentials = subject.getPrivateCredentials();
+            synchronized (privateCredentials) {
+                privateCredentials.clear();
+                privateCredentials.addAll(newSubject.getPrivateCredentials());
+            }
+            Set<Object> publicCredentials = subject.getPublicCredentials();
+            synchronized (publicCredentials) {
+                publicCredentials.clear();
+                publicCredentials.addAll(newSubject.getPublicCredentials());
+            }
+            nextRefreshTime = KerberosTicketUtils.getRefreshTime(
+                    KerberosTicketUtils.getTicketGrantingTicket(newSubject));
+            LOG.info("Kerberos ticket refreshed for principal={}, next refresh time={}",
+                    principal, nextRefreshTime);
+        }
+        return ugi;
+    }
+
+    /**
+     * Performs the JAAS keytab login and returns the logged-in Subject. This is
+     * trino's {@code KerberosAuthentication.getSubject()} delegate boundary, kept
+     * as a package-private method so tests can substitute fabricated Subjects.
+     */
+    Subject loginSubject() {
+        return getSubject(keytab, principal);
+    }
+
+    private static Subject getSubject(String keytab, String principal) {
+        Subject subject = new Subject(false, Collections.singleton(new KerberosPrincipal(principal)),
+                Collections.emptySet(), Collections.emptySet());
+        javax.security.auth.login.Configuration conf = getConfiguration(keytab, principal);
+        try {
+            LoginContext loginContext = new LoginContext("", subject, null, conf);
+            loginContext.login();
+            return loginContext.getSubject();
+        } catch (LoginException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private static javax.security.auth.login.Configuration getConfiguration(String keytab, String principal) {
+        Map<String, String> optionsBuilder = new LinkedHashMap<>();
+        optionsBuilder.put("doNotPrompt", "true");
+        optionsBuilder.put("isInitiator", "true");
+        optionsBuilder.put("principal", principal);
+        optionsBuilder.put("useKeyTab", "true");
+        optionsBuilder.put("storeKey", "true");
+        optionsBuilder.put("keyTab", keytab);
+        Map<String, String> options = Collections.unmodifiableMap(optionsBuilder);
+        return new javax.security.auth.login.Configuration() {
+            @Override
+            public AppConfigurationEntry[] getAppConfigurationEntry(String name) {
+                return new AppConfigurationEntry[] {
+                        new AppConfigurationEntry(
+                                "com.sun.security.auth.module.Krb5LoginModule",
+                                AppConfigurationEntry.LoginModuleControlFlag.REQUIRED,
+                                options)};
+            }
+        };
     }
 }

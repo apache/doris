@@ -48,7 +48,7 @@ suite("test_routine_load_error_info","nonConcurrent") {
 
     def createTable = {tableName ->
         sql """
-            DROP TABLE IF EXISTS ${tableName}
+            DROP TABLE IF EXISTS ${tableName} FORCE
         """
         sql """
             CREATE TABLE IF NOT EXISTS ${tableName}
@@ -202,8 +202,8 @@ suite("test_routine_load_error_info","nonConcurrent") {
             }
         } finally {
             GetDebugPoint().disableDebugPointForAllBEs("BetaRowsetWriter._check_segment_number_limit_too_many_segments")
-            sql "stop routine load for ${jobName}"
-            sql "DROP TABLE IF EXISTS ${tableName}"
+            try_sql "stop routine load for ${jobName}"
+            try_sql "DROP TABLE IF EXISTS ${tableName} FORCE"
         }
     }
 
@@ -235,8 +235,8 @@ suite("test_routine_load_error_info","nonConcurrent") {
                 sleep(1000)
             }
         } finally {
-            sql "stop routine load for ${jobName}"
-            sql "DROP TABLE IF EXISTS ${tableName}"
+            try_sql "stop routine load for ${jobName}"
+            try_sql "DROP TABLE IF EXISTS ${tableName} FORCE"
         }
     }
 
@@ -271,8 +271,8 @@ suite("test_routine_load_error_info","nonConcurrent") {
             }
         } finally {
             GetDebugPoint().disableDebugPointForAllBEs("RoutineLoadTaskExecutor.submit_task.memory_limit")
-            sql "stop routine load for ${jobName}"
-            sql "DROP TABLE IF EXISTS ${tableName}"
+            try_sql "stop routine load for ${jobName}"
+            try_sql "DROP TABLE IF EXISTS ${tableName} FORCE"
         }
     }
 
@@ -317,8 +317,8 @@ suite("test_routine_load_error_info","nonConcurrent") {
             }
         } finally {
             GetDebugPoint().disableDebugPointForAllFEs(debugPoint)
-            sql "stop routine load for ${jobName}"
-            sql "DROP TABLE IF EXISTS ${tableName}"
+            try_sql "stop routine load for ${jobName}"
+            try_sql "DROP TABLE IF EXISTS ${tableName} FORCE"
         }
     }
 }

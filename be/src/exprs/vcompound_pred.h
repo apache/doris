@@ -21,6 +21,7 @@
 #include <algorithm>
 #include <cstdint>
 
+#include "common/logging.h"
 #include "common/status.h"
 #include "core/assert_cast.h"
 #include "core/column/column.h"
@@ -28,6 +29,7 @@
 #include "exprs/vectorized_fn_call.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vexpr_fwd.h"
+#include "storage/index/zone_map/zonemap_eval_context.h"
 #include "util/simd/bits.h"
 
 namespace doris {
@@ -58,6 +60,138 @@ public:
 #endif
 
     const std::string& expr_name() const override { return _expr_name; }
+    Status clone_node(VExprSPtr* cloned_expr) const override {
+        DORIS_CHECK(cloned_expr != nullptr);
+        *cloned_expr = VCompoundPred::create_shared(clone_texpr_node());
+        return Status::OK();
+    }
+
+    bool can_evaluate_zonemap_filter() const override {
+        switch (_op) {
+        case TExprOpcode::COMPOUND_AND:
+            return std::ranges::any_of(_children, [](const VExprSPtr& child) {
+                return child->can_evaluate_zonemap_filter();
+            });
+        case TExprOpcode::COMPOUND_OR:
+            return !_children.empty() && std::ranges::all_of(_children, [](const VExprSPtr& child) {
+                return child->can_evaluate_zonemap_filter();
+            });
+        case TExprOpcode::COMPOUND_NOT:
+            return false;
+        default:
+            return false;
+        }
+    }
+
+    ZoneMapFilterResult evaluate_zonemap_filter(const ZoneMapEvalContext& ctx) const override {
+        switch (_op) {
+        case TExprOpcode::COMPOUND_AND: {
+            for (const auto& child : _children) {
+                if (!child->can_evaluate_zonemap_filter()) {
+                    continue;
+                }
+                if (child->evaluate_zonemap_filter(ctx) == ZoneMapFilterResult::kNoMatch) {
+                    return ZoneMapFilterResult::kNoMatch;
+                }
+            }
+            return ZoneMapFilterResult::kMayMatch;
+        }
+        case TExprOpcode::COMPOUND_OR: {
+            for (const auto& child : _children) {
+                DORIS_CHECK(child->can_evaluate_zonemap_filter());
+                if (child->evaluate_zonemap_filter(ctx) != ZoneMapFilterResult::kNoMatch) {
+                    return ZoneMapFilterResult::kMayMatch;
+                }
+            }
+            return ZoneMapFilterResult::kNoMatch;
+        }
+        case TExprOpcode::COMPOUND_NOT:
+            return unsupported_zonemap_filter(ctx);
+        default:
+            return unsupported_zonemap_filter(ctx);
+        }
+    }
+
+    bool can_evaluate_dictionary_filter() const override {
+        switch (_op) {
+        case TExprOpcode::COMPOUND_AND:
+            return std::ranges::any_of(_children, [](const VExprSPtr& child) {
+                return child->can_evaluate_dictionary_filter();
+            });
+        case TExprOpcode::COMPOUND_OR:
+            return !_children.empty() && std::ranges::all_of(_children, [](const VExprSPtr& child) {
+                return child->can_evaluate_dictionary_filter();
+            });
+        default:
+            return false;
+        }
+    }
+
+    ZoneMapFilterResult evaluate_dictionary_filter(
+            const DictionaryEvalContext& ctx) const override {
+        switch (_op) {
+        case TExprOpcode::COMPOUND_AND:
+            for (const auto& child : _children) {
+                if (!child->can_evaluate_dictionary_filter()) {
+                    continue;
+                }
+                if (child->evaluate_dictionary_filter(ctx) == ZoneMapFilterResult::kNoMatch) {
+                    return ZoneMapFilterResult::kNoMatch;
+                }
+            }
+            return ZoneMapFilterResult::kMayMatch;
+        case TExprOpcode::COMPOUND_OR:
+            for (const auto& child : _children) {
+                DORIS_CHECK(child->can_evaluate_dictionary_filter());
+                if (child->evaluate_dictionary_filter(ctx) != ZoneMapFilterResult::kNoMatch) {
+                    return ZoneMapFilterResult::kMayMatch;
+                }
+            }
+            return ZoneMapFilterResult::kNoMatch;
+        default:
+            return ZoneMapFilterResult::kUnsupported;
+        }
+    }
+
+    bool can_evaluate_bloom_filter() const override {
+        switch (_op) {
+        case TExprOpcode::COMPOUND_AND:
+            return std::ranges::any_of(_children, [](const VExprSPtr& child) {
+                return child->can_evaluate_bloom_filter();
+            });
+        case TExprOpcode::COMPOUND_OR:
+            return !_children.empty() && std::ranges::all_of(_children, [](const VExprSPtr& child) {
+                return child->can_evaluate_bloom_filter();
+            });
+        default:
+            return false;
+        }
+    }
+
+    ZoneMapFilterResult evaluate_bloom_filter(const BloomFilterEvalContext& ctx) const override {
+        switch (_op) {
+        case TExprOpcode::COMPOUND_AND:
+            for (const auto& child : _children) {
+                if (!child->can_evaluate_bloom_filter()) {
+                    continue;
+                }
+                if (child->evaluate_bloom_filter(ctx) == ZoneMapFilterResult::kNoMatch) {
+                    return ZoneMapFilterResult::kNoMatch;
+                }
+            }
+            return ZoneMapFilterResult::kMayMatch;
+        case TExprOpcode::COMPOUND_OR:
+            for (const auto& child : _children) {
+                DORIS_CHECK(child->can_evaluate_bloom_filter());
+                if (child->evaluate_bloom_filter(ctx) != ZoneMapFilterResult::kNoMatch) {
+                    return ZoneMapFilterResult::kMayMatch;
+                }
+            }
+            return ZoneMapFilterResult::kNoMatch;
+        default:
+            return ZoneMapFilterResult::kUnsupported;
+        }
+    }
 
     Status evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) override {
         segment_v2::InvertedIndexResultBitmap res;

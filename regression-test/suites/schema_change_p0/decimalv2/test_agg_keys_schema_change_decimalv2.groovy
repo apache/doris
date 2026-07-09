@@ -65,7 +65,7 @@ suite("test_agg_keys_schema_change_decimalv2", "nonConcurrent") {
            )
            AGGREGATE  KEY(`decimalv2k1`,`decimalv2k2`, decimalv2k3)
            DISTRIBUTED BY HASH(`decimalv2k1`) BUCKETS 1
-           PROPERTIES("replication_num" = "1", "light_schema_change" = "false");
+           PROPERTIES("replication_num" = "1", "disable_auto_compaction" = "true", "light_schema_change" = "false");
         """
     sql """ insert into ${tbName} values
         (111111111111111111.111111111,999999999999999999.994,999999999999999999.999,999999999999999999.999999994,999999999999999999.995);

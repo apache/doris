@@ -247,6 +247,14 @@ suite("check_before_quit", "nonConcurrent,p0") {
 
     sql "set enable_decimal256 = true;"
     sql "set enable_variant_flatten_nested = true;"
+    // Pin the fuzzed variant session defaults so the CREATE -> recreate round-trip below
+    // is idempotent. The recreate parser bakes the current session default into variant
+    // columns when a property is omitted. The per-connection session-variable fuzzer
+    // randomizes these, which would otherwise make a sparse variant column re-render as
+    // doc mode, or make a bare-variant origin re-render with PROPERTIES.
+    sql "set default_variant_enable_doc_mode = false;"
+    sql "set default_variant_max_subcolumns_count = 0;"
+    sql "set default_variant_sparse_hash_shard_count = 0;"
     sql """
         ADMIN SET ALL FRONTENDS CONFIG ('enable_inverted_index_v1_for_variant' = 'true');
     """

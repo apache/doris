@@ -83,11 +83,18 @@ Status VHivePartitionWriter::open(RuntimeState* state, RuntimeProfile* operator_
             parquet_compression_type = TParquetCompressionType::ZSTD;
             break;
         }
+        case TFileCompressType::LZ4BLOCK: {
+            // Hadoop-framed Parquet LZ4 (not LZ4_RAW) for cross-engine compatibility.
+            parquet_compression_type = TParquetCompressionType::LZ4_HADOOP;
+            break;
+        }
         default: {
             return Status::InternalError("Unsupported hive compress type {} with parquet",
                                          to_string(_hive_compress_type));
         }
         }
+        // TODO: INT96 is kept for Hive 2/3 compatibility. Add an explicit option before
+        // changing the default Hive parquet timestamp encoding to standard logical types.
         ParquetFileOptions parquet_options = {parquet_compression_type,
                                               TParquetVersion::PARQUET_1_0, false, true};
         _file_format_transformer = std::make_unique<VParquetTransformer>(
@@ -126,11 +133,16 @@ Status VHivePartitionWriter::close(const Status& status) {
         }
     }
     bool status_ok = result_status.ok() && status.ok();
-    if (!status_ok && _fs != nullptr) {
-        auto path = fmt::format("{}/{}", _write_info.write_path, _file_name);
-        Status st = _fs->delete_file(path);
-        if (!st.ok()) {
-            LOG(WARNING) << fmt::format("Delete file {} failed, reason: {}", path, st.to_string());
+    if (!status_ok) {
+        _add_s3_mpu_pending_upload_for_rollback();
+        if (_fs != nullptr) {
+            // delete the actual created file, otherwise an orphan file is left behind
+            auto path = fmt::format("{}/{}", _write_info.write_path, _get_target_file_name());
+            Status st = _fs->delete_file(path);
+            if (!st.ok()) {
+                LOG(WARNING) << fmt::format("Delete file {} failed, reason: {}", path,
+                                            st.to_string());
+            }
         }
     }
     if (status_ok) {
@@ -159,24 +171,57 @@ THivePartitionUpdate VHivePartitionWriter::_build_partition_update() {
     DCHECK(_file_format_transformer != nullptr);
     hive_partition_update.__set_file_size(_file_format_transformer->written_len());
 
-    if (_write_info.file_type == TFileType::FILE_S3) {
-        DCHECK(_file_writer != nullptr);
-        doris::io::S3FileWriter* s3_mpu_file_writer =
-                dynamic_cast<doris::io::S3FileWriter*>(_file_writer.get());
-        DCHECK(s3_mpu_file_writer != nullptr);
-        TS3MPUPendingUpload s3_mpu_pending_upload;
-        s3_mpu_pending_upload.__set_bucket(s3_mpu_file_writer->bucket());
-        s3_mpu_pending_upload.__set_key(s3_mpu_file_writer->key());
-        s3_mpu_pending_upload.__set_upload_id(s3_mpu_file_writer->upload_id());
-
-        std::map<int, std::string> etags;
-        for (auto& completed_part : s3_mpu_file_writer->completed_parts()) {
-            etags.insert({completed_part.part_num, completed_part.etag});
-        }
-        s3_mpu_pending_upload.__set_etags(etags);
+    TS3MPUPendingUpload s3_mpu_pending_upload;
+    if (_build_s3_mpu_pending_upload(&s3_mpu_pending_upload)) {
         hive_partition_update.__set_s3_mpu_pending_uploads({s3_mpu_pending_upload});
     }
     return hive_partition_update;
+}
+
+bool VHivePartitionWriter::_build_s3_mpu_pending_upload(TS3MPUPendingUpload* pending_upload) {
+    DCHECK(pending_upload != nullptr);
+    if (_write_info.file_type != TFileType::FILE_S3 || _file_writer == nullptr) {
+        return false;
+    }
+
+    doris::io::S3FileWriter* s3_mpu_file_writer =
+            dynamic_cast<doris::io::S3FileWriter*>(_file_writer.get());
+    DCHECK(s3_mpu_file_writer != nullptr);
+    std::string upload_id = s3_mpu_file_writer->upload_id();
+    if (upload_id.empty()) {
+        return false;
+    }
+
+    pending_upload->__set_bucket(s3_mpu_file_writer->bucket());
+    pending_upload->__set_key(s3_mpu_file_writer->key());
+    pending_upload->__set_upload_id(upload_id);
+
+    std::map<int, std::string> etags;
+    for (auto& completed_part : s3_mpu_file_writer->completed_parts()) {
+        etags.insert({completed_part.part_num, completed_part.etag});
+    }
+    pending_upload->__set_etags(etags);
+    return true;
+}
+
+void VHivePartitionWriter::_add_s3_mpu_pending_upload_for_rollback() {
+    TS3MPUPendingUpload s3_mpu_pending_upload;
+    if (!_build_s3_mpu_pending_upload(&s3_mpu_pending_upload)) {
+        return;
+    }
+
+    THivePartitionUpdate hive_partition_update;
+    hive_partition_update.__set_name(_partition_name);
+    hive_partition_update.__set_update_mode(_update_mode);
+    THiveLocationParams location;
+    location.__set_write_path(_write_info.original_write_path);
+    location.__set_target_path(_write_info.target_path);
+    hive_partition_update.__set_location(location);
+    hive_partition_update.__set_file_names({});
+    hive_partition_update.__set_row_count(0);
+    hive_partition_update.__set_file_size(0);
+    hive_partition_update.__set_s3_mpu_pending_uploads({s3_mpu_pending_upload});
+    _state->add_hive_partition_updates(hive_partition_update);
 }
 
 std::string VHivePartitionWriter::_get_file_extension(TFileFormatType::type file_format_type,
