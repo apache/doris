@@ -251,9 +251,10 @@ suite("test_parquet_lazy_mat_profile", "p0,external") {
             def sql_result = sql """
                 select *, "${t1}" from alltypes_tiny_pages_plain where id > 2 and id < 10 order by id;
             """
+            def idColumnIndex = 7
             assertEquals(7, sql_result.size())
-            assertEquals("3", sql_result[0][0].toString())
-            assertEquals("9", sql_result[6][0].toString())
+            assertEquals("3", sql_result[0][idColumnIndex].toString())
+            assertEquals("9", sql_result[6][idColumnIndex].toString())
 
             def profileText = getProfileWithToken(t1)
             assertTrue(profileText.contains("ParquetReader"), "Profile does not contain ParquetReader")
