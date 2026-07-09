@@ -6150,6 +6150,48 @@ TEST_F(NewOrcReaderTest, ClosePublishesReaderStatisticsToRuntimeProfile) {
               static_cast<int64_t>(file_reader_stats.read_rows));
 }
 
+TEST_F(NewOrcReaderTest, DisableOrcFilterByMinMaxKeepsRowGroupProfileZero) {
+    const auto multi_stripe_file_path = (_test_dir / "profile_minmax_disabled.orc").string();
+    write_multi_stripe_orc_int_file(multi_stripe_file_path, {1, 1000, 2000});
+    ASSERT_EQ(get_orc_stripe_count(multi_stripe_file_path), 3);
+
+    RuntimeProfile profile("new_orc_reader_profile_minmax_disabled");
+    auto reader = create_reader_for_path(multi_stripe_file_path, &profile);
+    TQueryOptions query_options;
+    query_options.__set_enable_orc_filter_by_min_max(false);
+    query_options.__set_enable_orc_lazy_mat(false);
+    RuntimeState state {query_options, TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    ASSERT_EQ(schema.size(), 2);
+
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->predicate_columns = {field_projection(0)};
+    request->conjuncts.push_back(
+            VExprContext::create_shared(std::make_shared<NullableInt32LessThanExpr>(0, 500)));
+    ASSERT_TRUE(reader->open(request).ok());
+
+    bool eof = false;
+    size_t result_rows = 0;
+    while (!eof) {
+        Block block = build_file_block({schema[0]});
+        size_t rows = 0;
+        ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+        result_rows += rows;
+    }
+    ASSERT_EQ(result_rows, 200);
+    ASSERT_TRUE(reader->close().ok());
+
+    ASSERT_NE(profile.get_counter("SelectedRowGroupCount"), nullptr);
+    ASSERT_NE(profile.get_counter("EvaluatedRowGroupCount"), nullptr);
+    ASSERT_NE(profile.get_counter("RowGroupsFilteredByMinMax"), nullptr);
+    EXPECT_EQ(profile.get_counter("SelectedRowGroupCount")->value(), 0);
+    EXPECT_EQ(profile.get_counter("EvaluatedRowGroupCount")->value(), 0);
+    EXPECT_EQ(profile.get_counter("RowGroupsFilteredByMinMax")->value(), 0);
+}
+
 TEST_F(NewOrcReaderTest, SargConjunctPrunesStripes) {
     const auto multi_stripe_file_path = (_test_dir / "sarg_conjunct_pruning.orc").string();
     write_multi_stripe_orc_int_file(multi_stripe_file_path);

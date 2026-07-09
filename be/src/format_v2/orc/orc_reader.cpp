@@ -728,6 +728,7 @@ struct OrcReaderScanState {
     std::vector<size_t> orc_lazy_selected_rows;
     size_t orc_lazy_input_rows = 0;
     bool enable_lazy_materialization = true;
+    bool enable_filter_by_min_max = true;
     bool orc_lazy_read_enabled = false;
     bool orc_lazy_selection_valid = false;
 
@@ -864,6 +865,7 @@ Status OrcReader::init(RuntimeState* state) {
     TimezoneUtils::find_cctz_time_zone(_state->timezone, _state->timezone_obj);
     if (state != nullptr) {
         _state->enable_lazy_materialization = state->query_options().enable_orc_lazy_mat;
+        _state->enable_filter_by_min_max = state->query_options().enable_orc_filter_by_min_max;
         _state->timezone = state->timezone();
         _state->timezone_obj = state->timezone_obj();
     }
@@ -1313,7 +1315,7 @@ Status OrcReader::_configure_row_reader_projection() {
 }
 
 Status OrcReader::_init_search_argument_from_local_filters() {
-    if (_request->conjuncts.empty()) {
+    if (!_state->enable_filter_by_min_max || _request->conjuncts.empty()) {
         return Status::OK();
     }
 
