@@ -1058,8 +1058,8 @@ public:
     explicit OrcFilterImpl(OrcReader* reader) : _reader(reader) {}
 
     void filter(::orc::ColumnVectorBatch& data, uint16_t* sel, uint16_t size,
-                const ::orc::ORCFilterContext& context, void* arg) const override {
-        THROW_IF_ERROR(_reader->_filter_orc_batch(data, sel, size, context, arg));
+                void* arg) const override {
+        THROW_IF_ERROR(_reader->_filter_orc_batch(data, sel, size, arg));
     }
 
 private:
@@ -1597,7 +1597,8 @@ bool OrcReader::_can_apply_orc_lazy_callback() const {
     std::set<format::LocalColumnId> decoded_columns;
     for (const auto& projection : _request->predicate_columns) {
         const auto file_column_id = projection.column_id();
-        if (is_global_rowid_column(file_column_id)) {
+        // Virtual row columns need the real batch start from row_reader->getRowNumber().
+        if (is_virtual_column(file_column_id)) {
             return false;
         }
         decoded_columns.insert(file_column_id);
@@ -2063,7 +2064,7 @@ void OrcReader::_mark_condition_cache_selected_rows(
 }
 
 Status OrcReader::_filter_orc_batch(::orc::ColumnVectorBatch& data, uint16_t* sel, uint16_t size,
-                                    const ::orc::ORCFilterContext& context, void* /*arg*/) {
+                                    void* /*arg*/) {
     if (!_state->orc_lazy_read_enabled || sel == nullptr || size == 0) {
         data.numElements = size;
         return Status::OK();
@@ -2123,8 +2124,6 @@ Status OrcReader::_filter_orc_batch(::orc::ColumnVectorBatch& data, uint16_t* se
                              _state->root_type->getFieldName(file_column_id.value())});
     }
 
-    _state->current_batch_first_row = context.batchFirstRow;
-    _state->condition_cache_next_row = _state->current_batch_first_row + size;
     std::set<format::LocalColumnId> decoded_columns;
     RETURN_IF_ERROR(_decode_columns(*struct_batch, _request->predicate_columns, size, &filter_block,
                                     &decoded_columns));
@@ -2457,9 +2456,6 @@ Status OrcReader::get_block(Block* file_block, size_t* rows, bool* eof) {
 
     const auto batch_rows = static_cast<size_t>(_state->batch->numElements);
     const auto batch_first_row = _state->row_reader->getRowNumber();
-    if (_state->orc_lazy_read_enabled && _state->orc_lazy_selection_valid) {
-        DORIS_CHECK(_state->current_batch_first_row == batch_first_row);
-    }
     _state->current_batch_first_row = batch_first_row;
     _state->condition_cache_next_row = _state->current_batch_first_row + batch_rows;
     auto* struct_batch = dynamic_cast<::orc::StructVectorBatch*>(_state->batch.get());

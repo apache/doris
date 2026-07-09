@@ -5269,7 +5269,7 @@ TEST_F(NewOrcReaderTest, ConditionCacheMissMarksSargSkippedLazyRowsByFileRow) {
     EXPECT_FALSE((*ctx->filter_result)[2]);
 }
 
-TEST_F(NewOrcReaderTest, OrcLazyRowPositionPredicateUsesSargSkippedFileRow) {
+TEST_F(NewOrcReaderTest, RowPositionPredicateUsesSargWithoutOrcLazyCallback) {
     const auto file_path = (_test_dir / "lazy_row_position_sarg_skipped.orc").string();
     write_sarg_skipped_row_group_orc_file(file_path);
 
@@ -5320,6 +5320,7 @@ TEST_F(NewOrcReaderTest, OrcLazyRowPositionPredicateUsesSargSkippedFileRow) {
     ASSERT_EQ(ids.size(), static_cast<size_t>(ConditionCacheContext::GRANULE_SIZE - 1));
     EXPECT_EQ(ids.front(), 10001);
     EXPECT_EQ(ids.back(), 10000 + ConditionCacheContext::GRANULE_SIZE - 1);
+    EXPECT_EQ(reader->reader_statistics().lazy_read_filtered_rows, 0);
 }
 
 TEST_F(NewOrcReaderTest, ConditionCacheHitSkipsFalseGranulesBeforeColumnRead) {

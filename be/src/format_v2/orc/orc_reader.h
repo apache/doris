@@ -130,7 +130,7 @@ private:
     Status _create_row_reader();
 
     Status _filter_orc_batch(::orc::ColumnVectorBatch& data, uint16_t* sel, uint16_t size,
-                             const ::orc::ORCFilterContext& context, void* arg);
+                             void* arg);
 
     Status _decode_column(const ::orc::Type& file_type, const ::orc::Type& selected_type,
                           const ::orc::ColumnVectorBatch& batch, MutableColumnPtr& column,
