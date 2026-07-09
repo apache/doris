@@ -69,6 +69,10 @@ public class MySqlDebeziumJsonDeserializer extends DebeziumJsonDeserializer {
     public DeserializeResult deserialize(Map<String, String> context, SourceRecord record)
             throws IOException {
         if (RecordUtils.isSchemaChangeEvent(record)) {
+            if (!isSchemaChangeEnabled(context)) {
+                LOG.info("[SCHEMA-CHANGE-SKIPPED] MySQL schema change is disabled.");
+                return DeserializeResult.empty();
+            }
             return handleSchemaChangeEvent(record, context);
         }
         return super.deserialize(context, record);

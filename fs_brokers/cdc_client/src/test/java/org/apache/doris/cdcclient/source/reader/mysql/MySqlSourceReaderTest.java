@@ -18,6 +18,7 @@
 package org.apache.doris.cdcclient.source.reader.mysql;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -105,12 +106,26 @@ public class MySqlSourceReaderTest {
         assertTrue(config.isIncludeSchemaChanges());
     }
 
+    @Test
+    void mysqlConfigCanDisableSchemaChanges() throws Exception {
+        Map<String, String> overrides = new HashMap<>();
+        overrides.put(DataSourceConfigKeys.SCHEMA_CHANGE_ENABLED, "false");
+        MySqlSourceConfig config = sourceConfig("initial", overrides);
+
+        assertFalse(config.isIncludeSchemaChanges());
+    }
+
     // Drive the real generateMySqlConfig JSON-offset path and return the rebuilt startup offset.
     private BinlogOffset startupBinlogOffset(String offsetJson) throws Exception {
         return sourceConfig(offsetJson).getStartupOptions().binlogOffset;
     }
 
     private MySqlSourceConfig sourceConfig(String offset) throws Exception {
+        return sourceConfig(offset, Map.of());
+    }
+
+    private MySqlSourceConfig sourceConfig(String offset, Map<String, String> overrides)
+            throws Exception {
         Map<String, String> cfg = new HashMap<>();
         cfg.put(DataSourceConfigKeys.JDBC_URL, "jdbc:mysql://localhost:3306/testdb");
         cfg.put(DataSourceConfigKeys.USER, "u");
@@ -118,6 +133,7 @@ public class MySqlSourceReaderTest {
         cfg.put(DataSourceConfigKeys.DATABASE, "testdb");
         cfg.put(DataSourceConfigKeys.TABLE, "t_test");
         cfg.put(DataSourceConfigKeys.OFFSET, offset);
+        cfg.putAll(overrides);
         Method m =
                 MySqlSourceReader.class.getDeclaredMethod(
                         "generateMySqlConfig", Map.class, String.class, int.class);

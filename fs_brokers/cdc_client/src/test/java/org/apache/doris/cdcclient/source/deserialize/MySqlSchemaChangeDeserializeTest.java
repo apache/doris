@@ -21,6 +21,7 @@ import static org.apache.flink.cdc.connectors.mysql.debezium.dispatcher.EventDis
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import org.apache.doris.cdcclient.common.Constants;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
 
 import org.apache.flink.cdc.connectors.mysql.source.utils.RecordUtils;
@@ -35,6 +36,7 @@ import java.sql.Types;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Set;
 
 import io.debezium.relational.Column;
 import io.debezium.relational.Table;
@@ -45,6 +47,7 @@ import io.debezium.relational.history.TableChanges;
 
 class MySqlSchemaChangeDeserializeTest {
     private static final TableId TABLE = new TableId("db1", null, "t1");
+    private static final Map<String, String> CONTEXT = Map.of(Constants.DORIS_TARGET_DB, "doris_db");
     private static final FlinkJsonTableChangeSerializer TABLE_CHANGE_SERIALIZER =
             new FlinkJsonTableChangeSerializer();
 
@@ -65,6 +68,68 @@ class MySqlSchemaChangeDeserializeTest {
         assertTrue(result.getSchemaChanges().isEmpty());
         assertEquals(1, result.getUpdatedSchemas().size());
         assertEquals(table("id", "city"), result.getUpdatedSchemas().get(TABLE).getTable());
+    }
+
+    @Test
+    void schemaChangeAddExcludedColumnSkipsDdlAndAdvancesBaseline() throws Exception {
+        MySqlDebeziumJsonDeserializer deserializer = newDeserializer(table("id", "name"));
+        deserializer.excludeColumnsCache = Map.of(TABLE.table(), Set.of("secret"));
+        Table fresh = table("id", "name", "secret");
+
+        DeserializeResult result =
+                deserializer.deserialize(
+                        CONTEXT,
+                        schemaChangeRecord(
+                                "ALTER TABLE t1 ADD COLUMN secret INT",
+                                fresh));
+
+        assertEquals(DeserializeResult.Type.SCHEMA_CHANGE, result.getType());
+        assertTrue(result.getSchemaChanges().isEmpty());
+        assertEquals(fresh, result.getUpdatedSchemas().get(TABLE).getTable());
+    }
+
+    @Test
+    void schemaChangeDropExcludedColumnSkipsDdlAndAdvancesBaseline() throws Exception {
+        MySqlDebeziumJsonDeserializer deserializer = newDeserializer(table("id", "name", "secret"));
+        deserializer.excludeColumnsCache = Map.of(TABLE.table(), Set.of("secret"));
+        Table fresh = table("id", "name");
+
+        DeserializeResult result =
+                deserializer.deserialize(
+                        CONTEXT,
+                        schemaChangeRecord(
+                                "ALTER TABLE t1 DROP COLUMN secret",
+                                fresh));
+
+        assertEquals(DeserializeResult.Type.SCHEMA_CHANGE, result.getType());
+        assertTrue(result.getSchemaChanges().isEmpty());
+        assertEquals(fresh, result.getUpdatedSchemas().get(TABLE).getTable());
+    }
+
+    @Test
+    void schemaChangeDisabledSkipsSchemaEvent() throws Exception {
+        MySqlDebeziumJsonDeserializer deserializer = newDeserializer(table("id", "name"));
+        Map<String, String> context = new HashMap<>(CONTEXT);
+        context.put(DataSourceConfigKeys.SCHEMA_CHANGE_ENABLED, "false");
+
+        DeserializeResult result =
+                deserializer.deserialize(
+                        context,
+                        schemaChangeRecord(
+                                "ALTER TABLE t1 ADD COLUMN city INT",
+                                table("id", "name", "city")));
+
+        assertEquals(DeserializeResult.Type.EMPTY, result.getType());
+        assertTrue(result.getRecords().isEmpty());
+    }
+
+    private static MySqlDebeziumJsonDeserializer newDeserializer(Table table) {
+        MySqlDebeziumJsonDeserializer deserializer = new MySqlDebeziumJsonDeserializer();
+        Map<String, String> props = new HashMap<>();
+        props.put(DataSourceConfigKeys.DATABASE, "db1");
+        deserializer.init(props);
+        deserializer.setTableSchemas(Collections.singletonMap(TABLE, tableChange(table)));
+        return deserializer;
     }
 
     private static SourceRecord schemaChangeRecord(String ddl, Table table) throws Exception {
