@@ -124,15 +124,13 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         synchronized (this) {
             this.initialized = false;
             this.lowerCaseToTableName = Maps.newConcurrentMap();
-            if (metaCache != null) {
-                cacheToInvalidate = metaCache;
-                metaCache = null;
-            }
+            cacheToInvalidate = metaCache;
         }
         // Invalidate cache outside the synchronized block to avoid deadlock:
-        // resetMetaToUninitialized holds ExternalDatabase monitor -> invalidateAll needs Caffeine locks
-        // Caffeine cache loader (buildTableForInit) needs ExternalDatabase monitor
-        // By releasing the monitor before invalidating, we break the lock inversion.
+        // ExternalDatabase monitor -> Caffeine internal locks (REFRESH path)
+        // vs Caffeine internal locks -> ExternalDatabase monitor (cache loader path).
+        // Do NOT null metaCache here — callers dereference it outside the monitor
+        // after makeSureInitialized() returns (e.g. getTableNullable, getTableNamesWithLock).
         if (cacheToInvalidate != null) {
             cacheToInvalidate.invalidateAll();
         }
@@ -514,24 +512,19 @@ public abstract class ExternalDatabase<T extends ExternalTable>
 
     /**
      * Get table names for existence check during cache loading.
-     * Unlike {@link #getTableNamesWithLock()}, this method avoids calling
-     * {@link #makeSureInitialized()} on the fast path (metaCache != null) to
-     * prevent the lock inversion deadlock:
-     * Caffeine cache node lock -> ExternalDatabase monitor.
+     * Unlike {@link #getTableNamesWithLock()}, this method does not call
+     * {@link #makeSureInitialized()}, avoiding unnecessary acquisition of
+     * the ExternalDatabase monitor on the hot cache-loader path.
      *
-     * When metaCache has been concurrently reset to null (e.g., by REFRESH DATABASE),
-     * this method falls back to {@link #getTableNamesWithLock()} to re-initialize
-     * the database. The fallback is safe from deadlock because
-     * {@link #resetMetaToUninitialized()} now releases the ExternalDatabase monitor
-     * before invalidating the old cache.
+     * <p>Since {@link #resetMetaToUninitialized()} no longer nulls {@code metaCache},
+     * the field is always non-null after first initialization. The null check is
+     * kept as a defensive guard.</p>
      */
     private List<String> getTableNamesForCheck() {
         if (metaCache != null) {
             return Lists.newArrayList(metaCache.listNames());
         }
-        // metaCache was reset concurrently, fall back to full initialization path.
-        // Safe from deadlock: resetMetaToUninitialized() releases synchronized(this)
-        // before calling invalidateAll() on the old cache.
+        // Defensive fallback: should not be reached since metaCache is never nulled.
         return Lists.newArrayList(getTableNamesWithLock());
     }
 

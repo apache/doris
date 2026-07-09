@@ -86,21 +86,23 @@ public class ExternalDatabaseDeadlockTest {
 
         // Thread A: refresh database thread
         // With the fix, resetMetaToUninitialized() releases synchronized(this) before
-        // calling invalidateAll(). We validate by: (1) taking the db monitor briefly
-        // to update state, (2) releasing the monitor, (3) then invalidating the cache
-        // which needs Caffeine internal locks. This must not deadlock with Thread B.
+        // calling invalidateAll(). To verify deterministically, release the loader
+        // latch first so Thread B can proceed through makeSureInitialized() while
+        // we hold Caffeine internal locks (via invalidate). If the lock ordering were
+        // still inverted, this would deadlock:
+        //   Thread A: Caffeine lock (invalidate) -> waiting for nothing
+        //   Thread B: Caffeine lock (loader) -> makeSureInitialized -> synchronized(db) -> OK
         Thread refreshThread = new Thread(
                 () -> runQuietly(backgroundFailure, () -> {
-                    // Simulate the internal behavior of resetMetaToUninitialized():
-                    // Step 1: synchronized(this) { update state }
+                    // Step 1: synchronized(this) { update state } then release
                     synchronized (db) {
                         db.setInitializedForTest(false);
                     }
-                    // Step 2: allow the loader to proceed (releasing the monitor first)
+                    // Step 2: release loader so Thread B can race with our invalidate
                     allowLoaderToTouchDb.countDown();
-                    // Step 3: invalidate cache outside the lock (the fix)
-                    // This should not deadlock even though Thread B holds Caffeine node lock
-                    // and is trying to acquire synchronized(db)
+                    // Step 3: invalidate cache (needs Caffeine internal locks).
+                    // Thread B may concurrently call db.makeSureInitialized() which
+                    // acquires synchronized(db) — safe because we released it in step 1.
                     cache.invalidate("deadlock-key");
                 }),
                 "deadlock-db-refresh");
@@ -138,11 +140,15 @@ public class ExternalDatabaseDeadlockTest {
         Assertions.assertTrue(loaderEntered.await(10, TimeUnit.SECONDS),
                 "buildTableForInit should have been entered within timeout");
 
-        // Thread A: call the real resetMetaToUninitialized()
+        // Thread A: release the loader latch, then call resetMetaToUninitialized().
+        // The latch must be counted down before reset so the loader can proceed
+        // deterministically rather than timing out. After the fix, resetMetaToUninitialized()
+        // releases synchronized(this) before invalidateAll(), so Thread B's subsequent
+        // getTableNamesWithLock() -> makeSureInitialized() won't deadlock.
         Thread refreshThread = new Thread(
                 () -> runQuietly(backgroundFailure, () -> {
-                    db.resetMetaToUninitialized();
                     allowLoaderToProceed.countDown();
+                    db.resetMetaToUninitialized();
                 }),
                 "deadlock-db-real-refresh");
         refreshThread.setDaemon(true);
@@ -179,10 +185,11 @@ public class ExternalDatabaseDeadlockTest {
         }
     }
 
+    @SuppressWarnings("deprecation")
     private static long[] waitForDeadlock(Thread t1, Thread t2) throws InterruptedException {
         ThreadMXBean threadMxBean = ManagementFactory.getThreadMXBean();
-        long t1Id = t1.threadId();
-        long t2Id = t2.threadId();
+        long t1Id = t1.getId();
+        long t2Id = t2.getId();
         for (int i = 0; i < 200; i++) {
             long[] deadlockedThreads = threadMxBean.findDeadlockedThreads();
             if (deadlockedThreads != null
@@ -278,12 +285,15 @@ public class ExternalDatabaseDeadlockTest {
                 long tblId, ExternalCatalog catalog, ExternalDatabase db, boolean checkExists) {
             if (loaderEntered != null) {
                 loaderEntered.countDown();
+                boolean released = false;
                 try {
-                    allowLoaderToProceed.await(10, TimeUnit.SECONDS);
+                    released = allowLoaderToProceed.await(10, TimeUnit.SECONDS);
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
-                    return null;
+                    Assertions.fail("loader interrupted while waiting for latch");
                 }
+                Assertions.assertTrue(released,
+                        "loader was not released within timeout - possible deadlock");
                 // Explicitly exercise the deadlock-critical lock path:
                 // getTableNamesWithLock -> makeSureInitialized -> synchronized(this).
                 // Without the fix, this deadlocks when resetMetaToUninitialized()
