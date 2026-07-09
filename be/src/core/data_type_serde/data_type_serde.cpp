@@ -43,10 +43,14 @@
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type_serde/data_type_array_serde.h"
+#include "core/data_type_serde/data_type_datetimev2_serde.h"
+#include "core/data_type_serde/data_type_datev2_serde.h"
 #include "core/data_type_serde/data_type_decimal_serde.h"
 #include "core/data_type_serde/data_type_jsonb_serde.h"
+#include "core/data_type_serde/data_type_nullable_serde.h"
 #include "core/data_type_serde/data_type_number_serde.h"
 #include "core/data_type_serde/data_type_string_serde.h"
+#include "core/data_type_serde/data_type_timestamptz_serde.h"
 #include "core/field.h"
 #include "core/types.h"
 #include "core/value/timestamptz_value.h"
@@ -181,10 +185,9 @@ void fill_decimal_big_endian_value(Int128 value, std::array<uint8_t, sizeof(Int1
     }
 }
 
-Status read_decoded_values(const DataTypePtr& data_type, IColumn& column, DecodedColumnView* view) {
-    DORIS_CHECK(data_type != nullptr);
+Status read_decoded_values(const DataTypeSerDe& serde, IColumn& column, DecodedColumnView* view) {
     DORIS_CHECK(view != nullptr);
-    RETURN_IF_ERROR(data_type->get_serde()->read_column_from_decoded_values(column, *view));
+    RETURN_IF_ERROR(serde.read_column_from_decoded_values(column, *view));
     return Status::OK();
 }
 
@@ -202,7 +205,7 @@ void fill_selected_values(const SourceType* source_values, size_t rows,
 }
 
 template <typename OrcBatchType, typename SourceType>
-Status decode_fixed_orc_values(const DataTypePtr& data_type, IColumn& column,
+Status decode_fixed_orc_values(const DataTypeSerDe& serde, IColumn& column,
                                const OrcDecodedColumnView& orc_view, DecodedValueKind value_kind) {
     const auto* orc_batch = dynamic_cast<const OrcBatchType*>(orc_view.batch);
     if (orc_batch == nullptr) {
@@ -221,11 +224,11 @@ Status decode_fixed_orc_values(const DataTypePtr& data_type, IColumn& column,
                              &selected_values);
         view.values = reinterpret_cast<const uint8_t*>(selected_values.data());
     }
-    RETURN_IF_ERROR(read_decoded_values(data_type, column, &view));
+    RETURN_IF_ERROR(read_decoded_values(serde, column, &view));
     return Status::OK();
 }
 
-Status decode_float_orc_values(const DataTypePtr& data_type, IColumn& column,
+Status decode_float_orc_values(const DataTypeSerDe& serde, IColumn& column,
                                const OrcDecodedColumnView& orc_view) {
     const auto* orc_batch = dynamic_cast<const ::orc::DoubleVectorBatch*>(orc_view.batch);
     if (orc_batch == nullptr) {
@@ -244,11 +247,11 @@ Status decode_float_orc_values(const DataTypePtr& data_type, IColumn& column,
                 static_cast<float>(orc_batch->data[orc_source_row_at(row, orc_view.selected_rows)]);
     }
     view.values = reinterpret_cast<const uint8_t*>(float_values.data());
-    RETURN_IF_ERROR(read_decoded_values(data_type, column, &view));
+    RETURN_IF_ERROR(read_decoded_values(serde, column, &view));
     return Status::OK();
 }
 
-Status decode_boolean_orc_values(const DataTypePtr& data_type, IColumn& column,
+Status decode_boolean_orc_values(const DataTypeSerDe& serde, IColumn& column,
                                  const OrcDecodedColumnView& orc_view) {
     const auto* orc_batch = dynamic_cast<const ::orc::LongVectorBatch*>(orc_view.batch);
     if (orc_batch == nullptr) {
@@ -265,11 +268,11 @@ Status decode_boolean_orc_values(const DataTypePtr& data_type, IColumn& column,
         bool_values[row] = orc_batch->data[orc_source_row_at(row, orc_view.selected_rows)] != 0;
     }
     view.values = reinterpret_cast<const uint8_t*>(bool_values.get());
-    RETURN_IF_ERROR(read_decoded_values(data_type, column, &view));
+    RETURN_IF_ERROR(read_decoded_values(serde, column, &view));
     return Status::OK();
 }
 
-Status decode_string_orc_values(const DataTypePtr& data_type, IColumn& column,
+Status decode_string_orc_values(const DataTypeSerDe& serde, IColumn& column,
                                 const OrcDecodedColumnView& orc_view) {
     DORIS_CHECK(orc_view.file_type != nullptr);
     if (const auto* encoded_batch =
@@ -300,7 +303,7 @@ Status decode_string_orc_values(const DataTypePtr& data_type, IColumn& column,
                     append_orc_string_ref(*orc_view.file_type, data, length, binary_values));
         }
         view.binary_values = &binary_values;
-        RETURN_IF_ERROR(read_decoded_values(data_type, column, &view));
+        RETURN_IF_ERROR(read_decoded_values(serde, column, &view));
         return Status::OK();
     }
 
@@ -326,11 +329,11 @@ Status decode_string_orc_values(const DataTypePtr& data_type, IColumn& column,
                                               orc_batch->length[source_row], binary_values));
     }
     view.binary_values = &binary_values;
-    RETURN_IF_ERROR(read_decoded_values(data_type, column, &view));
+    RETURN_IF_ERROR(read_decoded_values(serde, column, &view));
     return Status::OK();
 }
 
-Status decode_date_orc_values(const DataTypePtr& data_type, IColumn& column,
+Status decode_date_orc_values(const DataTypeSerDe& serde, IColumn& column,
                               const OrcDecodedColumnView& orc_view) {
     const auto* orc_batch = dynamic_cast<const ::orc::LongVectorBatch*>(orc_view.batch);
     if (orc_batch == nullptr) {
@@ -351,12 +354,12 @@ Status decode_date_orc_values(const DataTypePtr& data_type, IColumn& column,
         date_values[row] = cast_set<int32_t>(date.daynr() - DORIS_DATE_EPOCH_DAYNR);
     }
     view.values = reinterpret_cast<const uint8_t*>(date_values.data());
-    RETURN_IF_ERROR(read_decoded_values(data_type, column, &view));
+    RETURN_IF_ERROR(read_decoded_values(serde, column, &view));
     return Status::OK();
 }
 
-Status decode_decimal_orc_values(const DataTypePtr& data_type, IColumn& column,
-                                 const OrcDecodedColumnView& orc_view) {
+Status decode_decimal_orc_values(const DataTypeSerDe& serde, IColumn& column,
+                                 const OrcDecodedColumnView& orc_view, int32_t target_scale) {
     DORIS_CHECK(orc_view.file_type != nullptr);
     auto view = make_orc_decoded_view(orc_view, DecodedValueKind::FIXED_BINARY);
     view.decimal_precision = orc_view.file_type->getPrecision() == 0
@@ -372,8 +375,6 @@ Status decode_decimal_orc_values(const DataTypePtr& data_type, IColumn& column,
     const auto output_rows = orc_decode_row_count(orc_view.rows, orc_view.selected_rows);
     decimal_values.resize(output_rows);
     binary_values.reserve(output_rows);
-    const auto target_scale = cast_set<int32_t>(remove_nullable(data_type)->get_scale());
-
     if (const auto* decimal64_batch =
                 dynamic_cast<const ::orc::Decimal64VectorBatch*>(orc_view.batch);
         decimal64_batch != nullptr) {
@@ -390,7 +391,7 @@ Status decode_decimal_orc_values(const DataTypePtr& data_type, IColumn& column,
                                        decimal_values[row].size());
         }
         view.binary_values = &binary_values;
-        RETURN_IF_ERROR(read_decoded_values(data_type, column, &view));
+        RETURN_IF_ERROR(read_decoded_values(serde, column, &view));
         return Status::OK();
     }
 
@@ -413,7 +414,7 @@ Status decode_decimal_orc_values(const DataTypePtr& data_type, IColumn& column,
                                    decimal_values[row].size());
     }
     view.binary_values = &binary_values;
-    RETURN_IF_ERROR(read_decoded_values(data_type, column, &view));
+    RETURN_IF_ERROR(read_decoded_values(serde, column, &view));
     return Status::OK();
 }
 
@@ -537,15 +538,14 @@ OrcDecodedColumnView make_child_orc_view(const OrcDecodedColumnView& parent_view
     return child_view;
 }
 
-Status read_orc_child_column(const DataTypePtr& child_type, MutableColumnPtr& child_column,
+Status read_orc_child_column(const DataTypeSerDeSPtr& child_serde, MutableColumnPtr& child_column,
                              const OrcDecodedColumnView& child_view) {
-    DORIS_CHECK(child_type != nullptr);
-    RETURN_IF_ERROR(
-            child_type->get_serde()->read_column_from_orc(child_type, *child_column, child_view));
+    DORIS_CHECK(child_serde != nullptr);
+    RETURN_IF_ERROR(child_serde->read_column_from_orc(*child_column, child_view));
     return Status::OK();
 }
 
-Status decode_list_orc_values(const DataTypePtr& data_type, MutableColumnPtr& nested_column,
+Status decode_list_orc_values(const DataTypeSerDeSPtr& nested_serde, IColumn& nested_column,
                               const OrcDecodedColumnView& orc_view) {
     const auto* orc_list = dynamic_cast<const ::orc::ListVectorBatch*>(orc_view.batch);
     if (orc_list == nullptr) {
@@ -562,7 +562,7 @@ Status decode_list_orc_values(const DataTypePtr& data_type, MutableColumnPtr& ne
     DORIS_CHECK(file_element_type != nullptr);
     DORIS_CHECK(selected_element_type != nullptr);
 
-    auto& array_column = assert_cast<ColumnArray&>(*nested_column);
+    auto& array_column = assert_cast<ColumnArray&>(nested_column);
     size_t element_size = 0;
     std::vector<size_t> element_selection;
     RETURN_IF_ERROR(append_orc_offsets(array_column.get_offsets(), orc_list->offsets, orc_view.rows,
@@ -572,16 +572,15 @@ Status decode_list_orc_values(const DataTypePtr& data_type, MutableColumnPtr& ne
                                     ? element_size
                                     : static_cast<size_t>(orc_list->elements->numElements);
     const auto* child_selection = orc_view.selected_rows == nullptr ? nullptr : &element_selection;
-    const auto& array_type = assert_cast<const DataTypeArray&>(*data_type);
     auto child_view = make_child_orc_view(orc_view, file_element_type, selected_element_type,
                                           orc_list->elements.get(), child_rows, child_selection);
-    RETURN_IF_ERROR(
-            read_orc_child_column(array_type.get_nested_type(), element_column, child_view));
+    RETURN_IF_ERROR(read_orc_child_column(nested_serde, element_column, child_view));
     array_column.get_data_ptr() = std::move(element_column);
     return Status::OK();
 }
 
-Status decode_map_orc_values(const DataTypePtr& data_type, MutableColumnPtr& nested_column,
+Status decode_map_orc_values(const DataTypeSerDeSPtr& key_serde,
+                             const DataTypeSerDeSPtr& value_serde, IColumn& nested_column,
                              const OrcDecodedColumnView& orc_view) {
     const auto* orc_map = dynamic_cast<const ::orc::MapVectorBatch*>(orc_view.batch);
     if (orc_map == nullptr) {
@@ -594,7 +593,7 @@ Status decode_map_orc_values(const DataTypePtr& data_type, MutableColumnPtr& nes
     DORIS_CHECK(orc_view.selected_type->getSubtypeCount() == 2);
     DORIS_CHECK(orc_map->keys != nullptr);
     DORIS_CHECK(orc_map->elements != nullptr);
-    auto& map_column = assert_cast<ColumnMap&>(*nested_column);
+    auto& map_column = assert_cast<ColumnMap&>(nested_column);
     size_t element_size = 0;
     std::vector<size_t> element_selection;
     RETURN_IF_ERROR(append_orc_offsets(map_column.get_offsets(), orc_map->offsets, orc_view.rows,
@@ -608,11 +607,10 @@ Status decode_map_orc_values(const DataTypePtr& data_type, MutableColumnPtr& nes
                                     ? element_size
                                     : static_cast<size_t>(orc_map->keys->numElements);
     const auto* child_selection = orc_view.selected_rows == nullptr ? nullptr : &element_selection;
-    const auto& map_type = assert_cast<const DataTypeMap&>(*data_type);
     auto key_column = map_column.get_keys_ptr()->assert_mutable();
     auto key_view = make_child_orc_view(orc_view, file_key_type, selected_key_type,
                                         orc_map->keys.get(), child_rows, child_selection);
-    RETURN_IF_ERROR(read_orc_child_column(map_type.get_key_type(), key_column, key_view));
+    RETURN_IF_ERROR(read_orc_child_column(key_serde, key_column, key_view));
     map_column.get_keys_ptr() = std::move(key_column);
 
     const auto* file_value_type = orc_view.file_type->getSubtype(1);
@@ -625,12 +623,12 @@ Status decode_map_orc_values(const DataTypePtr& data_type, MutableColumnPtr& nes
             orc_view.selected_rows == nullptr ? element_size
                                               : static_cast<size_t>(orc_map->elements->numElements),
             child_selection);
-    RETURN_IF_ERROR(read_orc_child_column(map_type.get_value_type(), value_column, value_view));
+    RETURN_IF_ERROR(read_orc_child_column(value_serde, value_column, value_view));
     map_column.get_values_ptr() = std::move(value_column);
     return Status::OK();
 }
 
-Status decode_struct_orc_values(const DataTypePtr& data_type, MutableColumnPtr& nested_column,
+Status decode_struct_orc_values(const DataTypeSerDeSPtrs& elem_serdes_ptrs, IColumn& nested_column,
                                 const OrcDecodedColumnView& orc_view) {
     const auto* orc_struct = dynamic_cast<const ::orc::StructVectorBatch*>(orc_view.batch);
     if (orc_struct == nullptr) {
@@ -640,10 +638,9 @@ Status decode_struct_orc_values(const DataTypePtr& data_type, MutableColumnPtr& 
     DORIS_CHECK(orc_view.file_type != nullptr);
     DORIS_CHECK(orc_view.selected_type != nullptr);
     DORIS_CHECK(orc_view.selected_type->getSubtypeCount() == orc_struct->fields.size());
-    auto& struct_column = assert_cast<ColumnStruct&>(*nested_column);
+    auto& struct_column = assert_cast<ColumnStruct&>(nested_column);
     DORIS_CHECK(struct_column.tuple_size() == orc_view.selected_type->getSubtypeCount());
-    const auto& struct_type = assert_cast<const DataTypeStruct&>(*data_type);
-    DORIS_CHECK(struct_type.get_elements().size() == orc_view.selected_type->getSubtypeCount());
+    DORIS_CHECK(elem_serdes_ptrs.size() == orc_view.selected_type->getSubtypeCount());
 
     for (uint64_t selected_idx = 0; selected_idx < orc_view.selected_type->getSubtypeCount();
          ++selected_idx) {
@@ -663,8 +660,8 @@ Status decode_struct_orc_values(const DataTypePtr& data_type, MutableColumnPtr& 
         auto child_view = make_child_orc_view(orc_view, file_child_type, selected_child_type,
                                               orc_struct->fields[selected_idx], orc_view.rows,
                                               orc_view.selected_rows);
-        RETURN_IF_ERROR(read_orc_child_column(struct_type.get_element(selected_idx), child_column,
-                                              child_view));
+        RETURN_IF_ERROR(
+                read_orc_child_column(elem_serdes_ptrs[selected_idx], child_column, child_view));
         struct_column.get_column_ptr(static_cast<size_t>(selected_idx)) = std::move(child_column);
     }
     return Status::OK();
@@ -711,73 +708,217 @@ Status DataTypeSerDe::read_column_from_decoded_values(IColumn& column,
                                  get_name()));
 }
 
-Status DataTypeSerDe::read_column_from_orc(const DataTypePtr& data_type, IColumn& column,
+Status DataTypeSerDe::read_column_from_orc(IColumn& column,
                                            const OrcDecodedColumnView& view) const {
-    DORIS_CHECK(data_type != nullptr);
+    return Status::NotSupported("read_column_from_orc is not supported for {}", get_name());
+}
+
+Status DataTypeNullableSerDe::read_column_from_orc(IColumn& column,
+                                                   const OrcDecodedColumnView& view) const {
     DORIS_CHECK(view.file_type != nullptr);
     DORIS_CHECK(view.selected_type != nullptr);
     DORIS_CHECK(view.batch != nullptr);
     DORIS_CHECK(view.file_type->getKind() == view.selected_type->getKind());
-    DORIS_CHECK(column.is_nullable());
+    auto& nullable_column = assert_cast<ColumnNullable&>(column);
     const auto output_rows = orc_decode_row_count(view.rows, view.selected_rows);
     if (output_rows == 0) {
         return Status::OK();
     }
 
-    switch (view.file_type->getKind()) {
-    case ::orc::TypeKind::BOOLEAN:
-        return decode_boolean_orc_values(data_type, column, view);
-    case ::orc::TypeKind::BYTE:
-    case ::orc::TypeKind::SHORT:
-    case ::orc::TypeKind::INT:
-    case ::orc::TypeKind::LONG:
-        return decode_fixed_orc_values<::orc::LongVectorBatch, int64_t>(data_type, column, view,
-                                                                        DecodedValueKind::INT64);
-    case ::orc::TypeKind::FLOAT:
-        return decode_float_orc_values(data_type, column, view);
-    case ::orc::TypeKind::DOUBLE:
-        return decode_fixed_orc_values<::orc::DoubleVectorBatch, double>(data_type, column, view,
-                                                                         DecodedValueKind::DOUBLE);
-    case ::orc::TypeKind::STRING:
-    case ::orc::TypeKind::BINARY:
-    case ::orc::TypeKind::VARCHAR:
-    case ::orc::TypeKind::CHAR:
-        return decode_string_orc_values(data_type, column, view);
-    case ::orc::TypeKind::DATE:
-        return decode_date_orc_values(data_type, column, view);
-    case ::orc::TypeKind::DECIMAL:
-        return decode_decimal_orc_values(data_type, column, view);
-    default:
-        break;
+    auto& null_map = nullable_column.get_null_map_data();
+    const auto old_null_map_size = null_map.size();
+    auto& nested_column = nullable_column.get_nested_column();
+    const auto old_nested_size = nested_column.size();
+    append_orc_null_map(*view.batch, view.rows, view.selected_rows, &null_map);
+    auto st = nested_serde->read_column_from_orc(nested_column, view);
+    if (!st.ok()) {
+        null_map.resize(old_null_map_size);
+        nested_column.resize(old_nested_size);
     }
-
-    auto& nullable_column = assert_cast<ColumnNullable&>(column);
-    auto nested_column = nullable_column.get_nested_column_ptr();
-    append_orc_null_map(*view.batch, view.rows, view.selected_rows,
-                        &nullable_column.get_null_map_data());
-    const auto nested_type = remove_nullable(data_type);
-
-    switch (view.file_type->getKind()) {
-    case ::orc::TypeKind::TIMESTAMP:
-        DORIS_CHECK(view.timezone != nullptr);
-        return decode_timestamp_orc_values(*nested_column, view, *view.timezone);
-    case ::orc::TypeKind::TIMESTAMP_INSTANT:
-        if (view.enable_mapping_timestamp_tz) {
-            return decode_timestamp_tz_orc_values(*nested_column, view);
-        }
-        DORIS_CHECK(view.timezone != nullptr);
-        return decode_timestamp_orc_values(*nested_column, view, *view.timezone);
-    case ::orc::TypeKind::LIST:
-        return decode_list_orc_values(nested_type, nested_column, view);
-    case ::orc::TypeKind::MAP:
-        return decode_map_orc_values(nested_type, nested_column, view);
-    case ::orc::TypeKind::STRUCT:
-        return decode_struct_orc_values(nested_type, nested_column, view);
-    default:
-        return Status::NotSupported("ORC type {} is not supported by new ORC reader",
-                                    static_cast<int>(view.file_type->getKind()));
-    }
+    return st;
 }
+
+template <PrimitiveType T>
+Status DataTypeNumberSerDe<T>::read_column_from_orc(IColumn& column,
+                                                    const OrcDecodedColumnView& view) const {
+    DORIS_CHECK(view.file_type != nullptr);
+    DORIS_CHECK(view.batch != nullptr);
+    if (orc_decode_row_count(view.rows, view.selected_rows) == 0) {
+        return Status::OK();
+    }
+
+    if constexpr (T == TYPE_BOOLEAN) {
+        DORIS_CHECK(view.file_type->getKind() == ::orc::TypeKind::BOOLEAN);
+        return decode_boolean_orc_values(*this, column, view);
+    } else if constexpr (T == TYPE_TINYINT || T == TYPE_SMALLINT || T == TYPE_INT ||
+                         T == TYPE_BIGINT) {
+        if constexpr (T == TYPE_TINYINT) {
+            DORIS_CHECK(view.file_type->getKind() == ::orc::TypeKind::BYTE);
+        } else if constexpr (T == TYPE_SMALLINT) {
+            DORIS_CHECK(view.file_type->getKind() == ::orc::TypeKind::SHORT);
+        } else if constexpr (T == TYPE_INT) {
+            DORIS_CHECK(view.file_type->getKind() == ::orc::TypeKind::INT);
+        } else {
+            DORIS_CHECK(view.file_type->getKind() == ::orc::TypeKind::LONG);
+        }
+        return decode_fixed_orc_values<::orc::LongVectorBatch, int64_t>(*this, column, view,
+                                                                        DecodedValueKind::INT64);
+    } else if constexpr (T == TYPE_FLOAT) {
+        DORIS_CHECK(view.file_type->getKind() == ::orc::TypeKind::FLOAT);
+        return decode_float_orc_values(*this, column, view);
+    } else if constexpr (T == TYPE_DOUBLE) {
+        DORIS_CHECK(view.file_type->getKind() == ::orc::TypeKind::DOUBLE);
+        return decode_fixed_orc_values<::orc::DoubleVectorBatch, double>(*this, column, view,
+                                                                         DecodedValueKind::DOUBLE);
+    }
+    return DataTypeSerDe::read_column_from_orc(column, view);
+}
+
+template <typename ColumnType>
+Status DataTypeStringSerDeBase<ColumnType>::read_column_from_orc(
+        IColumn& column, const OrcDecodedColumnView& view) const {
+    DORIS_CHECK(view.file_type != nullptr);
+    DORIS_CHECK(view.batch != nullptr);
+    const auto kind = view.file_type->getKind();
+    DORIS_CHECK(kind == ::orc::TypeKind::STRING || kind == ::orc::TypeKind::BINARY ||
+                kind == ::orc::TypeKind::VARCHAR || kind == ::orc::TypeKind::CHAR);
+    if (orc_decode_row_count(view.rows, view.selected_rows) == 0) {
+        return Status::OK();
+    }
+    return decode_string_orc_values(*this, column, view);
+}
+
+template <PrimitiveType T>
+Status DataTypeDecimalSerDe<T>::read_column_from_orc(IColumn& column,
+                                                     const OrcDecodedColumnView& view) const {
+    DORIS_CHECK(view.file_type != nullptr);
+    DORIS_CHECK(view.batch != nullptr);
+    DORIS_CHECK(view.file_type->getKind() == ::orc::TypeKind::DECIMAL);
+    if (orc_decode_row_count(view.rows, view.selected_rows) == 0) {
+        return Status::OK();
+    }
+    return decode_decimal_orc_values(*this, column, view, cast_set<int32_t>(scale));
+}
+
+Status DataTypeDateV2SerDe::read_column_from_orc(IColumn& column,
+                                                 const OrcDecodedColumnView& view) const {
+    DORIS_CHECK(view.file_type != nullptr);
+    DORIS_CHECK(view.batch != nullptr);
+    DORIS_CHECK(view.file_type->getKind() == ::orc::TypeKind::DATE);
+    if (orc_decode_row_count(view.rows, view.selected_rows) == 0) {
+        return Status::OK();
+    }
+    return decode_date_orc_values(*this, column, view);
+}
+
+Status DataTypeDateTimeV2SerDe::read_column_from_orc(IColumn& column,
+                                                     const OrcDecodedColumnView& view) const {
+    DORIS_CHECK(view.file_type != nullptr);
+    DORIS_CHECK(view.batch != nullptr);
+    const auto kind = view.file_type->getKind();
+    DORIS_CHECK(kind == ::orc::TypeKind::TIMESTAMP || kind == ::orc::TypeKind::TIMESTAMP_INSTANT);
+    DORIS_CHECK(view.timezone != nullptr);
+    if (orc_decode_row_count(view.rows, view.selected_rows) == 0) {
+        return Status::OK();
+    }
+    return decode_timestamp_orc_values(column, view, *view.timezone);
+}
+
+Status DataTypeTimeStampTzSerDe::read_column_from_orc(IColumn& column,
+                                                      const OrcDecodedColumnView& view) const {
+    DORIS_CHECK(view.file_type != nullptr);
+    DORIS_CHECK(view.batch != nullptr);
+    DORIS_CHECK(view.file_type->getKind() == ::orc::TypeKind::TIMESTAMP_INSTANT);
+    DORIS_CHECK(view.enable_mapping_timestamp_tz);
+    if (orc_decode_row_count(view.rows, view.selected_rows) == 0) {
+        return Status::OK();
+    }
+    return decode_timestamp_tz_orc_values(column, view);
+}
+
+Status DataTypeArraySerDe::read_column_from_orc(IColumn& column,
+                                                const OrcDecodedColumnView& view) const {
+    DORIS_CHECK(view.file_type != nullptr);
+    DORIS_CHECK(view.batch != nullptr);
+    DORIS_CHECK(view.file_type->getKind() == ::orc::TypeKind::LIST);
+    if (orc_decode_row_count(view.rows, view.selected_rows) == 0) {
+        return Status::OK();
+    }
+    return decode_list_orc_values(nested_serde, column, view);
+}
+
+Status DataTypeMapSerDe::read_column_from_orc(IColumn& column,
+                                              const OrcDecodedColumnView& view) const {
+    DORIS_CHECK(view.file_type != nullptr);
+    DORIS_CHECK(view.batch != nullptr);
+    DORIS_CHECK(view.file_type->getKind() == ::orc::TypeKind::MAP);
+    if (orc_decode_row_count(view.rows, view.selected_rows) == 0) {
+        return Status::OK();
+    }
+    return decode_map_orc_values(key_serde, value_serde, column, view);
+}
+
+Status DataTypeStructSerDe::read_column_from_orc(IColumn& column,
+                                                 const OrcDecodedColumnView& view) const {
+    DORIS_CHECK(view.file_type != nullptr);
+    DORIS_CHECK(view.batch != nullptr);
+    DORIS_CHECK(view.file_type->getKind() == ::orc::TypeKind::STRUCT);
+    if (orc_decode_row_count(view.rows, view.selected_rows) == 0) {
+        return Status::OK();
+    }
+    return decode_struct_orc_values(elem_serdes_ptrs, column, view);
+}
+
+template Status DataTypeNumberSerDe<TYPE_BOOLEAN>::read_column_from_orc(
+        IColumn& column, const OrcDecodedColumnView& view) const;
+template Status DataTypeNumberSerDe<TYPE_TINYINT>::read_column_from_orc(
+        IColumn& column, const OrcDecodedColumnView& view) const;
+template Status DataTypeNumberSerDe<TYPE_SMALLINT>::read_column_from_orc(
+        IColumn& column, const OrcDecodedColumnView& view) const;
+template Status DataTypeNumberSerDe<TYPE_INT>::read_column_from_orc(
+        IColumn& column, const OrcDecodedColumnView& view) const;
+template Status DataTypeNumberSerDe<TYPE_BIGINT>::read_column_from_orc(
+        IColumn& column, const OrcDecodedColumnView& view) const;
+template Status DataTypeNumberSerDe<TYPE_LARGEINT>::read_column_from_orc(
+        IColumn& column, const OrcDecodedColumnView& view) const;
+template Status DataTypeNumberSerDe<TYPE_FLOAT>::read_column_from_orc(
+        IColumn& column, const OrcDecodedColumnView& view) const;
+template Status DataTypeNumberSerDe<TYPE_DOUBLE>::read_column_from_orc(
+        IColumn& column, const OrcDecodedColumnView& view) const;
+template Status DataTypeNumberSerDe<TYPE_DATE>::read_column_from_orc(
+        IColumn& column, const OrcDecodedColumnView& view) const;
+template Status DataTypeNumberSerDe<TYPE_DATEV2>::read_column_from_orc(
+        IColumn& column, const OrcDecodedColumnView& view) const;
+template Status DataTypeNumberSerDe<TYPE_DATETIME>::read_column_from_orc(
+        IColumn& column, const OrcDecodedColumnView& view) const;
+template Status DataTypeNumberSerDe<TYPE_DATETIMEV2>::read_column_from_orc(
+        IColumn& column, const OrcDecodedColumnView& view) const;
+template Status DataTypeNumberSerDe<TYPE_IPV4>::read_column_from_orc(
+        IColumn& column, const OrcDecodedColumnView& view) const;
+template Status DataTypeNumberSerDe<TYPE_IPV6>::read_column_from_orc(
+        IColumn& column, const OrcDecodedColumnView& view) const;
+template Status DataTypeNumberSerDe<TYPE_TIMEV2>::read_column_from_orc(
+        IColumn& column, const OrcDecodedColumnView& view) const;
+template Status DataTypeNumberSerDe<TYPE_TIMESTAMPTZ>::read_column_from_orc(
+        IColumn& column, const OrcDecodedColumnView& view) const;
+
+template Status DataTypeStringSerDeBase<ColumnString>::read_column_from_orc(
+        IColumn& column, const OrcDecodedColumnView& view) const;
+template Status DataTypeStringSerDeBase<ColumnString64>::read_column_from_orc(
+        IColumn& column, const OrcDecodedColumnView& view) const;
+template Status DataTypeStringSerDeBase<ColumnFixedLengthObject>::read_column_from_orc(
+        IColumn& column, const OrcDecodedColumnView& view) const;
+
+template Status DataTypeDecimalSerDe<TYPE_DECIMAL32>::read_column_from_orc(
+        IColumn& column, const OrcDecodedColumnView& view) const;
+template Status DataTypeDecimalSerDe<TYPE_DECIMAL64>::read_column_from_orc(
+        IColumn& column, const OrcDecodedColumnView& view) const;
+template Status DataTypeDecimalSerDe<TYPE_DECIMAL128I>::read_column_from_orc(
+        IColumn& column, const OrcDecodedColumnView& view) const;
+template Status DataTypeDecimalSerDe<TYPE_DECIMALV2>::read_column_from_orc(
+        IColumn& column, const OrcDecodedColumnView& view) const;
+template Status DataTypeDecimalSerDe<TYPE_DECIMAL256>::read_column_from_orc(
+        IColumn& column, const OrcDecodedColumnView& view) const;
 
 Status DataTypeSerDe::read_field_from_decoded_value(const IDataType& data_type, Field* field,
                                                     const DecodedColumnView& view) const {

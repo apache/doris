@@ -1794,7 +1794,7 @@ Status OrcReader::_decode_column(const ::orc::Type& file_type, const ::orc::Type
     view.selected_rows = selected_rows;
     view.timezone = &_state->timezone_obj;
     view.enable_mapping_timestamp_tz = _enable_mapping_timestamp_tz;
-    return column_type->get_serde()->read_column_from_orc(column_type, *column, view);
+    return column_type->get_serde()->read_column_from_orc(*column, view);
 }
 
 Status OrcReader::get_block(Block* file_block, size_t* rows, bool* eof) {
