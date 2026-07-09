@@ -340,14 +340,15 @@ private:
     }
 
     bool _should_enable_file_meta_cache() {
-        return (ExecEnv::GetInstance()->file_meta_cache()->enabled() ||
-                FileMetaCache::is_persistent_cache_enabled());
+        auto* file_meta_cache = ExecEnv::GetInstance()->file_meta_cache();
+        return file_meta_cache != nullptr &&
+               (file_meta_cache->enabled() || FileMetaCache::is_persistent_cache_enabled());
     }
 
     // Enable memory file meta cache only when the file number is less than 1/3 of cache capacity.
     // Otherwise, the cache miss rate will be high. Persistent cache is not gated by this rule.
-    bool _should_enable_file_meta_memory_cache() {
-        return ExecEnv::GetInstance()->file_meta_cache()->enabled() &&
+    bool _should_enable_file_meta_memory_cache(FileMetaCache* file_meta_cache) {
+        return file_meta_cache != nullptr && file_meta_cache->enabled() &&
                _split_source->num_scan_ranges() < config::max_external_file_meta_cache_num / 3;
     }
 };

@@ -1351,7 +1351,8 @@ Status FileScanner::_init_parquet_reader(FileMetaCache* file_meta_cache_ptr,
                                          std::unique_ptr<ParquetReader> parquet_reader) {
     const TFileRangeDesc& range = _current_range;
     Status init_status = Status::OK();
-    const bool enable_file_meta_memory_cache = _should_enable_file_meta_memory_cache();
+    const bool enable_file_meta_memory_cache =
+            _should_enable_file_meta_memory_cache(file_meta_cache_ptr);
     auto configure_file_meta_memory_cache = [&](GenericReader* reader) {
         reader->set_enable_file_meta_memory_cache(enable_file_meta_memory_cache);
     };
@@ -1446,7 +1447,8 @@ Status FileScanner::_init_orc_reader(FileMetaCache* file_meta_cache_ptr,
                                      std::unique_ptr<OrcReader> orc_reader) {
     const TFileRangeDesc& range = _current_range;
     Status init_status = Status::OK();
-    const bool enable_file_meta_memory_cache = _should_enable_file_meta_memory_cache();
+    const bool enable_file_meta_memory_cache =
+            _should_enable_file_meta_memory_cache(file_meta_cache_ptr);
     auto configure_file_meta_memory_cache = [&](GenericReader* reader) {
         reader->set_enable_file_meta_memory_cache(enable_file_meta_memory_cache);
     };
