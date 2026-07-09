@@ -623,14 +623,12 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         // file, and the per-split PaimonScanRange.populateRangeParams already emits them as
         // columnsFromPath; without this declaration the BE both DECODES dt/hh from the ORC file AND
         // APPENDS them from columnsFromPath -> a row-count double-fill that trips the OrcReader DCHECK
-        // (block rows != partition col rows). Lower-cased to match the Doris column names and the
+        // (block rows != partition col rows). Case-preserved to match the Doris column names and the
         // columnsFromPath keys (getPartitionInfoMap). Restores legacy PaimonScanNode.getPathPartitionKeys
         // parity (and mirrors the hive connector). PluginDrivenScanNode.getPathPartitionKeys reads this.
         List<String> partitionKeys = table.partitionKeys();
         if (partitionKeys != null && !partitionKeys.isEmpty()) {
-            props.put("path_partition_keys", partitionKeys.stream()
-                    .map(k -> k.toLowerCase(Locale.ROOT))
-                    .collect(Collectors.joining(",")));
+            props.put("path_partition_keys", String.join(",", partitionKeys));
         }
 
         // Serialized table for BE's JNI reader
@@ -1044,7 +1042,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             try {
                 String value = serializePartitionValue(
                         partitionType.getFields().get(i).type(), values[i], timeZone);
-                result.put(partitionKeys.get(i).toLowerCase(Locale.ROOT), value);
+                result.put(partitionKeys.get(i), value);
             } catch (UnsupportedOperationException e) {
                 // Legacy parity (PaimonUtil.getPartitionInfoMap): an unsupported partition column
                 // type (e.g. binary/varbinary) drops the ENTIRE map — BE then materializes no
@@ -1391,13 +1389,13 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
 
         List<TSchema> history = new ArrayList<>();
         // Current/target schema under the -1 sentinel, keyed off the REQUESTED columns (see javadoc). Its
-        // top-level names are lowercased: BE keys the table-side StructNode by these names VERBATIM and the
-        // native reader looks them up by the lowercase Doris slot name (legacy ExternalUtil/parseSchema
-        // parity). Nested + historical names stay paimon-cased (legacy PaimonUtil.getSchemaInfo). NOT
-        // memoized: it reads the LIVE table.schema()/latest() and is keyed off the requested columns, not a
-        // committed schema id.
+        // top-level names are case-preserved (paimon-cased): BE keys the table-side StructNode by these names
+        // VERBATIM and the native reader looks them up by the case-preserved Doris slot name (#65094 read-path
+        // alignment — the slots from getColumnHandles now keep their paimon case). Nested + historical names
+        // stay paimon-cased (legacy PaimonUtil.getSchemaInfo). NOT memoized: it reads the LIVE
+        // table.schema()/latest() and is keyed off the requested columns, not a committed schema id.
         history.add(buildSchemaInfo(CURRENT_SCHEMA_ID,
-                resolveCurrentSchemaFields(fileStoreTable, schemaManager, columns), true));
+                resolveCurrentSchemaFields(fileStoreTable, schemaManager, columns), false));
         // One entry per committed schema id so every native file's schema_id resolves. The EMISSION is
         // unchanged (still every listAllIds() id -> the dict always covers any file's schema_id -> no
         // BE-crash risk); only the per-id field READ is memoized (FIX-B-R2-be). A committed schemaId's
@@ -1519,10 +1517,11 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
      * {@code be/src/format/table/table_schema_change_helper.cpp}).
      *
      * <p>{@code lowercaseTopLevelNames} lowercases ONLY the top-level field names (not nested struct
-     * fields) — the legacy-asymmetric casing: the current/target (-1) entry needs lowercase top-level
-     * names to match the lowercase Doris slot names BE keys by ({@code parseSchema} lowercases top-level),
-     * while nested struct field names stay paimon-cased ({@code PaimonUtil.paimonTypeToDorisType} keeps
-     * them) and historical entries are fully paimon-cased.</p>
+     * fields) when set. Post-#65094 (read-path case alignment) both the current/target (-1) and historical
+     * entries pass {@code false}: top-level names stay case-preserved (paimon-cased) to byte-match the
+     * case-preserving Doris slot names BE keys by (the {@code getColumnHandles} slots + {@code parseSchema}
+     * now keep their remote case), while nested struct field names are always paimon-cased
+     * ({@code PaimonUtil.paimonTypeToDorisType} keeps them).</p>
      */
     static TSchema buildSchemaInfo(long schemaId, List<DataField> fields, boolean lowercaseTopLevelNames) {
         TSchema tSchema = new TSchema();
@@ -1538,9 +1537,10 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             // Nested structs are always built paimon-cased (legacy parity) — only this level's names are
             // optionally lowercased.
             TField tField = buildField(field.type());
-            // Default-locale toLowerCase to byte-match the Doris slot names BE looks up — produced the
-            // same way by PaimonConnectorMetadata column mapping and legacy PaimonUtil.parseSchema (NOT
+            // When lowercaseNames is set, lowercase the top-level name with the DEFAULT locale (NOT
             // Locale.ROOT — that would diverge from the slot names under a non-ROOT JVM default locale).
+            // Post-#65094 production passes false, so the name is emitted case-preserved to byte-match the
+            // Doris slot names BE looks up (same casing PaimonConnectorMetadata column mapping produces).
             tField.setName(lowercaseNames ? field.name().toLowerCase() : field.name());
             tField.setId(field.id());
             TFieldPtr fieldPtr = new TFieldPtr();
