@@ -835,6 +835,7 @@ suite("test_show_data_with_compaction", "p2") {
         logger.info("with_index_size is {}, another_with_index_size is {}", with_index_size, another_with_index_size)
         assert_documents_show_data_size_in_range.call(with_index_size, "documents table with inverted index compaction")
         assert_documents_show_data_size_in_range.call(another_with_index_size, "documents table without inverted index compaction")
+        assert_show_data_size_close.call(with_index_size, another_with_index_size, "documents table")
 
         set_be_config.call("inverted_index_compaction_enable", "true")
 
