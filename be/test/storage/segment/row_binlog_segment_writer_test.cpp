@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "storage/segment/row_binlog_segment_writer.h"
+
 #include <gtest/gtest.h>
 
 #include <memory>
@@ -25,7 +27,6 @@
 #include "core/value/decimalv2_value.h"
 #include "storage/binlog.h"
 #include "storage/iterator/olap_data_convertor.h"
-#include "storage/segment/row_binlog_segment_writer.h"
 #include "storage/tablet/tablet_schema.h"
 
 namespace doris::segment_v2 {
@@ -71,7 +72,7 @@ Block create_source_block(const TabletSchemaSPtr& schema) {
 
 } // namespace
 
-TEST(RowBinlogSourceDataWriterTest, collectHiddenKeyInNormalPrefix) {
+TEST(RowBinlogSegmentWriterTest, collectHiddenKeyInSourceDataWriter) {
     auto source_schema = create_source_schema();
     SegmentWriteBinlogOptions options;
     options.source.tablet_schema = source_schema;
@@ -97,7 +98,7 @@ TEST(RowBinlogSourceDataWriterTest, collectHiddenKeyInNormalPrefix) {
               *reinterpret_cast<const int128_t*>(key_columns[1]->get_data_at(1)));
 }
 
-TEST(RowBinlogSourceDataWriterTest, skipHiddenNonKeyBeforeVisibleColumn) {
+TEST(RowBinlogSegmentWriterTest, skipHiddenNonKeyBeforeVisibleColumn) {
     auto source_schema = std::make_shared<TabletSchema>();
     source_schema->append_column(
             create_column(0, "k1", FieldType::OLAP_FIELD_TYPE_INT, true, true));
