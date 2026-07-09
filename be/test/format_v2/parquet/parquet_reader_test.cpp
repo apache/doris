@@ -786,10 +786,10 @@ void write_dictionary_filter_with_trailing_column_parquet_file(const std::string
             arrow::field("value", arrow::utf8(), false),
             arrow::field("payload", arrow::int32(), false),
     });
-    auto table = arrow::Table::Make(
-            schema, {build_int32_array({1, 2, 3, 4, 5, 6}),
-                     build_string_array({"aa", "az", "lm", "lz", "za", "zz"}),
-                     build_int32_array({10, 20, 30, 40, 50, 60})});
+    auto table =
+            arrow::Table::Make(schema, {build_int32_array({1, 2, 3, 4, 5, 6}),
+                                        build_string_array({"aa", "az", "lm", "lz", "za", "zz"}),
+                                        build_int32_array({10, 20, 30, 40, 50, 60})});
 
     auto file_result = arrow::io::FileOutputStream::Open(file_path);
     ASSERT_TRUE(file_result.ok()) << file_result.status();
