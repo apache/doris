@@ -71,7 +71,6 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
@@ -238,9 +237,7 @@ public class PaimonScanNode extends FileQueryScanNode {
                 && !((PaimonSysExternalTable) externalTable).isDataTable()) {
             return Collections.emptyList();
         }
-        return source.getPaimonTable().partitionKeys().stream()
-                .map(key -> key.toLowerCase(Locale.ROOT))
-                .collect(Collectors.toList());
+        return source.getPaimonTable().partitionKeys();
     }
 
     private void putHistorySchemaInfo(Long schemaId) {
@@ -607,13 +604,9 @@ public class PaimonScanNode extends FileQueryScanNode {
         long startTime = System.currentTimeMillis();
         try {
             Table paimonTable = getProcessedTable();
+            List<String> fieldNames = paimonTable.rowType().getFieldNames();
             int[] projected = desc.getSlots().stream().mapToInt(
-                    slot -> paimonTable.rowType()
-                            .getFieldNames()
-                            .stream()
-                            .map(String::toLowerCase)
-                            .collect(Collectors.toList())
-                            .indexOf(slot.getColumn().getName()))
+                    slot -> getFieldIndex(fieldNames, slot.getColumn().getName()))
                     .filter(i -> i >= 0)
                     .toArray();
             ReadBuilder readBuilder = paimonTable.newReadBuilder();
@@ -635,6 +628,16 @@ public class PaimonScanNode extends FileQueryScanNode {
                 getSummaryProfile().addExternalTableGetFileScanTasksTime(System.currentTimeMillis() - startTime);
             }
         }
+    }
+
+    @VisibleForTesting
+    static int getFieldIndex(List<String> fieldNames, String columnName) {
+        for (int i = 0; i < fieldNames.size(); i++) {
+            if (fieldNames.get(i).equalsIgnoreCase(columnName)) {
+                return i;
+            }
+        }
+        return -1;
     }
 
     private String getFileFormat(String path) {

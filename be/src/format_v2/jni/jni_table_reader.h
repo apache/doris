@@ -78,6 +78,8 @@ private:
     // get_next
     Status _get_next_jni_block(size_t* rows, bool* eof);
     Status _fill_jni_block(JniDataBridge::TableMetaAddress& table_meta, size_t num_rows);
+    Status _get_statistics(JNIEnv* env, std::map<std::string, std::string>* result);
+    void _collect_jni_scanner_profile(JNIEnv* env);
 
     Status _close_jni_scanner();
 

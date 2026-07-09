@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_iceberg_deletion_vector", "p0,external") {
+suite("test_iceberg_deletion_vector", "p0,external,nonConcurrent") {
     String enabled = context.config.otherConfigs.get("enableIcebergTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         logger.info("disable iceberg test.")
@@ -328,6 +328,33 @@ class IcebergRestCatalog {
     qt_q3 """ SELECT * FROM dv_test_orc ORDER BY id; """
     qt_no_delete """ SELECT * FROM dv_test_no_delete ORDER BY id; """
 
+    def enableFileScannerV2Rows = sql """SHOW VARIABLES LIKE 'enable_file_scanner_v2'"""
+    assertTrue(enableFileScannerV2Rows.size() > 0,
+            "Session variable enable_file_scanner_v2 is not found")
+    String originalEnableFileScannerV2 = enableFileScannerV2Rows[0][1].toString()
+    try {
+        sql """set enable_file_scanner_v2=false"""
+        GetDebugPoint().clearDebugPointsForAllBEs()
+        GetDebugPoint().enableDebugPointForAllBEs(
+                "IcebergDeleteFileReader.read_deletion_vector.io_error")
+        test {
+            sql """ SELECT count(*) FROM dv_test; """
+            exception "injected Iceberg deletion vector read failure"
+        }
+
+        sql """set enable_file_scanner_v2=true"""
+        GetDebugPoint().clearDebugPointsForAllBEs()
+        GetDebugPoint().enableDebugPointForAllBEs(
+                "TableReader.parse_deletion_vector.io_error")
+        test {
+            sql """ SELECT count(*) FROM dv_test; """
+            exception "injected format v2 deletion vector read failure"
+        }
+    } finally {
+        GetDebugPoint().clearDebugPointsForAllBEs()
+        sql """set enable_file_scanner_v2=${originalEnableFileScannerV2}"""
+    }
+
     // Delete-type matrix checks cover equality-only, position-only, DV-only, DV+position,
     // and DV+equality combinations.
     qt_equality_only """ SELECT * FROM dv_delete_matrix_equality_only ORDER BY id; """
@@ -523,15 +550,23 @@ s3.path-style-access=true
         return matcher.group(1).split(",").collect { it.trim() }.findAll { !it.isEmpty() }.size()
     }
 
+    def aliveBackendCount = {
+        def backends = sql_return_maparray("show backends")
+        int aliveCount = backends.count { be ->
+            be.Alive == null || be.Alive.toString().equalsIgnoreCase("true")
+        }
+        return aliveCount > 0 ? aliveCount : backends.size()
+    }
+
     // Split/cache scenario for 3.4: this query scans one data file with file_split_size=1. The
     // result is captured by qt_split_cache_single_file_count; the profile assertion checks the DV
-    // rows were materialized once for the shared scan-node cache, not once per split.
+    // rows were materialized once per backend-local scan cache, not once per split.
     String splitCacheProfileTag = "iceberg_dv_split_cache_" + UUID.randomUUID().toString()
     profile(splitCacheProfileTag) {
         run {
             sql """
                 /* ${splitCacheProfileTag} */
-                SELECT count(*), sum(id)
+                SELECT /*+ SET_VAR(parallel_pipeline_task_num=1) */ count(*), sum(id)
                   FROM dv_split_cache_single_file;
             """
             // The detailed scanner counters are populated asynchronously after the query returns.
@@ -555,12 +590,20 @@ s3.path-style-access=true
             }
             def numDeleteRowsValues = profileCounterValues(mergedProfile, "NumDeleteRows")
             numDeleteRowsValues = numDeleteRowsValues.findAll { it > 0L }
+            long numDeleteRows = numDeleteRowsValues.sum(0L)
+            long expectedDeleteRowsPerDv = 2048L
+            int maxBackendLocalLoads = aliveBackendCount()
             int scannerCount = profileInfoValueCount(profileString, "PerScannerRowsRead")
             assertFalse(numDeleteRowsValues.isEmpty(),
                     "Expected NumDeleteRows counter for split DV scan, profile: ${profileString}")
-            assertEquals(2048L, numDeleteRowsValues.sum(0L),
-                    "Expected DV rows to be materialized once across split scanners, " +
+            assertEquals(0L, numDeleteRows % expectedDeleteRowsPerDv,
+                    "Expected DV rows to be counted in backend-local DV loads, " +
                             "NumDeleteRows counters: ${numDeleteRowsValues}, profile: ${profileString}")
+            assertTrue(numDeleteRows >= expectedDeleteRowsPerDv &&
+                            numDeleteRows <= expectedDeleteRowsPerDv * maxBackendLocalLoads,
+                    "Expected DV rows to be materialized at most once per backend-local cache, " +
+                            "alive backends: ${maxBackendLocalLoads}, NumDeleteRows counters: " +
+                            "${numDeleteRowsValues}, profile: ${profileString}")
             assertTrue(scannerCount > 1,
                     "Expected multiple scanner entries for split DV scan, profile: ${profileString}")
         }
