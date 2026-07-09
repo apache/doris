@@ -63,7 +63,6 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
@@ -109,7 +108,7 @@ final class IcebergPartitionUtils {
     }
 
     /**
-     * Ordered, lowercased, de-duplicated list of the identity partition column names across <b>all</b>
+     * Ordered, case-preserved, de-duplicated list of the identity partition column names across <b>all</b>
      * partition specs of the table (mirrors legacy {@code IcebergUtils.getIdentityPartitionColumns}). This
      * is the {@code path_partition_keys} payload: it tells FE which slots are partition columns so they are
      * excluded from the file-decode set (the CI #968880 double-fill guard). Non-identity transforms
@@ -124,7 +123,7 @@ final class IcebergPartitionUtils {
                 }
                 String columnName = table.schema().findColumnName(partitionField.sourceId());
                 if (columnName != null) {
-                    partitionColumns.add(columnName.toLowerCase(java.util.Locale.ROOT));
+                    partitionColumns.add(columnName);
                 }
             }
         }
@@ -132,7 +131,7 @@ final class IcebergPartitionUtils {
     }
 
     /**
-     * Per-file map of identity partition column (lowercased) to serialized value, skipping non-identity
+     * Per-file map of identity partition column (case-preserved) to serialized value, skipping non-identity
      * transforms and BINARY/FIXED columns (utf8 round-trip would corrupt those). Order-preserving
      * (LinkedHashMap, spec field order). Mirrors legacy {@code IcebergUtils.getIdentityPartitionInfoMap}.
      */
@@ -161,7 +160,7 @@ final class IcebergPartitionUtils {
             }
             Object value = partitionData.get(i);
             try {
-                partitionInfoMap.put(columnName.toLowerCase(java.util.Locale.ROOT),
+                partitionInfoMap.put(columnName,
                         serializePartitionValue(field.type(), value, zone));
             } catch (UnsupportedOperationException e) {
                 LOG.warn("Failed to serialize Iceberg table partition value for field {}: {}", field.name(),
@@ -502,8 +501,8 @@ final class IcebergPartitionUtils {
      * The physical iceberg partitions of {@code table} at its CURRENT snapshot with per-partition metadata,
      * for the generic {@code ConnectorMetadata.listPartitions} SPI hook. Each {@link ConnectorPartitionInfo}
      * carries the display name ({@code "f1=v1/f2=v2"}) and a value map keyed by the partition-field SOURCE
-     * column name (lowercased) so {@code PluginDrivenExternalTable.getNameToPartitionItems} can index it by the
-     * generic partition-column remote name. Unlike the MTMV {@link #buildMvccPartitionView} this is NOT gated on
+     * column name (case-preserved) so {@code PluginDrivenExternalTable.getNameToPartitionItems} can index it by
+     * the generic partition-column remote name. Unlike the MTMV {@link #buildMvccPartitionView} this is NOT gated on
      * the MTMV eligibility rules — it enumerates ANY partitioned iceberg table so the generic node can report a
      * real {@code selectedPartitionNum} (EXPLAIN {@code partition=N/M} + SQL-block-rule {@code partition_num}
      * enforcement). An unpartitioned or empty table yields an empty list. Must run inside
@@ -619,12 +618,14 @@ final class IcebergPartitionUtils {
             Object o = partitionData.get(index, fieldClass);
             String fieldValue = o == null ? null : o.toString();
             sb.append(partitionField.name()).append("=").append(fieldValue).append("/");
-            // Resolve the partition field's SOURCE column name (lowercased), matching the generic
+            // Resolve the partition field's SOURCE column name (case-preserved), matching the generic
             // "partition_columns" contract in IcebergConnectorMetadata.buildTableSchema; fall back to the
-            // field name for a source-less field (e.g. void transform).
+            // field name for a source-less field (e.g. void transform). #65094: these are the
+            // ConnectorPartitionInfo value-map keys (listPartitions) that getNameToPartitionItems looks up by
+            // the case-preserved partition_columns remote name, so they MUST carry the same case (else a
+            // mixed-case partition column's value is dropped).
             NestedField source = table.schema().findField(partitionField.sourceId());
-            partitionColumnNames.add((source != null ? source.name() : partitionField.name())
-                    .toLowerCase(Locale.ROOT));
+            partitionColumnNames.add(source != null ? source.name() : partitionField.name());
             partitionValues.add(fieldValue);
             transforms.add(partitionField.transform().toString());
         }
