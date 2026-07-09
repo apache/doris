@@ -25,12 +25,12 @@ suite("test_insert_visible_timeout_return_mode", "nonConcurrent") {
     }
 
     def debugPoint = "PublishVersionDaemon.stop_publish"
-    // PublishVersionDaemon runs on the master FE. Use the configured runner-reachable host and master FE ports,
-    // because SHOW FRONTENDS can expose loopback or internal addresses in regression deployments.
-    def feHost = context.config.feHttpAddress.split(":")[0]
-    def feHttpPort = getMasterPort()
-    def feQueryPort = getMasterPort("query")
-    def masterJdbcUrl = Config.buildUrlWithDb(feHost, feQueryPort, context.dbName)
+    // PublishVersionDaemon runs on the master FE. The pipeline config provides runner-facing
+    // master FE endpoints; do not replace their mapped ports with raw SHOW FRONTENDS values.
+    def feHttpAddress = context.config.feHttpAddress
+    def feHost = feHttpAddress.split(":")[0]
+    def feHttpPort = Integer.parseInt(feHttpAddress.split(":")[1])
+    def masterJdbcUrl = Config.buildUrlWithDb(context.getJdbcUrl(), context.dbName)
     context.connectTo(masterJdbcUrl, context.config.jdbcUser, context.config.jdbcPassword)
 
     // Prepare a single-replica table so publish blocking deterministically drives the visible timeout path.
