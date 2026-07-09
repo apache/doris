@@ -211,6 +211,18 @@ Status OlapScanLocalState::_init_profile() {
     _rows_short_circuit_cond_input_counter =
             ADD_COUNTER(_segment_profile, "RowsShortCircuitPredInput", TUnit::UNIT);
     _rows_expr_cond_input_counter = ADD_COUNTER(_segment_profile, "RowsExprPredInput", TUnit::UNIT);
+
+    _predicate_lm_stage1_input_rows_counter =
+            ADD_COUNTER(_segment_profile, "PredicateLMStage1InputRows", TUnit::UNIT);
+    _predicate_lm_stage1_output_rows_counter =
+            ADD_COUNTER(_segment_profile, "PredicateLMStage1OutputRows", TUnit::UNIT);
+    _predicate_lm_stage2_by_rowids_batches_counter =
+            ADD_COUNTER(_segment_profile, "PredicateLMStage2ByRowIdsBatches", TUnit::UNIT);
+    _predicate_lm_stage2_by_all_rows_batches_counter =
+            ADD_COUNTER(_segment_profile, "PredicateLMStage2ByAllRowsBatches", TUnit::UNIT);
+    _predicate_lm_stage2_rows_read_counter =
+            ADD_COUNTER(_segment_profile, "PredicateLMStage2RowsRead", TUnit::UNIT);
+
     _vec_cond_timer = ADD_TIMER(_segment_profile, "VectorPredEvalTime");
     _short_cond_timer = ADD_TIMER(_segment_profile, "ShortPredEvalTime");
     _expr_filter_timer = ADD_TIMER(_segment_profile, "ExprFilterEvalTime");

@@ -907,6 +907,11 @@ public class SessionVariable implements Serializable, Writable {
             = "decompose_repeat_shuffle_index_in_max_group";
     public static final String ENABLE_SHUFFLE_KEY_PRUNE = "enable_shuffle_key_prune";
 
+    public static final String ENABLE_MULTI_STAGE_PREDICATE_LM = "enable_multi_stage_predicate_lm";
+    public static final String PREDICATE_LM_STAGE1_COLS = "predicate_lm_stage1_cols";
+    public static final String PREDICATE_LM_STAGE1_SURVIVAL_RATIO_THRESHOLD =
+            "predicate_lm_stage1_survival_ratio_threshold";
+
     public static final String HOT_VALUE_COLLECT_COUNT = "hot_value_collect_count";
     @VarAttrDef.VarAttr(name = HOT_VALUE_COLLECT_COUNT, needForward = true,
                 description = {"列统计信息收集时，收集占比排名前 HOT_VALUE_COLLECT_COUNT 的值作为 hot value",
@@ -3066,6 +3071,37 @@ public class SessionVariable implements Serializable, Writable {
 
     @VarAttrDef.VarAttr(name = ENABLE_SHUFFLE_KEY_PRUNE)
     public boolean enableShuffleKeyPrune = true;
+
+    @VarAttrDef.VarAttr(
+            name = ENABLE_MULTI_STAGE_PREDICATE_LM,
+            fuzzy = true,
+            description = {"控制 SegmentIterator 是否启用多阶段谓词延迟物化(实验特性)。默认为 false。",
+                    "Controls whether to enable multi-stage predicate lazy materialization in SegmentIterator "
+                        + "(experimental). The default value is false."},
+            needForward = true)
+    public boolean enableMultiStagePredicateLm = false;
+
+    @VarAttrDef.VarAttr(
+            name = PREDICATE_LM_STAGE1_COLS,
+            fuzzy = true,
+            description = {"人工指定的多阶段谓词延迟物化中 stage1 参与过滤的列名列表，逗号分隔，例如 'a,b,c'。默认为空。",
+                    "Stage1 predicate columns for multi-stage predicate LM, comma-separated, e.g. 'a,b,c'. "
+                        + "Default is empty."},
+            needForward = true)
+    public String predicateLmStage1Cols = "";
+
+    @VarAttrDef.VarAttr(
+            name = PREDICATE_LM_STAGE1_SURVIVAL_RATIO_THRESHOLD,
+            fuzzy = true,
+            description = {"多阶段谓词延迟物化中 stage1 的存活率阈值，用于选择 stage2 策略。"
+                    + "当 stage1 存活率 <= 阈值时倾向按 rowids 读取 stage2 谓词列；"
+                    + "当 stage1 存活率 > 阈值时倾向读全量行以避免随机读。范围 [0,1]，默认 0.1。",
+                    "Stage1 survival ratio threshold for multi-stage predicate LM. "
+                        + "If survival_ratio <= threshold, stage2 prefers by-rowids; otherwise by-all-rows. "
+                        + "Range [0,1], default 0.1."},
+            needForward = true,
+            checker = "checkPredicateLmStage1SurvivalRatioThreshold")
+    public double predicateLmStage1SurvivalRatioThreshold = 0.1;
 
     @VarAttrDef.VarAttr(name = ENABLE_PREFER_CACHED_ROWSET, needForward = false,
             description = {"是否启用 prefer cached rowset 功能",
@@ -5801,6 +5837,11 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setAnnIndexCandidateRowsThreshold(annIndexCandidateRowsThreshold);
         tResult.setAnnIndexCandidateRowsPercentThreshold(annIndexCandidateRowsPercentThreshold);
         tResult.setMergeReadSliceSize(mergeReadSliceSizeBytes);
+
+        tResult.setEnableMultiStagePredicateLm(enableMultiStagePredicateLm);
+        tResult.setPredicateLmStage1Cols(predicateLmStage1Cols);
+        tResult.setPredicateLmStage1SurvivalRatioThreshold(predicateLmStage1SurvivalRatioThreshold);
+
         tResult.setEnableExtendedRegex(enableExtendedRegex);
         if (fileCacheQueryLimitPercent > 0) {
             tResult.setFileCacheQueryLimitPercent(Math.min(fileCacheQueryLimitPercent,
@@ -6370,6 +6411,20 @@ public class SessionVariable implements Serializable, Writable {
         } catch (NumberFormatException e) {
             throw new InvalidParameterException(
                     SKEW_REWRITE_AGG_BUCKET_NUM + " must be a valid number between 1 and 65535");
+        }
+    }
+
+    public void checkPredicateLmStage1SurvivalRatioThreshold(String value) {
+        final double v;
+        try {
+            v = Double.parseDouble(value);
+        } catch (NumberFormatException e) {
+            throw new InvalidParameterException(
+                PREDICATE_LM_STAGE1_SURVIVAL_RATIO_THRESHOLD + " must be a valid number in range [0, 1]");
+        }
+        if (Double.isNaN(v) || v < 0.0 || v > 1.0) {
+            throw new InvalidParameterException(
+                PREDICATE_LM_STAGE1_SURVIVAL_RATIO_THRESHOLD + " should be in range [0, 1], got " + v);
         }
     }
 

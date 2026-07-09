@@ -63,6 +63,10 @@ void BetaRowsetReader::reset_read_options() {
     _read_options.col_id_to_predicates.clear();
     _read_options.del_predicates_for_zone_map.clear();
     _read_options.key_ranges.clear();
+
+    _read_options.enable_multi_stage_predicate_lazy_materialization = false;
+    _read_options.predicate_lm_stage1_column_ids.clear();
+    _read_options.predicate_lm_stage1_survival_ratio_threshold = 0.1;
 }
 
 RowsetReaderSharedPtr BetaRowsetReader::clone() {
@@ -114,6 +118,13 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     _read_options.commit_tso = _rowset->rowset_meta()->commit_tso();
     _read_options.tablet_id = _rowset->rowset_meta()->tablet_id();
     _read_options.read_limit = _topn_limit;
+
+    _read_options.enable_multi_stage_predicate_lazy_materialization =
+            _read_context->enable_multi_stage_predicate_lazy_materialization;
+    _read_options.predicate_lm_stage1_column_ids = _read_context->predicate_lm_stage1_column_ids;
+    _read_options.predicate_lm_stage1_survival_ratio_threshold =
+            _read_context->predicate_lm_stage1_survival_ratio_threshold;
+
     if (_read_context->lower_bound_keys != nullptr) {
         for (int i = 0; i < _read_context->lower_bound_keys->size(); ++i) {
             _read_options.key_ranges.emplace_back(&_read_context->lower_bound_keys->at(i),

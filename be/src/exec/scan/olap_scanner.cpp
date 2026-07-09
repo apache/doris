@@ -41,6 +41,7 @@
 #include "core/data_type/data_type_number.h"
 #include "exec/common/variant_util.h"
 #include "exec/operator/olap_scan_operator.h"
+#include "exec/scan/predicate_lm_utils.h"
 #include "exec/scan/scan_node.h"
 #include "exprs/function_filter.h"
 #include "exprs/vexpr.h"
@@ -66,6 +67,7 @@
 #include "util/debug_points.h"
 #endif
 #include "util/json/path_in_data.h"
+#include "util/string_util.h"
 
 namespace doris {
 #include "common/compile_check_avoid_begin.h"
@@ -102,6 +104,7 @@ OlapScanner::OlapScanner(ScanLocalStateBase* parent, OlapScanner::Params&& param
                                  .collection_statistics {},
                                  .ann_topn_runtime {},
                                  .condition_cache_digest = parent->get_condition_cache_digest(),
+                                 .predicate_lm_stage1_column_ids {},
                                  .binlog_scan_type = params.binlog_scan_type}),
           _start_tso(params.start_tso),
           _end_tso(params.end_tso),
@@ -215,6 +218,35 @@ Status OlapScanner::_prepare_impl() {
         }
         if (olap_scan_node.__isset.indexes_desc) {
             tablet_schema->update_indexes_from_thrift(olap_scan_node.indexes_desc);
+        }
+
+        const auto& qopts = _state->query_options();
+
+        // Map FE session variable enable_multi_stage_predicate_lm -> storage read option flag.
+        // This flag is what SegmentIterator actually checks.
+        if (qopts.__isset.enable_multi_stage_predicate_lm) {
+            _tablet_reader_params.enable_multi_stage_predicate_lazy_materialization =
+                    qopts.enable_multi_stage_predicate_lm;
+        }
+
+        // Map FE session variable predicate_lm_stage1_survival_ratio_threshold -> stage2 strategy threshold.
+        if (qopts.__isset.predicate_lm_stage1_survival_ratio_threshold) {
+            _tablet_reader_params.predicate_lm_stage1_survival_ratio_threshold =
+                    qopts.predicate_lm_stage1_survival_ratio_threshold;
+        }
+
+        // Map FE session variable predicate_lm_stage1_cols -> ColumnId list
+        // NOTE: only meaningful when multi-stage predicate LM is enabled.
+        if (_tablet_reader_params.enable_multi_stage_predicate_lazy_materialization) {
+            if (qopts.__isset.predicate_lm_stage1_cols && !qopts.predicate_lm_stage1_cols.empty()) {
+                std::vector<ColumnId> stage1_column_ids;
+                RETURN_IF_ERROR(parse_predicate_lm_stage1_cols_to_column_ids(
+                        qopts.predicate_lm_stage1_cols, tablet_schema,
+                        olap_scan_node.__isset.db_name ? std::string_view(olap_scan_node.db_name)
+                                                       : std::string_view(),
+                        olap_scan_node.table_name, &stage1_column_ids));
+                _tablet_reader_params.predicate_lm_stage1_column_ids = std::move(stage1_column_ids);
+            }
         }
 
         if (_tablet_reader_params.rs_splits.empty()) {
@@ -952,6 +984,18 @@ void OlapScanner::_collect_profile_before_close() {
     COUNTER_UPDATE(local_state->_rows_short_circuit_cond_input_counter,
                    stats.short_circuit_cond_input_rows);
     COUNTER_UPDATE(local_state->_rows_expr_cond_input_counter, stats.expr_cond_input_rows);
+
+    COUNTER_UPDATE(local_state->_predicate_lm_stage1_input_rows_counter,
+                   stats.predicate_lm_stage1_input_rows);
+    COUNTER_UPDATE(local_state->_predicate_lm_stage1_output_rows_counter,
+                   stats.predicate_lm_stage1_output_rows);
+    COUNTER_UPDATE(local_state->_predicate_lm_stage2_by_rowids_batches_counter,
+                   stats.predicate_lm_stage2_by_rowids_batches);
+    COUNTER_UPDATE(local_state->_predicate_lm_stage2_by_all_rows_batches_counter,
+                   stats.predicate_lm_stage2_by_all_rows_batches);
+    COUNTER_UPDATE(local_state->_predicate_lm_stage2_rows_read_counter,
+                   stats.predicate_lm_stage2_rows_read);
+
     COUNTER_UPDATE(local_state->_stats_filtered_counter, stats.rows_stats_filtered);
     COUNTER_UPDATE(local_state->_stats_rp_filtered_counter, stats.rows_stats_rp_filtered);
     COUNTER_UPDATE(local_state->_expr_zonemap_filtered_segment_counter,

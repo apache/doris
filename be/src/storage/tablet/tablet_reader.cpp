@@ -229,6 +229,13 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
     // Propagate general read limit for DUP_KEYS and UNIQUE_KEYS with MOW
     _reader_context.general_read_limit = read_params.general_read_limit;
 
+    // Multi-stage predicate lazy materialization (experimental)
+    _reader_context.enable_multi_stage_predicate_lazy_materialization =
+            read_params.enable_multi_stage_predicate_lazy_materialization;
+    _reader_context.predicate_lm_stage1_column_ids = read_params.predicate_lm_stage1_column_ids;
+    _reader_context.predicate_lm_stage1_survival_ratio_threshold =
+            read_params.predicate_lm_stage1_survival_ratio_threshold;
+
     return Status::OK();
 }
 

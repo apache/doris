@@ -215,14 +215,33 @@ private:
     // for vectorization implementation
     [[nodiscard]] Status _read_columns(const std::vector<ColumnId>& column_ids,
                                        MutableColumns& column_block, size_t nrows);
-    [[nodiscard]] Status _read_columns_by_index(uint32_t nrows_read_limit, uint16_t& nrows_read);
+    [[nodiscard]] Status _read_columns_by_index(const std::vector<ColumnId>& column_ids,
+                                                uint32_t nrows_read_limit, uint16_t& nrows_read,
+                                                bool read_rowids);
     void _replace_version_col_if_needed(const std::vector<ColumnId>& column_ids, size_t num_rows);
     void _update_lsn_col_if_needed(const std::vector<ColumnId>& column_ids, size_t num_rows);
     void _update_tso_col_if_needed(const std::vector<ColumnId>& column_ids, size_t num_rows);
     Status _init_current_block(Block* block, std::vector<MutableColumnPtr>& non_pred_vector,
                                uint32_t nrows_read_limit);
     uint16_t _evaluate_vectorization_predicate(uint16_t* sel_rowid_idx, uint16_t selected_size);
+    uint16_t _evaluate_vectorization_predicate(
+            const std::vector<std::shared_ptr<ColumnPredicate>>& predicates,
+            uint16_t* sel_rowid_idx, uint16_t selected_size);
+
     uint16_t _evaluate_short_circuit_predicate(uint16_t* sel_rowid_idx, uint16_t selected_size);
+    uint16_t _evaluate_short_circuit_predicate(
+            const std::vector<std::shared_ptr<ColumnPredicate>>& predicates,
+            uint16_t* sel_rowid_idx, uint16_t selected_size, bool evaluate_delete_condition);
+
+    // Dictionary column should do something to initial.
+    void _convert_dict_code_for_predicate_if_necessary();
+    void _convert_dict_code_for_predicate_if_necessary(
+            const std::vector<std::shared_ptr<ColumnPredicate>>& short_circuit_predicates,
+            const std::vector<std::shared_ptr<ColumnPredicate>>& vectorized_predicates,
+            bool include_delete_condition_columns);
+    void _convert_dict_code_for_predicate_if_necessary_impl(
+            std::shared_ptr<ColumnPredicate> predicate);
+
     Status _apply_read_limit_to_selected_rows(Block* block, uint16_t& selected_size);
     void _collect_runtime_filter_predicate();
     Status _output_non_pred_columns(Block* block);
@@ -284,12 +303,6 @@ private:
 
     uint16_t _evaluate_common_expr_filter(uint16_t* sel_rowid_idx, uint16_t selected_size,
                                           const IColumn::Filter& filter);
-
-    // Dictionary column should do something to initial.
-    void _convert_dict_code_for_predicate_if_necessary();
-
-    void _convert_dict_code_for_predicate_if_necessary_impl(
-            std::shared_ptr<ColumnPredicate> predicate);
 
     bool _check_apply_by_inverted_index(std::shared_ptr<ColumnPredicate> pred);
 
@@ -377,6 +390,10 @@ private:
     std::set<ColumnId> _support_lazy_read_pruned_columns;
     bool _enable_prune_nested_column = false;
 
+    // Multi-stage predicate lazy materialization (experimental)
+    bool _enable_multi_stage_predicate_lazy_materialization = false;
+    double _predicate_lm_stage1_survival_ratio_threshold = 0.1;
+
     // fields for vectorization execution
     std::vector<ColumnId>
             _vec_pred_column_ids; // keep columnId of columns for vectorized predicate evaluation
@@ -388,13 +405,21 @@ private:
     MutableColumns _current_return_columns;
     std::vector<std::shared_ptr<ColumnPredicate>> _pre_eval_block_predicate;
     std::vector<std::shared_ptr<ColumnPredicate>> _short_cir_eval_predicate;
+    std::vector<std::shared_ptr<ColumnPredicate>> _late_pre_eval_block_predicate;
+    std::vector<std::shared_ptr<ColumnPredicate>> _late_short_cir_eval_predicate;
     std::vector<uint32_t> _delete_range_column_ids;
     std::vector<uint32_t> _delete_bloom_filter_column_ids;
+
     // when lazy materialization is enabled, segmentIter need to read data at least twice
     // first, read predicate columns by various index
     // second, read non-predicate columns
     // so we need a field to stand for columns first time to read
     std::vector<ColumnId> _predicate_column_ids;
+    // stage2 predicate columns for multi-stage predicate lazy materialization
+    std::vector<ColumnId> _late_predicate_column_ids;
+    bool _is_need_vec_eval_late = false;
+    bool _is_need_short_eval_late = false;
+
     std::vector<ColumnId> _common_expr_column_ids;
     // Block slot indexes to filter after common expr evaluation. This is not
     // tablet column ids because Block::filter_block_internal filters by block
@@ -433,6 +458,8 @@ private:
     // used for compaction, record selectd rowids of current batch
     uint16_t _selected_size;
     std::vector<uint16_t> _sel_rowid_idx;
+    std::vector<uint16_t> _sel_rowid_idx_stage1;
+    std::vector<uint16_t> _sel_rowid_idx_stage2;
 
     // Rows already produced by this iterator. Used together with
     // _opts.read_limit to compute the remaining per-batch budget.
