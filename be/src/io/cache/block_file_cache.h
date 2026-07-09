@@ -238,6 +238,14 @@ public:
                                 CacheContext& context);
 
     /**
+     * Return existing downloaded blocks only if they fully cover [offset, offset + size).
+     * This lookup is read-only: it does not reserve cache space or create EMPTY blocks.
+     */
+    Status get_downloaded_blocks_if_fully_covered(const UInt128Wrapper& hash, size_t offset,
+                                                  size_t size, const CacheContext& context,
+                                                  FileBlocks* blocks, bool* fully_covered);
+
+    /**
      * record blocks read directly by CachedRemoteFileReader
      */
     void add_need_update_lru_block(FileBlockSPtr block);
@@ -248,7 +256,7 @@ public:
      * @returns summary message
      */
     std::string clear_file_cache_async();
-    std::string clear_file_cache_directly();
+    std::string clear_file_cache_sync();
 
     /**
      * Reset the cache capacity. If the new_capacity is smaller than _capacity, the redundant data will be remove async.
@@ -312,9 +320,6 @@ public:
     void try_evict_in_advance(size_t size, std::lock_guard<std::mutex>& cache_lock);
 
     void update_ttl_atime(const UInt128Wrapper& hash);
-
-    void pause_ttl_manager();
-    void resume_ttl_manager();
 
     std::map<std::string, double> get_stats();
 
@@ -398,6 +403,11 @@ public:
     Status check_file_cache_consistency(InconsistencyContext& inconsistency_context);
 
 private:
+    // Shared scan used by both clear modes. It keeps the FileBlock holder lifecycle intact:
+    // releasable blocks are removed immediately, while blocks held by readers are only marked
+    // deleting and are later removed by FileBlocksHolder destruction.
+    std::string clear_file_cache_impl(bool sync_remove);
+
     LRUQueue& get_queue(FileCacheType type);
     const LRUQueue& get_queue(FileCacheType type) const;
 
@@ -627,6 +637,8 @@ private:
     std::array<std::shared_ptr<bvar::LatencyRecorder>, 4> _lru_recorder_queue_length_recorder;
     std::array<std::shared_ptr<bvar::Adder<size_t>>, 4> _lru_recorder_queue_produce_metrics;
     std::array<std::shared_ptr<bvar::Adder<size_t>>, 4> _lru_recorder_queue_consume_metrics;
+    std::array<std::shared_ptr<bvar::Status<size_t>>, 4>
+            _lru_recorder_shadow_queue_element_count_metrics;
     std::shared_ptr<bvar::Adder<size_t>> _lru_recorder_log_replay_idle_metrics;
     // keep _storage last so it will deconstruct first
     // otherwise, load_cache_info_into_memory might crash

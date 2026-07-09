@@ -546,7 +546,9 @@ import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.InSubquery;
 import org.apache.doris.nereids.trees.expressions.IntegralDivide;
+import org.apache.doris.nereids.trees.expressions.IsFalse;
 import org.apache.doris.nereids.trees.expressions.IsNull;
+import org.apache.doris.nereids.trees.expressions.IsTrue;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.Like;
@@ -1077,7 +1079,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalUsingJoin;
 import org.apache.doris.nereids.types.AggStateType;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
-import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
@@ -5067,12 +5068,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     outExpression = new IsNull(valueExpression);
                     break;
                 case DorisParser.TRUE:
-                    outExpression = new Cast(valueExpression,
-                            BooleanType.INSTANCE, true);
+                    outExpression = new IsTrue(valueExpression);
                     break;
                 case DorisParser.FALSE:
-                    outExpression = new Not(new Cast(valueExpression,
-                            BooleanType.INSTANCE, true));
+                    outExpression = new IsFalse(valueExpression);
                     break;
                 case DorisParser.MATCH:
                 case DorisParser.MATCH_ANY:
@@ -5329,8 +5328,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         }
 
         if (enableNestedGroup) {
-            throw new NotSupportedException(
-                    "variant_enable_nested_group is not supported now");
+            enableVariantDocMode = false;
+            variantMaxSubcolumnsCount = 0;
+            enableTypedPathsToSparse = false;
+            variantMaxSparseColumnStatisticsSize = 0;
+            variantSparseHashShardCount = 0;
         }
 
         // When doc mode is enabled, disable subcolumn extraction and sparse column features

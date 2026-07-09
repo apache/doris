@@ -32,10 +32,11 @@
 
 namespace doris::segment_v2 {
 Status BloomFilterIndexReader::load(bool use_page_cache, bool kept_in_memory,
-                                    OlapReaderStatistics* index_load_stats) {
+                                    OlapReaderStatistics* index_load_stats,
+                                    const io::IOContext* io_ctx) {
     // TODO yyq: implement a new once flag to avoid status construct.
-    return _load_once.call([this, use_page_cache, kept_in_memory, index_load_stats] {
-        return _load(use_page_cache, kept_in_memory, index_load_stats);
+    return _load_once.call([this, use_page_cache, kept_in_memory, index_load_stats, io_ctx] {
+        return _load(use_page_cache, kept_in_memory, index_load_stats, io_ctx);
     });
 }
 
@@ -45,21 +46,24 @@ int64_t BloomFilterIndexReader::get_metadata_size() const {
 }
 
 Status BloomFilterIndexReader::_load(bool use_page_cache, bool kept_in_memory,
-                                     OlapReaderStatistics* index_load_stats) {
+                                     OlapReaderStatistics* index_load_stats,
+                                     const io::IOContext* io_ctx) {
     const IndexedColumnMetaPB& bf_index_meta = _bloom_filter_index_meta->bloom_filter();
 
     _bloom_filter_reader = std::make_unique<IndexedColumnReader>(_file_reader, bf_index_meta);
-    RETURN_IF_ERROR(_bloom_filter_reader->load(use_page_cache, kept_in_memory, index_load_stats));
+    RETURN_IF_ERROR(
+            _bloom_filter_reader->load(use_page_cache, kept_in_memory, index_load_stats, io_ctx));
     update_metadata_size();
     return Status::OK();
 }
 
 Status BloomFilterIndexReader::new_iterator(std::unique_ptr<BloomFilterIndexIterator>* iterator,
-                                            OlapReaderStatistics* index_load_stats) {
+                                            OlapReaderStatistics* index_load_stats,
+                                            const io::IOContext* io_ctx) {
     DBUG_EXECUTE_IF("BloomFilterIndexReader::new_iterator.fail", {
         return Status::InternalError("new_iterator for bloom filter index failed");
     });
-    *iterator = std::make_unique<BloomFilterIndexIterator>(this, index_load_stats);
+    *iterator = std::make_unique<BloomFilterIndexIterator>(this, index_load_stats, io_ctx);
     return Status::OK();
 }
 

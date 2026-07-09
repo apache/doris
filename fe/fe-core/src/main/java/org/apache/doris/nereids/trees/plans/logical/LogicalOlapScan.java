@@ -206,6 +206,20 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
     }
 
     /**
+     * Constructor for LogicalOlapScan.
+     */
+    public LogicalOlapScan(RelationId id, OlapTable table, List<String> qualifier, List<Long> tabletIds,
+                           List<String> hints, Optional<TableSample> tableSample, Collection<Slot> operativeSlots,
+                           Optional<TableScanParams> scanParams) {
+        this(id, table, qualifier, Optional.empty(), Optional.empty(),
+                table.getPartitionIds(), false, false, tabletIds,
+                -1, false, PreAggStatus.unset(), ImmutableList.of(), hints, Maps.newHashMap(), Optional.empty(),
+                tableSample, false, ImmutableMap.of(), ImmutableList.of(), operativeSlots,
+                ImmutableList.of(), ImmutableList.of(), Optional.empty(), Optional.empty(),
+                ImmutableList.of(), Optional.empty(), "", Optional.empty(), scanParams);
+    }
+
+    /**
      * constructor.
      */
     public LogicalOlapScan(RelationId id, OlapTable table, List<String> qualifier, List<Long> specifiedPartitions,
@@ -217,6 +231,21 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
                 tableSample, false, ImmutableMap.of(), ImmutableList.of(), operativeSlots,
                 ImmutableList.of(), ImmutableList.of(), Optional.empty(), Optional.empty(),
                 ImmutableList.of(), Optional.empty(), "");
+    }
+
+    /**
+     * Constructor for LogicalOlapScan.
+     */
+    public LogicalOlapScan(RelationId id, OlapTable table, List<String> qualifier, List<Long> specifiedPartitions,
+                           List<Long> tabletIds, List<String> hints, Optional<TableSample> tableSample,
+                           List<Slot> operativeSlots, Optional<TableScanParams> scanParams) {
+        this(id, table, qualifier, Optional.empty(), Optional.empty(),
+                // must use specifiedPartitions here for prune partition by sql like 'select * from t partition p1'
+                specifiedPartitions, false, false, tabletIds,
+                -1, false, PreAggStatus.unset(), specifiedPartitions, hints, Maps.newHashMap(), Optional.empty(),
+                tableSample, false, ImmutableMap.of(), ImmutableList.of(), operativeSlots,
+                ImmutableList.of(), ImmutableList.of(), Optional.empty(), Optional.empty(),
+                ImmutableList.of(), Optional.empty(), "", Optional.empty(), scanParams);
     }
 
     /**
@@ -233,6 +262,22 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
                 ImmutableList.of(), operativeSlots, ImmutableList.of(), ImmutableList.of(),
                 Optional.empty(), Optional.empty(),
                 ImmutableList.of(), Optional.empty(), "");
+    }
+
+    /**
+     * constructor.
+     */
+    public LogicalOlapScan(RelationId id, OlapTable table, List<String> qualifier, List<Long> tabletIds,
+                           List<Long> selectedPartitionIds, long selectedIndexId, PreAggStatus preAggStatus,
+                           List<Long> specifiedPartitions, List<String> hints, Optional<TableSample> tableSample,
+                           Collection<Slot> operativeSlots, Optional<TableScanParams> scanParams) {
+        this(id, table, qualifier, Optional.empty(), Optional.empty(),
+                selectedPartitionIds, false, false, tabletIds,
+                selectedIndexId, true, preAggStatus,
+                specifiedPartitions, hints, Maps.newHashMap(), Optional.empty(), tableSample, true, ImmutableMap.of(),
+                ImmutableList.of(), operativeSlots, ImmutableList.of(), ImmutableList.of(),
+                Optional.empty(), Optional.empty(),
+                ImmutableList.of(), Optional.empty(), "", Optional.empty(), scanParams);
     }
 
     /**
@@ -1165,10 +1210,6 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
     @Override
     public boolean supportPruneNestedColumn() {
         return true;
-    }
-
-    public boolean isIncrementalScan() {
-        return false;
     }
 
     public Optional<TableScanParams> getScanParams() {

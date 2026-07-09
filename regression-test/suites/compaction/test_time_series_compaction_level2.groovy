@@ -133,7 +133,7 @@ suite("test_time_series_compaction_level2", "nonConcurrent") {
         wait_cumulative_compaction_done.call(tablets)
 
         rowsetCount = get_rowset_count.call(tablets);
-        assert (rowsetCount == 1 + 1)
+        assert (rowsetCount == 1 + 1) : "10 level-1 rowsets should be level-2 compacted into 1; expected 2 rowsets, got ${rowsetCount}"
     } finally {
         GetDebugPoint().disableDebugPointForAllBEs("time_series_level2_file_count")
     }

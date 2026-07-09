@@ -26,6 +26,7 @@
 #include <algorithm>
 #include <cstring>
 #include <memory>
+#include <set>
 #include <sstream>
 #include <utility>
 
@@ -42,6 +43,8 @@
 #include "core/field.h"
 #include "core/string_ref.h"
 #include "cpp/sync_point.h"
+#include "exprs/expr_zonemap_filter.h"
+#include "exprs/vexpr_context.h"
 #include "io/cache/block_file_cache.h"
 #include "io/cache/block_file_cache_factory.h"
 #include "io/cache/cached_remote_file_reader.h"
@@ -56,6 +59,7 @@
 #include "storage/index/indexed_column_reader.h"
 #include "storage/index/primary_key_index.h"
 #include "storage/index/short_key_index.h"
+#include "storage/index/zone_map/zonemap_eval_context.h"
 #include "storage/iterator/vgeneric_iterators.h"
 #include "storage/iterators.h"
 #include "storage/key_coder.h"
@@ -84,6 +88,63 @@
 namespace doris::segment_v2 {
 
 class InvertedIndexIterator;
+
+namespace {
+
+Status build_segment_zonemap_context(Segment* segment, const Schema& schema,
+                                     const StorageReadOptions& read_options,
+                                     const VExprContextSPtrs& conjuncts, ZoneMapEvalContext* ctx) {
+    DORIS_CHECK(segment != nullptr);
+    DORIS_CHECK(ctx != nullptr);
+    std::set<int> slot_indexes;
+    for (const auto& conjunct : conjuncts) {
+        DORIS_CHECK(conjunct != nullptr);
+        const auto& root = conjunct->root();
+        DORIS_CHECK(root != nullptr);
+        if (!root->can_evaluate_zonemap_filter()) {
+            continue;
+        }
+        // Segment zone maps have one min/max/null summary per column for the whole segment, so a
+        // segment-level context can safely hold every slot referenced by a compound expression.
+        // Page zone maps are page-aligned per column and still use single-slot filtering in
+        // SegmentIterator.
+        root->collect_slot_column_ids(slot_indexes);
+    }
+    for (const int slot_index : slot_indexes) {
+        if (slot_index < 0 || cast_set<size_t>(slot_index) >= schema.num_column_ids()) {
+            continue;
+        }
+        const auto column_id = schema.column_id(cast_set<size_t>(slot_index));
+        const auto* tablet_column = schema.column(column_id);
+        DORIS_CHECK(tablet_column != nullptr);
+        if (!segment->can_apply_predicate_safely(
+                    column_id, schema, read_options.target_cast_type_for_variants, read_options)) {
+            continue;
+        }
+        auto data_type = segment->get_data_type_of(*tablet_column, read_options);
+        if (data_type == nullptr) {
+            continue;
+        }
+        ZoneMapEvalContext::SlotZoneMap slot_zone_map;
+        slot_zone_map.data_type = data_type;
+        std::shared_ptr<ColumnReader> reader;
+        Status st = segment->get_column_reader(*tablet_column, &reader, read_options.stats);
+        if (st.is<ErrorCode::NOT_FOUND>()) {
+            ctx->slots.emplace(slot_index, std::move(slot_zone_map));
+            continue;
+        }
+        RETURN_IF_ERROR(st);
+        if (reader != nullptr && reader->has_zone_map()) {
+            ZoneMap zone_map;
+            RETURN_IF_ERROR(reader->get_segment_zone_map(&zone_map));
+            slot_zone_map.zone_map = std::make_shared<ZoneMap>(std::move(zone_map));
+        }
+        ctx->slots.emplace(slot_index, std::move(slot_zone_map));
+    }
+    return Status::OK();
+}
+
+} // namespace
 
 Status Segment::open(io::FileSystemSPtr fs, const std::string& path, int64_t tablet_id,
                      uint32_t segment_id, RowsetId rowset_id, TabletSchemaSPtr tablet_schema,
@@ -279,7 +340,16 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
         }
         const TabletColumn& col = read_options.tablet_schema->column(column_id);
         std::shared_ptr<ColumnReader> reader;
-        Status st = get_column_reader(col, &reader, read_options.stats);
+        // __DORIS_COMMIT_TSO_COL__ on a single-version segment stores a 0 placeholder on disk
+        // (replaced with the rowset's real commit_tso at read time). Its on-disk zonemap [0,0]
+        // must not drive segment-level pruning, so build a ConstantColumnReader carrying the real
+        // commit_tso to prune against the real value instead.
+        std::optional<Field> const_value;
+        if (read_options.version.first == read_options.version.second &&
+            column_id == schema->commit_tso_col_idx() && read_options.commit_tso.end_tso() != -1) {
+            const_value = Field::create_field<TYPE_BIGINT>(read_options.commit_tso.end_tso());
+        }
+        Status st = get_column_reader(col, &reader, read_options.stats, std::move(const_value));
         // not found in this segment, skip
         if (st.is<ErrorCode::NOT_FOUND>()) {
             continue;
@@ -321,8 +391,27 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
                 // any condition not satisfied, return.
                 *iter = std::make_unique<EmptySegmentIterator>(*schema);
                 read_options.stats->filtered_segment_number++;
+                read_options.stats->rows_stats_filtered += num_rows();
                 return Status::OK();
             }
+        }
+    }
+
+    // Segment-level expr-zonemap runs before SegmentIterator can rebind storage expressions to
+    // the reader schema. Only apply it when scan tuple slot ordinals already match this schema.
+    if (expr_zonemap::is_expr_zonemap_filter_enabled(read_options.runtime_state) &&
+        !read_options.common_expr_ctxs_push_down.empty()) {
+        ZoneMapEvalContext ctx;
+        RETURN_IF_ERROR(build_segment_zonemap_context(
+                this, *schema, read_options, read_options.common_expr_ctxs_push_down, &ctx));
+        const auto result =
+                VExprContext::evaluate_zonemap_filter(read_options.common_expr_ctxs_push_down, ctx);
+        ctx.stats.accumulate_to(read_options.stats);
+        if (result == ZoneMapFilterResult::kNoMatch) {
+            *iter = std::make_unique<EmptySegmentIterator>(*schema);
+            read_options.stats->filtered_segment_number++;
+            read_options.stats->expr_zonemap_filtered_segments++;
+            return Status::OK();
         }
     }
 
@@ -733,9 +822,26 @@ Status Segment::new_column_iterator(const TabletColumn& tablet_column,
         return Status::OK();
     }
 
+    // __DORIS_COMMIT_TSO_COL__ on a single-version segment stores a 0 placeholder on disk (its
+    // real value is the rowset's commit_tso, filled at read time). Pass the real commit_tso as a
+    // const value so the cache returns a ConstantColumnReader, whose iterator yields the real value
+    // on every read path (projection / predicate / MIN-MAX zone-map) instead of the placeholder 0.
+    // commit_tso == -1 means it is not assigned yet (before publish); keep the on-disk value then.
+    // The value is constant per segment (a segment belongs to a single rowset), so caching the
+    // ConstantColumnReader does not cross-pollute other queries. Some internal read paths (e.g. MOW
+    // partial-update row fetch) build a bare StorageReadOptions without tablet_schema, so guard it.
+    std::optional<Field> const_value;
+    if (opt->tablet_schema != nullptr && opt->version.first == opt->version.second &&
+        opt->commit_tso.end_tso() != -1) {
+        int32_t tso_idx = opt->tablet_schema->commit_tso_col_idx();
+        if (tso_idx != -1 && opt->tablet_schema->column(tso_idx).unique_id() == unique_id) {
+            const_value = Field::create_field<TYPE_BIGINT>(opt->commit_tso.end_tso());
+        }
+    }
+
     // init iterator by unique id
     std::shared_ptr<ColumnReader> reader;
-    RETURN_IF_ERROR(get_column_reader(unique_id, &reader, opt->stats));
+    RETURN_IF_ERROR(get_column_reader(unique_id, &reader, opt->stats, std::move(const_value)));
     if (reader == nullptr) {
         return Status::InternalError("column reader is nullptr, unique_id={}", unique_id);
     }
@@ -785,7 +891,7 @@ Status Segment::new_column_iterator(const TabletColumn& tablet_column,
 }
 
 Status Segment::get_column_reader(int32_t col_uid, std::shared_ptr<ColumnReader>* column_reader,
-                                  OlapReaderStatistics* stats) {
+                                  OlapReaderStatistics* stats, std::optional<Field> const_value) {
     RETURN_IF_ERROR(_create_column_meta_once(stats));
     SCOPED_RAW_TIMER(&stats->segment_create_column_readers_timer_ns);
     // The column is not in this segment, return nullptr
@@ -794,7 +900,8 @@ Status Segment::get_column_reader(int32_t col_uid, std::shared_ptr<ColumnReader>
         return Status::Error<ErrorCode::NOT_FOUND, false>("column not found in segment, col_uid={}",
                                                           col_uid);
     }
-    return _column_reader_cache->get_column_reader(col_uid, column_reader, stats);
+    return _column_reader_cache->get_column_reader(col_uid, column_reader, stats,
+                                                   std::move(const_value));
 }
 
 Status Segment::traverse_column_meta_pbs(const std::function<void(const ColumnMetaPB&)>& visitor) {
@@ -808,7 +915,7 @@ Status Segment::traverse_column_meta_pbs(const std::function<void(const ColumnMe
 
 Status Segment::get_column_reader(const TabletColumn& col,
                                   std::shared_ptr<ColumnReader>* column_reader,
-                                  OlapReaderStatistics* stats) {
+                                  OlapReaderStatistics* stats, std::optional<Field> const_value) {
     RETURN_IF_ERROR(_create_column_meta_once(stats));
     SCOPED_RAW_TIMER(&stats->segment_create_column_readers_timer_ns);
     int col_uid = col.unique_id() >= 0 ? col.unique_id() : col.parent_unique_id();
@@ -823,7 +930,8 @@ Status Segment::get_column_reader(const TabletColumn& col,
         return _column_reader_cache->get_path_column_reader(col_uid, relative_path, column_reader,
                                                             stats);
     }
-    return _column_reader_cache->get_column_reader(col_uid, column_reader, stats);
+    return _column_reader_cache->get_column_reader(col_uid, column_reader, stats,
+                                                   std::move(const_value));
 }
 
 Status Segment::new_index_iterator(const TabletColumn& tablet_column, const TabletIndex* index_meta,
@@ -1037,13 +1145,14 @@ Status Segment::seek_and_read_by_rowid(const TabletSchema& schema, SlotDescripto
     DORIS_CHECK(std::adjacent_find(row_ids.begin(), row_ids.end()) == row_ids.end());
     // ColumnIterator::seek_and_read expects monotonically increasing row_ids without
     // duplicates for correct ordinal scanning. Enforce this contract at the entry point.
+    auto io_ctx = storage_read_options.io_ctx;
+    io_ctx.reader_type = ReaderType::READER_QUERY;
+    io_ctx.file_cache_stats = &storage_read_options.stats->file_cache_stats;
     segment_v2::ColumnIteratorOptions opt {
             .use_page_cache = !config::disable_storage_page_cache,
             .file_reader = file_reader().get(),
             .stats = storage_read_options.stats,
-            .io_ctx = io::IOContext {.reader_type = ReaderType::READER_QUERY,
-                                     .file_cache_stats =
-                                             &storage_read_options.stats->file_cache_stats},
+            .io_ctx = io_ctx,
     };
 
     if (!slot->column_paths().empty()) {

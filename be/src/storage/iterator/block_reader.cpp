@@ -512,6 +512,10 @@ Status BlockReader::_init_agg_state(const ReaderParams& read_params) {
                     read_params.tablet->tablet_id(), read_params.tablet->schema_hash(),
                     int(read_params.reader_type), read_params.version.to_string());
         }
+        const auto* column_ptr = _stored_data_columns[idx].get();
+        const IColumn* columns[] = {column_ptr};
+        function->check_input_columns_type(columns);
+        function->check_result_column_type(*column_ptr);
         _agg_functions.push_back(function);
         // create aggregate data
         AggregateDataPtr place = new char[function->size_of_data()];

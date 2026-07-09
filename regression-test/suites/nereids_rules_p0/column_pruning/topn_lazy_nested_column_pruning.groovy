@@ -362,4 +362,107 @@ suite("topn_lazy_nested_column_pruning") {
         limit 3
     """
     sql """ set enable_topn_expr_pullup = true; """
+
+    // =============================================
+    // Test 19: TopN lazy rowid fetch should honor nested access paths
+    //   Sparse multi-path STRUCT/MAP/ARRAY pruning uses a pruned slot type.
+    //   Rowid fetch must pass the slot access paths to storage iterators so
+    //   the iterator child layout matches the pruned result column layout.
+    // =============================================
+    sql """ set enable_decimal256 = true; """
+    sql """ set enable_prune_nested_column = true; """
+    sql """ DROP TABLE IF EXISTS tlncp_sparse_nested_tbl """
+    sql """
+        CREATE TABLE tlncp_sparse_nested_tbl (
+            pk INT,
+            deep STRUCT<
+                nested_str: VARCHAR(64),
+                inner_s: STRUCT<deep_str: VARCHAR(64), flag: BOOLEAN, deep_char: CHAR(8)>,
+                deep_map: MAP<VARCHAR(32), STRUCT<leaf: VARCHAR(64), n: INT, char_leaf: CHAR(8)>>
+            > NULL,
+            typed STRUCT<
+                string_leaf: STRING,
+                decimal_leaf: DECIMAL(76,56),
+                typed_arr: ARRAY<STRUCT<string_leaf: STRING, decimal_leaf: DECIMAL(76,56)>>,
+                typed_map: MAP<VARCHAR(32), STRUCT<string_leaf: STRING, decimal_leaf: DECIMAL(76,56)>>
+            > NULL
+        ) ENGINE = OLAP
+        UNIQUE KEY(pk)
+        DISTRIBUTED BY HASH(pk) BUCKETS 1
+        PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "enable_unique_key_merge_on_write" = "true",
+            "store_row_column" = "true"
+        )
+    """
+
+    sql """
+        INSERT INTO tlncp_sparse_nested_tbl VALUES
+            (1,
+             named_struct(
+                 'nested_str', 'unused-one',
+                 'inner_s', named_struct('deep_str', 'DeepOne', 'flag', true, 'deep_char', 'dc1'),
+                 'deep_map', map('b', named_struct('leaf', 'leaf-one', 'n', 11, 'char_leaf', 'cb1'))),
+             named_struct(
+                 'string_leaf', 'root-one',
+                 'decimal_leaf', cast('10.00000000000000000000000000000000000000000000000000000000' as DECIMAL(76,56)),
+                 'typed_arr', array(named_struct('string_leaf', 'arr-one', 'decimal_leaf',
+                     cast('1.00000000000000000000000000000000000000000000000000000000' as DECIMAL(76,56)))),
+                 'typed_map', map('b', named_struct('string_leaf', 'map-one', 'decimal_leaf',
+                     cast('2.00000000000000000000000000000000000000000000000000000000' as DECIMAL(76,56)))))),
+            (2,
+             named_struct(
+                 'nested_str', 'unused-two',
+                 'inner_s', named_struct('deep_str', 'DeepTwo', 'flag', false, 'deep_char', 'dc2'),
+                 'deep_map', map('b', named_struct('leaf', 'leaf-two', 'n', 22, 'char_leaf', 'cb2'))),
+             named_struct(
+                 'string_leaf', 'root-two',
+                 'decimal_leaf', cast('20.00000000000000000000000000000000000000000000000000000000' as DECIMAL(76,56)),
+                 'typed_arr', array(named_struct('string_leaf', 'arr-two', 'decimal_leaf',
+                     cast('3.00000000000000000000000000000000000000000000000000000000' as DECIMAL(76,56)))),
+                 'typed_map', map('b', named_struct('string_leaf', 'map-two', 'decimal_leaf',
+                     cast('4.00000000000000000000000000000000000000000000000000000000' as DECIMAL(76,56)))))),
+            (3,
+             named_struct(
+                 'nested_str', 'unused-three',
+                 'inner_s', named_struct('deep_str', 'DeepThree', 'flag', true, 'deep_char', 'dc3'),
+                 'deep_map', map('b', named_struct('leaf', 'leaf-three', 'n', 33, 'char_leaf', 'cb3'))),
+             named_struct(
+                 'string_leaf', 'root-three',
+                 'decimal_leaf', cast('30.00000000000000000000000000000000000000000000000000000000' as DECIMAL(76,56)),
+                 'typed_arr', array(named_struct('string_leaf', 'arr-three', 'decimal_leaf',
+                     cast('5.00000000000000000000000000000000000000000000000000000000' as DECIMAL(76,56)))),
+                 'typed_map', map('b', named_struct('string_leaf', 'map-three', 'decimal_leaf',
+                     cast('6.00000000000000000000000000000000000000000000000000000000' as DECIMAL(76,56))))))
+    """
+
+    explain {
+        sql """
+            SELECT
+                pk,
+                CHAR_LENGTH(element_at(element_at(element_at(typed, 'typed_map'), 'b'), 'string_leaf')) AS char_len,
+                LENGTH(LOWER(element_at(element_at(deep, 'inner_s'), 'deep_str'))) AS lower_len,
+                LENGTH(element_at(element_at(element_at(deep, 'deep_map'), 'b'), 'char_leaf')) AS char_storage_len,
+                ((element_at(element_at(element_at(typed, 'typed_arr'), 1), 'decimal_leaf') + 1) IS NULL) AS expr_is_null
+            FROM tlncp_sparse_nested_tbl
+            WHERE pk <= 3
+            ORDER BY ABS(pk % 3), pk
+            LIMIT 2
+        """
+        contains("VMaterializeNode")
+        contains("row_ids: [__DORIS_GLOBAL_ROWID_COL__tlncp_sparse_nested_tbl]")
+    }
+
+    qt_sparse_struct_map_array_result """
+        SELECT
+            pk,
+            CHAR_LENGTH(element_at(element_at(element_at(typed, 'typed_map'), 'b'), 'string_leaf')) AS char_len,
+            LENGTH(LOWER(element_at(element_at(deep, 'inner_s'), 'deep_str'))) AS lower_len,
+            LENGTH(element_at(element_at(element_at(deep, 'deep_map'), 'b'), 'char_leaf')) AS char_storage_len,
+            ((element_at(element_at(element_at(typed, 'typed_arr'), 1), 'decimal_leaf') + 1) IS NULL) AS expr_is_null
+        FROM tlncp_sparse_nested_tbl
+        WHERE pk <= 3
+        ORDER BY ABS(pk % 3), pk
+        LIMIT 2
+    """
 }

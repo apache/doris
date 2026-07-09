@@ -30,6 +30,7 @@ file(GLOB_RECURSE UT_FILES CONFIGURE_DEPENDS
     exec/*.cpp
     exprs/*.cpp
     format/*.cpp
+    format_v2/*.cpp
     gutil/*.cpp
     io/*.cpp
     load/*.cpp
@@ -44,6 +45,16 @@ file(GLOB_RECURSE UT_FILES CONFIGURE_DEPENDS
     vec/*.cpp
 )
 
+set(PHDR_CACHE_TEST_DSO_SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/common/phdr_cache_test_dso.cpp)
+list(REMOVE_ITEM UT_FILES ${PHDR_CACHE_TEST_DSO_SOURCE})
+
+if (NOT OS_MACOSX)
+    add_library(phdr_cache_test_dso SHARED ${PHDR_CACHE_TEST_DSO_SOURCE})
+    set_target_properties(phdr_cache_test_dso PROPERTIES
+        LIBRARY_OUTPUT_DIRECTORY "${BUILD_DIR}/test"
+    )
+endif()
+
 if (ENABLE_TDE)
     file(GLOB_RECURSE TDE_UT_FILES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/${TDE_MODULE_DIR}/*.cpp")
     list(APPEND UT_FILES ${TDE_UT_FILES})
@@ -52,6 +63,12 @@ endif()
 if (ENABLE_TLS)
     file(GLOB_RECURSE TLS_UT_FILES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/${TLS_MODULE_DIR}/*.cpp")
     list(APPEND UT_FILES ${TLS_UT_FILES})
+endif()
+
+if (ENABLE_VARIANT_NESTED_GROUP)
+    file(GLOB_RECURSE VARIANT_NESTED_GROUP_UT_FILES CONFIGURE_DEPENDS
+            "${CMAKE_CURRENT_SOURCE_DIR}/${VARIANT_NESTED_GROUP_MODULE_DIR}/*.cpp")
+    list(APPEND UT_FILES ${VARIANT_NESTED_GROUP_UT_FILES})
 endif()
 
 # Remove all cpp files from vector search (ANN index) subdirectory
@@ -146,6 +163,9 @@ include_directories(
 add_subdirectory(storage/index/ann)
 
 add_executable(doris_be_test ${UT_FILES})
+if (TARGET phdr_cache_test_dso)
+    add_dependencies(doris_be_test phdr_cache_test_dso)
+endif()
 
 if (APPLE)
     target_link_libraries(doris_be_test ${TEST_LINK_LIBS}

@@ -37,6 +37,8 @@ import org.apache.doris.nereids.metrics.EventSwitchParser;
 import org.apache.doris.nereids.parser.Dialect;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
+import org.apache.doris.nereids.rules.rewrite.eageraggregation.EagerAggHints;
+import org.apache.doris.nereids.rules.rewrite.eageraggregation.EagerAggHints.Action;
 import org.apache.doris.planner.GroupCommitBlockSink;
 import org.apache.doris.qe.VarAttrDef.VarAttr;
 import org.apache.doris.thrift.TGroupCommitMode;
@@ -94,6 +96,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String SCAN_QUEUE_MEM_LIMIT = "scan_queue_mem_limit";
     public static final String MAX_SCANNERS_CONCURRENCY = "max_scanners_concurrency";
     public static final String MAX_FILE_SCANNERS_CONCURRENCY = "max_file_scanners_concurrency";
+    public static final String ENABLE_FILE_SCANNER_V2 = "enable_file_scanner_v2";
     public static final String MIN_SCANNERS_CONCURRENCY = "min_scanners_concurrency";
     public static final String MIN_FILE_SCANNERS_CONCURRENCY = "min_file_scanners_concurrency";
     public static final String MIN_SCAN_SCHEDULER_CONCURRENCY = "min_scan_scheduler_concurrency";
@@ -252,7 +255,12 @@ public class SessionVariable implements Serializable, Writable {
     // if the right table is greater than this value in the hash join,  we will ignore IN filter
     public static final String RUNTIME_FILTER_MAX_IN_NUM = "runtime_filter_max_in_num";
 
+    public static final String RUNTIME_FILTER_BROADCAST_JOIN_PRODUCER_NUM =
+            "runtime_filter_broadcast_join_producer_num";
+
     public static final String ENABLE_SYNC_RUNTIME_FILTER_SIZE = "enable_sync_runtime_filter_size";
+    public static final String RUNTIME_FILTER_TREE_PUBLISH_MAX_SEND_BYTES =
+            "runtime_filter_tree_publish_max_send_bytes";
 
     public static final String ENABLE_PARALLEL_RESULT_SINK = "enable_parallel_result_sink";
 
@@ -353,6 +361,12 @@ public class SessionVariable implements Serializable, Writable {
     public static final String PARALLEL_SCAN_MIN_ROWS_PER_SCANNER = "parallel_scan_min_rows_per_scanner";
 
     public static final String ENABLE_LOCAL_SHUFFLE = "enable_local_shuffle";
+
+    public static final String ENABLE_LOCAL_SHUFFLE_PLANNER = "enable_local_shuffle_planner";
+
+    public static final String LOCAL_SHUFFLE_BUCKET_UPGRADE_RATIO = "local_shuffle_bucket_upgrade_ratio";
+
+    public static final String BUCKET_SHUFFLE_DOWNGRADE_RATIO = "bucket_shuffle_downgrade_ratio";
 
     public static final String FORCE_TO_LOCAL_SHUFFLE = "force_to_local_shuffle";
 
@@ -500,6 +514,9 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String DISABLE_FILE_CACHE = "disable_file_cache";
 
+    public static final String ENABLE_TOPN_LAZY_MAT_PHASE2_NO_WRITE_FILE_CACHE
+            = "enable_topn_lazy_mat_phase2_no_write_file_cache";
+
     public static final String FILE_CACHE_QUERY_LIMIT_PERCENT = "file_cache_query_limit_percent";
 
     public static final String FILE_CACHE_BASE_PATH = "file_cache_base_path";
@@ -525,6 +542,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String PLAN_NEREIDS_DUMP = "plan_nereids_dump";
 
     public static final String DUMP_NEREIDS_MEMO = "dump_nereids_memo";
+
+    public static final String MEMO_LOGICAL_ROW_COUNT_AGGREGATION_POLICY = "memo_logical_row_count_aggregation_policy";
 
     // fix replica to query. If num = 1, query the smallest replica, if 2 is the second smallest replica.
     public static final String USE_FIX_REPLICA = "use_fix_replica";
@@ -574,6 +593,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_PARQUET_FILTER_BY_BLOOM_FILTER = "enable_parquet_filter_by_bloom_filter";
 
     public static final String ENABLE_ORC_FILTER_BY_MIN_MAX = "enable_orc_filter_by_min_max";
+
+    public static final String ENABLE_EXPR_ZONEMAP_FILTER = "enable_expr_zonemap_filter";
 
     public static final String CHECK_ORC_INIT_SARGS_SUCCESS = "check_orc_init_sargs_success";
 
@@ -810,6 +831,8 @@ public class SessionVariable implements Serializable, Writable {
     );
 
     public static final String ENABLE_STATS = "enable_stats";
+    public static final String ENABLE_LOW_CONFIDENCE_EQ_JOIN_REMAINING_CONDITION_DECAY
+            = "enable_low_confidence_eq_join_remaining_condition_decay";
 
     public static final String FETCH_REMOTE_SCHEMA_TIMEOUT_SECONDS = "fetch_remote_schema_timeout_seconds";
 
@@ -965,6 +988,10 @@ public class SessionVariable implements Serializable, Writable {
     public static final String HNSW_CHECK_RELATIVE_DISTANCE = "hnsw_check_relative_distance";
     public static final String HNSW_BOUNDED_QUEUE = "hnsw_bounded_queue";
     public static final String IVF_NPROBE = "ivf_nprobe";
+    public static final String ANN_INDEX_CANDIDATE_ROWS_THRESHOLD =
+            "ann_index_candidate_rows_threshold";
+    public static final String ANN_INDEX_CANDIDATE_ROWS_PERCENT_THRESHOLD =
+            "ann_index_candidate_rows_percent_threshold";
 
     public static final String DEFAULT_VARIANT_MAX_SUBCOLUMNS_COUNT = "default_variant_max_subcolumns_count";
 
@@ -1023,6 +1050,13 @@ public class SessionVariable implements Serializable, Writable {
      */
     @VarAttrDef.VarAttr(name = ENABLE_STATS)
     public boolean enableStats = true;
+
+    @VarAttrDef.VarAttr(name = ENABLE_LOW_CONFIDENCE_EQ_JOIN_REMAINING_CONDITION_DECAY, needForward = true,
+            description = {
+                    "是否在低置信度等值 join 只有 untrust 条件时，基于最小 ratio 对剩余条件继续做衰减",
+                    "Whether to continue decaying remaining low-confidence equality join conditions after "
+                    + "applying the minimum ratio when all equality predicates are untrustworthy" })
+    public boolean enableLowConfidenceEqJoinRemainingConditionDecay = true;
 
     // session origin value
     public Map<SessionVariableField, String> sessionOriginValue = new HashMap<>();
@@ -1128,6 +1162,11 @@ public class SessionVariable implements Serializable, Writable {
     @VarAttrDef.VarAttr(name = MAX_FILE_SCANNERS_CONCURRENCY, needForward = true, description = {
             "FileScanNode 扫描数据的最大并发，默认为 16", "The max threads to read data of FileScanNode, default 16"})
     public int maxFileScannersConcurrency = 16;
+
+    @VarAttrDef.VarAttr(name = ENABLE_FILE_SCANNER_V2, needForward = true, description = {
+            "开启后 FileScanNode 会在支持的查询场景使用 FileScannerV2，默认开启",
+            "When enabled, FileScanNode uses FileScannerV2 for supported query scans. Enabled by default."})
+    public boolean enableFileScannerV2 = true;
 
     @VarAttrDef.VarAttr(name = LOCAL_EXCHANGE_FREE_BLOCKS_LIMIT)
     public int localExchangeFreeBlocksLimit = 4;
@@ -1617,10 +1656,37 @@ public class SessionVariable implements Serializable, Writable {
     private boolean enableLocalShuffle = true;
 
     @VarAttrDef.VarAttr(
+            name = ENABLE_LOCAL_SHUFFLE_PLANNER, fuzzy = false, varType = VariableAnnotation.EXPERIMENTAL,
+            description = {"是否在FE规划Local Shuffle",
+                    "Whether to plan local shuffle in frontend"}, needForward = true)
+    private boolean enableLocalShufflePlanner = true;
+
+    @VarAttrDef.VarAttr(
                 name = FORCE_TO_LOCAL_SHUFFLE, fuzzy = false, varType = VariableAnnotation.EXPERIMENTAL,
                 description = {"是否在 pipelineX 引擎上强制开启 local shuffle 优化",
                         "Whether to force to local shuffle on pipelineX engine."})
     private boolean forceToLocalShuffle = false;
+
+    @VarAttrDef.VarAttr(
+            name = LOCAL_SHUFFLE_BUCKET_UPGRADE_RATIO, fuzzy = false, varType = VariableAnnotation.EXPERIMENTAL,
+            description = {"FE规划Local Shuffle时, 当池化bucket join所在fragment的每BE实例数大于"
+                    + "每BE有数据分桶数的该倍数时, 将join两侧的桶分布本地重分发为hash分布以突破桶数并发上限。"
+                    + "必须大于1才生效; 小于等于1(含0和负数)时关闭该优化",
+                    "When FE plans local shuffle and a pooled bucket join fragment has more instances"
+                    + " per BE than (buckets-with-data per BE) * this ratio, re-distribute both join"
+                    + " sides with local hash instead of bucket hash so join parallelism is no longer"
+                    + " capped at bucket count. Only takes effect when > 1; values <= 1 (including 0"
+                    + " and negatives) disable the upgrade."}, needForward = true)
+    private double localShuffleBucketUpgradeRatio = 1.5;
+
+    @VarAttrDef.VarAttr(
+            name = BUCKET_SHUFFLE_DOWNGRADE_RATIO, fuzzy = false, varType = VariableAnnotation.EXPERIMENTAL,
+            description = {"当一侧基表总桶数小于总实例数的该倍数时, 放弃bucket shuffle join降级为shuffle join。"
+                    + "小于等于0时永不降级。默认0.8保持原有行为",
+                    "Downgrade bucket shuffle join to shuffle join when the base table side's total"
+                    + " bucket count is less than total instance count times this ratio. Values <= 0"
+                    + " never downgrade. Default 0.8 keeps the original behavior."}, needForward = true)
+    private double bucketShuffleDowngradeRatio = 0.8;
 
     @VarAttrDef.VarAttr(name = ENABLE_LOCAL_MERGE_SORT)
     private boolean enableLocalMergeSort = true;
@@ -1708,6 +1774,18 @@ public class SessionVariable implements Serializable, Writable {
 
     @VarAttrDef.VarAttr(name = ENABLE_SYNC_RUNTIME_FILTER_SIZE, needForward = true, fuzzy = true)
     private boolean enableSyncRuntimeFilterSize = true;
+
+    @VarAttrDef.VarAttr(name = RUNTIME_FILTER_BROADCAST_JOIN_PRODUCER_NUM, needForward = true,
+            description = {"控制 Nereids 分布式规划中每个 broadcast join runtime filter 的生产 BE 数量。"
+                    + "设置为小于等于 0 时不限制。Legacy Coordinator 路径保持原行为。",
+                    "Controls the number of producer BEs for each broadcast join runtime filter in "
+                    + "the Nereids distributed planner. Values less than or equal to 0 disable the limit. "
+                    + "The legacy Coordinator path keeps the existing behavior."})
+    private int runtimeFilterBroadcastJoinProducerNum = 3;
+
+    @VarAttrDef.VarAttr(name = RUNTIME_FILTER_TREE_PUBLISH_MAX_SEND_BYTES, needForward = true, fuzzy = true,
+            checker = "checkRuntimeFilterTreePublishMaxSendBytes")
+    private long runtimeFilterTreePublishMaxSendBytes = 256L * 1024L * 1024L;
 
     @VarAttrDef.VarAttr(name = "runtime_filter_max_build_row_count", needForward = true, fuzzy = false)
     public long runtimeFilterMaxBuildRowCount = 64L * 1024L * 1024L;
@@ -2244,6 +2322,14 @@ public class SessionVariable implements Serializable, Writable {
     @VarAttrDef.VarAttr(name = DISABLE_FILE_CACHE, needForward = true)
     public boolean disableFileCache = false;
 
+    @VarAttrDef.VarAttr(name = ENABLE_TOPN_LAZY_MAT_PHASE2_NO_WRITE_FILE_CACHE, needForward = true,
+            description = {
+                    "开启后，TopN 延迟物化第二阶段读取在 file cache miss 时直接读远端且不写回 file cache。",
+                    "When enabled, TopN lazy materialization phase-2 reads go remote-only on "
+                            + "file-cache miss and do not write the missed range back to file cache."
+            })
+    public boolean enableTopnLazyMatPhase2NoWriteFileCache = false;
+
     // Whether enable block file cache. Only take effect when BE config item enable_file_cache is true.
     @VarAttrDef.VarAttr(name = ENABLE_FILE_CACHE, needForward = true, description = {
             "是否启用 file cache。该变量只有在 be.conf 中 enable_file_cache=true 时才有效，"
@@ -2316,11 +2402,22 @@ public class SessionVariable implements Serializable, Writable {
     @VarAttrDef.VarAttr(name = DUMP_NEREIDS_MEMO)
     public boolean dumpNereidsMemo = false;
 
+    @VarAttrDef.VarAttr(name = MEMO_LOGICAL_ROW_COUNT_AGGREGATION_POLICY, needForward = true,
+            checker = "checkMemoLogicalRowCountAggregationPolicy", setter = "setMemoLogicalRowCountAggregationPolicy",
+            options = {"trust_join_count", "average", "median", "min" }, description = {
+                    "控制 MemoStatsAndCostRecomputer 在多个逻辑候选统计之间如何聚合 group row count。"
+                            + "支持 trust_join_count, average、median、min。",
+                    "Controls how MemoStatsAndCostRecomputer aggregates group row count across multiple logical "
+                            + "statistics candidates. Supported values: trust_join_count, average, median, min." },
+                            affectQueryResultInPlan = true)
+    public String memoLogicalRowCountAggregationPolicy = "median";
+
     @VarAttrDef.VarAttr(name = "memo_max_group_expression_size")
     public int memoMaxGroupExpressionSize = 10000;
 
+    // 2600 is an empirical value proven favorable for TPC-DS tests
     @VarAttrDef.VarAttr(name = DPHYPER_LIMIT)
-    public int dphyperLimit = 1000;
+    public int dphyperLimit = 2600;
 
     @VarAttrDef.VarAttr(name = "eager_aggregation_mode", needForward = true,
             description = {"0: 根据统计信息决定是使用eager aggregation，"
@@ -2332,6 +2429,29 @@ public class SessionVariable implements Serializable, Writable {
     )
     private int eagerAggregationMode = 0;
 
+    @VarAttrDef.VarAttr(name = "force_eager_agg_hint", needForward = true, setter = "setForceEagerAggHint",
+            description = {
+                    "用于测试/调试 eager aggregation 下推的匹配 hint。"
+                            + "格式：`<func>:<qualifier.column | *>=<push|nopush>`，"
+                            + "多个条目以分号分隔。例如："
+                            + "`sum:t1.a=push; sum:t2.a=nopush; count:*=push`。"
+                            + "注意：hint 按聚合函数匹配，但生效粒度是当前候选下推分支/子树，而不是单个聚合函数独立生效；"
+                            + "同一分支中只要有任一匹配项为 `nopush`，该分支本次不下推；"
+                            + "否则只要有任一匹配项为 `push`，该分支本次可被强制下推，"
+                            + "同分支内其他聚合函数会跟随这一决定。",
+                    "Test/debug hint for eager aggregation push-down. "
+                            + "Format: `<func>:<qualifier.column | *>=<push|nopush>`, "
+                            + "with multiple entries separated by `;`. "
+                            + "Example: `sum:t1.a=push; sum:t2.a=nopush; count:*=push`. "
+                            + "Note: entries are matched per aggregate-function key, but the effect "
+                            + "is applied at the current candidate push-down branch/subtree rather "
+                            + "than to one function independently. If any matched entry in the branch "
+                            + "is `nopush`, push-down is disabled for that branch; otherwise, if any "
+                            + "matched entry is `push`, push-down may be forced for that branch, and "
+                            + "the other aggregates in the same branch follow that branch-level decision."})
+    public String forceEagerAggHint = "";
+    private Map<String, Action> forceEagerAggHintMap = ImmutableMap.of();
+
     public static int getEagerAggregationMode() {
         if (ConnectContext.get() != null) {
             return ConnectContext.get().getSessionVariable().eagerAggregationMode;
@@ -2342,6 +2462,19 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setEagerAggregationMode(int mode) {
         this.eagerAggregationMode = mode;
+    }
+
+    public void setForceEagerAggHint(String forceEagerAggHint) throws DdlException {
+        try {
+            this.forceEagerAggHintMap = EagerAggHints.parse(forceEagerAggHint);
+            this.forceEagerAggHint = forceEagerAggHint;
+        } catch (IllegalArgumentException e) {
+            throw new DdlException(e.getMessage());
+        }
+    }
+
+    public Map<String, Action> getForceEagerAggHintMap() {
+        return forceEagerAggHintMap;
     }
 
     @VarAttrDef.VarAttr(name = "eager_aggregation_on_join", needForward = true)
@@ -2531,6 +2664,15 @@ public class SessionVariable implements Serializable, Writable {
                             + "The default value is true."},
             needForward = true)
     public boolean enableOrcFilterByMinMax = true;
+
+    @VarAttrDef.VarAttr(
+            name = ENABLE_EXPR_ZONEMAP_FILTER,
+            fuzzy = true,
+            description = {"控制 scanner 是否启用表达式 ZoneMap 过滤。默认为 true。",
+                    "Controls whether to enable expression ZoneMap filtering in scanners. "
+                            + "The default value is true."},
+            needForward = true)
+    public boolean enableExprZonemapFilter = true;
 
     @VarAttrDef.VarAttr(
             name = CHECK_ORC_INIT_SARGS_SUCCESS,
@@ -2848,10 +2990,10 @@ public class SessionVariable implements Serializable, Writable {
     public boolean hiveParquetUseColumnNames = true;
 
     @VarAttrDef.VarAttr(name = HIVE_ORC_USE_COLUMN_NAMES, affectQueryResultInExecution = true,
-            description = {"默认情况下按名称访问 Orc 列。将此属性设置为“false”可按 Hive 表定义中的序号位置访问列。",
-                    "Access Parquet columns by name by default. Set this property to `false` to access columns "
-                            + "by their ordinal position in the Hive table definition."})
-    public boolean hiveOrcUseColumnNames = true;
+            description = {"默认情况下按照 Hive 表定义中的序号位置访问列。将此属性设置为“true”可按名称访问 Orc 列 。",
+                    "By default, columns are accessed based on their ordinal position in the Hive table definition."
+                            + " Set this property to `true` to access ORC columns by name."})
+    public boolean hiveOrcUseColumnNames = false;
 
     @VarAttrDef.VarAttr(name = KEEP_CARRIAGE_RETURN,
             description = {"在同时处理\r和\r\n作为 CSV 的行分隔符时，是否保留\r",
@@ -2890,10 +3032,9 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_MC_LIMIT_SPLIT_OPTIMIZATION = "enable_mc_limit_split_optimization";
     @VarAttrDef.VarAttr(
             name = ENABLE_EXTERNAL_TABLE_BATCH_MODE,
-            fuzzy = true,
             description = {"使能外表的 batch mode 功能", "Enable the batch mode function of the external table."},
             needForward = true)
-    public boolean enableExternalTableBatchMode = true;
+    public boolean enableExternalTableBatchMode = false;
 
     @VarAttrDef.VarAttr(
             name = ENABLE_MC_LIMIT_SPLIT_OPTIMIZATION,
@@ -3531,6 +3672,38 @@ public class SessionVariable implements Serializable, Writable {
                     "IVF index nprobe parameter, controls the number of clusters to search"})
     public int ivfNprobe = 32;
 
+    @VarAttrDef.VarAttr(name = ANN_INDEX_CANDIDATE_ROWS_THRESHOLD, needForward = true,
+            checker = "checkAnnIndexCandidateRowsThreshold",
+            description = {"Skip ANN index when candidate rows before ANN search are less "
+                    + "than this threshold. 0 disables the absolute row threshold",
+                    "Skip ANN index when candidate rows before ANN search are less "
+                            + "than this threshold. 0 disables the absolute row threshold"})
+    public long annIndexCandidateRowsThreshold = 0;
+
+    @VarAttrDef.VarAttr(name = ANN_INDEX_CANDIDATE_ROWS_PERCENT_THRESHOLD, needForward = true,
+            checker = "checkAnnIndexCandidateRowsPercentThreshold",
+            description = {"Skip ANN index when candidate row ratio before ANN search is less "
+                    + "than this threshold",
+                    "Skip ANN index when candidate row ratio before ANN search is less "
+                            + "than this threshold"})
+    public double annIndexCandidateRowsPercentThreshold = 0.3;
+
+    public void checkAnnIndexCandidateRowsThreshold(String value) {
+        long threshold = Long.parseLong(value);
+        if (threshold < 0) {
+            throw new InvalidParameterException(
+                    ANN_INDEX_CANDIDATE_ROWS_THRESHOLD + " should be greater than or equal to 0");
+        }
+    }
+
+    public void checkAnnIndexCandidateRowsPercentThreshold(String value) {
+        double threshold = Double.parseDouble(value);
+        if (Double.isNaN(threshold) || Double.isInfinite(threshold) || threshold < 0 || threshold > 1) {
+            throw new InvalidParameterException(
+                    ANN_INDEX_CANDIDATE_ROWS_PERCENT_THRESHOLD + " should be between 0 and 1");
+        }
+    }
+
     @VarAttrDef.VarAttr(
             name = DEFAULT_VARIANT_MAX_SUBCOLUMNS_COUNT,
             needForward = true,
@@ -3561,6 +3734,7 @@ public class SessionVariable implements Serializable, Writable {
     @VarAttrDef.VarAttr(
             name = DEFAULT_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE,
             needForward = true,
+            checker = "checkDefaultVariantMaxSparseColumnStatisticsSize",
             fuzzy = true
     )
     public int defaultVariantMaxSparseColumnStatisticsSize = 10000;
@@ -3729,6 +3903,9 @@ public class SessionVariable implements Serializable, Writable {
         this.enableParallelScan = random.nextInt(2) == 0;
         this.enableRuntimeFilterPrune = (randomInt % 10) == 0;
         this.enableRuntimeFilterPartitionPrune = (randomInt % 2) == 0;
+        this.runtimeFilterTreePublishMaxSendBytes =
+                Util.getRandomLong(0, 64L * 1024L * 1024L, 128L * 1024L * 1024L,
+                        256L * 1024L * 1024L);
 
         switch (randomInt) {
             case 0:
@@ -3823,13 +4000,6 @@ public class SessionVariable implements Serializable, Writable {
         // hive
         this.hiveTextCompression = Util.getRandomString(
                 "gzip", "defalte", "bzip2", "zstd", "lz4", "lzo", "snappy", "plain");
-
-        // batch mode
-        this.enableExternalTableBatchMode = random.nextBoolean();
-        if (this.enableExternalTableBatchMode) {
-            this.numPartitionsInBatchMode = Util.getRandomInt(0, 1024, Integer.MAX_VALUE);
-            this.numFilesInBatchMode = Util.getRandomInt(0, 1024, Integer.MAX_VALUE);
-        }
 
         // common
         this.enableCountPushDownForExternalTable = random.nextBoolean();
@@ -3996,6 +4166,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean isEnableJoinReorderBasedCost() {
         return enableJoinReorderBasedCost;
+    }
+
+    public boolean isEnableLowConfidenceEqJoinRemainingConditionDecay() {
+        return enableLowConfidenceEqJoinRemainingConditionDecay;
     }
 
     public boolean enableMultiClusterSyncLoad() {
@@ -4650,8 +4824,48 @@ public class SessionVariable implements Serializable, Writable {
         this.runtimeFilterMaxInNum = runtimeFilterMaxInNum;
     }
 
+    public int getRuntimeFilterBroadcastJoinProducerNum() {
+        return runtimeFilterBroadcastJoinProducerNum;
+    }
+
+    public void setRuntimeFilterBroadcastJoinProducerNum(int runtimeFilterBroadcastJoinProducerNum) {
+        this.runtimeFilterBroadcastJoinProducerNum = runtimeFilterBroadcastJoinProducerNum;
+    }
+
+    public long getRuntimeFilterTreePublishMaxSendBytes() {
+        return runtimeFilterTreePublishMaxSendBytes;
+    }
+
     public void setEnableLocalShuffle(boolean enableLocalShuffle) {
         this.enableLocalShuffle = enableLocalShuffle;
+    }
+
+    public boolean isEnableLocalShuffle() {
+        return enableLocalShuffle;
+    }
+
+    public boolean isEnableLocalShufflePlanner() {
+        return enableLocalShufflePlanner;
+    }
+
+    public void setEnableLocalShufflePlanner(boolean enableLocalShufflePlanner) {
+        this.enableLocalShufflePlanner = enableLocalShufflePlanner;
+    }
+
+    public double getLocalShuffleBucketUpgradeRatio() {
+        return localShuffleBucketUpgradeRatio;
+    }
+
+    public void setLocalShuffleBucketUpgradeRatio(double localShuffleBucketUpgradeRatio) {
+        this.localShuffleBucketUpgradeRatio = localShuffleBucketUpgradeRatio;
+    }
+
+    public double getBucketShuffleDowngradeRatio() {
+        return bucketShuffleDowngradeRatio;
+    }
+
+    public void setBucketShuffleDowngradeRatio(double bucketShuffleDowngradeRatio) {
+        this.bucketShuffleDowngradeRatio = bucketShuffleDowngradeRatio;
     }
 
     public boolean enablePushDownNoGroupAgg() {
@@ -4756,6 +4970,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setEnableOrcFilterByMinMax(boolean enableOrcFilterByMinMax) {
         this.enableOrcFilterByMinMax = enableOrcFilterByMinMax;
+    }
+
+    public boolean isEnableExprZonemapFilter() {
+        return enableExprZonemapFilter;
+    }
+
+    public void setEnableExprZonemapFilter(boolean enableExprZonemapFilter) {
+        this.enableExprZonemapFilter = enableExprZonemapFilter;
     }
 
     public boolean isCheckOrcInitSargsSuccess() {
@@ -4963,6 +5185,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setEnableJoinReorderBasedCost(boolean enableJoinReorderBasedCost) {
         this.enableJoinReorderBasedCost = enableJoinReorderBasedCost;
+    }
+
+    public void setEnableLowConfidenceEqJoinRemainingConditionDecay(boolean enable) {
+        this.enableLowConfidenceEqJoinRemainingConditionDecay = enable;
     }
 
     public void setDisableJoinReorder(boolean disableJoinReorder) {
@@ -5378,6 +5604,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setScanQueueMemLimit(maxScanQueueMemByte);
         tResult.setMaxScannersConcurrency(maxScannersConcurrency);
         tResult.setMaxFileScannersConcurrency(maxFileScannersConcurrency);
+        tResult.setEnableFileScannerV2(enableFileScannerV2);
         tResult.setMaxColumnReaderNum(maxColumnReaderNum);
         tResult.setParallelPrepareThreshold(parallelPrepareThreshold);
         tResult.setMinScannersConcurrency(minScannersConcurrency);
@@ -5432,6 +5659,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setRuntimeBloomFilterMinSize(runtimeBloomFilterMinSize);
         tResult.setRuntimeBloomFilterMaxSize(runtimeBloomFilterMaxSize);
         tResult.setRuntimeFilterWaitInfinitely(runtimeFilterWaitInfinitely);
+        tResult.setRuntimeFilterTreePublishMaxSendBytes(runtimeFilterTreePublishMaxSendBytes);
         tResult.setEnableFuzzyBlockableTask(enableFuzzyBlockableTask);
 
         tResult.setEnableFunctionPushdown(enableFunctionPushdown);
@@ -5469,6 +5697,7 @@ public class SessionVariable implements Serializable, Writable {
 
         tResult.setEnableParquetFilePageCache(enableParquetFilePageCache);
         tResult.setEnableOrcFilterByMinMax(enableOrcFilterByMinMax);
+        tResult.setEnableExprZonemapFilter(enableExprZonemapFilter);
         tResult.setEnablePaimonCppReader(enablePaimonCppReader);
         tResult.setFilePresignedUrlTtlSeconds(filePresignedUrlTtlSeconds);
         tResult.setEmbedMaxBatchSize(embedMaxBatchSize);
@@ -5497,6 +5726,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setParallelScanMinRowsPerScanner(parallelScanMinRowsPerScanner);
         tResult.setOptimizeIndexScanParallelism(optimizeIndexScanParallelism);
         tResult.setDisableFileCache(disableFileCache);
+        tResult.setEnableTopnLazyMatPhase2NoWriteFileCache(enableTopnLazyMatPhase2NoWriteFileCache);
 
         tResult.setEnablePreferCachedRowset(getEnablePreferCachedRowset());
         tResult.setQueryFreshnessToleranceMs(getQueryFreshnessToleranceMs());
@@ -5529,6 +5759,8 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableShortCircuitQueryAccessColumnStore(enableShortCircuitQueryAcessColumnStore);
         tResult.setReadCsvEmptyLineAsNull(readCsvEmptyLineAsNull);
         tResult.setSerdeDialect(getSerdeDialect());
+
+        tResult.setEnablePruneNestedColumn(enablePruneNestedColumns);
 
         tResult.setEnableMatchWithoutInvertedIndex(enableMatchWithoutInvertedIndex);
         tResult.setEnableFallbackOnMissingInvertedIndex(enableFallbackOnMissingInvertedIndex);
@@ -5566,6 +5798,8 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setHnswCheckRelativeDistance(hnswCheckRelativeDistance);
         tResult.setHnswBoundedQueue(hnswBoundedQueue);
         tResult.setIvfNprobe(ivfNprobe);
+        tResult.setAnnIndexCandidateRowsThreshold(annIndexCandidateRowsThreshold);
+        tResult.setAnnIndexCandidateRowsPercentThreshold(annIndexCandidateRowsPercentThreshold);
         tResult.setMergeReadSliceSize(mergeReadSliceSizeBytes);
         tResult.setEnableExtendedRegex(enableExtendedRegex);
         if (fileCacheQueryLimitPercent > 0) {
@@ -5578,6 +5812,8 @@ public class SessionVariable implements Serializable, Writable {
 
         // Set Iceberg write target file size
         tResult.setIcebergWriteTargetFileSizeBytes(icebergWriteTargetFileSizeBytes);
+
+        tResult.setEnableLocalShufflePlanner(enableLocalShufflePlanner);
 
         return tResult;
     }
@@ -5668,6 +5904,7 @@ public class SessionVariable implements Serializable, Writable {
                         throw new IOException("invalid type: " + field.getType().getSimpleName());
                 }
             }
+            refreshDerivedSessionVariables();
         } catch (Exception e) {
             throw new IOException("failed to read session variable: " + e.getMessage());
         }
@@ -5722,6 +5959,7 @@ public class SessionVariable implements Serializable, Writable {
                 }
 
             }
+            refreshDerivedSessionVariables();
         } catch (Exception ex) {
             throw new IOException("invalid session variable, " + ex.getMessage());
         }
@@ -5781,9 +6019,14 @@ public class SessionVariable implements Serializable, Writable {
                 // set config field
                 VariableMgr.setValue(this, val, f, varAttr.name());
             }
+            refreshDerivedSessionVariables();
         } catch (Throwable e) {
             LOG.error("failed to set forward variables", e);
         }
+    }
+
+    private void refreshDerivedSessionVariables() {
+        forceEagerAggHintMap = EagerAggHints.parse(forceEagerAggHint);
     }
 
     /**
@@ -5844,6 +6087,31 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setDumpNereidsMemo(boolean dumpNereidsMemo) {
         this.dumpNereidsMemo = dumpNereidsMemo;
+    }
+
+    public String getMemoLogicalRowCountAggregationPolicy() {
+        return memoLogicalRowCountAggregationPolicy;
+    }
+
+    public void setMemoLogicalRowCountAggregationPolicy(String memoLogicalRowCountAggregationPolicy) {
+        checkMemoLogicalRowCountAggregationPolicy(memoLogicalRowCountAggregationPolicy);
+        this.memoLogicalRowCountAggregationPolicy = memoLogicalRowCountAggregationPolicy.toLowerCase(Locale.ROOT);
+    }
+
+    public void checkMemoLogicalRowCountAggregationPolicy(String memoLogicalRowCountAggregationPolicy) {
+        if (memoLogicalRowCountAggregationPolicy == null) {
+            throw new UnsupportedOperationException("memo logical row count aggregation policy is null");
+        }
+        switch (memoLogicalRowCountAggregationPolicy.toLowerCase(Locale.ROOT)) {
+            case "average":
+            case "median":
+            case "min":
+            case "trust_join_count":
+                return;
+            default:
+                throw new UnsupportedOperationException("memo logical row count aggregation policy is invalid: "
+                        + memoLogicalRowCountAggregationPolicy);
+        }
     }
 
     public boolean isEnableStrictConsistencyDml() {
@@ -6357,6 +6625,18 @@ public class SessionVariable implements Serializable, Writable {
         }
     }
 
+    public void checkRuntimeFilterTreePublishMaxSendBytes(String maxSendBytes) {
+        long value = Long.valueOf(maxSendBytes);
+        if (value < 0) {
+            UnsupportedOperationException exception =
+                    new UnsupportedOperationException(
+                            "runtime_filter_tree_publish_max_send_bytes can not be set to "
+                                    + maxSendBytes + ", it must be greater or equal to 0");
+            LOG.warn("Check runtime_filter_tree_publish_max_send_bytes failed", exception);
+            throw exception;
+        }
+    }
+
     public void checkSqlConvertorFeatures(String features) {
         if (Strings.isNullOrEmpty(features)) {
             return;
@@ -6405,6 +6685,14 @@ public class SessionVariable implements Serializable, Writable {
         if (value < 0 || value > 100000) {
             throw new UnsupportedOperationException(
                     "variant max subcolumns count is: " + variantMaxSubcolumnsCount + " it must between 0 and 100000");
+        }
+    }
+
+    public void checkDefaultVariantMaxSparseColumnStatisticsSize(String variantMaxSparseColumnStatisticsSize) {
+        int value = Integer.valueOf(variantMaxSparseColumnStatisticsSize);
+        if (value < 1 || value > 50000) {
+            throw new UnsupportedOperationException("variant max sparse column statistics size is: "
+                    + variantMaxSparseColumnStatisticsSize + " it must between 1 and 50000");
         }
     }
 

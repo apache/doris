@@ -69,6 +69,39 @@ class AuthenticationResultTest {
     }
 
     @Test
+    @DisplayName("UT-API-AR-001B: Create success result with credential expiration")
+    void testCreateSuccess_WithCredentialExpiration() {
+        Principal principal = BasicPrincipal.builder()
+                .name("alice")
+                .authenticator("oidc")
+                .build();
+        long expiresAtMillis = 1_700_000_000_000L;
+
+        AuthenticationResult result = AuthenticationResult.success(principal, Set.of("admin"), expiresAtMillis);
+
+        Assertions.assertTrue(result.isSuccess());
+        Assertions.assertEquals(Set.of("admin"), result.getGrantedRoles());
+        Assertions.assertTrue(result.getCredentialExpiresAtMillis().isPresent());
+        Assertions.assertEquals(expiresAtMillis, result.getCredentialExpiresAtMillis().getAsLong());
+    }
+
+    @Test
+    @DisplayName("UT-API-AR-001C: No credential expiration sentinel returns empty expiration")
+    void testCreateSuccess_WithNoCredentialExpirationSentinel() {
+        Principal principal = BasicPrincipal.builder()
+                .name("alice")
+                .authenticator("oidc")
+                .build();
+
+        AuthenticationResult result = AuthenticationResult.success(principal, Set.of("admin"),
+                AuthenticationResult.NO_CREDENTIAL_EXPIRATION);
+
+        Assertions.assertTrue(result.isSuccess());
+        Assertions.assertEquals(Set.of("admin"), result.getGrantedRoles());
+        Assertions.assertTrue(result.getCredentialExpiresAtMillis().isEmpty());
+    }
+
+    @Test
     @DisplayName("UT-API-AR-002: Create failure result with message")
     void testCreateFailure_WithMessage() {
         // Given

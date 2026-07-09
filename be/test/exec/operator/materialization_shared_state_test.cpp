@@ -23,8 +23,18 @@
 #include "core/field.h"
 #include "exec/operator/materialization_opertor.h"
 #include "exec/pipeline/dependency.h"
+#include "runtime/runtime_profile.h"
 
 namespace doris {
+
+namespace {
+
+void add_request_row(PRequestBlockDesc* request_block_desc, uint32_t row_id, uint32_t file_id) {
+    request_block_desc->add_row_id(row_id);
+    request_block_desc->add_file_id(file_id);
+}
+
+} // namespace
 
 class MaterializationSharedStateTest : public testing::Test {
 protected:
@@ -107,12 +117,10 @@ TEST_F(MaterializationSharedStateTest, TestMergeMultiResponse) {
     // 2. Setup response blocks from multiple backends
     // Backend 1's response
     {
-        _shared_state->rpc_struct_map[_backend_id1]
-                .request.mutable_request_block_descs(0)
-                ->add_row_id(0);
-        _shared_state->rpc_struct_map[_backend_id1]
-                .request.mutable_request_block_descs(0)
-                ->add_row_id(1);
+        auto* request_block_desc =
+                _shared_state->rpc_struct_map[_backend_id1].request.mutable_request_block_descs(0);
+        add_request_row(request_block_desc, 0, 1);
+        add_request_row(request_block_desc, 1, 1);
         Block resp_block1;
         auto resp_value_col1 = _int_type->create_column();
         auto* value_col_data1 = reinterpret_cast<ColumnInt32*>(resp_value_col1.get());
@@ -137,9 +145,9 @@ TEST_F(MaterializationSharedStateTest, TestMergeMultiResponse) {
 
     // Backend 2's response
     {
-        _shared_state->rpc_struct_map[_backend_id2]
-                .request.mutable_request_block_descs(0)
-                ->add_row_id(2);
+        add_request_row(
+                _shared_state->rpc_struct_map[_backend_id2].request.mutable_request_block_descs(0),
+                2, 2);
         Block resp_block2;
         auto resp_value_col2 = _int_type->create_column();
         auto* value_col_data2 = reinterpret_cast<ColumnInt32*>(resp_value_col2.get());
@@ -166,7 +174,8 @@ TEST_F(MaterializationSharedStateTest, TestMergeMultiResponse) {
 
     // 4. Test merging responses
     Block result_block;
-    Status st = _shared_state->merge_multi_response();
+    RuntimeProfile profile("MaterializationSharedStateTest");
+    Status st = _shared_state->merge_multi_response(&profile);
     _shared_state->get_block(&result_block);
     EXPECT_TRUE(st.ok());
 
@@ -219,9 +228,9 @@ TEST_F(MaterializationSharedStateTest, TestMergeMultiResponseMultiBlocks) {
 
     // 2. Setup response blocks from multiple backends for first rowid
     {
-        _shared_state->rpc_struct_map[_backend_id1]
-                .request.mutable_request_block_descs(0)
-                ->add_row_id(0);
+        add_request_row(
+                _shared_state->rpc_struct_map[_backend_id1].request.mutable_request_block_descs(0),
+                0, 1);
         Block resp_block1;
         auto resp_value_col1 = _int_type->create_column();
         auto* value_col_data1 = reinterpret_cast<ColumnInt32*>(resp_value_col1.get());
@@ -244,9 +253,9 @@ TEST_F(MaterializationSharedStateTest, TestMergeMultiResponseMultiBlocks) {
 
     // Backend 2's response for first rowid
     {
-        _shared_state->rpc_struct_map[_backend_id2]
-                .request.mutable_request_block_descs(0)
-                ->add_row_id(0);
+        add_request_row(
+                _shared_state->rpc_struct_map[_backend_id2].request.mutable_request_block_descs(0),
+                0, 2);
         Block resp_block2;
         auto resp_value_col2 = _int_type->create_column();
         auto* value_col_data2 = reinterpret_cast<ColumnInt32*>(resp_value_col2.get());
@@ -270,9 +279,9 @@ TEST_F(MaterializationSharedStateTest, TestMergeMultiResponseMultiBlocks) {
     _shared_state->rpc_struct_map[_backend_id1].request.add_request_block_descs();
     _shared_state->rpc_struct_map[_backend_id2].request.add_request_block_descs();
     {
-        _shared_state->rpc_struct_map[_backend_id1]
-                .request.mutable_request_block_descs(1)
-                ->add_row_id(0);
+        add_request_row(
+                _shared_state->rpc_struct_map[_backend_id1].request.mutable_request_block_descs(1),
+                0, 3);
         Block resp_block1;
         auto resp_value_col1 = _int_type->create_column();
         auto* value_col_data1 = reinterpret_cast<ColumnInt32*>(resp_value_col1.get());
@@ -292,9 +301,9 @@ TEST_F(MaterializationSharedStateTest, TestMergeMultiResponseMultiBlocks) {
     }
 
     {
-        _shared_state->rpc_struct_map[_backend_id2]
-                .request.mutable_request_block_descs(1)
-                ->add_row_id(0);
+        add_request_row(
+                _shared_state->rpc_struct_map[_backend_id2].request.mutable_request_block_descs(1),
+                0, 4);
         Block resp_block2;
         auto resp_value_col2 = _int_type->create_column();
         auto* value_col_data2 = reinterpret_cast<ColumnInt32*>(resp_value_col2.get());
@@ -320,7 +329,8 @@ TEST_F(MaterializationSharedStateTest, TestMergeMultiResponseMultiBlocks) {
 
     // 4. Test merging responses
     Block result_block;
-    Status st = _shared_state->merge_multi_response();
+    RuntimeProfile profile("MaterializationSharedStateTest");
+    Status st = _shared_state->merge_multi_response(&profile);
     EXPECT_TRUE(st.ok());
     _shared_state->get_block(&result_block);
 
@@ -361,9 +371,9 @@ TEST_F(MaterializationSharedStateTest, TestMergeMultiResponseBackendNotFound) {
 
     // --- BE_1: valid response with 1 row ---
     {
-        _shared_state->rpc_struct_map[_backend_id1]
-                .request.mutable_request_block_descs(0)
-                ->add_row_id(0);
+        add_request_row(
+                _shared_state->rpc_struct_map[_backend_id1].request.mutable_request_block_descs(0),
+                0, 1);
         Block resp_block;
         auto col = _int_type->create_column();
         reinterpret_cast<ColumnInt32*>(col.get())->insert(
@@ -388,9 +398,9 @@ TEST_F(MaterializationSharedStateTest, TestMergeMultiResponseBackendNotFound) {
     // After deserialization this produces a Block with 0 columns,
     // so is_empty_column() == true and it won't be inserted into block_maps.
     {
-        _shared_state->rpc_struct_map[_backend_id2]
-                .request.mutable_request_block_descs(0)
-                ->add_row_id(0);
+        add_request_row(
+                _shared_state->rpc_struct_map[_backend_id2].request.mutable_request_block_descs(0),
+                0, 2);
         PMultiGetResponseV2 response;
         response.add_blocks(); // empty PMultiGetBlockV2, no mutable_block() data
         _shared_state->rpc_struct_map[_backend_id2].response = std::move(response);
@@ -410,7 +420,8 @@ TEST_F(MaterializationSharedStateTest, TestMergeMultiResponseBackendNotFound) {
     _shared_state->rowid_locs = {0};
 
     // merge_multi_response() should return InternalError
-    Status st = _shared_state->merge_multi_response();
+    RuntimeProfile profile("MaterializationSharedStateTest");
+    Status st = _shared_state->merge_multi_response(&profile);
     ASSERT_FALSE(st.ok());
     ASSERT_TRUE(st.is<ErrorCode::INTERNAL_ERROR>());
     ASSERT_TRUE(st.to_string().find("not match request row id count") != std::string::npos)
@@ -444,9 +455,9 @@ TEST_F(MaterializationSharedStateTest, TestMergeMultiResponseStaleBlockMaps) {
 
     // --- Build BE_1's response: blocks[0]=1 row (INT), blocks[1]=empty ---
     {
-        _shared_state->rpc_struct_map[_backend_id1]
-                .request.mutable_request_block_descs(0)
-                ->add_row_id(0);
+        add_request_row(
+                _shared_state->rpc_struct_map[_backend_id1].request.mutable_request_block_descs(0),
+                0, 1);
         PMultiGetResponseV2 response;
 
         // blocks[0]: 1 row of INT for relation 0
@@ -481,9 +492,9 @@ TEST_F(MaterializationSharedStateTest, TestMergeMultiResponseStaleBlockMaps) {
         reinterpret_cast<ColumnString*>(col.get())->insert_data("Alice", 5);
         rel1_block.insert({make_nullable(std::move(col)), make_nullable(_string_type), "name"});
 
-        _shared_state->rpc_struct_map[_backend_id2]
-                .request.mutable_request_block_descs(1)
-                ->add_row_id(0);
+        add_request_row(
+                _shared_state->rpc_struct_map[_backend_id2].request.mutable_request_block_descs(1),
+                0, 2);
         auto* pb1 = response.add_blocks()->mutable_block();
         size_t us = 0, cs = 0;
         int64_t ct = 0;
@@ -509,7 +520,8 @@ TEST_F(MaterializationSharedStateTest, TestMergeMultiResponseStaleBlockMaps) {
     _shared_state->rowid_locs = {0, 1};
 
     // merge should succeed — each relation only references the BE that has data
-    Status st = _shared_state->merge_multi_response();
+    RuntimeProfile profile("MaterializationSharedStateTest");
+    Status st = _shared_state->merge_multi_response(&profile);
     ASSERT_TRUE(st.ok()) << "merge_multi_response failed: " << st.to_string();
 
     // Verify results

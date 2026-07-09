@@ -58,6 +58,12 @@ protected:
     static void SetUpTestSuite() {}
 };
 
+TEST_F(DataTypeStructSerDeTest, GetName) {
+    DataTypeStructSerDe serde_struct({serde_int32, serde_str}, {"id", "name"});
+
+    EXPECT_EQ(serde_struct.get_name(), "Struct(id:INT, name:String)");
+}
+
 // Run with UBSan enabled to catch misalignment errors.
 TEST_F(DataTypeStructSerDeTest, ArrowMemNotAligned) {
     // 1.Prepare the data.

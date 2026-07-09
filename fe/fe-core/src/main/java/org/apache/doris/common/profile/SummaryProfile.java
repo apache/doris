@@ -62,6 +62,12 @@ public class SummaryProfile {
     public static final String END_TIME = "End Time";
     public static final String TOTAL_TIME = "Total";
     public static final String TASK_STATE = "Task State";
+    public static final String PROFILE_COMPLETION_STATE = "Profile Completion State";
+    public static final String PROFILE_COMPLETION_STATE_RUNNING = "RUNNING";
+    public static final String PROFILE_COMPLETION_STATE_COLLECTING = "COLLECTING";
+    public static final String PROFILE_COMPLETION_STATE_COMPLETE = "COMPLETE";
+    public static final String PROFILE_COMPLETION_STATE_INCOMPLETE = "INCOMPLETE";
+    public static final String PROFILE_COMPLETION_STATE_UNKNOWN = "UNKNOWN";
     public static final String USER = "User";
     public static final String DEFAULT_CATALOG = "Default Catalog";
     public static final String DEFAULT_DB = "Default Db";
@@ -150,6 +156,7 @@ public class SummaryProfile {
     public static final String SPLITS_ASSIGNMENT_WEIGHT = "Splits Assignment Weight";
     public static final String ICEBERG_SCAN_METRICS = "Iceberg Scan Metrics";
     public static final String PAIMON_SCAN_METRICS = "Paimon Scan Metrics";
+    public static final String WAIT_CHANGE_VISIBLE_TIME = "Wait Change Visible Time";
     private boolean isWarmUp = false;
 
     public void setWarmup(boolean isWarmUp) {
@@ -187,6 +194,7 @@ public class SummaryProfile {
             PLAN_TIME,
             NEREIDS_GARBAGE_COLLECT_TIME,
             NEREIDS_PRELOAD_EXTERNAL_METADATA_TIME,
+            WAIT_CHANGE_VISIBLE_TIME,
             NEREIDS_LOCK_TABLE_TIME,
             NEREIDS_ANALYSIS_TIME,
             NEREIDS_REWRITE_TIME,
@@ -245,6 +253,7 @@ public class SummaryProfile {
             = ImmutableMap.<String, Integer>builder()
             .put(NEREIDS_GARBAGE_COLLECT_TIME, 1)
             .put(NEREIDS_PRELOAD_EXTERNAL_METADATA_TIME, 1)
+            .put(WAIT_CHANGE_VISIBLE_TIME, 1)
             .put(NEREIDS_LOCK_TABLE_TIME, 1)
             .put(NEREIDS_ANALYSIS_TIME, 1)
             .put(NEREIDS_REWRITE_TIME, 1)
@@ -473,6 +482,10 @@ public class SummaryProfile {
     private Map<TNetworkAddress, List<Long>> rpcPhase1Latency;
     private Map<TNetworkAddress, List<Long>> rpcPhase2Latency;
     private Map<Backend, Long> assignedWeightPerBackend;
+    @SerializedName("waitChangeVisibleStartTime")
+    private long waitChangeVisibleStartTime = -1L;
+    @SerializedName("waitChangeVisibleEndTime")
+    private long waitChangeVisibleEndTime = -1L;
 
     public SummaryProfile() {
         this(true);
@@ -526,6 +539,10 @@ public class SummaryProfile {
 
     public RuntimeProfile getSummary() {
         return summaryProfile;
+    }
+
+    public void setProfileCompletionState(String profileCompletionState) {
+        summaryProfile.addInfoString(PROFILE_COMPLETION_STATE, profileCompletionState);
     }
 
     public RuntimeProfile getExecutionSummary() {
@@ -586,6 +603,7 @@ public class SummaryProfile {
                 getPrettyTime(queryPlanFinishTime, parseSqlFinishTime, TUnit.TIME_MS));
         executionSummaryProfile.addInfoString(NEREIDS_PRELOAD_EXTERNAL_METADATA_TIME,
                 getPrettyNereidsPreloadExternalMetadataTime());
+        executionSummaryProfile.addInfoString(WAIT_CHANGE_VISIBLE_TIME, getPrettyWaitChangeVisibleEndTime());
         executionSummaryProfile.addInfoString(NEREIDS_LOCK_TABLE_TIME, getPrettyNereidsLockTableTime());
         executionSummaryProfile.addInfoString(NEREIDS_ANALYSIS_TIME, getPrettyNereidsAnalysisTime());
         executionSummaryProfile.addInfoString(NEREIDS_REWRITE_TIME, getPrettyNereidsRewriteTime());
@@ -710,6 +728,14 @@ public class SummaryProfile {
 
     public void setNereidsLockTableFinishTime(long lockTableFinishTime) {
         this.nereidsLockTableFinishTime = lockTableFinishTime;
+    }
+
+    public void setWaitChangeVisibleStartTime(long waitChangeVisibleStartTime) {
+        this.waitChangeVisibleStartTime = waitChangeVisibleStartTime;
+    }
+
+    public void setWaitChangeVisibleEndTime(long waitChangeVisibleEndTime) {
+        this.waitChangeVisibleEndTime = waitChangeVisibleEndTime;
     }
 
     public void setNereidsCollectTablePartitionFinishTime(long collectTablePartitionFinishTime) {
@@ -888,6 +914,10 @@ public class SummaryProfile {
         return getTimeMs(nereidsLockTableFinishTime, nereidsLockTableStartTime);
     }
 
+    public int getWaitChangeVisibleTimeMs() {
+        return getTimeMs(waitChangeVisibleEndTime, waitChangeVisibleStartTime);
+    }
+
     public long getNereidsPreloadExternalMetadataTimeMs() {
         return nereidsPreloadExternalMetadataTime;
     }
@@ -979,6 +1009,10 @@ public class SummaryProfile {
 
     public String getPrettyNereidsPreloadExternalMetadataTime() {
         return RuntimeProfile.printCounter(nereidsPreloadExternalMetadataTime, TUnit.TIME_MS);
+    }
+
+    public String getPrettyWaitChangeVisibleEndTime() {
+        return getPrettyTime(waitChangeVisibleEndTime, waitChangeVisibleStartTime, TUnit.TIME_MS);
     }
 
     public String getPrettyNereidsLockTableTime() {
@@ -1332,6 +1366,7 @@ public class SummaryProfile {
         String planTimesMs = "{"
                 + "\"plan\"" + ":" + this.getPlanTimeMs() + ","
                 + "\"garbage_collect\"" + ":" + this.getNereidsGarbageCollectionTimeMs() + ","
+                + "\"wait_change_visible\"" + ":" + this.getWaitChangeVisibleTimeMs() + ","
                 + "\"lock_tables\"" + ":" + this.getNereidsLockTableTimeMs() + ","
                 + "\"analyze\"" + ":" + this.getNereidsAnalysisTimeMs() + ","
                 + "\"rewrite\"" + ":" + this.getNereidsRewriteTimeMs() + ","

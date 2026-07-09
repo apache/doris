@@ -274,20 +274,39 @@ public class StreamingJobUtils {
     }
 
     public static Backend selectBackend(String cloudCluster) throws JobException {
+        return selectBackend(cloudCluster, -1);
+    }
+
+    // Prefer preferredBackendId if it is in the cluster's available BEs (also enforces cloud group).
+    public static Backend selectBackend(String cloudCluster, long preferredBackendId) throws JobException {
         if (Config.isCloudMode() && StringUtils.isNotEmpty(cloudCluster)) {
             List<Backend> bes = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
                     .getBackendsByClusterName(cloudCluster)
                     .stream()
                     .filter(Backend::isLoadAvailable)
+                    .filter(backend -> !backend.isDecommissioned() && !backend.isDecommissioning())
                     .collect(Collectors.toList());
             if (bes.isEmpty()) {
                 throw new JobException(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG
                         + ", compute_group: " + cloudCluster);
             }
+            if (preferredBackendId > 0) {
+                for (Backend be : bes) {
+                    if (be.getId() == preferredBackendId) {
+                        return be;
+                    }
+                }
+            }
             int idx = getLastSelectedBackendIndexAndUpdate();
             return bes.get(Math.floorMod(idx, bes.size()));
         }
 
+        if (preferredBackendId > 0) {
+            Backend bound = Env.getCurrentSystemInfo().getBackend(preferredBackendId);
+            if (bound != null && bound.isLoadAvailable()) {
+                return bound;
+            }
+        }
         BeSelectionPolicy policy = new BeSelectionPolicy.Builder()
                 .setEnableRoundRobin(true).needLoadAvailable().build();
         policy.nextRoundRobinIndex = getLastSelectedBackendIndexAndUpdate();

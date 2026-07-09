@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.DiskUtils;
+import org.apache.doris.common.util.HttpURLUtil;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.FeDiskInfo;
@@ -79,14 +80,10 @@ public class FrontendsProcNode implements ProcNodeInterface {
         List<Pair<String, Integer>> allFe = new ArrayList<>();
         List<Frontend> frontends = env.getFrontends(null);
 
-        String selfNode = Env.getCurrentEnv().getSelfNode().getHost();
-        if (ConnectContext.get() != null && !Strings.isNullOrEmpty(ConnectContext.get().getCurrentConnectedFEIp())) {
-            selfNode = ConnectContext.get().getCurrentConnectedFEIp();
-        }
+        String selfNodeName = env.getNodeName();
 
-        String finalSelfNode = selfNode;
         frontends.stream()
-            .filter(fe -> (!fe.getHost().equals(finalSelfNode) || includeSelf))
+            .filter(fe -> (!fe.getNodeName().equals(selfNodeName) || includeSelf))
             .map(fe -> Pair.of(fe.getHost(), fe.getRpcPort()))
                 .forEach(allFe::add);
         return allFe;
@@ -127,9 +124,9 @@ public class FrontendsProcNode implements ProcNodeInterface {
             info.add(fe.getNodeName());
             info.add(fe.getHost());
             info.add(Integer.toString(fe.getEditLogPort()));
-            info.add(Integer.toString(Config.http_port));
+            info.add(Integer.toString(HttpURLUtil.getHttpPort()));
 
-            if (fe.getHost().equals(env.getSelfNode().getHost())) {
+            if (fe.getNodeName().equals(env.getNodeName())) {
                 info.add(Integer.toString(Config.query_port));
                 info.add(Integer.toString(Config.rpc_port));
                 info.add(Integer.toString(Config.arrow_flight_sql_port));
@@ -144,7 +141,7 @@ public class FrontendsProcNode implements ProcNodeInterface {
             //An ipv6 address may have different format, so we compare InetSocketAddress objects instead of IP Strings.
             //e.g.  fdbd:ff1:ce00:1c26::d8 and fdbd:ff1:ce00:1c26:0:0:d8
             boolean isMaster = socketAddress.equals(master);
-            if (!isMaster && master == null && fe.getHost().equals(env.getSelfNode().getHost()) && env.isMaster()) {
+            if (!isMaster && master == null && fe.getNodeName().equals(env.getNodeName()) && env.isMaster()) {
                 isMaster = true;
             }
             info.add(String.valueOf(isMaster));
@@ -152,7 +149,7 @@ public class FrontendsProcNode implements ProcNodeInterface {
             info.add(Integer.toString(env.getClusterId()));
             info.add(String.valueOf(isJoin(allFe, fe)));
 
-            if (fe.getHost().equals(env.getSelfNode().getHost())) {
+            if (fe.getNodeName().equals(env.getNodeName())) {
                 info.add("true");
                 info.add(Long.toString(env.getEditLog().getMaxJournalId()));
             } else {
@@ -174,7 +171,7 @@ public class FrontendsProcNode implements ProcNodeInterface {
 
     public static Frontend getCurrentFrontendVersion(Env env) {
         for (Frontend fe : env.getFrontends(null /* all */)) {
-            if (fe.getHost().equals(env.getSelfNode().getHost())) {
+            if (fe.getNodeName().equals(env.getNodeName())) {
                 return fe;
             }
         }

@@ -56,8 +56,8 @@ Status PartitionedAggSinkLocalState::init(doris::RuntimeState* state,
     }
     for (const auto& aggregate_evaluator :
          Base::_shared_state->_in_mem_shared_state->aggregate_evaluators) {
-        _value_data_types.emplace_back(aggregate_evaluator->function()->get_serialized_type());
-        _value_columns.emplace_back(aggregate_evaluator->function()->create_serialize_column());
+        _value_data_types.emplace_back(aggregate_evaluator->get_serialized_type());
+        _value_columns.emplace_back(aggregate_evaluator->create_serialize_column());
     }
     _rows_in_partitions.assign(parent._partition_count, 0);
     return Status::OK();
@@ -273,12 +273,9 @@ Status PartitionedAggSinkLocalState::_to_block(HashTableCtxType& context,
 
     for (size_t i = 0; i < Base::_shared_state->_in_mem_shared_state->aggregate_evaluators.size();
          ++i) {
-        Base::_shared_state->_in_mem_shared_state->aggregate_evaluators[i]
-                ->function()
-                ->serialize_to_column(
-                        values,
-                        Base::_shared_state->_in_mem_shared_state->offsets_of_aggregate_states[i],
-                        _value_columns[i], values.size());
+        Base::_shared_state->_in_mem_shared_state->aggregate_evaluators[i]->serialize_to_column(
+                values, Base::_shared_state->_in_mem_shared_state->offsets_of_aggregate_states[i],
+                _value_columns[i], values.size());
     }
 
     ColumnsWithTypeAndName key_columns_with_schema;
@@ -294,9 +291,7 @@ Status PartitionedAggSinkLocalState::_to_block(HashTableCtxType& context,
     for (int i = 0; i < _value_columns.size(); ++i) {
         value_columns_with_schema.emplace_back(
                 std::move(_value_columns[i]), _value_data_types[i],
-                Base::_shared_state->_in_mem_shared_state->aggregate_evaluators[i]
-                        ->function()
-                        ->get_name());
+                Base::_shared_state->_in_mem_shared_state->aggregate_evaluators[i]->get_name());
     }
     _value_block = value_columns_with_schema;
 

@@ -71,13 +71,12 @@ suite("string_length_column_pruning") {
     }
     sql "select length(str_col) from slcp_str_tbl"
 
-    // length(str_col) in IF plus ORDER BY on a plain primitive column:
-    // only str_col should appear in nested columns, and NULL is redundant when OFFSET exists.
+    // [str_col, OFFSET] strips [str_col, NULL].
     explain {
         sql "select if(length(str_col) >= 5, true, false) a from slcp_str_tbl order by id"
         contains "nested columns"
         contains "str_col.OFFSET"
-        notContains "str_col.NULL"
+        contains "str_col.NULL"
         notContains "all access paths: [id]"
     }
     sql "select if(length(str_col) >= 5, true, false) a from slcp_str_tbl order by id"
@@ -147,14 +146,16 @@ suite("string_length_column_pruning") {
         notContains "type=bigint"
     }
     sql "select sum(cardinality(arr_col)) from slcp_str_tbl"
-    // arr_col also accessed via element_at → full element data needed, OFFSET suppressed.
+    // arr_col is also accessed via element_at, so full element data is needed. Keep OFFSET
+    // as well because cardinality(arr_col) still needs array offset metadata.
     explain {
         sql "select cardinality(arr_col), arr_col[1] from slcp_str_tbl"
-        notContains "OFFSET"
+        contains "arr_col.*"
+        contains "arr_col.OFFSET"
         notContains "type=bigint"
     }
 
-    // Full access to the same array field covers its OFFSET metadata for any data type.
+    // [arr_col] strips [arr_col, OFFSET].
     explain {
         sql "select id, cardinality(arr_col), arr_col from slcp_str_tbl"
         contains "nested columns"
@@ -243,9 +244,7 @@ suite("string_length_column_pruning") {
 
     // ─── Map with complex value cases ────────────────────────────────────────────
 
-    // cardinality(map_arr_col['a']): value is ARRAY<INT>.
-    // Keys read in full (element lookup); values need only the OFFSET array (array size).
-    // Expected paths: map_arr_col.KEYS + map_arr_col.VALUES.OFFSET
+    // Expected paths: [map_arr_col, KEYS] + [map_arr_col, VALUES, OFFSET]
     explain {
         sql "select cardinality(map_arr_col['a']) from slcp_str_tbl"
         contains "nested columns"
@@ -265,27 +264,35 @@ suite("string_length_column_pruning") {
         notContains "type=bigint"
     }
 
-    // value also accessed directly (arr[0]) → full VALUES needed, OFFSET suppressed
+    // Value is also accessed directly (arr[0]), so full VALUES element data is needed. Keep
+    // VALUES.OFFSET as well because cardinality(map_arr_col['a']) still needs array offset metadata.
     explain {
         sql "select cardinality(map_arr_col['a']), map_arr_col['b'][0] from slcp_str_tbl"
-        notContains "OFFSET"
+        contains "map_arr_col.KEYS"
+        contains "map_arr_col.VALUES.*"
+        contains "map_arr_col.VALUES.OFFSET"
         notContains "type=bigint"
     }
 
-    // value array item also accessed directly → full VALUES item path covers value OFFSET.
+    // The struct field is also accessed directly, so keep only the required verified field data.
+    // VALUES.OFFSET is still needed by cardinality(map_arr_struct_col['a']).
     explain {
         sql "select cardinality(map_arr_struct_col['a']), map_arr_struct_col['a'][1].verified from slcp_str_tbl"
         contains "nested columns"
-        contains "map_arr_struct_col.*.*.verified"
-        notContains "map_arr_struct_col.*.OFFSET"
+        contains "map_arr_struct_col.KEYS"
+        contains "map_arr_struct_col.VALUES.*.verified"
+        contains "map_arr_struct_col.VALUES.OFFSET"
         notContains "type=bigint"
     }
 
+    // Returning map_arr_col['a'] needs full VALUES data. Keep VALUES.OFFSET too because
+    // cardinality(map_arr_col['a']) also reads the selected value-array offsets.
     explain {
         sql "select id, cardinality(map_arr_col['a']), map_arr_col['a'] from slcp_str_tbl"
         contains "nested columns"
-        contains "all access paths: [map_arr_col.*]"
-        notContains "map_arr_col.*.OFFSET"
+        contains "map_arr_col.KEYS"
+        contains "map_arr_col.VALUES"
+        contains "map_arr_col.VALUES.OFFSET"
         notContains "predicate access paths:"
         notContains "type=bigint"
     }
@@ -295,15 +302,13 @@ suite("string_length_column_pruning") {
         order by id
     """
 
-    // Predicate OFFSET path must also be removed when the projected value field already
-    // makes the corresponding array data path available. predicateAccessPaths remains a
-    // subset of allAccessPaths.
+    // Keep the value-array offset in predicate paths: predicate evaluation needs it for
+    // cardinality(), and lazy materialization still needs the verified field after filtering.
     explain {
         sql "select map_arr_struct_col['a'][1].verified from slcp_str_tbl where cardinality(map_arr_struct_col['a']) > 0"
         contains "nested columns"
-        contains "all access paths: [map_arr_struct_col.*.*.verified]"
-        notContains "map_arr_struct_col.*.OFFSET"
-        notContains "predicate access paths:"
+        contains "all access paths: [map_arr_struct_col.KEYS, map_arr_struct_col.VALUES.*.verified, map_arr_struct_col.VALUES.OFFSET]"
+        contains "predicate access paths: [map_arr_struct_col.KEYS, map_arr_struct_col.VALUES.OFFSET]"
         notContains "type=bigint"
     }
 
@@ -313,13 +318,13 @@ suite("string_length_column_pruning") {
         order by 1
     """
 
-    // value array item also accessed directly → full VALUES item path covers value NULL.
+    // Predicate keeps the value-array NULL path so IS NULL can read the value-array null map
+    // during predicate evaluation, while allAccessPaths keeps the data paths used by projection.
     explain {
         sql "select map_arr_struct_col['a'][1].verified from slcp_str_tbl where map_arr_struct_col['a'] is null"
         contains "nested columns"
-        contains "map_arr_struct_col.*.*.verified"
-        notContains "map_arr_struct_col.*.NULL"
-        notContains "predicate access paths:"
+        contains "all access paths: [map_arr_struct_col.KEYS, map_arr_struct_col.VALUES.*.verified, map_arr_struct_col.VALUES.NULL]"
+        contains "predicate access paths: [map_arr_struct_col.KEYS, map_arr_struct_col.VALUES.NULL]"
     }
 
     // ─── Non-optimizable cases ──────────────────────────────────────────────────
@@ -414,8 +419,7 @@ suite("string_length_column_pruning") {
         notContains "bigint"
     }
 
-    // length(map_col['a']): keys read fully for element lookup, values accessed offset-only.
-    // Expect access paths: map_col.KEYS (full) + map_col.VALUES.OFFSET
+    // Expected paths: [map_col, KEYS] + [map_col, VALUES, OFFSET]
     explain {
         sql "select length(map_col['a']) from slcp_str_tbl"
         contains "nested columns"
@@ -435,10 +439,13 @@ suite("string_length_column_pruning") {
         notContains "bigint"
     }
 
-    // length(map_col['a']) + direct map access → OFFSET suppressed, full VALUES needed
+    // length(map_col['a']) + direct map value access still needs full VALUES data.
+    // Keep VALUES.OFFSET as the length() access on map value still depends on the map value offsets.
     explain {
         sql "select length(map_col['a']), map_col['b'] from slcp_str_tbl"
-        notContains "OFFSET"
+        contains "map_col.KEYS"
+        contains "map_col.VALUES"
+        contains "map_col.VALUES.OFFSET"
         notContains "bigint"
     }
 
@@ -522,7 +529,9 @@ suite("string_length_column_pruning") {
             FROM slcp_struct_root_tbl
         """
         contains "s.arr.*.int_field"
-        notContains "s.arr.OFFSET"
+        // cardinality(element_at(s, 'arr')) still needs the nested array offsets,
+        // while the selected element field needs the int_field data.
+        contains "s.arr.OFFSET"
     }
 
     explain {
@@ -533,14 +542,15 @@ suite("string_length_column_pruning") {
         """
         contains "s.m.KEYS"
         contains "s.m.VALUES"
-        notContains "OFFSET"
+        // The length() on a map value needs value-string offsets even though the query
+        // also directly reads map values.
+        contains "s.m.VALUES.OFFSET"
     }
 
     // ─── Map element_at + map_values mixed access ─────────────────────────────────
 
-    // length(map_col['a']) needs keys for the element_at lookup and value offsets for length().
-    // map_values(map_col)[1] needs full value data. The mixed query must therefore keep a KEYS
-    // path for element_at lookup while dropping the redundant value-side OFFSET path.
+    // Full VALUES data is still needed for map_values(), while the length() access on a
+    // map value keeps VALUES.OFFSET. KEYS is kept for element_at lookup.
     order_qt_map_element_with_map_values """
         select length(map_col['a']), map_values(map_col)[1] from slcp_str_tbl
     """
@@ -550,16 +560,17 @@ suite("string_length_column_pruning") {
         contains "nested columns"
         contains "KEYS"
         contains "VALUES"
-        notContains "OFFSET"
+        contains "map_col.VALUES.OFFSET"
         notContains "bigint"
     }
 
-    // Reverse direction: length(map_values(map_col)[1]) produces [map_col, VALUES, OFFSET]
-    // while map_col['a'] produces [map_col, *]. The * path reads full values, so OFFSET
-    // must be suppressed here as well.
+    // Full VALUES data is needed for map_col['a']; length(map_values(map_col)[1]) keeps
+    // VALUES.OFFSET for value-string offsets.
     explain {
         sql "select length(map_values(map_col)[1]), map_col['a'] from slcp_str_tbl"
-        notContains "OFFSET"
+        contains "map_col.KEYS"
+        contains "map_col.VALUES"
+        contains "map_col.VALUES.OFFSET"
         notContains "bigint"
     }
 

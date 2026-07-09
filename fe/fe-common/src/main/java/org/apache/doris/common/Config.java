@@ -627,6 +627,11 @@ public class Config extends ConfigBase {
             "Whether to enable memtable on sink node by default in stream load"})
     public static boolean stream_load_default_memtable_on_sink_node = false;
 
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "Whether to enable forwarding group commit stream load to follower nodes."
+                    + " If true, stream load with group commit mode will be forwarded to a follower FE round robin."})
+    public static boolean enable_forward_group_commit_stream_load_to_follower = false;
+
     @ConfField(mutable = true, masterOnly = true, description = {"Maximum timeout for load jobs, in seconds."})
     public static int max_load_timeout_second = 259200; // 3days
 
@@ -1193,11 +1198,21 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int streaming_task_timeout_multiplier = 10;
 
+    /**
+     * streaming task min timeout second.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int streaming_task_min_timeout_sec = 300;
+
     @ConfField(mutable = true, masterOnly = true)
     public static int streaming_cdc_light_rpc_timeout_sec = 90;
 
     @ConfField(mutable = true, masterOnly = true)
     public static int streaming_cdc_heavy_rpc_timeout_sec = 600;
+
+    // Max byte length of a PG database name for a CDC job; raise only for a larger NAMEDATALEN build.
+    @ConfField(mutable = true, masterOnly = true)
+    public static int streaming_pg_max_identifier_length = 63;
 
     @ConfField(mutable = true, masterOnly = true)
     public static int streaming_cdc_fetch_splits_batch_size = 100;
@@ -2182,6 +2197,11 @@ public class Config extends ConfigBase {
 
     @ConfField(description = {"The auto-refresh interval of the external meta cache."})
     public static long external_cache_refresh_time_minutes = 10; // 10 mins
+
+    // Enable manual miss load for external meta cache to avoid blocking replayer on slow loaders.
+    @ConfField(mutable = true, masterOnly = false,
+            description = {"Whether external meta cache uses manual miss load instead of Caffeine sync load."})
+    public static boolean enable_external_meta_cache_manual_miss_load = true;
 
     /**
      * Github workflow test type, for setting some session variables
@@ -3679,4 +3699,15 @@ public class Config extends ConfigBase {
                     + "obtaining partition version information when calculating the delete bitmap. Enabled "
                     + "by default."})
     public static boolean calc_delete_bitmap_get_versions_waiting_for_pending_txns = true;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "Whether to enable adaptive random bucket load. When enabled, each BE computes its own local "
+                    + "bucket set (buckets whose primary replica it hosts) from the tablet location info "
+                    + "sent by FE, and rotates across those buckets once per-tablet write volume exceeds "
+                    + "the threshold (default 200 MB). This reduces import memory pressure and improves "
+                    + "throughput for random-distribution tables. Covers all load types uniformly.",
+            "是否启用自适应随机桶导入。开启后每个 BE 根据 FE 下发的 tablet 位置信息自行计算本地桶集合"
+                    + "（持有主副本的桶），并在单个 tablet 写入量超过阈值（默认 200 MB）后在本地桶之间轮转。"
+                    + "可降低导入内存压力并提升随机分桶表的吞吐量，覆盖所有导入类型。"})
+    public static boolean enable_adaptive_random_bucket_load = true;
 }

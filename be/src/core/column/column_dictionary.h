@@ -23,7 +23,6 @@
 
 #include "core/column/column.h"
 #include "core/column/column_string.h"
-#include "core/column/predicate_column.h"
 #include "core/pod_array.h"
 #include "core/string_ref.h"
 #include "core/types.h"
@@ -49,7 +48,7 @@ private:
     ColumnDictI32(const ColumnDictI32& src) {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR, "copy not supported in ColumnDictionary");
     }
-    ColumnDictI32(FieldType type) : _type(type) {}
+    ColumnDictI32() = default;
 
 public:
     using Self = ColumnDictI32;
@@ -107,7 +106,7 @@ public:
 
     MutableColumnPtr clone_resized(size_t size) const override {
         DCHECK(size == 0);
-        return create(_type);
+        return create();
     }
 
     void insert(const Field& x) override {
@@ -153,19 +152,23 @@ public:
                                "permute not supported in ColumnDictionary");
     }
 
-    Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) override {
+    Status filter_by_selector(const uint16_t* sel, size_t sel_size,
+                              IColumn* col_ptr) const override {
         auto* res_col = assert_cast<ColumnString*>(col_ptr);
-        _strings.resize(sel_size);
+        if (sel_size == 0) {
+            return Status::OK();
+        }
+        std::vector<StringRef> strings(sel_size);
         size_t length = 0;
         for (size_t i = 0; i != sel_size; ++i) {
-            auto& value = _dict.get_value(_codes[sel[i]]);
-            _strings[i].data = value.data;
-            _strings[i].size = value.size;
+            const auto& value = _dict.get_value(_codes[sel[i]]);
+            strings[i].data = value.data;
+            strings[i].size = value.size;
             length += value.size;
         }
         res_col->get_offsets().reserve(sel_size + res_col->get_offsets().size());
         res_col->get_chars().reserve(length + res_col->get_chars().size());
-        res_col->insert_many_strings_without_reserve(_strings.data(), sel_size);
+        res_col->insert_many_strings_without_reserve(strings.data(), sel_size);
         return Status::OK();
     }
 
@@ -256,16 +259,7 @@ public:
         if (is_dict_sorted() && !is_dict_code_converted()) {
             convert_dict_codes_if_necessary();
         }
-        // if type is OLAP_FIELD_TYPE_CHAR, we need to construct TYPE_CHAR PredicateColumnType,
-        // because the string length will different from varchar and string which needed to be processed after.
-        auto create_column = [this]() -> MutableColumnPtr {
-            if (_type == FieldType::OLAP_FIELD_TYPE_CHAR) {
-                return PredicateColumnType<TYPE_CHAR>::create();
-            }
-            return PredicateColumnType<TYPE_STRING>::create();
-        };
-
-        auto res = create_column();
+        auto res = ColumnString::create();
         res->reserve(_codes.capacity());
         for (int code : _codes) {
             auto value = _dict.get_value(code);
@@ -463,9 +457,7 @@ private:
     bool _dict_code_converted = false;
     Dictionary _dict;
     Container _codes;
-    FieldType _type;
     std::pair<RowsetId, uint32_t> _rowset_segment_id;
-    std::vector<StringRef> _strings;
 };
 
 } // namespace doris

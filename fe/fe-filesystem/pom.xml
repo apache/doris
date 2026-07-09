@@ -57,6 +57,7 @@ under the License.
         <module>fe-filesystem-oss-hdfs</module>
         <module>fe-filesystem-jfs</module>
         <module>fe-filesystem-broker</module>
+        <module>fe-filesystem-http</module>
     </modules>
 
     <build>
