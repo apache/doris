@@ -466,7 +466,8 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
 
     Map<String, String> getIcebergRestCatalogPropertiesForCatalogInit(SessionContext sessionContext) {
         Map<String, String> catalogProperties = new HashMap<>(icebergRestCatalogProperties);
-        if (!isIcebergRestUserSessionEnabled() || !sessionContext.hasDelegatedCredential()) {
+        if (!isIcebergRestUserSessionEnabled() || sessionContext == null
+                || !sessionContext.hasDelegatedCredential()) {
             return Collections.unmodifiableMap(catalogProperties);
         }
 

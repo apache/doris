@@ -61,6 +61,7 @@ import org.apache.doris.datasource.metacache.CacheSpec;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.datasource.property.metastore.HMSBaseProperties;
+import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.nereids.trees.expressions.literal.Result;
 import org.apache.doris.nereids.types.VarBinaryType;
@@ -1815,13 +1816,21 @@ public class IcebergUtils {
         return Optional.of(buildTableSchemaCacheValue(dorisTable, schemaId, icebergTable));
     }
 
-    // Session-aware metadata access bypasses the shared IcebergExternalMetaCache, so latest snapshot state
-    // must be materialized directly from the delegated session table handle.
     private static IcebergSnapshotCacheValue loadSnapshotCacheValue(ExternalTable dorisTable, Table icebergTable) {
+        if (!(dorisTable instanceof MTMVRelatedTableIf)) {
+            throw new RuntimeException(String.format("Table %s.%s is not a valid MTMV related table.",
+                    dorisTable.getDbName(), dorisTable.getName()));
+        }
         try {
+            MTMVRelatedTableIf table = (MTMVRelatedTableIf) dorisTable;
             IcebergSnapshot latestIcebergSnapshot = IcebergUtils.getLatestIcebergSnapshot(icebergTable);
-            IcebergPartitionInfo icebergPartitionInfo = IcebergUtils.loadPartitionInfo(
-                    dorisTable, icebergTable, latestIcebergSnapshot.getSnapshotId(), latestIcebergSnapshot.getSchemaId());
+            IcebergPartitionInfo icebergPartitionInfo;
+            if (!table.isValidRelatedTable()) {
+                icebergPartitionInfo = IcebergPartitionInfo.empty();
+            } else {
+                icebergPartitionInfo = IcebergUtils.loadPartitionInfo(dorisTable, icebergTable,
+                        latestIcebergSnapshot.getSnapshotId(), latestIcebergSnapshot.getSchemaId());
+            }
             return new IcebergSnapshotCacheValue(icebergPartitionInfo, latestIcebergSnapshot);
         } catch (AnalysisException e) {
             throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e), e);

@@ -595,9 +595,11 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     }
 
     public void renameTableImpl(String dbName, String tblName, String newTblName) throws DdlException {
+        SessionContext sessionContext = SessionContext.current();
         try {
             executionAuthenticator.execute(() -> {
-                catalog.renameTable(getTableIdentifier(dbName, tblName), getTableIdentifier(dbName, newTblName));
+                catalog(sessionContext).renameTable(
+                        getTableIdentifier(dbName, tblName), getTableIdentifier(dbName, newTblName));
                 return null;
             });
         } catch (Exception e) {

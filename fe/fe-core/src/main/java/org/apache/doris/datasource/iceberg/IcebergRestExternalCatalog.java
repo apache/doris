@@ -94,8 +94,12 @@ public class IcebergRestExternalCatalog extends IcebergExternalCatalog implement
         if (!shouldBypassDatabaseCache(ctx)) {
             return super.getDbNullable(dbName);
         }
-        // User-session lookup must fail fast instead of silently hiding initialization errors.
-        makeSureInitialized();
+        try {
+            makeSureInitialized();
+        } catch (Exception e) {
+            LOG.warn("failed to get db {} in catalog {}", dbName, getName(), e);
+            return null;
+        }
         return getDbNullableWithoutCache(ctx, dbName);
     }
 
@@ -212,7 +216,7 @@ public class IcebergRestExternalCatalog extends IcebergExternalCatalog implement
         if (!isIcebergRestUserSessionEnabled()) {
             return false;
         }
-        if (!ctx.hasDelegatedCredential()) {
+        if (ctx == null || !ctx.hasDelegatedCredential()) {
             throw new IllegalStateException("Catalog " + getName() + " is configured with dynamic identity "
                     + "(iceberg.rest.session=user) but the current session has no delegated credential. "
                     + "Access requires a token-based identity (e.g. OAuth/OIDC/JWT).");
