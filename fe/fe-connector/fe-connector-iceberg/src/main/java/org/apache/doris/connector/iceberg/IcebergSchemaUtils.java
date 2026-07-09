@@ -197,9 +197,10 @@ public final class IcebergSchemaUtils {
      * Build the single {@code TSchema} (schema_id = -1) keyed off the requested column names (the CI #969249
      * fix: the top-level names == the BE scan slots so the {@code StructNode} DCHECK can never miss). Each
      * requested name is matched case-insensitively to the iceberg schema; its top-level {@code TField} name is
-     * the lowercased requested name (byte-matching the Doris slot name). An empty/{@code null}
-     * {@code requestedLowerNames} falls back to all top-level columns (lowercased). Fail loud if a requested
-     * column is absent from the schema (a genuine FE/connector inconsistency — not a silent drop).
+     * the requested name VERBATIM (byte-matching the Doris slot name; case-preserved post-#65094). An
+     * empty/{@code null} {@code requestedLowerNames} falls back to all top-level columns (lowercased). Fail
+     * loud if a requested column is absent from the schema (a genuine FE/connector inconsistency — not a
+     * silent drop).
      */
     static TSchema buildCurrentSchema(Schema schema, List<String> requestedLowerNames,
             Map<Integer, List<String>> nameMapping) {
@@ -226,8 +227,9 @@ public final class IcebergSchemaUtils {
 
     /**
      * Recursively build a {@link TField} from an iceberg {@link Types.NestedField}. {@code nameOverride}
-     * replaces the field name at the top level (the lowercased Doris slot name); {@code null} (every nested
-     * field) falls back to the iceberg field name LOWERCASED. Lowercasing is load-bearing for nested struct
+     * replaces the field name at the top level (the Doris slot name, case-preserved post-#65094);
+     * {@code null} (every nested field) falls back to the iceberg field name LOWERCASED. Lowercasing is
+     * load-bearing for nested struct
      * children: the Doris slot's {@code DataTypeStruct} child names are force-lowercased ({@code StructField}
      * ctor, via {@code ConnectorColumnConverter}), and BE's {@code StructNode} looks the child up by that
      * lowercase name — keeping the iceberg case (e.g. {@code DROP_AND_ADD}) makes BE's
