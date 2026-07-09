@@ -701,8 +701,9 @@ protected:
                 // check index file terms for multiple segments
                 std::vector<std::unique_ptr<DorisCompoundReader, DirectoryDeleter>> dirs_idx(
                         num_segments_idx);
-                for (int i = 0; i < num_segments_idx; i++) {
-                    const auto& seg_path = output_rowset_index->segment_path(i);
+                size_t idx_pos = 0;
+                for (auto seg : output_rowset_index->segments()) {
+                    const auto& seg_path = seg.path();
                     EXPECT_TRUE(seg_path.has_value()) << seg_path.error();
                     auto inverted_index_file_reader_index =
                             IndexCompactionUtils::init_index_file_reader(
@@ -710,12 +711,13 @@ protected:
                                     _tablet_schema->get_inverted_index_storage_format());
                     auto dir_idx = inverted_index_file_reader_index->_open(idx, "");
                     EXPECT_TRUE(dir_idx.has_value()) << dir_idx.error();
-                    dirs_idx[i] = std::move(dir_idx.value());
+                    dirs_idx[idx_pos++] = std::move(dir_idx.value());
                 }
                 std::vector<std::unique_ptr<DorisCompoundReader, DirectoryDeleter>> dirs_normal(
                         num_segments_normal);
-                for (int i = 0; i < num_segments_normal; i++) {
-                    const auto& seg_path = output_rowset_normal->segment_path(i);
+                size_t normal_pos = 0;
+                for (auto seg : output_rowset_normal->segments()) {
+                    const auto& seg_path = seg.path();
                     EXPECT_TRUE(seg_path.has_value()) << seg_path.error();
                     auto inverted_index_file_reader_normal =
                             IndexCompactionUtils::init_index_file_reader(
@@ -723,7 +725,7 @@ protected:
                                     _tablet_schema->get_inverted_index_storage_format());
                     auto dir_normal = inverted_index_file_reader_normal->_open(idx, "");
                     EXPECT_TRUE(dir_normal.has_value()) << dir_normal.error();
-                    dirs_normal[i] = std::move(dir_normal.value());
+                    dirs_normal[normal_pos++] = std::move(dir_normal.value());
                 }
                 st = IndexCompactionUtils::check_idx_file_correctness(dirs_idx, dirs_normal);
                 EXPECT_TRUE(st.ok()) << st.to_string();

@@ -35,6 +35,7 @@
 #include <algorithm>
 #include <memory>
 #include <string>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -59,6 +60,7 @@
 #include "storage/storage_engine.h"
 #include "storage/storage_policy.h"
 #include "storage/tablet/tablet_schema.h"
+#include "storage/utils.h"
 #include "util/s3_util.h"
 
 namespace Aws {
@@ -412,6 +414,49 @@ TEST_F(BetaRowsetTest, GetIndexFileNames) {
         ASSERT_EQ(file_names[0], "540085_0.idx");
         ASSERT_EQ(file_names[1], "540085_1.idx");
     }
+}
+
+TEST_F(BetaRowsetTest, SegmentViewUsesRealSegmentId) {
+    TabletSchemaPB schema_pb;
+    schema_pb.set_keys_type(KeysType::DUP_KEYS);
+    schema_pb.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V1);
+    construct_column(schema_pb.add_column(), schema_pb.add_index(), 10000, "key_index", 0, "INT",
+                     "key");
+    auto tablet_schema = std::make_shared<TabletSchema>();
+    tablet_schema->init_from_pb(schema_pb);
+
+    auto rowset_meta = std::make_shared<RowsetMeta>();
+    init_rs_meta(rowset_meta, 1, 1);
+    rowset_meta->set_segment_ids({0, 2, 5});
+
+    BetaRowset rowset(tablet_schema, rowset_meta, kTestDir);
+    auto seg = rowset.segment(1);
+    EXPECT_EQ(seg.pos(), 1);
+    EXPECT_EQ(seg.id(), 2);
+    EXPECT_EQ(seg.file_name(), "540085_2.dat");
+
+    auto seg_path = seg.path();
+    ASSERT_TRUE(seg_path.has_value()) << seg_path.error();
+    EXPECT_EQ(seg_path.value(), kTestDir + "/540085_2.dat");
+    EXPECT_EQ(seg.file_cache_key(), segment_v2::Segment::file_cache_key("540085", 2));
+
+    auto delete_bitmap_key = seg.delete_bitmap_key(7);
+    EXPECT_EQ(std::get<0>(delete_bitmap_key), rowset.rowset_id());
+    EXPECT_EQ(std::get<1>(delete_bitmap_key), 2);
+    EXPECT_EQ(std::get<2>(delete_bitmap_key), 7);
+
+    auto row_location = seg.row_location(10);
+    EXPECT_EQ(row_location.rowset_id, rowset.rowset_id());
+    EXPECT_EQ(row_location.segment_id, 2);
+    EXPECT_EQ(row_location.row_id, 10);
+
+    auto index_file_names = seg.index_file_names();
+    ASSERT_EQ(index_file_names.size(), 1);
+    EXPECT_EQ(index_file_names[0], "540085_2_10000.idx");
+
+    auto index_file_cache_key = seg.index_file_cache_key(*tablet_schema->inverted_indexes()[0]);
+    ASSERT_TRUE(index_file_cache_key.has_value()) << index_file_cache_key.error();
+    EXPECT_EQ(index_file_cache_key.value(), kTestDir + "/540085_2_10000");
 }
 
 TEST_F(BetaRowsetTest, GetSegmentNumRowsFromMeta) {

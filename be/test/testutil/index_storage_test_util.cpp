@@ -606,7 +606,8 @@ void collect_variant_column_layout(const ColumnMetaPB& column_meta, IndexSegment
 }
 
 Result<IndexSegmentLayout> probe_segment(const RowsetSharedPtr& rowset, int64_t segment_id) {
-    auto segment_path = rowset->segment_path(segment_id);
+    auto seg = rowset->segment(rowset->rowset_meta()->position_of(segment_id));
+    auto segment_path = seg.path();
     if (!segment_path.has_value()) {
         return ResultError(segment_path.error());
     }
@@ -616,8 +617,7 @@ Result<IndexSegmentLayout> probe_segment(const RowsetSharedPtr& rowset, int64_t 
     auto status = segment_v2::Segment::open(
             rowset->rowset_meta()->fs(), segment_path.value(), rowset->rowset_meta()->tablet_id(),
             static_cast<uint32_t>(segment_id), rowset->rowset_id(), rowset->tablet_schema(),
-            io::FileReaderOptions {}, &segment,
-            rowset->rowset_meta()->inverted_index_file_info(static_cast<int>(segment_id)), &stats);
+            io::FileReaderOptions {}, &segment, seg.inverted_index_file_info(), &stats);
     if (!status.ok()) {
         return ResultError(status);
     }
@@ -1518,8 +1518,8 @@ Result<IndexRowsetProbe> IndexStorageTestFixture::probe_rowset(const RowsetShare
     }
     probe.index_files = std::move(index_files).value();
 
-    for (int64_t segment_id = 0; segment_id < rowset->num_segments(); ++segment_id) {
-        auto segment_probe = probe_segment(rowset, segment_id);
+    for (auto seg : rowset->segments()) {
+        auto segment_probe = probe_segment(rowset, seg.id());
         if (!segment_probe.has_value()) {
             return ResultError(segment_probe.error());
         }

@@ -45,6 +45,7 @@
 #include "common/defer.h"
 #include "common/encryption_util.h"
 #include "common/logging.h"
+#include "common/rowset_segment_id.h"
 #include "common/util.h"
 #include "cpp/sync_point.h"
 #include "meta-service/meta_service.h"
@@ -651,7 +652,8 @@ int InstanceChecker::do_check() {
         }
 
         for (int i = 0; i < rs_meta.num_segments(); ++i) {
-            auto path = segment_path(rs_meta.tablet_id(), rs_meta.rowset_id_v2(), i);
+            auto segment_id = rowset_segment_id(rs_meta, i);
+            auto path = segment_path(rs_meta.tablet_id(), rs_meta.rowset_id_v2(), segment_id);
 
             // Skip check if segment is already packed into a larger file
             const auto& index_map = rs_meta.packed_slice_locations();
@@ -715,21 +717,24 @@ int InstanceChecker::do_check() {
         if (!index_ids.empty()) {
             const auto& index_map = rs_meta.packed_slice_locations();
             for (int i = 0; i < rs_meta.num_segments(); ++i) {
+                auto segment_id = rowset_segment_id(rs_meta, i);
                 std::vector<std::string> index_path_v;
                 if (rs_meta.tablet_schema().inverted_index_storage_format() ==
                     InvertedIndexStorageFormatPB::V1) {
                     for (const auto& index_id : index_ids) {
                         LOG(INFO) << "check inverted index, tablet_id=" << rs_meta.tablet_id()
-                                  << " rowset_id=" << rs_meta.rowset_id_v2() << " segment_id=" << i
+                                  << " rowset_id=" << rs_meta.rowset_id_v2()
+                                  << " segment_id=" << segment_id
                                   << " index_id=" << index_id.first
                                   << " index_suffix_name=" << index_id.second;
                         index_path_v.emplace_back(
                                 inverted_index_path_v1(rs_meta.tablet_id(), rs_meta.rowset_id_v2(),
-                                                       i, index_id.first, index_id.second));
+                                                       segment_id, index_id.first,
+                                                       index_id.second));
                     }
                 } else {
-                    index_path_v.emplace_back(
-                            inverted_index_path_v2(rs_meta.tablet_id(), rs_meta.rowset_id_v2(), i));
+                    index_path_v.emplace_back(inverted_index_path_v2(
+                            rs_meta.tablet_id(), rs_meta.rowset_id_v2(), segment_id));
                 }
 
                 if (std::ranges::all_of(index_path_v, [&](const auto& idx_file_path) {
@@ -1581,8 +1586,8 @@ int InstanceChecker::check_inverted_index_file_storage_format_v1(
                 return -1;
             }
 
-            for (size_t i = 0; i < rs_meta.num_segments(); i++) {
-                rowset_index_cache_v1.segment_ids.insert(i);
+            for (int64_t i = 0; i < rs_meta.num_segments(); i++) {
+                rowset_index_cache_v1.segment_ids.insert(rowset_segment_id(rs_meta, i));
             }
 
             for (const auto& i : rs_meta.tablet_schema().index()) {
@@ -1682,8 +1687,8 @@ int InstanceChecker::check_inverted_index_file_storage_format_v2(
                 return -1;
             }
 
-            for (size_t i = 0; i < rs_meta.num_segments(); i++) {
-                rowset_index_cache_v2.segment_ids.insert(i);
+            for (int64_t i = 0; i < rs_meta.num_segments(); i++) {
+                rowset_index_cache_v2.segment_ids.insert(rowset_segment_id(rs_meta, i));
             }
 
             if (!it->has_next()) {

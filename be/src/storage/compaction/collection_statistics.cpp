@@ -20,6 +20,7 @@
 #include <set>
 #include <sstream>
 
+#include "common/cast_set.h"
 #include "common/exception.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
@@ -52,10 +53,8 @@ Status CollectionStatistics::collect(RuntimeState* state,
     for (const auto& rs_split : rs_splits) {
         const auto& rs_reader = rs_split.rs_reader;
         auto rowset = rs_reader->rowset();
-        auto num_segments = rowset->num_segments();
-        for (int32_t seg_id = 0; seg_id < num_segments; ++seg_id) {
-            auto status =
-                    process_segment(rowset, seg_id, tablet_schema.get(), collect_infos, io_ctx);
+        for (auto seg : rowset->segments()) {
+            auto status = process_segment(rowset, seg, tablet_schema.get(), collect_infos, io_ctx);
             if (!status.ok()) {
                 if (status.code() == ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND ||
                     status.code() == ErrorCode::INVERTED_INDEX_BYPASS) {
@@ -153,18 +152,19 @@ Status CollectionStatistics::extract_collect_info(
     return Status::OK();
 }
 
-Status CollectionStatistics::process_segment(const RowsetSharedPtr& rowset, int32_t seg_id,
+Status CollectionStatistics::process_segment(const RowsetSharedPtr& rowset,
+                                             const RowsetSegmentView& seg,
                                              const TabletSchema* tablet_schema,
                                              const CollectInfoMap& collect_infos,
                                              io::IOContext* io_ctx) {
-    auto seg_path = DORIS_TRY(rowset->segment_path(seg_id));
+    auto seg_path = DORIS_TRY(seg.path());
     auto rowset_meta = rowset->rowset_meta();
 
     auto idx_file_reader = std::make_unique<IndexFileReader>(
             rowset_meta->fs(),
             std::string {InvertedIndexDescriptor::get_index_file_path_prefix(seg_path)},
             tablet_schema->get_inverted_index_storage_format(),
-            rowset_meta->inverted_index_file_info(seg_id), rowset_meta->tablet_id());
+            seg.inverted_index_file_info(), rowset_meta->tablet_id());
     RETURN_IF_ERROR(idx_file_reader->init(config::inverted_index_read_buffer_size, io_ctx));
 
     int32_t total_seg_num_docs = 0;

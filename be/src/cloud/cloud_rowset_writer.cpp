@@ -139,14 +139,15 @@ Status CloudRowsetWriter::build(RowsetSharedPtr& rowset) {
         _rowset_meta->set_newest_write_timestamp(UnixSeconds());
     }
 
-    if (auto seg_file_size = _seg_files.segments_file_size(_segment_start_id);
+    const auto segment_ids = _segment_ids_by_position();
+    if (auto seg_file_size = _seg_files.segments_file_size(segment_ids);
         !seg_file_size.has_value()) [[unlikely]] {
         LOG(ERROR) << "expected segment file sizes, but none presents: " << seg_file_size.error();
     } else {
         _rowset_meta->add_segments_file_size(seg_file_size.value());
     }
     if (_context.tablet_schema->has_inverted_index() || _context.tablet_schema->has_ann_index()) {
-        if (auto idx_files_info = _idx_files.inverted_index_file_info(_segment_start_id);
+        if (auto idx_files_info = _idx_files.inverted_index_file_info(segment_ids);
             !idx_files_info.has_value()) [[unlikely]] {
             LOG(ERROR) << "expected inverted index files info, but none presents: "
                        << idx_files_info.error();

@@ -143,6 +143,7 @@ Status RowsetMetaManager::_save_with_ccr_binlog(OlapMeta* meta, TabletUid tablet
     binlog_meta_entry_pb.set_tablet_id(rowset_meta_pb.tablet_id());
     binlog_meta_entry_pb.set_rowset_id(rowset_meta_pb.rowset_id());
     binlog_meta_entry_pb.set_num_segments(rowset_meta_pb.num_segments());
+    binlog_meta_entry_pb.mutable_segment_ids()->CopyFrom(rowset_meta_pb.segment_ids());
     binlog_meta_entry_pb.set_creation_time(rowset_meta_pb.creation_time());
     binlog_meta_entry_pb.set_rowset_id_v2(rowset_meta_pb.rowset_id_v2());
     std::string binlog_meta_value;
@@ -204,8 +205,9 @@ std::vector<std::string> RowsetMetaManager::get_binlog_filenames(OlapMeta* meta,
     std::vector<std::string> binlog_files;
     std::string rowset_id;
     int64_t num_segments = -1;
-    auto traverse_func = [&rowset_id, &num_segments](std::string_view key,
-                                                     std::string_view value) -> bool {
+    std::vector<int32_t> segment_ids;
+    auto traverse_func = [&rowset_id, &num_segments, &segment_ids](
+                                 std::string_view key, std::string_view value) -> bool {
         VLOG_DEBUG << fmt::format("key:{}, value:{}", key, value);
         // key is 'binlog_meta_6943f1585fe834b5-e542c2b83a21d0b7_00000000000000000069_020000000000000135449d7cd7eadfe672aa0f928fa99593', extract last part '020000000000000135449d7cd7eadfe672aa0f928fa99593'
         // check starts with "binlog_meta_"
@@ -226,6 +228,8 @@ std::vector<std::string> RowsetMetaManager::get_binlog_filenames(OlapMeta* meta,
             return false;
         }
         num_segments = binlog_meta_entry_pb.num_segments();
+        segment_ids.assign(binlog_meta_entry_pb.segment_ids().begin(),
+                           binlog_meta_entry_pb.segment_ids().end());
 
         return false;
     };
@@ -248,7 +252,8 @@ std::vector<std::string> RowsetMetaManager::get_binlog_filenames(OlapMeta* meta,
     }
     for (int64_t i = 0; i < num_segments; ++i) {
         // TODO(Drogon): Update to filesystem path
-        auto segment_file = fmt::format("{}_{}.dat", rowset_id, i);
+        auto segment_id = segment_ids.empty() ? i : segment_ids[i];
+        auto segment_file = fmt::format("{}_{}.dat", rowset_id, segment_id);
         binlog_files.emplace_back(std::move(segment_file));
     }
     return binlog_files;

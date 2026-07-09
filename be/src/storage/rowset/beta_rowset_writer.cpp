@@ -131,6 +131,11 @@ void build_rowset_meta_with_spec_field(RowsetMeta& rowset_meta,
     rowset_meta.set_empty(spec_rowset_meta.num_rows() == 0);
     rowset_meta.set_creation_time(time(nullptr));
     rowset_meta.set_num_segments(spec_rowset_meta.num_segments());
+    if (spec_rowset_meta.has_segment_ids()) {
+        rowset_meta.set_segment_ids(std::vector<int32_t>(spec_rowset_meta.segment_ids().begin(),
+                                                         spec_rowset_meta.segment_ids().end()));
+        rowset_meta.set_next_segment_id(spec_rowset_meta.next_segment_id());
+    }
     rowset_meta.set_segments_overlap(spec_rowset_meta.segments_overlap());
     rowset_meta.set_rowset_state(spec_rowset_meta.rowset_state());
     rowset_meta.set_segments_key_bounds_truncated(
@@ -208,7 +213,8 @@ Status SegmentFileCollection::close() {
     return Status::OK();
 }
 
-Result<std::vector<size_t>> SegmentFileCollection::segments_file_size(int seg_id_offset) {
+Result<std::vector<size_t>> SegmentFileCollection::segments_file_size(
+        const std::vector<int32_t>& segment_ids) {
     std::lock_guard lock(_lock);
     if (!_closed) [[unlikely]] {
         DCHECK(false);
@@ -216,31 +222,18 @@ Result<std::vector<size_t>> SegmentFileCollection::segments_file_size(int seg_id
     }
 
     Status st;
-    std::vector<size_t> seg_file_size(_file_writers.size(), 0);
-    bool succ = std::all_of(_file_writers.begin(), _file_writers.end(), [&](auto&& it) {
-        auto&& [seg_id, writer] = it;
-
-        int idx = seg_id - seg_id_offset;
-        if (idx >= seg_file_size.size()) [[unlikely]] {
-            auto err_msg = fmt::format(
-                    "invalid seg_id={} num_file_writers={} seg_id_offset={} path={}", seg_id,
-                    seg_file_size.size(), seg_id_offset, writer->path().native());
+    std::vector<size_t> seg_file_size;
+    seg_file_size.reserve(segment_ids.size());
+    bool succ = std::all_of(segment_ids.begin(), segment_ids.end(), [&](int32_t seg_id) {
+        auto it = _file_writers.find(seg_id);
+        if (it == _file_writers.end()) [[unlikely]] {
+            auto err_msg = fmt::format("missing file writer for seg_id={}", seg_id);
             DCHECK(false) << err_msg;
             st = Status::InternalError(err_msg);
             return false;
         }
-
-        auto& fsize = seg_file_size[idx];
-        if (fsize != 0) {
-            // File size should not been set
-            auto err_msg =
-                    fmt::format("duplicate seg_id={} path={}", seg_id, writer->path().native());
-            DCHECK(false) << err_msg;
-            st = Status::InternalError(err_msg);
-            return false;
-        }
-
-        fsize = writer->bytes_appended();
+        auto& writer = it->second;
+        auto fsize = writer->bytes_appended();
         if (fsize <= 0) {
             auto err_msg =
                     fmt::format("invalid segment fsize={} path={}", fsize, writer->path().native());
@@ -249,6 +242,7 @@ Result<std::vector<size_t>> SegmentFileCollection::segments_file_size(int seg_id
             return false;
         }
 
+        seg_file_size.push_back(fsize);
         return true;
     });
 
@@ -291,28 +285,23 @@ Status InvertedIndexFileCollection::finish_close() {
 }
 
 Result<std::vector<const InvertedIndexFileInfo*>>
-InvertedIndexFileCollection::inverted_index_file_info(int seg_id_offset) {
+InvertedIndexFileCollection::inverted_index_file_info(const std::vector<int32_t>& segment_ids) {
     std::lock_guard lock(_lock);
 
     Status st;
-    std::vector<const InvertedIndexFileInfo*> idx_file_info(_inverted_index_file_writers.size());
-    bool succ = std::all_of(
-            _inverted_index_file_writers.begin(), _inverted_index_file_writers.end(),
-            [&](auto&& it) {
-                auto&& [seg_id, writer] = it;
-
-                int idx = seg_id - seg_id_offset;
-                if (idx >= idx_file_info.size()) [[unlikely]] {
-                    auto err_msg =
-                            fmt::format("invalid seg_id={} num_file_writers={} seg_id_offset={}",
-                                        seg_id, idx_file_info.size(), seg_id_offset);
-                    DCHECK(false) << err_msg;
-                    st = Status::InternalError(err_msg);
-                    return false;
-                }
-                idx_file_info[idx] = _inverted_index_file_writers[seg_id]->get_index_file_info();
-                return true;
-            });
+    std::vector<const InvertedIndexFileInfo*> idx_file_info;
+    idx_file_info.reserve(segment_ids.size());
+    bool succ = std::all_of(segment_ids.begin(), segment_ids.end(), [&](int32_t seg_id) {
+        auto it = _inverted_index_file_writers.find(seg_id);
+        if (it == _inverted_index_file_writers.end()) [[unlikely]] {
+            auto err_msg = fmt::format("missing inverted index file writer for seg_id={}", seg_id);
+            DCHECK(false) << err_msg;
+            st = Status::InternalError(err_msg);
+            return false;
+        }
+        idx_file_info.push_back(it->second->get_index_file_info());
+        return true;
+    });
 
     if (succ) {
         return idx_file_info;
@@ -452,10 +441,12 @@ Status BaseBetaRowsetWriter::_generate_delete_bitmap(int32_t segment_id) {
                 // Step 3: Load segments (needs file_writer to be closed and rowset to be built)
                 auto* beta_rowset = reinterpret_cast<BetaRowset*>(rowset_ptr.get());
                 std::vector<segment_v2::SegmentSharedPtr> segments;
-                st = beta_rowset->load_segments(segment_id, segment_id + 1, &segments);
+                segment_v2::SegmentSharedPtr segment;
+                st = beta_rowset->load_segment(segment_id, nullptr, &segment);
                 if (!st.ok()) {
                     return st;
                 }
+                segments.emplace_back(std::move(segment));
 
                 // Step 4: Calculate delete bitmap
                 st = BaseTablet::calc_delete_bitmap(
@@ -669,7 +660,7 @@ Status BetaRowsetWriter::_rename_compacted_segment_plain(uint32_t seg_id) {
     return Status::OK();
 }
 
-Status BetaRowsetWriter::_remove_segment_footer_cache(const uint32_t seg_id,
+Status BetaRowsetWriter::_remove_segment_footer_cache(uint32_t seg_pos,
                                                       const std::string& segment_path) {
     auto* footer_page_cache = ExecEnv::GetInstance()->get_storage_page_cache();
     if (!footer_page_cache) {
@@ -686,7 +677,7 @@ Status BetaRowsetWriter::_remove_segment_footer_cache(const uint32_t seg_id,
                                                         : io::FileCachePolicy::NO_CACHE,
                 .is_doris_table = true,
                 .cache_base_path = "",
-                .file_size = _rowset_meta->segment_file_size(static_cast<int>(seg_id)),
+                .file_size = _rowset_meta->segment_file_size_by_pos(seg_pos),
                 .tablet_id = _rowset_meta->tablet_id(),
                 .storage_resource_id = _rowset_meta->resource_id(),
         };
@@ -1005,7 +996,7 @@ Status BetaRowsetWriter::build(RowsetSharedPtr& rowset) {
     // If segment compaction occurs, the idx file info will become inaccurate.
     if ((_context.tablet_schema->has_inverted_index() || _context.tablet_schema->has_ann_index()) &&
         _num_segcompacted == 0) {
-        if (auto idx_files_info = _idx_files.inverted_index_file_info(_segment_start_id);
+        if (auto idx_files_info = _idx_files.inverted_index_file_info(_segment_ids_by_position());
             !idx_files_info.has_value()) [[unlikely]] {
             LOG(ERROR) << "expected inverted index files info, but none presents: "
                        << idx_files_info.error();
@@ -1028,6 +1019,23 @@ int64_t BaseBetaRowsetWriter::_num_seg() const {
 
 int64_t BetaRowsetWriter::_num_seg() const {
     return is_segcompacted() ? _num_segcompacted : _num_segment;
+}
+
+std::vector<int32_t> BaseBetaRowsetWriter::_segment_ids_by_position() const {
+    const auto segment_num = cast_set<size_t>(_num_seg());
+    if (_segment_ids.empty()) {
+        std::vector<int32_t> segment_ids;
+        segment_ids.reserve(segment_num);
+        for (size_t pos = 0; pos < segment_num; ++pos) {
+            segment_ids.push_back(cast_set<int32_t>(_segment_start_id + pos));
+        }
+        return segment_ids;
+    }
+    DORIS_CHECK_EQ(_segment_ids.size(), segment_num);
+    for (const auto segment_id : _segment_ids) {
+        DORIS_CHECK_GE(segment_id, 0);
+    }
+    return _segment_ids;
 }
 
 Status BaseBetaRowsetWriter::_build_rowset_meta(RowsetMeta* rowset_meta, bool check_segment_num) {
@@ -1092,6 +1100,10 @@ Status BaseBetaRowsetWriter::_build_rowset_meta(RowsetMeta* rowset_meta, bool ch
     }
 
     rowset_meta->set_num_segments(segment_num);
+    if (config::enable_segment_list && !rowset_meta->is_local() && segment_num > 0) {
+        rowset_meta->set_segment_ids(_segment_ids_by_position());
+        rowset_meta->set_next_segment_id(_segment_creator.next_segment_id());
+    }
     rowset_meta->set_num_rows(num_rows_written + _num_rows_written);
     rowset_meta->set_total_disk_size(total_data_size + _total_data_size + total_index_size +
                                      _total_index_size);
@@ -1262,6 +1274,10 @@ Status BaseBetaRowsetWriter::add_segment(uint32_t segment_id, const SegmentStati
         if (segment_id >= _segment_num_rows.size()) {
             _segment_num_rows.resize(segment_id + 1);
         }
+        if (segid_offset >= _segment_ids.size()) {
+            _segment_ids.resize(segid_offset + 1, -1);
+        }
+        _segment_ids[segid_offset] = cast_set<int32_t>(segment_id);
         _segment_num_rows[segid_offset] = cast_set<uint32_t>(segstat.row_num);
         if (key_bounds_truncated) {
             _segments_key_bounds_truncated = true;

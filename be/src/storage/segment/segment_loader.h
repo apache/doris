@@ -41,6 +41,8 @@ namespace doris {
 
 class SegmentCacheHandle;
 class BetaRowset;
+class RowsetMeta;
+struct RowsetSegmentRef;
 
 // SegmentLoader is used to load the Segment of BetaRowset.
 // An LRUCache is encapsulated inside it, which is used to cache the opened segments.
@@ -130,9 +132,14 @@ public:
                         bool need_load_pk_index_and_bf = false,
                         OlapReaderStatistics* index_load_stats = nullptr);
 
+    Status load_segment(const BetaRowsetSharedPtr& rowset, RowsetSegmentRef seg,
+                        SegmentCacheHandle* cache_handle, bool use_cache = false,
+                        bool need_load_pk_index_and_bf = false,
+                        OlapReaderStatistics* index_load_stats = nullptr);
+
     void erase_segment(const SegmentCache::CacheKey& key);
 
-    void erase_segments(const RowsetId& rowset_id, int64_t num_segments);
+    void erase_segments(const RowsetMeta& rowset_meta);
 
     int64_t cache_mem_usage() const {
 #ifdef BE_TEST

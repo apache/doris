@@ -26,6 +26,7 @@
 #include "storage/olap_define.h"
 #include "storage/segment/segment_loader.h"
 #include "storage/tablet/tablet_schema.h"
+#include "storage/utils.h"
 #include "util/time.h"
 #include "util/trace.h"
 
@@ -125,15 +126,15 @@ const TabletSchemaSPtr& Rowset::tablet_schema() const {
 void Rowset::clear_cache() {
     {
         SCOPED_SIMPLE_TRACE_IF_TIMEOUT(std::chrono::seconds(1));
-        SegmentLoader::instance()->erase_segments(rowset_id(), num_segments());
+        SegmentLoader::instance()->erase_segments(*rowset_meta());
     }
     {
         SCOPED_SIMPLE_TRACE_IF_TIMEOUT(std::chrono::seconds(1));
         clear_inverted_index_cache();
     }
     if (config::enable_file_cache) {
-        for (int seg_id = 0; seg_id < num_segments(); ++seg_id) {
-            auto file_key = segment_v2::Segment::file_cache_key(rowset_id().to_string(), seg_id);
+        for (auto seg : segments()) {
+            auto file_key = seg.file_cache_key();
             auto* file_cache = io::FileCacheFactory::instance()->get_by_path(file_key);
             file_cache->remove_if_cached_async(file_key);
         }
@@ -184,20 +185,9 @@ void Rowset::merge_rowset_meta(const RowsetMeta& other) {
 
 std::vector<std::string> Rowset::get_index_file_names() {
     std::vector<std::string> file_names;
-    auto idx_version = _schema->get_inverted_index_storage_format();
-    for (int64_t seg_id = 0; seg_id < num_segments(); ++seg_id) {
-        if (idx_version == InvertedIndexStorageFormatPB::V1) {
-            for (const auto& index : _schema->inverted_indexes()) {
-                auto file_name = segment_v2::InvertedIndexDescriptor::get_index_file_name_v1(
-                        rowset_id().to_string(), seg_id, index->index_id(),
-                        index->get_index_suffix());
-                file_names.emplace_back(std::move(file_name));
-            }
-        } else {
-            auto file_name = segment_v2::InvertedIndexDescriptor::get_index_file_name_v2(
-                    rowset_id().to_string(), seg_id);
-            file_names.emplace_back(std::move(file_name));
-        }
+    for (auto seg : segments()) {
+        auto segment_file_names = seg.index_file_names();
+        file_names.insert(file_names.end(), segment_file_names.begin(), segment_file_names.end());
     }
     return file_names;
 }
@@ -208,8 +198,8 @@ int64_t Rowset::approximate_cached_data_size() {
     }
 
     int64_t total_cache_size = 0;
-    for (int seg_id = 0; seg_id < num_segments(); ++seg_id) {
-        auto cache_key = segment_v2::Segment::file_cache_key(rowset_id().to_string(), seg_id);
+    for (auto seg : segments()) {
+        auto cache_key = seg.file_cache_key();
         int64_t cache_size =
                 io::FileCacheFactory::instance()->get_cache_file_size_by_path(cache_key);
         total_cache_size += cache_size;
@@ -235,6 +225,55 @@ int64_t Rowset::approximate_cache_index_size() {
 
 std::chrono::time_point<std::chrono::system_clock> Rowset::visible_timestamp() const {
     return _rowset_meta->visible_timestamp();
+}
+
+std::string RowsetSegmentView::file_name() const {
+    return fmt::format("{}_{}.dat", _rowset->rowset_id().to_string(), id());
+}
+
+Result<std::string> RowsetSegmentView::path() const {
+    return _rowset->segment_path(id());
+}
+
+io::UInt128Wrapper RowsetSegmentView::file_cache_key() const {
+    return segment_v2::Segment::file_cache_key(_rowset->rowset_id().to_string(),
+                                               cast_set<uint32_t>(id()));
+}
+
+RowsetSegmentView::DeleteBitmapKey RowsetSegmentView::delete_bitmap_key(int64_t version) const {
+    return {_rowset->rowset_id(), cast_set<uint32_t>(id()), version};
+}
+
+RowLocation RowsetSegmentView::row_location(uint32_t row_id) const {
+    return {_rowset->rowset_id(), cast_set<uint32_t>(id()), row_id};
+}
+
+std::vector<std::string> RowsetSegmentView::index_file_names() const {
+    std::vector<std::string> file_names;
+    auto idx_version = _rowset->tablet_schema()->get_inverted_index_storage_format();
+    if (idx_version == InvertedIndexStorageFormatPB::V1) {
+        for (const auto& index : _rowset->tablet_schema()->inverted_indexes()) {
+            auto file_name = segment_v2::InvertedIndexDescriptor::get_index_file_name_v1(
+                    _rowset->rowset_id().to_string(), id(), index->index_id(),
+                    index->get_index_suffix());
+            file_names.emplace_back(std::move(file_name));
+        }
+    } else {
+        auto file_name = segment_v2::InvertedIndexDescriptor::get_index_file_name_v2(
+                _rowset->rowset_id().to_string(), id());
+        file_names.emplace_back(std::move(file_name));
+    }
+    return file_names;
+}
+
+Result<std::string> RowsetSegmentView::index_file_cache_key(const TabletIndex& index) const {
+    auto segment_path = path();
+    if (!segment_path.has_value()) {
+        return ResultError(segment_path.error());
+    }
+    return segment_v2::InvertedIndexDescriptor::get_index_file_cache_key(
+            segment_v2::InvertedIndexDescriptor::get_index_file_path_prefix(segment_path.value()),
+            index.index_id(), index.get_index_suffix());
 }
 
 } // namespace doris
