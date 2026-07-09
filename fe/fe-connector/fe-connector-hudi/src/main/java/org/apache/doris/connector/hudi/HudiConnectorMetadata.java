@@ -23,9 +23,11 @@ import org.apache.doris.connector.api.ConnectorPartitionInfo;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.ConnectorTableSchema;
 import org.apache.doris.connector.api.ConnectorType;
+import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.mvcc.ConnectorMvccSnapshot;
+import org.apache.doris.connector.api.mvcc.ConnectorTimeTravelSpec;
 import org.apache.doris.connector.api.pushdown.ConnectorAnd;
 import org.apache.doris.connector.api.pushdown.ConnectorComparison;
 import org.apache.doris.connector.api.pushdown.ConnectorExpression;
@@ -79,6 +81,12 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
 
     // Catalog property gating the partition-name source (mirrors legacy HMSExternalTable.USE_HIVE_SYNC_PARTITION).
     private static final String USE_HIVE_SYNC_PARTITION = "use_hive_sync_partition";
+
+    // Internal MVCC-snapshot property carrying the FOR TIME AS OF instant from resolveTimeTravel to applySnapshot
+    // (FE-internal transport, paimon scan-options model). It is NEVER serialized to BE: fe-core only feeds the
+    // snapshot to applySnapshot, which consumes this property and stamps HudiTableHandle.queryInstant. Not a
+    // BE-facing key.
+    private static final String HUDI_QUERY_INSTANT_PROPERTY = "hudi.query-instant";
 
     private final HmsClient hmsClient;
     private final Map<String, String> properties;
@@ -255,6 +263,69 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
     /** Builds the query-begin snapshot from a pinned instant. Static for offline unit testing. */
     static Optional<ConnectorMvccSnapshot> buildBeginQuerySnapshot(long instant) {
         return Optional.of(ConnectorMvccSnapshot.builder().snapshotId(instant).build());
+    }
+
+    /**
+     * Resolves an explicit {@code FOR TIME AS OF} / {@code FOR VERSION AS OF} into a pinned snapshot, owning all
+     * hudi-specific parsing (byte-faithful to legacy {@code HudiScanNode}). The generic seam
+     * ({@code PluginDrivenMvccExternalTable.loadSnapshot}) turns an empty result into a "not found" error and
+     * lets a thrown exception propagate verbatim.
+     *
+     * <ul>
+     *   <li>{@code TIMESTAMP} ({@code FOR TIME AS OF}) &mdash; strip {@code [-: ]} from the value and pin it as a
+     *       completed-timeline instant read BEFORE-OR-ON at scan time (legacy {@code HudiScanNode.java:211}). NO
+     *       epoch-millis conversion, NO session time zone (unlike paimon), NO timeline-existence validation:
+     *       legacy validates nothing and never errors on a well-formed {@code FOR TIME AS OF} (a too-early /
+     *       future instant simply reads empty / latest via {@code getLatest*BeforeOrOn}). So ALWAYS return a
+     *       non-empty pin &mdash; never empty, never throw for a not-found timestamp. {@code spec.isDigital()} is
+     *       ignored (legacy strips regardless). The instant rides {@link #HUDI_QUERY_INSTANT_PROPERTY};
+     *       {@link #applySnapshot} stamps it onto the handle.</li>
+     *   <li>{@code SNAPSHOT_ID} / {@code VERSION_REF} ({@code FOR VERSION AS OF}, numeric / named) &mdash; hudi
+     *       rejects both with the byte-for-byte legacy message ({@code HudiScanNode.java:209}). It is THROWN (not
+     *       {@code Optional.empty()}) so the exact wording reaches the user; an empty return would surface
+     *       fe-core's wrong-domain "can't find snapshot" text.</li>
+     *   <li>Other kinds ({@code TAG}/{@code BRANCH} &mdash; hudi has none; {@code INCREMENTAL} &mdash; a later
+     *       {@code @incr} step) &rarr; {@code Optional.empty()} = the SPI default (no worse than not overriding).</li>
+     * </ul>
+     */
+    @Override
+    public Optional<ConnectorMvccSnapshot> resolveTimeTravel(ConnectorSession session,
+            ConnectorTableHandle handle, ConnectorTimeTravelSpec spec) {
+        switch (spec.getKind()) {
+            case TIMESTAMP:
+                return Optional.of(ConnectorMvccSnapshot.builder()
+                        .property(HUDI_QUERY_INSTANT_PROPERTY, spec.getStringValue().replaceAll("[-: ]", ""))
+                        .build());
+            case SNAPSHOT_ID:
+            case VERSION_REF:
+                throw new DorisConnectorException(
+                        "Hudi does not support `FOR VERSION AS OF`, please use `FOR TIME AS OF`");
+            default:
+                return Optional.empty();
+        }
+    }
+
+    /**
+     * Threads a pinned {@code FOR TIME AS OF} instant onto the handle BEFORE planScan. Reads it from the
+     * snapshot's {@link #HUDI_QUERY_INSTANT_PROPERTY} (set by {@link #resolveTimeTravel}) and stamps it via
+     * {@code toBuilder().queryInstant(...)}, which PRESERVES any {@code prunedPartitionPaths} applyFilter set
+     * earlier (applyFilter runs before applySnapshot at scan time, so a rebuild-from-scratch would drop the
+     * pruning). For the query-begin latest pin ({@code beginQuerySnapshot} carries only a {@code snapshotId}, NO
+     * property) &mdash; and for a null snapshot &mdash; the handle is returned UNCHANGED, so a plain read stays
+     * byte-identical to today (planScan falls back to {@code timeline.lastInstant()}). Mirrors paimon's
+     * empty-properties / invalid-pin no-op.
+     */
+    @Override
+    public ConnectorTableHandle applySnapshot(ConnectorSession session,
+            ConnectorTableHandle handle, ConnectorMvccSnapshot snapshot) {
+        if (snapshot == null) {
+            return handle;
+        }
+        String queryInstant = snapshot.getProperties().get(HUDI_QUERY_INSTANT_PROPERTY);
+        if (queryInstant == null) {
+            return handle;
+        }
+        return ((HudiTableHandle) handle).toBuilder().queryInstant(queryInstant).build();
     }
 
     // ========== ConnectorTableOps (partitions) ==========

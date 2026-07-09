@@ -136,7 +136,13 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
             LOG.info("No completed instants on timeline for {}, returning empty splits", basePath);
             return Collections.emptyList();
         }
-        String queryInstant = lastInstant.get().requestedTime();
+        // FOR TIME AS OF pins an explicit instant (applySnapshot stamped it on the handle); a plain read has
+        // none and reads the latest completed instant (byte-identical to before this step). This single local
+        // drives every downstream instant use: COW/MOR getLatest*BeforeOrOn file selection AND the MOR-JNI
+        // THudiFileDesc.instantTime, so FE file selection and the BE merge instant stay consistent.
+        String queryInstant = hudiHandle.getQueryInstant() != null
+                ? hudiHandle.getQueryInstant()
+                : lastInstant.get().requestedTime();
 
         // Resolve column names and types for JNI reader
         List<String> columnNames;

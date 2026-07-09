@@ -49,6 +49,11 @@ public class HudiTableHandle implements ConnectorTableHandle {
     // Set after applyFilter for partition pruning
     private final List<String> prunedPartitionPaths;
 
+    // Set after applySnapshot for FOR TIME AS OF time travel: the completed-timeline instant the scan reads
+    // BEFORE-OR-ON (a String like "20240101120000", not a numeric snapshot id). Null = no time travel; the scan
+    // reads the latest completed instant (byte-identical to a plain snapshot read).
+    private final String queryInstant;
+
     private HudiTableHandle(Builder builder) {
         this.dbName = builder.dbName;
         this.tableName = builder.tableName;
@@ -63,6 +68,7 @@ public class HudiTableHandle implements ConnectorTableHandle {
                 ? Collections.unmodifiableMap(builder.tableParameters)
                 : Collections.emptyMap();
         this.prunedPartitionPaths = builder.prunedPartitionPaths;
+        this.queryInstant = builder.queryInstant;
     }
 
     /** Legacy constructor for Phase 1 compatibility (metadata-only). */
@@ -106,6 +112,11 @@ public class HudiTableHandle implements ConnectorTableHandle {
         return prunedPartitionPaths;
     }
 
+    /** The FOR TIME AS OF instant the scan reads before-or-on, or {@code null} for a latest read. */
+    public String getQueryInstant() {
+        return queryInstant;
+    }
+
     /** Returns a builder pre-populated with this handle's state, for creating modified copies. */
     public Builder toBuilder() {
         Builder b = new Builder(dbName, tableName, basePath, hudiTableType);
@@ -114,6 +125,7 @@ public class HudiTableHandle implements ConnectorTableHandle {
         b.partitionKeyNames = this.partitionKeyNames;
         b.tableParameters = this.tableParameters;
         b.prunedPartitionPaths = this.prunedPartitionPaths;
+        b.queryInstant = this.queryInstant;
         return b;
     }
 
@@ -136,6 +148,7 @@ public class HudiTableHandle implements ConnectorTableHandle {
         private List<String> partitionKeyNames;
         private Map<String, String> tableParameters;
         private List<String> prunedPartitionPaths;
+        private String queryInstant;
 
         public Builder(String dbName, String tableName, String basePath, String hudiTableType) {
             this.dbName = dbName;
@@ -166,6 +179,11 @@ public class HudiTableHandle implements ConnectorTableHandle {
 
         public Builder prunedPartitionPaths(List<String> val) {
             this.prunedPartitionPaths = val;
+            return this;
+        }
+
+        public Builder queryInstant(String val) {
+            this.queryInstant = val;
             return this;
         }
 
