@@ -107,7 +107,7 @@ public class IcebergSessionCatalogAdapterTest {
         SessionContext context = SessionContext.of(new DelegatedCredential(
                 DelegatedCredential.Type.ACCESS_TOKEN, "access-token"));
 
-        adapter.catalog(context).tableExists(TableIdentifier.of("db", "tbl"));
+        adapter.delegatedCatalog(context).tableExists(TableIdentifier.of("db", "tbl"));
 
         Map<String, String> credentials = sessionCatalog.lastContext.credentials();
         Assertions.assertEquals("access-token", credentials.get(OAuth2Properties.TOKEN));
@@ -122,23 +122,11 @@ public class IcebergSessionCatalogAdapterTest {
         SessionContext context = SessionContext.of(new DelegatedCredential(
                 DelegatedCredential.Type.ACCESS_TOKEN, "access-token"));
 
-        adapter.namespaces(context).listNamespaces(Namespace.empty());
+        adapter.delegatedNamespaces(context).listNamespaces(Namespace.empty());
 
         Map<String, String> credentials = sessionCatalog.lastContext.credentials();
         Assertions.assertEquals("access-token", credentials.get(OAuth2Properties.TOKEN));
         Assertions.assertFalse(catalog.listNamespacesCalled);
-    }
-
-    @Test
-    public void testPlainCatalogIsUsedWithoutDelegatedCredential() {
-        RecordingSessionCatalog sessionCatalog = new RecordingSessionCatalog();
-        SessionBackedCatalog catalog = new SessionBackedCatalog();
-        IcebergSessionCatalogAdapter adapter = new IcebergSessionCatalogAdapter(catalog, sessionCatalog);
-
-        adapter.catalog(SessionContext.empty()).tableExists(TableIdentifier.of("db", "tbl"));
-
-        Assertions.assertTrue(catalog.tableExistsCalled);
-        Assertions.assertNull(sessionCatalog.lastContext);
     }
 
     @Test
@@ -260,13 +248,6 @@ public class IcebergSessionCatalogAdapterTest {
         }
 
         @Override
-        public boolean tableExists(
-                org.apache.iceberg.catalog.SessionCatalog.SessionContext context, TableIdentifier ident) {
-            lastContext = context;
-            return true;
-        }
-
-        @Override
         public Table loadTable(
                 org.apache.iceberg.catalog.SessionCatalog.SessionContext context, TableIdentifier ident) {
             lastContext = context;
@@ -276,19 +257,20 @@ public class IcebergSessionCatalogAdapterTest {
         @Override
         public boolean dropTable(
                 org.apache.iceberg.catalog.SessionCatalog.SessionContext context, TableIdentifier ident) {
-            return false;
+            throw new UnsupportedOperationException();
         }
 
         @Override
         public boolean purgeTable(
                 org.apache.iceberg.catalog.SessionCatalog.SessionContext context, TableIdentifier ident) {
-            return false;
+            throw new UnsupportedOperationException();
         }
 
         @Override
         public void renameTable(
                 org.apache.iceberg.catalog.SessionCatalog.SessionContext context,
                 TableIdentifier from, TableIdentifier to) {
+            throw new UnsupportedOperationException();
         }
 
         @Override
@@ -297,9 +279,17 @@ public class IcebergSessionCatalogAdapterTest {
         }
 
         @Override
+        public boolean tableExists(
+                org.apache.iceberg.catalog.SessionCatalog.SessionContext context, TableIdentifier ident) {
+            lastContext = context;
+            return true;
+        }
+
+        @Override
         public void createNamespace(
                 org.apache.iceberg.catalog.SessionCatalog.SessionContext context,
                 Namespace namespace, Map<String, String> metadata) {
+            throw new UnsupportedOperationException();
         }
 
         @Override
@@ -312,21 +302,27 @@ public class IcebergSessionCatalogAdapterTest {
         @Override
         public Map<String, String> loadNamespaceMetadata(
                 org.apache.iceberg.catalog.SessionCatalog.SessionContext context, Namespace namespace) {
-            lastContext = context;
-            return Collections.emptyMap();
+            throw new UnsupportedOperationException();
         }
 
         @Override
         public boolean dropNamespace(
                 org.apache.iceberg.catalog.SessionCatalog.SessionContext context, Namespace namespace) {
-            return false;
+            throw new UnsupportedOperationException();
         }
 
         @Override
         public boolean updateNamespaceMetadata(
                 org.apache.iceberg.catalog.SessionCatalog.SessionContext context,
                 Namespace namespace, Map<String, String> updates, Set<String> removals) {
-            return false;
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public boolean namespaceExists(
+                org.apache.iceberg.catalog.SessionCatalog.SessionContext context, Namespace namespace) {
+            lastContext = context;
+            return true;
         }
     }
 }

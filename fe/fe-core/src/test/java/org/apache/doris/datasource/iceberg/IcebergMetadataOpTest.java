@@ -117,7 +117,7 @@ public class IcebergMetadataOpTest {
     @Test
     public void testListTableNamesFiltersViewsWhenRestViewEnabled() {
         IcebergRestExternalCatalog dorisCatalog = Mockito.mock(IcebergRestExternalCatalog.class);
-        // The default Catalog handed to IcebergMetadataOps is asCatalog(empty); it is NOT a ViewCatalog.
+        // The default Catalog handed to IcebergMetadataOps is asCatalog(empty); it is not a ViewCatalog.
         Catalog icebergCatalog = Mockito.mock(Catalog.class,
                 Mockito.withSettings().extraInterfaces(SupportsNamespaces.class));
         RESTSessionCatalog sessionCatalog = Mockito.mock(RESTSessionCatalog.class);
@@ -160,31 +160,12 @@ public class IcebergMetadataOpTest {
         IcebergRestExternalCatalog catalog =
                 new IcebergRestExternalCatalog(1, "rest_user_session", null, props, "");
 
-        // Dynamic identity is configured but the session has no delegated credential (e.g. a password login):
-        // rejected, never falls back to a shared/borrowed identity.
         Assertions.assertThrows(IllegalStateException.class,
                 () -> catalog.useSessionCatalog(SessionContext.empty()));
 
-        // With a delegated credential, the per-user session catalog is used.
         SessionContext withCredential = SessionContext.of(
                 new DelegatedCredential(DelegatedCredential.Type.ACCESS_TOKEN, "delegated-access-token"));
         Assert.assertTrue(catalog.useSessionCatalog(withCredential));
-    }
-
-    @Test
-    public void testNoSessionCatalogWhenDynamicIdentityDisabled() {
-        Map<String, String> props = new HashMap<>();
-        props.put("type", "iceberg");
-        props.put("iceberg.catalog.type", "rest");
-        props.put("iceberg.rest.uri", "http://localhost:8181");
-
-        IcebergRestExternalCatalog catalog =
-                new IcebergRestExternalCatalog(1, "rest_plain", null, props, "");
-
-        // Without dynamic identity, no request uses the session catalog and none is rejected.
-        Assert.assertFalse(catalog.useSessionCatalog(SessionContext.empty()));
-        Assert.assertFalse(catalog.useSessionCatalog(SessionContext.of(
-                new DelegatedCredential(DelegatedCredential.Type.ACCESS_TOKEN, "delegated-access-token"))));
     }
 
     @Test

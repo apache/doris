@@ -97,6 +97,7 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
         super.makeSureInitialized();
         if (!objectCreated) {
             objectCreated = true;
+            // User-session mode must resolve views through the same delegated credential used by metadata reads.
             isView = ((IcebergExternalCatalog) catalog)
                     .viewExists(SessionContext.current(), getRemoteDbName(), getRemoteName());
         }

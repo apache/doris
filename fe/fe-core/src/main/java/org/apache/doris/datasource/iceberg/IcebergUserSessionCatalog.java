@@ -23,38 +23,32 @@ import org.apache.doris.datasource.property.metastore.IcebergRestProperties;
 import org.apache.iceberg.rest.RESTSessionCatalog;
 
 /**
- * Capability interface for an Iceberg catalog that supports per-user dynamic session
- * (i.e. {@code iceberg.rest.session=user}). Only {@link IcebergRestExternalCatalog} implements it; every other
- * Iceberg catalog type is not session-aware.
- *
- * <p>{@link IcebergMetadataOps} depends on this capability rather than on the concrete REST catalog class or its
- * {@link IcebergRestProperties}, so it never has to {@code instanceof}-and-dig for the REST-specific behaviors it
- * needs (dynamic session, views, nested namespaces). This mirrors how Iceberg itself models optional capabilities
- * (e.g. {@code SupportsNamespaces}, {@code ViewCatalog}).
+ * Capability interface for an Iceberg catalog that supports per-user dynamic session.
  */
 public interface IcebergUserSessionCatalog {
 
     /**
-     * Whether the given request should use a per-user session catalog. Single source of truth for the decision,
-     * used both for cache bypass and for routing metadata calls. Returns {@code false} when dynamic identity is
-     * disabled (use the shared default path) and {@code true} when it is enabled and the request carries a
-     * delegated credential.
-     *
-     * @throws IllegalStateException when dynamic identity is enabled but the request has no delegated credential.
-     *     Such a catalog has no shared identity to fall back on, so a tokenless session is rejected rather than
-     *     served by borrowing another request's credential.
+     * Returns true when the request should use a per-user session catalog.
      */
     boolean useSessionCatalog(SessionContext ctx);
 
-    /** The session-aware Iceberg REST catalog backing this catalog (may be null before initialization). */
+    /**
+     * Returns the session-aware REST catalog, or null before initialization.
+     */
     RESTSessionCatalog getRestSessionCatalog();
 
-    /** The delegated-token mode used when attaching the user's credential to session requests. */
+    /**
+     * Returns how delegated tokens should be attached to the REST session.
+     */
     IcebergRestProperties.DelegatedTokenMode getDelegatedTokenMode();
 
-    /** Whether Iceberg view endpoints are enabled for this catalog. */
+    /**
+     * Returns whether Iceberg views are enabled.
+     */
     boolean isViewEnabled();
 
-    /** Whether nested namespaces are enabled for this catalog. */
+    /**
+     * Returns whether nested namespaces are enabled.
+     */
     boolean isNestedNamespaceEnabled();
 }

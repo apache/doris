@@ -195,7 +195,7 @@ public class ExternalDatabaseSessionContextTest extends TestWithFeService {
 
         private List<String> getSharedDatabaseNames() {
             makeSureInitialized();
-            return metaCache.listNames();
+            return databaseNames.get("").localNames();
         }
 
         private static String token(SessionContext ctx) {

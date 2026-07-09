@@ -34,15 +34,7 @@ import java.util.Map;
 import java.util.Optional;
 
 /**
- * Adapts Doris session-scoped delegated credentials to Iceberg REST {@link BaseSessionCatalog} calls.
- *
- * <p>When Doris has a delegated credential in {@link SessionContext}, Iceberg REST user-session mode requires the
- * request to use a session-bound {@link Catalog} or {@link ViewCatalog}. This adapter keeps the plain catalog path for
- * requests without delegated credentials and switches to Iceberg's session catalog only for user-session requests.
- *
- * <p>The session catalog is injected directly (it is the {@code RESTSessionCatalog} built by
- * {@code IcebergRestProperties}) rather than reflected out of {@code RESTCatalog}'s private field. Non-REST catalogs
- * have no session catalog, so it is {@link Optional#empty()} and only the plain-catalog path is ever taken.
+ * Adapts Doris delegated credentials to Iceberg REST session catalog requests.
  */
 class IcebergSessionCatalogAdapter {
 
@@ -61,18 +53,6 @@ class IcebergSessionCatalogAdapter {
         this.delegatedTokenMode = delegatedTokenMode;
     }
 
-    Catalog catalog(SessionContext context) {
-        if (!hasDelegatedCredential(context)) {
-            return catalog;
-        }
-        BaseSessionCatalog activeSessionCatalog = requireSessionCatalog();
-        return activeSessionCatalog.asCatalog(toIcebergSessionContext(context, delegatedTokenMode));
-    }
-
-    SupportsNamespaces namespaces(SessionContext context) {
-        return (SupportsNamespaces) catalog(context);
-    }
-
     Catalog delegatedCatalog(SessionContext context) {
         return requireSessionCatalog().asCatalog(toIcebergSessionContext(
                 requireDelegatedCredential(context), delegatedTokenMode));
@@ -89,18 +69,6 @@ class IcebergSessionCatalogAdapter {
                     .asViewCatalog(toIcebergSessionContext(requireDelegatedCredential(context), delegatedTokenMode)));
         }
         requireDelegatedCredential(context);
-        return Optional.empty();
-    }
-
-    Optional<ViewCatalog> viewCatalog(SessionContext context) {
-        if (!hasDelegatedCredential(context)) {
-            return catalog instanceof ViewCatalog ? Optional.of((ViewCatalog) catalog) : Optional.empty();
-        }
-        BaseSessionCatalog sessionCatalog = requireSessionCatalog();
-        if (sessionCatalog instanceof BaseViewSessionCatalog) {
-            return Optional.of(((BaseViewSessionCatalog) sessionCatalog)
-                    .asViewCatalog(toIcebergSessionContext(context, delegatedTokenMode)));
-        }
         return Optional.empty();
     }
 
@@ -145,6 +113,6 @@ class IcebergSessionCatalogAdapter {
     }
 
     private static boolean hasDelegatedCredential(SessionContext context) {
-        return context != null && context.hasDelegatedCredential();
+        return context.hasDelegatedCredential();
     }
 }
