@@ -38,7 +38,7 @@ suite("test_hive_cos_insert_overwrite", "p0,external") {
     String dbName = "test_hive_cos_insert_overwrite_${suffix}"
     String hmsPort = getConfigOrDefault("hive3HmsPort", "9383")
     String cosEndpoint = getConfigOrDefault("txYunEndpoint", "cos.ap-beijing.myqcloud.com")
-    String cosParentPath = getConfigOrDefault("txYunBucket", "doris-build-1308700295")
+    String cosParentPath = getConfigOrDefault("txYunBucket", "sdb-qa-datalake-test-1308700295")
     String dbLocation = "cosn://${cosParentPath}/hive/hms/overwrite/${suffix}"
 
     sql """DROP CATALOG IF EXISTS ${catalogName}"""
