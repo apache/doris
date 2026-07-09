@@ -69,7 +69,7 @@ public class PaimonJniScanner extends JniScanner {
     static final String JNI_IO_MANAGER_TMP_DIR = "paimon.doris.jni_io_manager.tmp_dir";
     static final String JNI_IO_MANAGER_IMPL_CLASS = "paimon.doris.jni_io_manager.impl_class";
     private static final AtomicInteger ACTIVE_SCANNERS = new AtomicInteger();
-    static final String DORIS_ENABLE_FILE_READER_ASYNC = "paimon.doris.enable_file_reader_async";
+    static final String DORIS_ENABLE_FILE_READER_ASYNC = "paimon.jni.enable_file_reader_async";
     static final String MAX_ASYNC_READ_THRESHOLD = Long.MAX_VALUE + "b"; // max threshold means disable
 
     private final Map<String, String> params;
