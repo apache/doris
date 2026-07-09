@@ -127,11 +127,12 @@ public class IcebergSchemaUtilsTest {
 
     @Test
     public void topLevelFieldsCarryIcebergFieldIdsAndLowercasedNames() {
-        // A mixed-case iceberg schema: the dictionary's top-level names must be the LOWERCASED Doris slot names
-        // (parseSchema lowercases with Locale.ROOT) so BE's StructNode keys match the scan slots, while the field
-        // id is the iceberg field id (the rename-safe join key BE matches the file's embedded ids against). The
-        // expected ids are read from table.schema() (iceberg reassigns field ids on table creation), proving the
-        // dictionary carries the table's ACTUAL field ids, not a fabricated/positional value.
+        // buildCurrentSchema echoes the REQUESTED (pruned) column names VERBATIM as the dictionary's top-level
+        // names so BE's StructNode keys match the scan slots; here lowercase requested names -> lowercase
+        // top-level names. The field id is the iceberg field id (the rename-safe join key BE matches the file's
+        // embedded ids against), read from table.schema() (iceberg reassigns ids on creation) proving the
+        // dictionary carries ACTUAL field ids, not a fabricated/positional value. See
+        // topLevelFieldsPreserveMixedCaseRequestedNames for the case-preserving (#65094) path.
         Schema mixed = new Schema(
                 Types.NestedField.required(7, "ID", Types.IntegerType.get()),
                 Types.NestedField.optional(9, "Name", Types.StringType.get()));
@@ -149,6 +150,30 @@ public class IcebergSchemaUtilsTest {
         // REQUIRED "id" surfaces is_optional=true. MUTATION: leak field.isOptional() (required -> false) -> red.
         Assertions.assertTrue(fields.get("id").isIsOptional());
         Assertions.assertTrue(fields.get("name").isIsOptional());
+    }
+
+    @Test
+    public void topLevelFieldsPreserveMixedCaseRequestedNames() {
+        // #65094 read-path alignment: post-cutover getColumnHandles (IcebergConnectorMetadata:579) and
+        // parseSchema (:1708) KEEP the iceberg top-level case, so the requested (pruned) names reaching the
+        // dictionary are case-PRESERVED. buildCurrentSchema must echo them VERBATIM (no re-lowercasing) so the
+        // -1 entry's top-level names byte-match the case-preserving Doris scan slots BE keys by; the field id
+        // stays the rename-safe iceberg field id.
+        Schema mixed = new Schema(
+                Types.NestedField.required(7, "ID", Types.IntegerType.get()),
+                Types.NestedField.optional(9, "Name", Types.StringType.get()));
+        Table table = createTable("mixed_preserve", mixed);
+        Schema actual = table.schema();
+
+        Map<String, TField> fields = topFields(dict(table, "ID", "Name"));
+
+        // Case-preserved top-level names carry the ACTUAL iceberg field ids (resolved case-insensitively).
+        Assertions.assertEquals(actual.caseInsensitiveFindField("id").fieldId(), fields.get("ID").getId());
+        Assertions.assertEquals(actual.caseInsensitiveFindField("name").fieldId(), fields.get("Name").getId());
+        // MUTATION: re-lowercase the top-level name (the pre-#65094 behavior) -> "ID"/"Name" absent, the
+        // case-preserving Doris slot lookup misses -> red.
+        Assertions.assertFalse(fields.containsKey("id"));
+        Assertions.assertFalse(fields.containsKey("name"));
     }
 
     @Test

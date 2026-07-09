@@ -274,7 +274,7 @@ public class PaimonConnectorMetadataTest {
     }
 
     @Test
-    public void getTableSchemaLowercasesPartitionColumnsToMatchColumnNames() {
+    public void getTableSchemaPreservesPartitionColumnCase() {
         RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
         // A paimon table whose partition key uses mixed case ("Pt").
         RowType rt = RowType.builder()
@@ -288,13 +288,13 @@ public class PaimonConnectorMetadataTest {
         ConnectorTableHandle handle = metadataWith(ops).getTableHandle(null, "db1", "t1").get();
         ConnectorTableSchema schema = metadataWith(ops).getTableSchema(null, handle);
 
-        // WHY (#65094 consistency): column names are surfaced lower-cased (mapFields uses bare
-        // toLowerCase()), and fe-core PluginDrivenExternalTable.initSchema matches each "partition_columns"
-        // entry against those lower-cased column names via a case-sensitive byName lookup (paimon does not
-        // override fromRemoteColumnName). If "partition_columns" kept the mixed-case "Pt" it would not match
-        // the "pt" column, so the table would be silently treated as NON-partitioned. MUTATION: dropping the
-        // toLowerCase() on partition_columns -> "Pt" != "pt" -> red.
-        Assertions.assertEquals("pt", schema.getProperties().get("partition_columns"));
+        // WHY (#65094 read-path alignment): column names are surfaced case-preserved (mapFields/getColumnHandles
+        // use bare .name()), and fe-core PluginDrivenExternalTable.initSchema matches each "partition_columns"
+        // entry against those column names via a case-sensitive byName lookup (paimon does not override
+        // fromRemoteColumnName). So "partition_columns" MUST keep the paimon case "Pt" to match the "Pt" column;
+        // lower-casing it to "pt" would miss the "Pt" column and silently treat the table as NON-partitioned.
+        // MUTATION: re-lowercase partition_columns (the pre-#65094 tier2 behavior) -> "pt" != "Pt" -> red.
+        Assertions.assertEquals("Pt", schema.getProperties().get("partition_columns"));
     }
 
     @Test
