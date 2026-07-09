@@ -199,7 +199,8 @@ public:
 
     void set_delete_rows(const AcidRowIDSet* delete_rows) { _delete_rows = delete_rows; }
 
-    Status filter(orc::ColumnVectorBatch& data, uint16_t* sel, uint16_t size, void* arg);
+    Status filter(orc::ColumnVectorBatch& data, uint16_t* sel, uint16_t size,
+                  const orc::ORCFilterContext& context, void* arg);
 
     Status fill_dict_filter_column_names(
             std::unique_ptr<orc::StripeInformation> current_strip_information,
@@ -318,8 +319,8 @@ private:
         ORCFilterImpl(OrcReader* orcReader) : _orcReader(orcReader) {}
         ~ORCFilterImpl() override = default;
         void filter(orc::ColumnVectorBatch& data, uint16_t* sel, uint16_t size,
-                    void* arg) const override {
-            THROW_IF_ERROR(_orcReader->filter(data, sel, size, arg));
+                    const orc::ORCFilterContext& context, void* arg) const override {
+            THROW_IF_ERROR(_orcReader->filter(data, sel, size, context, arg));
         }
 
     private:

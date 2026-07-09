@@ -118,6 +118,9 @@ private:
     // into an ORC [start, end) window. A negative range_size (unset sentinel) yields the
     // whole file: {0, UINT64_MAX}.
     void _split_byte_window(uint64_t* start, uint64_t* end) const;
+    // Collect stripes whose offset falls in the current split window, matching ORC
+    // RowReader's own range inclusion test.
+    Status _collect_split_stripes(std::vector<uint64_t>* stripe_indices) const;
     // Seed row_reader_options with the split byte window so each split only reads its own
     // stripes. Skips the call for a whole-file window to keep ORC library defaults.
     void _apply_split_range();
@@ -127,7 +130,7 @@ private:
     Status _create_row_reader();
 
     Status _filter_orc_batch(::orc::ColumnVectorBatch& data, uint16_t* sel, uint16_t size,
-                             void* arg);
+                             const ::orc::ORCFilterContext& context, void* arg);
 
     Status _decode_column(const ::orc::Type& file_type, const ::orc::Type& selected_type,
                           const ::orc::ColumnVectorBatch& batch, MutableColumnPtr& column,
@@ -174,6 +177,8 @@ private:
     void _skip_condition_cache_false_granules(size_t* rows, bool* eof);
     void _mark_condition_cache_surviving_rows(const IColumn::Filter& keep_filter,
                                               size_t rows) const;
+    void _mark_condition_cache_selected_rows(size_t rows,
+                                             const std::vector<size_t>* selected_rows) const;
     Status _execute_conjuncts(Block* file_block, size_t rows, IColumn::Filter* keep_filter) const;
     Status _execute_delete_conjuncts(Block* file_block, size_t rows,
                                      IColumn::Filter* keep_filter) const;

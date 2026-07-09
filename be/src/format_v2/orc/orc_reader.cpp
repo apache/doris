@@ -881,13 +881,26 @@ DateV2Value<DateTimeV2ValueType> datetime_v2_from_orc_millis(int64_t millis, int
     return value;
 }
 
+TimestampTzValue timestamp_tz_from_orc_millis(int64_t millis, int32_t nanos_tail) {
+    static const auto utc_time_zone = cctz::utc_time_zone();
+    return TimestampTzValue(datetime_v2_from_orc_millis(millis, nanos_tail, utc_time_zone));
+}
+
 bool set_timestamp_zone_map(const ::orc::ColumnStatistics& statistics,
-                            const cctz::time_zone& timezone, segment_v2::ZoneMap* zone_map) {
+                            const cctz::time_zone& timezone, bool use_timestamp_tz,
+                            segment_v2::ZoneMap* zone_map) {
     const auto* timestamp_statistics =
             dynamic_cast<const ::orc::TimestampColumnStatistics*>(&statistics);
     if (timestamp_statistics == nullptr || !timestamp_statistics->hasMinimum() ||
         !timestamp_statistics->hasMaximum()) {
         return false;
+    }
+    if (use_timestamp_tz) {
+        zone_map->min_value = Field::create_field<TYPE_TIMESTAMPTZ>(timestamp_tz_from_orc_millis(
+                timestamp_statistics->getMinimum(), timestamp_statistics->getMinimumNanos()));
+        zone_map->max_value = Field::create_field<TYPE_TIMESTAMPTZ>(timestamp_tz_from_orc_millis(
+                timestamp_statistics->getMaximum(), timestamp_statistics->getMaximumNanos()));
+        return true;
     }
     zone_map->min_value = Field::create_field<TYPE_DATETIMEV2>(datetime_v2_from_orc_millis(
             timestamp_statistics->getMinimum(), timestamp_statistics->getMinimumNanos(), timezone));
@@ -949,6 +962,7 @@ bool set_decimal_zone_map(const ::orc::Type& type, const ::orc::ColumnStatistics
 bool build_zone_map_from_orc_statistics(const ::orc::Type& type,
                                         const ::orc::ColumnStatistics& statistics,
                                         const cctz::time_zone& timezone,
+                                        bool enable_mapping_timestamp_tz,
                                         segment_v2::ZoneMap* zone_map) {
     DORIS_CHECK(zone_map != nullptr);
     zone_map->has_null = statistics.hasNull();
@@ -974,8 +988,9 @@ bool build_zone_map_from_orc_statistics(const ::orc::Type& type,
     case ::orc::TypeKind::DATE:
         return set_date_zone_map(statistics, zone_map);
     case ::orc::TypeKind::TIMESTAMP:
+        return set_timestamp_zone_map(statistics, timezone, false, zone_map);
     case ::orc::TypeKind::TIMESTAMP_INSTANT:
-        return set_timestamp_zone_map(statistics, timezone, zone_map);
+        return set_timestamp_zone_map(statistics, timezone, enable_mapping_timestamp_tz, zone_map);
     case ::orc::TypeKind::DECIMAL:
         return set_decimal_zone_map(type, statistics, zone_map);
     default:
@@ -1043,8 +1058,8 @@ public:
     explicit OrcFilterImpl(OrcReader* reader) : _reader(reader) {}
 
     void filter(::orc::ColumnVectorBatch& data, uint16_t* sel, uint16_t size,
-                void* arg) const override {
-        THROW_IF_ERROR(_reader->_filter_orc_batch(data, sel, size, arg));
+                const ::orc::ORCFilterContext& context, void* arg) const override {
+        THROW_IF_ERROR(_reader->_filter_orc_batch(data, sel, size, context, arg));
     }
 
 private:
@@ -1083,7 +1098,7 @@ struct OrcReaderScanState {
 
     std::vector<size_t> orc_lazy_selected_rows;
     size_t orc_lazy_input_rows = 0;
-    uint64_t orc_lazy_next_batch_first_row = 0;
+    bool enable_lazy_materialization = true;
     bool orc_lazy_read_enabled = false;
     bool orc_lazy_selection_valid = false;
 
@@ -1219,6 +1234,7 @@ Status OrcReader::init(RuntimeState* state) {
     _state = std::make_unique<OrcReaderScanState>();
     TimezoneUtils::find_cctz_time_zone(_state->timezone, _state->timezone_obj);
     if (state != nullptr) {
+        _state->enable_lazy_materialization = state->query_options().enable_orc_lazy_mat;
         _state->timezone = state->timezone();
         _state->timezone_obj = state->timezone_obj();
     }
@@ -1558,6 +1574,9 @@ Status OrcReader::open(std::shared_ptr<format::FileScanRequest> request) {
 }
 
 bool OrcReader::_can_apply_orc_lazy_callback() const {
+    if (!_state->enable_lazy_materialization) {
+        return false;
+    }
     if (!_filter_has_row_level_predicates() || _request->predicate_columns.empty() ||
         _request->non_predicate_columns.empty()) {
         return false;
@@ -1708,6 +1727,32 @@ void OrcReader::_split_byte_window(uint64_t* start, uint64_t* end) const {
     *end = static_cast<uint64_t>(range_end);
 }
 
+Status OrcReader::_collect_split_stripes(std::vector<uint64_t>* stripe_indices) const {
+    DORIS_CHECK(stripe_indices != nullptr);
+    stripe_indices->clear();
+    const auto stripe_count = _state->reader->getNumberOfStripes();
+    stripe_indices->reserve(stripe_count);
+
+    uint64_t split_start = 0;
+    uint64_t split_end = std::numeric_limits<uint64_t>::max();
+    _split_byte_window(&split_start, &split_end);
+
+    for (uint64_t stripe_index = 0; stripe_index < stripe_count; ++stripe_index) {
+        std::unique_ptr<::orc::StripeInformation> stripe_information;
+        try {
+            stripe_information = _state->reader->getStripe(stripe_index);
+        } catch (const std::exception& e) {
+            return Status::InternalError("Failed to read ORC stripe info: {}", e.what());
+        }
+        DORIS_CHECK(stripe_information != nullptr);
+        const auto stripe_offset = stripe_information->getOffset();
+        if (stripe_offset >= split_start && stripe_offset < split_end) {
+            stripe_indices->push_back(stripe_index);
+        }
+    }
+    return Status::OK();
+}
+
 void OrcReader::_apply_split_range() {
     uint64_t start = 0;
     uint64_t end = std::numeric_limits<uint64_t>::max();
@@ -1730,8 +1775,9 @@ Status OrcReader::_select_stripe_ranges_by_statistics() {
         return Status::OK();
     }
 
-    const auto stripe_count = _state->reader->getNumberOfStripes();
-    if (stripe_count == 0) {
+    std::vector<uint64_t> split_stripes;
+    RETURN_IF_ERROR(_collect_split_stripes(&split_stripes));
+    if (split_stripes.empty()) {
         return Status::OK();
     }
 
@@ -1742,31 +1788,12 @@ Status OrcReader::_select_stripe_ranges_by_statistics() {
         return Status::InternalError("Failed to evaluate ORC search argument: {}", e.what());
     }
 
-    // Only stripes whose offset falls in this split's byte window belong to this scanner
-    // (matching ORC's own inclusion test). getNeedReadStripes() ignores the range, so
-    // out-of-split stripes must be excluded here and must NOT be counted in the filtered
-    // statistics (they are handled by other splits).
-    uint64_t split_start = 0;
-    uint64_t split_end = std::numeric_limits<uint64_t>::max();
-    _split_byte_window(&split_start, &split_end);
-
     std::vector<uint64_t> selected_stripes;
-    selected_stripes.reserve(stripe_count);
+    selected_stripes.reserve(split_stripes.size());
     int64_t filtered_stripes = 0;
     int64_t filtered_rows = 0;
     int64_t filtered_bytes = 0;
-    for (uint64_t stripe_index = 0; stripe_index < stripe_count; ++stripe_index) {
-        uint64_t stripe_offset = 0;
-        try {
-            stripe_offset = _state->reader->getStripe(stripe_index)->getOffset();
-        } catch (const std::exception& e) {
-            return Status::InternalError("Failed to read ORC stripe info: {}", e.what());
-        }
-        if (stripe_offset < split_start || stripe_offset >= split_end) {
-            // Belongs to another split; do not select or count it.
-            continue;
-        }
-
+    for (const auto stripe_index : split_stripes) {
         bool drop = false;
         if (stripe_index < sarg_needed_stripes.size() && sarg_needed_stripes[stripe_index] == 0) {
             drop = true;
@@ -1887,8 +1914,7 @@ Status OrcReader::_create_row_reader() {
                     file_total_rows - _state->row_reader_range_first_row);
         _state->row_reader_range_end_row =
                 _state->row_reader_range_first_row + _state->row_reader_range_rows;
-        _state->orc_lazy_next_batch_first_row = _state->row_reader_range_first_row;
-        _state->condition_cache_next_row = _state->orc_lazy_next_batch_first_row;
+        _state->condition_cache_next_row = _state->row_reader_range_first_row;
         _state->column_to_selected_batch_index.clear();
         size_t physical_read_column_count = 0;
         for (const auto file_column_id : _state->read_columns) {
@@ -1956,7 +1982,6 @@ void OrcReader::_skip_condition_cache_false_granules(size_t* rows, bool* eof) {
                     _state->row_reader_range_end_row - _state->condition_cache_next_row;
         }
         _state->condition_cache_next_row = _state->row_reader_range_end_row;
-        _state->orc_lazy_next_batch_first_row = _state->row_reader_range_end_row;
         return;
     }
 
@@ -1972,7 +1997,6 @@ void OrcReader::_skip_condition_cache_false_granules(size_t* rows, bool* eof) {
                         _state->row_reader_range_end_row - _state->condition_cache_next_row;
             }
             _state->condition_cache_next_row = _state->row_reader_range_end_row;
-            _state->orc_lazy_next_batch_first_row = _state->row_reader_range_end_row;
         }
         return;
     }
@@ -1983,7 +2007,6 @@ void OrcReader::_skip_condition_cache_false_granules(size_t* rows, bool* eof) {
             _io_ctx->condition_cache_filtered_rows += target_row - _state->condition_cache_next_row;
         }
         _state->condition_cache_next_row = target_row;
-        _state->orc_lazy_next_batch_first_row = target_row;
     }
 }
 
@@ -2010,8 +2033,37 @@ void OrcReader::_mark_condition_cache_surviving_rows(const IColumn::Filter& keep
     }
 }
 
+void OrcReader::_mark_condition_cache_selected_rows(
+        size_t rows, const std::vector<size_t>* selected_rows) const {
+    if (_state->condition_cache_ctx == nullptr || _state->condition_cache_ctx->is_hit) {
+        return;
+    }
+    DORIS_CHECK(_state->condition_cache_ctx->filter_result != nullptr);
+    const auto base_granule = _state->condition_cache_ctx->base_granule;
+    auto& cache = *_state->condition_cache_ctx->filter_result;
+    constexpr uint64_t granule_size = ConditionCacheContext::GRANULE_SIZE;
+    const auto mark_row = [&](size_t row) {
+        DORIS_CHECK(row < rows);
+        const auto granule =
+                static_cast<int64_t>((_state->current_batch_first_row + row) / granule_size);
+        const auto cache_idx = granule - base_granule;
+        if (cache_idx >= 0 && static_cast<size_t>(cache_idx) < cache.size()) {
+            cache[static_cast<size_t>(cache_idx)] = true;
+        }
+    };
+    if (selected_rows == nullptr) {
+        for (size_t row = 0; row < rows; ++row) {
+            mark_row(row);
+        }
+        return;
+    }
+    for (const auto row : *selected_rows) {
+        mark_row(row);
+    }
+}
+
 Status OrcReader::_filter_orc_batch(::orc::ColumnVectorBatch& data, uint16_t* sel, uint16_t size,
-                                    void* /*arg*/) {
+                                    const ::orc::ORCFilterContext& context, void* /*arg*/) {
     if (!_state->orc_lazy_read_enabled || sel == nullptr || size == 0) {
         data.numElements = size;
         return Status::OK();
@@ -2071,8 +2123,7 @@ Status OrcReader::_filter_orc_batch(::orc::ColumnVectorBatch& data, uint16_t* se
                              _state->root_type->getFieldName(file_column_id.value())});
     }
 
-    _state->current_batch_first_row = _state->orc_lazy_next_batch_first_row;
-    _state->orc_lazy_next_batch_first_row += size;
+    _state->current_batch_first_row = context.batchFirstRow;
     _state->condition_cache_next_row = _state->current_batch_first_row + size;
     std::set<format::LocalColumnId> decoded_columns;
     RETURN_IF_ERROR(_decode_columns(*struct_batch, _request->predicate_columns, size, &filter_block,
@@ -2080,7 +2131,6 @@ Status OrcReader::_filter_orc_batch(::orc::ColumnVectorBatch& data, uint16_t* se
 
     IColumn::Filter keep_filter(size, 1);
     RETURN_IF_ERROR(_build_keep_filter(&filter_block, size, &keep_filter));
-    _mark_condition_cache_surviving_rows(keep_filter, size);
 
     _state->orc_lazy_selected_rows.clear();
     _state->orc_lazy_selected_rows.reserve(size);
@@ -2406,7 +2456,11 @@ Status OrcReader::get_block(Block* file_block, size_t* rows, bool* eof) {
     }
 
     const auto batch_rows = static_cast<size_t>(_state->batch->numElements);
-    _state->current_batch_first_row = _state->row_reader->getRowNumber();
+    const auto batch_first_row = _state->row_reader->getRowNumber();
+    if (_state->orc_lazy_read_enabled && _state->orc_lazy_selection_valid) {
+        DORIS_CHECK(_state->current_batch_first_row == batch_first_row);
+    }
+    _state->current_batch_first_row = batch_first_row;
     _state->condition_cache_next_row = _state->current_batch_first_row + batch_rows;
     auto* struct_batch = dynamic_cast<::orc::StructVectorBatch*>(_state->batch.get());
     if (struct_batch == nullptr) {
@@ -2441,6 +2495,7 @@ Status OrcReader::get_block(Block* file_block, size_t* rows, bool* eof) {
             selected_row_indices = _state->orc_lazy_selected_rows;
             non_predicate_selected_rows = &selected_row_indices;
         }
+        _mark_condition_cache_selected_rows(batch_rows, non_predicate_selected_rows);
     }
 
     RETURN_IF_ERROR(_decode_columns(*struct_batch, _request->non_predicate_columns, batch_rows,
@@ -2489,11 +2544,7 @@ Status OrcReader::get_aggregate_result(const format::FileAggregateRequest& reque
             }
         }
     } else {
-        const auto stripe_count = _state->reader->getNumberOfStripes();
-        selected_stripes.reserve(stripe_count);
-        for (uint64_t stripe_index = 0; stripe_index < stripe_count; ++stripe_index) {
-            selected_stripes.push_back(stripe_index);
-        }
+        RETURN_IF_ERROR(_collect_split_stripes(&selected_stripes));
     }
 
     for (const auto stripe_index : selected_stripes) {
@@ -2603,7 +2654,8 @@ Status OrcReader::get_aggregate_result(const format::FileAggregateRequest& reque
 
             segment_v2::ZoneMap zone_map;
             if (!build_zone_map_from_orc_statistics(*leaf_type, *column_statistics,
-                                                    _state->timezone_obj, &zone_map)) {
+                                                    _state->timezone_obj,
+                                                    _enable_mapping_timestamp_tz, &zone_map)) {
                 return Status::NotSupported(
                         "Missing ORC min/max statistics for column kind {} in stripe {}",
                         static_cast<int>(leaf_type->getKind()), stripe_index);

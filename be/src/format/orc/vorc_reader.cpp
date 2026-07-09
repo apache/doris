@@ -2792,7 +2792,8 @@ void OrcReader::_build_delete_row_filter(const Block* block, size_t rows) {
     }
 }
 
-Status OrcReader::filter(orc::ColumnVectorBatch& data, uint16_t* sel, uint16_t size, void* arg) {
+Status OrcReader::filter(orc::ColumnVectorBatch& data, uint16_t* sel, uint16_t size,
+                         const orc::ORCFilterContext& /*context*/, void* arg) {
     SCOPED_RAW_TIMER(&_statistics.predicate_filter_time);
     auto* block = (Block*)arg;
     size_t origin_column_num = block->columns();
