@@ -36,8 +36,10 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionKey;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.catalog.RangePartitionItem;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -54,8 +56,10 @@ import org.apache.doris.common.util.RangeUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.meta.MetaContext;
+import org.apache.doris.nereids.trees.expressions.literal.TimestampTzLiteral;
 import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropPartitionOp;
+import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.util.DateUtils;
 import org.apache.doris.persist.PartitionPersistInfo;
 import org.apache.doris.thrift.TStorageMedium;
@@ -81,6 +85,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TimeZone;
 import java.util.stream.Collectors;
 
 /**
@@ -302,6 +307,12 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                     dynamicPartitionProperty, now, idx, partitionFormat);
             String nextBorder = DynamicPartitionUtil.getPartitionRangeString(
                     dynamicPartitionProperty, now, idx + 1, partitionFormat);
+            // Save original border for partition name (must not contain UTC suffix)
+            String prevBorderForName = prevBorder;
+            prevBorder = convertToUtcTimestamp(partitionColumn, prevBorder,
+                    dynamicPartitionProperty.getTimeZone());
+            nextBorder = convertToUtcTimestamp(partitionColumn, nextBorder,
+                    dynamicPartitionProperty.getTimeZone());
             PartitionValue lowerValue = new PartitionValue(prevBorder);
             PartitionValue upperValue = new PartitionValue(nextBorder);
 
@@ -370,7 +381,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
 
             String partitionName = dynamicPartitionProperty.getPrefix()
                     + DynamicPartitionUtil.getFormattedPartitionName(dynamicPartitionProperty.getTimeZone(),
-                    prevBorder, dynamicPartitionProperty.getTimeUnit());
+                    prevBorderForName, dynamicPartitionProperty.getTimeUnit());
             SinglePartitionDesc rangePartitionDesc = new SinglePartitionDesc(true, partitionName,
                     partitionKeyDesc, partitionProperties);
 
@@ -483,9 +494,29 @@ public class DynamicPartitionScheduler extends MasterDaemon {
         partitionProperties.put(PropertyAnalyzer.PROPERTIES_DATA_BASE_TIME, baseTime);
     }
 
+    /**
+     * For TIMESTAMPTZ partition columns, convert the border string from the partition's
+     * timezone to a UTC timestamp string (with +00:00 suffix). This ensures partition
+     * boundaries are stored as UTC timestamps, so the partition range aligns to
+     * 00:00:00—24:00:00 in UTC regardless of the configured partition timezone.
+     */
+    private static String convertToUtcTimestamp(Column column, String border, TimeZone timeZone) {
+        if (column.getDataType() == PrimitiveType.TIMESTAMPTZ) {
+            TimestampTzLiteral utcLiteral = TimestampTzLiteral.fromTimeZone(
+                    TimeStampTzType.of(((ScalarType) column.getType()).getScalarScale()),
+                    border, timeZone.toZoneId().toString());
+            return utcLiteral.getStringValue();
+        }
+        return border;
+    }
+
     private Range<PartitionKey> getClosedRange(Database db, OlapTable olapTable, Column partitionColumn,
             String partitionFormat, String lowerBorderOfReservedHistory, String upperBorderOfReservedHistory) {
         Range<PartitionKey> reservedHistoryPartitionKeyRange = null;
+        lowerBorderOfReservedHistory = convertToUtcTimestamp(partitionColumn, lowerBorderOfReservedHistory,
+                olapTable.getTableProperty().getDynamicPartitionProperty().getTimeZone());
+        upperBorderOfReservedHistory = convertToUtcTimestamp(partitionColumn, upperBorderOfReservedHistory,
+                olapTable.getTableProperty().getDynamicPartitionProperty().getTimeZone());
         PartitionValue lowerBorderPartitionValue = new PartitionValue(lowerBorderOfReservedHistory);
         PartitionValue upperBorderPartitionValue = new PartitionValue(upperBorderOfReservedHistory);
         try {
@@ -526,6 +557,10 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                 now, realStart, partitionFormat);
         String limitBorder = DynamicPartitionUtil.getPartitionRangeString(dynamicPartitionProperty,
                 now, 0, partitionFormat);
+        lowerBorder = convertToUtcTimestamp(partitionColumn, lowerBorder,
+                dynamicPartitionProperty.getTimeZone());
+        limitBorder = convertToUtcTimestamp(partitionColumn, limitBorder,
+                dynamicPartitionProperty.getTimeZone());
         PartitionValue lowerPartitionValue = new PartitionValue(lowerBorder);
         PartitionValue limitPartitionValue = new PartitionValue(limitBorder);
         List<Range<PartitionKey>> reservedHistoryPartitionKeyRangeList = new ArrayList<Range<PartitionKey>>();
@@ -624,6 +659,14 @@ public class DynamicPartitionScheduler extends MasterDaemon {
         Column partitionColumn = info.getPartitionColumns().get(0);
         String partitionFormat = DynamicPartitionUtil.getPartitionFormat(partitionColumn);
         String currentTimeStr = DateTimeFormatter.ofPattern(partitionFormat).format(now);
+
+        // For TIMESTAMPTZ columns, normalize the cutoff time to UTC so it
+        // matches the stored partition bounds, which are also stored as UTC.
+        // Without this, a suffix-free currentTimeStr formatted in the JVM
+        // timezone would be parsed as UTC via TimestampTzLiteral.fromSessionTimeZone(),
+        // shifting the cutoff and potentially dropping the current UTC-day partition.
+        currentTimeStr = convertToUtcTimestamp(partitionColumn, currentTimeStr,
+                TimeZone.getTimeZone(DateUtils.getTimeZone()));
 
         PartitionValue currentTimeValue = new PartitionValue(currentTimeStr);
         PartitionKey currentTimeKey;

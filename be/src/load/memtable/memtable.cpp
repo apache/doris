@@ -131,6 +131,10 @@ void MemTable::_init_agg_functions(const Block* block) {
         }
 
         DCHECK(function != nullptr);
+        const auto* input_column = _input_mutable_block.get_column_by_position(cid).get();
+        const IColumn* columns[] = {input_column};
+        function->check_input_columns_type(columns);
+        function->check_result_column_type(*_output_mutable_block.get_column_by_position(cid));
         _agg_functions[cid] = function;
     }
 

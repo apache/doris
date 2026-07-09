@@ -107,8 +107,6 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     _read_options.predicate_access_paths = _read_context->predicate_access_paths;
 
     _read_options.ann_topn_runtime = _read_context->ann_topn_runtime;
-    _read_options.vir_cid_to_idx_in_block = _read_context->vir_cid_to_idx_in_block;
-    _read_options.vir_col_idx_to_type = _read_context->vir_col_idx_to_type;
     _read_options.score_runtime = _read_context->score_runtime;
     _read_options.collection_statistics = _read_context->collection_statistics;
     _read_options.rowset_id = _rowset->rowset_id();
@@ -146,13 +144,18 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
             read_columns.push_back(cid);
         }
     }
+    if (_read_context->tso_predicate_column_id.has_value()) {
+        read_columns.push_back(*_read_context->tso_predicate_column_id);
+    }
     // disable condition cache if you have delete condition
     _read_context->condition_cache_digest =
             delete_columns_set.empty() ? _read_context->condition_cache_digest : 0;
     // create segment iterators
     VLOG_NOTICE << "read columns size: " << read_columns.size();
     _input_schema = std::make_shared<Schema>(_read_context->tablet_schema->columns(), read_columns);
-    // output_schema only contains return_columns (excludes extra columns like delete-predicate columns).
+    _read_options.extra_columns = _read_context->extra_columns;
+    // output_schema only contains return_columns (excludes extra columns like delete-predicate
+    // columns and the TSO predicate-only column).
     // It is used by merge/union iterators to determine how many columns to copy to the output block.
     _output_schema = std::make_shared<Schema>(_read_context->tablet_schema->columns(),
                                               *(_read_context->return_columns));

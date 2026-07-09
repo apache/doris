@@ -47,7 +47,10 @@ suite("test_query_sys_scan_rowsets", "query,p0") {
     """
 
     SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss")
-    def now = sdf.format(new Date()).toString();
+    // Keep the timestamp filter after the create-table rowset's second-level
+    // timestamp so rowsets4 consistently excludes version 0-1.
+    Thread.sleep(1100L)
+    def rowsetFilterStartTime = sdf.format(new Date()).toString();
     
     def rowsets_table_name_tablets = sql_return_maparray """ show tablets from ${rowsets_table_name}; """
     def tablet_id = rowsets_table_name_tablets[0].TabletId
@@ -66,5 +69,5 @@ suite("test_query_sys_scan_rowsets", "query,p0") {
     
     sql """ insert into  ${rowsets_table_name} values (4,0,"abcd");  """
     sql """ select * from ${rowsets_table_name};  """
-    order_qt_rowsets4 """  select START_VERSION,END_VERSION from information_schema.rowsets where TABLET_ID=${tablet_id} and NEWEST_WRITE_TIMESTAMP>='${now}' group by START_VERSION,END_VERSION order by START_VERSION,END_VERSION; """ 
+    order_qt_rowsets4 """  select START_VERSION,END_VERSION from information_schema.rowsets where TABLET_ID=${tablet_id} and NEWEST_WRITE_TIMESTAMP>='${rowsetFilterStartTime}' group by START_VERSION,END_VERSION order by START_VERSION,END_VERSION; """
 }

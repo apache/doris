@@ -22,6 +22,12 @@
 
 #include <fmt/format.h>
 
+#if defined(USE_UNWIND) && USE_UNWIND && defined(__x86_64__)
+#include <libunwind.h>
+#else
+#include <execinfo.h>
+#endif
+
 #include <atomic>
 #include <filesystem>
 #include <limits>
@@ -39,12 +45,6 @@
 #include "common/symbol_index.h"
 #include "exec/common/hex.h"
 #include "util/string_util.h"
-
-#if defined(USE_UNWIND) && USE_UNWIND && defined(__x86_64__)
-#include <libunwind.h>
-#else
-#include <execinfo.h>
-#endif
 
 namespace {
 /// Currently this variable is set up once on server startup.
@@ -304,9 +304,7 @@ StackTrace::StackTrace(const ucontext_t& signal_context) {
 }
 
 void StackTrace::tryCapture() {
-    // When unw_backtrace is not available, fall back on the standard
-    // `backtrace` function from execinfo.h.
-#if defined(USE_UNWIND) && USE_UNWIND && defined(__x86_64__) // TODO
+#if defined(USE_UNWIND) && USE_UNWIND && defined(__x86_64__)
     size = unw_backtrace(frame_pointers.data(), capacity);
 #else
     size = backtrace(frame_pointers.data(), capacity);

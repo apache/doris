@@ -146,6 +146,44 @@ public class PropertyAnalyzerTest {
     }
 
     @Test
+    public void testAnalyzeFileCacheTtlSeconds() throws AnalysisException {
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put(PropertyAnalyzer.PROPERTIES_FILE_CACHE_TTL_SECONDS, "0");
+        Assert.assertEquals(0L, PropertyAnalyzer.analyzeTTL(properties));
+
+        properties.put(PropertyAnalyzer.PROPERTIES_FILE_CACHE_TTL_SECONDS,
+                String.valueOf(PropertyAnalyzer.MAX_FILE_CACHE_TTL_SECONDS));
+        Assert.assertEquals(PropertyAnalyzer.MAX_FILE_CACHE_TTL_SECONDS, PropertyAnalyzer.analyzeTTL(properties));
+
+        properties.put(PropertyAnalyzer.PROPERTIES_FILE_CACHE_TTL_SECONDS,
+                String.valueOf(PropertyAnalyzer.MAX_FILE_CACHE_TTL_SECONDS + 1L));
+        try {
+            PropertyAnalyzer.analyzeTTL(properties);
+            Assert.fail("Expected an AnalysisException to be thrown");
+        } catch (AnalysisException e) {
+            Assert.assertTrue(e.getMessage().contains("please use "
+                    + PropertyAnalyzer.MAX_FILE_CACHE_TTL_SECONDS));
+        }
+
+        properties.put(PropertyAnalyzer.PROPERTIES_FILE_CACHE_TTL_SECONDS, String.valueOf(Long.MAX_VALUE));
+        try {
+            PropertyAnalyzer.analyzeTTL(properties);
+            Assert.fail("Expected an AnalysisException to be thrown");
+        } catch (AnalysisException e) {
+            Assert.assertTrue(e.getMessage().contains("Larger values may overflow in BE"));
+            Assert.assertTrue(e.getMessage().contains("please use"));
+        }
+
+        properties.put(PropertyAnalyzer.PROPERTIES_FILE_CACHE_TTL_SECONDS, "invalid");
+        try {
+            PropertyAnalyzer.analyzeTTL(properties);
+            Assert.fail("Expected an AnalysisException to be thrown");
+        } catch (AnalysisException e) {
+            Assert.assertTrue(e.getMessage().contains("formats error or is out of range"));
+        }
+    }
+
+    @Test
     public void testStorageMedium() throws AnalysisException {
         long tomorrowTs = System.currentTimeMillis() / 1000 + 86400;
         String tomorrowTimeStr = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss").withZone(ZoneId.systemDefault())

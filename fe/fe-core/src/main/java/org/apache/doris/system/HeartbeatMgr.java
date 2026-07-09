@@ -26,6 +26,7 @@ import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.util.DebugPointUtil;
+import org.apache.doris.common.util.HttpURLUtil;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.persist.HbPackage;
 import org.apache.doris.resource.Tag;
@@ -96,7 +97,9 @@ public class HeartbeatMgr extends MasterDaemon {
         TMasterInfo tMasterInfo = new TMasterInfo(
                 new TNetworkAddress(FrontendOptions.getLocalHostAddress(), Config.rpc_port), clusterId, epoch);
         tMasterInfo.setToken(token);
-        tMasterInfo.setHttpPort(Config.http_port);
+        // small_file_mgr at BE downloads from FE using this port,
+        // by trying http then fallback to https(for http_port=0 cases).
+        tMasterInfo.setHttpPort(HttpURLUtil.getHttpPort());
         long flags = heartbeatFlags.getHeartbeatFlags();
         tMasterInfo.setHeartbeatFlags(flags);
         if (Config.isCloudMode()) {
@@ -306,6 +309,10 @@ public class HeartbeatMgr extends MasterDaemon {
                     copiedMasterInfo.setTabletReportInactiveDurationMs(reportInterval);
                     TCloudClusterInfo clusterInfo = new TCloudClusterInfo();
                     clusterInfo.setIsStandby(backend.isInStandbyCluster());
+                    String computeGroupId = backend.getCloudClusterId();
+                    if (computeGroupId != null && !computeGroupId.isEmpty()) {
+                        clusterInfo.setCloudComputeGroupId(computeGroupId);
+                    }
                     copiedMasterInfo.setCloudClusterInfo(clusterInfo);
                 }
                 THeartbeatResult result;

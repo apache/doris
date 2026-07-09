@@ -11,20 +11,65 @@
 6	1	f
 8	1	h
 
+-- !q3 --
+2	1	b
+6	1	f
+8	1	h
+10	2	j
+12	2	l
+
+-- !no_delete --
+1	1	a
+2	1	b
+3	1	c
+4	1	d
+5	1	e
+6	1	f
+7	1	g
+8	1	h
+
+-- !equality_only --
+1	a
+2	b
+
+-- !position_only_count --
+5632
+
+-- !position_and_dv_count --
+5120
+
+-- !equality_and_dv --
+2	1	b
+4	1	d
+6	1	f
+8	1	h
+12	2	l
+
+-- !split_cache_single_file_count --
+2048	4192256
+
 -- !q4 --
 2	1	b
 
 -- !q5 --
 2	1	b
 
+-- !q5_orc --
+2	1	b
+
 -- !q6 --
 
 -- !q7 --
+
+-- !q7_orc --
 
 -- !q8 --
 2	1	b
 
 -- !q9 --
+2	1	b
+
+-- !q9_orc --
 2	1	b
 
 -- !q10 --
@@ -33,17 +78,29 @@
 -- !q11 --
 3
 
+-- !q11_orc --
+5
+
+-- !no_delete_count --
+8
+
 -- !q12 --
 5
 
 -- !q13 --
 3
 
+-- !q13_orc --
+5
+
 -- !q14 --
 5
 
 -- !q15 --
 3
+
+-- !q15_orc --
+5
 
 -- !q16 --
 33334
@@ -62,4 +119,66 @@
 
 -- !q21 --
 33334
+
+-- !q22 --
+12	2	l
+10	2	j
+8	1	h
+
+-- !q23 --
+8	1	h
+6	1	f
+2	1	b
+
+-- !q24 --
+1	3	16
+2	2	22
+
+-- !q25 --
+1	3	16
+
+-- !q26 --
+1	3	16
+2	2	22
+
+-- !q27 --
+2	b
+6	f
+
+-- !q28 --
+2	b
+6	f
+
+-- !q29 --
+2	b
+6	f
+
+-- !q30 --
+100
+
+-- !q31 --
+100
+
+-- !delete_type_matrix --
+dv_equality	0	PARQUET	12	12
+dv_equality	1	PUFFIN	6	6
+dv_equality	2	PARQUET	1	1
+dv_only	0	PARQUET	10	10
+dv_only	1	PUFFIN	5	5
+dv_position	0	PARQUET	1	7680
+dv_position	1	PUFFIN	1	2560
+equality_only	0	PARQUET	2	2
+equality_only	2	PARQUET	2	2
+no_delete	0	PARQUET	8	8
+position_only	0	PARQUET	1	7680
+position_only	1	PARQUET	4	2048
+
+-- !position_delete_ignored_with_dv --
+
+-- !equality_delete_active_with_dv --
+2	1	b
+4	1	d
+6	1	f
+8	1	h
+12	2	l
 

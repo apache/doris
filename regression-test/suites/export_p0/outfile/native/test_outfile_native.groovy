@@ -63,18 +63,21 @@ suite("test_outfile_native", "p0") {
         DISTRIBUTED BY HASH(id) PROPERTIES("replication_num" = "1");
         """
 
-        // Insert 10 rows of test data (the last row is all NULL)
-        StringBuilder sb = new StringBuilder()
+        // Avoid a single huge VALUES statement: Cloud P0 can spend over 120s
+        // preparing the plan fragment when all 10k rows are inserted at once.
+        List<String> rows = []
         int i = 1
         for (; i < 10000; i ++) {
-            sb.append("""
-                (${i}, '2024-01-01', '2024-01-01 00:00:00', 's${i}', ${i}, ${i % 128}, true, ${i}.${i}),
+            rows.add("""
+                (${i}, '2024-01-01', '2024-01-01 00:00:00', 's${i}', ${i}, ${i % 128}, true, ${i}.${i})
             """)
         }
-        sb.append("""
+        rows.add("""
                 (${i}, '2024-01-01', '2024-01-01 00:00:00', NULL, NULL, NULL, NULL, NULL)
             """)
-        sql """ INSERT INTO ${tableName} VALUES ${sb.toString()} """
+        rows.collate(500).each { batch ->
+            sql """ INSERT INTO ${tableName} VALUES ${batch.join(",")} """
+        }
 
         // baseline: local table query result
         qt_select_default """ SELECT * FROM ${tableName} t ORDER BY id limit 10; """

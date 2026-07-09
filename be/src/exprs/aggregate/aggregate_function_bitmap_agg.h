@@ -92,9 +92,10 @@ public:
     void add_batch_single_place(size_t batch_size, AggregateDataPtr place, const IColumn** columns,
                                 Arena&) const override {
         if constexpr (arg_nullable) {
-            auto& nullable_column = assert_cast<const ColumnNullable&>(*columns[0]);
-            const auto& column =
-                    assert_cast<const ColVecType&>(nullable_column.get_nested_column());
+            auto& nullable_column =
+                    assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(*columns[0]);
+            const auto& column = assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(
+                    nullable_column.get_nested_column());
             std::vector<typename PrimitiveTypeTraits<T>::CppType> values;
             for (int i = 0; i < batch_size; ++i) {
                 if (!nullable_column.is_null_at(i)) {
@@ -103,7 +104,8 @@ public:
             }
             this->data(place).value.add_many(values.data(), values.size());
         } else {
-            const auto& column = assert_cast<const ColVecType&>(*columns[0]);
+            const auto& column =
+                    assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(*columns[0]);
             this->data(place).value.add_many(column.get_data().data(), column.size());
         }
     }
@@ -116,7 +118,7 @@ public:
     }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
-        auto& column = assert_cast<ColumnBitmap&>(to);
+        auto& column = assert_cast<ColumnBitmap&, TypeCheckOnRelease::DISABLE>(to);
         column.get_data().push_back(this->data(place).value);
     }
 

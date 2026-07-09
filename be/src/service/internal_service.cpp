@@ -66,6 +66,7 @@
 #include "exec/common/variant_util.h"
 #include "exec/exchange/vdata_stream_mgr.h"
 #include "exec/rowid_fetcher.h"
+#include "exec/runtime_filter/runtime_filter_mgr.h"
 #include "exec/sink/writer/varrow_flight_result_writer.h"
 #include "exec/sink/writer/vmysql_result_writer.h"
 #include "exprs/function/dictionary_factory.h"
@@ -97,6 +98,7 @@
 #include "runtime/exec_env.h"
 #include "runtime/fold_constant_executor.h"
 #include "runtime/fragment_mgr.h"
+#include "runtime/query_context.h"
 #include "runtime/result_block_buffer.h"
 #include "runtime/result_buffer_mgr.h"
 #include "runtime/runtime_profile.h"
@@ -147,13 +149,17 @@ using namespace ErrorCode;
 const uint32_t DOWNLOAD_FILE_MAX_RETRY = 3;
 
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(heavy_work_pool_queue_size, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(peer_fetch_work_pool_queue_size, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(light_work_pool_queue_size, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(heavy_work_active_threads, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(peer_fetch_work_active_threads, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(light_work_active_threads, MetricUnit::NOUNIT);
 
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(heavy_work_pool_max_queue_size, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(peer_fetch_work_pool_max_queue_size, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(light_work_pool_max_queue_size, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(heavy_work_max_threads, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(peer_fetch_work_max_threads, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(light_work_max_threads, MetricUnit::NOUNIT);
 
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(arrow_flight_work_pool_queue_size, MetricUnit::NOUNIT);
@@ -167,6 +173,17 @@ bthread_key_t btls_key;
 
 static void thread_context_deleter(void* d) {
     delete static_cast<ThreadContext*>(d);
+}
+
+static int32_t resolved_brpc_peer_fetch_pool_threads() {
+    return config::brpc_peer_fetch_pool_threads != -1 ? config::brpc_peer_fetch_pool_threads
+                                                      : std::max(64, CpuInfo::num_cores() * 2);
+}
+
+static int32_t resolved_brpc_peer_fetch_pool_max_queue_size() {
+    return config::brpc_peer_fetch_pool_max_queue_size != -1
+                   ? config::brpc_peer_fetch_pool_max_queue_size
+                   : std::max(4096, CpuInfo::num_cores() * 128);
 }
 
 template <typename T>
@@ -222,6 +239,9 @@ PInternalService::PInternalService(ExecEnv* exec_env)
                                    ? config::brpc_heavy_work_pool_max_queue_size
                                    : std::max(10240, CpuInfo::num_cores() * 320),
                            "brpc_heavy"),
+          // peer fetch threadpool isolates fetch_peer_data from heavy load traffic to avoid peer reads starving imports.
+          _peer_fetch_pool(resolved_brpc_peer_fetch_pool_threads(),
+                           resolved_brpc_peer_fetch_pool_max_queue_size(), "brpc_peer_fetch"),
 
           // light threadpool should be only used in query processing logic. All hanlers should be very light, not locked, not access disk.
           _light_work_pool(config::brpc_light_work_pool_threads != -1
@@ -240,19 +260,27 @@ PInternalService::PInternalService(ExecEnv* exec_env)
                                   "brpc_arrow_flight") {
     REGISTER_HOOK_METRIC(heavy_work_pool_queue_size,
                          [this]() { return _heavy_work_pool.get_queue_size(); });
+    REGISTER_HOOK_METRIC(peer_fetch_work_pool_queue_size,
+                         [this]() { return _peer_fetch_pool.get_queue_size(); });
     REGISTER_HOOK_METRIC(light_work_pool_queue_size,
                          [this]() { return _light_work_pool.get_queue_size(); });
     REGISTER_HOOK_METRIC(heavy_work_active_threads,
                          [this]() { return _heavy_work_pool.get_active_threads(); });
+    REGISTER_HOOK_METRIC(peer_fetch_work_active_threads,
+                         [this]() { return _peer_fetch_pool.get_active_threads(); });
     REGISTER_HOOK_METRIC(light_work_active_threads,
                          [this]() { return _light_work_pool.get_active_threads(); });
 
     REGISTER_HOOK_METRIC(heavy_work_pool_max_queue_size,
                          []() { return config::brpc_heavy_work_pool_max_queue_size; });
+    REGISTER_HOOK_METRIC(peer_fetch_work_pool_max_queue_size,
+                         []() { return resolved_brpc_peer_fetch_pool_max_queue_size(); });
     REGISTER_HOOK_METRIC(light_work_pool_max_queue_size,
                          []() { return config::brpc_light_work_pool_max_queue_size; });
     REGISTER_HOOK_METRIC(heavy_work_max_threads,
                          []() { return config::brpc_heavy_work_pool_threads; });
+    REGISTER_HOOK_METRIC(peer_fetch_work_max_threads,
+                         []() { return resolved_brpc_peer_fetch_pool_threads(); });
     REGISTER_HOOK_METRIC(light_work_max_threads,
                          []() { return config::brpc_light_work_pool_threads; });
 
@@ -278,13 +306,17 @@ PInternalServiceImpl::~PInternalServiceImpl() = default;
 
 PInternalService::~PInternalService() {
     DEREGISTER_HOOK_METRIC(heavy_work_pool_queue_size);
+    DEREGISTER_HOOK_METRIC(peer_fetch_work_pool_queue_size);
     DEREGISTER_HOOK_METRIC(light_work_pool_queue_size);
     DEREGISTER_HOOK_METRIC(heavy_work_active_threads);
+    DEREGISTER_HOOK_METRIC(peer_fetch_work_active_threads);
     DEREGISTER_HOOK_METRIC(light_work_active_threads);
 
     DEREGISTER_HOOK_METRIC(heavy_work_pool_max_queue_size);
+    DEREGISTER_HOOK_METRIC(peer_fetch_work_pool_max_queue_size);
     DEREGISTER_HOOK_METRIC(light_work_pool_max_queue_size);
     DEREGISTER_HOOK_METRIC(heavy_work_max_threads);
+    DEREGISTER_HOOK_METRIC(peer_fetch_work_max_threads);
     DEREGISTER_HOOK_METRIC(light_work_max_threads);
 
     DEREGISTER_HOOK_METRIC(arrow_flight_work_pool_queue_size);
@@ -1570,8 +1602,11 @@ void PInternalService::apply_filterv2(::google::protobuf::RpcController* control
     bool ret = _light_work_pool.try_offer([this, controller, request, response, done]() {
         signal::SignalTaskIdKeeper keeper(request->query_id());
         brpc::ClosureGuard closure_guard(done);
-        auto attachment = static_cast<brpc::Controller*>(controller)->request_attachment();
-        butil::IOBufAsZeroCopyInputStream zero_copy_input_stream(attachment);
+        const butil::IOBuf& request_attachment =
+                static_cast<brpc::Controller*>(controller)->request_attachment();
+        butil::IOBuf apply_attachment = request_attachment;
+        butil::IOBuf forward_attachment = request_attachment;
+        butil::IOBufAsZeroCopyInputStream zero_copy_input_stream(apply_attachment);
         VLOG_NOTICE << "rpc apply_filterv2 recv";
         Status st;
         try {
@@ -1581,6 +1616,20 @@ void PInternalService::apply_filterv2(::google::protobuf::RpcController* control
         }
         if (!st.ok()) {
             LOG(WARNING) << "apply filter meet error: " << st.to_string();
+        }
+        std::weak_ptr<QueryContext> forward_ctx;
+        if (auto query_ctx = _exec_env->fragment_mgr()->get_query_ctx(
+                    UniqueId(request->query_id()).to_thrift())) {
+            if (!query_ctx->ignore_runtime_filter_error()) {
+                forward_ctx = query_ctx;
+            }
+        }
+        Status forward_st = forward_runtime_filter(*request, forward_attachment, forward_ctx);
+        if (!forward_st.ok()) {
+            LOG(WARNING) << "forward runtime filter meet error: " << forward_st.to_string();
+            if (st.ok()) {
+                st = std::move(forward_st);
+            }
         }
         st.to_protobuf(response->mutable_status());
     });

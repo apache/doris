@@ -1209,7 +1209,8 @@ bool Tablet::suitable_for_compaction(
         CompactionType compaction_type,
         std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy) {
 #ifndef BE_TEST
-    if (compaction_type == CompactionType::CUMULATIVE_COMPACTION &&
+    if ((compaction_type == CompactionType::CUMULATIVE_COMPACTION ||
+         compaction_type == CompactionType::BINLOG_COMPACTION) &&
         cumulative_compaction_policy != nullptr) {
         std::lock_guard wrlock(_meta_lock);
         if (_cumulative_compaction_policy == nullptr ||

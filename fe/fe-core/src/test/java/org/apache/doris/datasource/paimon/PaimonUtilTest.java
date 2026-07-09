@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.paimon;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.thrift.TPrimitiveType;
 import org.apache.doris.thrift.schema.external.TFieldPtr;
@@ -30,6 +31,7 @@ import org.apache.paimon.table.Table;
 import org.apache.paimon.types.CharType;
 import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.DataTypes;
+import org.apache.paimon.types.RowType;
 import org.apache.paimon.types.VarCharType;
 import org.junit.Assert;
 import org.junit.Test;
@@ -84,7 +86,20 @@ public class PaimonUtilTest {
     }
 
     @Test
-    public void testGetPartitionInfoMapUsesLowerCaseKeys() {
+    public void testParseSchemaPreservesNonLowercaseColumnNames() {
+        RowType rowType = DataTypes.ROW(
+                DataTypes.FIELD(0, "mIxEd_COL", DataTypes.INT()),
+                DataTypes.FIELD(1, "PART", DataTypes.STRING()));
+
+        List<Column> columns = PaimonUtil.parseSchema(rowType, Collections.singletonList("PART"), false, false);
+
+        Assert.assertEquals("mIxEd_COL", columns.get(0).getName());
+        Assert.assertEquals("PART", columns.get(1).getName());
+        Assert.assertTrue(columns.get(1).isKey());
+    }
+
+    @Test
+    public void testGetPartitionInfoMapPreservesNonLowercaseKeys() {
         DataField mixedCasePartition = DataTypes.FIELD(0, "Dt", DataTypes.STRING());
         Table table = Mockito.mock(Table.class);
         Mockito.when(table.name()).thenReturn("mock_table");
@@ -95,8 +110,8 @@ public class PaimonUtilTest {
 
         Map<String, String> partitionInfoMap = PaimonUtil.getPartitionInfoMap(table, partitionValues, "UTC");
 
-        Assert.assertFalse(partitionInfoMap.containsKey("Dt"));
-        Assert.assertEquals("2026-05-26", partitionInfoMap.get("dt"));
+        Assert.assertFalse(partitionInfoMap.containsKey("dt"));
+        Assert.assertEquals("2026-05-26", partitionInfoMap.get("Dt"));
     }
 
     @Test

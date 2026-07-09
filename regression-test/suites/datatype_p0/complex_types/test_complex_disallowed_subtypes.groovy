@@ -64,6 +64,31 @@ suite("test_complex_disallowed_subtypes") {
         exception "unsupported sub-type"
     }
 
+    // ---- DORIS-25583: MAP key must not be a complex type (MAP/ARRAY/STRUCT) ----
+
+    sql "DROP TABLE IF EXISTS t_complex_map_key_1"
+    sql "DROP TABLE IF EXISTS t_complex_map_key_2"
+    sql "DROP TABLE IF EXISTS t_complex_map_key_3"
+    sql "DROP TABLE IF EXISTS t_complex_map_key_valid"
+
+    test {
+        // MAP<ARRAY<INT>, INT>
+        sql "CREATE TABLE t_complex_map_key_1 (k INT, v MAP<ARRAY<INT>,INT>) DUPLICATE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES('replication_num'='1')"
+        exception "MAP key type must be a primitive type"
+    }
+
+    test {
+        // MAP<MAP<STRING,INT>, INT>
+        sql "CREATE TABLE t_complex_map_key_2 (k INT, v MAP<MAP<STRING,INT>,INT>) DUPLICATE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES('replication_num'='1')"
+        exception "MAP key type must be a primitive type"
+    }
+
+    test {
+        // MAP<STRUCT<a:INT>, INT>
+        sql "CREATE TABLE t_complex_map_key_3 (k INT, v MAP<STRUCT<a:INT>,INT>) DUPLICATE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES('replication_num'='1')"
+        exception "MAP key type must be a primitive type"
+    }
+
     // ---- valid deep nesting must still be accepted ----
 
     sql """
@@ -73,5 +98,13 @@ suite("test_complex_disallowed_subtypes") {
         PROPERTIES('replication_num'='1')
     """
 
+    sql """
+        CREATE TABLE t_complex_map_key_valid (k INT, v MAP<STRING, ARRAY<INT>>)
+        DUPLICATE KEY(k)
+        DISTRIBUTED BY HASH(k) BUCKETS 1
+        PROPERTIES('replication_num'='1')
+    """
+
     sql "DROP TABLE IF EXISTS t_complex_valid"
+    sql "DROP TABLE IF EXISTS t_complex_map_key_valid"
 }

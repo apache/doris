@@ -689,6 +689,30 @@ public class CreateTableCommandTest extends TestWithFeService {
     }
 
     @Test
+    public void testCreateTableWithComplexMapKey() {
+        // MAP<ARRAY<INT>, INT> should be rejected - array key
+        checkThrow(AnalysisException.class, "MAP key type must be a primitive type",
+                () -> createTable("create table test.test_map_array_key(k1 INT, k2 Map<Array<int>, int>) "
+                        + "duplicate key (k1) distributed by hash(k1) buckets 1 "
+                        + "properties('replication_num' = '1');"));
+        // MAP<MAP<INT, INT>, INT> should be rejected - map key
+        checkThrow(AnalysisException.class, "MAP key type must be a primitive type",
+                () -> createTable("create table test.test_map_map_key(k1 INT, k2 Map<Map<int,int>, int>) "
+                        + "duplicate key (k1) distributed by hash(k1) buckets 1 "
+                        + "properties('replication_num' = '1');"));
+        // MAP<STRUCT<f1:INT>, INT> should be rejected - struct key
+        checkThrow(AnalysisException.class, "MAP key type must be a primitive type",
+                () -> createTable("create table test.test_map_struct_key(k1 INT, k2 Map<Struct<f1:int>, int>) "
+                        + "duplicate key (k1) distributed by hash(k1) buckets 1 "
+                        + "properties('replication_num' = '1');"));
+        // MAP<STRING, ARRAY<INT>> should still be accepted - complex value type is OK
+        Assertions.assertDoesNotThrow(
+                () -> createTable("create table test.test_map_complex_value(k1 INT, k2 Map<String, Array<int>>) "
+                        + "duplicate key (k1) distributed by hash(k1) buckets 1 "
+                        + "properties('replication_num' = '1');"));
+    }
+
+    @Test
     public void testCreateTableWithStructType() {
         Assertions.assertDoesNotThrow(
                 () -> createTable("create table test.test_struct(k1 INT, k2 Struct<f1:int, f2:VARCHAR(20)>) duplicate key (k1) "

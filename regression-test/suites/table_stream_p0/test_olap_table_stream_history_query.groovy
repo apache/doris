@@ -76,63 +76,72 @@ suite("test_olap_table_stream_history_query") {
             'show_initial_rows' = 'true'
         );
     """
-    qt_sql "select __DORIS_STREAM_SEQUENCE_COL__ from s1"
-    qt_sql "select * from s1 where __DORIS_STREAM_SEQUENCE_COL__='-1'"
-    qt_sql "select * from s1 where __DORIS_STREAM_CHANGE_TYPE_COL__='APPEND'"
-    qt_sql "select * from s1 where __DORIS_STREAM_CHANGE_TYPE_COL__='APPEND' order by __DORIS_STREAM_SEQUENCE_COL__"
-    qt_sql "select * from s1 where __DORIS_STREAM_SEQUENCE_COL__='-1' order by __DORIS_STREAM_CHANGE_TYPE_COL__"
-    qt_sql "select count(*) from s1 group by __DORIS_STREAM_SEQUENCE_COL__"
-    qt_sql "select count(*) from s1 group by __DORIS_STREAM_CHANGE_TYPE_COL__"
-    qt_sql "select count(*) from s1 group by __DORIS_STREAM_SEQUENCE_COL__ having __DORIS_STREAM_SEQUENCE_COL__='-1'"
-    qt_sql "select count(*) from s1 group by __DORIS_STREAM_CHANGE_TYPE_COL__ having __DORIS_STREAM_CHANGE_TYPE_COL__='APPEND'"
-    qt_sql "select __DORIS_STREAM_SEQUENCE_COL__, count(*) from s1 group by __DORIS_STREAM_SEQUENCE_COL__"
-    qt_sql "select __DORIS_STREAM_CHANGE_TYPE_COL__, count(*) from s1 group by __DORIS_STREAM_CHANGE_TYPE_COL__"
-    qt_sql "select __DORIS_STREAM_SEQUENCE_COL__, count(*) from s1 group by 1"
-    qt_sql "select __DORIS_STREAM_CHANGE_TYPE_COL__, count(*) from s1 group by 1"
+    // The stream sequence column of historical rows now carries the real commit tso of the
+    // base table partition instead of a fixed -1. Rows inserted in one transaction share the
+    // same tso, so fetch it at runtime and assert against the captured value rather than a
+    // hard-coded .out, while the change type column stays the constant "APPEND".
+    def fetchHistorySeq = { streamName ->
+        def seqRows = sql "select distinct __DORIS_STREAM_SEQUENCE_COL__ from ${streamName}"
+        assertEquals(1, seqRows.size())
+        long seq = seqRows[0][0] as long
+        assertTrue(seq > 0, "history stream sequence should be a positive tso but got ${seq}")
+        return seq
+    }
 
-    qt_sql "select __DORIS_STREAM_SEQUENCE_COL__ from s2"
-    qt_sql "select * from s2 where __DORIS_STREAM_SEQUENCE_COL__='-1'"
-    qt_sql "select * from s2 where __DORIS_STREAM_CHANGE_TYPE_COL__='APPEND'"
-    qt_sql "select * from s2 where __DORIS_STREAM_CHANGE_TYPE_COL__='APPEND' order by __DORIS_STREAM_SEQUENCE_COL__"
-    qt_sql "select * from s2 where __DORIS_STREAM_SEQUENCE_COL__='-1' order by __DORIS_STREAM_CHANGE_TYPE_COL__"
-    qt_sql "select count(*) from s2 group by __DORIS_STREAM_SEQUENCE_COL__"
-    qt_sql "select count(*) from s2 group by __DORIS_STREAM_CHANGE_TYPE_COL__"
-    qt_sql "select count(*) from s2 group by __DORIS_STREAM_SEQUENCE_COL__ having __DORIS_STREAM_SEQUENCE_COL__='-1'"
-    qt_sql "select count(*) from s2 group by __DORIS_STREAM_CHANGE_TYPE_COL__ having __DORIS_STREAM_CHANGE_TYPE_COL__='APPEND'"
-    qt_sql "select __DORIS_STREAM_SEQUENCE_COL__, count(*) from s2 group by __DORIS_STREAM_SEQUENCE_COL__"
-    qt_sql "select __DORIS_STREAM_CHANGE_TYPE_COL__, count(*) from s2 group by __DORIS_STREAM_CHANGE_TYPE_COL__"
-    qt_sql "select __DORIS_STREAM_SEQUENCE_COL__, count(*) from s2 group by 1"
-    qt_sql "select __DORIS_STREAM_CHANGE_TYPE_COL__, count(*) from s2 group by 1"
+    def checkStreamHistory = { streamName ->
+        long seq = fetchHistorySeq(streamName)
+
+        // select the sequence column directly
+        assertEquals([[seq], [seq], [seq]],
+                sql("select __DORIS_STREAM_SEQUENCE_COL__ from ${streamName} order by sid"))
+
+        // filter by the real sequence value
+        assertEquals([[1, "s1"], [2, "s2"], [3, "s3"]],
+                sql("select sid, sname from ${streamName} where __DORIS_STREAM_SEQUENCE_COL__=${seq} order by sid"))
+        assertEquals([[1, "s1"], [2, "s2"], [3, "s3"]],
+                sql("""select sid, sname from ${streamName} where __DORIS_STREAM_SEQUENCE_COL__=${seq}
+                        order by __DORIS_STREAM_CHANGE_TYPE_COL__, sid"""))
+
+        // change type column is still a constant, keep verifying it as before
+        assertEquals([[1, "s1"], [2, "s2"], [3, "s3"]],
+                sql("select sid, sname from ${streamName} where __DORIS_STREAM_CHANGE_TYPE_COL__='APPEND' order by sid"))
+        assertEquals([[1, "s1"], [2, "s2"], [3, "s3"]],
+                sql("""select sid, sname from ${streamName} where __DORIS_STREAM_CHANGE_TYPE_COL__='APPEND'
+                        order by __DORIS_STREAM_SEQUENCE_COL__, sid"""))
+
+        // group by sequence / change type
+        assertEquals([[3L]], sql("select count(*) from ${streamName} group by __DORIS_STREAM_SEQUENCE_COL__"))
+        assertEquals([[3L]], sql("select count(*) from ${streamName} group by __DORIS_STREAM_CHANGE_TYPE_COL__"))
+        assertEquals([[3L]], sql("""select count(*) from ${streamName} group by __DORIS_STREAM_SEQUENCE_COL__
+                        having __DORIS_STREAM_SEQUENCE_COL__=${seq}"""))
+        assertEquals([[3L]], sql("""select count(*) from ${streamName} group by __DORIS_STREAM_CHANGE_TYPE_COL__
+                        having __DORIS_STREAM_CHANGE_TYPE_COL__='APPEND'"""))
+        assertEquals([[seq, 3L]],
+                sql("select __DORIS_STREAM_SEQUENCE_COL__, count(*) from ${streamName} group by __DORIS_STREAM_SEQUENCE_COL__"))
+        assertEquals([["APPEND", 3L]],
+                sql("select __DORIS_STREAM_CHANGE_TYPE_COL__, count(*) from ${streamName} group by __DORIS_STREAM_CHANGE_TYPE_COL__"))
+        assertEquals([[seq, 3L]],
+                sql("select __DORIS_STREAM_SEQUENCE_COL__, count(*) from ${streamName} group by 1"))
+        assertEquals([["APPEND", 3L]],
+                sql("select __DORIS_STREAM_CHANGE_TYPE_COL__, count(*) from ${streamName} group by 1"))
+    }
+
+    checkStreamHistory("s1")
+    checkStreamHistory("s2")
 
     sql "SET show_hidden_columns=true;"
 
-      qt_sql "select __DORIS_STREAM_SEQUENCE_COL__ from s1"
-    qt_sql "select * from s1 where __DORIS_STREAM_SEQUENCE_COL__='-1'"
-    qt_sql "select * from s1 where __DORIS_STREAM_CHANGE_TYPE_COL__='APPEND'"
-    qt_sql "select * from s1 where __DORIS_STREAM_CHANGE_TYPE_COL__='APPEND' order by __DORIS_STREAM_SEQUENCE_COL__"
-    qt_sql "select * from s1 where __DORIS_STREAM_SEQUENCE_COL__='-1' order by __DORIS_STREAM_CHANGE_TYPE_COL__"
-    qt_sql "select count(*) from s1 group by __DORIS_STREAM_SEQUENCE_COL__"
-    qt_sql "select count(*) from s1 group by __DORIS_STREAM_CHANGE_TYPE_COL__"
-    qt_sql "select count(*) from s1 group by __DORIS_STREAM_SEQUENCE_COL__ having __DORIS_STREAM_SEQUENCE_COL__='-1'"
-    qt_sql "select count(*) from s1 group by __DORIS_STREAM_CHANGE_TYPE_COL__ having __DORIS_STREAM_CHANGE_TYPE_COL__='APPEND'"
-    qt_sql "select __DORIS_STREAM_SEQUENCE_COL__, count(*) from s1 group by __DORIS_STREAM_SEQUENCE_COL__"
-    qt_sql "select __DORIS_STREAM_CHANGE_TYPE_COL__, count(*) from s1 group by __DORIS_STREAM_CHANGE_TYPE_COL__"
-    qt_sql "select __DORIS_STREAM_SEQUENCE_COL__, count(*) from s1 group by 1"
-    qt_sql "select __DORIS_STREAM_CHANGE_TYPE_COL__, count(*) from s1 group by 1"
+    // verify select * exposes the hidden stream columns with the same real sequence value
+    def checkStreamHistoryWithHiddenColumns = { streamName ->
+        long seq = fetchHistorySeq(streamName)
+        assertEquals([[1, "s1", seq, "APPEND"], [2, "s2", seq, "APPEND"], [3, "s3", seq, "APPEND"]],
+                sql("select * from ${streamName} order by sid"))
+    }
 
-    qt_sql "select __DORIS_STREAM_SEQUENCE_COL__ from s2"
-    qt_sql "select * from s2 where __DORIS_STREAM_SEQUENCE_COL__='-1'"
-    qt_sql "select * from s2 where __DORIS_STREAM_CHANGE_TYPE_COL__='APPEND'"
-    qt_sql "select * from s2 where __DORIS_STREAM_CHANGE_TYPE_COL__='APPEND' order by __DORIS_STREAM_SEQUENCE_COL__"
-    qt_sql "select * from s2 where __DORIS_STREAM_SEQUENCE_COL__='-1' order by __DORIS_STREAM_CHANGE_TYPE_COL__"
-    qt_sql "select count(*) from s2 group by __DORIS_STREAM_SEQUENCE_COL__"
-    qt_sql "select count(*) from s2 group by __DORIS_STREAM_CHANGE_TYPE_COL__"
-    qt_sql "select count(*) from s2 group by __DORIS_STREAM_SEQUENCE_COL__ having __DORIS_STREAM_SEQUENCE_COL__='-1'"
-    qt_sql "select count(*) from s2 group by __DORIS_STREAM_CHANGE_TYPE_COL__ having __DORIS_STREAM_CHANGE_TYPE_COL__='APPEND'"
-    qt_sql "select __DORIS_STREAM_SEQUENCE_COL__, count(*) from s2 group by __DORIS_STREAM_SEQUENCE_COL__"
-    qt_sql "select __DORIS_STREAM_CHANGE_TYPE_COL__, count(*) from s2 group by __DORIS_STREAM_CHANGE_TYPE_COL__"
-    qt_sql "select __DORIS_STREAM_SEQUENCE_COL__, count(*) from s2 group by 1"
-    qt_sql "select __DORIS_STREAM_CHANGE_TYPE_COL__, count(*) from s2 group by 1"
+    checkStreamHistory("s1")
+    checkStreamHistory("s2")
+    checkStreamHistoryWithHiddenColumns("s1")
+    checkStreamHistoryWithHiddenColumns("s2")
 
     sql "DROP DATABASE IF EXISTS test_olap_table_stream_history_query_db"
 }

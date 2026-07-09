@@ -546,6 +546,9 @@ message TabletSchemaPB {
     // cid of the binlog lsn column (__DORIS_BINLOG_LSN__).
     optional int32 binlog_lsn_col_idx = 38 [default = -1];
 
+    // cid of the time-travel commit tso column (__DORIS_COMMIT_TSO_COL__).
+    optional int32 commit_tso_col_idx = 39 [default = -1];
+
     optional SplitSchemaPB __split_schema = 1000;  // A special field, DO NOT change it.
 }
 
@@ -598,6 +601,9 @@ message TabletSchemaCloudPB {
 
     // cid of the binlog lsn column (__DORIS_BINLOG_LSN__).
     optional int32 binlog_lsn_col_idx = 39 [default = -1];
+
+    // cid of the time-travel commit tso column (__DORIS_COMMIT_TSO_COL__).
+    optional int32 commit_tso_col_idx = 40 [default = -1];
 
     optional bool is_dynamic_schema = 100 [default=false];
 
