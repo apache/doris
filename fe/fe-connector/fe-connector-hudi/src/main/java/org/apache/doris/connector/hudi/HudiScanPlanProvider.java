@@ -368,15 +368,40 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
     }
 
     /**
+     * Returns the LATEST completed instant as its raw {@code requestedTime} String (e.g.
+     * {@code yyyyMMddHHmmssSSS}, compared lexicographically), or {@code Optional.empty()} when the timeline has
+     * no completed instants. Reads the same {@code getCommitsAndCompactionTimeline().filterCompletedInstants()}
+     * as {@link #latestCompletedInstant} / {@link #planScan}.
+     *
+     * <p>This ONE shared helper is byte-parity with legacy COW/MOR incremental {@code latestTime} for BOTH table
+     * types, because {@code metaClient.getCommitsAndCompactionTimeline()} resolves per table type to exactly the
+     * timeline legacy uses per type (verified against hudi-common 1.0.2 bytecode):
+     * <ul>
+     *   <li>COW &rarr; {@code getActiveTimeline().getCommitAndReplaceTimeline()} = {@code {commit, replacecommit,
+     *       clustering}} &mdash; identical to what legacy COW's {@code metaClient.getCommitTimeline()} returns
+     *       (that metaClient method ALSO delegates to {@code getCommitAndReplaceTimeline()}, so it is NOT
+     *       commit-only; it includes the replacecommit/clustering instants COW produces via INSERT OVERWRITE /
+     *       clustering).</li>
+     *   <li>MOR &rarr; {@code getActiveTimeline().getWriteTimeline()} &mdash; identical to legacy MOR's
+     *       {@code metaClient.getCommitsAndCompactionTimeline()}.</li>
+     * </ul>
+     * Both legacy and this helper take {@code lastInstant().requestedTime()} under the default hollow-commit
+     * policy; the {@code USE_TRANSITION_TIME} completion-time variant is a documented deferral (see the
+     * incremental-read step design).
+     */
+    static Optional<String> latestCompletedInstantTime(HoodieTableMetaClient metaClient) {
+        return metaClient.getCommitsAndCompactionTimeline()
+                .filterCompletedInstants().lastInstant().toJavaOptional()
+                .map(HoodieInstant::requestedTime);
+    }
+
+    /**
      * Returns the LATEST completed instant as a numeric long ({@code yyyyMMddHHmmssSSS}), or {@code 0L} when
      * the timeline has none. Byte-faithful port of legacy {@code HudiUtils.getLastTimeStamp} and the same
      * timeline {@link #planScan} reads at query time — so the MVCC pin and the scan take the identical instant.
      */
     static long latestCompletedInstant(HoodieTableMetaClient metaClient) {
-        Optional<String> requestedTime = metaClient.getCommitsAndCompactionTimeline()
-                .filterCompletedInstants().lastInstant().toJavaOptional()
-                .map(HoodieInstant::requestedTime);
-        return requestedTimeToInstant(requestedTime);
+        return requestedTimeToInstant(latestCompletedInstantTime(metaClient));
     }
 
     /**

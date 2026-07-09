@@ -88,6 +88,25 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
     // BE-facing key.
     private static final String HUDI_QUERY_INSTANT_PROPERTY = "hudi.query-instant";
 
+    // Internal MVCC-snapshot properties carrying the resolved @incr (begin, end] window from resolveTimeTravel to
+    // applySnapshot (same FE-internal transport as HUDI_QUERY_INSTANT_PROPERTY). NEVER serialized to BE: fe-core's
+    // INCREMENTAL loadSnapshot branch lists the LATEST partitions + LATEST schema itself and only carries these on
+    // the pin; applySnapshot consumes them to stamp HudiTableHandle.begin/endInstant. Not BE-facing keys.
+    private static final String HUDI_INCREMENTAL_BEGIN_PROPERTY = "hudi.incremental-begin";
+    private static final String HUDI_INCREMENTAL_END_PROPERTY = "hudi.incremental-end";
+
+    // The @incr window param keys fe-core threads verbatim via getIncrementalParams() (byte-faithful to legacy
+    // LogicalHudiScan.withScanParams, which reads "beginTime"/"endTime" from the scan params).
+    private static final String INCR_BEGIN_TIME_KEY = "beginTime";
+    private static final String INCR_END_TIME_KEY = "endTime";
+
+    // Window sentinels (byte-faithful to legacy IncrementalRelation.EARLIEST_TIME / LATEST_TIME; "000" is the
+    // earliest-resolved / empty-timeline bound). fe-core's legacy IncrementalRelation constants live in fe-core
+    // and must not be imported across the plugin boundary, so they are re-declared here.
+    private static final String INCR_EARLIEST_SENTINEL = "earliest";
+    private static final String INCR_LATEST_SENTINEL = "latest";
+    private static final String INCR_ZERO_INSTANT = "000";
+
     private final HmsClient hmsClient;
     private final Map<String, String> properties;
     // Runs the metaClient-touching partition/snapshot work under the plugin UGI doAs + TCCL pin (see R4).
@@ -284,8 +303,12 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
      *       rejects both with the byte-for-byte legacy message ({@code HudiScanNode.java:209}). It is THROWN (not
      *       {@code Optional.empty()}) so the exact wording reaches the user; an empty return would surface
      *       fe-core's wrong-domain "can't find snapshot" text.</li>
-     *   <li>Other kinds ({@code TAG}/{@code BRANCH} &mdash; hudi has none; {@code INCREMENTAL} &mdash; a later
-     *       {@code @incr} step) &rarr; {@code Optional.empty()} = the SPI default (no worse than not overriding).</li>
+     *   <li>{@code INCREMENTAL} ({@code @incr(...)}) &mdash; see {@link #resolveIncremental}: resolves the
+     *       {@code (begin, end]} window and returns a NON-EMPTY property-only pin. NEVER empty for a valid
+     *       window (the generic {@code loadSnapshot} fail-loud has no INCREMENTAL arm, so empty would surface a
+     *       wrong-domain "can't resolve time travel" message).</li>
+     *   <li>Other kinds ({@code TAG}/{@code BRANCH} &mdash; hudi has none) &rarr; {@code Optional.empty()} = the
+     *       SPI default (no worse than not overriding).</li>
      * </ul>
      */
     @Override
@@ -300,20 +323,85 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
             case VERSION_REF:
                 throw new DorisConnectorException(
                         "Hudi does not support `FOR VERSION AS OF`, please use `FOR TIME AS OF`");
+            case INCREMENTAL:
+                return Optional.of(resolveIncremental((HudiTableHandle) handle, spec.getIncrementalParams()));
             default:
                 return Optional.empty();
         }
     }
 
     /**
-     * Threads a pinned {@code FOR TIME AS OF} instant onto the handle BEFORE planScan. Reads it from the
-     * snapshot's {@link #HUDI_QUERY_INSTANT_PROPERTY} (set by {@link #resolveTimeTravel}) and stamps it via
-     * {@code toBuilder().queryInstant(...)}, which PRESERVES any {@code prunedPartitionPaths} applyFilter set
-     * earlier (applyFilter runs before applySnapshot at scan time, so a rebuild-from-scratch would drop the
-     * pruning). For the query-begin latest pin ({@code beginQuerySnapshot} carries only a {@code snapshotId}, NO
+     * Resolves an {@code @incr(...)} incremental read into a NON-EMPTY property-only pin carrying the resolved
+     * {@code (begin, end]} completed-timeline window. Consolidates legacy's per-relation window resolution
+     * (spread byte-identically across {@code COWIncrementalRelation}/{@code MORIncrementalRelation} constructors)
+     * into ONE connector locus, so the resolved bounds are on the handle for both file selection (a later step)
+     * and the synthetic {@code _hoodie_commit_time} filter. Runs the single metaClient touch (latest completed
+     * instant) under {@link HudiMetaClientExecutor#execute} (TCCL pin + plugin UGI {@code doAs}).
+     *
+     * <ul>
+     *   <li>Empty completed timeline &rarr; the {@code (000, 000]} window &mdash; legacy {@code withScanParams}
+     *       short-circuits to {@code EmptyIncrementalRelation} <em>before</em> the begin-required check, so a
+     *       missing {@code beginTime} is NOT an error here; the window selects nothing.</li>
+     *   <li>{@code beginTime} is required (legacy fail-loud, byte-for-byte message); {@code "earliest"} &rarr;
+     *       {@code "000"}.</li>
+     *   <li>{@code endTime} defaults to the latest completed instant; {@code "latest"} &rarr; the latest completed
+     *       instant. The sentinel test is on the RESOLVED end value (legacy COW form,
+     *       {@code COWIncrementalRelation:98}); the single locus inherently avoids the dead-code MOR bug
+     *       ({@code MORIncrementalRelation:92}, which tested {@code latestTime} and so never fired).</li>
+     * </ul>
+     *
+     * <p>The pin is property-only: {@code snapshotId}/{@code schemaId} are inert because fe-core's INCREMENTAL
+     * {@code loadSnapshot} branch lists the LATEST partitions + LATEST schema itself and reads only these window
+     * properties. COW/MOR/RO-as-RT file selection is deferred to {@code planScan}; {@link #applySnapshot} stamps
+     * the window onto the handle.</p>
+     */
+    private ConnectorMvccSnapshot resolveIncremental(HudiTableHandle handle, Map<String, String> params) {
+        Optional<String> latestTime = metaClientExecutor.execute(() ->
+                HudiScanPlanProvider.latestCompletedInstantTime(
+                        HudiScanPlanProvider.buildMetaClient(buildHadoopConf(), handle.getBasePath())));
+        String begin;
+        String end;
+        if (!latestTime.isPresent()) {
+            // Empty completed timeline: legacy short-circuits to EmptyIncrementalRelation (begin = end = "000")
+            // WITHOUT the begin-required check.
+            begin = INCR_ZERO_INSTANT;
+            end = INCR_ZERO_INSTANT;
+        } else {
+            begin = params.get(INCR_BEGIN_TIME_KEY);
+            if (begin == null) {
+                throw new DorisConnectorException("Specify the begin instant time to pull from using "
+                        + "option hoodie.datasource.read.begin.instanttime");
+            }
+            if (INCR_EARLIEST_SENTINEL.equals(begin)) {
+                begin = INCR_ZERO_INSTANT;
+            }
+            end = params.getOrDefault(INCR_END_TIME_KEY, latestTime.get());
+            if (INCR_LATEST_SENTINEL.equals(end)) {
+                end = latestTime.get();
+            }
+        }
+        return ConnectorMvccSnapshot.builder()
+                .property(HUDI_INCREMENTAL_BEGIN_PROPERTY, begin)
+                .property(HUDI_INCREMENTAL_END_PROPERTY, end)
+                .build();
+    }
+
+    /**
+     * Threads a resolved pin onto the handle BEFORE planScan, reading the FE-internal carrier properties set by
+     * {@link #resolveTimeTravel} and stamping via {@code toBuilder()}, which PRESERVES any
+     * {@code prunedPartitionPaths} applyFilter set earlier (applyFilter runs before applySnapshot at scan time,
+     * so a rebuild-from-scratch would drop the pruning). Two mutually exclusive carriers:
+     *
+     * <ul>
+     *   <li>{@link #HUDI_QUERY_INSTANT_PROPERTY} ({@code FOR TIME AS OF}) &rarr; stamp {@code queryInstant}.</li>
+     *   <li>{@link #HUDI_INCREMENTAL_BEGIN_PROPERTY}/{@link #HUDI_INCREMENTAL_END_PROPERTY} ({@code @incr})
+     *       &rarr; stamp {@code begin/endInstant}.</li>
+     * </ul>
+     *
+     * <p>For the query-begin latest pin ({@code beginQuerySnapshot} carries only a {@code snapshotId}, NO
      * property) &mdash; and for a null snapshot &mdash; the handle is returned UNCHANGED, so a plain read stays
      * byte-identical to today (planScan falls back to {@code timeline.lastInstant()}). Mirrors paimon's
-     * empty-properties / invalid-pin no-op.
+     * empty-properties / invalid-pin no-op.</p>
      */
     @Override
     public ConnectorTableHandle applySnapshot(ConnectorSession session,
@@ -321,11 +409,19 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
         if (snapshot == null) {
             return handle;
         }
-        String queryInstant = snapshot.getProperties().get(HUDI_QUERY_INSTANT_PROPERTY);
-        if (queryInstant == null) {
-            return handle;
+        Map<String, String> properties = snapshot.getProperties();
+        String queryInstant = properties.get(HUDI_QUERY_INSTANT_PROPERTY);
+        if (queryInstant != null) {
+            return ((HudiTableHandle) handle).toBuilder().queryInstant(queryInstant).build();
         }
-        return ((HudiTableHandle) handle).toBuilder().queryInstant(queryInstant).build();
+        String beginInstant = properties.get(HUDI_INCREMENTAL_BEGIN_PROPERTY);
+        if (beginInstant != null) {
+            return ((HudiTableHandle) handle).toBuilder()
+                    .beginInstant(beginInstant)
+                    .endInstant(properties.get(HUDI_INCREMENTAL_END_PROPERTY))
+                    .build();
+        }
+        return handle;
     }
 
     // ========== ConnectorTableOps (partitions) ==========
