@@ -15,6 +15,9 @@
 
 #include "format_v2/parquet/parquet_scan.h"
 
+#include <parquet/column_page.h>
+#include <parquet/encoding.h>
+
 #include <algorithm>
 #include <limits>
 #include <memory>
@@ -27,7 +30,10 @@
 #include "common/status.h"
 #include "core/assert_cast.h"
 #include "core/block/block.h"
+#include "core/column/column_nullable.h"
+#include "core/column/column_string.h"
 #include "core/column/column_vector.h"
+#include "core/string_ref.h"
 #include "exprs/vexpr_context.h"
 #include "format_v2/parquet/parquet_column_schema.h"
 #include "format_v2/parquet/parquet_file_context.h"
@@ -41,6 +47,143 @@ int64_t column_start_offset(const ::parquet::ColumnChunkMetaData& column_metadat
     return column_metadata.has_dictionary_page()
                    ? cast_set<int64_t>(column_metadata.dictionary_page_offset())
                    : cast_set<int64_t>(column_metadata.data_page_offset());
+}
+
+bool is_dictionary_data_encoding(::parquet::Encoding::type encoding) {
+    return encoding == ::parquet::Encoding::PLAIN_DICTIONARY ||
+           encoding == ::parquet::Encoding::RLE_DICTIONARY;
+}
+
+bool is_level_encoding(::parquet::Encoding::type encoding) {
+    return encoding == ::parquet::Encoding::RLE || encoding == ::parquet::Encoding::BIT_PACKED;
+}
+
+bool is_data_page_type(::parquet::PageType::type page_type) {
+    return page_type == ::parquet::PageType::DATA_PAGE ||
+           page_type == ::parquet::PageType::DATA_PAGE_V2;
+}
+
+bool is_fully_dictionary_encoded_chunk(const ::parquet::ColumnChunkMetaData& column_metadata) {
+    if (!column_metadata.has_dictionary_page()) {
+        return false;
+    }
+
+    const auto& encoding_stats = column_metadata.encoding_stats();
+    if (!encoding_stats.empty()) {
+        bool has_dictionary_data_page = false;
+        for (const auto& encoding_stat : encoding_stats) {
+            if (!is_data_page_type(encoding_stat.page_type) || encoding_stat.count <= 0) {
+                continue;
+            }
+            if (!is_dictionary_data_encoding(encoding_stat.encoding)) {
+                return false;
+            }
+            has_dictionary_data_page = true;
+        }
+        return has_dictionary_data_page;
+    }
+
+    bool has_dictionary_encoding = false;
+    for (const auto encoding : column_metadata.encodings()) {
+        if (is_dictionary_data_encoding(encoding)) {
+            has_dictionary_encoding = true;
+            continue;
+        }
+        if (!is_level_encoding(encoding)) {
+            return false;
+        }
+    }
+    return has_dictionary_encoding;
+}
+
+bool supports_row_level_dictionary_filter(const ParquetColumnSchema& column_schema,
+                                          const ::parquet::ColumnChunkMetaData& column_metadata) {
+    if (column_schema.kind != ParquetColumnSchemaKind::PRIMITIVE ||
+        column_schema.descriptor == nullptr || column_schema.type == nullptr ||
+        column_schema.max_repetition_level > 0) {
+        return false;
+    }
+    if (!column_schema.type_descriptor.is_string_like ||
+        column_metadata.type() != ::parquet::Type::BYTE_ARRAY) {
+        return false;
+    }
+    // Row-level dictionary filtering consumes dictionary ids from DATA_PAGE payloads. It is exact
+    // only when every data page is dictionary encoded. Mixed dictionary/plain chunks are left on
+    // the normal decoded-value path, matching the safety rule used by StarRocks and Doris v1.
+    return is_fully_dictionary_encoded_chunk(column_metadata);
+}
+
+struct OwnedDictionaryWords {
+    std::vector<std::string> values;
+    std::vector<StringRef> refs;
+
+    void build_refs() {
+        refs.clear();
+        refs.reserve(values.size());
+        for (const auto& value : values) {
+            refs.emplace_back(value.data(), value.size());
+        }
+    }
+};
+
+bool read_byte_array_dictionary_words(::parquet::ParquetFileReader* file_reader, int row_group_idx,
+                                      int leaf_column_id, const ParquetColumnSchema& column_schema,
+                                      OwnedDictionaryWords* dict_words) {
+    DORIS_CHECK(dict_words != nullptr);
+    dict_words->values.clear();
+    dict_words->refs.clear();
+    if (file_reader == nullptr || leaf_column_id < 0) {
+        return false;
+    }
+
+    auto row_group_reader = file_reader->RowGroup(row_group_idx);
+    if (row_group_reader == nullptr) {
+        return false;
+    }
+    auto page_reader = row_group_reader->GetColumnPageReader(leaf_column_id);
+    if (page_reader == nullptr) {
+        return false;
+    }
+
+    std::shared_ptr<::parquet::Page> page;
+    try {
+        page = page_reader->NextPage();
+    } catch (const ::parquet::ParquetException&) {
+        return false;
+    } catch (const std::exception&) {
+        return false;
+    }
+    if (page == nullptr || page->type() != ::parquet::PageType::DICTIONARY_PAGE) {
+        return false;
+    }
+    const auto* dictionary_page = static_cast<const ::parquet::DictionaryPage*>(page.get());
+    if (dictionary_page->encoding() != ::parquet::Encoding::PLAIN &&
+        dictionary_page->encoding() != ::parquet::Encoding::PLAIN_DICTIONARY) {
+        return false;
+    }
+    const int32_t dictionary_length = dictionary_page->num_values();
+    if (dictionary_length <= 0) {
+        return false;
+    }
+
+    const auto* dictionary_data = dictionary_page->data();
+    const int dictionary_size = dictionary_page->size();
+    auto decoder = ::parquet::MakeTypedDecoder<::parquet::ByteArrayType>(::parquet::Encoding::PLAIN,
+                                                                         column_schema.descriptor);
+    decoder->SetData(dictionary_length, dictionary_data, dictionary_size);
+    std::vector<::parquet::ByteArray> byte_array_values(static_cast<size_t>(dictionary_length));
+    if (decoder->Decode(byte_array_values.data(), dictionary_length) != dictionary_length) {
+        return false;
+    }
+
+    dict_words->values.reserve(static_cast<size_t>(dictionary_length));
+    for (int32_t dict_idx = 0; dict_idx < dictionary_length; ++dict_idx) {
+        dict_words->values.emplace_back(
+                reinterpret_cast<const char*>(byte_array_values[dict_idx].ptr),
+                byte_array_values[dict_idx].len);
+    }
+    dict_words->build_refs();
+    return true;
 }
 
 void collect_all_leaf_column_ids(const ParquetColumnSchema& column_schema,
@@ -534,6 +677,7 @@ void ParquetScanScheduler::reset_current_row_group() {
     _current_row_group.reset();
     _current_predicate_columns.clear();
     _current_non_predicate_columns.clear();
+    _current_dictionary_filters.clear();
     _current_row_group_rows = 0;
     _current_row_group_id = -1;
     _current_row_group_rows_read = 0;
@@ -582,6 +726,9 @@ Status ParquetScanScheduler::open_next_row_group(
     _current_range_rows_read = 0;
     _current_predicate_columns.clear();
     _current_non_predicate_columns.clear();
+    _current_dictionary_filters.clear();
+    RETURN_IF_ERROR(prepare_current_dictionary_filters(file_context, file_schema, request,
+                                                       row_group_idx, *row_group_metadata));
 
     ParquetColumnReaderFactory column_reader_factory(
             _current_row_group, file_context.schema->num_columns(), &row_group_plan.page_skip_plans,
@@ -607,7 +754,9 @@ Status ParquetScanScheduler::open_next_row_group(
         const auto& column_schema = file_schema[local_id];
         DORIS_CHECK(column_schema != nullptr);
         std::unique_ptr<ParquetColumnReader> column_reader;
-        RETURN_IF_ERROR(column_reader_factory.create(*column_schema, &col, &column_reader));
+        RETURN_IF_ERROR(
+                column_reader_factory.create(*column_schema, &col, &column_reader,
+                                             _current_dictionary_filters.contains(local_id)));
         _current_predicate_columns[local_id] = std::move(column_reader);
     }
     // Start warming filter-column chunks as soon as their row group is selected. Parquet v2 still
@@ -705,6 +854,75 @@ PredicateConjunctSchedule build_predicate_conjunct_schedule(
     return schedule;
 }
 
+bool can_evaluate_all_with_dictionary(const VExprContextSPtrs& conjuncts) {
+    if (conjuncts.empty()) {
+        return false;
+    }
+    return std::ranges::all_of(conjuncts, [](const auto& conjunct) {
+        return conjunct != nullptr && conjunct->root() != nullptr &&
+               conjunct->root()->can_evaluate_dictionary_filter();
+    });
+}
+
+size_t file_block_column_count(const format::FileScanRequest& request) {
+    size_t column_count = 0;
+    for (const auto& [_, block_position] : request.local_positions) {
+        column_count = std::max(column_count, static_cast<size_t>(block_position.value()) + 1);
+    }
+    return column_count;
+}
+
+Status build_dictionary_value_column(const ParquetColumnSchema& column_schema,
+                                     const OwnedDictionaryWords& dict_words,
+                                     ColumnWithTypeAndName* column) {
+    DORIS_CHECK(column != nullptr);
+    auto string_column = ColumnString::create();
+    for (const auto& value : dict_words.values) {
+        string_column->insert_data(value.data(), value.size());
+    }
+
+    MutableColumnPtr result_column = std::move(string_column);
+    if (column_schema.type->is_nullable()) {
+        result_column = ColumnNullable::create(std::move(result_column),
+                                               ColumnUInt8::create(dict_words.values.size(), 0));
+    }
+    *column =
+            ColumnWithTypeAndName(std::move(result_column), column_schema.type, column_schema.name);
+    return Status::OK();
+}
+
+Status build_dictionary_filter_block(
+        const format::FileScanRequest& request,
+        const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
+        format::LocalColumnId dictionary_column_id, const OwnedDictionaryWords& dict_words,
+        Block* dict_block) {
+    DORIS_CHECK(dict_block != nullptr);
+    dict_block->clear();
+    // VExpr conjuncts address columns by their file-block position, not by Parquet local column id.
+    // Keep the temporary dictionary block in the same layout as normal scan blocks so existing
+    // expression evaluation can be reused without a dictionary-specific expression path.
+    std::vector<ColumnWithTypeAndName> columns(file_block_column_count(request));
+    for (const auto& [file_column_id, block_position] : request.local_positions) {
+        DORIS_CHECK(file_column_id.is_valid() &&
+                    file_column_id.value() < static_cast<int>(file_schema.size()));
+        const auto& column_schema = file_schema[file_column_id.value()];
+        DORIS_CHECK(column_schema != nullptr);
+        ColumnWithTypeAndName column;
+        if (file_column_id == dictionary_column_id) {
+            RETURN_IF_ERROR(build_dictionary_value_column(*column_schema, dict_words, &column));
+        } else {
+            column = ColumnWithTypeAndName(column_schema->type->create_column(),
+                                           column_schema->type, column_schema->name);
+        }
+        columns[static_cast<size_t>(block_position.value())] = std::move(column);
+    }
+    for (auto& column : columns) {
+        DORIS_CHECK(column.column.get() != nullptr);
+        dict_block->insert(std::move(column));
+    }
+    return Status::OK();
+}
+
 uint16_t count_selected_rows(const IColumn::Filter& filter) {
     uint16_t selected_rows = 0;
     for (const auto value : filter) {
@@ -715,11 +933,87 @@ uint16_t count_selected_rows(const IColumn::Filter& filter) {
 
 Status filter_read_predicate_columns(Block* file_block, const std::vector<uint32_t>& positions,
                                      const IColumn::Filter& compact_filter) {
+    if (positions.empty()) {
+        return Status::OK();
+    }
     RETURN_IF_CATCH_EXCEPTION(Block::filter_block_internal(file_block, positions, compact_filter));
     return Status::OK();
 }
 
 } // namespace
+
+Status ParquetScanScheduler::prepare_current_dictionary_filters(
+        ParquetFileContext& file_context,
+        const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
+        const format::FileScanRequest& request, int row_group_idx,
+        const ::parquet::RowGroupMetaData& row_group_metadata) {
+    _current_dictionary_filters.clear();
+    if (request.conjuncts.empty()) {
+        return Status::OK();
+    }
+    const auto schedule = build_predicate_conjunct_schedule(request);
+    if (schedule.single_column_conjuncts.empty()) {
+        return Status::OK();
+    }
+
+    SCOPED_TIMER(_scan_profile.dict_filter_rewrite_time);
+    for (const auto& col : request.predicate_columns) {
+        const auto local_id = col.local_id();
+        if (local_id < 0 || local_id >= static_cast<int32_t>(file_schema.size())) {
+            continue;
+        }
+        const auto position_it = request.local_positions.find(col.column_id());
+        DORIS_CHECK(position_it != request.local_positions.end());
+        const auto block_position = static_cast<size_t>(position_it->second.value());
+        const auto conjunct_it = schedule.single_column_conjuncts.find(block_position);
+        if (conjunct_it == schedule.single_column_conjuncts.end() ||
+            !can_evaluate_all_with_dictionary(conjunct_it->second)) {
+            continue;
+        }
+
+        // This optimization is deliberately limited to single-column predicates that all support
+        // dictionary evaluation. Mixed predicates still run after predicate columns are read, using
+        // the normal row-level expression path.
+        const auto& column_schema = file_schema[local_id];
+        DORIS_CHECK(column_schema != nullptr);
+        if (column_schema->leaf_column_id < 0 ||
+            column_schema->leaf_column_id >= row_group_metadata.num_columns()) {
+            continue;
+        }
+        auto column_chunk = row_group_metadata.ColumnChunk(column_schema->leaf_column_id);
+        if (column_chunk == nullptr ||
+            !supports_row_level_dictionary_filter(*column_schema, *column_chunk)) {
+            continue;
+        }
+
+        OwnedDictionaryWords dict_words;
+        if (!read_byte_array_dictionary_words(file_context.file_reader.get(), row_group_idx,
+                                              column_schema->leaf_column_id, *column_schema,
+                                              &dict_words)) {
+            continue;
+        }
+
+        Block dict_block;
+        RETURN_IF_ERROR(build_dictionary_filter_block(request, file_schema, col.column_id(),
+                                                      dict_words, &dict_block));
+        IColumn::Filter dictionary_filter;
+        bool can_filter_all = false;
+        // Evaluate the original conjuncts against dictionary entries once. The resulting bitmap is
+        // indexed by Parquet dictionary id, so the data-page reader only performs an integer lookup
+        // for each selected row instead of materializing every predicate-column value first.
+        RETURN_IF_ERROR(execute_compact_filter_conjuncts(conjunct_it->second,
+                                                         dict_words.values.size(), &dict_block,
+                                                         &dictionary_filter, &can_filter_all));
+        if (can_filter_all) {
+            dictionary_filter.resize_fill(dict_words.values.size(), 0);
+        }
+
+        // The bitmap is keyed by Parquet dictionary id. Later data-page reads evaluate the
+        // predicate with an integer lookup and only materialize STRING values for surviving rows.
+        _current_dictionary_filters.emplace(local_id, std::move(dictionary_filter));
+    }
+    return Status::OK();
+}
 
 Status ParquetScanScheduler::read_filter_columns(int64_t batch_rows,
                                                  const format::FileScanRequest& request,
@@ -738,8 +1032,10 @@ Status ParquetScanScheduler::read_filter_columns(int64_t batch_rows,
     std::vector<uint32_t> read_column_positions;
     read_column_positions.reserve(request.predicate_columns.size());
 
-    auto read_predicate_column = [&](ParquetColumnReader* column_reader,
-                                     size_t block_position) -> Status {
+    auto read_predicate_column = [&](ParquetColumnReader* column_reader, size_t block_position,
+                                     ColumnId local_id, bool* used_dictionary_filter) -> Status {
+        DORIS_CHECK(used_dictionary_filter != nullptr);
+        *used_dictionary_filter = false;
         DCHECK(remove_nullable(column_reader->type())
                        ->equals(*remove_nullable(file_block->get_by_position(block_position).type)))
                 << column_reader->type()->get_name() << " "
@@ -747,6 +1043,38 @@ Status ParquetScanScheduler::read_filter_columns(int64_t batch_rows,
                 << column_reader->name() << " " << file_block->get_by_position(block_position).name;
         auto column = file_block->get_by_position(block_position).column->assert_mutable();
         SCOPED_TIMER(_scan_profile.column_read_time);
+        const auto dictionary_filter_it = _current_dictionary_filters.find(local_id);
+        if (dictionary_filter_it != _current_dictionary_filters.end()) {
+            const uint16_t selected_rows_before = *selected_rows;
+            IColumn::Filter compact_filter;
+            bool used_filter = false;
+            RETURN_IF_ERROR(column_reader->select_with_dictionary_filter(
+                    *selection, *selected_rows, batch_rows, dictionary_filter_it->second, column,
+                    &compact_filter, &used_filter));
+            if (used_filter) {
+                DORIS_CHECK(compact_filter.size() == selected_rows_before);
+                const uint16_t new_selected_rows = count_selected_rows(compact_filter);
+                if (conjunct_filtered_rows != nullptr) {
+                    *conjunct_filtered_rows += static_cast<int64_t>(selected_rows_before) -
+                                               static_cast<int64_t>(new_selected_rows);
+                }
+                if (new_selected_rows != selected_rows_before) {
+                    // The dictionary reader has already appended only surviving values for the
+                    // current column. Apply the compact row filter only to columns read before this
+                    // one, then update the shared selection for later predicate/lazy columns.
+                    RETURN_IF_ERROR(filter_read_predicate_columns(file_block, read_column_positions,
+                                                                  compact_filter));
+                    *selected_rows = apply_compact_filter_to_selection(compact_filter, selection,
+                                                                       selected_rows_before);
+                    *predicate_columns_filtered = true;
+                }
+                file_block->replace_by_position(block_position, std::move(column));
+                read_column_positions.push_back(cast_set<uint32_t>(block_position));
+                *used_dictionary_filter = true;
+                return Status::OK();
+            }
+        }
+
         if (*selected_rows == batch_rows) {
             int64_t column_rows = 0;
             RETURN_IF_ERROR(column_reader->read(batch_rows, column, &column_rows));
@@ -840,8 +1168,9 @@ Status ParquetScanScheduler::read_filter_columns(int64_t batch_rows,
         for (const auto& [fid, column_reader] : _current_predicate_columns) {
             auto position_it = request.local_positions.find(format::LocalColumnId(fid));
             DORIS_CHECK(position_it != request.local_positions.end());
-            RETURN_IF_ERROR(
-                    read_predicate_column(column_reader.get(), position_it->second.value()));
+            bool used_dictionary_filter = false;
+            RETURN_IF_ERROR(read_predicate_column(column_reader.get(), position_it->second.value(),
+                                                  fid, &used_dictionary_filter));
         }
         return Status::OK();
     };
@@ -869,7 +1198,25 @@ Status ParquetScanScheduler::read_filter_columns(int64_t batch_rows,
             auto position_it = request.local_positions.find(col.column_id());
             DORIS_CHECK(position_it != request.local_positions.end());
             const auto block_position = position_it->second.value();
-            RETURN_IF_ERROR(read_predicate_column(reader_it->second.get(), block_position));
+            bool used_dictionary_filter = false;
+            RETURN_IF_ERROR(read_predicate_column(reader_it->second.get(), block_position, fid,
+                                                  &used_dictionary_filter));
+            if (*selected_rows == 0) {
+                for (size_t remaining_idx = idx + 1;
+                     remaining_idx < request.predicate_columns.size(); ++remaining_idx) {
+                    const auto remaining_fid = request.predicate_columns[remaining_idx].local_id();
+                    auto remaining_reader_it = _current_predicate_columns.find(remaining_fid);
+                    DORIS_CHECK(remaining_reader_it != _current_predicate_columns.end());
+                    RETURN_IF_ERROR(remaining_reader_it->second->skip(batch_rows));
+                }
+                return Status::OK();
+            }
+            if (used_dictionary_filter) {
+                // The dictionary bitmap has already applied the single-column conjunct for this
+                // predicate column while reading dictionary ids. Running the same conjunct again
+                // would be redundant and would require materializing rows that were filtered out.
+                continue;
+            }
 
             const auto conjunct_it = schedule.single_column_conjuncts.find(block_position);
             if (conjunct_it == schedule.single_column_conjuncts.end()) {

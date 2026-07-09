@@ -567,6 +567,30 @@ void write_dictionary_filter_parquet_file(const std::string& file_path) {
                                                       builder.build()));
 }
 
+void write_single_row_group_dictionary_filter_parquet_file(const std::string& file_path) {
+    auto schema = arrow::schema({
+            arrow::field("id", arrow::int32(), false),
+            arrow::field("value", arrow::utf8(), false),
+    });
+    auto table =
+            arrow::Table::Make(schema, {build_int32_array({1, 2, 3, 4, 5, 6}),
+                                        build_string_array({"aa", "az", "lm", "lz", "za", "zz"})});
+
+    auto file_result = arrow::io::FileOutputStream::Open(file_path);
+    ASSERT_TRUE(file_result.ok()) << file_result.status();
+    std::shared_ptr<arrow::io::FileOutputStream> out = *file_result;
+
+    ::parquet::WriterProperties::Builder builder;
+    builder.version(::parquet::ParquetVersion::PARQUET_2_6);
+    builder.data_page_version(::parquet::ParquetDataPageVersion::V2);
+    builder.compression(::parquet::Compression::UNCOMPRESSED);
+    builder.enable_dictionary("value");
+    builder.disable_dictionary("id");
+    builder.disable_statistics();
+    PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), out, 6,
+                                                      builder.build()));
+}
+
 void write_nested_dictionary_filter_parquet_file(const std::string& file_path) {
     auto id_field = arrow::field("id", arrow::int32(), false);
     auto name_field = arrow::field("name", arrow::utf8(), false);
@@ -1635,6 +1659,89 @@ TEST_F(NewParquetReaderTest, PredicateFiltersRowGroupsByDictionary) {
 
     EXPECT_EQ(ids, std::vector<int32_t>({3}));
     EXPECT_EQ(values, std::vector<std::string>({"lm"}));
+}
+
+TEST_F(NewParquetReaderTest, DictionaryPredicateFiltersRowsInsideRowGroup) {
+    write_single_row_group_dictionary_filter_parquet_file(_file_path);
+    auto parquet_file_reader = ::parquet::ParquetFileReader::OpenFile(_file_path, false);
+    ASSERT_EQ(parquet_file_reader->metadata()->num_row_groups(), 1);
+    auto row_group = parquet_file_reader->metadata()->RowGroup(0);
+    ASSERT_NE(row_group, nullptr);
+    ASSERT_TRUE(row_group->ColumnChunk(1)->has_dictionary_page());
+
+    RuntimeProfile profile("new_parquet_reader_dictionary_filter_profile");
+    auto reader = create_reader(0, -1, &profile);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->predicate_columns = {field_projection(1)};
+    request->non_predicate_columns = {field_projection(0)};
+    request->conjuncts.push_back(create_string_in_conjunct(1, {"az", "za"}));
+    use_schema_order_positions(request.get(), schema);
+    ASSERT_TRUE(reader->open(request).ok());
+
+    std::vector<int32_t> ids;
+    std::vector<std::string> values;
+    bool eof = false;
+    while (!eof) {
+        Block block = build_file_block(schema);
+        size_t rows = 0;
+        ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+        if (rows == 0) {
+            continue;
+        }
+        const auto& id_column = nullable_nested_column<ColumnInt32>(block, 0);
+        const auto& value_column = nullable_nested_column<ColumnString>(block, 1);
+        for (size_t row = 0; row < rows; ++row) {
+            ids.push_back(id_column.get_element(row));
+            values.push_back(value_column.get_data_at(row).to_string());
+        }
+    }
+
+    EXPECT_EQ(ids, std::vector<int32_t>({2, 5}));
+    EXPECT_EQ(values, std::vector<std::string>({"az", "za"}));
+    EXPECT_EQ(profile.get_counter("RowsFilteredByConjunct")->value(), 4);
+    EXPECT_EQ(profile.get_counter("SelectedRows")->value(), 2);
+    EXPECT_GE(profile.get_counter("ReaderSelectRows")->value(), 8);
+}
+
+TEST_F(NewParquetReaderTest, DictionaryPredicateSkipsRemainingPredicateColumnsWhenEmpty) {
+    write_single_row_group_dictionary_filter_parquet_file(_file_path);
+
+    RuntimeProfile profile("new_parquet_reader_dictionary_filter_empty_profile");
+    auto reader = create_reader(0, -1, &profile);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->predicate_columns = {field_projection(1), field_projection(0)};
+    request->conjuncts.push_back(create_string_in_conjunct(1, {"not_present"}));
+    request->conjuncts.push_back(create_int32_greater_than_conjunct(0, 0));
+    use_schema_order_positions(request.get(), schema);
+    ASSERT_TRUE(reader->open(request).ok());
+
+    bool eof = false;
+    size_t total_rows = 0;
+    while (!eof) {
+        Block block = build_file_block(schema);
+        size_t rows = 0;
+        ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+        total_rows += rows;
+    }
+
+    EXPECT_EQ(total_rows, 0);
+    EXPECT_EQ(profile.get_counter("RowsFilteredByConjunct")->value(), 6);
+    EXPECT_EQ(profile.get_counter("SelectedRows")->value(), 0);
+    // The first dictionary predicate column is read once to produce a compact row filter. The
+    // second predicate column is skipped after the selection becomes empty, which verifies the
+    // StarRocks-style round-by-round policy: only rows surviving previous predicates are read.
+    EXPECT_EQ(profile.get_counter("ReaderSelectRows")->value(), 6);
+    EXPECT_EQ(profile.get_counter("ReaderSkipRows")->value(), 6);
 }
 
 TEST_F(NewParquetReaderTest, ScanRangeFiltersRowGroupsBeforeDictionaryPruning) {

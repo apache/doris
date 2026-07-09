@@ -52,7 +52,8 @@ struct ParquetScanProfile {
     RuntimeProfile::Counter* range_gap_skipped_rows = nullptr; // rows skipped by range gaps
     RuntimeProfile::Counter* column_read_time = nullptr;       // column read time (ns)
     RuntimeProfile::Counter* predicate_filter_time = nullptr;  // predicate filter time (ns)
-    ParquetColumnReaderProfile column_reader_profile;          // nested column read statistics
+    RuntimeProfile::Counter* dict_filter_rewrite_time = nullptr; // dictionary rewrite time (ns)
+    ParquetColumnReaderProfile column_reader_profile;            // nested column read statistics
 };
 
 // ============================================================================

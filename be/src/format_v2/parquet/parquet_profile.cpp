@@ -197,6 +197,7 @@ ParquetScanProfile ParquetProfile::scan_profile() const {
             .range_gap_skipped_rows = range_gap_skipped_rows,
             .column_read_time = column_read_time,
             .predicate_filter_time = predicate_filter_time,
+            .dict_filter_rewrite_time = dict_filter_rewrite_time,
             .column_reader_profile = column_reader_profile(),
     };
 }

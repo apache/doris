@@ -35,6 +35,7 @@
 namespace parquet {
 class FileMetaData;
 class ParquetFileReader;
+class RowGroupMetaData;
 class RowGroupReader;
 } // namespace parquet
 
@@ -156,6 +157,12 @@ private:
                                uint16_t* selected_rows, int64_t* conjunct_filtered_rows,
                                bool* predicate_columns_filtered);
 
+    Status prepare_current_dictionary_filters(
+            ParquetFileContext& file_context,
+            const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
+            const format::FileScanRequest& request, int row_group_idx,
+            const ::parquet::RowGroupMetaData& row_group_metadata);
+
     void prefetch_current_row_group_columns(
             ParquetFileContext& file_context,
             const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
@@ -182,7 +189,9 @@ private:
     std::map<ColumnId, std::unique_ptr<ParquetColumnReader>>
             _current_predicate_columns; // predicate ColumnReaders
     std::map<ColumnId, std::unique_ptr<ParquetColumnReader>>
-            _current_non_predicate_columns;   // non-predicate ColumnReaders
+            _current_non_predicate_columns; // non-predicate ColumnReaders
+    std::map<ColumnId, IColumn::Filter>
+            _current_dictionary_filters;      // local id -> dict entry bitmap
     int64_t _current_row_group_rows = 0;      // current row group row count
     int _current_row_group_id = -1;           // current row group id in parquet metadata
     int64_t _current_row_group_rows_read = 0; // rows read in the current row group (cursor)
