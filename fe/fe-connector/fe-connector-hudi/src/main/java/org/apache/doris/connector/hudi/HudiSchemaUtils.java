@@ -289,6 +289,22 @@ public final class HudiSchemaUtils {
      */
     static Optional<String> buildSchemaEvolutionProp(HoodieTableMetaClient metaClient,
             TableSchemaResolver schemaResolver, Schema latestAvro, List<HudiColumnHandle> requestedColumns) {
+        // Field-id matching is PER-FILE in BE, NOT per-column: once a native file carries a schema_id, EVERY
+        // projected column of that file is matched by id, with NO per-column BY_NAME fallback. So if ANY projected
+        // column has no resolved field id, emitting the dict would silently read that column as const-NULL. The
+        // case that hits this is a projected _hoodie_* meta column on a schema-on-read (evolution) table: the
+        // connector exposes the meta columns (getTableAvroSchema(true)) but the mode-aware commit-metadata
+        // InternalSchema omits them, so their handle field id stays UNSET (-1). Skip the dict entirely then -> BE
+        // stays on BY_NAME for the WHOLE scan (the safe baseline: only renamed columns read wrong, exactly as
+        // before this feature; meta columns read correctly by name). A data-only projection (all ids resolved)
+        // still gets full field-id / rename matching. FLIP-TIME RESIDUAL: full rename-correctness for SELECT* over
+        // an evolution table needs reserved meta-column field ids injected into every entry (iceberg row-lineage
+        // pattern) or dropping meta exposure to mirror legacy -- deferred, owed the flip e2e.
+        for (HudiColumnHandle handle : requestedColumns) {
+            if (handle.getFieldId() < 0) {
+                return Optional.empty();
+            }
+        }
         ResolvedInternalSchema resolved = resolveTableInternalSchema(schemaResolver, latestAvro);
         Collection<InternalSchema> historical = resolved.enableSchemaEvolution
                 ? allHistoricalSchemas(metaClient)
@@ -324,10 +340,13 @@ public final class HudiSchemaUtils {
     /**
      * The {@code -1} target/current overlay, keyed off the requested (pruned) columns so its top-level names
      * equal the BE scan slots (the CI-969249 StructNode invariant). Each requested column's full nested
-     * structure + stable field id is looked up BY NAME in {@code baseSchema}. A requested column absent from
-     * {@code baseSchema} (e.g. a {@code _hoodie_*} meta column on a schema-evolved table whose commit-metadata
-     * schema omits meta fields) falls back to a scalar placeholder carrying the handle's field id ({@code -1} =
-     * unset). Empty {@code requestedColumns} (count-only scan) falls back to all base top-level fields.
+     * structure + stable field id is looked up BY NAME in {@code baseSchema}. Empty {@code requestedColumns}
+     * (count-only scan) falls back to all base top-level fields.
+     *
+     * <p>The scalar-placeholder fallback (a requested column absent from {@code baseSchema}) is DEFENSIVE only:
+     * {@link #buildSchemaEvolutionProp} already gates the whole dict OFF when any projected column has an unset
+     * field id, so in production every column reaching here resolves in {@code baseSchema}. The fallback is kept
+     * so a direct/test call still produces a complete overlay rather than dropping a scan slot.</p>
      */
     static TSchema buildTargetSchema(List<HudiColumnHandle> requestedColumns, InternalSchema baseSchema) {
         TSchema tSchema = new TSchema();

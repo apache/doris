@@ -32,7 +32,6 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 
 /**
@@ -224,8 +223,10 @@ public class HudiSchemaUtilsTest {
         Assertions.assertEquals(SCHEMA_ID, decoded.getSchemaId());
         Map<String, TField> decodedTop = topFields(decoded);
         Assertions.assertEquals(5, decodedTop.size());
-        Assertions.assertEquals("street",
-                structChild(decodedTop.get("addr"), "street").getName().toLowerCase(Locale.ROOT));
+        // The nested struct child survives serialization with its lowercased name AND its field id (structChild's
+        // case-sensitive lookup fails if the round-trip dropped it or left it mixed-case; the id assertion proves
+        // the whole nested TField — not just the name — round-trips).
+        Assertions.assertEquals(4, structChild(decodedTop.get("addr"), "street").getId());
     }
 
     @Test
@@ -323,6 +324,31 @@ public class HudiSchemaUtilsTest {
         Assertions.assertEquals(2, params.getHistorySchemaInfoSize());
         Assertions.assertEquals(-1L, params.getHistorySchemaInfo().get(0).getSchemaId());
         Assertions.assertEquals(0L, params.getHistorySchemaInfo().get(1).getSchemaId());
+    }
+
+    @Test
+    public void dictGatedOffWhenAnyProjectedColumnUnresolved() {
+        // BE field-id matching is per-FILE, not per-column: a projected column with no field id (e.g. a _hoodie_*
+        // meta column on a schema-evolved table whose commit-metadata schema omits meta fields) cannot be BY_NAME'd
+        // on its own, so the WHOLE dict must be suppressed -> BE stays on BY_NAME for the scan (no silent
+        // const-NULL). The gate returns empty BEFORE touching the metaClient/schemaResolver, so the nulls here are
+        // never dereferenced. MUTATION: drop the gate -> the dict is built (NPEs on the null resolver here, and at
+        // runtime would emit a -1 target field with id=-1 that BE reads as const-NULL) -> not empty -> red.
+        Assertions.assertFalse(HudiSchemaUtils.buildSchemaEvolutionProp(
+                null, null, null, Arrays.asList(handle("id", 1), handle("_hoodie_commit_time", -1))).isPresent());
+    }
+
+    @Test
+    public void resolveFileSchemaNonEvolutionReturnsBaseWithoutMetaClient() {
+        // The COMMON (schema.on.read off) per-file schema_id source: the non-evolution branch returns the base
+        // schema (its schemaId, 0 for convert()) WITHOUT reading the file path or metaClient -> it must equal the
+        // version-0 history entry the dict emits (self-consistency, else BE "miss schema info"). Passing a null
+        // metaClient proves the branch never dereferences it. MUTATION: return null / a different schema -> red.
+        InternalSchema base = internalSchemaWithId(0L);
+        InternalSchema resolved = HudiSchemaUtils.resolveFileInternalSchema(
+                "s3://b/t/anyfile.parquet", false, base, null);
+        Assertions.assertSame(base, resolved);
+        Assertions.assertEquals(0L, resolved.schemaId());
     }
 
     @Test

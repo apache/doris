@@ -208,7 +208,8 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
             boolean isPartKey = partKeyNames != null
                     && partKeyNames.contains(col.getName());
             // Thread the Hudi InternalSchema field id (set by getSchemaFromMetaClient) onto the handle so
-            // schema-evolution reads match old files BY FIELD ID (HD-C4b). UNSET (-1) -> BE BY_NAME.
+            // schema-evolution reads match old files BY FIELD ID (HD-C4b). UNSET (-1) when unresolved -> the
+            // scan-level dict is gated OFF for the whole scan (per-file BY_NAME), not per-column.
             handles.put(col.getName(),
                     new HudiColumnHandle(col.getName(),
                             col.getType().getTypeName(), isPartKey, col.getUniqueId()));
@@ -723,8 +724,10 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
      * legacy {@code HudiUtils.updateHudiColumnUniqueId} at the top level only: the handle carries the top-level
      * field id, while nested field ids for the BE schema dictionary come straight from the InternalSchema via
      * {@link HudiSchemaUtils}. A column with no matching InternalSchema field (e.g. a {@code _hoodie_*} meta
-     * column absent from a commit-metadata schema) keeps {@link ConnectorColumn#UNSET_UNIQUE_ID} -> BE BY_NAME
-     * (correct: meta columns are never renamed). Package-private + static for same-loader unit testing.
+     * column absent from a commit-metadata schema) keeps {@link ConnectorColumn#UNSET_UNIQUE_ID}; because BE's
+     * field-id mode is per-file (not per-column), that unresolved id gates the whole scan-level dict OFF ->
+     * BE BY_NAME for the entire scan (see {@code HudiSchemaUtils.buildSchemaEvolutionProp}), never a silent
+     * per-column drop. Package-private + static for same-loader unit testing.
      */
     static List<ConnectorColumn> attachTopLevelFieldIds(List<ConnectorColumn> columns, InternalSchema internalSchema) {
         Map<String, Integer> idByName = new HashMap<>();

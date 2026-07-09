@@ -160,27 +160,39 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
         // Resolve column names and types for JNI reader
         List<String> columnNames;
         List<String> columnTypes;
-        // The mode-aware table InternalSchema (+ evolution flag), resolved ONCE, drives the per-file
-        // THudiFileDesc.schema_id stamped on native slices for BE's field-id path. Null when unresolved ->
-        // no schema_id -> BE BY_NAME (the safe baseline). schema_id is dormant/inert until the dict is emitted.
-        HudiSchemaUtils.ResolvedInternalSchema resolvedSchema = null;
+        Schema avroSchema = null;
         try {
             TableSchemaResolver schemaResolver = new TableSchemaResolver(metaClient);
             // include the 5 `_hoodie_*` meta columns (explicit `true` = legacy parity, in lockstep with
             // HudiConnectorMetadata.getSchemaFromMetaClient) so the JNI reader's column list matches the
             // exposed schema; byte-identical for the common populate.meta.fields=true table.
-            Schema avroSchema = schemaResolver.getTableAvroSchema(true);
+            avroSchema = schemaResolver.getTableAvroSchema(true);
             columnNames = avroSchema.getFields().stream()
                     .map(Schema.Field::name).collect(Collectors.toList());
             columnTypes = avroSchema.getFields().stream()
                     .map(f -> HudiTypeMapping.toHiveTypeString(f.schema()))
                     .collect(Collectors.toList());
-            resolvedSchema = HudiSchemaUtils.resolveTableInternalSchema(schemaResolver, avroSchema);
         } catch (Exception e) {
             LOG.warn("Failed to resolve Hudi schema for JNI reader, JNI splits may fail: {}",
                     e.getMessage());
             columnNames = Collections.emptyList();
             columnTypes = Collections.emptyList();
+        }
+
+        // The mode-aware table InternalSchema (+ evolution flag), resolved ONCE, drives the per-file
+        // THudiFileDesc.schema_id stamped on native slices for BE's field-id path. Resolved in its OWN try/catch
+        // (NOT the JNI-column block above): a schema-evolution / commit-metadata hiccup must degrade to null ->
+        // no schema_id -> BE BY_NAME (the safe baseline), WITHOUT discarding the already-computed JNI columnNames/
+        // columnTypes (which a plain MOR read needs). schema_id is dormant/inert until the dict is emitted.
+        HudiSchemaUtils.ResolvedInternalSchema resolvedSchema = null;
+        if (avroSchema != null) {
+            try {
+                resolvedSchema = HudiSchemaUtils.resolveTableInternalSchema(
+                        new TableSchemaResolver(metaClient), avroSchema);
+            } catch (Exception e) {
+                LOG.warn("Failed to resolve Hudi InternalSchema for schema_id; native reads fall back to BY_NAME: {}",
+                        e.getMessage());
+            }
         }
 
         // Per-file native-reader schema_id resolver (base-file path -> version), or null to skip stamping

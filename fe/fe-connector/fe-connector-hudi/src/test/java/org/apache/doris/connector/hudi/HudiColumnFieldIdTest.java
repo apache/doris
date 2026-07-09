@@ -124,9 +124,42 @@ public class HudiColumnFieldIdTest {
     }
 
     @Test
+    public void fieldIdsMatchedByNameNotPosition() {
+        // The load-bearing distinction of C4b: columns come from getTableAvroSchema(true) (which PREPENDS the 5
+        // _hoodie_* meta columns) while ids come from an independent InternalSchema (data-only on an evolution
+        // table), so ids MUST be joined BY NAME, not zipped positionally like legacy. Here the UNMATCHED column is
+        // FIRST: columns = [_hoodie_commit_time, id, name] against a data-only InternalSchema [id, name].
+        // MUTATION (regress to positional zip): _hoodie_commit_time would grab field[0]=id's id and id would grab
+        // field[1]=name's id -> every column shifts onto the wrong field id (silent BY_FIELD_ID corruption).
+        Schema metaFirst = parse("{\"type\":\"record\",\"name\":\"t\",\"fields\":["
+                + "{\"name\":\"_hoodie_commit_time\",\"type\":[\"null\",\"string\"],\"default\":null},"
+                + "{\"name\":\"Id\",\"type\":[\"null\",\"int\"],\"default\":null},"
+                + "{\"name\":\"Name\",\"type\":\"string\"}]}");
+        Schema dataOnly = parse("{\"type\":\"record\",\"name\":\"t\",\"fields\":["
+                + "{\"name\":\"Id\",\"type\":[\"null\",\"int\"],\"default\":null},"
+                + "{\"name\":\"Name\",\"type\":\"string\"}]}");
+        List<ConnectorColumn> columns = HudiConnectorMetadata.avroSchemaToColumns(metaFirst);
+        InternalSchema dataSchema = AvroInternalSchemaConverter.convert(dataOnly);
+        Map<String, Integer> expected = expectedIds(dataSchema);
+
+        List<ConnectorColumn> attached = HudiConnectorMetadata.attachTopLevelFieldIds(columns, dataSchema);
+        Map<String, Integer> byName = new HashMap<>();
+        for (ConnectorColumn col : attached) {
+            byName.put(col.getName(), col.getUniqueId());
+        }
+
+        // the unmatched meta column (FIRST) stays UNSET — a positional zip would give it "id"'s field id
+        Assertions.assertEquals(ConnectorColumn.UNSET_UNIQUE_ID, byName.get("_hoodie_commit_time").intValue());
+        // the data columns keep THEIR OWN field id by name (not shifted by one position)
+        Assertions.assertEquals(expected.get("id"), byName.get("id"));
+        Assertions.assertEquals(expected.get("name"), byName.get("name"));
+    }
+
+    @Test
     public void handleCarriesFieldId() {
-        // getColumnHandles threads col.getUniqueId() onto the handle. MUTATION: hard-code UNSET / drop the arg
-        // -> getFieldId() != the sourced id -> red.
+        // Pins only the ctor + getFieldId() round-trip (the field id is carried, not dropped/reordered). The
+        // getColumnHandles threading of col.getUniqueId() onto the handle needs a live metaClient and is
+        // covered only by the flip-time e2e, not by this same-loader test.
         HudiColumnHandle handle = new HudiColumnHandle("c", "int", false, 7);
         Assertions.assertEquals(7, handle.getFieldId());
     }
