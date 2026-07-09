@@ -1,5 +1,5 @@
 -- tables: supplier,lineitem,orders,nation
-SELECT /*+SEV_VAR(batch_size=3)*/
+SELECT /*+SET_VAR(batch_size=3)*/
   l1.l_orderkey okey,
   l1.l_suppkey  skey
 FROM
