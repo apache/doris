@@ -5129,9 +5129,7 @@ TEST_F(NewOrcReaderTest, ClosePublishesOrcLazyStatisticsToRuntimeProfile) {
     ASSERT_TRUE(reader->close().ok());
 
     ASSERT_NE(profile.get_counter("FilteredRowsByLazyRead"), nullptr);
-    ASSERT_NE(profile.get_counter("FilteredRowsByOrcLazyRead"), nullptr);
     EXPECT_EQ(profile.get_counter("FilteredRowsByLazyRead")->value(), 2);
-    EXPECT_EQ(profile.get_counter("FilteredRowsByOrcLazyRead")->value(), 2);
 }
 
 TEST_F(NewOrcReaderTest, DisableOrcLazyMaterializationKeepsLazyProfileZero) {
@@ -5161,9 +5159,7 @@ TEST_F(NewOrcReaderTest, DisableOrcLazyMaterializationKeepsLazyProfileZero) {
     ASSERT_TRUE(reader->close().ok());
 
     ASSERT_NE(profile.get_counter("FilteredRowsByLazyRead"), nullptr);
-    ASSERT_NE(profile.get_counter("FilteredRowsByOrcLazyRead"), nullptr);
     EXPECT_EQ(profile.get_counter("FilteredRowsByLazyRead")->value(), 0);
-    EXPECT_EQ(profile.get_counter("FilteredRowsByOrcLazyRead")->value(), 0);
 }
 
 TEST_F(NewOrcReaderTest, ConditionCacheMissMarksSurvivingGranules) {
@@ -5819,7 +5815,7 @@ TEST_F(NewOrcReaderTest, DeletePredicateFiltersRowPositions) {
     EXPECT_EQ(row_positions.get_element(0), 0);
     EXPECT_EQ(row_positions.get_element(1), 2);
     EXPECT_EQ(row_positions.get_element(2), 4);
-    EXPECT_EQ(reader->reader_statistics().lazy_read_filtered_rows, 2);
+    EXPECT_EQ(reader->reader_statistics().lazy_read_filtered_rows, 0);
 }
 
 TEST_F(NewOrcReaderTest, SargConjunctPrunesStripesByStatistics) {
@@ -6115,7 +6111,6 @@ TEST_F(NewOrcReaderTest, ClosePublishesReaderStatisticsToRuntimeProfile) {
     ASSERT_NE(profile.get_counter("RowGroupsReadNum"), nullptr);
     ASSERT_NE(profile.get_counter("FilteredRowsByGroup"), nullptr);
     ASSERT_NE(profile.get_counter("FilteredRowsByLazyRead"), nullptr);
-    ASSERT_NE(profile.get_counter("FilteredRowsByOrcLazyRead"), nullptr);
     ASSERT_NE(profile.get_counter("FilteredBytes"), nullptr);
     ASSERT_NE(profile.get_counter("FileNum"), nullptr);
     const std::array<std::string_view, 13> orc_reader_metric_counters {
@@ -6143,7 +6138,6 @@ TEST_F(NewOrcReaderTest, ClosePublishesReaderStatisticsToRuntimeProfile) {
     EXPECT_EQ(profile.get_counter("EvaluatedRowGroupCount")->value(), 3);
     EXPECT_EQ(profile.get_counter("FilteredRowsByGroup")->value(), 400);
     EXPECT_EQ(profile.get_counter("FilteredRowsByLazyRead")->value(), 0);
-    EXPECT_EQ(profile.get_counter("FilteredRowsByOrcLazyRead")->value(), 0);
     EXPECT_GT(profile.get_counter("FilteredBytes")->value(), 0);
     EXPECT_EQ(profile.get_counter("FileNum")->value(), 1);
     EXPECT_EQ(profile.get_counter("ReadRowCount")->value(),

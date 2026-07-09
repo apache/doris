@@ -87,7 +87,6 @@ private:
         RuntimeProfile::Counter* filtered_bytes = nullptr;
         RuntimeProfile::Counter* read_row_groups = nullptr; // RowGroupsReadNum
         RuntimeProfile::Counter* lazy_read_filtered_rows = nullptr;
-        RuntimeProfile::Counter* orc_lazy_read_filtered_rows = nullptr;
         RuntimeProfile::Counter* open_file_num = nullptr;
     };
 

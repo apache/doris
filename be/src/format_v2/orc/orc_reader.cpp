@@ -795,8 +795,6 @@ void OrcReader::_init_profile() {
                                                                     TUnit::UNIT, orc_profile, 1);
     _orc_profile.lazy_read_filtered_rows = ADD_CHILD_COUNTER_WITH_LEVEL(
             _profile, "FilteredRowsByLazyRead", TUnit::UNIT, orc_profile, 1);
-    _orc_profile.orc_lazy_read_filtered_rows = ADD_CHILD_COUNTER_WITH_LEVEL(
-            _profile, "FilteredRowsByOrcLazyRead", TUnit::UNIT, orc_profile, 1);
     _orc_profile.filtered_bytes =
             ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "FilteredBytes", TUnit::BYTES, orc_profile, 1);
     _orc_profile.open_file_num =
@@ -844,8 +842,6 @@ void OrcReader::_collect_profile() const {
         COUNTER_UPDATE(_orc_profile.read_row_groups, _reader_statistics.read_row_groups);
         COUNTER_UPDATE(_orc_profile.filtered_group_rows, _reader_statistics.filtered_group_rows);
         COUNTER_UPDATE(_orc_profile.lazy_read_filtered_rows,
-                       _reader_statistics.lazy_read_filtered_rows);
-        COUNTER_UPDATE(_orc_profile.orc_lazy_read_filtered_rows,
                        _reader_statistics.lazy_read_filtered_rows);
         COUNTER_UPDATE(_orc_profile.filtered_bytes, _reader_statistics.filtered_bytes);
         COUNTER_UPDATE(_orc_profile.open_file_num, _reader_statistics.open_file_num);
