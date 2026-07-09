@@ -107,6 +107,15 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
     private static final String INCR_LATEST_SENTINEL = "latest";
     private static final String INCR_ZERO_INSTANT = "000";
 
+    // The legacy hollow-commit policy key and the one non-default value that shifts window resolution. Under
+    // USE_TRANSITION_TIME legacy resolves the default / "latest" end on the completion-time axis
+    // (COWIncrementalRelation:94-96 / MORIncrementalRelation:88-90) and its file selection uses
+    // findInstantsInRangeByCompletionTime; resolving the end here on the SAME axis keeps ONE handle-stamped end
+    // correct for both file selection and the later synthetic _hoodie_commit_time row filter. Any other value
+    // (or absent) -> the default requested-time axis = byte-identical to the pre-policy behaviour.
+    private static final String INCR_HOLLOW_POLICY_KEY = "hoodie.read.timeline.holes.resolution.policy";
+    private static final String INCR_STATE_TRANSITION_POLICY = "USE_TRANSITION_TIME";
+
     private final HmsClient hmsClient;
     private final Map<String, String> properties;
     // Runs the metaClient-touching partition/snapshot work under the plugin UGI doAs + TCCL pin (see R4).
@@ -347,7 +356,12 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
      *   <li>{@code endTime} defaults to the latest completed instant; {@code "latest"} &rarr; the latest completed
      *       instant. The sentinel test is on the RESOLVED end value (legacy COW form,
      *       {@code COWIncrementalRelation:98}); the single locus inherently avoids the dead-code MOR bug
-     *       ({@code MORIncrementalRelation:92}, which tested {@code latestTime} and so never fired).</li>
+     *       ({@code MORIncrementalRelation:92}, which tested {@code latestTime} and so never fired). The
+     *       "latest completed instant" is taken on the COMPLETION-time axis under the {@code USE_TRANSITION_TIME}
+     *       hollow-commit policy (legacy parity) so the ONE resolved end matches the ported relation's
+     *       completion-time file selection AND the later synthetic {@code _hoodie_commit_time} row filter — the
+     *       connector never lets the file set and the row filter diverge on the window. An explicitly-supplied
+     *       {@code endTime} is used verbatim on either axis (the user supplies an axis-appropriate value).</li>
      * </ul>
      *
      * <p>The pin is property-only: {@code snapshotId}/{@code schemaId} are inert because fe-core's INCREMENTAL
@@ -356,9 +370,13 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
      * the window onto the handle.</p>
      */
     private ConnectorMvccSnapshot resolveIncremental(HudiTableHandle handle, Map<String, String> params) {
+        // Resolve the latest completed instant on the completion-time axis when the hollow-commit policy is
+        // USE_TRANSITION_TIME (legacy parity, see INCR_HOLLOW_POLICY_KEY); the default axis is requested-time.
+        boolean useCompletionTime = INCR_STATE_TRANSITION_POLICY.equals(params.get(INCR_HOLLOW_POLICY_KEY));
         Optional<String> latestTime = metaClientExecutor.execute(() ->
                 HudiScanPlanProvider.latestCompletedInstantTime(
-                        HudiScanPlanProvider.buildMetaClient(buildHadoopConf(), handle.getBasePath())));
+                        HudiScanPlanProvider.buildMetaClient(buildHadoopConf(), handle.getBasePath()),
+                        useCompletionTime));
         String begin;
         String end;
         if (!latestTime.isPresent()) {

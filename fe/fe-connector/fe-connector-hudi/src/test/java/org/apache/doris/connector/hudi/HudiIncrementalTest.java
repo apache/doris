@@ -108,6 +108,22 @@ public class HudiIncrementalTest {
                 "begin=\"earliest\" must collapse to \"000\" (legacy EARLIEST_TIME)");
     }
 
+    @Test
+    public void useTransitionTimePolicyStillResolvesWindow() {
+        // A USE_TRANSITION_TIME hollow-commit policy param must not break window resolution: resolveIncremental
+        // computes the completion-time axis (useCompletionTime=true) and still pins a valid (begin, end]. The stub
+        // executor returns a canned latest regardless of the axis, so the requested-vs-completion AXIS itself is
+        // NOT verified here — it is deferred to the §5 USE_TRANSITION_TIME completion-axis e2e fixture. This test
+        // only guards that adding the policy branch did not crash resolution or drop the pin.
+        HudiConnectorMetadata md = metadata(stub(Optional.of(LATEST)));
+        Map<String, String> params = window("20240101000000", null);
+        params.put("hoodie.read.timeline.holes.resolution.policy", "USE_TRANSITION_TIME");
+        HudiTableHandle pinned = resolveAndApply(md, params);
+        Assertions.assertEquals("20240101000000", pinned.getBeginInstant());
+        Assertions.assertEquals(LATEST, pinned.getEndInstant(),
+                "USE_TRANSITION_TIME must still resolve an omitted end to the (canned) latest completed instant");
+    }
+
     // ── fail-loud + empty-timeline ───────────────────────────────────────────────────────────────────────
 
     @Test

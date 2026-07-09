@@ -386,13 +386,28 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
      *       {@code metaClient.getCommitsAndCompactionTimeline()}.</li>
      * </ul>
      * Both legacy and this helper take {@code lastInstant().requestedTime()} under the default hollow-commit
-     * policy; the {@code USE_TRANSITION_TIME} completion-time variant is a documented deferral (see the
-     * incremental-read step design).
+     * policy; the {@code USE_TRANSITION_TIME} completion-time variant is served by the overload below.
      */
     static Optional<String> latestCompletedInstantTime(HoodieTableMetaClient metaClient) {
+        return latestCompletedInstantTime(metaClient, false);
+    }
+
+    /**
+     * The LATEST completed instant on the requested-time axis (default) or the completion-time axis when
+     * {@code useCompletionTime} is true. The completion-time axis is legacy's {@code USE_TRANSITION_TIME}
+     * hollow-commit policy path: legacy COW/MOR derive the default / {@code "latest"} end via
+     * {@code lastInstant().getCompletionTime()} rather than {@code requestedTime()} under that policy
+     * ({@code COWIncrementalRelation:94-96} / {@code MORIncrementalRelation:88-90}), and both their file
+     * selection ({@code findInstantsInRangeByCompletionTime}) and the row filter consume that completion-time
+     * end. {@link HudiConnectorMetadata#resolveTimeTravel} resolves the end on the SAME axis so the ONE
+     * handle-stamped end is correct for both — the connector never lets the file set and the row filter diverge
+     * on the window. Completion time {@code >=} requested time for any instant, so a requested-time end fed into
+     * completion-time selection would silently drop the final in-window commit (under-read).
+     */
+    static Optional<String> latestCompletedInstantTime(HoodieTableMetaClient metaClient, boolean useCompletionTime) {
         return metaClient.getCommitsAndCompactionTimeline()
                 .filterCompletedInstants().lastInstant().toJavaOptional()
-                .map(HoodieInstant::requestedTime);
+                .map(instant -> useCompletionTime ? instant.getCompletionTime() : instant.requestedTime());
     }
 
     /**
@@ -564,9 +579,11 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
     }
 
     /**
-     * Detect file format from file path suffix.
+     * Detect file format from file path suffix. Package-private static so the ported incremental relations
+     * ({@code COWIncrementalRelation}) stamp the required explicit {@code fileFormat} on their native
+     * {@link HudiScanRange}s the same way the snapshot COW path does.
      */
-    private static String detectFileFormat(String filePath) {
+    static String detectFileFormat(String filePath) {
         if (filePath == null || filePath.isEmpty()) {
             return "parquet";
         }
