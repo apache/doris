@@ -120,12 +120,21 @@ public abstract class ExternalDatabase<T extends ExternalTable>
             LOG.debug("resetToUninitialized db name {}, id {}, isInitializing: {}, initialized: {}",
                     this.name, this.id, isInitializing, initialized, new Exception());
         }
+        MetaCache<T> cacheToInvalidate = null;
         synchronized (this) {
             this.initialized = false;
             this.lowerCaseToTableName = Maps.newConcurrentMap();
             if (metaCache != null) {
-                metaCache.invalidateAll();
+                cacheToInvalidate = metaCache;
+                metaCache = null;
             }
+        }
+        // Invalidate cache outside the synchronized block to avoid deadlock:
+        // resetMetaToUninitialized holds ExternalDatabase monitor -> invalidateAll needs Caffeine locks
+        // Caffeine cache loader (buildTableForInit) needs ExternalDatabase monitor
+        // By releasing the monitor before invalidating, we break the lock inversion.
+        if (cacheToInvalidate != null) {
+            cacheToInvalidate.invalidateAll();
         }
         Env.getCurrentEnv().getExtMetaCacheMgr().invalidateDb(extCatalog.getId(), getFullName());
     }
@@ -279,11 +288,11 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         // Step 2: Check if the table exists in the system, if the `checkExists` flag is enabled
         if (checkExists && (!FeConstants.runningUnitTest || this instanceof TestExternalDatabase)) {
             try {
-                List<String> tblNames = Lists.newArrayList(getTableNamesWithLock());
+                List<String> tblNames = getTableNamesForCheck();
                 if (!tblNames.contains(localTableName)) {
                     // reset the table name list to ensure it is up-to-date
                     resetMetaCacheNames();
-                    tblNames = Lists.newArrayList(getTableNamesWithLock());
+                    tblNames = getTableNamesForCheck();
                     if (!tblNames.contains(localTableName)) {
                         LOG.warn("Table {} does not exist in the remote database {}. Skipping initialization.",
                                 localTableName, this.name);
@@ -501,6 +510,29 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     @Override
     public List<T> getTablesOnIdOrderOrThrowException(List<Long> tableIdList) throws MetaNotFoundException {
         throw new NotImplementedException("getTablesOnIdOrderOrThrowException() is not implemented");
+    }
+
+    /**
+     * Get table names for existence check during cache loading.
+     * Unlike {@link #getTableNamesWithLock()}, this method avoids calling
+     * {@link #makeSureInitialized()} on the fast path (metaCache != null) to
+     * prevent the lock inversion deadlock:
+     * Caffeine cache node lock -> ExternalDatabase monitor.
+     *
+     * When metaCache has been concurrently reset to null (e.g., by REFRESH DATABASE),
+     * this method falls back to {@link #getTableNamesWithLock()} to re-initialize
+     * the database. The fallback is safe from deadlock because
+     * {@link #resetMetaToUninitialized()} now releases the ExternalDatabase monitor
+     * before invalidating the old cache.
+     */
+    private List<String> getTableNamesForCheck() {
+        if (metaCache != null) {
+            return Lists.newArrayList(metaCache.listNames());
+        }
+        // metaCache was reset concurrently, fall back to full initialization path.
+        // Safe from deadlock: resetMetaToUninitialized() releases synchronized(this)
+        // before calling invalidateAll() on the old cache.
+        return Lists.newArrayList(getTableNamesWithLock());
     }
 
     @Override
