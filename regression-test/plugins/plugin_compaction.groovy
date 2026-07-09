@@ -130,6 +130,10 @@ Suite.metaClass.trigger_and_wait_compaction = { String table_name, String compac
             return null
         }
     }
+    def isIgnoredCompactionStatus = { status ->
+        def status_lower = "${status}".toLowerCase()
+        return ignored_errors.any { error -> status_lower.contains(error.toLowerCase()) }
+    }
     Awaitility.await().atMost(timeout_seconds, TimeUnit.SECONDS).pollInterval(1, TimeUnit.SECONDS).until(() -> {
         for (tablet in triggered_tablets) {
             def be_host = backendId_to_backendIP["${tablet.BackendId}"]
@@ -178,13 +182,26 @@ Suite.metaClass.trigger_and_wait_compaction = { String table_name, String compac
                 }
                 def success_time_unchanged = (oldStatus["last ${compaction_type} success time"] == tabletStatus["last ${compaction_type} success time"])
                 def failure_time_unchanged = (oldStatus["last ${compaction_type} failure time"] == tabletStatus["last ${compaction_type} failure time"])
+                def compactionFailureIgnored =
+                        !failure_time_unchanged && isIgnoredCompactionStatus(tabletStatus["last ${compaction_type} status"])
+                def baseFailureTimeChanged = handedOffToBaseCompactionAfterDeleteVersion &&
+                        oldStatus["last base failure time"] != tabletStatus["last base failure time"]
+                def baseFailureIgnored = baseFailureTimeChanged && isIgnoredCompactionStatus(tabletStatus["last base status"])
                 if (!running && !handedOffToBaseCompactionAfterDeleteVersion &&
                         !completedByBaseCompactionAfterDeleteVersion &&
-                        success_time_unchanged && !failure_time_unchanged) {
+                        success_time_unchanged && !failure_time_unchanged && !compactionFailureIgnored) {
                     throw new Exception("compaction failed, be host: ${be_host}, tablet id: ${tablet.TabletId}, " +
                             "run status: ${compactionStatus.run_status}, old status: ${oldStatus}, new status: ${tabletStatus}")
                 }
+                if (!running && handedOffToBaseCompactionAfterDeleteVersion &&
+                        !completedByBaseCompactionAfterDeleteVersion &&
+                        baseFailureTimeChanged && !baseFailureIgnored) {
+                    throw new Exception("base compaction failed after cumulative E-2010 handoff, be host: ${be_host}, " +
+                            "tablet id: ${tablet.TabletId}, run status: ${compactionStatus.run_status}, " +
+                            "old status: ${oldStatus}, new status: ${tabletStatus}")
+                }
                 def compactionFinished = completedByBaseCompactionAfterDeleteVersion ||
+                        compactionFailureIgnored || baseFailureIgnored ||
                         (!handedOffToBaseCompactionAfterDeleteVersion && !success_time_unchanged)
                 running = running || !compactionFinished
                 if (running) {
