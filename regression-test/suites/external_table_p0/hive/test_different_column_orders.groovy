@@ -28,6 +28,7 @@ suite("test_different_column_orders", "p0,external") {
         """
     }
     def q_orc = {
+        sql """ set hive_orc_use_column_names = true """
         qt_q01 """
         select * from test_different_column_orders_orc order by id;
         """

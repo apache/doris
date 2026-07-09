@@ -58,6 +58,12 @@ public:
                                   const uint8_t* __restrict filter, size_t count,
                                   ColumnPtr& result_column, ColumnPtr* arg_column) const override;
     Status evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) override;
+    ZoneMapFilterResult evaluate_zonemap_filter(const ZoneMapEvalContext& ctx) const override;
+    bool can_evaluate_zonemap_filter() const override;
+    ZoneMapFilterResult evaluate_dictionary_filter(const DictionaryEvalContext& ctx) const override;
+    bool can_evaluate_dictionary_filter() const override;
+    ZoneMapFilterResult evaluate_bloom_filter(const BloomFilterEvalContext& ctx) const override;
+    bool can_evaluate_bloom_filter() const override;
     Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override;
     Status open(RuntimeState* state, VExprContext* context,
                 FunctionContext::FunctionStateScope scope) override;
@@ -98,6 +104,12 @@ public:
     void prepare_ann_range_search(const doris::VectorSearchUserParams& params,
                                   segment_v2::AnnRangeSearchRuntime& runtime,
                                   bool& suitable_for_ann_index) override;
+
+    Status clone_node(VExprSPtr* cloned_expr) const override {
+        DORIS_CHECK(cloned_expr != nullptr);
+        *cloned_expr = std::make_shared<VectorizedFnCall>(*this);
+        return Status::OK();
+    }
 
 protected:
     FunctionBasePtr _function;

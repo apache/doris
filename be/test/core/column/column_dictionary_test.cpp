@@ -248,8 +248,9 @@ TEST_F(ColumnDictionaryTest, permute) {
 }
 TEST_F(ColumnDictionaryTest, filter_by_selector) {
     auto test_func = [&](const auto& source_column) {
-        auto src_size = source_column->size();
-        const auto& codes_data = source_column->get_data();
+        const auto& source = *source_column;
+        auto src_size = source.size();
+        const auto& codes_data = source.get_data();
         EXPECT_TRUE(src_size <= UINT16_MAX);
 
         auto target_column = ColumnString::create();
@@ -262,13 +263,12 @@ TEST_F(ColumnDictionaryTest, filter_by_selector) {
         size_t sel_size = src_size / 2;
         indices.resize(sel_size);
 
-        auto status =
-                source_column->filter_by_selector(indices.data(), sel_size, target_column.get());
+        auto status = source.filter_by_selector(indices.data(), sel_size, target_column.get());
         EXPECT_TRUE(status.ok());
         EXPECT_EQ(target_column->size(), sel_size);
         for (size_t i = 0; i != sel_size; ++i) {
             auto real_data = target_column->get_data_at(i);
-            auto expect_data = source_column->get_value(codes_data[indices[i]]);
+            auto expect_data = source.get_value(codes_data[indices[i]]);
             if (real_data != expect_data) {
                 std::cout << "index: " << i << ", real_data: " << real_data.to_string()
                           << "\nexpect_data: " << expect_data.to_string() << std::endl;

@@ -17,6 +17,7 @@
 
 #include "format/table/iceberg_delete_file_reader_helper.h"
 
+#include <fmt/format.h>
 #include <gen_cpp/parquet_types.h>
 #include <parallel_hashmap/phmap.h>
 
@@ -43,6 +44,7 @@
 #include "io/hdfs_builder.h"
 #include "runtime/runtime_state.h"
 #include "storage/predicate/column_predicate.h"
+#include "util/debug_points.h"
 
 namespace doris {
 
@@ -216,6 +218,13 @@ bool is_iceberg_deletion_vector(const TIcebergDeleteFileDesc& delete_file) {
     return delete_file.__isset.content && delete_file.content == 3;
 }
 
+std::string build_iceberg_deletion_vector_cache_key(const std::string& data_file_path,
+                                                    const TIcebergDeleteFileDesc& delete_file) {
+    return fmt::format("delete_dv_{}:{}{}:{}#{}#{}", data_file_path.size(), data_file_path,
+                       delete_file.path.size(), delete_file.path, delete_file.content_offset,
+                       delete_file.content_size_in_bytes);
+}
+
 Status read_iceberg_position_delete_file(const TIcebergDeleteFileDesc& delete_file,
                                          const IcebergDeleteFileReaderOptions& options,
                                          IcebergPositionDeleteVisitor* visitor) {
@@ -293,6 +302,10 @@ Status read_iceberg_deletion_vector(const TIcebergDeleteFileDesc& delete_file,
     if (!delete_file.__isset.content_offset || !delete_file.__isset.content_size_in_bytes) {
         return Status::InternalError("Deletion vector is missing content offset or length");
     }
+    DBUG_EXECUTE_IF("IcebergDeleteFileReader.read_deletion_vector.io_error",
+                    { return Status::IOError("injected Iceberg deletion vector read failure"); });
+    DBUG_EXECUTE_IF("IcebergDeleteFileReader.read_deletion_vector.should_stop",
+                    { return Status::EndOfFile("stop read."); });
 
     TFileRangeDesc delete_range = build_iceberg_delete_file_range(delete_file.path);
     if (options.fs_name != nullptr && !options.fs_name->empty()) {
@@ -309,6 +322,11 @@ Status read_iceberg_deletion_vector(const TIcebergDeleteFileDesc& delete_file,
     RETURN_IF_ERROR(dv_reader.read_at(delete_range.start_offset,
                                       {buf.data(), cast_set<size_t>(delete_range.size)}));
     return decode_deletion_vector_buffer(buf.data(), delete_range.size, rows_to_delete);
+}
+
+Status decode_iceberg_deletion_vector_buffer(const char* buf, size_t buffer_size,
+                                             roaring::Roaring64Map* rows_to_delete) {
+    return decode_deletion_vector_buffer(buf, buffer_size, rows_to_delete);
 }
 
 } // namespace doris

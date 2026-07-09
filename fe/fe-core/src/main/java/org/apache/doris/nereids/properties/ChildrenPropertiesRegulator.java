@@ -311,7 +311,15 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
                 int bucketNum = candidate.getTable().getDefaultDistributionInfo().getBucketNum();
                 int totalBucketNum = prunedPartNum * bucketNum;
                 ConnectContext connectContext = ConnectContext.get();
-                return totalBucketNum < connectContext.getTotalInstanceNum() * 0.8;
+                // <= 0 disables the downgrade entirely: with the FE local shuffle planner's
+                // bucket -> local-hash upgrade (local_shuffle_bucket_upgrade_ratio), few-bucket
+                // bucket shuffle no longer funnels, so keeping bucket shuffle (anchored side
+                // needs no re-shuffle) can beat downgrading to shuffle join.
+                double downgradeRatio = connectContext.getSessionVariable().getBucketShuffleDowngradeRatio();
+                if (downgradeRatio <= 0) {
+                    return false;
+                }
+                return totalBucketNum < connectContext.getTotalInstanceNum() * downgradeRatio;
             }
         }
     }

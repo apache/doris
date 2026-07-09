@@ -552,22 +552,23 @@ class CostModel extends PlanVisitor<Cost, PlanContext> {
         Statistics leftStatistics = context.getChildStatistics(0);
         Statistics rightStatistics = context.getChildStatistics(1);
         /*
-         * nljPenalty:
-         * The row count estimation for nested loop join (NLJ) results often has significant errors.
-         * When the estimated row count is higher than the actual value, the cost benefits of subsequent
-         * operators (e.g., aggregation) may be overestimated. This can lead the optimizer to choose a
-         * plan where a small table joins a large table, severely impacting the overall SQL execution efficiency.
+         * nljPenalty multiplies the CPU cost (and memory cost) of a nested loop join
+         * to penalise plans where NLJ is selected for non-trivial input sizes.
          *
-         * For example, if the subsequent operator is an aggregation (AGG) and the GROUP BY key aligns with
-         * the distribution key of the small table, the optimizer might prioritize avoiding shuffling the NLJ
-         * results by choosing to join the small table to the large table, even if this is suboptimal.
+         * NLJ runs in O(leftRows * rightRows) time, but its estimated output row count
+         * can be inaccurate — when overestimated, downstream operators (e.g. AGG) appear
+         * to have large cost benefits, tricking the optimizer into preferring a small-left-
+         * large-right NLJ plan.  Applying a penalty proportional to the smaller side's row
+         * count makes the CPU cost reflect the true join effort, helping the cost model
+         * favour hash join or reorder the join tree.
          */
         double nljPenalty = 1.0;
         if (leftStatistics.getRowCount() < 10 * rightStatistics.getRowCount()) {
             nljPenalty = Math.min(leftStatistics.getRowCount(), rightStatistics.getRowCount());
         }
+        nljPenalty = Math.max(nljPenalty, 1.0);
         return Cost.of(context.getSessionVariable(),
-                leftStatistics.getRowCount() * rightStatistics.getRowCount(),
+                leftStatistics.getRowCount() * rightStatistics.getRowCount() * nljPenalty,
                 rightStatistics.getRowCount() * nljPenalty,
                 0);
     }

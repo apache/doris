@@ -44,6 +44,7 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.OlapTableWrapper;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Partition.PartitionState;
 import org.apache.doris.catalog.PartitionInfo;
@@ -55,8 +56,6 @@ import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.RowBinlogTableWrapper;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Tablet;
-import org.apache.doris.catalog.stream.OlapTableStreamUpdate;
-import org.apache.doris.catalog.stream.OlapTableStreamWrapper;
 import org.apache.doris.cloud.catalog.CloudReplica;
 import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
@@ -189,6 +188,7 @@ public class OlapScanNode extends ScanNode {
 
     private SortInfo sortInfo = null;
     private Set<Integer> outputColumnUniqueIds = new HashSet<>();
+    private Set<Integer> extraKeyColumnSlotIds = new HashSet<>();
 
     // When scan match sort_info, we can push limit into OlapScanNode.
     // It's limit for scanner instead of scanNode so we add a new limit.
@@ -267,6 +267,10 @@ public class OlapScanNode extends ScanNode {
 
     public void setTableSample(TableSample tSample) {
         this.tableSample = tSample;
+    }
+
+    public Set<Integer> getExtraKeyColumnSlotIds() {
+        return extraKeyColumnSlotIds;
     }
 
     public void setNereidsPrunedTabletIds(Set<Long> nereidsPrunedTabletIds) {
@@ -484,11 +488,6 @@ public class OlapScanNode extends ScanNode {
         if (!(Config.isCloudMode() && Config.enable_cloud_snapshot_version)) {
             visibleVersion = partition.getVisibleVersion();
         }
-        if (olapTable instanceof OlapTableStreamWrapper
-                && ((OlapTableStreamWrapper) olapTable).getStreamUpdate(partition.getId()).second != null) {
-            // legacy support, will be removed after full olap table stream history function ready
-            visibleVersion = ((OlapTableStreamWrapper) olapTable).getStreamUpdate(partition.getId()).second;
-        }
         // for non-cloud mode. for cloud mode see `updateScanRangeVersions`
         maxVersion = Math.max(maxVersion, visibleVersion);
 
@@ -546,11 +545,11 @@ public class OlapScanNode extends ScanNode {
             );
             paloRange.setVersionHash("");
             paloRange.setTabletId(tabletId);
-            if (olapTable instanceof RowBinlogTableWrapper) {
+            if (olapTable instanceof OlapTableWrapper) {
                 TBinlogScanType binlogScanType =
-                        parseBinlogScanType(scanParams, ((RowBinlogTableWrapper) olapTable).getOriginTable());
-                if (((RowBinlogTableWrapper) olapTable).getParent().isPresent()) {
-                    Pair<Long, Long> update = getStreamUpdate(partition.getId());
+                        parseBinlogScanType(scanParams, ((OlapTableWrapper) olapTable).getOriginTable());
+                Pair<Long, Long> update = getPartitionOffset(partition.getId());
+                if (update != null) {
                     if (update.first != null) {
                         paloRange.setStartTso(update.first);
                     }
@@ -1124,6 +1123,12 @@ public class OlapScanNode extends ScanNode {
                             .map(node -> node.getId().asInt() + "").collect(Collectors.toList()));
             output.append(prefix).append("TOPN OPT:").append(topnFilterSources).append("\n");
         }
+        if (!extraKeyColumnSlotIds.isEmpty()) {
+            String extraKeyColumns = extraKeyColumnSlotIds.stream().sorted()
+                    .map(this::getExtraKeyColumnExplainName)
+                    .collect(Collectors.joining(","));
+            output.append(prefix).append("EXTRA KEY COLUMNS: ").append(extraKeyColumns).append("\n");
+        }
 
         if (!conjuncts.isEmpty()) {
             Expr expr = convertConjunctsToAndCompoundPredicate(conjuncts);
@@ -1162,6 +1167,17 @@ public class OlapScanNode extends ScanNode {
         printNestedColumns(output, prefix, getTupleDesc());
 
         return output.toString();
+    }
+
+    private String getExtraKeyColumnExplainName(Integer slotId) {
+        SlotDescriptor extraKeySlot = desc.getSlots().stream()
+                .filter(slot -> slot.getId().asInt() == slotId)
+                .findFirst()
+                .orElse(null);
+        Preconditions.checkNotNull(extraKeySlot, "missing extra key slot %s", slotId);
+        Column column = extraKeySlot.getColumn();
+        Preconditions.checkNotNull(column, "missing column for extra key slot %s", slotId);
+        return column.getName();
     }
 
     @Override
@@ -1317,6 +1333,9 @@ public class OlapScanNode extends ScanNode {
 
         if (outputColumnUniqueIds != null) {
             msg.olap_scan_node.setOutputColumnUniqueIds(outputColumnUniqueIds);
+        }
+        if (!extraKeyColumnSlotIds.isEmpty()) {
+            msg.olap_scan_node.setExtraKeyColumnSlotIds(extraKeyColumnSlotIds);
         }
 
         msg.olap_scan_node.setDistributeColumnIds(new ArrayList<>(distributionColumnIds));
@@ -1683,43 +1702,10 @@ public class OlapScanNode extends ScanNode {
         return super.getCatalogId();
     }
 
-    public OlapTableStreamUpdate getStreamUpdate() {
-        Map<Long, Long> prev = Maps.newHashMap();
-        Map<Long, Long> next = Maps.newHashMap();
-        for (Long partitionId : getSelectedPartitionIds()) {
-            Pair<Long, Long> streamUpdate = getStreamUpdate(partitionId);
-            if (streamUpdate.first != null) {
-                // prev could be null, in case of historical scan
-                prev.put(partitionId, streamUpdate.first);
-            }
-            if (streamUpdate.second != null) {
-                next.put(partitionId, streamUpdate.second);
-            } else {
-                // next could be null, in case of incremental scan
-                next.put(partitionId, olapTable.getPartition(partitionId).getTso());
-            }
-        }
-        return new OlapTableStreamUpdate(prev, next);
-    }
-
-    private Pair<Long, Long> getStreamUpdate(Long partitionId) {
+    private Pair<Long, Long> getPartitionOffset(Long partitionId) {
         // unprotected assume partitionId is in SelectedPartitionIds
-        Pair<Long, Long> streamUpdate;
-        if (olapTable instanceof RowBinlogTableWrapper) {
-            streamUpdate = ((RowBinlogTableWrapper) olapTable).getParent().get().getStreamUpdate(partitionId);
-        } else {
-            streamUpdate = ((OlapTableStreamWrapper) olapTable).getStreamUpdate(partitionId);
-        }
-        return streamUpdate;
-    }
-
-    public boolean isChangeScan() {
-        return scanParams != null && scanParams.incrementalRead() && !isIncrementalScan();
-    }
-
-    public boolean isIncrementalScan() {
-        return (olapTable instanceof RowBinlogTableWrapper)
-                && ((RowBinlogTableWrapper) olapTable).getParent().isPresent();
+        Preconditions.checkArgument(olapTable instanceof OlapTableWrapper, "olapTable is not OlapTableWrapper");
+        return ((OlapTableWrapper) olapTable).getPartitionOffset(partitionId);
     }
 
     public void setScanParams(TableScanParams scanParams) {

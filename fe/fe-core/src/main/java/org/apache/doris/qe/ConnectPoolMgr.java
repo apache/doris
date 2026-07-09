@@ -53,7 +53,12 @@ public class ConnectPoolMgr {
 
     public void timeoutChecker(long now) {
         for (ConnectContext connectContext : connectionMap.values()) {
-            connectContext.checkTimeout(now);
+            try {
+                connectContext.checkTimeout(now);
+            } catch (Throwable t) {
+                LOG.warn("failed to check timeout for connection, connectionId: {}, user: {}",
+                        connectContext.getConnectionId(), connectContext.getQualifiedUser(), t);
+            }
         }
     }
 

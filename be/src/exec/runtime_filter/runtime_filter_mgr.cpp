@@ -25,6 +25,9 @@
 #include <gen_cpp/internal_service.pb.h>
 #include <gen_cpp/types.pb.h>
 
+#include <algorithm>
+#include <cstdlib>
+#include <cstring>
 #include <mutex>
 #include <ostream>
 #include <string>
@@ -45,8 +48,194 @@
 #include "runtime/thread_context.h"
 #include "util/brpc_client_cache.h"
 #include "util/brpc_closure.h"
+#include "util/uid_util.h"
 
 namespace doris {
+
+namespace {
+
+std::vector<RuntimeFilterPublishTarget> build_runtime_filter_publish_targets(
+        const std::vector<TRuntimeFilterTargetParamsV2>& targets) {
+    std::vector<RuntimeFilterPublishTarget> publish_targets;
+    publish_targets.reserve(targets.size());
+    for (const auto& target : targets) {
+        DORIS_CHECK(target.__isset.target_fragment_ids);
+        DORIS_CHECK(!target.target_fragment_ids.empty());
+        RuntimeFilterPublishTarget publish_target;
+        publish_target.addr.set_hostname(target.target_fragment_instance_addr.hostname);
+        publish_target.addr.set_port(target.target_fragment_instance_addr.port);
+        publish_target.fragment_ids = target.target_fragment_ids;
+        publish_targets.emplace_back(std::move(publish_target));
+    }
+    return publish_targets;
+}
+
+class RuntimeFilterRelayRpcClosure final : public google::protobuf::Closure {
+public:
+    RuntimeFilterRelayRpcClosure(std::shared_ptr<PPublishFilterRequestV2> request,
+                                 std::weak_ptr<QueryContext> query_ctx)
+            : _request(std::move(request)),
+              _callback(HandleErrorBrpcCallback<PPublishFilterResponse>::create_shared(
+                      std::move(query_ctx))) {}
+
+    void Run() override {
+        std::unique_ptr<RuntimeFilterRelayRpcClosure> self(this);
+        _callback->call();
+    }
+
+    brpc::Controller* cntl() { return _callback->cntl_.get(); }
+    PPublishFilterRequestV2* request() { return _request.get(); }
+    PPublishFilterResponse* response() { return _callback->response_.get(); }
+
+private:
+    std::shared_ptr<PPublishFilterRequestV2> _request;
+    std::shared_ptr<HandleErrorBrpcCallback<PPublishFilterResponse>> _callback;
+};
+
+Status send_runtime_filter_relay_rpc(const RuntimeFilterPublishTask& task,
+                                     const butil::IOBuf& request_attachment, int timeout_ms,
+                                     std::weak_ptr<QueryContext> query_ctx) {
+    std::shared_ptr<PBackendService_Stub> stub(
+            ExecEnv::GetInstance()->brpc_internal_client_cache()->get_client(task.receiver.addr));
+    if (stub == nullptr) {
+        LOG(WARNING) << "Failed to init runtime filter relay rpc to "
+                     << task.receiver.addr.hostname() << ":" << task.receiver.addr.port();
+        return Status::InternalError("Failed to init runtime filter relay rpc to {}:{}",
+                                     task.receiver.addr.hostname(), task.receiver.addr.port());
+    }
+
+    // brpc calls Run() exactly once; RuntimeFilterRelayRpcClosure deletes itself there.
+    auto* closure = new RuntimeFilterRelayRpcClosure(
+            std::make_shared<PPublishFilterRequestV2>(task.request), std::move(query_ctx));
+    if (!request_attachment.empty()) {
+        closure->cntl()->request_attachment().append(request_attachment);
+    }
+    closure->cntl()->set_timeout_ms(timeout_ms);
+    if (config::execution_ignore_eovercrowded) {
+        closure->cntl()->ignore_eovercrowded();
+    }
+    stub->apply_filterv2(closure->cntl(), closure->request(), closure->response(), closure);
+    return Status::OK();
+}
+
+void set_request_direct_publish_target(const TRuntimeFilterTargetParamsV2& target,
+                                       PPublishFilterRequestV2* request) {
+    DORIS_CHECK(target.__isset.target_fragment_ids);
+    DORIS_CHECK(!target.target_fragment_ids.empty());
+    for (const auto& target_fragment_id : target.target_fragment_ids) {
+        request->add_fragment_ids(target_fragment_id);
+    }
+}
+
+} // namespace
+
+std::vector<std::vector<RuntimeFilterPublishTarget>> split_runtime_filter_publish_targets(
+        const std::vector<RuntimeFilterPublishTarget>& targets, int fanout) {
+    DORIS_CHECK(!targets.empty());
+    DORIS_CHECK(fanout > 0);
+    size_t slice_count = std::min(targets.size(), static_cast<size_t>(fanout));
+    std::vector<std::vector<RuntimeFilterPublishTarget>> slices;
+    slices.reserve(slice_count);
+    for (size_t offset = 0; offset < targets.size();) {
+        size_t remaining_targets = targets.size() - offset;
+        size_t remaining_slices = slice_count - slices.size();
+        size_t slice_size = (remaining_targets + remaining_slices - 1) / remaining_slices;
+        slices.emplace_back(targets.begin() + offset, targets.begin() + offset + slice_size);
+        offset += slice_size;
+    }
+    return slices;
+}
+
+std::vector<RuntimeFilterPublishTask> build_runtime_filter_publish_tasks(
+        const PPublishFilterRequestV2& base_request,
+        const std::vector<RuntimeFilterPublishTarget>& targets, int fanout) {
+    std::vector<RuntimeFilterPublishTask> tasks;
+    auto slices = split_runtime_filter_publish_targets(targets, fanout);
+    PPublishFilterRequestV2 request_template = base_request;
+    request_template.clear_fragment_ids();
+    request_template.clear_fragment_instance_ids();
+    request_template.clear_forward_targets();
+    tasks.reserve(slices.size());
+    for (const auto& slice : slices) {
+        DORIS_CHECK(!slice.empty());
+        RuntimeFilterPublishTask task;
+        task.receiver = slice.front();
+        task.request = request_template;
+
+        for (int32_t fragment_id : task.receiver.fragment_ids) {
+            task.request.add_fragment_ids(fragment_id);
+        }
+        for (size_t i = 1; i < slice.size(); ++i) {
+            DORIS_CHECK(!slice[i].fragment_ids.empty());
+            PPublishFilterForwardTarget* forward_target = task.request.add_forward_targets();
+            forward_target->mutable_target_addr()->CopyFrom(slice[i].addr);
+            for (int32_t fragment_id : slice[i].fragment_ids) {
+                forward_target->add_fragment_ids(fragment_id);
+            }
+        }
+        tasks.emplace_back(std::move(task));
+    }
+    return tasks;
+}
+
+int calculate_tree_publish_fanout(int64_t serialized_filter_size, size_t target_count,
+                                  int64_t max_send_bytes) {
+    DORIS_CHECK(serialized_filter_size > 0);
+    DORIS_CHECK(max_send_bytes >= 0);
+    if (max_send_bytes == 0 || target_count <= 1) {
+        return 0;
+    }
+
+    const int64_t direct_target_limit = max_send_bytes / serialized_filter_size;
+    if (target_count <= static_cast<size_t>(direct_target_limit)) {
+        return 0;
+    }
+
+    return static_cast<int>(std::max<int64_t>(1, direct_target_limit));
+}
+
+Status forward_runtime_filter(const PPublishFilterRequestV2& request,
+                              const butil::IOBuf& request_attachment,
+                              std::weak_ptr<QueryContext> query_ctx) {
+    if (request.forward_targets().empty()) {
+        return Status::OK();
+    }
+
+    std::vector<RuntimeFilterPublishTarget> targets;
+    targets.reserve(request.forward_targets_size());
+    for (const auto& forward_target : request.forward_targets()) {
+        DORIS_CHECK(forward_target.has_target_addr());
+        DORIS_CHECK(forward_target.fragment_ids_size() > 0);
+        RuntimeFilterPublishTarget target;
+        target.addr.CopyFrom(forward_target.target_addr());
+        target.fragment_ids.assign(forward_target.fragment_ids().begin(),
+                                   forward_target.fragment_ids().end());
+        targets.emplace_back(std::move(target));
+    }
+
+    DORIS_CHECK(request.has_tree_publish_fanout());
+    int fanout = request.tree_publish_fanout();
+    DORIS_CHECK(fanout > 0);
+    DORIS_CHECK(request.has_publish_rpc_timeout_ms());
+    int timeout_ms = request.publish_rpc_timeout_ms();
+    auto tasks = build_runtime_filter_publish_tasks(request, targets, fanout);
+    VLOG_NOTICE << "Runtime filter relay publish filter_id=" << request.filter_id()
+                << ", forward_targets=" << targets.size() << ", child_rpc_count=" << tasks.size()
+                << ", fanout=" << fanout;
+    auto st = Status::OK();
+    for (const auto& task : tasks) {
+        Status rpc_st =
+                send_runtime_filter_relay_rpc(task, request_attachment, timeout_ms, query_ctx);
+        if (!rpc_st.ok()) {
+            LOG(WARNING) << "Failed to forward runtime filter, query_id="
+                         << print_id(request.query_id()) << ", filter_id=" << request.filter_id()
+                         << ", target=" << task.receiver.addr.hostname() << ":"
+                         << task.receiver.addr.port() << ", status=" << rpc_st;
+            st = std::move(rpc_st);
+        }
+    }
+    return st;
+}
 
 RuntimeFilterMgr::RuntimeFilterMgr(const bool is_global)
         : _is_global(is_global),
@@ -55,7 +244,7 @@ RuntimeFilterMgr::RuntimeFilterMgr(const bool is_global)
 
 std::vector<std::shared_ptr<RuntimeFilterConsumer>> RuntimeFilterMgr::get_consume_filters(
         int filter_id) {
-    std::lock_guard<std::mutex> l(_lock);
+    LockGuard l(_lock);
     auto iter = _consumer_map.find(filter_id);
     if (iter == _consumer_map.end()) {
         return {};
@@ -69,13 +258,17 @@ Status RuntimeFilterMgr::register_consumer_filter(
     SCOPED_CONSUME_MEM_TRACKER(_tracker.get());
     int32_t key = desc.filter_id;
 
-    std::lock_guard<std::mutex> l(_lock);
-    RETURN_IF_ERROR(RuntimeFilterConsumer::create(state, &desc, node_id, consumer));
-    _consumer_map[key].push_back(*consumer);
+    std::shared_ptr<RuntimeFilterConsumer> new_consumer;
+    RETURN_IF_ERROR(RuntimeFilterConsumer::create(state, &desc, node_id, &new_consumer));
+    {
+        LockGuard l(_lock);
+        _consumer_map[key].push_back(new_consumer);
+    }
+    *consumer = new_consumer;
     return Status::OK();
 }
 
-Status RuntimeFilterMgr::register_local_merger_producer_filter(
+Status RuntimeFilterMgr::register_local_merge_producer_filter(
         const QueryContext* query_ctx, const TRuntimeFilterDesc& desc,
         std::shared_ptr<RuntimeFilterProducer> producer) {
     if (!_is_global) [[unlikely]] {
@@ -90,58 +283,57 @@ Status RuntimeFilterMgr::register_local_merger_producer_filter(
     }
     SCOPED_CONSUME_MEM_TRACKER(_tracker.get());
     int32_t key = desc.filter_id;
+    uint32_t producer_stage = producer->stage();
 
-    LocalMergeContext* context;
+    std::shared_ptr<LocalMergeContext> context;
+    std::shared_ptr<RuntimeFilterMerger> merger;
+    int expected_producer_num = 0;
     {
-        std::lock_guard<std::mutex> l(_lock);
-        context = &_local_merge_map[key]; // may inplace construct default object
+        LockGuard l(_lock);
+        auto iter = _local_merge_map.find(key);
+        if (iter == _local_merge_map.end() || !iter->second ||
+            producer_stage > iter->second->stage) {
+            auto new_context = std::make_shared<LocalMergeContext>();
+            RETURN_IF_ERROR(RuntimeFilterMerger::create(query_ctx, &desc, &new_context->merger));
+            new_context->stage = producer_stage;
+            _local_merge_map.insert_or_assign(key, new_context);
+            context = new_context;
+        } else {
+            context = iter->second;
+        }
+
+        context->producers.emplace_back(producer);
+        merger = context->merger;
+        expected_producer_num = cast_set<int>(context->producers.size());
     }
 
-    RETURN_IF_ERROR(context->register_producer(query_ctx, &desc, producer));
-    return Status::OK();
-}
-
-Status LocalMergeContext::register_producer(const QueryContext* query_ctx,
-                                            const TRuntimeFilterDesc* desc,
-                                            std::shared_ptr<RuntimeFilterProducer> producer) {
-    std::lock_guard<std::mutex> l(mtx);
-    if (producer->stage() > stage) {
-        // New recursive CTE round: discard stale merger and producers from
-        // the previous round and recreate the merger for the new round.
-        merger.reset();
-        producers.clear();
-        stage = producer->stage();
-    }
-    if (!merger) {
-        RETURN_IF_ERROR(RuntimeFilterMerger::create(query_ctx, desc, &merger));
-    }
-    producers.emplace_back(producer);
-    merger->set_expected_producer_num(cast_set<int>(producers.size()));
+    merger->increase_expected_producer_num(expected_producer_num);
     // Sync the local merger's stage from the producer so that outgoing merge RPCs
     // (via _push_to_remote) carry the correct recursive CTE round number.
-    merger->set_stage(producer->stage());
+    merger->set_stage(producer_stage);
     return Status::OK();
 }
 
-Status RuntimeFilterMgr::get_local_merge_producer_filters(int filter_id,
-                                                          LocalMergeContext** local_merge_filters) {
+Status RuntimeFilterMgr::get_local_merge_context(int filter_id, uint32_t expected_stage,
+                                                 std::shared_ptr<LocalMergeContext>* context) {
     if (!_is_global) [[unlikely]] {
         return Status::InternalError(
                 "A local merge filter can not be registered in Local RuntimeFilterMgr");
     }
-    std::lock_guard<std::mutex> l(_lock);
+    context->reset();
+    LockGuard l(_lock);
     auto iter = _local_merge_map.find(filter_id);
     if (iter == _local_merge_map.end()) {
-        // Filter may have been removed during a recursive CTE stage reset.
         // Return OK with nullptr to let the caller skip gracefully.
-        *local_merge_filters = nullptr;
         return Status::OK();
     }
-    *local_merge_filters = &iter->second;
-    if (!iter->second.merger) {
-        return Status::InternalError("local merge context merger is nullptr for filter_id: {}",
-                                     filter_id);
+    if (!iter->second) {
+        return Status::InternalError("local merge context is nullptr for filter_id: {}", filter_id);
     }
+    if (expected_stage != iter->second->stage) {
+        return Status::OK();
+    }
+    *context = iter->second;
     return Status::OK();
 }
 
@@ -155,18 +347,28 @@ Status RuntimeFilterMgr::register_producer_filter(
     SCOPED_CONSUME_MEM_TRACKER(_tracker.get());
     int32_t key = desc.filter_id;
 
-    std::lock_guard<std::mutex> l(_lock);
-    if (_producer_id_set.contains(key)) {
-        return Status::InvalidArgument("filter {} has been registered", key);
+    {
+        LockGuard l(_lock);
+        if (_producer_id_set.contains(key)) {
+            return Status::InvalidArgument("filter {} has been registered", key);
+        }
     }
-    RETURN_IF_ERROR(RuntimeFilterProducer::create(query_ctx, &desc, producer));
-    _producer_id_set.insert(key);
+    std::shared_ptr<RuntimeFilterProducer> new_producer;
+    RETURN_IF_ERROR(RuntimeFilterProducer::create(query_ctx, &desc, &new_producer));
+    {
+        LockGuard l(_lock);
+        if (_producer_id_set.contains(key)) {
+            return Status::InvalidArgument("filter {} has been registered", key);
+        }
+        _producer_id_set.insert(key);
+    }
+    *producer = new_producer;
     return Status::OK();
 }
 
 bool RuntimeFilterMgr::set_runtime_filter_params(
         const TRuntimeFilterParams& runtime_filter_params) {
-    std::lock_guard l(_lock);
+    LockGuard l(_lock);
     if (!_has_merge_addr) {
         _merge_addr = runtime_filter_params.runtime_filter_merge_addr;
         _has_merge_addr = true;
@@ -199,7 +401,7 @@ Status RuntimeFilterMergeControllerEntity::_init_with_desc(
     cnt_val->targetv2_info = targetv2_info;
     RETURN_IF_ERROR(
             RuntimeFilterMerger::create(query_ctx.get(), runtime_filter_desc, &cnt_val->merger));
-    cnt_val->merger->set_expected_producer_num(producer_size);
+    cnt_val->merger->increase_expected_producer_num(producer_size);
 
     return Status::OK();
 }
@@ -304,13 +506,13 @@ Status RuntimeFilterMergeControllerEntity::send_filter_size(std::shared_ptr<Quer
 }
 
 Status RuntimeFilterMgr::sync_filter_size(const PSyncFilterSizeRequest* request) {
-    LocalMergeContext* local_merge_filters = nullptr;
-    RETURN_IF_ERROR(get_local_merge_producer_filters(request->filter_id(), &local_merge_filters));
-    if (local_merge_filters == nullptr) {
+    std::shared_ptr<LocalMergeContext> context;
+    RETURN_IF_ERROR(get_local_merge_context(request->filter_id(), request->stage(), &context));
+    if (!context) {
         // Filter was removed during a recursive CTE stage reset; discard stale request.
         return Status::OK();
     }
-    for (auto producer : local_merge_filters->producers) {
+    for (const auto& producer : context->producers) {
         producer->set_synced_size(request->filter_size());
     }
     return Status::OK();
@@ -318,18 +520,32 @@ Status RuntimeFilterMgr::sync_filter_size(const PSyncFilterSizeRequest* request)
 
 std::string RuntimeFilterMgr::debug_string() {
     std::string result = "Local Merger Info:\n";
-    std::lock_guard l(_lock);
-    for (const auto& [filter_id, ctx] : _local_merge_map) {
+    struct LocalMergeContextSnapshot {
+        std::shared_ptr<RuntimeFilterMerger> merger;
+        std::vector<std::shared_ptr<RuntimeFilterProducer>> producers;
+    };
+    std::vector<LocalMergeContextSnapshot> local_merge_contexts;
+    std::vector<std::shared_ptr<RuntimeFilterConsumer>> consumers;
+    {
+        LockGuard l(_lock);
+        for (const auto& [filter_id, ctx] : _local_merge_map) {
+            DORIS_CHECK(ctx);
+            DORIS_CHECK(ctx->merger);
+            local_merge_contexts.push_back({ctx->merger, ctx->producers});
+        }
+        for (const auto& [filter_id, filter_consumers] : _consumer_map) {
+            consumers.insert(consumers.end(), filter_consumers.begin(), filter_consumers.end());
+        }
+    }
+    for (const auto& ctx : local_merge_contexts) {
         result += fmt::format("{}\n", ctx.merger->debug_string());
         for (const auto& producer : ctx.producers) {
             result += fmt::format("{}\n", producer->debug_string());
         }
     }
     result += "Consumer Info:\n";
-    for (const auto& [filter_id, consumers] : _consumer_map) {
-        for (const auto& consumer : consumers) {
-            result += fmt::format("{}\n", consumer->debug_string());
-        }
+    for (const auto& consumer : consumers) {
+        result += fmt::format("{}\n", consumer->debug_string());
     }
     return result;
 }
@@ -373,10 +589,9 @@ Status RuntimeFilterMergeControllerEntity::merge(std::shared_ptr<QueryContext> q
 
         RETURN_IF_ERROR(tmp_filter->assign(*request, attach_data));
 
-        RETURN_IF_ERROR(cnt_val.merger->merge_from(tmp_filter.get()));
+        RETURN_IF_ERROR(cnt_val.merger->merge_from(tmp_filter.get(), &is_ready));
 
         cnt_val.arrive_id.insert(UniqueId(request->fragment_instance_id()));
-        is_ready = cnt_val.merger->ready(); // update is_ready in locked scope
     }
 
     if (is_ready) {
@@ -384,16 +599,15 @@ Status RuntimeFilterMergeControllerEntity::merge(std::shared_ptr<QueryContext> q
                                   query_ctx->ignore_runtime_filter_error()
                                           ? std::weak_ptr<QueryContext> {}
                                           : query_ctx,
-                                  merge_time, request->query_id(), query_ctx->execution_timeout());
+                                  merge_time, request->query_id(), query_ctx->execution_timeout(),
+                                  query_ctx->query_options());
     }
     return Status::OK();
 }
 
-Status RuntimeFilterMergeControllerEntity::_send_rf_to_target(GlobalMergeContext& cnt_val,
-                                                              std::weak_ptr<QueryContext> ctx,
-                                                              int64_t merge_time,
-                                                              PUniqueId query_id,
-                                                              int execution_timeout) {
+Status RuntimeFilterMergeControllerEntity::_send_rf_to_target(
+        GlobalMergeContext& cnt_val, std::weak_ptr<QueryContext> ctx, int64_t merge_time,
+        PUniqueId query_id, int execution_timeout, const TQueryOptions& query_options) {
     if (cnt_val.targetv2_info.empty()) {
         return Status::InternalError(
                 "_send_rf_to_target called with empty targetv2_info, filter: {}",
@@ -428,6 +642,66 @@ Status RuntimeFilterMergeControllerEntity::_send_rf_to_target(GlobalMergeContext
     }
 
     std::vector<TRuntimeFilterTargetParamsV2>& targets = cnt_val.targetv2_info;
+    int timeout_ms = get_execution_rpc_timeout_ms(execution_timeout);
+    apply_request.set_merge_time(merge_time);
+    *apply_request.mutable_query_id() = query_id;
+    const int64_t serialized_filter_size =
+            static_cast<int64_t>(apply_request.ByteSizeLong()) + std::max(0, len);
+    int fanout = 0;
+    if (query_options.__isset.runtime_filter_tree_publish_max_send_bytes) {
+        int64_t max_send_bytes = query_options.runtime_filter_tree_publish_max_send_bytes;
+        DORIS_CHECK(max_send_bytes >= 0);
+        fanout = calculate_tree_publish_fanout(serialized_filter_size, targets.size(),
+                                               max_send_bytes);
+    }
+    const bool use_tree_publish = fanout > 0 && targets.size() > static_cast<size_t>(fanout);
+
+    if (use_tree_publish) {
+        apply_request.set_tree_publish_fanout(fanout);
+        apply_request.set_publish_rpc_timeout_ms(timeout_ms);
+        auto publish_targets = build_runtime_filter_publish_targets(targets);
+        auto tasks = build_runtime_filter_publish_tasks(apply_request, publish_targets, fanout);
+        cnt_val.publish_callbacks.resize(tasks.size());
+        VLOG_NOTICE << "Runtime filter tree publish filter_id=" << apply_request.filter_id()
+                    << ", serialized_bytes=" << serialized_filter_size
+                    << ", target_count=" << targets.size() << ", child_rpc_count=" << tasks.size()
+                    << ", fanout=" << fanout;
+        auto st = Status::OK();
+        for (size_t i = 0; i < tasks.size(); ++i) {
+            const auto& task = tasks[i];
+            auto callback = HandleErrorBrpcCallback<PPublishFilterResponse>::create_shared(ctx);
+            cnt_val.publish_callbacks[i] = callback;
+            auto closure = AutoReleaseClosure<PPublishFilterRequestV2,
+                                              HandleErrorBrpcCallback<PPublishFilterResponse>>::
+                    create_unique(std::make_shared<PPublishFilterRequestV2>(task.request),
+                                  callback);
+
+            if (has_attachment) {
+                closure->cntl_->request_attachment().append(request_attachment);
+            }
+            closure->cntl_->set_timeout_ms(timeout_ms);
+            if (config::execution_ignore_eovercrowded) {
+                closure->cntl_->ignore_eovercrowded();
+            }
+
+            std::shared_ptr<PBackendService_Stub> stub(
+                    ExecEnv::GetInstance()->brpc_internal_client_cache()->get_client(
+                            task.receiver.addr));
+            if (stub == nullptr) {
+                LOG(WARNING) << "Failed to init rpc to " << task.receiver.addr.hostname() << ":"
+                             << task.receiver.addr.port();
+                st = Status::InternalError("Failed to init rpc to {}:{}",
+                                           task.receiver.addr.hostname(),
+                                           task.receiver.addr.port());
+                continue;
+            }
+            stub->apply_filterv2(closure->cntl_.get(), closure->request_.get(),
+                                 closure->response_.get(), closure.get());
+            closure.release();
+        }
+        return st;
+    }
+
     auto st = Status::OK();
     cnt_val.publish_callbacks.resize(targets.size());
     for (size_t i = 0; i < targets.size(); ++i) {
@@ -438,30 +712,16 @@ Status RuntimeFilterMergeControllerEntity::_send_rf_to_target(GlobalMergeContext
                                           HandleErrorBrpcCallback<PPublishFilterResponse>>::
                 create_unique(std::make_shared<PPublishFilterRequestV2>(apply_request), callback);
 
-        closure->request_->set_merge_time(merge_time);
-        *closure->request_->mutable_query_id() = query_id;
         if (has_attachment) {
             closure->cntl_->request_attachment().append(request_attachment);
         }
 
-        closure->cntl_->set_timeout_ms(get_execution_rpc_timeout_ms(execution_timeout));
+        closure->cntl_->set_timeout_ms(timeout_ms);
         if (config::execution_ignore_eovercrowded) {
             closure->cntl_->ignore_eovercrowded();
         }
 
-        // set fragment-id
-        if (target.__isset.target_fragment_ids) {
-            for (auto& target_fragment_id : target.target_fragment_ids) {
-                closure->request_->add_fragment_ids(target_fragment_id);
-            }
-        } else {
-            // FE not upgraded yet.
-            for (auto& target_fragment_instance_id : target.target_fragment_instance_ids) {
-                PUniqueId* cur_id = closure->request_->add_fragment_instance_ids();
-                cur_id->set_hi(target_fragment_instance_id.hi);
-                cur_id->set_lo(target_fragment_instance_id.lo);
-            }
-        }
+        set_request_direct_publish_target(target, closure->request_.get());
 
         std::shared_ptr<PBackendService_Stub> stub(
                 ExecEnv::GetInstance()->brpc_internal_client_cache()->get_client(
@@ -491,7 +751,7 @@ Status GlobalMergeContext::reset(QueryContext* query_ctx) {
     DORIS_CHECK(merger);
     int producer_size = merger->get_expected_producer_num();
     RETURN_IF_ERROR(RuntimeFilterMerger::create(query_ctx, &runtime_filter_desc, &merger));
-    merger->set_expected_producer_num(producer_size);
+    merger->increase_expected_producer_num(producer_size);
     arrive_id.clear();
     source_addrs.clear();
     sync_size_callbacks.clear();

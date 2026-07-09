@@ -20,6 +20,7 @@ package org.apache.doris.nereids.glue.translator;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.GroupingInfo;
 import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.SortInfo;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Column;
@@ -48,6 +49,7 @@ import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
 import org.apache.doris.planner.AggregationNode;
 import org.apache.doris.planner.OlapScanNode;
+import org.apache.doris.planner.PartitionSortNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.PlanNodeId;
@@ -55,6 +57,8 @@ import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.RepeatNode;
 import org.apache.doris.planner.ScanContext;
 import org.apache.doris.planner.ScanNode;
+import org.apache.doris.thrift.TExplainLevel;
+import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -101,13 +105,11 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
         OlapTable t1 = PlanConstructor.newOlapTable(0, "t1", 0, KeysType.AGG_KEYS);
         List<String> qualifier = new ArrayList<>();
         qualifier.add("test");
-        List<Slot> t1Output = new ArrayList<>();
-        SlotReference col1 = new SlotReference("col1", IntegerType.INSTANCE);
-        SlotReference col2 = new SlotReference("col2", IntegerType.INSTANCE);
-        SlotReference col3 = new SlotReference("col2", IntegerType.INSTANCE);
-        t1Output.add(col1);
-        t1Output.add(col2);
-        t1Output.add(col3);
+        SlotReference col1 = SlotReference.fromColumn(StatementScopeIdGenerator.newExprId(),
+                t1, t1.getBaseSchema().get(0), qualifier);
+        SlotReference col2 = SlotReference.fromColumn(StatementScopeIdGenerator.newExprId(),
+                t1, t1.getBaseSchema().get(1), qualifier);
+        List<Slot> t1Output = ImmutableList.of(col1, col2);
         LogicalProperties t1Properties = new LogicalProperties(new Supplier<List<Slot>>() {
             @Override
             public List<Slot> get() {
@@ -119,11 +121,11 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
                 return DataTrait.EMPTY_TRAIT;
             }
         });
-        PhysicalOlapScan scan = new PhysicalOlapScan(StatementScopeIdGenerator.newRelationId(), t1, qualifier, t1.getBaseIndexId(),
-                Collections.emptyList(), Collections.emptyList(), null, PreAggStatus.on(),
-                ImmutableList.of(), Optional.empty(), t1Properties, Optional.empty(),
-                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), Optional.empty(),
-                Optional.empty(), ImmutableList.of(), Optional.empty());
+        PhysicalOlapScan scan = new PhysicalOlapScan(StatementScopeIdGenerator.newRelationId(), t1, qualifier,
+                t1.getBaseIndexId(), Collections.emptyList(), Collections.emptyList(), null, PreAggStatus.on(),
+                ImmutableList.of(), Optional.empty(), t1Properties, Optional.empty(), ImmutableList.of(),
+                ImmutableList.of(), ImmutableList.of(), Optional.empty(), Optional.empty(), ImmutableList.of(),
+                Optional.empty());
         Literal t1FilterRight = new IntegerLiteral(1);
         Expression t1FilterExpr = new GreaterThan(col1, t1FilterRight);
         PhysicalFilter<PhysicalOlapScan> filter =
@@ -139,6 +141,34 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
         List<OlapScanNode> scanNodeList = new ArrayList<>();
         planNode.collect(OlapScanNode.class, scanNodeList);
         Assertions.assertEquals(2, scanNodeList.get(0).getTupleDesc().getSlots().size());
+        Assertions.assertTrue(scanNodeList.get(0).getExtraKeyColumnSlotIds().isEmpty());
+
+        List<NamedExpression> extraKeyProjectList = new ArrayList<>();
+        extraKeyProjectList.add(col2);
+        PhysicalProject<PhysicalOlapScan> extraKeyProject = new PhysicalProject<>(extraKeyProjectList,
+                placeHolder, scan);
+        PlanTranslatorContext extraKeyPlanTranslatorContext = new PlanTranslatorContext();
+        PhysicalPlanTranslator extraKeyTranslator = new PhysicalPlanTranslator(extraKeyPlanTranslatorContext, null);
+        PlanFragment extraKeyFragment = extraKeyTranslator.visitPhysicalProject(extraKeyProject,
+                extraKeyPlanTranslatorContext);
+        List<OlapScanNode> extraKeyScanNodeList = new ArrayList<>();
+        extraKeyFragment.getPlanRoot().collect(OlapScanNode.class, extraKeyScanNodeList);
+        OlapScanNode extraKeyScanNode = extraKeyScanNodeList.get(0);
+        Assertions.assertEquals(2, extraKeyScanNode.getTupleDesc().getSlots().size());
+        Assertions.assertEquals("id", extraKeyScanNode.getTupleDesc().getSlots().get(0).getColumn().getName());
+        Assertions.assertEquals("name", extraKeyScanNode.getTupleDesc().getSlots().get(1).getColumn().getName());
+        Assertions.assertEquals(1, extraKeyScanNode.getOutputTupleDesc().getSlots().size());
+        Assertions.assertEquals("name", extraKeyScanNode.getOutputTupleDesc().getSlots().get(0).getColumn().getName());
+        Assertions.assertEquals(1, extraKeyScanNode.getProjectList().size());
+
+        int extraKeySlotId = extraKeyScanNode.getTupleDesc().getSlots().get(0).getId().asInt();
+        Assertions.assertEquals(ImmutableSet.of(extraKeySlotId), extraKeyScanNode.getExtraKeyColumnSlotIds());
+        Assertions.assertTrue(extraKeyScanNode.getNodeExplainString("", TExplainLevel.NORMAL)
+                .contains("EXTRA KEY COLUMNS: id"));
+        TPlanNode thriftScanNode = extraKeyScanNode.treeToThrift().getNodes().get(0);
+        Assertions.assertTrue(thriftScanNode.olap_scan_node.isSetExtraKeyColumnSlotIds());
+        Assertions.assertEquals(ImmutableSet.of(extraKeySlotId),
+                thriftScanNode.olap_scan_node.getExtraKeyColumnSlotIds());
     }
 
     @Test
@@ -236,6 +266,37 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
                 }
             }
         });
+    }
+
+    @Test
+    public void testPartitionTopNPrunesPartitionKeyFromSortInfo() throws Exception {
+        connectContext.getSessionVariable().setEnablePartitionTopN(true);
+        String sql = "select * from (select a, b, rank() over(partition by a order by a, b) as rk "
+                + "from test_db.t) t where rk <= 1";
+        Planner planner = getSQLPlanner(sql);
+        Assertions.assertNotNull(planner);
+
+        List<PartitionSortNode> partitionSortNodes = new ArrayList<>();
+        for (PlanFragment fragment : planner.getFragments()) {
+            PlanNode root = fragment.getPlanRoot();
+            if (root != null) {
+                root.collect(PartitionSortNode.class, partitionSortNodes);
+            }
+        }
+        Assertions.assertFalse(partitionSortNodes.isEmpty());
+
+        Field sortInfoField = PartitionSortNode.class.getDeclaredField("info");
+        sortInfoField.setAccessible(true);
+        SortInfo sortInfo = (SortInfo) sortInfoField.get(partitionSortNodes.get(0));
+        List<Expr> orderingExprs = sortInfo.getOrderingExprs();
+        Assertions.assertEquals(1, orderingExprs.size());
+        // The redundant partition key `a` must be pruned, leaving exactly the slot `b`. Assert the slot
+        // identity directly: a substring check on the WITH_TABLE-rendered SQL would false-pass because the
+        // table prefix `test_db` already contains the letter "b".
+        Expr orderingExpr = orderingExprs.get(0);
+        Assertions.assertInstanceOf(SlotRef.class, orderingExpr);
+        Assertions.assertEquals("b", ((SlotRef) orderingExpr).getColumnName());
+        Assertions.assertNotEquals("a", ((SlotRef) orderingExpr).getColumnName());
     }
 
     private OlapScanNode getFirstOlapScanNode(String sql) throws Exception {

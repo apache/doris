@@ -631,6 +631,18 @@ public class ColumnDefinition {
     }
 
     /**
+     * add hidden column __DORIS_COMMIT_TSO_COL__ for time-travel on dup / mow tables.
+     */
+    public static ColumnDefinition newCommitTsoColumnDefinition(AggregateType aggregateType) {
+        ColumnDefinition columnDefinition = new ColumnDefinition(Column.COMMIT_TSO_COL, BigIntType.INSTANCE, false,
+                    aggregateType, false, Optional.of(new DefaultValue(DefaultValue.ZERO_NUMBER)),
+                "doris commit tso hidden column", false);
+        columnDefinition.setEnableAddHiddenColumn(true);
+
+        return columnDefinition;
+    }
+
+    /**
      * used in CreateTableInfo.validate(), specify the default value as DefaultValue.NULL_DEFAULT_VALUE
      * becasue ColumnDefinition.validate() will check that bitmap type column don't set default value
      * and then set the default value of that column to bitmap_empty()

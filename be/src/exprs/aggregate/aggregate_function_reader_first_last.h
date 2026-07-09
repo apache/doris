@@ -126,10 +126,10 @@ public:
     void insert_result_into(IColumn& to) const {
         if constexpr (result_is_nullable) {
             if (_data_value.is_null()) { //_ptr == nullptr || null data at row
-                auto& col = assert_cast<ColumnNullable&>(to);
+                auto& col = assert_cast<ColumnNullable&, TypeCheckOnRelease::DISABLE>(to);
                 col.insert_default();
             } else {
-                auto& col = assert_cast<ColumnNullable&>(to);
+                auto& col = assert_cast<ColumnNullable&, TypeCheckOnRelease::DISABLE>(to);
                 col.get_null_map_data().push_back(0);
                 if constexpr (!std::is_same_v<ColVecType, void>) {
                     _data_value.template insert_into<ColVecType>(col.get_nested_column());
