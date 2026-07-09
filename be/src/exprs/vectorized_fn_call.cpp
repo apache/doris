@@ -385,6 +385,12 @@ bool VectorizedFnCall::is_deterministic() const {
     return !NON_DETERMINISTIC_FUNCTIONS.contains(_function_name) && VExpr::is_deterministic();
 }
 
+bool VectorizedFnCall::is_safe_to_execute_on_selected_rows() const {
+    static const std::set<std::string> ERROR_PRESERVING_FUNCTIONS = {"assert_true"};
+    return !ERROR_PRESERVING_FUNCTIONS.contains(_function_name) &&
+           VExpr::is_safe_to_execute_on_selected_rows();
+}
+
 bool VectorizedFnCall::equals(const VExpr& other) {
     const auto* other_ptr = dynamic_cast<const VectorizedFnCall*>(&other);
     if (!other_ptr) {

@@ -801,11 +801,11 @@ PredicateConjunctSchedule build_predicate_conjunct_schedule(
     for (const auto& conjunct : request.conjuncts) {
         DORIS_CHECK(conjunct != nullptr);
         DORIS_CHECK(conjunct->root() != nullptr);
-        if (!conjunct->root()->is_deterministic()) {
+        if (!conjunct->root()->is_safe_to_execute_on_selected_rows()) {
             // Round-by-round filtering can compact later predicate columns before evaluating
-            // remaining expressions. Stateful functions such as random(1) must see the same full
-            // batch they saw before this optimization, so any non-deterministic conjunct disables
-            // the per-column schedule for the whole batch.
+            // remaining expressions. Stateful functions such as random(1) and error-preserving
+            // functions such as assert_true() must see the same full batch they saw before this
+            // optimization, so any unsafe conjunct disables the per-column schedule for the batch.
             schedule.remaining_conjuncts = request.conjuncts;
             schedule.single_column_conjuncts.clear();
             return schedule;
@@ -836,17 +836,35 @@ bool can_evaluate_all_with_dictionary(const VExprContextSPtrs& conjuncts) {
     });
 }
 
+bool can_evaluate_dictionary_exactly(const VExprSPtr& expr) {
+    DORIS_CHECK(expr != nullptr);
+    const auto* compound_pred = dynamic_cast<const VCompoundPred*>(expr.get());
+    if (compound_pred == nullptr) {
+        return expr->can_evaluate_dictionary_filter();
+    }
+    if (compound_pred->op() != TExprOpcode::COMPOUND_AND &&
+        compound_pred->op() != TExprOpcode::COMPOUND_OR) {
+        return false;
+    }
+    return !expr->children().empty() && std::ranges::all_of(expr->children(), [](const auto& child) {
+               return can_evaluate_dictionary_exactly(child);
+           });
+}
+
 void collect_dictionary_residual_exprs(const VExprContextSPtr& owner_context, const VExprSPtr& expr,
                                        DictionaryResidualConjuncts* residual_conjuncts) {
     DORIS_CHECK(owner_context != nullptr);
     DORIS_CHECK(expr != nullptr);
     DORIS_CHECK(residual_conjuncts != nullptr);
 
-    // The dictionary interface is exact for a single dictionary-aware predicate and for OR only
-    // when every child is dictionary-aware. AND is different: VCompoundPred evaluates only the
-    // dictionary-aware children as a prefilter. Split AND recursively so the already-applied
-    // dictionary children are not executed again on materialized rows, while non-dictionary
-    // residual children still keep the original row-level semantics.
+    if (can_evaluate_dictionary_exactly(expr)) {
+        return;
+    }
+
+    // VCompoundPred dictionary evaluation is a conservative prefilter for AND when only some
+    // children are dictionary-aware. Split AND so exact dictionary children are not executed again
+    // on materialized rows. Do not split a non-exact OR: its branches cannot be evaluated
+    // independently after a dictionary prefilter without changing the original boolean semantics.
     const auto* compound_pred = dynamic_cast<const VCompoundPred*>(expr.get());
     if (compound_pred != nullptr && compound_pred->op() == TExprOpcode::COMPOUND_AND) {
         for (const auto& child : expr->children()) {
@@ -855,9 +873,7 @@ void collect_dictionary_residual_exprs(const VExprContextSPtr& owner_context, co
         return;
     }
 
-    if (!expr->can_evaluate_dictionary_filter()) {
-        residual_conjuncts->emplace_back(owner_context, expr);
-    }
+    residual_conjuncts->emplace_back(owner_context, expr);
 }
 
 DictionaryResidualConjuncts build_dictionary_residual_conjuncts(
