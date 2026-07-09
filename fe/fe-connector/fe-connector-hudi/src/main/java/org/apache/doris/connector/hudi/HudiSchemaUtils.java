@@ -278,6 +278,54 @@ public final class HudiSchemaUtils {
         return InternalSchemaCache.searchSchemaAndCache(commitTime, metaClient);
     }
 
+    // ========== HD-C5b: table schema AT the pinned instant (FOR TIME AS OF over a schema-on-read table) ==========
+
+    /**
+     * Resolve the table {@link InternalSchema} AS OF {@code queryInstant} (a {@code FOR TIME AS OF} pin), or
+     * {@link Optional#empty()} when the table is not schema-on-read (no commit-metadata {@link InternalSchema} at
+     * the instant) — the caller then uses the LATEST schema, which for a non-evolution table is byte-equivalent
+     * (its schema never changed; design decision D3). Mirror of legacy {@code
+     * HiveMetaStoreClientHelper.getHudiTableSchema} at-instant path + HD-C5a's {@code getSchemaFromMetaClient}:
+     * reload the active timeline first (so a just-committed instant's schema file is readable, not a stale cached
+     * one) then {@code getTableInternalSchemaFromCommitMetadata(instant)}. Runs on the caller's TCCL-pinned scan
+     * thread ({@code planScan} / {@code getScanNodeProperties}); the off-scan-thread {@code getTableSchema}
+     * at-instant read is wrapped by HD-C5a's {@code HudiMetaClientExecutor.execute} separately.
+     */
+    static Optional<InternalSchema> resolveInternalSchemaAtInstant(TableSchemaResolver schemaResolver,
+            HoodieTableMetaClient metaClient, String queryInstant) {
+        metaClient.reloadActiveTimeline();
+        Option<InternalSchema> atInstant = schemaResolver.getTableInternalSchemaFromCommitMetadata(queryInstant);
+        return atInstant.isPresent() ? Optional.of(atInstant.get()) : Optional.empty();
+    }
+
+    /**
+     * The Avro schema whose fields drive the JNI (MOR-realtime) reader's {@code column_names}/{@code column_types}:
+     * the schema AT {@code queryInstant} for a {@code FOR TIME AS OF} read over a schema-on-read table (legacy
+     * {@code HudiScanNode:222-224}, kept in lockstep with the native {@code -1} overlay), else {@code latestAvro}
+     * (a plain read {@code queryInstant == null}, or a non-evolution table whose schema never changed — D3). A
+     * {@code null} instant short-circuits BEFORE {@link #resolveInternalSchemaAtInstant}, so a plain read does not
+     * reload the timeline (byte-identical to before this step); the pure choice is {@link #chooseJniSchema}.
+     */
+    static Schema resolveJniColumnSchema(TableSchemaResolver schemaResolver, HoodieTableMetaClient metaClient,
+            Schema latestAvro, String queryInstant) {
+        Optional<InternalSchema> pinned = queryInstant == null
+                ? Optional.empty()
+                : resolveInternalSchemaAtInstant(schemaResolver, metaClient, queryInstant);
+        return chooseJniSchema(latestAvro, pinned);
+    }
+
+    /**
+     * Pure JNI-schema choice (package-private for same-loader testing): the at-instant schema converted back to
+     * Avro when a pinned {@link InternalSchema} is present, else {@code latestAvro} unchanged. Uses the same
+     * {@code AvroInternalSchemaConverter.convert(InternalSchema, name)} as HD-C5a's {@code
+     * columnsFromInternalSchema} (the record name is cosmetic — only the root record is named).
+     */
+    static Schema chooseJniSchema(Schema latestAvro, Optional<InternalSchema> pinnedSchema) {
+        return pinnedSchema.isPresent()
+                ? AvroInternalSchemaConverter.convert(pinnedSchema.get(), "hudi_table")
+                : latestAvro;
+    }
+
     // ========== scan-level schema-evolution dictionary (current_schema_id + history_schema_info) ==========
 
     /**
@@ -311,6 +359,24 @@ public final class HudiSchemaUtils {
                 : Collections.emptyList();
         return Optional.of(buildSchemaEvolutionDict(requestedColumns, resolved.internalSchema,
                 resolved.enableSchemaEvolution, historical));
+    }
+
+    /**
+     * The native-reader schema dictionary for a {@code FOR TIME AS OF} read over a schema-on-read table (HD-C5b):
+     * the {@code -1} target overlay is built from the FULL {@code pinnedSchema} (a SUPERSET of the pinned scan
+     * slots), NOT from the requested column handles. The handles are LATEST-keyed ({@code getColumnHandles} runs
+     * before the MVCC pin), so a column renamed after the pinned instant is absent from them under its pinned
+     * (historical) name; building the overlay from them would emit a SUBSET missing that scan slot, and BE's
+     * field-id reader ({@code by_table_field_id} StructNode) requires EVERY scan slot to be present in the {@code
+     * -1} overlay (a missing slot std::out_of_range / SIGABRTs; extra fields are looked up by name only, so a
+     * superset is safe). The history entries are ALL committed versions (Option B, identical to the steady-state
+     * dict). {@code pinnedSchema} being present already implies schema-on-read is on (its commit-metadata
+     * InternalSchema resolved), so evolution is {@code true}. Touches the metaClient to read the schema history;
+     * runs on the TCCL-pinned scan thread.
+     */
+    static String buildSchemaEvolutionDictAtInstant(HoodieTableMetaClient metaClient, InternalSchema pinnedSchema) {
+        return buildSchemaEvolutionDict(Collections.emptyList(), pinnedSchema, true,
+                allHistoricalSchemas(metaClient));
     }
 
     /**

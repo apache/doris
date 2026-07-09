@@ -44,6 +44,7 @@ import org.apache.hudi.common.table.timeline.TimelineUtils.HollowCommitHandling;
 import org.apache.hudi.common.table.view.FileSystemViewManager;
 import org.apache.hudi.common.table.view.HoodieTableFileSystemView;
 import org.apache.hudi.common.util.Option;
+import org.apache.hudi.internal.schema.InternalSchema;
 import org.apache.hudi.metadata.HoodieTableMetadata;
 import org.apache.hudi.metadata.HoodieTableMetadataUtil;
 import org.apache.hudi.storage.StoragePath;
@@ -77,9 +78,11 @@ import java.util.stream.Collectors;
  *   </li>
  * </ol>
  *
- * <p>Scope: snapshot reads, {@code FOR TIME AS OF} time travel (a pinned {@code queryInstant}), and {@code @incr}
- * incremental FILE selection (a resolved {@code (begin, end]} window). Incremental row-level filtering to the
- * window (a synthetic {@code _hoodie_commit_time} predicate) and schema evolution are deferred to later steps.</p>
+ * <p>Scope: snapshot reads, {@code FOR TIME AS OF} time travel (a pinned {@code queryInstant}), {@code @incr}
+ * incremental FILE selection (a resolved {@code (begin, end]} window), and schema evolution (per-file {@code
+ * schema_id} + the scan-level {@code -1}/history dictionary for BE's field-id matching, resolved AT the pinned
+ * instant under time travel). Incremental row-level filtering to the window (a synthetic {@code
+ * _hoodie_commit_time} predicate) is an fe-core analysis-time step, not this provider's concern.</p>
  */
 public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
 
@@ -163,13 +166,20 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
         Schema avroSchema = null;
         try {
             TableSchemaResolver schemaResolver = new TableSchemaResolver(metaClient);
-            // include the 5 `_hoodie_*` meta columns (explicit `true` = legacy parity, in lockstep with
-            // HudiConnectorMetadata.getSchemaFromMetaClient) so the JNI reader's column list matches the
-            // exposed schema; byte-identical for the common populate.meta.fields=true table.
+            // The LATEST table Avro schema (5 `_hoodie_*` meta columns included, explicit `true` = legacy
+            // parity): the base for the per-file schema_id resolver below, which classifies each file's OWN
+            // written version (independent of the query instant).
             avroSchema = schemaResolver.getTableAvroSchema(true);
-            columnNames = avroSchema.getFields().stream()
+            // HD-C5b: the JNI (MOR-realtime) reader's column list must be the schema AT the pinned instant for a
+            // FOR TIME AS OF read over a schema-on-read table (legacy HudiScanNode:222-224), kept in lockstep
+            // with the getScanNodeProperties native -1 overlay so a renamed column shows its historical name to
+            // the merge reader. A plain read (queryInstant == null) or a non-evolution table (no commit-metadata
+            // InternalSchema at the instant, D3) keeps the latest schema — byte-identical.
+            Schema jniSchema = HudiSchemaUtils.resolveJniColumnSchema(
+                    schemaResolver, metaClient, avroSchema, hudiHandle.getQueryInstant());
+            columnNames = jniSchema.getFields().stream()
                     .map(Schema.Field::name).collect(Collectors.toList());
-            columnTypes = avroSchema.getFields().stream()
+            columnTypes = jniSchema.getFields().stream()
                     .map(f -> HudiTypeMapping.toHiveTypeString(f.schema()))
                     .collect(Collectors.toList());
         } catch (Exception e) {
@@ -322,10 +332,28 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
             try {
                 HoodieTableMetaClient metaClient = buildMetaClient(buildHadoopConf(), hudiHandle.getBasePath());
                 TableSchemaResolver schemaResolver = new TableSchemaResolver(metaClient);
-                Schema latestAvro = schemaResolver.getTableAvroSchema(true);
-                HudiSchemaUtils.buildSchemaEvolutionProp(metaClient, schemaResolver, latestAvro,
-                                castHudiColumns(columns))
-                        .ifPresent(v -> props.put(SCHEMA_EVOLUTION_PROP, v));
+                // HD-C5b: FOR TIME AS OF over a schema-on-read table -> re-resolve the native -1 overlay from the
+                // FULL schema AT the pinned instant. The requested column HANDLES are latest-keyed
+                // (getColumnHandles runs before the MVCC pin), so a column renamed after the pin is absent from
+                // them under its pinned name; building the overlay from them would drop that BE scan slot (BE's
+                // field-id reader SIGABRTs on a scan slot missing from the overlay). A plain read (no pin) or a
+                // non-evolution FOR TIME AS OF (latest == at-instant, D3) uses the steady-state dict keyed off the
+                // requested columns. NOTE: no meta column can reach the pinned path — the at-instant bound schema
+                // (HD-C5a, from the InternalSchema) has no `_hoodie_*` columns, so the query cannot project one.
+                String pin = hudiHandle.getQueryInstant();
+                Optional<InternalSchema> pinnedSchema = pin == null
+                        ? Optional.empty()
+                        : HudiSchemaUtils.resolveInternalSchemaAtInstant(schemaResolver, metaClient, pin);
+                Optional<String> dict;
+                if (pinnedSchema.isPresent()) {
+                    dict = Optional.of(
+                            HudiSchemaUtils.buildSchemaEvolutionDictAtInstant(metaClient, pinnedSchema.get()));
+                } else {
+                    Schema latestAvro = schemaResolver.getTableAvroSchema(true);
+                    dict = HudiSchemaUtils.buildSchemaEvolutionProp(metaClient, schemaResolver, latestAvro,
+                            castHudiColumns(columns));
+                }
+                dict.ifPresent(v -> props.put(SCHEMA_EVOLUTION_PROP, v));
             } catch (Exception e) {
                 LOG.warn("Failed to build Hudi schema-evolution dict for {}.{}; native reads fall back to BY_NAME: {}",
                         hudiHandle.getDbName(), hudiHandle.getTableName(), e.getMessage());

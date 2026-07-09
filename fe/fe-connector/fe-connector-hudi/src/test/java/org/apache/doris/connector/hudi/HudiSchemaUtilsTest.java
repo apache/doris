@@ -23,16 +23,20 @@ import org.apache.doris.thrift.schema.external.TField;
 import org.apache.doris.thrift.schema.external.TFieldPtr;
 import org.apache.doris.thrift.schema.external.TSchema;
 
+import org.apache.avro.Schema;
 import org.apache.hudi.internal.schema.InternalSchema;
 import org.apache.hudi.internal.schema.Types;
+import org.apache.hudi.internal.schema.convert.AvroInternalSchemaConverter;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * Same-loader unit tests for {@link HudiSchemaUtils} — the HD-C4a {@code InternalSchema -> thrift} converter that
@@ -370,5 +374,72 @@ public class HudiSchemaUtilsTest {
         Assertions.assertEquals(0L, params.getHistorySchemaInfo().get(1).getSchemaId());
         Assertions.assertEquals(1L, params.getHistorySchemaInfo().get(2).getSchemaId());
         Assertions.assertEquals(2L, params.getHistorySchemaInfo().get(3).getSchemaId());
+    }
+
+    // ========== HD-C5b: scan-side schema AT the pinned instant (FOR TIME AS OF over an evolution table) ==========
+
+    @Test
+    public void jniSchemaNoPinReturnsLatestWithoutResolving() {
+        // A plain read (queryInstant == null) must NOT reload the timeline / resolve at-instant -> byte-identical
+        // to before HD-C5b, and the JNI column list stays the latest schema. Passing a null schemaResolver +
+        // metaClient proves the pin branch is never entered. MUTATION: drop the null-instant short-circuit ->
+        // resolveInternalSchemaAtInstant NPEs on the null metaClient -> red.
+        Schema latest = AvroInternalSchemaConverter.convert(buildInternalSchema(), "hudi_table");
+        Assertions.assertSame(latest,
+                HudiSchemaUtils.resolveJniColumnSchema(null, null, latest, null));
+    }
+
+    @Test
+    public void jniSchemaUsesPinnedInstantSchemaNames() {
+        // FOR TIME AS OF over a schema-on-read table: the JNI (MOR-realtime) reader's column list must be the
+        // schema AT the pin, so a column renamed AFTER the pin shows its HISTORICAL (pinned) name to the merge
+        // reader (legacy HudiScanNode:222-224). MUTATION: return latestAvro instead of converting the pinned
+        // InternalSchema -> the pinned field name is absent -> red.
+        InternalSchema pinned = new InternalSchema(3L, Types.RecordType.get(Collections.singletonList(
+                Types.Field.get(1, false, "oldname", Types.IntType.get()))));
+        // The SAME field is "newname" at latest — the JNI list must NOT use it under the pin.
+        Schema latest = AvroInternalSchemaConverter.convert(new InternalSchema(5L, Types.RecordType.get(
+                Collections.singletonList(Types.Field.get(1, false, "newname", Types.IntType.get())))),
+                "hudi_table");
+
+        Schema jni = HudiSchemaUtils.chooseJniSchema(latest, Optional.of(pinned));
+        List<String> names = new ArrayList<>();
+        jni.getFields().forEach(f -> names.add(f.name()));
+        Assertions.assertEquals(Collections.singletonList("oldname"), names);
+    }
+
+    @Test
+    public void atInstantOverlayCarriesFullPinnedSchemaWithHistoricalNames() {
+        // HD-C5b: the at-instant -1 overlay is built from the FULL pinned schema (the empty-requested path over
+        // the pinned InternalSchema), so every pinned field carries its PINNED (historical) name + stable id and
+        // the overlay is a SUPERSET of the scan slots — BE matches old files BY FIELD ID and looks each scan slot
+        // up BY NAME (a scan slot MISSING from the overlay would std::out_of_range/SIGABRT; extra fields are
+        // ignored). This test pins that PURE assembly with a rename-shaped fixture (field "oldname"@pin), asserting
+        // the overlay keys off the PINNED names, not latest. MUTATION: buildSchemaEvolutionDict dropping a pinned
+        // field from the empty-requested overlay, or emitting only the base version instead of all versions -> red.
+        // NOT covered here (e2e-owed, design §5 HD-C5b): the PROVIDER ROUTING that selects this full-pinned path
+        // when a FOR TIME AS OF pin is present (getScanNodeProperties `if (pinnedSchema.isPresent())` +
+        // resolveInternalSchemaAtInstant / buildSchemaEvolutionDictAtInstant) needs a LIVE metaClient; a mutation
+        // deleting that branch (a pinned read falling back to the latest-keyed steady-state dict) is only
+        // observable at flip-time e2e — no same-loader test can catch it.
+        InternalSchema pinned = new InternalSchema(3L, Types.RecordType.get(Arrays.asList(
+                Types.Field.get(1, false, "oldname", Types.IntType.get()),
+                Types.Field.get(2, true, "other", Types.StringType.get()))));
+        String encoded = HudiSchemaUtils.buildSchemaEvolutionDict(
+                Collections.emptyList(), pinned, true,
+                Arrays.asList(internalSchemaWithId(0L), internalSchemaWithId(3L)));
+
+        TFileScanRangeParams params = new TFileScanRangeParams();
+        HudiSchemaUtils.applySchemaEvolution(params, encoded);
+        Assertions.assertEquals(-1L, params.getCurrentSchemaId());
+        TSchema overlay = params.getHistorySchemaInfo().get(0);
+        Assertions.assertEquals(-1L, overlay.getSchemaId());
+        Map<String, TField> top = topFields(overlay);
+        // BOTH pinned fields present with their pinned names + stable ids (full-pinned superset).
+        Assertions.assertEquals(Arrays.asList("oldname", "other"), new ArrayList<>(top.keySet()));
+        Assertions.assertEquals(1, top.get("oldname").getId());
+        Assertions.assertEquals(2, top.get("other").getId());
+        // history = -1 overlay + the two committed versions (all-versions, Option B).
+        Assertions.assertEquals(3, params.getHistorySchemaInfoSize());
     }
 }
