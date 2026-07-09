@@ -243,8 +243,13 @@ When the handle carries a window: branch to incremental split enumeration — CO
 COW + MOR tables, each ≥3 commits; `SELECT ... incr('beginTime'=c1,'endTime'=c2)` returns EXACTLY the rows written
 in `(c1, c2]` — **including the linchpin case where a base file touched in the window also carries forward
 older-commit rows** (proves the `_hoodie_commit_time` filter, not just file selection). Plus: RO-as-RT table,
-`endTime='latest'` sentinel, empty-timeline (Empty relation), fallback-full-table-scan (archived instant). Assert
-byte-parity vs the legacy HMS hudi catalog on identical data.
+`endTime='latest'` sentinel, empty-timeline (Empty relation), fallback-full-table-scan (archived instant),
+**meta-fields-disabled table** (the `checkIncrementalMetaFields` rejection — mandated §4 INC-1 deferral-1), and a
+**hollow / inflight-commit table read under `hoodie.read.timeline.holes.resolution.policy=USE_TRANSITION_TIME`**
+(the completion-time END axis: a table where `getCompletionTime() != requestedTime()` for the last in-window
+commit, asserting the end resolves on the completion axis so the final commit's rows are NOT under-read — this is
+the ONLY level at which the axis fix from INC-2 is verified; the offline unit tests cannot drive it, INC-1
+deferral-2). Assert byte-parity vs the legacy HMS hudi catalog on identical data.
 
 ## 6. Decisions
 - **D-C3-1 (visibility parity) — SIGNED (user 2026-07-09) = all 5 `_hoodie_*` meta columns VISIBLE (legacy parity).** (§1.1)
