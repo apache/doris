@@ -846,7 +846,8 @@ bool can_evaluate_dictionary_exactly(const VExprSPtr& expr) {
         compound_pred->op() != TExprOpcode::COMPOUND_OR) {
         return false;
     }
-    return !expr->children().empty() && std::ranges::all_of(expr->children(), [](const auto& child) {
+    return !expr->children().empty() &&
+           std::ranges::all_of(expr->children(), [](const auto& child) {
                return can_evaluate_dictionary_exactly(child);
            });
 }
