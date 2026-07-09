@@ -596,6 +596,73 @@ public class PaimonScanNodeTest {
         Assert.assertEquals(Arrays.asList(false, true), rangeDesc.getColumnsFromPathIsNull());
     }
 
+    @Test
+    public void testGetPathPartitionKeysReturnsTablePartitionKeys() throws Exception {
+        PaimonScanNode node = newTestNode(new PlanNodeId(0), new TupleId(0), sv);
+        PaimonSource source = Mockito.mock(PaimonSource.class);
+        Table table = Mockito.mock(Table.class);
+        PaimonSysExternalTable sysTable = Mockito.mock(PaimonSysExternalTable.class);
+        Mockito.when(source.getPaimonTable()).thenReturn(table);
+        Mockito.when(source.getExternalTable()).thenReturn(sysTable);
+        Mockito.when(table.partitionKeys()).thenReturn(Arrays.asList("Dt", "Region"));
+        Mockito.when(sysTable.isDataTable()).thenReturn(true);
+        node.setSource(source);
+
+        Assert.assertEquals(Arrays.asList("Dt", "Region"), node.getPathPartitionKeys());
+    }
+
+    @Test
+    public void testGetPathPartitionKeysReturnsEmptyForMetadataSystemTable() throws Exception {
+        PaimonScanNode node = newTestNode(new PlanNodeId(0), new TupleId(0), sv);
+        PaimonSource source = Mockito.mock(PaimonSource.class);
+        PaimonSysExternalTable sysTable = Mockito.mock(PaimonSysExternalTable.class);
+        Mockito.when(source.getExternalTable()).thenReturn(sysTable);
+        Mockito.when(sysTable.isDataTable()).thenReturn(false);
+        node.setSource(source);
+
+        Assert.assertEquals(Collections.emptyList(), node.getPathPartitionKeys());
+    }
+
+    @Test
+    public void testSetPaimonParamsUsesOrderedPartitionKeys() throws Exception {
+        PaimonScanNode node = newTestNode(new PlanNodeId(0), new TupleId(0), sv);
+        PaimonSource source = Mockito.mock(PaimonSource.class);
+        Table table = Mockito.mock(Table.class);
+        PaimonSysExternalTable sysTable = Mockito.mock(PaimonSysExternalTable.class);
+        Mockito.when(source.getPaimonTable()).thenReturn(table);
+        Mockito.when(source.getTableLocation()).thenReturn("file:///warehouse");
+        Mockito.when(source.getExternalTable()).thenReturn(sysTable);
+        Mockito.when(sysTable.isDataTable()).thenReturn(true);
+        Mockito.when(table.partitionKeys()).thenReturn(Arrays.asList("Pt", "Dt"));
+        node.setSource(source);
+
+        TFileRangeDesc rangeDesc = new TFileRangeDesc();
+        rangeDesc.setColumnsFromPathKeys(Collections.singletonList("stale"));
+        rangeDesc.setColumnsFromPath(Collections.singletonList("old"));
+        rangeDesc.setColumnsFromPathIsNull(Collections.singletonList(false));
+        Map<String, String> partitionValues = new HashMap<>();
+        partitionValues.put("Dt", "2025-01-01");
+        partitionValues.put("Pt", "p1");
+        PaimonSplit split = new PaimonSplit(createDataSplit("ordered.parquet"));
+        split.setPaimonPartitionValues(partitionValues);
+
+        invokePrivateMethod(node, "setPaimonParams",
+                new Class<?>[] {TFileRangeDesc.class, PaimonSplit.class}, rangeDesc, split);
+
+        Assert.assertEquals(Arrays.asList("Pt", "Dt"), rangeDesc.getColumnsFromPathKeys());
+        Assert.assertEquals(Arrays.asList("p1", "2025-01-01"), rangeDesc.getColumnsFromPath());
+        Assert.assertEquals(Arrays.asList(false, false), rangeDesc.getColumnsFromPathIsNull());
+    }
+
+    @Test
+    public void testGetFieldIndexMatchesMixedCaseColumns() {
+        List<String> fieldNames = Arrays.asList("data", "mIxEd_COL", "PART");
+
+        Assert.assertEquals(1, PaimonScanNode.getFieldIndex(fieldNames, "mixed_col"));
+        Assert.assertEquals(2, PaimonScanNode.getFieldIndex(fieldNames, "part"));
+        Assert.assertEquals(-1, PaimonScanNode.getFieldIndex(fieldNames, "missing_col"));
+    }
+
     private void mockJniReader(PaimonScanNode spyNode) {
         Mockito.doReturn(false).when(spyNode).supportNativeReader(ArgumentMatchers.any(Optional.class));
     }

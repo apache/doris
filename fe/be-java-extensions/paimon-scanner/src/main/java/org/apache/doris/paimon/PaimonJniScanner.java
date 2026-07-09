@@ -250,7 +250,20 @@ public class PaimonJniScanner extends JniScanner {
     }
 
     private int[] getProjected() {
-        return Arrays.stream(fields).mapToInt(paimonAllFieldNames::indexOf).toArray();
+        return Arrays.stream(fields).mapToInt(fieldName -> {
+            int index = getFieldIndex(paimonAllFieldNames, fieldName);
+            Preconditions.checkArgument(index >= 0, "RequiredField %s not found in schema", fieldName);
+            return index;
+        }).toArray();
+    }
+
+    static int getFieldIndex(List<String> fieldNames, String fieldName) {
+        for (int i = 0; i < fieldNames.size(); i++) {
+            if (fieldNames.get(i).equalsIgnoreCase(fieldName)) {
+                return i;
+            }
+        }
+        return -1;
     }
 
     private List<Predicate> getPredicates() {
@@ -274,7 +287,7 @@ public class PaimonJniScanner extends JniScanner {
             if (types[i].isDateTimeV2()) {
                 // paimon support precision > 6, but it has been reset as 6 in FE
                 // try to get the right precision for datetimev2
-                int index = paimonAllFieldNames.indexOf(fields[i]);
+                int index = getFieldIndex(paimonAllFieldNames, fields[i]);
                 if (index != -1) {
                     DataType dataType = table.rowType().getTypeAt(index);
                     if (dataType instanceof TimestampType) {

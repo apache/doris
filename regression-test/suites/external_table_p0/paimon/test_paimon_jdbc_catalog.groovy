@@ -267,7 +267,7 @@ suite("test_paimon_jdbc_catalog", "p0,external") {
 
         assertSystemTableReadable(
             "paimon_jdbc_row_tracking_tbl\$row_tracking",
-            ["_row_id", "_sequence_number"],
+            ["_ROW_ID", "_SEQUENCE_NUMBER"],
             1
         )
     } finally {

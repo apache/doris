@@ -203,6 +203,18 @@ public class IcebergUtilsTest {
     }
 
     @Test
+    public void testParseSchemaPreservesNonLowercaseColumnNames() {
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "mIxEd_COL", Types.IntegerType.get()),
+                Types.NestedField.required(2, "PART", Types.StringType.get()));
+
+        List<Column> columns = IcebergUtils.parseSchema(schema, false, false);
+
+        Assert.assertEquals("mIxEd_COL", columns.get(0).getName());
+        Assert.assertEquals("PART", columns.get(1).getName());
+    }
+
+    @Test
     public void testGetPartitionInfoMapSkipBinaryIdentityPartition() {
         Schema schema = new Schema(
                 Types.NestedField.required(1, "id", Types.IntegerType.get()),
@@ -214,6 +226,104 @@ public class IcebergUtilsTest {
 
         Map<String, String> partitionInfoMap = IcebergUtils.getPartitionInfoMap(partitionData, partitionSpec, "UTC");
         Assert.assertNull(partitionInfoMap);
+    }
+
+    @Test
+    public void testGetIdentityPartitionColumnsIgnoresTransformPartitions() {
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.required(2, "Dt", Types.StringType.get()),
+                Types.NestedField.required(3, "ts", Types.TimestampType.withoutZone()));
+        PartitionSpec specWithTransform = PartitionSpec.builderFor(schema)
+                .withSpecId(1)
+                .identity("Dt")
+                .day("ts")
+                .build();
+        PartitionSpec identityOnlySpec = PartitionSpec.builderFor(schema)
+                .withSpecId(2)
+                .identity("id")
+                .build();
+        Map<Integer, PartitionSpec> specs = new LinkedHashMap<>();
+        specs.put(specWithTransform.specId(), specWithTransform);
+        specs.put(identityOnlySpec.specId(), identityOnlySpec);
+
+        Table table = Mockito.mock(Table.class);
+        Mockito.when(table.schema()).thenReturn(schema);
+        Mockito.when(table.specs()).thenReturn(specs);
+
+        Assert.assertEquals(Arrays.asList("Dt", "id"), IcebergUtils.getIdentityPartitionColumns(table));
+    }
+
+    @Test
+    public void testGetIdentityPartitionInfoMapReturnsIdentityColumnsOnly() {
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "Dt", Types.StringType.get()),
+                Types.NestedField.required(2, "ts", Types.TimestampType.withoutZone()));
+        PartitionSpec partitionSpec = PartitionSpec.builderFor(schema)
+                .identity("Dt")
+                .day("ts")
+                .build();
+        PartitionData partitionData = new PartitionData(partitionSpec.partitionType());
+        partitionData.set(0, "2025-01-01");
+        partitionData.set(1, 20000);
+
+        Table table = Mockito.mock(Table.class);
+        Mockito.when(table.schema()).thenReturn(schema);
+
+        Map<String, String> partitionInfoMap = IcebergUtils.getIdentityPartitionInfoMap(
+                partitionData, partitionSpec, table, "UTC");
+        Assert.assertEquals(Collections.singletonMap("Dt", "2025-01-01"), partitionInfoMap);
+    }
+
+    @Test
+    public void testGetIdentityPartitionInfoMapSupportsFloatingPointPartitions() {
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "float_partition", Types.FloatType.get()),
+                Types.NestedField.required(2, "double_partition", Types.DoubleType.get()));
+        PartitionSpec partitionSpec = PartitionSpec.builderFor(schema)
+                .identity("float_partition")
+                .identity("double_partition")
+                .build();
+        float floatValue = Math.nextUp(0.1F);
+        double doubleValue = Math.nextUp(0.1D);
+        PartitionData partitionData = new PartitionData(partitionSpec.partitionType());
+        partitionData.set(0, floatValue);
+        partitionData.set(1, doubleValue);
+
+        Table table = Mockito.mock(Table.class);
+        Mockito.when(table.schema()).thenReturn(schema);
+
+        Map<String, String> partitionInfoMap = IcebergUtils.getIdentityPartitionInfoMap(
+                partitionData, partitionSpec, table, "UTC");
+
+        String serializedFloat = partitionInfoMap.get("float_partition");
+        String serializedDouble = partitionInfoMap.get("double_partition");
+        Assert.assertEquals(Float.toString(floatValue), serializedFloat);
+        Assert.assertEquals(Double.toString(doubleValue), serializedDouble);
+        Assert.assertEquals(Float.floatToIntBits(floatValue),
+                Float.floatToIntBits(Float.parseFloat(serializedFloat)));
+        Assert.assertEquals(Double.doubleToLongBits(doubleValue),
+                Double.doubleToLongBits(Double.parseDouble(serializedDouble)));
+    }
+
+    @Test
+    public void testParseFloatingPointPartitionValueSupportsSpecialValues() {
+        Assert.assertTrue(Float.isNaN(
+                (Float) IcebergUtils.parsePartitionValueFromString("NaN", Types.FloatType.get())));
+        Assert.assertTrue(Float.isNaN(
+                (Float) IcebergUtils.parsePartitionValueFromString("nan", Types.FloatType.get())));
+        Assert.assertEquals(Float.POSITIVE_INFINITY,
+                (Float) IcebergUtils.parsePartitionValueFromString("Infinity", Types.FloatType.get()), 0.0F);
+        Assert.assertEquals(Float.NEGATIVE_INFINITY,
+                (Float) IcebergUtils.parsePartitionValueFromString("-inf", Types.FloatType.get()), 0.0F);
+        Assert.assertTrue(Double.isNaN(
+                (Double) IcebergUtils.parsePartitionValueFromString("NaN", Types.DoubleType.get())));
+        Assert.assertTrue(Double.isNaN(
+                (Double) IcebergUtils.parsePartitionValueFromString("nan", Types.DoubleType.get())));
+        Assert.assertEquals(Double.POSITIVE_INFINITY,
+                (Double) IcebergUtils.parsePartitionValueFromString("Infinity", Types.DoubleType.get()), 0.0D);
+        Assert.assertEquals(Double.NEGATIVE_INFINITY,
+                (Double) IcebergUtils.parsePartitionValueFromString("-inf", Types.DoubleType.get()), 0.0D);
     }
 
     @Test
