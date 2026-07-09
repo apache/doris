@@ -121,4 +121,37 @@ TEST(RowBinlogSegmentWriterTest, skipHiddenNonKeyBeforeVisibleColumn) {
     EXPECT_EQ(1, writer.normal_column_ordinal(2));
 }
 
+TEST(RowBinlogSegmentWriterTest, skipMultipleHiddenNonKeyColumns) {
+    auto source_schema = std::make_shared<TabletSchema>();
+    source_schema->append_column(
+            create_column(0, "k1", FieldType::OLAP_FIELD_TYPE_INT, true, true));
+    source_schema->append_column(create_column(1, "__DORIS_TEST_HIDDEN_VALUE_1__",
+                                               FieldType::OLAP_FIELD_TYPE_INT, false, false));
+    source_schema->append_column(
+            create_column(2, "v1", FieldType::OLAP_FIELD_TYPE_INT, false, true));
+    source_schema->append_column(create_column(3, "__DORIS_TEST_HIDDEN_VALUE_2__",
+                                               FieldType::OLAP_FIELD_TYPE_INT, false, false));
+    source_schema->append_column(
+            create_column(4, "v2", FieldType::OLAP_FIELD_TYPE_INT, false, true));
+    source_schema->append_column(create_column(5, "__DORIS_TEST_HIDDEN_VALUE_3__",
+                                               FieldType::OLAP_FIELD_TYPE_INT, false, false));
+    source_schema->_keys_type = UNIQUE_KEYS;
+
+    SegmentWriteBinlogOptions options;
+    options.source.tablet_schema = source_schema;
+
+    RowBinlogSourceDataWriter writer(options);
+    ASSERT_TRUE(writer.init().ok());
+    EXPECT_EQ(3, writer.normal_column_count());
+    EXPECT_TRUE(writer.is_normal_column(0));
+    EXPECT_FALSE(writer.is_normal_column(1));
+    EXPECT_TRUE(writer.is_normal_column(2));
+    EXPECT_FALSE(writer.is_normal_column(3));
+    EXPECT_TRUE(writer.is_normal_column(4));
+    EXPECT_FALSE(writer.is_normal_column(5));
+    EXPECT_EQ(0, writer.normal_column_ordinal(0));
+    EXPECT_EQ(1, writer.normal_column_ordinal(2));
+    EXPECT_EQ(2, writer.normal_column_ordinal(4));
+}
+
 } // namespace doris::segment_v2
