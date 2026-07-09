@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_iceberg_deletion_vector", "p0,external,doris,external_docker,external_docker_doris") {
+suite("test_iceberg_deletion_vector", "p0,external,nonConcurrent") {
     String enabled = context.config.otherConfigs.get("enableIcebergTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         logger.info("disable iceberg test.")
@@ -327,6 +327,33 @@ class IcebergRestCatalog {
     qt_q2 """ SELECT * FROM dv_test_v2 ORDER BY id; """
     qt_q3 """ SELECT * FROM dv_test_orc ORDER BY id; """
     qt_no_delete """ SELECT * FROM dv_test_no_delete ORDER BY id; """
+
+    def enableFileScannerV2Rows = sql """SHOW VARIABLES LIKE 'enable_file_scanner_v2'"""
+    assertTrue(enableFileScannerV2Rows.size() > 0,
+            "Session variable enable_file_scanner_v2 is not found")
+    String originalEnableFileScannerV2 = enableFileScannerV2Rows[0][1].toString()
+    try {
+        sql """set enable_file_scanner_v2=false"""
+        GetDebugPoint().clearDebugPointsForAllBEs()
+        GetDebugPoint().enableDebugPointForAllBEs(
+                "IcebergDeleteFileReader.read_deletion_vector.io_error")
+        test {
+            sql """ SELECT count(*) FROM dv_test; """
+            exception "injected Iceberg deletion vector read failure"
+        }
+
+        sql """set enable_file_scanner_v2=true"""
+        GetDebugPoint().clearDebugPointsForAllBEs()
+        GetDebugPoint().enableDebugPointForAllBEs(
+                "TableReader.parse_deletion_vector.io_error")
+        test {
+            sql """ SELECT count(*) FROM dv_test; """
+            exception "injected format v2 deletion vector read failure"
+        }
+    } finally {
+        GetDebugPoint().clearDebugPointsForAllBEs()
+        sql """set enable_file_scanner_v2=${originalEnableFileScannerV2}"""
+    }
 
     // Delete-type matrix checks cover equality-only, position-only, DV-only, DV+position,
     // and DV+equality combinations.

@@ -56,10 +56,10 @@ public:
                            io_ctx, meta_cache) {};
     ~PaimonOrcReader() final = default;
 
-    void set_delete_rows() final {
-        (reinterpret_cast<OrcReader*>(_file_format_reader.get()))
-                ->set_position_delete_rowids(_delete_rows);
-    }
+    Status TEST_init_deletion_vector() { return _init_deletion_vector(); }
+
+protected:
+    Status on_before_init_reader(ReaderInitContext* ctx) override;
 
     Status init_reader(
             const std::vector<std::string>& read_table_col_names,
@@ -93,10 +93,10 @@ public:
                            io_ctx, meta_cache) {};
     ~PaimonParquetReader() final = default;
 
-    void set_delete_rows() final {
-        (reinterpret_cast<ParquetReader*>(_file_format_reader.get()))
-                ->set_delete_rows(_delete_rows);
-    }
+    Status TEST_init_deletion_vector() { return _init_deletion_vector(); }
+
+protected:
+    Status on_before_init_reader(ReaderInitContext* ctx) override;
 
     Status init_reader(
             const std::vector<std::string>& read_table_col_names,

@@ -20,6 +20,7 @@
 #include <fmt/format.h>
 
 #include <cstring>
+#include <memory>
 #include <vector>
 
 #include "common/status.h"
@@ -108,7 +109,7 @@ Status PaimonReader::init_row_filters() {
     using DeleteRows = std::vector<int64_t>;
     _delete_rows = _kv_cache->get<DeleteRows>(
             build_paimon_deletion_vector_cache_key(deletion_file), [&]() -> DeleteRows* {
-                auto* delete_rows = new DeleteRows;
+                auto delete_rows = std::make_unique<DeleteRows>();
 
                 TFileRangeDesc delete_range;
                 delete_range.__set_fs_name(get_scan_range().fs_name);
@@ -134,12 +135,12 @@ Status PaimonReader::init_row_filters() {
 
                 SCOPED_TIMER(_paimon_profile.parse_deletion_vector_time);
                 create_status = decode_paimon_deletion_vector_buffer(buffer.data(), bytes_read,
-                                                                     delete_rows);
+                                                                     delete_rows.get());
                 if (!create_status.ok()) [[unlikely]] {
                     return nullptr;
                 }
                 COUNTER_UPDATE(_paimon_profile.num_delete_rows, delete_rows->size());
-                return delete_rows;
+                return delete_rows.release();
             });
     RETURN_IF_ERROR(create_status);
     if (!_delete_rows->empty()) [[likely]] {
@@ -174,7 +175,7 @@ Status PaimonParquetReader::_init_deletion_vector() {
     using DeleteRows = std::vector<int64_t>;
     _delete_rows = _kv_cache->get<DeleteRows>(
             build_paimon_deletion_vector_cache_key(deletion_file), [&]() -> DeleteRows* {
-                auto* delete_rows = new DeleteRows;
+                auto delete_rows = std::make_unique<DeleteRows>();
 
                 TFileRangeDesc delete_range;
                 delete_range.__set_fs_name(get_scan_range().fs_name);
@@ -200,12 +201,12 @@ Status PaimonParquetReader::_init_deletion_vector() {
 
                 SCOPED_TIMER(_paimon_profile.parse_deletion_vector_time);
                 create_status = decode_paimon_deletion_vector_buffer(buffer.data(), bytes_read,
-                                                                     delete_rows);
+                                                                     delete_rows.get());
                 if (!create_status.ok()) [[unlikely]] {
                     return nullptr;
                 }
                 COUNTER_UPDATE(_paimon_profile.num_delete_rows, delete_rows->size());
-                return delete_rows;
+                return delete_rows.release();
             });
     RETURN_IF_ERROR(create_status);
     if (!_delete_rows->empty()) [[likely]] {

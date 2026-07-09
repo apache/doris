@@ -46,6 +46,7 @@
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
 #include "storage/predicate/column_predicate.h"
+#include "util/debug_points.h"
 
 namespace doris {
 
@@ -313,6 +314,10 @@ Status read_iceberg_deletion_vector(const TIcebergDeleteFileDesc& delete_file,
     if (!delete_file.__isset.content_offset || !delete_file.__isset.content_size_in_bytes) {
         return Status::InternalError("Deletion vector is missing content offset or length");
     }
+    DBUG_EXECUTE_IF("IcebergDeleteFileReader.read_deletion_vector.io_error",
+                    { return Status::IOError("injected Iceberg deletion vector read failure"); });
+    DBUG_EXECUTE_IF("IcebergDeleteFileReader.read_deletion_vector.should_stop",
+                    { return Status::EndOfFile("stop read."); });
 
     TFileRangeDesc delete_range = build_iceberg_delete_file_range(delete_file.path);
     if (options.fs_name != nullptr && !options.fs_name->empty()) {
@@ -328,7 +333,7 @@ Status read_iceberg_deletion_vector(const TIcebergDeleteFileDesc& delete_file,
     std::vector<char> buf(delete_range.size);
     RETURN_IF_ERROR(dv_reader.read_at(delete_range.start_offset,
                                       {buf.data(), cast_set<size_t>(delete_range.size)}));
-    return decode_iceberg_deletion_vector_buffer(buf.data(), delete_range.size, rows_to_delete);
+    return decode_deletion_vector_buffer(buf.data(), delete_range.size, rows_to_delete);
 }
 
 Status decode_iceberg_deletion_vector_buffer(const char* buf, size_t buffer_size,
