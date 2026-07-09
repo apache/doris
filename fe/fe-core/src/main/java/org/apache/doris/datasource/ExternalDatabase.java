@@ -38,6 +38,7 @@ import org.apache.doris.datasource.metacache.MetaCacheEntry;
 import org.apache.doris.datasource.metacache.NameCacheValue;
 import org.apache.doris.datasource.test.TestExternalDatabase;
 import org.apache.doris.persist.gson.GsonPostProcessable;
+
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Objects;
 import com.google.common.base.Strings;
