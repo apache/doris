@@ -29,8 +29,6 @@
 #include "common/status.h"
 #include "core/assert_cast.h"
 #include "core/block/block.h"
-#include "core/column/column_nullable.h"
-#include "core/column/column_string.h"
 #include "core/column/column_vector.h"
 #include "exprs/vexpr_context.h"
 #include "format_v2/parquet/parquet_column_schema.h"
@@ -789,65 +787,6 @@ bool can_evaluate_all_with_dictionary(const VExprContextSPtrs& conjuncts) {
     });
 }
 
-size_t file_block_column_count(const format::FileScanRequest& request) {
-    size_t column_count = 0;
-    for (const auto& [_, block_position] : request.local_positions) {
-        column_count = std::max(column_count, static_cast<size_t>(block_position.value()) + 1);
-    }
-    return column_count;
-}
-
-Status build_dictionary_value_column(const ParquetColumnSchema& column_schema,
-                                     const ParquetDictionaryWords& dict_words,
-                                     ColumnWithTypeAndName* column) {
-    DORIS_CHECK(column != nullptr);
-    auto string_column = ColumnString::create();
-    for (const auto& value : dict_words.values) {
-        string_column->insert_data(value.data(), value.size());
-    }
-
-    MutableColumnPtr result_column = std::move(string_column);
-    if (column_schema.type->is_nullable()) {
-        result_column = ColumnNullable::create(std::move(result_column),
-                                               ColumnUInt8::create(dict_words.values.size(), 0));
-    }
-    *column =
-            ColumnWithTypeAndName(std::move(result_column), column_schema.type, column_schema.name);
-    return Status::OK();
-}
-
-Status build_dictionary_filter_block(
-        const format::FileScanRequest& request,
-        const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
-        format::LocalColumnId dictionary_column_id, const ParquetDictionaryWords& dict_words,
-        Block* dict_block) {
-    DORIS_CHECK(dict_block != nullptr);
-    dict_block->clear();
-    // VExpr conjuncts address columns by their file-block position, not by Parquet local column id.
-    // Keep the temporary dictionary block in the same layout as normal scan blocks so existing
-    // expression evaluation can be reused without a dictionary-specific expression path.
-    std::vector<ColumnWithTypeAndName> columns(file_block_column_count(request));
-    for (const auto& [file_column_id, block_position] : request.local_positions) {
-        DORIS_CHECK(file_column_id.is_valid() &&
-                    file_column_id.value() < static_cast<int>(file_schema.size()));
-        const auto& column_schema = file_schema[file_column_id.value()];
-        DORIS_CHECK(column_schema != nullptr);
-        ColumnWithTypeAndName column;
-        if (file_column_id == dictionary_column_id) {
-            RETURN_IF_ERROR(build_dictionary_value_column(*column_schema, dict_words, &column));
-        } else {
-            column = ColumnWithTypeAndName(column_schema->type->create_column(),
-                                           column_schema->type, column_schema->name);
-        }
-        columns[static_cast<size_t>(block_position.value())] = std::move(column);
-    }
-    for (auto& column : columns) {
-        DORIS_CHECK(column.column.get() != nullptr);
-        dict_block->insert(std::move(column));
-    }
-    return Status::OK();
-}
-
 uint16_t count_selected_rows(const IColumn::Filter& filter) {
     uint16_t selected_rows = 0;
     for (const auto value : filter) {
@@ -863,6 +802,31 @@ Status filter_read_predicate_columns(Block* file_block, const std::vector<uint32
     }
     RETURN_IF_CATCH_EXCEPTION(Block::filter_block_internal(file_block, positions, compact_filter));
     return Status::OK();
+}
+
+IColumn::Filter build_dictionary_entry_filter(size_t block_position,
+                                              const ParquetColumnSchema& column_schema,
+                                              const VExprContextSPtrs& conjuncts,
+                                              const ParquetDictionaryWords& dict_words) {
+    auto fields = dictionary_fields_from_words(dict_words);
+    IColumn::Filter dictionary_filter(fields.size(), 1);
+    DictionaryEvalContext ctx;
+    auto& slot = ctx.slots
+                         .emplace(static_cast<int>(block_position),
+                                  DictionaryEvalContext::SlotDictionary {
+                                          .data_type = column_schema.type, .values = {}})
+                         .first->second;
+    slot.values.reserve(1);
+
+    for (size_t dict_idx = 0; dict_idx < fields.size(); ++dict_idx) {
+        slot.values.clear();
+        slot.values.push_back(fields[dict_idx]);
+        dictionary_filter[dict_idx] = VExprContext::evaluate_dictionary_filter(conjuncts, ctx) ==
+                                                      ZoneMapFilterResult::kNoMatch
+                                              ? 0
+                                              : 1;
+    }
+    return dictionary_filter;
 }
 
 } // namespace
@@ -921,20 +885,12 @@ Status ParquetScanScheduler::prepare_current_dictionary_filters(
             continue;
         }
 
-        Block dict_block;
-        RETURN_IF_ERROR(build_dictionary_filter_block(request, file_schema, col.column_id(),
-                                                      dict_words, &dict_block));
-        IColumn::Filter dictionary_filter;
-        bool can_filter_all = false;
-        // Evaluate the original conjuncts against dictionary entries once. The resulting bitmap is
-        // indexed by Parquet dictionary id, so the data-page reader only performs an integer lookup
-        // for each selected row instead of materializing every predicate-column value first.
-        RETURN_IF_ERROR(execute_compact_filter_conjuncts(conjunct_it->second,
-                                                         dict_words.values.size(), &dict_block,
-                                                         &dictionary_filter, &can_filter_all));
-        if (can_filter_all) {
-            dictionary_filter.resize_fill(dict_words.values.size(), 0);
-        }
+        // Build a safe dictionary prefilter from the dictionary-filter interface instead of
+        // executing the row expression on a temporary dictionary block. For compound AND,
+        // VCompoundPred intentionally evaluates only dictionary-capable children, so residual
+        // predicates still run later on surviving rows.
+        auto dictionary_filter = build_dictionary_entry_filter(block_position, *column_schema,
+                                                               conjunct_it->second, dict_words);
 
         // The bitmap is keyed by Parquet dictionary id. Later data-page reads evaluate the
         // predicate with an integer lookup and only materialize STRING values for surviving rows.
@@ -1142,17 +1098,13 @@ Status ParquetScanScheduler::read_filter_columns(int64_t batch_rows,
                 }
                 return Status::OK();
             }
-            if (used_dictionary_filter) {
-                // The dictionary bitmap has already applied the single-column conjunct for this
-                // predicate column while reading dictionary ids. Running the same conjunct again
-                // would be redundant and would require materializing rows that were filtered out.
-                continue;
-            }
-
             const auto conjunct_it = schedule.single_column_conjuncts.find(block_position);
             if (conjunct_it == schedule.single_column_conjuncts.end()) {
                 continue;
             }
+            // The dictionary bitmap is a prefilter. It may be equivalent for simple dictionary
+            // predicates, but compound AND can contain residual children that are not safe to
+            // evaluate on dictionary entries. Always run the original conjuncts on survivors.
             RETURN_IF_ERROR(execute_scheduled_conjuncts_with_profile(conjunct_it->second));
             if (*selected_rows != 0) {
                 continue;
