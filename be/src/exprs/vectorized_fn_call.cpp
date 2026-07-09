@@ -25,6 +25,7 @@
 
 #include <memory>
 #include <ostream>
+#include <set>
 
 #include "common/config.h"
 #include "common/exception.h"
@@ -376,6 +377,12 @@ std::string VectorizedFnCall::debug_string(const std::vector<VectorizedFnCall*>&
 
 bool VectorizedFnCall::can_push_down_to_index() const {
     return _function->can_push_down_to_index();
+}
+
+bool VectorizedFnCall::is_deterministic() const {
+    static const std::set<std::string> NON_DETERMINISTIC_FUNCTIONS = {
+            "random", "rand", "random_bytes", "uuid", "uuid_numeric"};
+    return !NON_DETERMINISTIC_FUNCTIONS.contains(_function_name) && VExpr::is_deterministic();
 }
 
 bool VectorizedFnCall::equals(const VExpr& other) {

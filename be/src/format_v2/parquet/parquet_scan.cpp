@@ -800,6 +800,16 @@ PredicateConjunctSchedule build_predicate_conjunct_schedule(
     PredicateConjunctSchedule schedule;
     for (const auto& conjunct : request.conjuncts) {
         DORIS_CHECK(conjunct != nullptr);
+        DORIS_CHECK(conjunct->root() != nullptr);
+        if (!conjunct->root()->is_deterministic()) {
+            // Round-by-round filtering can compact later predicate columns before evaluating
+            // remaining expressions. Stateful functions such as random(1) must see the same full
+            // batch they saw before this optimization, so any non-deterministic conjunct disables
+            // the per-column schedule for the whole batch.
+            schedule.remaining_conjuncts = request.conjuncts;
+            schedule.single_column_conjuncts.clear();
+            return schedule;
+        }
         std::set<int> referenced_positions;
         conjunct->root()->collect_slot_column_ids(referenced_positions);
         if (referenced_positions.size() != 1) {

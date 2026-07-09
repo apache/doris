@@ -77,6 +77,7 @@ public:
                std::any_of(_children.begin(), _children.end(),
                            [](VExprSPtr child) { return child->is_blockable(); });
     }
+    bool is_deterministic() const override;
     bool is_constant() const override {
         if (!_function->is_use_default_implementation_for_constants() ||
             // udf function with no argument, can't sure it's must return const column
