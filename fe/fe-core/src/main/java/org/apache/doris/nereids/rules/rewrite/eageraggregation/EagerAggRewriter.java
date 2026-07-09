@@ -52,7 +52,9 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Statistics;
@@ -105,6 +107,11 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
             } else {
                 return join;
             }
+        }
+        ConnectContext connectContext = context.getCascadesContext().getConnectContext();
+        if (connectContext.getSessionVariable().eagerAggregationOnBroadcastJoin
+                && isSmallBroadcastJoin(join, connectContext) && isBottomJoin(join)) {
+            return genAggregate(join, context);
         }
 
         // construct left and right group by keys
@@ -306,6 +313,25 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
             }
         }
         return Pair.of(toLeft, toRight);
+    }
+
+    private boolean isSmallBroadcastJoin(LogicalJoin<? extends Plan, ? extends Plan> join,
+            ConnectContext context) {
+        if (!JoinUtils.couldBroadcast(join)) {
+            return false;
+        }
+        SessionVariable sessionVariable = context.getSessionVariable();
+        Statistics stats = join.right().getStats();
+        if (stats == null) {
+            stats = join.right().accept(derive, new StatsDerive.DeriveContext());
+        }
+        return stats.getRowCount() <= sessionVariable.getBroadcastRowCountLimit()
+                && stats.getRowCount() <= sessionVariable.eagerAggBroadcastRowCount;
+    }
+
+    private boolean isBottomJoin(LogicalJoin<? extends Plan, ? extends Plan> join) {
+        return join.children().stream().allMatch(plan -> plan instanceof LogicalFilter<?>
+                || plan instanceof LogicalProject<?> || plan instanceof LogicalRelation);
     }
 
     private boolean isPassThroughBigJoin(LogicalJoin<? extends Plan, ? extends Plan> join,
