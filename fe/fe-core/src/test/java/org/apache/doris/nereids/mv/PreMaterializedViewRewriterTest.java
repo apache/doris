@@ -59,7 +59,7 @@ public class PreMaterializedViewRewriterTest extends SqlTestBase {
 
     @Test
     public void testShouldNotRecordTmpPlanWhenNoMv() {
-        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
+        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION, ELIMINATE_GROUP_BY_KEY");
         BitSet disableNereidsRules = connectContext.getSessionVariable().getDisableNereidsRules();
         SessionVariable spySv = Mockito.spy(connectContext.getSessionVariable());
         Mockito.doReturn(disableNereidsRules).when(spySv).getDisableNereidsRules();
