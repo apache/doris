@@ -25,6 +25,7 @@ import org.apache.doris.connector.api.pushdown.ConnectorExpression;
 import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.api.scan.ConnectorScanRange;
 import org.apache.doris.connector.spi.ConnectorContext;
+import org.apache.doris.thrift.TFileScanRangeParams;
 
 import org.apache.avro.Schema;
 import org.apache.hadoop.conf.Configuration;
@@ -90,6 +91,11 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
     // HudiScanNode.canUseNativeReader() / setScanParams (sessionVariable.isForceJniScanner()). Same key + read
     // path as the paimon connector's FORCE_JNI_SCANNER. Default false, so normal reads are unaffected.
     private static final String FORCE_JNI_SCANNER = "force_jni_scanner";
+
+    // Scan-node prop carrying the base64 native-reader schema-evolution dictionary (current_schema_id +
+    // history_schema_info). getScanNodeProperties builds it; populateScanLevelParams copies it onto the real
+    // TFileScanRangeParams. Mirrors the paimon connector's SCHEMA_EVOLUTION_PROP.
+    private static final String SCHEMA_EVOLUTION_PROP = "hudi.schema_evolution";
 
     private final Map<String, String> properties;
     private final ConnectorContext context;
@@ -295,7 +301,43 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
             }
         }
 
+        // Emit the native-reader schema-evolution dictionary so BE matches file<->table columns BY FIELD ID
+        // across rename/reorder (else a renamed column reads NULL on its old files). Skipped under force_jni:
+        // every split then goes JNI and never consults the dict (paimon-parity gate). Best-effort: a build
+        // failure logs and drops the prop -> native reads fall back to BE BY_NAME (the safe baseline), never a
+        // hard scan failure. populateScanLevelParams copies it onto the real params.
+        if (!isForceJniScannerEnabled(session)) {
+            try {
+                HoodieTableMetaClient metaClient = buildMetaClient(buildHadoopConf(), hudiHandle.getBasePath());
+                TableSchemaResolver schemaResolver = new TableSchemaResolver(metaClient);
+                Schema latestAvro = schemaResolver.getTableAvroSchema(true);
+                HudiSchemaUtils.buildSchemaEvolutionProp(metaClient, schemaResolver, latestAvro,
+                                castHudiColumns(columns))
+                        .ifPresent(v -> props.put(SCHEMA_EVOLUTION_PROP, v));
+            } catch (Exception e) {
+                LOG.warn("Failed to build Hudi schema-evolution dict for {}.{}; native reads fall back to BY_NAME: {}",
+                        hudiHandle.getDbName(), hudiHandle.getTableName(), e.getMessage());
+            }
+        }
+
         return props;
+    }
+
+    /** The requested column handles as {@link HudiColumnHandle}s (this connector's own handle type). */
+    private static List<HudiColumnHandle> castHudiColumns(List<ConnectorColumnHandle> columns) {
+        if (columns == null) {
+            return Collections.emptyList();
+        }
+        List<HudiColumnHandle> result = new ArrayList<>(columns.size());
+        for (ConnectorColumnHandle handle : columns) {
+            result.add((HudiColumnHandle) handle);
+        }
+        return result;
+    }
+
+    @Override
+    public void populateScanLevelParams(TFileScanRangeParams params, Map<String, String> nodeProperties) {
+        HudiSchemaUtils.applySchemaEvolution(params, nodeProperties.get(SCHEMA_EVOLUTION_PROP));
     }
 
     /**

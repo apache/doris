@@ -248,4 +248,101 @@ public class HudiSchemaUtilsTest {
         Assertions.assertThrows(RuntimeException.class,
                 () -> HudiSchemaUtils.applySchemaEvolution(params, "!!!not-base64-thrift!!!"));
     }
+
+    // ========== C4d: scan-level dictionary (-1 target entry + history entries) ==========
+
+    private static HudiColumnHandle handle(String name, int fieldId) {
+        return new HudiColumnHandle(name, "string", false, fieldId);
+    }
+
+    private static InternalSchema internalSchemaWithId(long schemaId) {
+        return new InternalSchema(schemaId, Types.RecordType.get(Collections.singletonList(
+                Types.Field.get(1, false, "id", Types.IntType.get()))));
+    }
+
+    @Test
+    public void targetEntryKeyedOffRequestedColumnsWithSchemaIds() {
+        // The -1 target entry's top-level names must be EXACTLY the requested (scan-slot) columns, in order, each
+        // carrying the stable field id + full nested structure looked up BY NAME in the base InternalSchema. This
+        // is the overlay BE stamps each table column's id from. MUTATION: emit all base columns instead of the
+        // requested subset -> extra "name"/"tags"/"props" appear -> red.
+        InternalSchema base = buildInternalSchema();
+        TSchema target = HudiSchemaUtils.buildTargetSchema(
+                Arrays.asList(handle("id", 1), handle("Addr", 3)), base);
+
+        Assertions.assertEquals(-1L, target.getSchemaId());
+        Map<String, TField> top = topFields(target);
+        Assertions.assertEquals(Arrays.asList("id", "addr"), Arrays.asList(top.keySet().toArray()));
+        // "id" carries the base InternalSchema field id (1) + scalar placeholder type ...
+        Assertions.assertEquals(1, top.get("id").getId());
+        Assertions.assertEquals(TPrimitiveType.STRING, top.get("id").getType().getType());
+        // ... "Addr" (mixed-case request) is matched case-insensitively, lowercased, id 3, with its nested struct
+        // child "street" carried (id 4) — proves the target entry keeps nested field ids for BE nested matching.
+        TField addr = top.get("addr");
+        Assertions.assertEquals(3, addr.getId());
+        Assertions.assertEquals(TPrimitiveType.STRUCT, addr.getType().getType());
+        Assertions.assertEquals(4, structChild(addr, "street").getId());
+    }
+
+    @Test
+    public void targetEntryFallsBackToScalarForColumnAbsentFromSchema() {
+        // A requested column not in the base InternalSchema (e.g. a _hoodie_* meta column on a schema-evolved
+        // table whose commit-metadata schema omits meta fields) must still appear in the -1 entry (it IS a BE scan
+        // slot) as a scalar placeholder carrying the handle's field id. MUTATION: drop it -> the -1 entry is
+        // missing a scan slot -> BE StructNode lookup miss -> red.
+        InternalSchema base = buildInternalSchema();
+        TSchema target = HudiSchemaUtils.buildTargetSchema(
+                Arrays.asList(handle("id", 1), handle("_hoodie_commit_time", 77)), base);
+
+        Map<String, TField> top = topFields(target);
+        Assertions.assertTrue(top.containsKey("_hoodie_commit_time"));
+        Assertions.assertEquals(77, top.get("_hoodie_commit_time").getId());
+        Assertions.assertEquals(TPrimitiveType.STRING, top.get("_hoodie_commit_time").getType().getType());
+    }
+
+    @Test
+    public void targetEntryEmptyRequestedFallsBackToAllBaseFields() {
+        // A count-only scan (no projected columns) yields an empty requested list; the -1 entry then carries all
+        // base top-level fields (a valid superset). MUTATION: emit an empty root -> BE has no target overlay -> red.
+        TSchema target = HudiSchemaUtils.buildTargetSchema(Collections.emptyList(), buildInternalSchema());
+        Assertions.assertEquals(5, target.getRootField().getFieldsSize());
+    }
+
+    @Test
+    public void dictNonEvolutionEmitsTargetPlusBaseVersion() {
+        // Non-evolution table: no schema history file, so the dict is the -1 target + the single base
+        // (convert()) version. MUTATION: skip the base entry -> a native file's schema_id (0) has no history
+        // entry -> BE "miss schema info" fail-loud -> red.
+        InternalSchema base = internalSchemaWithId(0L);
+        String encoded = HudiSchemaUtils.buildSchemaEvolutionDict(
+                Collections.singletonList(handle("id", 1)), base, false, Collections.emptyList());
+
+        TFileScanRangeParams params = new TFileScanRangeParams();
+        HudiSchemaUtils.applySchemaEvolution(params, encoded);
+        Assertions.assertEquals(-1L, params.getCurrentSchemaId());
+        Assertions.assertEquals(2, params.getHistorySchemaInfoSize());
+        Assertions.assertEquals(-1L, params.getHistorySchemaInfo().get(0).getSchemaId());
+        Assertions.assertEquals(0L, params.getHistorySchemaInfo().get(1).getSchemaId());
+    }
+
+    @Test
+    public void dictEvolutionEmitsTargetPlusAllHistoricalVersions() {
+        // Evolution table: the dict is the -1 target + ONE entry per committed schema version (all-historical =
+        // robust superset of the referenced-file versions). MUTATION: emit only the base version -> a native file
+        // written under an older version has no history entry -> BE "miss schema info" -> red.
+        InternalSchema base = internalSchemaWithId(2L);
+        String encoded = HudiSchemaUtils.buildSchemaEvolutionDict(
+                Collections.singletonList(handle("id", 1)), base, true,
+                Arrays.asList(internalSchemaWithId(0L), internalSchemaWithId(1L), internalSchemaWithId(2L)));
+
+        TFileScanRangeParams params = new TFileScanRangeParams();
+        HudiSchemaUtils.applySchemaEvolution(params, encoded);
+        Assertions.assertEquals(-1L, params.getCurrentSchemaId());
+        // -1 target + versions 0/1/2
+        Assertions.assertEquals(4, params.getHistorySchemaInfoSize());
+        Assertions.assertEquals(-1L, params.getHistorySchemaInfo().get(0).getSchemaId());
+        Assertions.assertEquals(0L, params.getHistorySchemaInfo().get(1).getSchemaId());
+        Assertions.assertEquals(1L, params.getHistorySchemaInfo().get(2).getSchemaId());
+        Assertions.assertEquals(2L, params.getHistorySchemaInfo().get(3).getSchemaId());
+    }
 }

@@ -37,14 +37,22 @@ import org.apache.hudi.common.util.Option;
 import org.apache.hudi.internal.schema.InternalSchema;
 import org.apache.hudi.internal.schema.Types;
 import org.apache.hudi.internal.schema.convert.AvroInternalSchemaConverter;
+import org.apache.hudi.internal.schema.io.FileBasedInternalSchemaStorageManager;
+import org.apache.hudi.internal.schema.utils.SerDeHelper;
 import org.apache.thrift.TDeserializer;
 import org.apache.thrift.TSerializer;
 import org.apache.thrift.protocol.TBinaryProtocol;
 
 import java.io.File;
+import java.util.ArrayList;
 import java.util.Base64;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+import java.util.Optional;
 
 /**
  * Builds the native-reader schema dictionary ({@code current_schema_id} + {@code history_schema_info}) so BE
@@ -268,5 +276,101 @@ public final class HudiSchemaUtils {
         }
         long commitTime = Long.parseLong(FSUtils.getCommitTime(new File(filePath).getName()));
         return InternalSchemaCache.searchSchemaAndCache(commitTime, metaClient);
+    }
+
+    // ========== scan-level schema-evolution dictionary (current_schema_id + history_schema_info) ==========
+
+    /**
+     * Build + serialize the native-reader schema dictionary for the scan-node prop. The {@code -1} target entry
+     * is keyed off the {@code requestedColumns} (its top-level names == BE scan slots by construction); the
+     * history entries cover every schema version any native file could carry. Touches the metaClient to resolve
+     * the mode-aware base schema and the historical versions; the pure dict assembly is
+     * {@link #buildSchemaEvolutionDict}. Runs on the TCCL-pinned scan thread.
+     */
+    static Optional<String> buildSchemaEvolutionProp(HoodieTableMetaClient metaClient,
+            TableSchemaResolver schemaResolver, Schema latestAvro, List<HudiColumnHandle> requestedColumns) {
+        ResolvedInternalSchema resolved = resolveTableInternalSchema(schemaResolver, latestAvro);
+        Collection<InternalSchema> historical = resolved.enableSchemaEvolution
+                ? allHistoricalSchemas(metaClient)
+                : Collections.emptyList();
+        return Optional.of(buildSchemaEvolutionDict(requestedColumns, resolved.internalSchema,
+                resolved.enableSchemaEvolution, historical));
+    }
+
+    /**
+     * Pure assembly of the schema dictionary (package-private for same-loader testing): one {@code -1} target
+     * entry (from the requested columns + base schema) + the history entries. HISTORY-SET = ALL committed
+     * schema versions (a robust SUPERSET of the referenced-file versions, mirroring the paimon connector's
+     * all-{@code listAllIds} emission): self-consistent by construction (every native file's {@code schema_id}
+     * is present, so BE never fails "miss schema info"), with no coupling between the dict and which files a
+     * given scan happens to select. For a non-evolution table there is no history file, so the single
+     * non-evolution InternalSchema (version {@code 0}) is emitted as the only history entry.
+     */
+    static String buildSchemaEvolutionDict(List<HudiColumnHandle> requestedColumns, InternalSchema baseSchema,
+            boolean enableSchemaEvolution, Collection<InternalSchema> historicalVersions) {
+        List<TSchema> history = new ArrayList<>();
+        history.add(buildTargetSchema(requestedColumns, baseSchema));
+        if (enableSchemaEvolution) {
+            for (InternalSchema version : historicalVersions) {
+                history.add(buildSchemaInfo(version));
+            }
+        } else {
+            // Non-evolution: no history file; the base convert()-schema (version 0) is the only file version.
+            history.add(buildSchemaInfo(baseSchema));
+        }
+        return encode(CURRENT_SCHEMA_ID, history);
+    }
+
+    /**
+     * The {@code -1} target/current overlay, keyed off the requested (pruned) columns so its top-level names
+     * equal the BE scan slots (the CI-969249 StructNode invariant). Each requested column's full nested
+     * structure + stable field id is looked up BY NAME in {@code baseSchema}. A requested column absent from
+     * {@code baseSchema} (e.g. a {@code _hoodie_*} meta column on a schema-evolved table whose commit-metadata
+     * schema omits meta fields) falls back to a scalar placeholder carrying the handle's field id ({@code -1} =
+     * unset). Empty {@code requestedColumns} (count-only scan) falls back to all base top-level fields.
+     */
+    static TSchema buildTargetSchema(List<HudiColumnHandle> requestedColumns, InternalSchema baseSchema) {
+        TSchema tSchema = new TSchema();
+        tSchema.setSchemaId(CURRENT_SCHEMA_ID);
+        TStructField root = new TStructField();
+        if (requestedColumns == null || requestedColumns.isEmpty()) {
+            for (Types.Field field : baseSchema.getRecord().fields()) {
+                root.addToFields(fieldPtr(buildField(field)));
+            }
+        } else {
+            Map<String, Types.Field> byName = new HashMap<>();
+            for (Types.Field field : baseSchema.getRecord().fields()) {
+                byName.put(field.name().toLowerCase(Locale.ROOT), field);
+            }
+            for (HudiColumnHandle handle : requestedColumns) {
+                Types.Field field = byName.get(handle.getName().toLowerCase(Locale.ROOT));
+                root.addToFields(fieldPtr(field != null
+                        ? buildField(field)
+                        : scalarField(handle.getName().toLowerCase(Locale.ROOT), handle.getFieldId())));
+            }
+        }
+        tSchema.setRootField(root);
+        return tSchema;
+    }
+
+    /** All committed InternalSchema versions of the table (empty for a non-evolution table). */
+    private static Collection<InternalSchema> allHistoricalSchemas(HoodieTableMetaClient metaClient) {
+        String historyStr = new FileBasedInternalSchemaStorageManager(metaClient).getHistorySchemaStr();
+        if (historyStr == null || historyStr.isEmpty()) {
+            return Collections.emptyList();
+        }
+        return SerDeHelper.parseSchemas(historyStr).values();
+    }
+
+    /** A scalar-leaf {@link TField} (STRING placeholder) carrying a name + field id (for the target-entry fallback). */
+    private static TField scalarField(String name, int id) {
+        TField tField = new TField();
+        tField.setName(name);
+        tField.setId(id);
+        tField.setIsOptional(true);
+        TColumnType columnType = new TColumnType();
+        columnType.setType(TPrimitiveType.STRING);
+        tField.setType(columnType);
+        return tField;
     }
 }
