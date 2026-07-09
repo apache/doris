@@ -31,6 +31,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.stream.Collectors;
 
@@ -84,6 +85,16 @@ public final class PaimonSchemaBuilder {
 
         List<String> partitionKeys = partitionKeys(request.getPartitionSpec());
 
+        // #65094: resolve primary-key / partition-key names back to the schema's canonical
+        // (case-preserving) column-name spelling, matching case-insensitively. The schema columns keep
+        // their original case (col.getName(), below); Paimon's Schema.Builder validates primary/partition
+        // keys case-sensitively, so a case-mismatched DDL key would otherwise fail table creation.
+        List<String> columnNames = request.getColumns().stream()
+                .map(ConnectorColumn::getName)
+                .collect(Collectors.toList());
+        primaryKeys = resolveColumnNames(columnNames, primaryKeys);
+        partitionKeys = resolveColumnNames(columnNames, partitionKeys);
+
         // options normalization: drop primary-key/comment, re-key location -> CoreOptions.PATH.
         Map<String, String> normalizedOptions = new HashMap<>(properties);
         normalizedOptions.remove(PRIMARY_KEY_IDENTIFIER);
@@ -136,5 +147,21 @@ public final class PaimonSchemaBuilder {
             keys.add(field.getColumnName());
         }
         return keys;
+    }
+
+    /**
+     * Resolves external key names (primary key / partition key) back to the canonical, case-preserving
+     * column-name spelling, matching case-insensitively. #65094: the schema keeps each column's original
+     * case ({@code col.getName()}); Paimon's {@link Schema.Builder} validates primary/partition keys
+     * case-sensitively, so a case-mismatched DDL key must be mapped back to the canonical name.
+     * Mirrors {@code PaimonMetadataOps.getPaimonColumnNames}. A key with no case-insensitive match is
+     * left unchanged (Paimon then reports the missing column).
+     */
+    private static List<String> resolveColumnNames(List<String> columnNames, List<String> keyNames) {
+        Map<String, String> byLowerName = columnNames.stream()
+                .collect(Collectors.toMap(name -> name.toLowerCase(Locale.ROOT), name -> name, (a, b) -> a));
+        return keyNames.stream()
+                .map(name -> byLowerName.getOrDefault(name.toLowerCase(Locale.ROOT), name))
+                .collect(Collectors.toList());
     }
 }
