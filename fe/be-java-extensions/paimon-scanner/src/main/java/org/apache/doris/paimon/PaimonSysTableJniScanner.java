@@ -85,7 +85,11 @@ public class PaimonSysTableJniScanner extends JniScanner {
             LOG.debug("paimonAllFieldNames:{}", paimonAllFieldNames);
         }
         resetDatetimeV2Precision();
-        this.projected = Arrays.stream(fields).mapToInt(paimonAllFieldNames::indexOf).toArray();
+        this.projected = Arrays.stream(fields).mapToInt(fieldName -> {
+            int index = PaimonJniScanner.getFieldIndex(paimonAllFieldNames, fieldName);
+            Preconditions.checkArgument(index >= 0, "RequiredField %s not found in schema", fieldName);
+            return index;
+        }).toArray();
         this.paimonDataTypeList = Arrays.stream(projected).mapToObj(i -> table.rowType().getTypeAt(i))
                 .collect(Collectors.toList());
         this.paimonSplits = Arrays.stream(params.get("serialized_splits").split(","))
@@ -148,7 +152,7 @@ public class PaimonSysTableJniScanner extends JniScanner {
             if (types[i].isDateTimeV2()) {
                 // paimon support precision > 6, but it has been reset as 6 in FE
                 // try to get the right precision for datetimev2
-                int index = paimonAllFieldNames.indexOf(fields[i]);
+                int index = PaimonJniScanner.getFieldIndex(paimonAllFieldNames, fields[i]);
                 if (index != -1) {
                     DataType dataType = table.rowType().getTypeAt(index);
                     if (dataType instanceof TimestampType) {

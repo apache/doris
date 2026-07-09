@@ -26,7 +26,6 @@ import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.FileSplitter;
 import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
 import org.apache.doris.datasource.paimon.PaimonFileExternalCatalog;
-import org.apache.doris.datasource.property.metastore.MetastoreProperties;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.SessionVariable;
@@ -421,7 +420,6 @@ public class PaimonScanNodeTest {
 
         CatalogProperty catalogProperty = Mockito.mock(CatalogProperty.class);
         Mockito.when(catalogProperty.getProperties()).thenReturn(props);
-        Mockito.when(catalogProperty.getMetastoreProperties()).thenReturn(Mockito.mock(MetastoreProperties.class));
 
         PaimonExternalCatalog catalog = Mockito.mock(PaimonExternalCatalog.class);
         Mockito.when(catalog.getCatalogProperty()).thenReturn(catalogProperty);
