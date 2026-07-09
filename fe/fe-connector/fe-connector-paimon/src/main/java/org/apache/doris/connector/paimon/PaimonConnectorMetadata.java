@@ -310,7 +310,13 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
             // Emit "partition_columns" (NOT "partition_keys"): the generic fe-core consumer
             // PluginDrivenExternalTable.initSchema reads "partition_columns" — keying it under
             // "partition_keys" left the FE treating paimon as non-partitioned. Mirrors MaxCompute.
-            schemaProps.put("partition_columns", String.join(",", partitionKeys));
+            // #65094 consistency: column names are lowercased above (mapFields/getColumnHandles use bare
+            // toLowerCase()), and PluginDrivenExternalTable.initSchema matches each partition_columns
+            // entry against those (lowercased) column names via a case-sensitive byName lookup (paimon
+            // does not override fromRemoteColumnName). A mixed-case paimon partition key would therefore
+            // be silently missed and the table treated as non-partitioned, so lower-case the entries with
+            // the SAME bare toLowerCase() the column names use to keep the two sides matchable.
+            schemaProps.put("partition_columns", String.join(",", partitionKeys).toLowerCase());
         }
         if (primaryKeys != null && !primaryKeys.isEmpty()) {
             schemaProps.put("primary_keys", String.join(",", primaryKeys));
