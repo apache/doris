@@ -21,6 +21,7 @@ import org.apache.doris.datasource.InitCatalogLog.Type;
 
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.LoadingCache;
+import com.google.common.collect.Maps;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -212,6 +213,7 @@ public class ExternalDatabaseDeadlockTest {
     private static class DeadlockDbCatalog extends ExternalCatalog {
         DeadlockDbCatalog() {
             super(1L, "deadlock-db-catalog", Type.TEST, "");
+            this.catalogProperty = new CatalogProperty("", Maps.newHashMap());
             initialized = true;
         }
 
