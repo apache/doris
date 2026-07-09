@@ -206,9 +206,9 @@ public class SlotReference extends Slot {
     @Override
     public String computeToSql() {
         if (subPath.isEmpty()) {
-            return shapeInfo();
+            return name.get();
         } else {
-            return shapeInfo() + "['" + String.join("']['", subPath) + "']";
+            return name.get() + "['" + String.join("']['", subPath) + "']";
         }
     }
 
@@ -223,11 +223,7 @@ public class SlotReference extends Slot {
 
     @Override
     public String shapeInfo() {
-        if (qualifier.isEmpty()) {
-            return name.get();
-        } else {
-            return qualifier.get(qualifier.size() - 1) + "." + name.get();
-        }
+        return name.get();
     }
 
     @Override
