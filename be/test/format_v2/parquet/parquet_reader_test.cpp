@@ -35,6 +35,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/config.h"
 #include "core/assert_cast.h"
 #include "core/block/block.h"
 #include "core/column/column_nullable.h"
@@ -67,6 +68,7 @@
 #include "storage/index/zone_map/zonemap_filter_result.h"
 #include "storage/segment/condition_cache.h"
 #include "storage/utils.h"
+#include "util/defer_op.h"
 
 namespace doris {
 namespace {
@@ -1083,6 +1085,66 @@ public:
     long io_context_use_count() const { return _io_ctx.use_count(); }
 };
 
+class TestPersistentFileMetaCache final : public FileMetaPersistentCache {
+public:
+    Status read(FileMetaCacheFormat format, const std::string& key, int64_t modification_time,
+                int64_t file_size, std::string* payload) override {
+        const auto it = _entries.find(entry_key(format, key));
+        if (it == _entries.end()) {
+            return Status::NotFound("test file meta cache entry not found");
+        }
+        if (it->second.modification_time != modification_time ||
+            it->second.file_size != file_size) {
+            return Status::NotFound("test file meta cache entry stale");
+        }
+        *payload = it->second.payload;
+        return Status::OK();
+    }
+
+    Status write(FileMetaCacheFormat format, const std::string& key, int64_t modification_time,
+                 int64_t file_size, std::string_view payload) override {
+        _entries[entry_key(format, key)] = Entry {.modification_time = modification_time,
+                                                  .file_size = file_size,
+                                                  .payload = std::string(payload)};
+        return Status::OK();
+    }
+
+    void remove(FileMetaCacheFormat format, const std::string& key) override {
+        _entries.erase(entry_key(format, key));
+        ++_remove_count;
+    }
+
+    bool contains(FileMetaCacheFormat format, const std::string& key) const {
+        return _entries.contains(entry_key(format, key));
+    }
+
+    std::string payload(FileMetaCacheFormat format, const std::string& key) const {
+        const auto it = _entries.find(entry_key(format, key));
+        return it == _entries.end() ? std::string {} : it->second.payload;
+    }
+
+    int remove_count() const { return _remove_count; }
+
+private:
+    struct Entry {
+        int64_t modification_time = 0;
+        int64_t file_size = 0;
+        std::string payload;
+    };
+
+    static std::string entry_key(FileMetaCacheFormat format, const std::string& key) {
+        std::string result;
+        result.reserve(key.size() + 4);
+        result.append(std::to_string(static_cast<uint8_t>(format)));
+        result.push_back(':');
+        result.append(key);
+        return result;
+    }
+
+    std::map<std::string, Entry> _entries;
+    int _remove_count = 0;
+};
+
 TEST(FileReaderTest, OpenStoresRequestAndCloseKeepsRequest) {
     auto system_properties = std::make_shared<io::FileSystemProperties>();
     system_properties->system_type = TFileType::FILE_LOCAL;
@@ -1137,18 +1199,21 @@ protected:
             RuntimeProfile* profile = nullptr, bool enable_mapping_timestamp_tz = false,
             std::shared_ptr<io::IOContext> io_ctx = nullptr,
             std::optional<format::GlobalRowIdContext> global_rowid_context = std::nullopt,
-            bool is_immutable = false, FileMetaCache* file_meta_cache = nullptr) const {
+            bool is_immutable = false, FileMetaCache* file_meta_cache = nullptr,
+            bool enable_file_meta_memory_cache = true) const {
         auto system_properties = std::make_shared<io::FileSystemProperties>();
         system_properties->system_type = TFileType::FILE_LOCAL;
         auto file_description = std::make_unique<io::FileDescription>();
         file_description->path = _file_path;
         file_description->file_size = static_cast<int64_t>(std::filesystem::file_size(_file_path));
+        file_description->mtime = 123;
         file_description->range_start_offset = range_start_offset;
         file_description->range_size = range_size;
         file_description->is_immutable = is_immutable;
         return std::make_unique<format::parquet::ParquetReader>(
                 system_properties, file_description, std::move(io_ctx), profile,
-                global_rowid_context, enable_mapping_timestamp_tz, file_meta_cache);
+                global_rowid_context, enable_mapping_timestamp_tz, file_meta_cache,
+                enable_file_meta_memory_cache);
     }
 
     std::filesystem::path _test_dir;
@@ -1177,22 +1242,177 @@ TEST_F(NewParquetReaderTest, UsesFileMetaCacheForFooterMetadata) {
     FileMetaCache file_meta_cache(1024 * 1024);
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
 
-    auto first_reader = create_reader(0, -1, nullptr, false, nullptr, std::nullopt, false,
+    RuntimeProfile first_profile("new_parquet_reader_file_meta_cache_first");
+    auto first_reader = create_reader(0, -1, &first_profile, false, nullptr, std::nullopt, false,
                                       &file_meta_cache);
     ASSERT_TRUE(first_reader->init(&state).ok());
+    ASSERT_NE(first_profile.get_counter("FileFooterReadCalls"), nullptr);
+    EXPECT_EQ(first_profile.get_counter("FileFooterReadCalls")->value(), 1);
 
     const auto file_size = static_cast<int64_t>(std::filesystem::file_size(_file_path));
-    const std::string file_meta_cache_key = FileMetaCache::get_key(_file_path, 0, file_size);
+    const std::string file_meta_cache_key = FileMetaCache::get_key(_file_path, 123, file_size);
+    const std::string memory_cache_key = FileMetaCache::get_memory_cache_key(
+            FileMetaCacheFormat::PARQUET_V2, file_meta_cache_key);
     ObjLRUCache::CacheHandle handle;
-    EXPECT_TRUE(file_meta_cache.lookup(file_meta_cache_key, &handle));
+    EXPECT_TRUE(file_meta_cache.lookup(memory_cache_key, &handle));
     EXPECT_TRUE(handle.valid());
 
-    auto second_reader = create_reader(0, -1, nullptr, false, nullptr, std::nullopt, false,
-                                       &file_meta_cache);
+    RuntimeProfile second_profile("new_parquet_reader_file_meta_cache_second");
+    auto second_reader =
+            create_reader(0, -1, &second_profile, false, nullptr, std::nullopt, false,
+                          &file_meta_cache);
     ASSERT_TRUE(second_reader->init(&state).ok());
+    ASSERT_NE(second_profile.get_counter("FileFooterReadCalls"), nullptr);
+    ASSERT_NE(second_profile.get_counter("FileFooterHitCache"), nullptr);
+    ASSERT_NE(second_profile.get_counter("FileFooterHitMemoryCache"), nullptr);
+    ASSERT_NE(second_profile.get_counter("FileFooterHitDiskCache"), nullptr);
+    EXPECT_EQ(second_profile.get_counter("FileFooterReadCalls")->value(), 0);
+    EXPECT_EQ(second_profile.get_counter("FileFooterHitCache")->value(), 1);
+    EXPECT_EQ(second_profile.get_counter("FileFooterHitMemoryCache")->value(), 1);
+    EXPECT_EQ(second_profile.get_counter("FileFooterHitDiskCache")->value(), 0);
     std::vector<format::ColumnDefinition> schema;
     ASSERT_TRUE(second_reader->get_schema(&schema).ok());
     ASSERT_EQ(schema.size(), 2);
+}
+
+TEST_F(NewParquetReaderTest, ReportsPersistentFileMetaCacheProfile) {
+    const bool old_enable_external_file_meta_disk_cache =
+            config::enable_external_file_meta_disk_cache;
+    const int64_t old_external_file_meta_disk_cache_max_entry_bytes =
+            config::external_file_meta_disk_cache_max_entry_bytes;
+    Defer defer {[&] {
+        config::enable_external_file_meta_disk_cache = old_enable_external_file_meta_disk_cache;
+        config::external_file_meta_disk_cache_max_entry_bytes =
+                old_external_file_meta_disk_cache_max_entry_bytes;
+    }};
+    config::enable_external_file_meta_disk_cache = true;
+    config::external_file_meta_disk_cache_max_entry_bytes = 64 * 1024 * 1024;
+
+    FileMetaCache file_meta_cache(0, std::make_unique<TestPersistentFileMetaCache>());
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+
+    RuntimeProfile first_profile("new_parquet_reader_persistent_file_meta_cache_first");
+    auto first_reader =
+            create_reader(0, -1, &first_profile, false, nullptr, std::nullopt, &file_meta_cache);
+    ASSERT_TRUE(first_reader->init(&state).ok());
+    ASSERT_NE(first_profile.get_counter("FileFooterReadCalls"), nullptr);
+    ASSERT_NE(first_profile.get_counter("FileFooterHitCache"), nullptr);
+    ASSERT_NE(first_profile.get_counter("FileFooterHitMemoryCache"), nullptr);
+    ASSERT_NE(first_profile.get_counter("FileFooterHitDiskCache"), nullptr);
+    ASSERT_NE(first_profile.get_counter("FileFooterMissDiskCache"), nullptr);
+    ASSERT_NE(first_profile.get_counter("FileFooterWriteDiskCache"), nullptr);
+    ASSERT_NE(first_profile.get_counter("FileFooterReadDiskCacheTime"), nullptr);
+    ASSERT_NE(first_profile.get_counter("FileFooterWriteDiskCacheTime"), nullptr);
+    EXPECT_EQ(first_profile.get_counter("FileFooterReadCalls")->value(), 1);
+    EXPECT_EQ(first_profile.get_counter("FileFooterHitCache")->value(), 0);
+    EXPECT_EQ(first_profile.get_counter("FileFooterHitMemoryCache")->value(), 0);
+    EXPECT_EQ(first_profile.get_counter("FileFooterHitDiskCache")->value(), 0);
+    EXPECT_EQ(first_profile.get_counter("FileFooterMissDiskCache")->value(), 1);
+    EXPECT_EQ(first_profile.get_counter("FileFooterWriteDiskCache")->value(), 1);
+
+    RuntimeProfile second_profile("new_parquet_reader_persistent_file_meta_cache_second");
+    auto second_reader =
+            create_reader(0, -1, &second_profile, false, nullptr, std::nullopt, &file_meta_cache);
+    ASSERT_TRUE(second_reader->init(&state).ok());
+    ASSERT_NE(second_profile.get_counter("FileFooterReadCalls"), nullptr);
+    ASSERT_NE(second_profile.get_counter("FileFooterHitCache"), nullptr);
+    ASSERT_NE(second_profile.get_counter("FileFooterHitMemoryCache"), nullptr);
+    ASSERT_NE(second_profile.get_counter("FileFooterHitDiskCache"), nullptr);
+    ASSERT_NE(second_profile.get_counter("FileFooterMissDiskCache"), nullptr);
+    ASSERT_NE(second_profile.get_counter("FileFooterWriteDiskCache"), nullptr);
+    ASSERT_NE(second_profile.get_counter("FileFooterReadDiskCacheTime"), nullptr);
+    ASSERT_NE(second_profile.get_counter("FileFooterWriteDiskCacheTime"), nullptr);
+    EXPECT_EQ(second_profile.get_counter("FileFooterReadCalls")->value(), 0);
+    EXPECT_EQ(second_profile.get_counter("FileFooterHitCache")->value(), 1);
+    EXPECT_EQ(second_profile.get_counter("FileFooterHitMemoryCache")->value(), 0);
+    EXPECT_EQ(second_profile.get_counter("FileFooterHitDiskCache")->value(), 1);
+    EXPECT_EQ(second_profile.get_counter("FileFooterMissDiskCache")->value(), 0);
+    EXPECT_EQ(second_profile.get_counter("FileFooterWriteDiskCache")->value(), 0);
+}
+
+TEST_F(NewParquetReaderTest, InvalidPersistentFileMetaCachePayloadFallsBackToFile) {
+    const bool old_enable_external_file_meta_disk_cache =
+            config::enable_external_file_meta_disk_cache;
+    const int64_t old_external_file_meta_disk_cache_max_entry_bytes =
+            config::external_file_meta_disk_cache_max_entry_bytes;
+    Defer defer {[&] {
+        config::enable_external_file_meta_disk_cache = old_enable_external_file_meta_disk_cache;
+        config::external_file_meta_disk_cache_max_entry_bytes =
+                old_external_file_meta_disk_cache_max_entry_bytes;
+    }};
+    config::enable_external_file_meta_disk_cache = true;
+    config::external_file_meta_disk_cache_max_entry_bytes = 64 * 1024 * 1024;
+
+    auto persistent_cache = std::make_unique<TestPersistentFileMetaCache>();
+    TestPersistentFileMetaCache* persistent_cache_ptr = persistent_cache.get();
+    FileMetaCache file_meta_cache(0, std::move(persistent_cache));
+
+    const auto file_size = static_cast<int64_t>(std::filesystem::file_size(_file_path));
+    const std::string file_meta_cache_key = FileMetaCache::get_key(_file_path, 123, file_size);
+    ASSERT_TRUE(persistent_cache_ptr
+                        ->write(FileMetaCacheFormat::PARQUET_V2, file_meta_cache_key, 123,
+                                file_size, "not a serialized parquet footer")
+                        .ok());
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    RuntimeProfile profile("new_parquet_reader_invalid_persistent_file_meta_cache_payload");
+    auto reader = create_reader(0, -1, &profile, false, nullptr, std::nullopt, &file_meta_cache);
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    ASSERT_EQ(schema.size(), 2);
+    EXPECT_EQ(profile.get_counter("FileFooterReadCalls")->value(), 1);
+    EXPECT_EQ(profile.get_counter("FileFooterWriteDiskCache")->value(), 1);
+    EXPECT_EQ(persistent_cache_ptr->remove_count(), 1);
+    EXPECT_TRUE(
+            persistent_cache_ptr->contains(FileMetaCacheFormat::PARQUET_V2, file_meta_cache_key));
+    EXPECT_NE(persistent_cache_ptr->payload(FileMetaCacheFormat::PARQUET_V2, file_meta_cache_key),
+              "not a serialized parquet footer");
+}
+
+TEST_F(NewParquetReaderTest, PersistentFileMetaCacheCanSkipMemoryCache) {
+    const bool old_enable_external_file_meta_disk_cache =
+            config::enable_external_file_meta_disk_cache;
+    const int64_t old_external_file_meta_disk_cache_max_entry_bytes =
+            config::external_file_meta_disk_cache_max_entry_bytes;
+    Defer defer {[&] {
+        config::enable_external_file_meta_disk_cache = old_enable_external_file_meta_disk_cache;
+        config::external_file_meta_disk_cache_max_entry_bytes =
+                old_external_file_meta_disk_cache_max_entry_bytes;
+    }};
+    config::enable_external_file_meta_disk_cache = true;
+    config::external_file_meta_disk_cache_max_entry_bytes = 64 * 1024 * 1024;
+
+    FileMetaCache file_meta_cache(1024 * 1024, std::make_unique<TestPersistentFileMetaCache>());
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+
+    RuntimeProfile first_profile("new_parquet_reader_skip_memory_file_meta_cache_first");
+    auto first_reader = create_reader(0, -1, &first_profile, false, nullptr, std::nullopt,
+                                      &file_meta_cache, false);
+    ASSERT_TRUE(first_reader->init(&state).ok());
+    const auto file_size = static_cast<int64_t>(std::filesystem::file_size(_file_path));
+    const std::string file_meta_cache_key = FileMetaCache::get_key(_file_path, 123, file_size);
+    const std::string memory_cache_key = FileMetaCache::get_memory_cache_key(
+            FileMetaCacheFormat::PARQUET_V2, file_meta_cache_key);
+    ObjLRUCache::CacheHandle handle;
+    EXPECT_FALSE(file_meta_cache.lookup(memory_cache_key, &handle));
+    ASSERT_NE(first_profile.get_counter("FileFooterReadCalls"), nullptr);
+    ASSERT_NE(first_profile.get_counter("FileFooterWriteDiskCache"), nullptr);
+    EXPECT_EQ(first_profile.get_counter("FileFooterReadCalls")->value(), 1);
+    EXPECT_EQ(first_profile.get_counter("FileFooterWriteDiskCache")->value(), 1);
+
+    RuntimeProfile second_profile("new_parquet_reader_skip_memory_file_meta_cache_second");
+    auto second_reader = create_reader(0, -1, &second_profile, false, nullptr, std::nullopt,
+                                       &file_meta_cache, false);
+    ASSERT_TRUE(second_reader->init(&state).ok());
+    ASSERT_NE(second_profile.get_counter("FileFooterReadCalls"), nullptr);
+    ASSERT_NE(second_profile.get_counter("FileFooterHitMemoryCache"), nullptr);
+    ASSERT_NE(second_profile.get_counter("FileFooterHitDiskCache"), nullptr);
+    EXPECT_EQ(second_profile.get_counter("FileFooterReadCalls")->value(), 0);
+    EXPECT_EQ(second_profile.get_counter("FileFooterHitMemoryCache")->value(), 0);
+    EXPECT_EQ(second_profile.get_counter("FileFooterHitDiskCache")->value(), 1);
+    EXPECT_FALSE(file_meta_cache.lookup(memory_cache_key, &handle));
 }
 
 // Scenario: Parquet is columnar and supports predicate/non-predicate split, nested projection and

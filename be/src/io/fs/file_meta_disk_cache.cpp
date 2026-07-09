@@ -46,18 +46,19 @@ std::string_view format_name(FileMetaCacheFormat format) {
         return "parquet";
     case FileMetaCacheFormat::ORC:
         return "orc";
+    case FileMetaCacheFormat::PARQUET_V2:
+        return "parquet_v2";
     }
     DCHECK(false) << "unknown file meta cache format";
     return "unknown";
 }
 
 Status parse_format(uint8_t format, FileMetaCacheFormat* parsed) {
-    if (format == static_cast<uint8_t>(FileMetaCacheFormat::PARQUET)) {
-        *parsed = FileMetaCacheFormat::PARQUET;
-        return Status::OK();
-    }
-    if (format == static_cast<uint8_t>(FileMetaCacheFormat::ORC)) {
-        *parsed = FileMetaCacheFormat::ORC;
+    switch (static_cast<FileMetaCacheFormat>(format)) {
+    case FileMetaCacheFormat::PARQUET:
+    case FileMetaCacheFormat::ORC:
+    case FileMetaCacheFormat::PARQUET_V2:
+        *parsed = static_cast<FileMetaCacheFormat>(format);
         return Status::OK();
     }
     return Status::NotFound("file meta disk cache format mismatch");
@@ -125,10 +126,14 @@ io::CacheContext build_meta_cache_context() {
 }
 
 Status read_cached_range(io::BlockFileCache* cache, const io::UInt128Wrapper& hash, size_t offset,
-                         size_t size, const io::CacheContext& context, std::string* output) {
+                         size_t size, const io::CacheContext& context, std::string* output,
+                         bool* missing_cached_range = nullptr) {
     DCHECK(cache != nullptr);
     DCHECK(output != nullptr);
     output->clear();
+    if (missing_cached_range != nullptr) {
+        *missing_cached_range = false;
+    }
     if (size == 0) {
         return Status::OK();
     }
@@ -138,6 +143,9 @@ Status read_cached_range(io::BlockFileCache* cache, const io::UInt128Wrapper& ha
     RETURN_IF_ERROR(cache->get_downloaded_blocks_if_fully_covered(hash, offset, size, context,
                                                                   &blocks, &fully_covered));
     if (!fully_covered) {
+        if (missing_cached_range != nullptr) {
+            *missing_cached_range = true;
+        }
         return Status::NotFound("file meta disk cache range is not cached");
     }
 
@@ -192,10 +200,14 @@ Status FileMetaDiskCache::read(FileMetaCacheFormat format, const std::string& fi
     };
 
     std::string header;
-    Status status =
-            read_cached_range(cache, hash, 0, FILE_META_DISK_CACHE_HEADER_SIZE, context, &header);
+    bool missing_header_range = false;
+    Status status = read_cached_range(cache, hash, 0, FILE_META_DISK_CACHE_HEADER_SIZE, context,
+                                      &header, &missing_header_range);
     if (!status.ok()) {
-        return status;
+        if (missing_header_range) {
+            return status;
+        }
+        return invalidate_entry(status);
     }
 
     FileMetaDiskCacheHeader parsed;
@@ -209,10 +221,15 @@ Status FileMetaDiskCache::read(FileMetaCacheFormat format, const std::string& fi
         return invalidate_entry(Status::NotFound("file meta disk cache header mismatch"));
     }
 
+    bool missing_payload_range = false;
     status = read_cached_range(cache, hash, FILE_META_DISK_CACHE_HEADER_SIZE, parsed.payload_size,
-                               context, payload);
+                               context, payload, &missing_payload_range);
     if (!status.ok()) {
-        return status;
+        if (missing_payload_range) {
+            payload->clear();
+            return status;
+        }
+        return invalidate_entry(status);
     }
     const uint32_t checksum = crc32c::Crc32c(payload->data(), payload->size());
     if (checksum != parsed.checksum) {
@@ -226,7 +243,7 @@ Status FileMetaDiskCache::write(FileMetaCacheFormat format, const std::string& f
                                 std::string_view payload) {
     if (!FileMetaCache::is_persistent_cache_payload_size_allowed(
                 static_cast<uint64_t>(payload.size()))) {
-        return Status::NotFound("file meta disk cache payload is too large");
+        return Status::NotFound("file meta disk cache payload size is not allowed");
     }
 
     const std::string cache_key = get_key(format, file_meta_cache_key);
@@ -241,21 +258,19 @@ Status FileMetaDiskCache::write(FileMetaCacheFormat format, const std::string& f
     io::CacheContext context = build_meta_cache_context();
     context.stats = &stats;
     auto holder = cache->get_or_set(hash, 0, value.size(), context);
-    for (const auto& block : holder.file_blocks) {
+    auto write_block = [&](const io::FileBlockSPtr& block) -> Status {
         auto state = block->state();
         if (state == io::FileBlock::State::DOWNLOADING && !block->is_downloader()) {
             state = block->wait();
         }
         if (state == io::FileBlock::State::DOWNLOADED) {
-            continue;
+            return Status::OK();
         }
         if (state != io::FileBlock::State::EMPTY) {
-            cache->remove_if_cached(hash);
             return Status::NotFound("file meta disk cache block is not writable");
         }
 
         if (block->get_or_set_downloader() != io::FileBlock::get_caller_id()) {
-            cache->remove_if_cached(hash);
             return Status::NotFound("file meta disk cache block has another downloader");
         }
         const auto& range = block->range();
@@ -269,6 +284,18 @@ Status FileMetaDiskCache::write(FileMetaCacheFormat format, const std::string& f
         if (!status.ok()) {
             cache->remove_if_cached(hash);
             return status;
+        }
+        return Status::OK();
+    };
+
+    for (const auto& block : holder.file_blocks) {
+        if (block->range().left >= FILE_META_DISK_CACHE_HEADER_SIZE) {
+            RETURN_IF_ERROR(write_block(block));
+        }
+    }
+    for (const auto& block : holder.file_blocks) {
+        if (block->range().left < FILE_META_DISK_CACHE_HEADER_SIZE) {
+            RETURN_IF_ERROR(write_block(block));
         }
     }
     return Status::OK();

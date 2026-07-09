@@ -48,7 +48,8 @@ public:
                   std::shared_ptr<io::IOContext> io_ctx, RuntimeProfile* profile,
                   std::optional<format::GlobalRowIdContext> global_rowid_context = std::nullopt,
                   bool enable_mapping_timestamp_tz = false,
-                  FileMetaCache* file_meta_cache = nullptr);
+                  FileMetaCache* file_meta_cache = nullptr,
+                  bool enable_file_meta_memory_cache = true);
     ~ParquetReader() override;
 
     Status init(RuntimeState* state) override;
@@ -92,6 +93,7 @@ private:
     size_t _batch_size = ParquetScanScheduler::DEFAULT_READ_BATCH_SIZE;
     bool _enable_mapping_timestamp_tz = false; // whether UTC timestamps are mapped to TIMESTAMPTZ
     FileMetaCache* _file_meta_cache = nullptr;
+    bool _enable_file_meta_memory_cache = true;
 };
 
 } // namespace doris::format::parquet

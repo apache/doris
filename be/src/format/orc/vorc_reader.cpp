@@ -472,7 +472,7 @@ Status OrcReader::_create_file_reader() {
                 .key = file_meta_cache_key,
                 .modification_time = _file_description.mtime,
                 .file_size = file_size,
-                .enable_memory_cache = _meta_cache->enabled()};
+                .enable_memory_cache = _enable_file_meta_memory_cache && _meta_cache->enabled()};
         FileMetaCacheProfile file_meta_cache_profile {
                 .hit_cache = &_statistics.file_footer_hit_cache,
                 .hit_memory_cache = &_statistics.file_footer_hit_memory_cache,
@@ -481,6 +481,8 @@ Status OrcReader::_create_file_reader() {
                 .write_disk_cache = &_statistics.file_footer_write_disk_cache,
                 .read_disk_cache_time = &_statistics.file_footer_read_disk_cache_time,
                 .write_disk_cache_time = &_statistics.file_footer_write_disk_cache_time};
+        const std::string memory_cache_key =
+                FileMetaCache::get_memory_cache_key(file_meta_cache_context);
 
         // Local variables can be required because setSerializedFileTail is an assignment operation, not a reference.
         ObjLRUCache::CacheHandle _meta_cache_handle;
@@ -495,9 +497,16 @@ Status OrcReader::_create_file_reader() {
         } else if (lookup_result.state == FileMetaCacheLookupState::PERSISTED_HIT) {
             auto footer_ptr = std::make_unique<std::string>(std::move(serialized_file_tail));
             options.setSerializedFileTail(*footer_ptr);
-            RETURN_IF_ERROR(create_orc_reader());
+            Status status = create_orc_reader();
+            if (!status.ok()) {
+                VLOG_DEBUG << "ignore invalid orc file meta persistent cache payload: " << status;
+                _meta_cache->invalidate_persistent_cache(file_meta_cache_context);
+                _reader.reset();
+                _file_input_stream.reset();
+                return _create_file_reader();
+            }
             if (file_meta_cache_context.enable_memory_cache) {
-                _meta_cache->insert(file_meta_cache_key, footer_ptr, &_meta_cache_handle);
+                _meta_cache->insert(memory_cache_key, footer_ptr, &_meta_cache_handle);
             }
         } else {
             _statistics.file_footer_read_calls++;

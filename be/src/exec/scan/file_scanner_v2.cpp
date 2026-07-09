@@ -466,6 +466,7 @@ Status FileScannerV2::_init_table_reader(const TFileRangeDesc& range) {
             .push_down_agg_type = _local_state->get_push_down_agg_type(),
             .condition_cache_digest = _local_state->get_condition_cache_digest(),
             .file_meta_cache = file_meta_cache,
+            .enable_file_meta_memory_cache = _should_enable_file_meta_memory_cache(),
     }));
     return Status::OK();
 }
@@ -535,8 +536,12 @@ bool FileScannerV2::_should_skip_not_found(const Status& status, bool ignore_not
 }
 
 bool FileScannerV2::_should_enable_file_meta_cache() const {
-    return (ExecEnv::GetInstance()->file_meta_cache()->enabled() ||
-            FileMetaCache::is_persistent_cache_enabled()) &&
+    return ExecEnv::GetInstance()->file_meta_cache()->enabled() ||
+           FileMetaCache::is_persistent_cache_enabled();
+}
+
+bool FileScannerV2::_should_enable_file_meta_memory_cache() const {
+    return ExecEnv::GetInstance()->file_meta_cache()->enabled() &&
            _split_source->num_scan_ranges() < config::max_external_file_meta_cache_num / 3;
 }
 

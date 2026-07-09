@@ -329,11 +329,13 @@ ParquetReader::ParquetReader(std::shared_ptr<io::FileSystemProperties>& system_p
                              std::unique_ptr<io::FileDescription>& file_description,
                              std::shared_ptr<io::IOContext> io_ctx, RuntimeProfile* profile,
                              std::optional<format::GlobalRowIdContext> global_rowid_context,
-                             bool enable_mapping_timestamp_tz, FileMetaCache* file_meta_cache)
+                             bool enable_mapping_timestamp_tz, FileMetaCache* file_meta_cache,
+                             bool enable_file_meta_memory_cache)
         : FileReader(system_properties, file_description, io_ctx, profile),
           _global_rowid_context(global_rowid_context),
           _enable_mapping_timestamp_tz(enable_mapping_timestamp_tz),
-          _file_meta_cache(file_meta_cache) {}
+          _file_meta_cache(file_meta_cache),
+          _enable_file_meta_memory_cache(enable_file_meta_memory_cache) {}
 
 ParquetReader::~ParquetReader() = default;
 
@@ -367,16 +369,34 @@ Status ParquetReader::init(RuntimeState* state) {
     _state->scheduler.set_batch_size(_batch_size);
     // Open parquet file and parse metadata to get file schema.
     FileMetaCacheProfile file_meta_cache_profile {
-            .hit_cache = &_reader_statistics.file_footer_hit_cache};
-    RETURN_IF_ERROR(_state->file_context.open(_tracing_file_reader, _io_ctx.get(),
-                                              _state->enable_page_cache, *_file_description,
-                                              _file_meta_cache, &file_meta_cache_profile,
-                                              &_reader_statistics.file_footer_read_calls));
+            .hit_cache = &_reader_statistics.file_footer_hit_cache,
+            .hit_memory_cache = &_reader_statistics.file_footer_hit_memory_cache,
+            .hit_disk_cache = &_reader_statistics.file_footer_hit_disk_cache,
+            .miss_disk_cache = &_reader_statistics.file_footer_miss_disk_cache,
+            .write_disk_cache = &_reader_statistics.file_footer_write_disk_cache,
+            .read_disk_cache_time = &_reader_statistics.file_footer_read_disk_cache_time,
+            .write_disk_cache_time = &_reader_statistics.file_footer_write_disk_cache_time};
+    RETURN_IF_ERROR(_state->file_context.open(
+            _tracing_file_reader, _io_ctx.get(), _state->enable_page_cache, *_file_description,
+            _file_meta_cache, &file_meta_cache_profile, &_reader_statistics.file_footer_read_calls,
+            _enable_file_meta_memory_cache));
     if (_profile != nullptr) {
         COUNTER_UPDATE(_parquet_profile.file_footer_read_calls,
                        _reader_statistics.file_footer_read_calls);
         COUNTER_UPDATE(_parquet_profile.file_footer_hit_cache,
                        _reader_statistics.file_footer_hit_cache);
+        COUNTER_UPDATE(_parquet_profile.file_footer_hit_memory_cache,
+                       _reader_statistics.file_footer_hit_memory_cache);
+        COUNTER_UPDATE(_parquet_profile.file_footer_hit_disk_cache,
+                       _reader_statistics.file_footer_hit_disk_cache);
+        COUNTER_UPDATE(_parquet_profile.file_footer_miss_disk_cache,
+                       _reader_statistics.file_footer_miss_disk_cache);
+        COUNTER_UPDATE(_parquet_profile.file_footer_write_disk_cache,
+                       _reader_statistics.file_footer_write_disk_cache);
+        COUNTER_UPDATE(_parquet_profile.file_footer_read_disk_cache_time,
+                       _reader_statistics.file_footer_read_disk_cache_time);
+        COUNTER_UPDATE(_parquet_profile.file_footer_write_disk_cache_time,
+                       _reader_statistics.file_footer_write_disk_cache_time);
     }
     // Build file schema from parquet metadata.
     // A file reader may expose raw file identifiers, such as Parquet field_id, through ColumnDefinition::identifier

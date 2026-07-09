@@ -139,6 +139,7 @@ struct TableReadOptions {
     // Digest of stable pushed-down predicates. A zero digest disables condition cache.
     uint64_t condition_cache_digest = 0;
     FileMetaCache* file_meta_cache = nullptr;
+    bool enable_file_meta_memory_cache = true;
 };
 
 struct SplitReadOptions {
@@ -1594,6 +1595,7 @@ protected:
     RuntimeState* _runtime_state;
     RuntimeProfile* _scanner_profile;
     FileMetaCache* _file_meta_cache = nullptr;
+    bool _enable_file_meta_memory_cache = true;
     const std::vector<SlotDescriptor*>* _file_slot_descs = nullptr;
     FileFormat _format;
     TPushAggOp::type _push_down_agg_type = TPushAggOp::type::NONE;

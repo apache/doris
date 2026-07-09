@@ -32,6 +32,7 @@ namespace doris {
 enum class FileMetaCacheFormat : uint8_t {
     PARQUET = 1,
     ORC = 2,
+    PARQUET_V2 = 3,
 };
 
 struct FileMetaCacheContext {
@@ -99,6 +100,10 @@ public:
 
     static std::string get_key(io::FileReaderSPtr file_reader,
                                const io::FileDescription& _file_description);
+    static std::string get_memory_cache_key(FileMetaCacheFormat format, std::string_view key);
+    static std::string get_memory_cache_key(const FileMetaCacheContext& context) {
+        return get_memory_cache_key(context.format, context.key);
+    }
 
     static bool is_persistent_cache_enabled();
     static bool is_persistent_cache_payload_size_allowed(uint64_t payload_size);
@@ -149,7 +154,7 @@ public:
             }
         }
         if (context.enable_memory_cache) {
-            result.memory_inserted = insert(context.key, value, handle);
+            result.memory_inserted = insert(get_memory_cache_key(context), value, handle);
         }
         return result;
     }

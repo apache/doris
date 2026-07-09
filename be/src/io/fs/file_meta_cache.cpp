@@ -32,6 +32,10 @@ void update_profile_counter(int64_t* counter, int64_t value = 1) {
     }
 }
 
+bool is_persistent_cache_identity_stable(const FileMetaCacheContext& context) {
+    return context.modification_time > 0;
+}
+
 } // namespace
 
 FileMetaCache::FileMetaCache(int64_t capacity,
@@ -41,14 +45,11 @@ FileMetaCache::FileMetaCache(int64_t capacity,
 std::string FileMetaCache::get_key(const std::string file_name, int64_t modification_time,
                                    int64_t file_size) {
     std::string meta_cache_key;
-    meta_cache_key.resize(file_name.size() + sizeof(int64_t));
+    meta_cache_key.resize(file_name.size() + 2 * sizeof(int64_t));
 
     memcpy(meta_cache_key.data(), file_name.data(), file_name.size());
-    if (modification_time != 0) {
-        memcpy(meta_cache_key.data() + file_name.size(), &modification_time, sizeof(int64_t));
-    } else {
-        memcpy(meta_cache_key.data() + file_name.size(), &file_size, sizeof(int64_t));
-    }
+    memcpy(meta_cache_key.data() + file_name.size(), &modification_time, sizeof(int64_t));
+    memcpy(meta_cache_key.data() + file_name.size() + sizeof(int64_t), &file_size, sizeof(int64_t));
     return meta_cache_key;
 }
 
@@ -59,6 +60,14 @@ std::string FileMetaCache::get_key(io::FileReaderSPtr file_reader,
             _file_description.file_size == -1 ? file_reader->size() : _file_description.file_size);
 }
 
+std::string FileMetaCache::get_memory_cache_key(FileMetaCacheFormat format, std::string_view key) {
+    std::string memory_cache_key;
+    memory_cache_key.reserve(key.size() + sizeof(uint8_t));
+    memory_cache_key.push_back(static_cast<char>(format));
+    memory_cache_key.append(key.data(), key.size());
+    return memory_cache_key;
+}
+
 bool FileMetaCache::is_persistent_cache_enabled() {
     return config::enable_external_file_meta_disk_cache &&
            config::external_file_meta_disk_cache_max_entry_bytes > 0;
@@ -67,7 +76,7 @@ bool FileMetaCache::is_persistent_cache_enabled() {
 bool FileMetaCache::is_persistent_cache_payload_size_allowed(uint64_t payload_size) {
     const int64_t max_entry_bytes = config::external_file_meta_disk_cache_max_entry_bytes;
     return config::enable_external_file_meta_disk_cache && max_entry_bytes > 0 &&
-           payload_size <= static_cast<uint64_t>(max_entry_bytes);
+           payload_size > 0 && payload_size <= static_cast<uint64_t>(max_entry_bytes);
 }
 
 FileMetaCacheLookupResult FileMetaCache::lookup(const FileMetaCacheContext& context,
@@ -76,7 +85,7 @@ FileMetaCacheLookupResult FileMetaCache::lookup(const FileMetaCacheContext& cont
                                                 FileMetaCacheProfile* profile) {
     DCHECK(handle != nullptr);
     DCHECK(serialized_meta != nullptr);
-    if (context.enable_memory_cache && lookup(context.key, handle)) {
+    if (context.enable_memory_cache && lookup(get_memory_cache_key(context), handle)) {
         serialized_meta->clear();
         if (profile != nullptr) {
             update_profile_counter(profile->hit_cache);
@@ -94,8 +103,10 @@ FileMetaCacheLookupResult FileMetaCache::lookup(const FileMetaCacheContext& cont
             update_profile_counter(profile->hit_disk_cache);
             update_profile_counter(profile->read_disk_cache_time, persisted_read_time);
         }
-    } else if (is_persistent_cache_enabled() && profile != nullptr) {
+    } else if (is_persistent_cache_enabled() && is_persistent_cache_identity_stable(context) &&
+               profile != nullptr) {
         update_profile_counter(profile->miss_disk_cache);
+        update_profile_counter(profile->read_disk_cache_time, persisted_read_time);
     }
     return result;
 }
@@ -112,7 +123,8 @@ bool FileMetaCache::lookup_persistent_cache(const FileMetaCacheContext& context,
     DCHECK(read_time != nullptr);
     payload->clear();
     *read_time = 0;
-    if (!is_persistent_cache_enabled() || _persistent_cache == nullptr) {
+    if (!is_persistent_cache_enabled() || _persistent_cache == nullptr ||
+        !is_persistent_cache_identity_stable(context)) {
         return false;
     }
 
@@ -134,7 +146,7 @@ bool FileMetaCache::insert_persistent_cache(const FileMetaCacheContext& context,
     DCHECK(write_time != nullptr);
     *write_time = 0;
     if (!is_persistent_cache_payload_size_allowed(static_cast<uint64_t>(payload.size())) ||
-        _persistent_cache == nullptr) {
+        _persistent_cache == nullptr || !is_persistent_cache_identity_stable(context)) {
         return false;
     }
 

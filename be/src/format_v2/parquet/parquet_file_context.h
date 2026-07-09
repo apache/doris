@@ -115,7 +115,8 @@ struct ParquetFileContext {
 
     Status open(io::FileReaderSPtr input_file_reader, io::IOContext* io_ctx, bool enable_page_cache,
                 const io::FileDescription& file_description, FileMetaCache* file_meta_cache,
-                FileMetaCacheProfile* file_meta_cache_profile, int64_t* file_footer_read_calls);
+                FileMetaCacheProfile* file_meta_cache_profile, int64_t* file_footer_read_calls,
+                bool enable_file_meta_memory_cache = true);
     // Register file ranges that belong to selected Parquet column chunks. Arrow still owns page
     // decoding, so v2 caches the serialized bytes read inside these ranges and excludes
     // footer/metadata reads that happen before registration.

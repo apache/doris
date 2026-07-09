@@ -122,6 +122,7 @@ private:
                                        std::map<std::string, Field> partition_values);
     static bool _should_skip_not_found(const Status& status, bool ignore_not_found);
     bool _should_enable_file_meta_cache() const;
+    bool _should_enable_file_meta_memory_cache() const;
     std::optional<format::GlobalRowIdContext> _create_global_rowid_context(
             const TFileRangeDesc& range) const;
     Status _generate_partition_values(const TFileRangeDesc& range,

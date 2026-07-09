@@ -390,7 +390,8 @@ Status ParquetReader::_open_file() {
                     .key = file_meta_cache_key,
                     .modification_time = _file_description.mtime,
                     .file_size = file_size,
-                    .enable_memory_cache = _meta_cache->enabled()};
+                    .enable_memory_cache =
+                            _enable_file_meta_memory_cache && _meta_cache->enabled()};
             FileMetaCacheProfile file_meta_cache_profile {
                     .hit_cache = &_reader_statistics.file_footer_hit_cache,
                     .hit_memory_cache = &_reader_statistics.file_footer_hit_memory_cache,
@@ -399,6 +400,8 @@ Status ParquetReader::_open_file() {
                     .write_disk_cache = &_reader_statistics.file_footer_write_disk_cache,
                     .read_disk_cache_time = &_reader_statistics.file_footer_read_disk_cache_time,
                     .write_disk_cache_time = &_reader_statistics.file_footer_write_disk_cache_time};
+            const std::string memory_cache_key =
+                    FileMetaCache::get_memory_cache_key(file_meta_cache_context);
             std::string footer_payload;
             const FileMetaCacheLookupResult lookup_result =
                     _meta_cache->lookup(file_meta_cache_context, &_meta_cache_handle,
@@ -408,20 +411,31 @@ Status ParquetReader::_open_file() {
             } else if (lookup_result.state == FileMetaCacheLookupState::PERSISTED_HIT) {
                 uint32_t metadata_size = static_cast<uint32_t>(footer_payload.size());
                 tparquet::FileMetaData t_metadata;
-                RETURN_IF_ERROR(deserialize_thrift_msg(
+                Status status = deserialize_thrift_msg(
                         reinterpret_cast<const uint8_t*>(footer_payload.data()), &metadata_size,
-                        true, &t_metadata));
-                _file_metadata_ptr = std::make_unique<FileMetaData>(t_metadata, metadata_size);
-                RETURN_IF_ERROR(_file_metadata_ptr->init_schema(enable_mapping_varbinary,
-                                                                enable_mapping_timestamp_tz));
-                if (file_meta_cache_context.enable_memory_cache) {
-                    _meta_cache->insert(file_meta_cache_key, _file_metadata_ptr.release(),
-                                        &_meta_cache_handle);
-                    _file_metadata = _meta_cache_handle.data<FileMetaData>();
-                } else {
-                    _file_metadata = _file_metadata_ptr.get();
+                        true, &t_metadata);
+                if (status.ok()) {
+                    _file_metadata_ptr = std::make_unique<FileMetaData>(t_metadata, metadata_size);
+                    status = _file_metadata_ptr->init_schema(enable_mapping_varbinary,
+                                                             enable_mapping_timestamp_tz);
                 }
-            } else {
+                if (status.ok()) {
+                    if (file_meta_cache_context.enable_memory_cache) {
+                        _meta_cache->insert(memory_cache_key, _file_metadata_ptr.release(),
+                                            &_meta_cache_handle);
+                        _file_metadata = _meta_cache_handle.data<FileMetaData>();
+                    } else {
+                        _file_metadata = _file_metadata_ptr.get();
+                    }
+                } else {
+                    VLOG_DEBUG << "ignore invalid parquet file meta persistent cache payload: "
+                               << status;
+                    _meta_cache->invalidate_persistent_cache(file_meta_cache_context);
+                    _file_metadata_ptr.reset();
+                    footer_payload.clear();
+                }
+            }
+            if (_file_metadata == nullptr) {
                 RETURN_IF_ERROR(parse_thrift_footer(_tracing_file_reader, &_file_metadata_ptr,
                                                     &meta_size, _io_ctx, enable_mapping_varbinary,
                                                     enable_mapping_timestamp_tz));
@@ -442,7 +456,7 @@ Status ParquetReader::_open_file() {
                         _file_metadata = _file_metadata_ptr.get();
                     }
                 } else if (file_meta_cache_context.enable_memory_cache &&
-                           _meta_cache->insert(file_meta_cache_key, _file_metadata_ptr,
+                           _meta_cache->insert(memory_cache_key, _file_metadata_ptr,
                                                &_meta_cache_handle)) {
                     _file_metadata = _meta_cache_handle.data<FileMetaData>();
                 } else {

@@ -17,14 +17,19 @@
 
 #include "io/fs/file_meta_cache.h"
 
+#include <crc32c/crc32c.h>
+
 #include <memory>
 
 #include "common/config.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "io/cache/block_file_cache.h"
+#include "io/cache/file_block.h"
+#include "io/cache/file_cache_common.h"
 #include "io/fs/file_meta_disk_cache.h"
 #include "io/fs/file_reader.h"
+#include "util/coding.h"
 #include "util/defer_op.h"
 
 namespace doris {
@@ -64,6 +69,64 @@ private:
     size_t _size;
     bool _closed;
 };
+
+io::FileCacheSettings create_file_meta_disk_cache_test_settings() {
+    io::FileCacheSettings settings;
+    settings.capacity = 1024 * 1024;
+    settings.max_file_block_size = 8;
+    settings.index_queue_size = 1024 * 1024;
+    settings.index_queue_elements = 1024;
+    settings.max_query_cache_size = 1024 * 1024;
+    settings.storage = "memory";
+    return settings;
+}
+
+constexpr size_t FILE_META_DISK_CACHE_TEST_HEADER_SIZE = 36;
+
+std::string file_meta_disk_cache_key(FileMetaCacheFormat format, const std::string& meta_key) {
+    std::string key = "file_meta_cache:v1:";
+    switch (format) {
+    case FileMetaCacheFormat::PARQUET:
+        key.append("parquet");
+        break;
+    case FileMetaCacheFormat::ORC:
+        key.append("orc");
+        break;
+    case FileMetaCacheFormat::PARQUET_V2:
+        key.append("parquet_v2");
+        break;
+    }
+    key.push_back(':');
+    key.append(meta_key);
+    return key;
+}
+
+std::string build_file_meta_disk_cache_value(FileMetaCacheFormat format, int64_t modification_time,
+                                             int64_t file_size, std::string_view payload) {
+    std::string value;
+    value.append("DFMC", 4);
+    value.push_back(1);
+    value.push_back(static_cast<char>(format));
+    value.push_back(0);
+    value.push_back(0);
+    put_fixed64_le(&value, static_cast<uint64_t>(file_size));
+    put_fixed64_le(&value, static_cast<uint64_t>(modification_time));
+    put_fixed64_le(&value, payload.size());
+    put_fixed32_le(&value, crc32c::Crc32c(payload.data(), payload.size()));
+    value.append(payload);
+    return value;
+}
+
+io::CacheContext create_file_meta_disk_cache_context(io::ReadStatistics* stats) {
+    io::CacheContext context;
+    context.cache_type = io::FileCacheType::INDEX;
+    context.query_id = TUniqueId();
+    context.expiration_time = 0;
+    context.is_cold_data = false;
+    context.is_warmup = false;
+    context.stats = stats;
+    return context;
+}
 } // anonymous namespace
 
 TEST(FileMetaCacheTest, KeyGenerationFromParams) {
@@ -79,7 +142,11 @@ TEST(FileMetaCacheTest, KeyGenerationFromParams) {
     std::string key3 = FileMetaCache::get_key(file_name, mtime + 1, file_size);
     EXPECT_NE(key1, key3);
 
-    // mtime == 0, use file_size
+    // Same mtime with different size should produce different key
+    std::string key_with_different_size = FileMetaCache::get_key(file_name, mtime, file_size + 1);
+    EXPECT_NE(key1, key_with_different_size);
+
+    // mtime == 0, still includes file_size
     std::string key4 = FileMetaCache::get_key(file_name, 0, file_size);
     std::string key5 = FileMetaCache::get_key(file_name, 0, file_size);
     EXPECT_EQ(key4, key5);
@@ -122,19 +189,27 @@ TEST(FileMetaCacheTest, KeyContentVerification) {
 
     std::string key_with_mtime = FileMetaCache::get_key(file_name, mtime, file_size);
 
-    ASSERT_EQ(key_with_mtime.size(), file_name.size() + sizeof(int64_t));
+    ASSERT_EQ(key_with_mtime.size(), file_name.size() + 2 * sizeof(int64_t));
 
     EXPECT_EQ(memcmp(key_with_mtime.data(), file_name.data(), file_name.size()), 0);
 
     int64_t extracted_mtime = 0;
     memcpy(&extracted_mtime, key_with_mtime.data() + file_name.size(), sizeof(int64_t));
     EXPECT_EQ(extracted_mtime, mtime);
+    int64_t extracted_file_size = 0;
+    memcpy(&extracted_file_size, key_with_mtime.data() + file_name.size() + sizeof(int64_t),
+           sizeof(int64_t));
+    EXPECT_EQ(extracted_file_size, file_size);
 
     std::string key_with_filesize = FileMetaCache::get_key(file_name, 0, file_size);
-    ASSERT_EQ(key_with_filesize.size(), file_name.size() + sizeof(int64_t));
+    ASSERT_EQ(key_with_filesize.size(), file_name.size() + 2 * sizeof(int64_t));
     EXPECT_EQ(memcmp(key_with_filesize.data(), file_name.data(), file_name.size()), 0);
+    int64_t extracted_zero_mtime = -1;
+    memcpy(&extracted_zero_mtime, key_with_filesize.data() + file_name.size(), sizeof(int64_t));
+    EXPECT_EQ(extracted_zero_mtime, 0);
     int64_t extracted_filesize = 0;
-    memcpy(&extracted_filesize, key_with_filesize.data() + file_name.size(), sizeof(int64_t));
+    memcpy(&extracted_filesize, key_with_filesize.data() + file_name.size() + sizeof(int64_t),
+           sizeof(int64_t));
     EXPECT_EQ(extracted_filesize, file_size);
 }
 
@@ -171,7 +246,7 @@ TEST(FileMetaCacheTest, ContextLookupReportsMemoryHit) {
 
     auto value = std::make_unique<std::string>("serialized footer payload");
     ObjLRUCache::CacheHandle insert_handle;
-    ASSERT_TRUE(cache.insert(meta_key, value, &insert_handle));
+    ASSERT_TRUE(cache.insert(FileMetaCache::get_memory_cache_key(context), value, &insert_handle));
     ASSERT_TRUE(insert_handle.valid());
 
     int64_t hit_cache = 0;
@@ -195,6 +270,34 @@ TEST(FileMetaCacheTest, ContextLookupReportsMemoryHit) {
     EXPECT_EQ(hit_memory_cache, 1);
     EXPECT_EQ(hit_disk_cache, 0);
     EXPECT_EQ(miss_disk_cache, 0);
+}
+
+TEST(FileMetaCacheTest, ContextMemoryCacheKeyIncludesFormat) {
+    FileMetaCache cache(1024 * 1024);
+    const std::string meta_key = FileMetaCache::get_key("s3://bucket/same.parquet", 123, 456);
+    const FileMetaCacheContext parquet_context {.format = FileMetaCacheFormat::PARQUET,
+                                                .key = meta_key,
+                                                .modification_time = 123,
+                                                .file_size = 456,
+                                                .enable_memory_cache = true};
+    const FileMetaCacheContext parquet_v2_context {.format = FileMetaCacheFormat::PARQUET_V2,
+                                                   .key = meta_key,
+                                                   .modification_time = 123,
+                                                   .file_size = 456,
+                                                   .enable_memory_cache = true};
+
+    auto value = std::make_unique<int>(7);
+    ObjLRUCache::CacheHandle insert_handle;
+    const FileMetaCacheInsertResult insert_result =
+            cache.insert(parquet_context, value, &insert_handle, "payload");
+    ASSERT_TRUE(insert_result.memory_inserted);
+
+    ObjLRUCache::CacheHandle lookup_handle;
+    std::string serialized_meta;
+    EXPECT_EQ(cache.lookup(parquet_v2_context, &lookup_handle, &serialized_meta).state,
+              FileMetaCacheLookupState::MISS);
+    EXPECT_EQ(cache.lookup(parquet_context, &lookup_handle, &serialized_meta).state,
+              FileMetaCacheLookupState::MEMORY_HIT);
 }
 
 TEST(FileMetaCacheTest, ContextInsertCanSkipMemoryCacheWithoutPersistentStore) {
@@ -228,6 +331,43 @@ TEST(FileMetaCacheTest, ContextInsertCanSkipMemoryCacheWithoutPersistentStore) {
     EXPECT_FALSE(cache.lookup(meta_key, &lookup_handle));
 }
 
+TEST(FileMetaCacheDiskTest, PersistentCacheRequiresStableModificationTime) {
+    const bool old_enable_external_file_meta_disk_cache =
+            config::enable_external_file_meta_disk_cache;
+    Defer defer {[&] {
+        config::enable_external_file_meta_disk_cache = old_enable_external_file_meta_disk_cache;
+    }};
+    config::enable_external_file_meta_disk_cache = true;
+
+    io::FileCacheSettings settings = create_file_meta_disk_cache_test_settings();
+    io::BlockFileCache block_cache("file_meta_disk_cache_unstable_identity_test", settings);
+    ASSERT_TRUE(block_cache.initialize().ok());
+
+    const std::string meta_key = FileMetaCache::get_key("s3://bucket/mtime-zero.parquet", 0, 456);
+    auto disk_cache = std::make_unique<FileMetaDiskCache>(&block_cache);
+    FileMetaCache cache(0, std::move(disk_cache));
+    const FileMetaCacheContext context {.format = FileMetaCacheFormat::PARQUET,
+                                        .key = meta_key,
+                                        .modification_time = 0,
+                                        .file_size = 456,
+                                        .enable_memory_cache = false};
+
+    auto value = std::make_unique<std::string>("serialized footer payload");
+    ObjLRUCache::CacheHandle handle;
+    const FileMetaCacheInsertResult insert_result =
+            cache.insert(context, value, &handle, std::string_view(*value));
+    EXPECT_FALSE(insert_result.persisted_inserted);
+    EXPECT_FALSE(insert_result.memory_inserted);
+
+    int64_t miss_disk_cache = 0;
+    FileMetaCacheProfile profile {.miss_disk_cache = &miss_disk_cache};
+    std::string serialized_meta;
+    ObjLRUCache::CacheHandle lookup_handle;
+    EXPECT_EQ(cache.lookup(context, &lookup_handle, &serialized_meta, &profile).state,
+              FileMetaCacheLookupState::MISS);
+    EXPECT_EQ(miss_disk_cache, 0);
+}
+
 TEST(FileMetaCacheDiskTest, PersistentCacheStoresPayloadBehindFileMetaInterface) {
     const bool old_enable_external_file_meta_disk_cache =
             config::enable_external_file_meta_disk_cache;
@@ -236,13 +376,7 @@ TEST(FileMetaCacheDiskTest, PersistentCacheStoresPayloadBehindFileMetaInterface)
     }};
     config::enable_external_file_meta_disk_cache = true;
 
-    io::FileCacheSettings settings;
-    settings.capacity = 1024 * 1024;
-    settings.max_file_block_size = 8;
-    settings.index_queue_size = 1024 * 1024;
-    settings.index_queue_elements = 1024;
-    settings.max_query_cache_size = 1024 * 1024;
-    settings.storage = "memory";
+    io::FileCacheSettings settings = create_file_meta_disk_cache_test_settings();
     io::BlockFileCache block_cache("file_meta_disk_cache_interface_test", settings);
     ASSERT_TRUE(block_cache.initialize().ok());
 
@@ -279,6 +413,154 @@ TEST(FileMetaCacheDiskTest, PersistentCacheStoresPayloadBehindFileMetaInterface)
             cache.lookup(stale_context, &lookup_handle, &output);
     EXPECT_EQ(stale_lookup_result.state, FileMetaCacheLookupState::MISS);
     EXPECT_TRUE(output.empty());
+}
+
+TEST(FileMetaCacheDiskTest, IncompleteMultiBlockEntryMissesWithoutInvalidating) {
+    const bool old_enable_external_file_meta_disk_cache =
+            config::enable_external_file_meta_disk_cache;
+    Defer defer {[&] {
+        config::enable_external_file_meta_disk_cache = old_enable_external_file_meta_disk_cache;
+    }};
+    config::enable_external_file_meta_disk_cache = true;
+
+    io::FileCacheSettings settings = create_file_meta_disk_cache_test_settings();
+    io::BlockFileCache block_cache("file_meta_disk_cache_incomplete_entry_test", settings);
+    ASSERT_TRUE(block_cache.initialize().ok());
+
+    const std::string meta_key = FileMetaCache::get_key("s3://bucket/incomplete.parquet", 123, 456);
+    const std::string payload = "serialized footer payload spanning several blocks";
+    const std::string value =
+            build_file_meta_disk_cache_value(FileMetaCacheFormat::PARQUET, 123, 456, payload);
+    const auto hash = io::BlockFileCache::hash(
+            file_meta_disk_cache_key(FileMetaCacheFormat::PARQUET, meta_key));
+
+    {
+        io::ReadStatistics stats;
+        io::CacheContext context = create_file_meta_disk_cache_context(&stats);
+        auto holder = block_cache.get_or_set(hash, 0, value.size(), context);
+        bool covered_header = false;
+        for (const auto& block : holder.file_blocks) {
+            if (block->range().left >= FILE_META_DISK_CACHE_TEST_HEADER_SIZE) {
+                continue;
+            }
+            ASSERT_EQ(block->get_or_set_downloader(), io::FileBlock::get_caller_id());
+            ASSERT_TRUE(
+                    block->append(Slice(value.data() + block->range().left, block->range().size()))
+                            .ok());
+            ASSERT_TRUE(block->finalize().ok());
+            covered_header = block->range().right + 1 >= FILE_META_DISK_CACHE_TEST_HEADER_SIZE;
+        }
+        ASSERT_TRUE(covered_header);
+    }
+
+    FileMetaDiskCache disk_cache(&block_cache);
+    std::string output;
+    const Status status =
+            disk_cache.read(FileMetaCacheFormat::PARQUET, meta_key, 123, 456, &output);
+    EXPECT_FALSE(status.ok());
+    EXPECT_TRUE(output.empty());
+    EXPECT_FALSE(block_cache.get_blocks_by_key(hash).empty());
+}
+
+TEST(FileMetaCacheDiskTest, PayloadMissDoesNotRemoveInFlightWriterBlocks) {
+    const bool old_enable_external_file_meta_disk_cache =
+            config::enable_external_file_meta_disk_cache;
+    Defer defer {[&] {
+        config::enable_external_file_meta_disk_cache = old_enable_external_file_meta_disk_cache;
+    }};
+    config::enable_external_file_meta_disk_cache = true;
+
+    io::FileCacheSettings settings = create_file_meta_disk_cache_test_settings();
+    io::BlockFileCache block_cache("file_meta_disk_cache_inflight_writer_test", settings);
+    ASSERT_TRUE(block_cache.initialize().ok());
+
+    const std::string meta_key = FileMetaCache::get_key("s3://bucket/inflight.parquet", 123, 456);
+    const std::string payload = "serialized footer payload spanning several blocks";
+    const std::string value =
+            build_file_meta_disk_cache_value(FileMetaCacheFormat::PARQUET, 123, 456, payload);
+    const auto hash = io::BlockFileCache::hash(
+            file_meta_disk_cache_key(FileMetaCacheFormat::PARQUET, meta_key));
+
+    {
+        io::ReadStatistics stats;
+        io::CacheContext context = create_file_meta_disk_cache_context(&stats);
+        auto partial_holder = block_cache.get_or_set(hash, 0, value.size(), context);
+        for (const auto& block : partial_holder.file_blocks) {
+            if (block->range().left >= FILE_META_DISK_CACHE_TEST_HEADER_SIZE) {
+                continue;
+            }
+            ASSERT_EQ(block->get_or_set_downloader(), io::FileBlock::get_caller_id());
+            ASSERT_TRUE(
+                    block->append(Slice(value.data() + block->range().left, block->range().size()))
+                            .ok());
+            ASSERT_TRUE(block->finalize().ok());
+        }
+    }
+
+    FileMetaDiskCache disk_cache(&block_cache);
+    {
+        io::ReadStatistics stats;
+        io::CacheContext context = create_file_meta_disk_cache_context(&stats);
+        auto writer_holder = block_cache.get_or_set(hash, 0, value.size(), context);
+        bool has_inflight_payload_block = false;
+        for (const auto& block : writer_holder.file_blocks) {
+            if (block->range().left >= FILE_META_DISK_CACHE_TEST_HEADER_SIZE) {
+                ASSERT_EQ(block->get_or_set_downloader(), io::FileBlock::get_caller_id());
+                has_inflight_payload_block = true;
+                break;
+            }
+        }
+        ASSERT_TRUE(has_inflight_payload_block);
+
+        std::string output;
+        const Status read_status =
+                disk_cache.read(FileMetaCacheFormat::PARQUET, meta_key, 123, 456, &output);
+        EXPECT_FALSE(read_status.ok());
+        EXPECT_TRUE(output.empty());
+
+        for (const auto& block : writer_holder.file_blocks) {
+            auto state = block->state();
+            if (state == io::FileBlock::State::DOWNLOADED) {
+                continue;
+            }
+            if (state == io::FileBlock::State::EMPTY) {
+                ASSERT_EQ(block->get_or_set_downloader(), io::FileBlock::get_caller_id());
+            } else {
+                ASSERT_EQ(state, io::FileBlock::State::DOWNLOADING);
+                ASSERT_TRUE(block->is_downloader());
+            }
+            ASSERT_TRUE(
+                    block->append(Slice(value.data() + block->range().left, block->range().size()))
+                            .ok());
+            ASSERT_TRUE(block->finalize().ok());
+        }
+    }
+
+    std::string output;
+    ASSERT_TRUE(disk_cache.read(FileMetaCacheFormat::PARQUET, meta_key, 123, 456, &output).ok());
+    EXPECT_EQ(output, payload);
+}
+
+TEST(FileMetaCacheDiskTest, EmptyPayloadIsNotPersisted) {
+    const bool old_enable_external_file_meta_disk_cache =
+            config::enable_external_file_meta_disk_cache;
+    Defer defer {[&] {
+        config::enable_external_file_meta_disk_cache = old_enable_external_file_meta_disk_cache;
+    }};
+    config::enable_external_file_meta_disk_cache = true;
+
+    io::FileCacheSettings settings = create_file_meta_disk_cache_test_settings();
+    io::BlockFileCache block_cache("file_meta_disk_cache_empty_payload_test", settings);
+    ASSERT_TRUE(block_cache.initialize().ok());
+
+    const std::string meta_key = FileMetaCache::get_key("s3://bucket/empty.parquet", 123, 456);
+    const auto hash = io::BlockFileCache::hash(
+            file_meta_disk_cache_key(FileMetaCacheFormat::PARQUET, meta_key));
+    FileMetaDiskCache disk_cache(&block_cache);
+
+    const Status status = disk_cache.write(FileMetaCacheFormat::PARQUET, meta_key, 123, 456, "");
+    EXPECT_FALSE(status.ok());
+    EXPECT_TRUE(block_cache.get_blocks_by_key(hash).empty());
 }
 
 } // namespace doris
