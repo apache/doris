@@ -155,7 +155,10 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
         List<String> columnTypes;
         try {
             TableSchemaResolver schemaResolver = new TableSchemaResolver(metaClient);
-            Schema avroSchema = schemaResolver.getTableAvroSchema();
+            // include the 5 `_hoodie_*` meta columns (explicit `true` = legacy parity, in lockstep with
+            // HudiConnectorMetadata.getSchemaFromMetaClient) so the JNI reader's column list matches the
+            // exposed schema; byte-identical for the common populate.meta.fields=true table.
+            Schema avroSchema = schemaResolver.getTableAvroSchema(true);
             columnNames = avroSchema.getFields().stream()
                     .map(Schema.Field::name).collect(Collectors.toList());
             columnTypes = avroSchema.getFields().stream()

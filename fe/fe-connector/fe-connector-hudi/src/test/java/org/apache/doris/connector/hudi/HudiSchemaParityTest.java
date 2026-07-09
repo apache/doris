@@ -122,6 +122,30 @@ public class HudiSchemaParityTest {
     }
 
     @Test
+    public void metaCommitTimeColumnIsExposedVisibleAndStringForRowFilterBinding() {
+        // The synthetic incremental row filter references a scan-output slot named EXACTLY "_hoodie_commit_time"
+        // (byte-faithful to legacy LogicalHudiScan.generateIncrementalExpression). getTableAvroSchema(true) always
+        // carries the 5 `_hoodie_*` meta fields as nullable strings; avroSchemaToColumns must preserve the
+        // commit-time field as a VISIBLE STRING column with that exact lower-case name, or the filter would
+        // silently fail to bind and the incremental scan would over-read out-of-window rows.
+        String metaInclusive =
+                "{\"type\":\"record\",\"name\":\"hudi_t\",\"fields\":["
+                + "{\"name\":\"_hoodie_commit_time\",\"type\":[\"null\",\"string\"],\"default\":null},"
+                + "{\"name\":\"id\",\"type\":\"long\"}"
+                + "]}";
+        List<ConnectorColumn> columns =
+                HudiConnectorMetadata.avroSchemaToColumns(new Schema.Parser().parse(metaInclusive));
+        ConnectorColumn commitTime = columns.stream()
+                .filter(c -> "_hoodie_commit_time".equals(c.getName()))
+                .findFirst().orElseThrow(() -> new AssertionError(
+                        "_hoodie_commit_time must be exposed as a column for the incremental row filter to bind"));
+        Assertions.assertTrue(commitTime.isVisible(),
+                "_hoodie_commit_time must be VISIBLE (legacy SELECT * parity + the row-filter's slot binding)");
+        Assertions.assertEquals(ConnectorType.of("STRING"), commitTime.getType(),
+                "_hoodie_commit_time must be STRING so the window compare is lexicographic over Hudi instants");
+    }
+
+    @Test
     public void testTopLevelNameLoweredButNestedStructNamePreserved() {
         List<ConnectorColumn> columns = HudiConnectorMetadata.avroSchemaToColumns(schema());
         ConnectorColumn addr = columns.get(7);

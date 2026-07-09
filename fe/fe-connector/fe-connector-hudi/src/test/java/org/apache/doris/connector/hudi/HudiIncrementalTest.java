@@ -17,9 +17,14 @@
 
 package org.apache.doris.connector.hudi;
 
+import org.apache.doris.connector.api.ConnectorType;
 import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.mvcc.ConnectorMvccSnapshot;
 import org.apache.doris.connector.api.mvcc.ConnectorTimeTravelSpec;
+import org.apache.doris.connector.api.pushdown.ConnectorColumnRef;
+import org.apache.doris.connector.api.pushdown.ConnectorComparison;
+import org.apache.doris.connector.api.pushdown.ConnectorExpression;
+import org.apache.doris.connector.api.pushdown.ConnectorLiteral;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -266,6 +271,56 @@ public class HudiIncrementalTest {
                 .beginInstant("20240101000000").endInstant("20240101120000").incrementalParams(params).build();
         HudiTableHandle copy = original.toBuilder().build();
         Assertions.assertEquals("*/x/*", copy.getIncrementalParams().get("hoodie.datasource.read.incr.path.glob"));
+    }
+
+    // ── synthetic scan predicate (the neutral row-level @incr filter SPI) ───────────────────────────────
+
+    @Test
+    public void syntheticScanPredicatesEmitStringTypedCommitTimeWindow() {
+        // The @incr row filter is required because a COW base file rewritten inside the window ALSO carries
+        // forward out-of-window rows. The SPI reads the window off the SAME resolved pin applySnapshot consumes
+        // (single window authority, so file selection and the row filter can never diverge) and emits
+        // `_hoodie_commit_time > begin AND <= end` as two flat conjuncts, STRING-typed both sides for
+        // lexicographic instant compare. Byte-faithful to legacy LogicalHudiScan.generateIncrementalExpression.
+        HudiConnectorMetadata md = metadata(stub(Optional.of(LATEST)));
+        ConnectorMvccSnapshot pin = md.resolveTimeTravel(null, partitioned(),
+                ConnectorTimeTravelSpec.incremental(window("20240101000000", "20240101120000")))
+                .orElseThrow(AssertionError::new);
+
+        List<ConnectorExpression> predicates = md.getSyntheticScanPredicates(null, partitioned(), pin);
+
+        ConnectorColumnRef commitTime = new ConnectorColumnRef("_hoodie_commit_time", ConnectorType.of("STRING"));
+        Assertions.assertEquals(Arrays.asList(
+                new ConnectorComparison(ConnectorComparison.Operator.GT, commitTime,
+                        ConnectorLiteral.ofString("20240101000000")),
+                new ConnectorComparison(ConnectorComparison.Operator.LE, commitTime,
+                        ConnectorLiteral.ofString("20240101120000"))),
+                predicates,
+                "an @incr read must emit `_hoodie_commit_time > begin AND <= end`, STRING-typed on both sides");
+    }
+
+    @Test
+    public void syntheticScanPredicatesAreEmptyForTimeTravelPin() {
+        // A FOR TIME AS OF pin carries a queryInstant, NOT a (begin, end] window -> no row filter (its rows are
+        // already correct by file selection at the instant). Guards a mutation that would emit a bogus window.
+        HudiConnectorMetadata md = metadata(stub(Optional.of(LATEST)));
+        ConnectorMvccSnapshot ttPin = md.resolveTimeTravel(null, partitioned(),
+                ConnectorTimeTravelSpec.timestamp("2024-01-01 12:00:00", false)).orElseThrow(AssertionError::new);
+        Assertions.assertTrue(md.getSyntheticScanPredicates(null, partitioned(), ttPin).isEmpty(),
+                "a FOR TIME AS OF pin must not produce a synthetic row filter");
+    }
+
+    @Test
+    public void syntheticScanPredicatesAreEmptyForPlainAndNullPin() {
+        // The query-begin latest pin (beginQuerySnapshot) carries only a snapshotId, no window -> a plain read
+        // gets NO synthetic filter, so its plan is byte-identical to today. A null snapshot is likewise a no-op.
+        HudiConnectorMetadata md = metadata(stub(Optional.of(LATEST)));
+        ConnectorMvccSnapshot latestPin =
+                HudiConnectorMetadata.buildBeginQuerySnapshot(20240101120000000L).orElseThrow(AssertionError::new);
+        Assertions.assertTrue(md.getSyntheticScanPredicates(null, partitioned(), latestPin).isEmpty(),
+                "a plain latest pin must not produce a synthetic row filter");
+        Assertions.assertTrue(md.getSyntheticScanPredicates(null, partitioned(), null).isEmpty(),
+                "a null snapshot must not produce a synthetic row filter");
     }
 
     // ── handle field round-trip ─────────────────────────────────────────────────────────────────────────

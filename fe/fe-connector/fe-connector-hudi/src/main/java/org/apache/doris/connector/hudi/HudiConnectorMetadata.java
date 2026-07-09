@@ -126,6 +126,11 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
     private static final String INCR_HOLLOW_POLICY_KEY = "hoodie.read.timeline.holes.resolution.policy";
     private static final String INCR_STATE_TRANSITION_POLICY = "USE_TRANSITION_TIME";
 
+    // The Hudi per-record commit-time meta column the synthetic incremental row filter references
+    // (HoodieRecord.COMMIT_TIME_METADATA_FIELD; lower-cased in the connector schema). Byte-faithful to legacy
+    // LogicalHudiScan.generateIncrementalExpression, which matched the scan-output slot by this exact name.
+    private static final String HUDI_COMMIT_TIME_COLUMN = "_hoodie_commit_time";
+
     private final HmsClient hmsClient;
     private final Map<String, String> properties;
     // Runs the metaClient-touching partition/snapshot work under the plugin UGI doAs + TCCL pin (see R4).
@@ -471,6 +476,51 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
         return handle;
     }
 
+    /**
+     * Supplies the ROW-LEVEL correctness filter for an {@code @incr} incremental read as a connector-neutral
+     * residual predicate (the neutral synthetic-predicate SPI). A COW base file rewritten inside the
+     * {@code (begin, end]} window also carries forward older-commit rows, so selecting the touched files is NOT
+     * enough — the engine must additionally apply {@code _hoodie_commit_time > begin AND _hoodie_commit_time
+     * <= end} at the row level. This is exactly the filter legacy injected via
+     * {@code LogicalHudiScan.generateIncrementalExpression}, re-homed here so fe-core stays source-agnostic
+     * (it reverse-converts the returned {@link ConnectorExpression}s and wraps a filter; it never branches on
+     * the connector).
+     *
+     * <p>The window is read from the SAME resolved {@code snapshot} that {@link #applySnapshot} consumes
+     * ({@link #HUDI_INCREMENTAL_BEGIN_PROPERTY}/{@link #HUDI_INCREMENTAL_END_PROPERTY}, stamped ONCE by
+     * {@link #resolveIncremental}), so the row filter and the file-selection window are the single same
+     * resolution and can never diverge on an advancing timeline. Both bounds are STRING literals over a STRING
+     * column ref — lexicographic compare over fixed-width Hudi instants, byte-faithful to legacy (a numeric
+     * coercion would silently corrupt the ordering).</p>
+     *
+     * <p>Returns an EMPTY list for any non-incremental read (a plain latest read or {@code FOR TIME AS OF}
+     * pin carries no {@code (begin, end]} window), so those plans stay byte-identical.</p>
+     */
+    @Override
+    public List<ConnectorExpression> getSyntheticScanPredicates(ConnectorSession session,
+            ConnectorTableHandle handle, ConnectorMvccSnapshot snapshot) {
+        if (snapshot == null) {
+            return Collections.emptyList();
+        }
+        Map<String, String> properties = snapshot.getProperties();
+        String begin = properties.get(HUDI_INCREMENTAL_BEGIN_PROPERTY);
+        String end = properties.get(HUDI_INCREMENTAL_END_PROPERTY);
+        if (begin == null || end == null) {
+            // Not an incremental read (plain / FOR TIME AS OF pins carry no window) -> no synthetic filter.
+            return Collections.emptyList();
+        }
+        ConnectorType stringType = ConnectorType.of("STRING");
+        org.apache.doris.connector.api.pushdown.ConnectorColumnRef commitTime =
+                new org.apache.doris.connector.api.pushdown.ConnectorColumnRef(HUDI_COMMIT_TIME_COLUMN, stringType);
+        ConnectorExpression lower = new ConnectorComparison(
+                ConnectorComparison.Operator.GT, commitTime, ConnectorLiteral.ofString(begin));
+        ConnectorExpression upper = new ConnectorComparison(
+                ConnectorComparison.Operator.LE, commitTime, ConnectorLiteral.ofString(end));
+        // Two flat conjuncts: fe-core ANDs them into one LogicalFilter (byte-faithful to legacy
+        // ImmutableSet.of(great, less)); no ConnectorAnd wrapper is needed.
+        return List.of(lower, upper);
+    }
+
     // ========== ConnectorTableOps (partitions) ==========
 
     /**
@@ -616,7 +666,12 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
                     .setBasePath(basePath)
                     .build();
             TableSchemaResolver schemaResolver = new TableSchemaResolver(metaClient);
-            Schema avroSchema = schemaResolver.getTableAvroSchema();
+            // include the 5 `_hoodie_*` meta columns (byte-faithful to legacy getHudiTableSchema, which passes
+            // `true` unconditionally at HiveMetaStoreClientHelper). The no-arg overload only includes them when
+            // hoodie.populate.meta.fields defaults true, so the explicit `true` (a) restores legacy SELECT *
+            // / DESCRIBE parity even for a populate.meta.fields=false table and (b) guarantees `_hoodie_commit_time`
+            // is a visible, name-bindable output column for the synthetic incremental row filter to reference.
+            Schema avroSchema = schemaResolver.getTableAvroSchema(true);
             return avroSchemaToColumns(avroSchema);
         } catch (Exception e) {
             LOG.warn("Failed to get schema from Hudi MetaClient for path '{}': {}",

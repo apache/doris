@@ -1108,6 +1108,19 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
     }
 
     @Override
+    public List<ConnectorExpression> getSyntheticScanPredicates(ConnectorSession session,
+            ConnectorTableHandle handle, ConnectorMvccSnapshot snapshot) {
+        if (!(handle instanceof HiveTableHandle)) {
+            // Route a foreign (iceberg / hudi) handle to its owning sibling so a hudi-on-HMS @incr read gets
+            // its row-level `_hoodie_commit_time` window filter. Without this the foreign handle would inherit
+            // the empty SPI default -> no filter -> out-of-window rows leak (a SILENT correctness bug).
+            return siblingMetadata(session, handle).getSyntheticScanPredicates(session, handle, snapshot);
+        }
+        // Plain hive has no synthetic scan predicate (SPI default empty).
+        return List.of();
+    }
+
+    @Override
     public ConnectorTableHandle applyRewriteFileScope(ConnectorSession session, ConnectorTableHandle handle,
             Set<String> rawDataFilePaths) {
         if (!(handle instanceof HiveTableHandle)) {

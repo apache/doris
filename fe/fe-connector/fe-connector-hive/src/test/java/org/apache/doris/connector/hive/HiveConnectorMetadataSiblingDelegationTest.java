@@ -25,6 +25,7 @@ import org.apache.doris.connector.api.ConnectorPartitionInfo;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.ConnectorTableSchema;
 import org.apache.doris.connector.api.ConnectorTableStatistics;
+import org.apache.doris.connector.api.ConnectorType;
 import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.ddl.BranchChange;
 import org.apache.doris.connector.api.ddl.ConnectorColumnPosition;
@@ -40,6 +41,7 @@ import org.apache.doris.connector.api.mvcc.ConnectorMvccPartitionView;
 import org.apache.doris.connector.api.mvcc.ConnectorMvccSnapshot;
 import org.apache.doris.connector.api.mvcc.ConnectorTableFreshness;
 import org.apache.doris.connector.api.mvcc.ConnectorTimeTravelSpec;
+import org.apache.doris.connector.api.pushdown.ConnectorColumnRef;
 import org.apache.doris.connector.api.pushdown.ConnectorExpression;
 import org.apache.doris.connector.api.pushdown.ConnectorFilterConstraint;
 import org.apache.doris.connector.api.pushdown.FilterApplicationResult;
@@ -130,6 +132,7 @@ public class HiveConnectorMetadataSiblingDelegationTest {
         md.getMvccPartitionView(null, foreignHandle);
         md.resolveTimeTravel(null, foreignHandle, null);
         ConnectorTableHandle afterSnapshot = md.applySnapshot(null, foreignHandle, null);
+        List<ConnectorExpression> predicates = md.getSyntheticScanPredicates(null, foreignHandle, null);
         ConnectorTableHandle afterScope = md.applyRewriteFileScope(null, foreignHandle, Collections.emptySet());
         ConnectorTableHandle afterTopn = md.applyTopnLazyMaterialization(null, foreignHandle);
         List<String> sysTables = md.listSupportedSysTables(null, foreignHandle);
@@ -159,6 +162,9 @@ public class HiveConnectorMetadataSiblingDelegationTest {
                 "applyTopnLazyMaterialization must return the sibling's handle unmodified");
         Assertions.assertSame(RecordingSiblingMetadata.SIBLING_HANDLE, sysHandle.orElse(null),
                 "getSysTableHandle must return the sibling's sys-table handle unmodified");
+        Assertions.assertSame(RecordingSiblingMetadata.SIBLING_PREDICATES, predicates,
+                "getSyntheticScanPredicates must return the sibling's residual predicates unmodified — a "
+                        + "hudi-on-HMS @incr read gets its row filter from the hudi sibling, not hive's empty default");
     }
 
     @Test
@@ -171,6 +177,8 @@ public class HiveConnectorMetadataSiblingDelegationTest {
         Assertions.assertFalse(md.getMvccPartitionView(null, hive).isPresent(), "hive has no range partition view");
         Assertions.assertFalse(md.resolveTimeTravel(null, hive, null).isPresent(), "hive has no time travel");
         Assertions.assertSame(hive, md.applySnapshot(null, hive, null), "hive applySnapshot returns the handle");
+        Assertions.assertTrue(md.getSyntheticScanPredicates(null, hive, null).isEmpty(),
+                "plain hive has no synthetic scan predicate");
         Assertions.assertSame(hive, md.applyRewriteFileScope(null, hive, Collections.emptySet()),
                 "hive applyRewriteFileScope returns the handle");
         Assertions.assertSame(hive, md.applyTopnLazyMaterialization(null, hive),
@@ -349,6 +357,8 @@ public class HiveConnectorMetadataSiblingDelegationTest {
         static final ConnectorTransaction SIBLING_TXN = new NoOpConnectorTransaction(4243L, "ICEBERG");
         static final long SENTINEL_SIZE = 4242L;
         static final long SENTINEL_SNAPSHOT_ID = 99L;
+        static final List<ConnectorExpression> SIBLING_PREDICATES = Collections.singletonList(
+                new ConnectorColumnRef("sibling-pred", ConnectorType.of("STRING")));
 
         // The exact set + order of forwarded methods the foreign-handle test drives (a Rule-9 completeness lock:
         // dropping a guard, or adding one that should not forward, changes this list and fails the test).
@@ -357,8 +367,8 @@ public class HiveConnectorMetadataSiblingDelegationTest {
                 "estimateDataSizeByListingFiles", "applyFilter", "listPartitionNames", "listPartitions",
                 "beginQuerySnapshot", "getTableFreshness", "getPartitionFreshnessMillis", "dropTable",
                 "truncateTable", "getTableSchemaAtSnapshot", "getMvccPartitionView", "resolveTimeTravel",
-                "applySnapshot", "applyRewriteFileScope", "applyTopnLazyMaterialization", "listSupportedSysTables",
-                "getSysTableHandle"));
+                "applySnapshot", "getSyntheticScanPredicates", "applyRewriteFileScope",
+                "applyTopnLazyMaterialization", "listSupportedSysTables", "getSysTableHandle"));
 
         // The exact set + order of ALTER-DDL / validate methods the foreign-handle write test drives (Rule-9
         // completeness lock for §4.4 W1: dropping a guard, or adding one that should not forward, fails the test).
@@ -488,6 +498,13 @@ public class HiveConnectorMetadataSiblingDelegationTest {
                 ConnectorMvccSnapshot snapshot) {
             calls.add("applySnapshot");
             return SIBLING_HANDLE;
+        }
+
+        @Override
+        public List<ConnectorExpression> getSyntheticScanPredicates(ConnectorSession session,
+                ConnectorTableHandle handle, ConnectorMvccSnapshot snapshot) {
+            calls.add("getSyntheticScanPredicates");
+            return SIBLING_PREDICATES;
         }
 
         @Override

@@ -22,10 +22,12 @@ import org.apache.doris.connector.api.mvcc.ConnectorMvccPartitionView;
 import org.apache.doris.connector.api.mvcc.ConnectorMvccSnapshot;
 import org.apache.doris.connector.api.mvcc.ConnectorTableFreshness;
 import org.apache.doris.connector.api.mvcc.ConnectorTimeTravelSpec;
+import org.apache.doris.connector.api.pushdown.ConnectorExpression;
 
 import java.io.Closeable;
 import java.io.IOException;
 import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
@@ -162,6 +164,27 @@ public interface ConnectorMetadata extends
     default ConnectorTableHandle applySnapshot(ConnectorSession session,
             ConnectorTableHandle handle, ConnectorMvccSnapshot snapshot) {
         return handle;  // default: connectors without time-travel ignore the pin
+    }
+
+    /**
+     * Returns extra scan-level predicates the engine MUST apply for {@code handle} at the pinned
+     * {@code snapshot} — a connector "residual predicate" the read cannot enforce by file selection alone.
+     * The canonical case is an incremental / CDC commit-time window: a rewritten base file also carries
+     * forward out-of-window rows, so a ROW-LEVEL commit-time filter is required for correctness. The engine
+     * reverse-converts each returned {@link ConnectorExpression} into its native predicate and wraps a filter
+     * over the scan, binding column references to the connector's own (visible) output columns by name.
+     *
+     * <p>The predicate is expressed in the connector-neutral {@link ConnectorExpression} pushdown grammar,
+     * NOT a source-specific shape — the engine NEVER discriminates by connector here; it applies whatever the
+     * connector returns. This mirrors the engine-agnostic residual-predicate model.</p>
+     *
+     * <p>The default returns an EMPTY list: a connector with no synthetic scan predicate adds nothing, so the
+     * plan is byte-identical. iceberg/paimon/jdbc/... inherit this empty default; only a connector that opts in
+     * (e.g. hudi incremental read) returns a non-empty list, and only for the scans that need it.</p>
+     */
+    default List<ConnectorExpression> getSyntheticScanPredicates(ConnectorSession session,
+            ConnectorTableHandle handle, ConnectorMvccSnapshot snapshot) {
+        return List.of();  // default: connectors without a residual scan predicate add nothing
     }
 
     /**
