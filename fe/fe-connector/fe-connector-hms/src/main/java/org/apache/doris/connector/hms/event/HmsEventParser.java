@@ -90,7 +90,11 @@ public final class HmsEventParser {
         long eventId = event.getEventId();
         // Hive records event time in seconds; the engine tracks freshness in millis.
         long updateTime = event.getEventTime() * 1000L;
-        String body = prepareBody(event.getMessageFormat(), event.getMessage());
+        // Decompress/parse the message body ONLY for event types that actually read it — mirrors the legacy
+        // events, which deserialize lazily inside the supported-event ctors. So a db-level / INSERT / ignored
+        // (e.g. high-frequency ACID txn) event never touches the payload: no wasted gzip work, and a corrupt
+        // body on an event Doris ignores can never throw.
+        String body = needsBody(type) ? prepareBody(event.getMessageFormat(), event.getMessage()) : null;
 
         switch (type) {
             case "CREATE_TABLE": {
@@ -219,6 +223,24 @@ public final class HmsEventParser {
 
     private static List<MetastoreChangeDescriptor> one(MetastoreChangeDescriptor descriptor) {
         return Collections.singletonList(descriptor);
+    }
+
+    // The event types whose descriptor mapping reads the (possibly gzip) message payload; all others
+    // (CREATE/DROP DATABASE, INSERT, and ignored/unsupported types) build their descriptor from the base
+    // event fields alone and never decompress.
+    private static boolean needsBody(String type) {
+        switch (type) {
+            case "CREATE_TABLE":
+            case "DROP_TABLE":
+            case "ALTER_TABLE":
+            case "ALTER_DATABASE":
+            case "ADD_PARTITION":
+            case "DROP_PARTITION":
+            case "ALTER_PARTITION":
+                return true;
+            default:
+                return false;
+        }
     }
 
     private static String prepareBody(String format, String message) {
