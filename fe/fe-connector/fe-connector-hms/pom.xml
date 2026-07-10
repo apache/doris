@@ -47,6 +47,18 @@ under the License.
             <version>${project.version}</version>
         </dependency>
 
+        <!-- Shared external meta-cache framework (CacheSpec + MetaCacheEntry/CacheFactory) that
+             CachingHmsClient is built on. The public API (MetaCacheEntry) is Caffeine-free, so no Caffeine
+             compile dep is needed here; each CONSUMING plugin (fe-connector-hive, and later -hudi if it
+             wraps its own client) self-bundles Caffeine 2.9.3 for the runtime backing store. The C-a step
+             already added Caffeine + this framework to fe-connector-hive/pom.xml for bundling; this compile
+             dep is what puts CacheSpec/MetaCacheEntry on -hms's own compile classpath. -->
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-connector-cache</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
         <!-- Doris shaded Hive MetaStore client (includes Thrift, DLF, Glue) -->
         <dependency>
             <groupId>org.apache.doris</groupId>
@@ -114,6 +126,19 @@ under the License.
         <dependency>
             <groupId>commons-lang</groupId>
             <artifactId>commons-lang</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- TEST ONLY: CachingHmsClientTest constructs the decorator, which builds MetaCacheEntry (backed by
+             Caffeine). fe-connector-cache declares Caffeine `provided` (non-transitive), and this library
+             module carries no Caffeine of its own — in production it runs inside the assembled hive plugin
+             whose zip bundles Caffeine 2.9.3 (C-a), but the -hms unit-test classpath needs its own copy.
+             Test-scope only — NOT bundled. Pinned to 2.9.3 = the version fe-connector-cache is compiled
+             against (mirrors fe-connector-hive/-paimon). -->
+        <dependency>
+            <groupId>com.github.ben-manes.caffeine</groupId>
+            <artifactId>caffeine</artifactId>
+            <version>2.9.3</version>
             <scope>test</scope>
         </dependency>
     </dependencies>
