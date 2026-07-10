@@ -2266,9 +2266,9 @@ Status VTabletWriter::_generate_one_index_channel_payload(
             auto payload_it = channel_payload.find(locate_node.get()); // <VNodeChannel*, Payload>
             if (payload_it == channel_payload.end()) {
                 auto [tmp_it, _] = channel_payload.emplace(
-                        locate_node.get(), Payload {std::make_unique<IColumn::Selector>(),
-                                                    &row_part_tablet_id, std::vector<uint32_t>(),
-                                                    std::vector<int64_t>()});
+                        locate_node.get(),
+                        Payload {std::make_unique<IColumn::Selector>(), &row_part_tablet_id,
+                                 std::vector<uint32_t>(), std::vector<int64_t>()});
                 payload_it = tmp_it;
                 payload_it->second.row_ids->reserve(row_cnt);
                 payload_it->second.route_idxs.reserve(row_cnt);
