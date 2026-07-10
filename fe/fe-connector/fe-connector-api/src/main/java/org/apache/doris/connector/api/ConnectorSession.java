@@ -30,6 +30,32 @@ public interface ConnectorSession {
     /** Returns the unique query identifier. */
     String getQueryId();
 
+    /**
+     * Returns a stable per-connection session identifier, preserved across FE observer&rarr;master forwarding.
+     *
+     * <p>Used as the Iceberg {@code SessionCatalog.SessionContext.sessionId()} — the OAuth2 {@code AuthSession}
+     * cache key — for {@link ConnectorCapability#SUPPORTS_USER_SESSION} connectors, so a session's queries reuse
+     * one minted auth session rather than re-authenticating per query. The default falls back to
+     * {@link #getQueryId()} for sessions/tests that carry no session id; the engine session implementation
+     * overrides it with the captured (and FE-forward-preserved) session id.</p>
+     */
+    default String getSessionId() {
+        return getQueryId();
+    }
+
+    /**
+     * Returns the user's per-connection delegated credential (OIDC/JWT/SAML), when one was captured at
+     * authentication and this session targets a connector that consumes it.
+     *
+     * <p>Populated ONLY when the connector declares {@link ConnectorCapability#SUPPORTS_USER_SESSION}
+     * (least-privilege: a connector that would never use the token never receives it). The credential is a
+     * neutral SPI DTO — the connector reads it here instead of any fe-core type. Empty by default (no
+     * credential, or a connector that does not opt in).</p>
+     */
+    default Optional<ConnectorDelegatedCredential> getDelegatedCredential() {
+        return Optional.empty();
+    }
+
     /** Returns the authenticated user name. */
     String getUser();
 
