@@ -25,7 +25,7 @@ Legend：⬜ todo / 🔄 in progress / ✅ done / ⏸ 挂起(需决策/live)
 
 | # | id | 严重度 | 模块 | 一句话 | 设计 | 实现 | build+UT | 状态 |
 |---|----|-------|------|--------|------|------|----------|------|
-| 1 | **H1** | 🔴高 | hudi | 分区名不 unescape→丢行 | ⬜ | ⬜ | ⬜ | ⬜ |
+| 1 | **H1** | 🔴高 | hudi**+hive** | 分区名不 unescape→丢行 | ✅ | ✅ | ✅ | ✅ |
 | 2 | **H2** | 🔴高 | hudi | datetime 分区谓词 ISO→0 行 | ⬜ | ⬜ | ⬜ | ⬜ |
 | 3 | **H3** | 🔴高 | hudi | HMS 名当存储路径→非 hive-style 带 filter 0 split | ⬜ | ⬜ | ⬜ | ⬜ |
 | 4 | **H4** | 🔴高 | hudi | 混大小写 Avro→JNI 崩 | ✅ | ✅ | ✅ | ✅ |
@@ -78,7 +78,7 @@ Legend：⬜ todo / 🔄 in progress / ✅ done / ⏸ 挂起(需决策/live)
 ## 🔴 高危(H1–H4)
 
 ### H1 — hudi 分区名不 unescape → 丢行 · reverify §2 H1
-- [ ] **H1**
+- [x] **H1**(hive+hudi 两份) · DONE `39a279e7c26`(设计 `designs/FIX-H1-design.md`)
 - **现码**:`fe-connector-hudi/.../HudiConnectorMetadata.java:1054-1064`(`parsePartitionName` 无 unescape)+ `:1067-1078`(`matchesPredicates` 裸字符串比);候选名 `:247` ← `ThriftHmsClient.listPartitionNames:214-218`(原样 Hive 转义)。
 - **Fix**:存值前 unescape(复用 `HudiScanPlanProvider.unescapePathName`,提升可见性;或 Hive `FileUtils.unescapePathName`),对齐 legacy `HudiExternalMetaCache.loadPartitionNames:231`。**首选落在 `D-PRUNE` 抽出的共享 helper**。
 - **Files**:`HudiConnectorMetadata.java`(或共享 `HmsStylePartitionPruner`)。
@@ -230,3 +230,4 @@ Legend：⬜ todo / 🔄 in progress / ✅ done / ⏸ 挂起(需决策/live)
 **⭐ 批次 0 范围决策(用户 2026-07-11 签字)**：对抗 agent 已证实 **H1/H2 不是 hudi 独有——`HiveConnectorMetadata` 逐字节相同的剪枝块(parsePartitionName/matchesPredicates/extractLiteralValue)同样静默丢行**(fe-core 算出正确 typed 分区集但 hive `planScan` 丢弃、只认 applyFilter 那份 bug 结果)。用户选 **「两份就地各修」**(选项 2)：H1/H2 在 hive 和 hudi **两份副本各自就地修**(不抽共享 helper),H3/H4 仅 hudi。**D-PRUNE 抽取继续延后**为 ⚪ 设计债(reverify §4 DUPLICATION:partition-prune)。
 
 - **H4** DONE `03f4c12dffa` — lowercase JNI reader 列名(hudi-only;`jniColumnNames` helper + UT)。
+- **H1** DONE `39a279e7c26` — hive+hudi 剪枝 `parsePartitionName` unescape 值(两份就地各修;widen `unescapePathName`;直接单测跨 H3 稳定 + hive e2e applyFilter 测)。
