@@ -430,8 +430,8 @@ public class S3Util {
         }
     }
 
-    static String buildEndpointUrl(String endpoint) {
-        if (endpoint.startsWith("http://") || endpoint.startsWith("https://")) {
+    public static String buildEndpointUrl(String endpoint) {
+        if (endpoint.contains("://")) {
             return endpoint;
         }
         return "https://" + endpoint;

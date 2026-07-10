@@ -21,6 +21,7 @@ import org.apache.doris.cloud.proto.Cloud.ObjectStoreInfoPB;
 import org.apache.doris.cloud.proto.Cloud.ObjectStoreInfoPB.Provider;
 import org.apache.doris.cloud.proto.Cloud.StagePB.StageAccessType;
 import org.apache.doris.common.util.FileFormatConstants;
+import org.apache.doris.common.util.S3Util;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 
 import com.google.common.collect.ImmutableSet;
@@ -155,7 +156,8 @@ public class StageProperties extends CopyProperties {
      * getObjectStoreInfoPB
      */
     public ObjectStoreInfoPB getObjectStoreInfoPB() {
-        ObjectStoreInfoPB.Builder builder = ObjectStoreInfoPB.newBuilder().setEndpoint(properties.get(ENDPOINT))
+        ObjectStoreInfoPB.Builder builder = ObjectStoreInfoPB.newBuilder()
+                .setEndpoint(S3Util.buildEndpointUrl(properties.get(ENDPOINT)))
                 .setRegion(properties.get(REGION)).setBucket(properties.get(BUCKET)).setPrefix(properties.get(PREFIX))
                 .setProvider(Provider.valueOf(properties.get(PROVIDER).toUpperCase()));
         if (getAccessType() == StageAccessType.AKSK) {

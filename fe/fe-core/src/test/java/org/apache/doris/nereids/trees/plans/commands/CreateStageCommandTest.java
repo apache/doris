@@ -101,13 +101,20 @@ public class CreateStageCommandTest extends TestWithFeService {
         CreateStageCommand command3 = getCreateStageCommand(sql);
         ObjectStoreInfoPB objectStoreInfoPB = command3.getStageProperties().getObjectStoreInfoPB();
 
-        Assertions.assertEquals("cos.ap-beijing.myqcloud.com", objectStoreInfoPB.getEndpoint());
+        Assertions.assertEquals("https://cos.ap-beijing.myqcloud.com", objectStoreInfoPB.getEndpoint());
         Assertions.assertEquals("ap-beijing", objectStoreInfoPB.getRegion());
         Assertions.assertEquals("tmp-bucket", objectStoreInfoPB.getBucket());
         Assertions.assertEquals("tmp_prefix", objectStoreInfoPB.getPrefix());
         Assertions.assertEquals("tmp_ak", objectStoreInfoPB.getAk());
         Assertions.assertEquals("tmp_sk", objectStoreInfoPB.getSk());
         Assertions.assertEquals(Provider.COS, objectStoreInfoPB.getProvider());
+
+        sql = "create stage if not exists ex_stage_1 "
+                + OBJ_INFO.replace("cos.ap-beijing.myqcloud.com", "http://cos.ap-beijing.myqcloud.com") + ")";
+        ObjectStoreInfoPB explicitHttpObjectStoreInfoPB =
+                getCreateStageCommand(sql).getStageProperties().getObjectStoreInfoPB();
+        Assertions.assertEquals("http://cos.ap-beijing.myqcloud.com",
+                explicitHttpObjectStoreInfoPB.getEndpoint());
     }
 
     @Test
@@ -292,7 +299,7 @@ public class CreateStageCommandTest extends TestWithFeService {
         Assertions.assertEquals("ex_stage_1", stagePB.getName());
         Assertions.assertTrue(StringUtils.isNotBlank(stagePB.getStageId()));
         ObjectStoreInfoPB objInfo = stagePB.getObjInfo();
-        Assertions.assertEquals("cos.ap-beijing.myqcloud.com", objInfo.getEndpoint());
+        Assertions.assertEquals("https://cos.ap-beijing.myqcloud.com", objInfo.getEndpoint());
         Map<String, String> propertiesMap = stagePB.getPropertiesMap();
         Assertions.assertEquals(4, propertiesMap.size());
         Assertions.assertEquals("csv", propertiesMap.get("default.file.type"));

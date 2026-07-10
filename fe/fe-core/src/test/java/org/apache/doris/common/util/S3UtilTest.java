@@ -44,6 +44,18 @@ public class S3UtilTest {
     }
 
     @Test
+    public void testBuildEndpointUrlKeepsUppercaseScheme() {
+        Assert.assertEquals("HTTP://127.0.0.1:9000",
+                S3Util.buildEndpointUrl("HTTP://127.0.0.1:9000"));
+    }
+
+    @Test
+    public void testBuildEndpointUrlKeepsExistingScheme() {
+        Assert.assertEquals("ftp://127.0.0.1:21",
+                S3Util.buildEndpointUrl("ftp://127.0.0.1:21"));
+    }
+
+    @Test
     public void testExtendGlobNumberRange_simpleRange() {
         // Test simple range expansion {1..3}
         String input = "file_{1..3}.csv";
