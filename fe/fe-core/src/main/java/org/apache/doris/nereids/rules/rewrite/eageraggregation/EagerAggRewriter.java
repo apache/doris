@@ -45,6 +45,7 @@ import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalIntersect;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
@@ -52,6 +53,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.qe.ConnectContext;
@@ -110,7 +112,8 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
         }
         ConnectContext connectContext = context.getCascadesContext().getConnectContext();
         if (context.isPassThroughJoinOrUnion() && connectContext.getSessionVariable().eagerAggregationOnBroadcastJoin
-                && isSmallBroadcastJoin(join, connectContext) && isBottomJoin(join)) {
+                && isSmallBroadcastJoin(join, connectContext) && isBottomJoin(join)
+                && !outputStringType(join.right())) {
             Plan aggOnJoin = genAggregate(join, context);
             if (aggOnJoin != join) {
                 return aggOnJoin;
@@ -187,6 +190,10 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
                     leftChildCountSlot, rightChildCountSlot);
         }
         return newJoin;
+    }
+
+    private boolean outputStringType(Plan plan) {
+        return plan.getOutput().stream().anyMatch(slot -> slot.getDataType() instanceof CharacterType);
     }
 
     private Pair<Boolean, Boolean> decideJoinPushSide(
@@ -618,7 +625,7 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
             newOutput.addAll(context.getGroupKeys());
             Optional<Alias> countStarAlias = findCountStarAlias(context);
             Optional<SlotReference> unionCnt = Optional.empty();
-            if (context.needOutputCount() && countStarAlias.isEmpty()) {
+            if (context.needOutputCount() && !countStarAlias.isPresent()) {
                 unionCnt = Optional.of(new SlotReference(
                         "unionCnt" + context.getCascadesContext().getStatementContext().generateColumnName(),
                         BigIntType.INSTANCE));
