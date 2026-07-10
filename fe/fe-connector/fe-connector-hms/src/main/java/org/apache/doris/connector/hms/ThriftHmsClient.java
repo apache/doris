@@ -39,6 +39,7 @@ import org.apache.hadoop.hive.metastore.LockRequestBuilder;
 import org.apache.hadoop.hive.metastore.RetryingMetaStoreClient;
 import org.apache.hadoop.hive.metastore.api.ColumnStatisticsData;
 import org.apache.hadoop.hive.metastore.api.ColumnStatisticsObj;
+import org.apache.hadoop.hive.metastore.api.CurrentNotificationEventId;
 import org.apache.hadoop.hive.metastore.api.DataOperationType;
 import org.apache.hadoop.hive.metastore.api.Database;
 import org.apache.hadoop.hive.metastore.api.DateColumnStatsData;
@@ -52,6 +53,8 @@ import org.apache.hadoop.hive.metastore.api.LockState;
 import org.apache.hadoop.hive.metastore.api.LongColumnStatsData;
 import org.apache.hadoop.hive.metastore.api.MetaException;
 import org.apache.hadoop.hive.metastore.api.NoSuchObjectException;
+import org.apache.hadoop.hive.metastore.api.NotificationEvent;
+import org.apache.hadoop.hive.metastore.api.NotificationEventResponse;
 import org.apache.hadoop.hive.metastore.api.Partition;
 import org.apache.hadoop.hive.metastore.api.SQLDefaultConstraint;
 import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
@@ -534,6 +537,31 @@ public class ThriftHmsClient implements HmsClient {
             throw new HmsClientException(
                     "failed to acquire lock, lock in state " + response.getState());
         }
+    }
+
+    @Override
+    public long getCurrentNotificationEventId() {
+        return execute(client -> {
+            CurrentNotificationEventId id = client.getCurrentNotificationEventId();
+            return id == null ? -1L : id.getEventId();
+        });
+    }
+
+    @Override
+    public List<HmsNotificationEvent> getNextNotification(long lastEventId, int maxEvents) {
+        return execute(client -> {
+            NotificationEventResponse response =
+                    client.getNextNotification(lastEventId, maxEvents, null);
+            List<HmsNotificationEvent> events = new ArrayList<>();
+            if (response != null && response.getEvents() != null) {
+                for (NotificationEvent event : response.getEvents()) {
+                    events.add(new HmsNotificationEvent(event.getEventId(), event.getEventType(),
+                            event.getDbName(), event.getTableName(), event.getMessage(),
+                            event.getMessageFormat(), event.getEventTime()));
+                }
+            }
+            return events;
+        });
     }
 
     private static List<LockComponent> createLockComponentsForRead(String dbName, String tableName,

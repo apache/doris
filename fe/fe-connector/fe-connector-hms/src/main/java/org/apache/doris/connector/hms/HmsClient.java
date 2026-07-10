@@ -349,4 +349,37 @@ public interface HmsClient extends Closeable {
             String tableName, List<String> partitionNames, long timeoutMs) {
         throw new UnsupportedOperationException("acquireSharedLock is not supported by this client");
     }
+
+    // ========== Phase 5: Metastore notification events (incremental metadata sync) ==========
+    //
+    // Optional: the incremental-metadata event feed. Only the production {@link ThriftHmsClient}
+    // (and the {@link CachingHmsClient} pass-through) implement these; read-only test doubles and
+    // connectors without an event feed keep the throwing defaults.
+
+    /**
+     * The metastore's current (latest) notification event id, or {@code -1} if unavailable. Used to
+     * cheaply decide whether there is anything new to pull.
+     *
+     * @throws HmsClientException if the operation fails
+     */
+    default long getCurrentNotificationEventId() {
+        throw new UnsupportedOperationException(
+                "getCurrentNotificationEventId is not supported by this client");
+    }
+
+    /**
+     * Fetch the next batch of notification events after {@code lastEventId} (exclusive), up to
+     * {@code maxEvents}, as SPI-clean DTOs.
+     *
+     * @param lastEventId the last event id already consumed
+     * @param maxEvents   maximum number of events to return
+     * @return the events in ascending id order (empty when none)
+     * @throws HmsClientException if the operation fails; when the metastore has trimmed its
+     *         notification log past {@code lastEventId} the message carries the
+     *         {@code REPL_EVENTS_MISSING_IN_METASTORE} sentinel so the caller can fall back to a
+     *         full refresh
+     */
+    default List<HmsNotificationEvent> getNextNotification(long lastEventId, int maxEvents) {
+        throw new UnsupportedOperationException("getNextNotification is not supported by this client");
+    }
 }

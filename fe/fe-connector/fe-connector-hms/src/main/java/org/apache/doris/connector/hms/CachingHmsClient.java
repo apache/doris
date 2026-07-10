@@ -291,6 +291,16 @@ public class CachingHmsClient implements HmsClient {
     }
 
     @Override
+    public long getCurrentNotificationEventId() {
+        return delegate.getCurrentNotificationEventId();
+    }
+
+    @Override
+    public List<HmsNotificationEvent> getNextNotification(long lastEventId, int maxEvents) {
+        return delegate.getNextNotification(lastEventId, maxEvents);
+    }
+
+    @Override
     public void close() throws IOException {
         delegate.close();
     }
