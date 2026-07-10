@@ -120,10 +120,12 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     // spec-stable iceberg strings — byte-identical to legacy IcebergUtils.TOTAL_* and to the COUNT(*)
     // pushdown copies in IcebergScanPlanProvider (themselves deliberately NOT org.apache.iceberg
     // .SnapshotSummary.* per that file's note). Duplicated rather than shared so this fix does not touch
-    // the unrelated scan provider. WHY two keys only: legacy getIcebergRowCount nets out position deletes
-    // but (unlike the COUNT pushdown) does NOT gate on equality deletes — see computeRowCount.
+    // the unrelated scan provider. All THREE keys are read: legacy getIcebergRowCount (via
+    // getCountFromSummary, upstream 32a2651f66b / #64648) nets out position deletes AND gates the count to
+    // UNKNOWN on any equality delete — see computeRowCount.
     private static final String TOTAL_RECORDS = "total-records";
     private static final String TOTAL_POSITION_DELETES = "total-position-deletes";
+    private static final String TOTAL_EQUALITY_DELETES = "total-equality-deletes";
 
     // Doris-level table property carrying a user comment. Local literal copy of the fe-core constant
     // IcebergExternalTable.TABLE_COMMENT_PROP ("comment") — the connector cannot import fe-core. Read by
@@ -588,8 +590,9 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
      * (without this override the connector inherits {@code ConnectorStatisticsOps}'s {@code Optional.empty()},
      * so every iceberg table reports rowCount -1 -> CBO collapses cardinality to 1 and disables join reorder).
      * Mirrors {@code PaimonConnectorMetadata.getTableStatistics} in STRUCTURE, but uses the legacy iceberg
-     * FORMULA ({@code IcebergUtils.getIcebergRowCount}: currentSnapshot summary {@code total-records -
-     * total-position-deletes}). Parity decisions:
+     * FORMULA ({@code IcebergUtils.getIcebergRowCount} -> {@code getCountFromSummary(summary, true)}:
+     * {@code total-records - total-position-deletes}, gated to UNKNOWN when equality deletes are present).
+     * Parity decisions:
      * <ul>
      *   <li>System tables -> empty: legacy {@code IcebergSysExternalTable.fetchRowCount} is unconditionally
      *       UNKNOWN; a sys handle would otherwise load the BASE table and misreport its data row count for a
@@ -622,11 +625,14 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     }
 
     /**
-     * Row count from the current snapshot summary: {@code total-records - total-position-deletes} (legacy
-     * {@code IcebergUtils.getIcebergRowCount}). NOT the COUNT(*)-pushdown formula in
-     * {@code IcebergScanPlanProvider.getCountFromSnapshot} — that one gates on equality deletes and honors the
-     * dangling-delete session var (scan cardinality), which would over-degrade table statistics. Empty table
-     * (no current snapshot) -> -1, which the caller maps to UNKNOWN.
+     * Row count from the current snapshot summary, a faithful port of legacy {@code IcebergUtils
+     * .getIcebergRowCount} (which calls {@code getCountFromSummary(summary, true)}, upstream 32a2651f66b /
+     * #64648): any equality delete ({@code total-equality-deletes} absent or {@code != "0"}) -> -1 (UNKNOWN),
+     * since equality deletes re-project at read time and the summary cannot net them out; otherwise
+     * {@code total-records - total-position-deletes}. Shares the equality-delete gate with the COUNT(*)
+     * pushdown {@code IcebergScanPlanProvider.getCountFromSummary}, differing only in dangling-delete handling
+     * (table statistics always net out position deletes; the pushdown honors the dangling-delete session var).
+     * Empty table (no current snapshot) -> -1, which the caller maps to UNKNOWN.
      */
     private static long computeRowCount(Table table) {
         Snapshot snapshot = table.currentSnapshot();
@@ -634,13 +640,19 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             return -1;
         }
         Map<String, String> summary = snapshot.summary();
-        // Null-guard (upstream 32a2651f66b, #64648): compaction / replace / overwrite snapshots may omit a
-        // total-* counter, and the pre-fix Long.parseLong(null) NPE-d. -1 -> caller maps to UNKNOWN. NOTE:
-        // intentionally NOT the pushdown getCountFromSummary — this table-stats path deliberately omits the
-        // equality-delete gate (see the method javadoc), so only the NPE is fixed here, not the semantics.
+        // Equality-delete gate + null-guard, a faithful port of legacy IcebergUtils.getCountFromSummary(
+        // summary, true) (upstream 32a2651f66b, #64648): an absent total-* counter (compaction / replace /
+        // overwrite snapshots may omit one — the pre-fix Long.parseLong(null) NPE-d), or any equality delete
+        // (total-equality-deletes != "0"), makes the summary row count unsafe -> -1 (caller maps to UNKNOWN),
+        // because equality deletes re-project at read time and the summary cannot net them out. Same gate as
+        // the COUNT(*) pushdown IcebergScanPlanProvider.getCountFromSummary.
+        String equalityDeletes = summary.get(TOTAL_EQUALITY_DELETES);
         String totalRecords = summary.get(TOTAL_RECORDS);
         String positionDeletes = summary.get(TOTAL_POSITION_DELETES);
-        if (totalRecords == null || positionDeletes == null) {
+        if (equalityDeletes == null || totalRecords == null || positionDeletes == null) {
+            return -1;
+        }
+        if (!equalityDeletes.equals("0")) {
             return -1;
         }
         return Long.parseLong(totalRecords) - Long.parseLong(positionDeletes);
