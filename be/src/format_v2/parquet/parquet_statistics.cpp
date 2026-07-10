@@ -498,26 +498,11 @@ bool supports_dictionary_pruning(const ParquetColumnSchema& column_schema,
     return true;
 }
 
-struct OwnedDictionaryWords {
-    std::vector<std::string> values;
-    std::vector<StringRef> refs;
-
-    void clear() {
-        values.clear();
-        refs.clear();
-    }
-
-    void build_refs() {
-        refs.reserve(values.size());
-        for (const auto& value : values) {
-            refs.emplace_back(value.data(), value.size());
-        }
-    }
-};
+} // namespace
 
 bool read_dictionary_words(::parquet::ParquetFileReader* file_reader, int row_group_idx,
                            int leaf_column_id, const ParquetColumnSchema& column_schema,
-                           OwnedDictionaryWords* dict_words) {
+                           ParquetDictionaryWords* dict_words) {
     DORIS_CHECK(dict_words != nullptr);
     dict_words->clear();
     if (file_reader == nullptr || leaf_column_id < 0) {
@@ -596,6 +581,17 @@ bool read_dictionary_words(::parquet::ParquetFileReader* file_reader, int row_gr
     return false;
 }
 
+std::vector<Field> dictionary_fields_from_words(const ParquetDictionaryWords& dict_words) {
+    std::vector<Field> fields;
+    fields.reserve(dict_words.refs.size());
+    for (const auto& ref : dict_words.refs) {
+        fields.push_back(Field::create_field<TYPE_STRING>(String(ref.data, ref.size)));
+    }
+    return fields;
+}
+
+namespace {
+
 const ParquetColumnSchema* resolve_local_leaf_schema(
         const std::vector<std::unique_ptr<ParquetColumnSchema>>& schema,
         const format::LocalColumnId file_column_id) {
@@ -656,15 +652,6 @@ std::map<int, VExprContextSPtrs> collect_conjuncts_by_single_slot(
         }
     }
     return conjuncts_by_slot;
-}
-
-std::vector<Field> dictionary_fields_from_words(const OwnedDictionaryWords& dict_words) {
-    std::vector<Field> fields;
-    fields.reserve(dict_words.refs.size());
-    for (const auto& ref : dict_words.refs) {
-        fields.push_back(Field::create_field<TYPE_STRING>(String(ref.data, ref.size)));
-    }
-    return fields;
 }
 
 std::shared_ptr<segment_v2::ZoneMap> make_zonemap_from_statistics(
@@ -785,7 +772,7 @@ ParquetRowGroupPruneReason dictionary_prune_reason(
             continue;
         }
 
-        OwnedDictionaryWords dict_words;
+        ParquetDictionaryWords dict_words;
         if (!read_dictionary_words(file_reader, row_group_idx, column_schema->leaf_column_id,
                                    *column_schema, &dict_words)) {
             continue;
