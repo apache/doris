@@ -4,52 +4,128 @@ PhysicalOlapTableSink
 --PhysicalDistribute[DistributionSpecOlapTableSinkHashPartitioned]
 ----PhysicalProject
 ------hashJoin[FULL_OUTER_JOIN shuffle] hashCondition=((__doris_ivm_insert.__DORIS_IVM_ROW_ID_COL__ = __doris_ivm_delete.__DORIS_IVM_ROW_ID_COL__)) otherCondition=()
---------PhysicalProject
-----------hashJoin[INNER_JOIN broadcast] hashCondition=((k1 = __DORIS_IVM_NULL_SIDE_EVENT_KEY_0)) otherCondition=()
+--------PhysicalUnion
+----------PhysicalDistribute[DistributionSpecExecutionAny]
 ------------PhysicalProject
---------------filter((test_ivm_explain_refresh_t1.__DORIS_DELETE_SIGN__ = 0))
-----------------PhysicalOlapScan[test_ivm_explain_refresh_t1]
-------------PhysicalUnion
---------------PhysicalDistribute[DistributionSpecExecutionAny]
+--------------hashJoin[LEFT_OUTER_JOIN broadcast] hashCondition=((test_ivm_explain_refresh_t1.k1 = test_ivm_explain_refresh_t2.k1)) otherCondition=()
 ----------------PhysicalProject
-------------------hashJoin[LEFT_ANTI_JOIN broadcast] hashCondition=((__DORIS_IVM_NULL_SIDE_EVENT_KEY_0 = k1)) otherCondition=()
---------------------PhysicalEmptyRelation
---------------------PhysicalProject
-----------------------filter((test_ivm_explain_refresh_t2.__DORIS_DELETE_SIGN__ = 0))
-------------------------PhysicalOlapScan[test_ivm_explain_refresh_t2]
---------------PhysicalDistribute[DistributionSpecExecutionAny]
+------------------filter(__DORIS_STREAM_CHANGE_TYPE_COL__ IN ('APPEND', 'UPDATE_AFTER'))
+--------------------PhysicalOlapScan[__doris_ivm_stream_test_ivm_explain_refresh_t1]
 ----------------PhysicalProject
-------------------hashJoin[LEFT_ANTI_JOIN broadcast] hashCondition=((__DORIS_IVM_NULL_SIDE_EVENT_KEY_0 = k1)) otherCondition=()
---------------------PhysicalEmptyRelation
+------------------PhysicalOlapScan[__doris_ivm_stream_test_ivm_explain_refresh_t2]
+----------PhysicalDistribute[DistributionSpecExecutionAny]
+------------PhysicalProject
+--------------hashJoin[INNER_JOIN broadcast] hashCondition=((k1 = __DORIS_IVM_NULL_SIDE_EVENT_KEY_0)) otherCondition=()
+----------------PhysicalProject
+------------------filter((test_ivm_explain_refresh_t1.__DORIS_DELETE_SIGN__ = 0))
+--------------------PhysicalOlapScan[test_ivm_explain_refresh_t1]
+----------------PhysicalUnion
+------------------PhysicalDistribute[DistributionSpecExecutionAny]
 --------------------PhysicalProject
-----------------------filter((test_ivm_explain_refresh_t2.__DORIS_DELETE_SIGN__ = 0))
-------------------------PhysicalOlapScan[test_ivm_explain_refresh_t2]
---------PhysicalEmptyRelation
+----------------------filter(__DORIS_STREAM_CHANGE_TYPE_COL__ IN ('APPEND', 'UPDATE_AFTER'))
+------------------------PhysicalOlapScan[__doris_ivm_stream_test_ivm_explain_refresh_t2]
+------------------PhysicalDistribute[DistributionSpecExecutionAny]
+--------------------PhysicalProject
+----------------------hashJoin[LEFT_ANTI_JOIN colocated] hashCondition=((__DORIS_IVM_NULL_SIDE_EVENT_KEY_0 = k1)) otherCondition=()
+------------------------PhysicalProject
+--------------------------hashAgg[GLOBAL]
+----------------------------PhysicalProject
+------------------------------filter(( not __DORIS_STREAM_CHANGE_TYPE_COL__ IS NULL) and __DORIS_STREAM_CHANGE_TYPE_COL__ IN ('APPEND', 'UPDATE_AFTER'))
+--------------------------------PhysicalOlapScan[__doris_ivm_stream_test_ivm_explain_refresh_t2]
+------------------------PhysicalProject
+--------------------------PhysicalOlapScan[__doris_ivm_stream_test_ivm_explain_refresh_t2]
+------------------PhysicalDistribute[DistributionSpecExecutionAny]
+--------------------PhysicalProject
+----------------------hashJoin[LEFT_ANTI_JOIN broadcast] hashCondition=((__DORIS_IVM_NULL_SIDE_EVENT_KEY_0 = k1)) otherCondition=()
+------------------------PhysicalProject
+--------------------------hashAgg[GLOBAL]
+----------------------------PhysicalProject
+------------------------------filter(OR[( not __DORIS_STREAM_CHANGE_TYPE_COL__ IN ('APPEND', 'UPDATE_AFTER')),__DORIS_STREAM_CHANGE_TYPE_COL__ IS NULL])
+--------------------------------PhysicalOlapScan[__doris_ivm_stream_test_ivm_explain_refresh_t2]
+------------------------PhysicalProject
+--------------------------filter((test_ivm_explain_refresh_t2.__DORIS_DELETE_SIGN__ = 0))
+----------------------------PhysicalOlapScan[test_ivm_explain_refresh_t2]
+--------PhysicalUnion
+----------PhysicalDistribute[DistributionSpecExecutionAny]
+------------PhysicalProject
+--------------hashJoin[LEFT_OUTER_JOIN broadcast] hashCondition=((test_ivm_explain_refresh_t1.k1 = test_ivm_explain_refresh_t2.k1)) otherCondition=()
+----------------PhysicalProject
+------------------filter(OR[( not __DORIS_STREAM_CHANGE_TYPE_COL__ IN ('APPEND', 'UPDATE_AFTER')),__DORIS_STREAM_CHANGE_TYPE_COL__ IS NULL])
+--------------------PhysicalOlapScan[__doris_ivm_stream_test_ivm_explain_refresh_t1]
+----------------PhysicalProject
+------------------PhysicalOlapScan[__doris_ivm_stream_test_ivm_explain_refresh_t2]
+----------PhysicalDistribute[DistributionSpecExecutionAny]
+------------PhysicalProject
+--------------hashJoin[INNER_JOIN broadcast] hashCondition=((k1 = __DORIS_IVM_NULL_SIDE_EVENT_KEY_0)) otherCondition=()
+----------------PhysicalProject
+------------------filter((test_ivm_explain_refresh_t1.__DORIS_DELETE_SIGN__ = 0))
+--------------------PhysicalOlapScan[test_ivm_explain_refresh_t1]
+----------------PhysicalProject
+------------------filter(OR[( not __DORIS_STREAM_CHANGE_TYPE_COL__ IN ('APPEND', 'UPDATE_AFTER')),__DORIS_STREAM_CHANGE_TYPE_COL__ IS NULL])
+--------------------PhysicalOlapScan[__doris_ivm_stream_test_ivm_explain_refresh_t2]
 
 -- !right_delta_shape_plan --
 PhysicalOlapTableSink
 --PhysicalDistribute[DistributionSpecOlapTableSinkHashPartitioned]
 ----PhysicalProject
 ------hashJoin[FULL_OUTER_JOIN shuffle] hashCondition=((__doris_ivm_insert.__DORIS_IVM_ROW_ID_COL__ = __doris_ivm_delete.__DORIS_IVM_ROW_ID_COL__)) otherCondition=()
---------PhysicalProject
-----------hashJoin[INNER_JOIN broadcast] hashCondition=((k1 = __DORIS_IVM_NULL_SIDE_EVENT_KEY_0)) otherCondition=()
+--------PhysicalUnion
+----------PhysicalDistribute[DistributionSpecExecutionAny]
 ------------PhysicalProject
---------------filter((test_ivm_explain_refresh_t1.__DORIS_DELETE_SIGN__ = 0))
-----------------PhysicalOlapScan[test_ivm_explain_refresh_t1]
-------------PhysicalUnion
---------------PhysicalDistribute[DistributionSpecExecutionAny]
+--------------hashJoin[LEFT_OUTER_JOIN broadcast] hashCondition=((test_ivm_explain_refresh_t1.k1 = test_ivm_explain_refresh_t2.k1)) otherCondition=()
 ----------------PhysicalProject
-------------------hashJoin[LEFT_ANTI_JOIN broadcast] hashCondition=((__DORIS_IVM_NULL_SIDE_EVENT_KEY_0 = k1)) otherCondition=()
---------------------PhysicalEmptyRelation
---------------------PhysicalProject
-----------------------filter((test_ivm_explain_refresh_t2.__DORIS_DELETE_SIGN__ = 0))
-------------------------PhysicalOlapScan[test_ivm_explain_refresh_t2]
---------------PhysicalDistribute[DistributionSpecExecutionAny]
+------------------filter(__DORIS_STREAM_CHANGE_TYPE_COL__ IN ('APPEND', 'UPDATE_AFTER'))
+--------------------PhysicalOlapScan[__doris_ivm_stream_test_ivm_explain_refresh_t1]
 ----------------PhysicalProject
-------------------hashJoin[LEFT_ANTI_JOIN broadcast] hashCondition=((__DORIS_IVM_NULL_SIDE_EVENT_KEY_0 = k1)) otherCondition=()
---------------------PhysicalEmptyRelation
+------------------PhysicalOlapScan[__doris_ivm_stream_test_ivm_explain_refresh_t2]
+----------PhysicalDistribute[DistributionSpecExecutionAny]
+------------PhysicalProject
+--------------hashJoin[INNER_JOIN broadcast] hashCondition=((k1 = __DORIS_IVM_NULL_SIDE_EVENT_KEY_0)) otherCondition=()
+----------------PhysicalProject
+------------------filter((test_ivm_explain_refresh_t1.__DORIS_DELETE_SIGN__ = 0))
+--------------------PhysicalOlapScan[test_ivm_explain_refresh_t1]
+----------------PhysicalUnion
+------------------PhysicalDistribute[DistributionSpecExecutionAny]
 --------------------PhysicalProject
-----------------------filter((test_ivm_explain_refresh_t2.__DORIS_DELETE_SIGN__ = 0))
-------------------------PhysicalOlapScan[test_ivm_explain_refresh_t2]
---------PhysicalEmptyRelation
+----------------------filter(__DORIS_STREAM_CHANGE_TYPE_COL__ IN ('APPEND', 'UPDATE_AFTER'))
+------------------------PhysicalOlapScan[__doris_ivm_stream_test_ivm_explain_refresh_t2]
+------------------PhysicalDistribute[DistributionSpecExecutionAny]
+--------------------PhysicalProject
+----------------------hashJoin[LEFT_ANTI_JOIN colocated] hashCondition=((__DORIS_IVM_NULL_SIDE_EVENT_KEY_0 = k1)) otherCondition=()
+------------------------PhysicalProject
+--------------------------hashAgg[GLOBAL]
+----------------------------PhysicalProject
+------------------------------filter(( not __DORIS_STREAM_CHANGE_TYPE_COL__ IS NULL) and __DORIS_STREAM_CHANGE_TYPE_COL__ IN ('APPEND', 'UPDATE_AFTER'))
+--------------------------------PhysicalOlapScan[__doris_ivm_stream_test_ivm_explain_refresh_t2]
+------------------------PhysicalProject
+--------------------------PhysicalOlapScan[__doris_ivm_stream_test_ivm_explain_refresh_t2]
+------------------PhysicalDistribute[DistributionSpecExecutionAny]
+--------------------PhysicalProject
+----------------------hashJoin[LEFT_ANTI_JOIN broadcast] hashCondition=((__DORIS_IVM_NULL_SIDE_EVENT_KEY_0 = k1)) otherCondition=()
+------------------------PhysicalProject
+--------------------------hashAgg[GLOBAL]
+----------------------------PhysicalProject
+------------------------------filter(OR[( not __DORIS_STREAM_CHANGE_TYPE_COL__ IN ('APPEND', 'UPDATE_AFTER')),__DORIS_STREAM_CHANGE_TYPE_COL__ IS NULL])
+--------------------------------PhysicalOlapScan[__doris_ivm_stream_test_ivm_explain_refresh_t2]
+------------------------PhysicalProject
+--------------------------filter((test_ivm_explain_refresh_t2.__DORIS_DELETE_SIGN__ = 0))
+----------------------------PhysicalOlapScan[test_ivm_explain_refresh_t2]
+--------PhysicalUnion
+----------PhysicalDistribute[DistributionSpecExecutionAny]
+------------PhysicalProject
+--------------hashJoin[LEFT_OUTER_JOIN broadcast] hashCondition=((test_ivm_explain_refresh_t1.k1 = test_ivm_explain_refresh_t2.k1)) otherCondition=()
+----------------PhysicalProject
+------------------filter(OR[( not __DORIS_STREAM_CHANGE_TYPE_COL__ IN ('APPEND', 'UPDATE_AFTER')),__DORIS_STREAM_CHANGE_TYPE_COL__ IS NULL])
+--------------------PhysicalOlapScan[__doris_ivm_stream_test_ivm_explain_refresh_t1]
+----------------PhysicalProject
+------------------PhysicalOlapScan[__doris_ivm_stream_test_ivm_explain_refresh_t2]
+----------PhysicalDistribute[DistributionSpecExecutionAny]
+------------PhysicalProject
+--------------hashJoin[INNER_JOIN broadcast] hashCondition=((k1 = __DORIS_IVM_NULL_SIDE_EVENT_KEY_0)) otherCondition=()
+----------------PhysicalProject
+------------------filter((test_ivm_explain_refresh_t1.__DORIS_DELETE_SIGN__ = 0))
+--------------------PhysicalOlapScan[test_ivm_explain_refresh_t1]
+----------------PhysicalProject
+------------------filter(OR[( not __DORIS_STREAM_CHANGE_TYPE_COL__ IN ('APPEND', 'UPDATE_AFTER')),__DORIS_STREAM_CHANGE_TYPE_COL__ IS NULL])
+--------------------PhysicalOlapScan[__doris_ivm_stream_test_ivm_explain_refresh_t2]
 
