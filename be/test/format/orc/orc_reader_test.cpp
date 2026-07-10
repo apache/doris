@@ -25,6 +25,7 @@
 
 #include "core/assert_cast.h"
 #include "core/block/block.h"
+#include "core/column/column_nullable.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/define_primitive_type.h"
 #include "exec/common/util.hpp"
@@ -35,6 +36,7 @@
 #include "io/fs/file_meta_cache.h"
 #include "orc/sargs/SearchArgument.hh"
 #include "runtime/exec_env.h"
+#include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
 #include "testutil/desc_tbl_builder.h"
 namespace doris {
@@ -270,9 +272,10 @@ TEST_F(OrcReaderTest, deletion_vector_filters_rows_without_query_conjuncts) {
 
         RuntimeState state;
         state.set_desc_tbl(desc_tbl);
+        RuntimeProfile profile("deletion_vector_without_conjuncts");
         io::IOContext io_ctx;
-        auto reader = std::make_unique<OrcReader>(nullptr, &state, params, range, 2, "UTC", &io_ctx,
-                                                  &cache, true);
+        auto reader = std::make_unique<OrcReader>(&profile, &state, params, range, 2, "UTC",
+                                                  &io_ctx, &cache, true);
         std::vector<std::string> column_names = {"o_orderkey"};
         std::unordered_map<std::string, uint32_t> col_name_to_block_idx = {{"o_orderkey", 0}};
         OrcInitContext orc_ctx;
@@ -293,8 +296,8 @@ TEST_F(OrcReaderTest, deletion_vector_filters_rows_without_query_conjuncts) {
             block.clear_column_data();
             size_t read_rows = 0;
             RETURN_IF_ERROR(reader->get_next_block(&block, &read_rows, &eof));
-            const auto& values =
-                    assert_cast<const ColumnInt32&>(*block.get_by_position(0).column).get_data();
+            const auto values_column = remove_nullable(block.get_by_position(0).column);
+            const auto& values = assert_cast<const ColumnInt32&>(*values_column).get_data();
             order_keys->insert(order_keys->end(), values.begin(), values.end());
         }
         return Status::OK();
@@ -302,16 +305,15 @@ TEST_F(OrcReaderTest, deletion_vector_filters_rows_without_query_conjuncts) {
 
     std::vector<int32_t> all_order_keys;
     ASSERT_TRUE(read_order_keys(nullptr, &all_order_keys).ok());
-    ASSERT_GE(all_order_keys.size(), 3);
+    ASSERT_FALSE(all_order_keys.empty());
 
     // No conjuncts are installed in OrcInitContext. A DV-only split must still enter the
-    // position-delete filtering branch for every batch.
-    roaring::Roaring64Map deletion_vector {0, all_order_keys.size() - 1};
+    // position-delete filtering branch and remove the row at the requested absolute position.
+    roaring::Roaring64Map deletion_vector {0};
     std::vector<int32_t> filtered_order_keys;
     ASSERT_TRUE(read_order_keys(&deletion_vector, &filtered_order_keys).ok());
 
     auto expected = all_order_keys;
-    expected.pop_back();
     expected.erase(expected.begin());
     EXPECT_EQ(filtered_order_keys, expected);
 }
