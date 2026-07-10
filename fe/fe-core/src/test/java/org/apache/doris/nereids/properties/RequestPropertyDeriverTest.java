@@ -57,6 +57,7 @@ import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.Statistics;
 import org.apache.doris.statistics.StatisticsBuilder;
@@ -415,7 +416,7 @@ class RequestPropertyDeriverTest {
     }
 
     @Test
-    void testAggregateWithAggShuffleUseParentKeyEnabledAndUnknownStats() {
+    void testAggregateWithAggShuffleUseParentKeyEnabledAndMissingChildStats() {
         // Create ConnectContext with aggShuffleUseParentKey = true (default value)
         ConnectContext testConnectContext = MemoTestUtils.createConnectContext();
         testConnectContext.getSessionVariable().aggShuffleUseParentKey = true;
@@ -441,6 +442,53 @@ class RequestPropertyDeriverTest {
         new Group(null, groupExpression, null);
 
         // Create a parent hash distribution with key1 only
+        PhysicalProperties parentProperties = PhysicalProperties.createHash(
+                Lists.newArrayList(key1.getExprId()), ShuffleType.REQUIRE);
+
+        Mockito.when(jobContext.getRequiredProperties()).thenReturn(parentProperties);
+
+        RequestPropertyDeriver requestPropertyDeriver = new RequestPropertyDeriver(testConnectContext, jobContext);
+        List<List<PhysicalProperties>> actual
+                = requestPropertyDeriver.getRequestChildrenPropertyList(groupExpression);
+
+        List<List<PhysicalProperties>> expected = Lists.newArrayList();
+        expected.add(Lists.newArrayList(PhysicalProperties.createHash(
+                Lists.newArrayList(key1.getExprId(), key2.getExprId()), ShuffleType.REQUIRE)));
+        Assertions.assertEquals(expected, actual);
+    }
+
+    @Test
+    void testAggregateWithAggShuffleUseParentKeyEnabledAndUnknownParentKeyStats() {
+        ConnectContext testConnectContext = MemoTestUtils.createConnectContext();
+        testConnectContext.getSessionVariable().aggShuffleUseParentKey = true;
+        testConnectContext.getSessionVariable().setBeNumberForTest(3);
+
+        SlotReference key1 = new SlotReference(new ExprId(0), "col1", IntegerType.INSTANCE, true, ImmutableList.of());
+        SlotReference key2 = new SlotReference(new ExprId(1), "col2", IntegerType.INSTANCE, true, ImmutableList.of());
+        GroupPlan childPlan = new GroupPlan(new Group(GroupId.createGenerator().getNextId(),
+                new GroupExpression(new LogicalOneRowRelation(new RelationId(6), ImmutableList.of(key1, key2)))
+                        .getPlan().getLogicalProperties()));
+        PhysicalHashAggregate<GroupPlan> aggregate = new PhysicalHashAggregate<>(
+                Lists.newArrayList(key1, key2),
+                Lists.newArrayList(key1, key2),
+                new AggregateParam(AggPhase.GLOBAL, AggMode.BUFFER_TO_RESULT),
+                true,
+                logicalProperties,
+                false,
+                childPlan
+        );
+        Statistics childStats = new StatisticsBuilder()
+                .setRowCount(10000)
+                .putColumnStatistics(key1, ColumnStatistic.UNKNOWN)
+                .build();
+        GroupExpression groupExpression = new GroupExpression(aggregate) {
+            @Override
+            public Statistics childStatistics(int idx) {
+                return childStats;
+            }
+        };
+        new Group(null, groupExpression, null);
+
         PhysicalProperties parentProperties = PhysicalProperties.createHash(
                 Lists.newArrayList(key1.getExprId()), ShuffleType.REQUIRE);
 

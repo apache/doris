@@ -559,6 +559,7 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
         if (agg.hasSourceRepeat()) {
             return false;
         }
+        // Reuse parent hash keys only when stats prove enough distinct values to avoid agg shuffle skew.
         Statistics aggChildStats = groupExpression.get().childStatistics(0);
         if (aggChildStats == null) {
             return false;
