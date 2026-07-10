@@ -37,6 +37,19 @@ public:
                 (const Aws::S3::Model::ListObjectsV2Request& request), (const, override));
 };
 
+class FakeGcpAdcTokenProvider : public GcpAdcTokenProvider {
+public:
+    int refresh_count = 0;
+
+protected:
+    bool refresh_token(std::string* token, std::chrono::seconds* expires_in) override {
+        ++refresh_count;
+        *token = "test-token";
+        *expires_in = std::chrono::seconds(3600);
+        return true;
+    }
+};
+
 class S3ObjStorageClientMockTest : public testing::Test {
     static void SetUpTestSuite() { S3ClientFactory::instance(); };
     static void TearDownTestSuite() {};
@@ -66,6 +79,41 @@ TEST_F(S3ObjStorageClientMockTest, list_objects_compatibility) {
 
     EXPECT_EQ(response.status.code, ErrorCode::INTERNAL_ERROR);
     files.clear();
+}
+
+TEST_F(S3ObjStorageClientMockTest, gcp_adc_bearer_token_applied) {
+    auto mock_s3_client = std::make_shared<MockS3Client>();
+    auto token_provider = std::make_shared<FakeGcpAdcTokenProvider>();
+    S3ObjStorageClient s3_obj_storage_client(mock_s3_client, token_provider);
+
+    std::vector<io::FileInfo> files;
+    ListObjectsV2Result result;
+    result.SetIsTruncated(false);
+    EXPECT_CALL(*mock_s3_client, ListObjectsV2(testing::_))
+            .Times(2)
+            .WillRepeatedly(testing::Return(ListObjectsV2Outcome(result)));
+
+    auto response = s3_obj_storage_client.list_objects(
+            {.bucket = "dummy-bucket", .prefix = "S3ObjStorageClientMockTest/gcp_adc"}, &files);
+    EXPECT_EQ(response.status.code, ErrorCode::OK);
+
+    // The token is cached: a second request must not refresh it again.
+    response = s3_obj_storage_client.list_objects(
+            {.bucket = "dummy-bucket", .prefix = "S3ObjStorageClientMockTest/gcp_adc"}, &files);
+    EXPECT_EQ(response.status.code, ErrorCode::OK);
+    EXPECT_EQ(token_provider->refresh_count, 1);
+}
+
+TEST_F(S3ObjStorageClientMockTest, gcp_adc_presigned_url_unsupported) {
+    auto mock_s3_client = std::make_shared<MockS3Client>();
+    auto token_provider = std::make_shared<FakeGcpAdcTokenProvider>();
+    S3ObjStorageClient s3_obj_storage_client(mock_s3_client, token_provider);
+
+    // A short-lived bearer token cannot be embedded in a URL.
+    S3ClientConf conf;
+    EXPECT_EQ(s3_obj_storage_client.generate_presigned_url(
+                      {.bucket = "dummy-bucket", .key = "object"}, 60, conf),
+              "");
 }
 
 ListObjectsV2Result CreatePageResult(const std::string& nextToken,

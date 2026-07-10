@@ -33,6 +33,21 @@ class S3ClientFactoryTest : public testing::Test {
     FRIEND_TEST(S3ClientFactoryTest, S3ClientFactory);
 };
 
+TEST_F(S3ClientFactoryTest, GcpAdcClientCreation) {
+    // A GCP_ADC conf has neither ak/sk nor role_arn; the factory must build a
+    // client wired with the shared ADC token provider (and anonymous SDK
+    // credentials, so no signing happens at request time).
+    S3ClientConf conf;
+    conf.endpoint = "storage.googleapis.com";
+    conf.region = "us-central1";
+    conf.bucket = "dummy-bucket";
+    conf.provider = io::ObjStorageType::GCP;
+    conf.cred_provider_type = CredProviderType::GcpAdc;
+
+    auto client = S3ClientFactory::instance().create(conf);
+    ASSERT_NE(client, nullptr);
+}
+
 TEST_F(S3ClientFactoryTest, AwsCredentialsProvider) {
     S3ClientFactory& factory = S3ClientFactory::instance();
     S3ClientConf anonymous_conf;
