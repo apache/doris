@@ -178,8 +178,16 @@ public class CachingHmsClient implements HmsClient {
             }
         }
         if (missNames != null) {
+            // Capture the invalidation generation BEFORE the delegate RPC so a REFRESH (flush) that races this
+            // in-flight cold-cache fetch does not get silently undone by re-caching the pre-refresh partitions.
+            // The pre-D2 code went through partitionsCache.get(key, loader) -> getWithManualLoad, which had this
+            // guard; the per-partition put must restore it (getTable/listPartitionNames/getTableColumnStatistics
+            // still use the guarded get path). The delegate results still populate the RESULT list directly,
+            // preserving the misparse->never-drop safety (only the CACHE put is generation-guarded).
+            long generation = partitionsCache.invalidationGeneration();
             for (HmsPartitionInfo info : delegate.getPartitions(dbName, tableName, missNames)) {
-                partitionsCache.put(new PartitionKey(dbName, tableName, info.getValues()), info);
+                partitionsCache.putIfNotInvalidatedSince(
+                        generation, new PartitionKey(dbName, tableName, info.getValues()), info);
                 result.add(info);
             }
         }

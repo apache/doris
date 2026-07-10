@@ -191,6 +191,31 @@ public class CachingHmsClientTest {
                 "divergence degrades to a reload, never a wrong/dropped result");
     }
 
+    @Test
+    public void getPartitionsFlushRacingInFlightFetchDoesNotRecacheStale() {
+        RecordingHmsClient delegate = new RecordingHmsClient();
+        CachingHmsClient cache = new CachingHmsClient(delegate, Collections.emptyMap());
+
+        // Model a REFRESH TABLE (flush) landing DURING the cold-cache delegate RPC: getPartitions captures the
+        // invalidation generation BEFORE the RPC, the flush bumps it mid-RPC, so the per-partition guarded put
+        // must be dropped rather than re-cache the pre-refresh partition. The in-flight query still returns the
+        // freshly-fetched partition (only the CACHE put is guarded).
+        delegate.onGetPartitions = () -> cache.flush("db", "t");
+        List<HmsPartitionInfo> r = cache.getPartitions("db", "t", Arrays.asList("p=1"));
+        Assertions.assertEquals(1, r.size(), "the in-flight query still returns the delegate's partition");
+        Assertions.assertEquals(1, delegate.getPartitionsCalls);
+
+        // WHY (Rule 9 / R3): the racing flush must have prevented the stale put, so a follow-up read is a MISS
+        // and re-fetches — it is NOT served the pre-refresh partition up to the TTL. MUTATION: the pre-R3 raw
+        // partitionsCache.put re-caches the stale partition here, so the next read hits and getPartitionsCalls
+        // stays 1 -> red. (getTable/listPartitionNames/getTableColumnStatistics kept the guard via get(); only
+        // getPartitions' per-partition put had lost it.)
+        delegate.onGetPartitions = null;
+        cache.getPartitions("db", "t", Arrays.asList("p=1"));
+        Assertions.assertEquals(2, delegate.getPartitionsCalls,
+                "a flush racing the in-flight fetch must not leave the stale partition cached (guarded put)");
+    }
+
     // ---- column statistics ----
 
     @Test
@@ -431,6 +456,9 @@ public class CachingHmsClientTest {
         // The partition-name list the decorator actually asked the delegate for on the LAST getPartitions call
         // (so a test can assert the decorator fetches only the MISSES, not the whole requested list).
         List<String> lastGetPartitionsArg;
+        // Optional hook fired INSIDE getPartitions (after counting, before returning) to model a concurrent
+        // mutation (e.g. a REFRESH flush) racing the in-flight cold-cache RPC.
+        Runnable onGetPartitions;
 
         @Override
         public HmsTableInfo getTable(String dbName, String tableName) {
@@ -451,6 +479,9 @@ public class CachingHmsClientTest {
         public List<HmsPartitionInfo> getPartitions(String dbName, String tableName, List<String> partNames) {
             getPartitionsCalls++;
             lastGetPartitionsArg = new ArrayList<>(partNames);
+            if (onGetPartitions != null) {
+                onGetPartitions.run();
+            }
             List<HmsPartitionInfo> out = new ArrayList<>();
             for (String name : partNames) {
                 if (absentPartitionNames.contains(name)) {
