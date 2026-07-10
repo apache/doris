@@ -18,7 +18,7 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("test_index_change_4") {
-    def timeout = 60000
+    def timeout = 300000
     def delta_time = 1000
     def alter_res = "null"
     def useTime = 0

@@ -24,21 +24,25 @@ import java.util.regex.Pattern;
 def delta_time = 1000
 
 Suite.metaClass.wait_for_last_build_index_finish = {table_name, OpTimeout ->
-    def useTime = 0
-    for(int t = delta_time; t <= OpTimeout; t += delta_time){
-        def alter_res = sql """SHOW BUILD INDEX WHERE TableName = "${table_name}" ORDER BY CreateTime DESC LIMIT 1;"""
+    def finished = false
+    def alter_res = ""
+    for(int t = 0; t <= OpTimeout; t += delta_time){
+        alter_res = sql """SHOW BUILD INDEX WHERE TableName = "${table_name}" ORDER BY CreateTime DESC LIMIT 1;"""
         alter_res = alter_res.toString()
         if(alter_res.contains("FINISHED")) {
             logger.info(table_name + " latest alter job finished, detail: " + alter_res)
+            finished = true
             break
         } else if (alter_res.contains("CANCELLED")) {
             logger.info(table_name + " latest alter job failed, detail: " + alter_res)
             assertTrue(false)
         }
-        useTime = t
+        if (t >= OpTimeout) {
+            break
+        }
         sleep(delta_time)
     }
-    assertTrue(useTime <= OpTimeout, "wait for last build index finish timeout")
+    assertTrue(finished, "wait for last build index finish timeout, latest result: ${alter_res}")
 }
 
 Suite.metaClass.build_index_on_table = {index_name, table_name ->
