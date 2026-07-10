@@ -131,10 +131,17 @@ keep the connector-wide flag → unchanged. e2e-owed: hudi-on-HMS NOT auto-analy
 
 ## TODO (each = independent dormant commit; re-verify line #s at edit)
 
-- [ ] **S1** `partition_values` plugin arm (edits A–E + `getNameToPartitionValues` SPI) + unit/regression
-      test against paimon/iceberg (live). checkstyle + import-gate.
+- [x] **S1** `partition_values` plugin arm (edits A–E + `getNameToPartitionValues` SPI). ✅ commit
+      `166515cdc88`. fe-core BUILD SUCCESS + 0 checkstyle + import-gate clean. Functional test (paimon/
+      iceberg live rows; hive post-flip == legacy) = e2e-owed. **Additive for paimon/iceberg**, dormant hive.
 - [ ] **S4** auto-analyze per-table gate (`supportsColumnAutoAnalyze` → `hasScanCapability`; hive emits
-      per-table marker, drops connector-wide flag). Smallest; do early.
+      per-table marker, drops connector-wide flag). ⚠ **INVESTIGATE FIRST** (hidden depth): post-flip do
+      iceberg-on-HMS / hudi-on-HMS tables resolve `SUPPORTS_COLUMN_AUTO_ANALYZE` from the HIVE connector or
+      from their delegated sibling connector? Legacy admitted `dlaType==ICEBERG` too. If iceberg-on-HMS
+      already gets it via the iceberg sibling's connector-wide flag, then hive only needs to emit the marker
+      for plain-hive (and NOT hudi), and the "exclude hudi" fix reduces to: does the hudi sibling declare
+      it? Nail this before editing. Per-table marker precedent = `HiveConnectorMetadata.java:402-414`
+      (`SUPPORTS_TOPN_LAZY_MATERIALIZE`).
 - [ ] **S2** `hudi_meta` connector-driven (neutral metadata-rows SPI + `HudiConnector` impl + rewrite
       `hudiMetadataResult`, shed `org.apache.hudi` from fe-core). Dormant unit test for the plugin arm.
 - [ ] **S3** sample-analyze full port (capability + per-table `supportsSampleAnalyze`/`isSamplingPartition`

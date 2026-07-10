@@ -9,68 +9,66 @@
 
 catalog-SPI 迁移的剩余工作 = **HMS 翻闸**。权威计划 = **`tasks/hms-cutover-execution-plan-2026-07-10.md`**（4 阶段 + DONE 账本 + 已签字决策 + 硬门；**起步必读 #1，行号信 HEAD 不信文档**）。四阶段：
 
-- **Phase 0 连接器休眠补齐** ✅ **DONE** — 读 SPI + iceberg/hudi 兄弟委派（S0–S6 / W1–W5 / WC1–WC4）+ 整条 hudi 线（HD-A0…HD-D1 + 武装 pivot HD-B2）。
-- **Phase 1 翻闸前 fe-core 建设（进行中，真正剩余主活）** — 连接器自持缓存(D2) → 事件管道 Model B → 3 个 loud-break 耦合缝 → W6 写路径 TCCL 验证。
-- **Phase 2 原子翻闸**（`SPI_READY += hms` + 3 处 GSON 重映射 + 死臂/INC-5/D5 删除 + 4 守卫改接新子系统）→ **Phase 3 删除旧代码（最后做）** → **Phase 4 e2e/硬门（R-002）**。
+- **Phase 0 连接器休眠补齐** ✅ **DONE**（读 SPI + iceberg/hudi 兄弟委派 + 整条 hudi 线）。
+- **Phase 1 翻闸前 fe-core 建设（进行中，真正剩余主活）** — 连接器自持缓存(D2) ✅ → 事件管道 Model B ✅ → **3 个 loud-break 耦合缝 + W6（本步，进行中）** → 剩余。
+- **Phase 2 原子翻闸**（`SPI_READY += hms` + GSON 重映射 + 死臂/删除 + 4 守卫改接新子系统）→ **Phase 3 删除旧代码（最后做）** → **Phase 4 e2e/硬门**。
 
-**✅ 本轮完成 = Phase 1 首项「Hive 连接器自持缓存(D2)」6 个休眠 commit + 净室对抗复审 + 2 处复审修复**：
-D2 = `f742651990d` C-a(pom+Caffeine) → `4fe55d88fab` C-b(`CachingHmsClient` 装饰器) → `7b05df6e55e` C-c(接线进 client) → `7c0ee1ffb2a` C-d(`HiveFileListingCache`) → `7bf90a7fe3c` C-e(`invalidateTable/invalidateAll`) → `12e0c9177c2` C-f(fe-core `getNewestUpdateVersionOrTime` last-modified 分支)。设计 = **`tasks/hive-connector-cache-step-design-2026-07-10.md`**。全休眠（hms 未进 `SPI_READY_TYPES`；paimon/iceberg/jdbc/hudi 字节不变；对齐 Trino 双层）。
-**净室对抗复审**（9 维独立盲评 → 逐条对抗验证 → 交叉核对历史结论）= 7 疑点 2 坐实、5 误报/干净；报告 = **`plan-doc/reviews/hive-connector-cache-cleanroom-review-2026-07-10.md`**。两处坐实（用户拍板即修，均已落地）：`fda344e6022`（恢复 `FileSystem.get` 系统性失败大声报错、仅单目录失败 skip——修静默空结果回归）+ `cdc837563a7`（新增通用 `Connector.invalidateDb` SPI + 接 `RefreshManager.refreshDbInternal`，让 REFRESH DATABASE 清连接器两层缓存）。复审确认干净项：§2.6 单调性=与旧实现平价（删最新分区致 max 下降在新旧都抛，非新回归）、无空指针面、装饰器 pass-through 完整、TCCL 只在调用线程、Caffeine 单版本。**未做的低危建议**：`fe-connector-hms/pom.xml` 把 `fe-connector-cache` 标 `optional`（免那个空 Caffeine jar 流进 hudi 包，现无害但去掉未来隐患）——待用户点头。
+**⭐ 本轮（2026-07-10 晚）= Phase 1 第三项「翻闸耦合缝」开工：HEAD 对齐侦察 + 3 处用户决策(全选逐位一致) + 第一缝落地。**
+权威设计 = **`tasks/hive-coupling-seams-step-design-2026-07-10.md`**（**起步必读**；含 4 缝 HEAD 锚点 + 修法 + 用户决策 + TODO + e2e 欠账）。侦察 = `wf_dfe1cb86-df4`（4 缝读者 + 完备性审查；完备性审查确认 4 缝之外无未护 loud break，另抓出 auto-analyze 静默扩大缝）。
 
-**⚠ 第二次独立净室复审**（另一 session 同日同法复跑，14 疑点 12 坐实；差量报告 = **`plan-doc/reviews/hive-connector-cache-cleanroom-review2-2026-07-10.md`**，与首审一致处不重复）**多抓 3 个坐实缺陷 + 1 个线上活性 bug**：
-- ✅ 已修 `30ecd930319`：REFRESH 三钩子不转发给已构建的 iceberg/hudi 兄弟连接器（iceberg 快照 pin 是 access 过期、持续查询下永不失效 → REFRESH 是唯一逃生口却够不着 → staleness 无界）。修法镜像 `close()`。
-- ❌ **未修-待拍板 #1**（review2 §2.2，HIGH）：Doris 自发 `DROP TABLE`/`CREATE TABLE`/`DROP DATABASE` 不清连接器缓存 → 同名删建后按旧表 schema/location 出错误结果最长 24h（Trino 装饰器写后自失效；旧实现 unregisterTable 即清）。修法选项：插件侧自失效（休眠、推荐）vs fe-core DDL 路径接 `connector.invalidateTable/Db`（顺带修下条 live bug）vs 两者都做。
-- ❌ **未修-待拍板 #2**（review2 §2.3，MEDIUM）：分区缓存容量 100000 的**单位悄变**——旧=分区对象数，新=请求列表条数（无 weigher，重叠请求重复驻留）→ 高分区表+滑动谓词可致堆增长远超旧界。修法选项：共享 `fe-connector-cache` 框架加可选 weigher（Trino 同款，但破坏本系列「paimon/iceberg 字节不变」声明）vs 缩小默认值 vs 只记档。
-- ❌ **未修-待拍板 #3**（review2 §3，**线上活性 bug 非休眠**）：paimon/iceberg `latestSnapshotCache`（+`PaimonSchemaAtMemo` 窄化变体）今天就有同形状的删建重名洞（fe-core DDL 路径从不 invalidate、key=纯表名）。修=独立线（动 live 行为，须自带复审+回归），或记档延后。
-- 测试加固欠账（LOW，代码正确仅测试盲区）：`createClient` 真包裹无 pin、公开 invalidate 钩子未用已构建 client 驱动（review2 §2.4）。
+- **W6 写路径 TCCL = 已核实为假警报，无需改代码**：iceberg-on-HMS 写委派穿过 iceberg 兄弟已绑定的 `TcclPinningConnectorContext`（`IcebergConnector.java:174`，线程无关）。只欠 e2e。可选：软化 `HiveConnector.java:206-208` 过度谨慎注释（纯文档）。
+- **用户 3 处决策（2026-07-10，全选 FULL PARITY）**：① 时间线函数 `hudi_meta` = **保留(改造连接器驱动)**（侦察推翻"删"倾向——4 个 p2 hudi 套件在用）；② Hive `ANALYZE … WITH SAMPLE` = **完整移植**（今天可用，不移植翻闸后会 `DdlException`）；③ 后台列自动统计 = **按表细分排除 hudi-on-HMS**（复刻旧 `HIVE||ICEBERG` 门）。
+- **✅ 已落地：S1「partition_values() 通用插件臂」** commit `166515cdc88`（3 个 fe-core 文件；镜像 `$partitions`：闸门放行 `PluginDrivenExternalCatalog`+`PLUGIN_EXTERNAL_TABLE`、加 `PluginDrivenExternalTable` 臂无 HMS 强转、`getTableColumns` 上提基类；新增 SPI `PluginDrivenExternalTable.getNameToPartitionValues`（**独立方法**、不动 live `getNameToPartitionItems` 保 paimon/iceberg 字节+成本不变）；`MetadataGenerator` 加 `PLUGIN_EXTERNAL_TABLE` 臂 + HMS/插件共用 `partitionValuesRows` 构建器保 `HIVE_DEFAULT_PARTITION`→NULL）。**对 paimon/iceberg 是加法(此前抛错的 TVF 现可用)**、对 hive 休眠至翻闸。fe-core BUILD SUCCESS + 0 checkstyle + import-gate 干净。功能校验 e2e-owed。
 
-**⭐ 状态（本轮，2026-07-10 晚）= Phase 1 第二项「事件管道 Model B」全部落地 + 净室对抗复审 + 2 处复审修复，✅ DONE。** 上面 3 项 D2 复审决策仍待用户拍板（与事件管道解耦，可并行）。
-- 权威设计 = **`tasks/hive-event-pipeline-step-design-2026-07-10.md`**（**起步必读**；含用户签字 A=结构性事件即时重建平价 + 6 步序列 + 落地/复审记录 §6 + 侦察 `wf_0c686fb4-d9d` / 复审 `wf_0d49c409-a86`）。**SUPERSEDES** `hms-event-pipeline-findings-2026-07-07.md`（旧侦察，行号已漂）。
-- 已落地（全休眠：hms 未 SPI_READY；paimon/iceberg/jdbc/hudi 字节不变；各步 test-compile SUCCESS + checkstyle 0 + import gate ok）：`0214f04` **E-a** 中立事件 SPI（`MetastoreChangeDescriptor`/`ConnectorEventSource`/`getEventSource`/`invalidatePartition`）→ `b13ed79` **E-b** 插件取数（`HmsClient` 通知方法 + `HmsNotificationEvent`）→ `902546d` **E-c** 插件事件源（`HmsEventParser` 忠实映射 + `HmsEventSource` 角色感知 + `HiveConnector` 接线）→ `3552554` **E-d** fe-core mutator 泛化（de-cast + `registerDatabase` 上提 PluginDriven + 分区 PluginDriven 分支）→ `6a96820` **E-e** fe-core 驱动（`MetastoreEventSyncDriver` + Env 接线）→ `9113c51` **E-f** 休眠 parser 单测（6 绿）。
-- **净室复审**（`wf_0d49c409-a86`，6 维 refute-by-default）14 疑点、4 坐实=**3 真回归（均休眠 pre-flip、须翻闸前修）**：**① 自愈丢失(poison event 死锁)** 已修 `fb21498`（`HmsEventSource` 瞬时 fetch 错误原地重试`ofNothing`、驱动 `realRun` catch 把游标归 -1 → 下轮 first-pull 全刷跳过毒事件；`applyDescriptors` 不再回退一格）；**② eager gzip 解压** 已修 `134907b`（`prepareBody` 按 `needsBody(type)` 惰性）；**③ `isInitialized()` gate**（主从只读分离下漏 seed 游标 → 从节点静默停更）**保留**（去掉会 force-init 空闲 paimon/iceberg/jdbc 破字节不变）+ 改诚实注释 + 列翻闸项。10 条误报（大小写canonical enum / 空分区 / enable-gate 翻闸自owed 等）已 refute。
-- **⭐ 下一步 = Phase 1 剩余项**（权威=execution plan §2.3 + 设计稿）：**3 个 loud-break 耦合缝**（`partition_values()` TVF / `hudi_meta()` TIMELINE TVF / `canSample`+`SUPPORTS_SAMPLE_ANALYZE`，均加休眠 arm，翻闸后否则 loud-break）→ **W6 写路径 TCCL 验证**（`fe-connector-hive` 无 `TcclPinningConnectorContext`，iceberg-on-HMS 写按名反射有 CCE 风险；verify-first）。之后 → **Phase 2 原子翻闸**。
-- **翻闸时接线（Phase 2，非本步，勿丢）**：① 去 `MetastoreEventsProcessor:116` gate + `ExternalMetaIdMgr.replayMetaIdMappingsLog` 游标回放**改指新驱动 `getMetastoreEventSyncDriver().updateMasterLastSyncedEventId`**；② **主节点初始化 flipped 事件源目录**（复审 finding #2，否则主从只读分离静默停更；设计稿 §2.4）；③ enable 开关：靠 fe-core 全局 Config 开启的部署须补 per-catalog `hive.enable_hms_events_incremental_sync`，或翻闸时 fe-core 把 resolved 值注入属性图。
-- **⚠ 复审确认 e2e 欠账（补 execution plan §4）**：毒事件自愈断言、主从只读分离下 flipped 目录游标传播、gzip/plain 各事件类型表/分区体解析忠实度（单测只覆盖 body-free 中立路径）。合并/去重(mergeEvents)本步有意省略（批优化；拉取式+顺序应用即正确）。
-- **⚠ 并行 session 风险**：曾有两个 session 同时在此工作树（一个 amend 卷入另一个未提交测试；本轮 HANDOFF 也被并行 session 更新过）；起步先查 `git log`/`git status`/运行中 maven/近 90s mtime 再动手。
+**⭐ 下一步 = 本步剩余 3 缝 + 收尾（权威=`hive-coupling-seams-step-design-2026-07-10.md` TODO）：**
+1. **S4 auto-analyze 按表门**（最小，但**先侦察**）：`PluginDrivenExternalTable.supportsColumnAutoAnalyze()` 由连接器级 `getCapabilities().contains(SUPPORTS_COLUMN_AUTO_ANALYZE)` 改为 `hasScanCapability(...)`（对 native iceberg/paimon 无变——它们仍连接器级声明）；hive 连接器从 `getCapabilities` 的 EnumSet 去掉该 flag，改在 `HiveConnectorMetadata.getTableSchema` 按表发标记（`PER_TABLE_CAPABILITIES_KEY`，precedent `:402-414` 的 TOPN 标记）。**隐藏深度须先查清**：翻闸后 iceberg-on-HMS / hudi-on-HMS 表的 `SUPPORTS_COLUMN_AUTO_ANALYZE` 是从 **hive 连接器**解析还是从**委派的兄弟连接器**解析？旧门 admit `dlaType==ICEBERG`。若 iceberg-on-HMS 已经从 iceberg 兄弟(连接器级声明)拿到，则 hive 只需对 plain-hive 发标记、对 hudi 不发，"排除 hudi"就落到"hudi 兄弟是否声明该 flag"。**动码前先在真实代码里把这个解析路径查清**（`HiveConnector` 的 3-way 路由 / 兄弟委派）。
+2. **S2 hudi_meta 连接器驱动**（保留）：加中立"元数据行"SPI（镜像 `ConnectorProcedureResult` 行返回）+ `HudiConnector` 实现（时间线数据已在连接器侧：`HudiMetaClientExecutor`/`getActiveTimeline().getInstants()`）；重写 `MetadataGenerator.hudiMetadataResult`（gate 改通用插件/能力型、去 `HMSExternalTable` 强转、fe-core 摆脱 `org.apache.hudi` timeline import `:128-129`）。休眠。委派须 pin TCCL。parity = 4 个 p2 套件行(e2e)。旧 body 无论如何删除步移除。
+3. **S3 sample-analyze 完整移植**（最大）：新 `ConnectorCapability.SUPPORTS_SAMPLE_ANALYZE`（hive **按表**发给 plain-hive 表——旧 `dlaType==HIVE`，排除 iceberg/hudi-on-HMS；native iceberg/paimon 不发保持现拒绝）+ `AnalysisManager.canSample`/`AnalyzeTableCommand.isSamplingPartition` 加 `PluginDrivenExternalTable.supportsSampleAnalyze()` 臂（走 `hasScanCapability`）+ `PluginDrivenExternalTable.createAnalysisTask` 返回可抽样任务(移植 `HMSAnalysisTask.doSample`+`getSampleInfo`+`needLimit`) + `getChunkSizes` override(经新 `Connector` chunk-sizes SPI 拿原始字节长度，type-math 留 fe-core)。非休眠单测端到端(发真抽样 SQL)→ e2e-owed。铁律：能力**按表**(连接器级会误 admit iceberg/hudi-on-HMS)。
+4. **收尾**：（可选）软化 W6 注释；**净室对抗复审**跨全部 seam commit（memory `clean-room-adversarial-review-pref`）；把 e2e 欠账登记进 execution-plan §4；勾选设计文档 TODO；更新本 HANDOFF。
 
-**⚠ 翻闸/e2e 欠账（非静默，勿丢）**：所有连接器休眠步（读 / 写-拒 / schema-evolution / 缓存 / 跨加载器委派）只在翻闸后 live，须异构 HMS docker e2e 断言（清单见 execution plan §4/§5 + memory `hms-iceberg-delegation-needs-e2e`）。**删除排序最硬约束**：`datasource/hive|hudi|iceberg/` 的 ~90 个 HMS 支撑类删不掉，直到翻闸把消费者切到连接器路径（详见 execution plan §2.4/§3 + `tasks/iceberg-on-hms-delegation-findings-2026-07-07.md`）。
+**⚠ 与本步解耦、仍待用户拍板的 3 处 D2 缓存复审项**（上一步遗留，见旧 HANDOFF/review2 报告；本轮未动）：① 自发 DROP/CREATE TABLE 不清连接器缓存(HIGH)；② 分区缓存容量单位悄变(MEDIUM)；③ paimon/iceberg `latestSnapshotCache` 现网同形删建洞(线上活性 bug)。下个 session 可择机连同上面 seam 一起或单独找用户定。
+
+**⚠ 翻闸/e2e 欠账（非静默，勿丢）**：所有连接器休眠步(读/写-拒/schema-evolution/缓存/跨加载器委派/本步 4 缝)只在翻闸后 live，须异构 HMS docker e2e 断言（清单见 execution plan §4/§5 + `hive-coupling-seams-step-design` e2e-owed 段 + memory `hms-iceberg-delegation-needs-e2e`）。删除排序最硬约束：`datasource/hive|hudi|iceberg/` ~90 个 HMS 支撑类删不掉直到翻闸切消费者（execution plan §2.4/§3）。
+
+**⚠ 并行 session 风险**：曾有两个 session 同工作树互相 amend；起步先查 `git log`/`git status`/运行中 maven/近 90s mtime 再动手。
 
 ---
 
 # 🧠 起步必读（读文档，别炒 git log 历史）
 
-1. **权威翻闸计划** = `tasks/hms-cutover-execution-plan-2026-07-10.md`（4 阶段 + DONE 账本 + 已签字决策 + 原子翻闸集 + 硬门）。**SUPERSEDES** 07-07 doc §4/§5 的状态。
-2. **本步（Hive 缓存）设计** = `tasks/hive-connector-cache-step-design-2026-07-10.md`（TODO 全勾）。
-3. **补充权威**：`tasks/hms-cutover-retype-design-2026-07-07.md`（原子翻闸模型 + 能力孪生 + 已签字 §6 D1–D6 决策，仍有效）；`tasks/hms-cutover-sibling-connector-decomposition-2026-07-08.md`（兄弟委派 S0–S6 + CCE/TCCL 硬约束）；两份 findings（`iceberg-on-hms-delegation-findings-2026-07-07.md` + `hms-event-pipeline-findings-2026-07-07.md`）；hudi = `tasks/hudi-on-hms-delegation-plan-2026-07-08.md` + `tasks/hudi-schema-evolution-step-design-2026-07-09.md`（均 DONE）。
-4. **样板**：`tasks/P5-paimon-migration.md`（翻闸+删 legacy 全流程）、`tasks/P6-iceberg-migration.md`（净室复审 + 能力孪生 + GSON replay 范式）。
-5. 完成工作明细 = `git log`（commit message 详尽）；勿在 HANDOFF 里重述。
+1. **权威翻闸计划** = `tasks/hms-cutover-execution-plan-2026-07-10.md`（4 阶段 + DONE 账本 + 已签字决策 + 原子翻闸集 + 硬门）。
+2. **本步（翻闸耦合缝）设计** = `tasks/hive-coupling-seams-step-design-2026-07-10.md`（4 缝 + 3 决策 + TODO；S1 已勾）。**起步先读，再对照 HEAD 核行号**。
+3. 已完成的前两项 Phase-1 步：`tasks/hive-connector-cache-step-design-2026-07-10.md`（D2 缓存）、`tasks/hive-event-pipeline-step-design-2026-07-10.md`（事件管道）。
+4. **补充权威**：`tasks/hms-cutover-retype-design-2026-07-07.md`（原子翻闸模型 + §6 D1–D6 决策）；`tasks/hms-cutover-sibling-connector-decomposition-2026-07-08.md`（兄弟委派 + CCE/TCCL 硬约束）；hudi = `tasks/hudi-on-hms-delegation-plan-2026-07-08.md` + `tasks/hudi-schema-evolution-step-design-2026-07-09.md`。
+5. **样板**：`tasks/P5-paimon-migration.md`、`tasks/P6-iceberg-migration.md`（净室复审 + 能力孪生 + GSON replay 范式）。
+6. 完成工作明细 = `git log`（commit message 详尽）；勿在 HANDOFF 里重述。
 
 ---
 
 # 📦 分支 / Commit 须知
 
-- **工作分支 = `catalog-spi-11-hive`**（off `branch-catalog-spi`）。PR base = `branch-catalog-spi`，**squash 合并**。打包/复审策略（单 PR vs 分 PR）= 翻闸阶段的开放决策。
+- **工作分支 = `catalog-spi-11-hive`**（off `branch-catalog-spi`）。PR base = `branch-catalog-spi`，**squash 合并**。
 - **公开 tracking issue = apache/doris#65185**（进度按已合入 `branch-catalog-spi` PR 口径）。
-- **⚠️ path-whitelist `git add`，严禁 `git add -A`**：工作树有大量历史遗留 scratch（`*.bak` / `regression-test/conf/regression-conf.groovy` 明文 key / `.audit-scratch/` / `conf.cmy/` / `META-INF/` / `docker/...` / `plan-doc/reviews/P5-*` / `.claude/` / `failed-cases.out`——**非本线程产物，勿混入任何 commit**）。
+- **⚠️ path-whitelist `git add`，严禁 `git add -A`**：工作树有大量历史遗留 scratch（`*.bak` / `regression-conf.groovy` 明文 key / `.audit-scratch/` / `conf.cmy/` / `META-INF/` / `docker/...` / `plan-doc/reviews/P5-*` / `.claude/` / `failed-cases.out`——**非本线程产物，勿混入任何 commit**）。
 - commit message：`[feat|fix|doc](catalog) …` + 末尾 `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>` + `Claude-Session: …`。**每子步/每条 fix = 独立 commit**；HANDOFF + 设计文档单独 commit（与 code 分开）。上下文超 30% 找干净节点交接（memory `session-handoff-at-30pct-context`）。
 
 # ⚙️ 操作须知（构建/测试，复用）
 
-- maven：`mvn -o -f /mnt/disk1/yy/git/wt-catalog-spi/fe/pom.xml -pl fe-connector/<mod> **-am** test -Dmaven.build.cache.enabled=false`（**漏 `-am`→假错 `${revision}`**；.m2 里有坏 `${revision}` 目录）。单测加 `-Dtest=<Class>`。禁 build-cache 才真跑 surefire。
-- **checkstyle 单独跑**：`mvn -o ... -pl fe-connector/<mod> -am checkstyle:check`（module `test` 阶段已含 checkstyle，BUILD SUCCESS 即过；仍建议显式确认「0 violations」——Rule 12）。
-- **import gate**（连接器禁 import fe-core）：`bash tools/check-connector-imports.sh`（**repo 根**跑）。**HMS `HiveVersionUtil` 命中 = 误报非违规**（memory `catalog-spi-hms-hiveversionutil-gate-false-positive`）。
-- **⚠️ bash 工具默认 timeout 120s**：fe-core 全量编译 ~2–3min、`-am` 更久 → `timeout` 调到 ~580000+ 或后台跑；**后台/管道 exit 不可信**——读 LOG 的 `BUILD SUCCESS` + surefire `Tests run=/Failures=/Errors=`（memory `doris-build-verify-gotchas`）。
-- **连接器测试无 Mockito**（真 recording fake）；**fe-core 测有 Mockito**（`Mockito.mock(接口)` **不跑 default 方法**返 null；`mockStatic(Env)` 是本仓惯用法）。checkstyle **禁 static import**、**扫 test 源**（memory `catalog-spi-fe-core-test-infra`）。
-- **cwd 会被 harness 重置** → 一律绝对路径。**⚠️ `/mnt/disk1` 盘紧（~82%）；勿用 worktree 隔离编译 agent**（复制整仓，盘不够）。
+- maven：`mvn -o -f /mnt/disk1/yy/git/wt-catalog-spi/fe/pom.xml -pl fe-core -am test-compile -Dmaven.build.cache.enabled=false`（**漏 `-am`→假错 `${revision}`**）。连接器：`-pl fe-connector/<mod> -am`。单测加 `-Dtest=<Class>`。
+- **验证信 LOG 不信 exit**：`-q` + `| tail` 会吞掉 `BUILD SUCCESS` 且管道 exit=tail 的(不可信)；改**重定向到文件**跑（不加 `-q`），再 grep `BUILD SUCCESS`/`[ERROR].*\.java:`/checkstyle `You have N violations`（memory `doris-build-verify-gotchas`）。test-compile 的 `validate` 阶段已跑 checkstyle（本轮见 fe-core `0 violations`）。
+- **build 中 ANTLR `mismatched input '->'`/`super::` 噪音 = 非致命**（某 codegen/工具 Java 语法解析器不识 lambda/方法引用；本轮 BUILD SUCCESS 照出）。
+- **import gate**：`bash tools/check-connector-imports.sh`（repo 根跑）。HMS `HiveVersionUtil` 命中 = 误报（memory `catalog-spi-hms-hiveversionutil-gate-false-positive`）。
+- **⚠️ bash 默认 timeout 120s**：fe-core 全量编译 ~3min+ → 后台跑 + 读 LOG。**⚠️ `/mnt/disk1` 盘紧(~82%)；勿用 worktree 隔离编译 agent**。cwd 会被重置 → 绝对路径。
+- **连接器测试无 Mockito**（真 recording fake）；**fe-core 测有 Mockito**（`mock(接口)` 不跑 default 方法返 null；`mockStatic(Env)` 惯用）。checkstyle 禁 static import、扫 test 源（memory `catalog-spi-fe-core-test-infra`）。
 
-# 🔒 铁律（fe-core 约束，翻闸靠"表类=通用类 + 网关按句柄委派"）
+# 🔒 铁律（fe-core 约束）
 
-- fe-core **不得**新增 `if(hive/iceberg/hudi)` / `instanceof HMSExternal*` / `switch(dlaType)` / 引擎名判别；通用 SPI 节点保持 connector-agnostic（memory `catalog-spi-plugindriven-no-source-specific-code`）。
+- fe-core **不得**新增 `if(hive/iceberg/hudi)` / `instanceof HMSExternal*` / `switch(dlaType)` / 引擎名判别；通用 SPI 节点 connector-agnostic（memory `catalog-spi-plugindriven-no-source-specific-code`）。能力按表判要用 `hasScanCapability`/`PER_TABLE_CAPABILITIES_KEY`（连接器发标记，fe-core 不看格式/dlaType）。
 - fe-core **不解析属性**（storage→fe-filesystem、meta→fe-connector，均插件侧；memory `catalog-spi-no-property-parsing-in-fecore`）。
-- 跨插件/跨边界**须 pin TCCL** 到连接器 classloader（扫描线程 / 写-DDL 引擎线程 / iceberg 内部 worker 池 / 事件轮询后台线程；memory `catalog-spi-plugin-tccl-classloader-gotcha`）。
+- 跨插件/跨边界**须 pin TCCL** 到连接器 classloader（扫描线程/写-DDL 引擎线程/iceberg worker 池/事件轮询后台线程；memory `catalog-spi-plugin-tccl-classloader-gotcha`）。
 - `history_schema_info` 嵌套字段名逐层 lowercase（否则 BE SIGABRT；memory `catalog-spi-history-schema-info-lowercase-nested-names`）。
-- `PluginDrivenMvccExternalTable` 是 paimon/iceberg **实时**基类：改其共享方法须对二者字节+成本双不变（memory `plugindriven-mvcc-table-is-live-not-dormant`）。
+- `PluginDrivenMvccExternalTable`/`PluginDrivenExternalTable` 是 paimon/iceberg **实时**基类：改其共享方法须对二者字节+成本双不变（本轮 S1 即因此把 `getNameToPartitionValues` 做成独立方法、不动 `getNameToPartitionItems`；memory `plugindriven-mvcc-table-is-live-not-dormant`）。
 
 # 🗂 memory 相关项
 
-`handoff-discipline-per-phase` · `clean-room-adversarial-review-pref` · `ask-user-explain-in-chinese-first` · `session-handoff-at-30pct-context` · `doris-build-verify-gotchas` · `catalog-spi-fe-core-test-infra` · `catalog-spi-tracking-issue` · `hms-iceberg-delegation-needs-e2e` · `catalog-spi-connector-cache-framework-caffeine-coherence` · `memory-keep-only-general-or-requested`。
+`handoff-discipline-per-phase` · `clean-room-adversarial-review-pref` · `ask-user-explain-in-chinese-first` · `session-handoff-at-30pct-context` · `doris-build-verify-gotchas` · `catalog-spi-fe-core-test-infra` · `catalog-spi-plugindriven-no-source-specific-code` · `plugindriven-mvcc-table-is-live-not-dormant` · `catalog-spi-tracking-issue` · `hms-iceberg-delegation-needs-e2e` · `concurrent-sessions-shared-worktree-hazard` · `memory-keep-only-general-or-requested`。
