@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_es_mtmv", "p0,external,es,external_docker,external_docker_hive") {
+suite("test_es_mtmv", "p2,external,es,external_docker,external_docker_hive") {
     String enabled = context.config.otherConfigs.get("enableEsTest")
     logger.info("enabled: " + enabled)
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
@@ -25,7 +25,7 @@ suite("test_es_mtmv", "p0,external,es,external_docker,external_docker_hive") {
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String catalog_name = "es_mtmv_catalog";
         String mvName = "test_es_mtmv"
-        String dbName = "regression_test_mtmv_p0"
+        String dbName = "regression_test_mtmv_p2"
         String esDb = "default_db"
         String esTable = "test1"
         sql """drop catalog if exists ${catalog_name} """
@@ -60,4 +60,3 @@ suite("test_es_mtmv", "p0,external,es,external_docker,external_docker_hive") {
         sql """ drop catalog if exists ${catalog_name} """
     }
 }
-

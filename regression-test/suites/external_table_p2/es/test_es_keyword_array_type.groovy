@@ -20,7 +20,7 @@
 // is an array, Doris should not throw an error. Instead, it should serialize
 // the array to a JSON string representation.
 
-suite("test_es_keyword_array_type", "p0,external,es,external_docker,external_docker_es") {
+suite("test_es_keyword_array_type", "p2,external,es,external_docker,external_docker_es") {
     String enabled = context.config.otherConfigs.get("enableEsTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
