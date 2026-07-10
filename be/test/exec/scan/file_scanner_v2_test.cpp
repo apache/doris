@@ -108,7 +108,7 @@ TEST(FileScannerV2Test, SupportedFormatMatrix) {
             {"hudi", TFileFormatType::FORMAT_PARQUET, std::nullopt, true},
             {"jdbc", TFileFormatType::FORMAT_PARQUET, std::nullopt, false},
             {"", TFileFormatType::FORMAT_JNI, std::nullopt, false},
-            {"hive", TFileFormatType::FORMAT_ORC, std::nullopt, false},
+            {"hive", TFileFormatType::FORMAT_ORC, std::nullopt, true},
             {"jdbc", TFileFormatType::FORMAT_JNI, std::nullopt, true},
             {"hive", TFileFormatType::FORMAT_JNI, std::nullopt, false},
             {"", TFileFormatType::FORMAT_CSV_PLAIN, std::nullopt, true},
@@ -122,7 +122,7 @@ TEST(FileScannerV2Test, SupportedFormatMatrix) {
             {"hive", TFileFormatType::FORMAT_PROTO, std::nullopt, true},
             {"hive", TFileFormatType::FORMAT_TEXT, std::nullopt, true},
             {"hive", TFileFormatType::FORMAT_JSON, std::nullopt, true},
-            {"hive", TFileFormatType::FORMAT_PARQUET, TFileFormatType::FORMAT_ORC, false},
+            {"hive", TFileFormatType::FORMAT_PARQUET, TFileFormatType::FORMAT_ORC, true},
             {"hive", TFileFormatType::FORMAT_ORC, TFileFormatType::FORMAT_PARQUET, true},
             {"hive", TFileFormatType::FORMAT_PARQUET, TFileFormatType::FORMAT_CSV_PLAIN, true},
             {"hive", TFileFormatType::FORMAT_PARQUET, TFileFormatType::FORMAT_TEXT, true},
@@ -161,7 +161,7 @@ TEST(FileScannerV2Test, SplitSourceAllScanRangesMatchRequiresEveryRangeSupported
 
     const auto supported = range_with_format("hive", TFileFormatType::FORMAT_PARQUET);
     const auto unsupported_table = range_with_format("lakesoul", TFileFormatType::FORMAT_PARQUET);
-    const auto unsupported_format = range_with_format("hive", TFileFormatType::FORMAT_ORC);
+    const auto unsupported_format = range_with_format("hive", TFileFormatType::FORMAT_WAL);
 
     LocalSplitSourceConnector all_supported(
             {scan_range_param(supported),
@@ -207,7 +207,7 @@ TEST(FileScannerV2Test, FileFormatConversionMatrix) {
             {TFileFormatType::FORMAT_JSON, format::FileFormat::JSON},
             {TFileFormatType::FORMAT_NATIVE, format::FileFormat::NATIVE},
             {TFileFormatType::FORMAT_ARROW, format::FileFormat::ARROW},
-            {TFileFormatType::FORMAT_ORC, std::nullopt},
+            {TFileFormatType::FORMAT_ORC, format::FileFormat::ORC},
     };
 
     for (const auto& test_case : cases) {
