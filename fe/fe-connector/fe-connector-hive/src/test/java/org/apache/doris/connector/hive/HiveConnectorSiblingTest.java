@@ -250,9 +250,63 @@ public class HiveConnectorSiblingTest {
         }
     }
 
-    /** A bare {@link Connector} stand-in for the cross-loader iceberg sibling; only close-counting matters here. */
+    @Test
+    public void refreshHooksForwardToBothBuiltSiblings() {
+        // WHY: fe-core routes REFRESH TABLE/DATABASE/CATALOG only to a catalog's PRIMARY connector. If the
+        // gateway did not forward its invalidate hooks, the iceberg sibling's latest-snapshot pin could NEVER
+        // be dropped by an explicit REFRESH — and its access-based expiry keeps a continuously-queried stale
+        // entry alive indefinitely, so staleness would be unbounded (breaks "bounded by TTL + REFRESH").
+        FakeSibling icebergSibling = new FakeSibling();
+        FakeSibling hudiSibling = new FakeSibling();
+        FakeConnectorContext context = new FakeConnectorContext() {
+            @Override
+            public Connector createSiblingConnector(String catalogType, Map<String, String> properties) {
+                return "hudi".equals(catalogType) ? hudiSibling : icebergSibling;
+            }
+        };
+        HiveConnector connector = new HiveConnector(new HashMap<>(), context);
+        connector.getOrCreateIcebergSibling();
+        connector.getOrCreateHudiSibling();
+
+        connector.invalidateTable("db1", "t1");
+        connector.invalidateDb("db2");
+        connector.invalidateAll();
+
+        for (FakeSibling sibling : new FakeSibling[] {icebergSibling, hudiSibling}) {
+            Assertions.assertEquals("db1.t1", sibling.lastInvalidatedTable,
+                    "invalidateTable must forward the (db, table) pair to each built sibling");
+            Assertions.assertEquals("db2", sibling.lastInvalidatedDb,
+                    "invalidateDb must forward the db to each built sibling");
+            Assertions.assertEquals(1, sibling.invalidateAllCount,
+                    "invalidateAll must forward to each built sibling exactly once");
+        }
+    }
+
+    @Test
+    public void refreshHooksNeverForceBuildSiblings() {
+        // WHY: a REFRESH on a pure-hive catalog must not construct sibling connectors — a never-built sibling
+        // has no cache to drop, and building one just to flush it would fail-loud spuriously whenever the
+        // sibling plugin is not installed (REFRESH would start throwing on plain hive catalogs).
+        RecordingSiblingContext context = new RecordingSiblingContext(new FakeSibling());
+        HiveConnector connector = new HiveConnector(new HashMap<>(), context);
+
+        connector.invalidateTable("db", "t");
+        connector.invalidateDb("db");
+        connector.invalidateAll();
+
+        Assertions.assertEquals(0, context.buildCount,
+                "invalidate hooks must only forward to ALREADY-BUILT siblings, never force-build one");
+    }
+
+    /**
+     * A bare {@link Connector} stand-in for the cross-loader iceberg/hudi sibling; records lifecycle
+     * ({@code close}) and invalidation forwarding.
+     */
     private static final class FakeSibling implements Connector {
         int closeCount;
+        int invalidateAllCount;
+        String lastInvalidatedTable;
+        String lastInvalidatedDb;
 
         @Override
         public ConnectorMetadata getMetadata(ConnectorSession session) {
@@ -262,6 +316,21 @@ public class HiveConnectorSiblingTest {
         @Override
         public void close() {
             closeCount++;
+        }
+
+        @Override
+        public void invalidateTable(String dbName, String tableName) {
+            lastInvalidatedTable = dbName + "." + tableName;
+        }
+
+        @Override
+        public void invalidateDb(String dbName) {
+            lastInvalidatedDb = dbName;
+        }
+
+        @Override
+        public void invalidateAll() {
+            invalidateAllCount++;
         }
     }
 }

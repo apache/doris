@@ -48,6 +48,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Callable;
+import java.util.function.Consumer;
 
 /**
  * Hive connector implementation. Manages the lifecycle of
@@ -283,6 +284,7 @@ public class HiveConnector implements Connector {
      * schema, partitions AND files are all mutable, so a REFRESH must re-read all of them (unlike iceberg, whose
      * manifests are immutable and kept across REFRESH TABLE). fe-core already routes {@code REFRESH TABLE} to
      * {@code connector.invalidateTable} for a plugin-driven catalog; dormant until hms enters SPI_READY_TYPES.
+     * Also forwarded to the already-built embedded siblings — see {@link #forEachBuiltSibling}.
      */
     @Override
     public void invalidateTable(String dbName, String tableName) {
@@ -290,6 +292,7 @@ public class HiveConnector implements Connector {
         // flush an empty cache): a never-built client means no metastore cache exists to flush. The file cache is
         // a final field and always present.
         invalidateTable(hmsClient, dbName, tableName);
+        forEachBuiltSibling(sibling -> sibling.invalidateTable(dbName, tableName));
     }
 
     // Package-private seam: the metastore half needs an observable CachingHmsClient, which a unit test can build
@@ -307,10 +310,12 @@ public class HiveConnector implements Connector {
      * directory listings). Same no-force-build read of the client as {@link #invalidateTable(String, String)}.
      * fe-core routes {@code REFRESH DATABASE} to {@code connector.invalidateDb} for a plugin-driven catalog;
      * dormant until hms enters SPI_READY_TYPES.
+     * Also forwarded to the already-built embedded siblings — see {@link #forEachBuiltSibling}.
      */
     @Override
     public void invalidateDb(String dbName) {
         invalidateDb(hmsClient, dbName);
+        forEachBuiltSibling(sibling -> sibling.invalidateDb(dbName));
     }
 
     // Package-private seam (see invalidateTable above).
@@ -325,10 +330,12 @@ public class HiveConnector implements Connector {
      * REFRESH CATALOG hook: drop ALL of this catalog's connector-owned scan caches — every metastore-metadata
      * entry ({@link CachingHmsClient#flushAll}) and every directory listing. Same no-force-build read of the
      * client as {@link #invalidateTable(String, String)}. Dormant until the flip.
+     * Also forwarded to the already-built embedded siblings — see {@link #forEachBuiltSibling}.
      */
     @Override
     public void invalidateAll() {
         invalidateAll(hmsClient);
+        forEachBuiltSibling(Connector::invalidateAll);
     }
 
     // Package-private seam (see invalidateTable above).
@@ -337,6 +344,26 @@ public class HiveConnector implements Connector {
             ((CachingHmsClient) client).flushAll();
         }
         fileListingCache.invalidateAll();
+    }
+
+    /**
+     * Runs one invalidation action on each ALREADY-BUILT embedded sibling (iceberg, hudi). fe-core routes
+     * {@code REFRESH TABLE/DATABASE/CATALOG} only to a catalog's PRIMARY connector, so the gateway must
+     * propagate invalidation to the sibling-owned caches — e.g. the iceberg sibling's latest-snapshot pin,
+     * whose ACCESS-based expiry keeps a continuously-queried stale entry alive indefinitely, making an explicit
+     * REFRESH the only way to unpin an iceberg-on-HMS table's staleness. Mirrors {@link #close()}: plain
+     * volatile reads, never force-builds (a never-built sibling has no cache to drop, and building one just to
+     * flush it could fail-loud spuriously on a catalog whose sibling plugin is absent).
+     */
+    private void forEachBuiltSibling(Consumer<Connector> action) {
+        Connector iceberg = icebergSibling;
+        if (iceberg != null) {
+            action.accept(iceberg);
+        }
+        Connector hudi = hudiSibling;
+        if (hudi != null) {
+            action.accept(hudi);
+        }
     }
 
     /** The connector-owned directory-listing cache, exposed for unit tests (mirrors iceberg manifestCacheForTest). */
