@@ -238,6 +238,37 @@ TEST_F(FunctionCastTest, test_from_null_literal_array_to_nested_array) {
     EXPECT_EQ(result_nested_array->get_offsets(), ColumnArray::Offsets64({0, 0, 0}));
 }
 
+TEST_F(FunctionCastTest, test_from_nested_null_literal_array_to_deeper_array) {
+    auto null_literal_type = std::make_shared<DataTypeBool>();
+    null_literal_type->set_null_literal(true);
+    auto from_inner_type = std::make_shared<DataTypeArray>(null_literal_type);
+    auto from_type = std::make_shared<DataTypeArray>(from_inner_type);
+
+    auto leaf_column = ColumnHelper::create_nullable_column<DataTypeBool>({0}, {true});
+    auto inner_offsets = ColumnHelper::create_column_offsets<TYPE_UINT64>({1});
+    auto inner_column = ColumnArray::create(std::move(leaf_column), std::move(inner_offsets));
+    auto inner_null_map = ColumnHelper::create_column<DataTypeUInt8>({false});
+    auto nullable_inner_column =
+            ColumnNullable::create(std::move(inner_column), std::move(inner_null_map));
+    auto outer_offsets = ColumnHelper::create_column_offsets<TYPE_UINT64>({1});
+    auto from_column =
+            ColumnArray::create(std::move(nullable_inner_column), std::move(outer_offsets));
+
+    auto to_type = std::make_shared<DataTypeArray>(std::make_shared<DataTypeArray>(
+            std::make_shared<DataTypeArray>(std::make_shared<DataTypeInt32>())));
+
+    auto ctx = create_context(false);
+    auto fn = get_cast_wrapper(ctx.get(), from_type, to_type);
+    ASSERT_TRUE(fn != nullptr);
+
+    Block block = {
+            {std::move(from_column), from_type, "from"},
+            {nullptr, to_type, "to"},
+    };
+    ASSERT_TRUE(fn(ctx.get(), block, {0}, 1, block.rows(), nullptr));
+    EXPECT_EQ(to_type->to_string(*block.get_by_position(1).column, 0), "[[null]]");
+}
+
 TEST_F(FunctionCastTest, test_from_non_null_array_to_nested_array_is_rejected) {
     ColumnArrayBuilder<DataTypeInt32> builder;
     builder.add({1});

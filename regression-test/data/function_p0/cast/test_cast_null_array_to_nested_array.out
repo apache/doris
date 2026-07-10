@@ -8,6 +8,9 @@
 -- !cast_nulls_array_to_nested_array_fold --
 [null, null]
 
+-- !cast_nested_null_array_to_deeper_array_fold --
+[[null]]
+
 -- !cast_empty_array_to_nested_array_be --
 []
 
@@ -16,4 +19,7 @@
 
 -- !cast_nulls_array_to_nested_array_be --
 [null, null]
+
+-- !cast_nested_null_array_to_deeper_array_be --
+[[null]]
 

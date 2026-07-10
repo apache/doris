@@ -30,6 +30,10 @@ suite("test_cast_null_array_to_nested_array") {
         select cast([null, null] as array<array<int>>);
     """
 
+    qt_cast_nested_null_array_to_deeper_array_fold """
+        select cast([[null]] as array<array<array<int>>>);
+    """
+
     test {
         sql "select cast([1] as array<array<int>>);"
         exception "can not cast from origin type ARRAY<TINYINT> to target type=ARRAY<ARRAY<INT>>"
@@ -52,6 +56,10 @@ suite("test_cast_null_array_to_nested_array") {
 
     qt_cast_nulls_array_to_nested_array_be """
         select cast([null, null] as array<array<int>>);
+    """
+
+    qt_cast_nested_null_array_to_deeper_array_be """
+        select cast([[null]] as array<array<array<int>>>);
     """
 
     test {

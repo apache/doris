@@ -20,6 +20,15 @@
 #include "exprs/function/cast/cast_base.h"
 
 namespace doris::CastWrapper {
+inline bool has_null_literal_leaf(const DataTypePtr& type) {
+    const auto type_without_nullable = remove_nullable(type);
+    if (const auto* array_type =
+                check_and_get_data_type<DataTypeArray>(type_without_nullable.get())) {
+        return has_null_literal_leaf(array_type->get_nested_type());
+    }
+    return type_without_nullable->is_null_literal();
+}
+
 WrapperType create_array_wrapper(FunctionContext* context, const DataTypePtr& from_type_untyped,
                                  const DataTypeArray& to_type) {
     /// Conversion from String through parsing.
@@ -42,7 +51,7 @@ WrapperType create_array_wrapper(FunctionContext* context, const DataTypePtr& fr
     DataTypePtr from_nested_type = from_type->get_nested_type();
 
     if (from_type->get_number_of_dimensions() != to_type.get_number_of_dimensions() &&
-        !from_nested_type->is_null_literal()) {
+        !has_null_literal_leaf(from_nested_type)) {
         return CastWrapper::create_unsupport_wrapper(
                 "CAST AS Array can only be performed between same-dimensional array types");
     }
