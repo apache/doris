@@ -55,6 +55,8 @@ import org.apache.hudi.internal.schema.convert.AvroInternalSchemaConverter;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.AbstractMap;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -88,6 +90,12 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
 
     // Catalog property gating the partition-name source (mirrors legacy HMSExternalTable.USE_HIVE_SYNC_PARTITION).
     private static final String USE_HIVE_SYNC_PARTITION = "use_hive_sync_partition";
+
+    // Hive-canonical partition text for a DATETIME/TIMESTAMP literal: space separator, full seconds. See
+    // hiveDateTimeString / extractLiteralValue (H2: String.valueOf(LocalDateTime) would yield ISO "…T…" and drop
+    // zero seconds, never matching the stored Hive partition value).
+    private static final DateTimeFormatter HIVE_DATETIME_SECONDS_FORMAT =
+            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     // Internal MVCC-snapshot property carrying the FOR TIME AS OF instant from resolveTimeTravel to applySnapshot
     // (FE-internal transport, paimon scan-options model). It is NEVER serialized to BE: fe-core only feeds the
@@ -1028,11 +1036,44 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
     }
 
     private String extractLiteralValue(ConnectorExpression expr) {
-        if (expr instanceof ConnectorLiteral) {
-            Object val = ((ConnectorLiteral) expr).getValue();
-            return val != null ? String.valueOf(val) : null;
+        if (!(expr instanceof ConnectorLiteral)) {
+            return null;
         }
-        return null;
+        Object val = ((ConnectorLiteral) expr).getValue();
+        if (val == null) {
+            return null;
+        }
+        if (val instanceof LocalDateTime) {
+            // H2: a DATETIME/TIMESTAMP partition literal arrives as a LocalDateTime (DATE arrives as LocalDate).
+            // String.valueOf would call toString() -> ISO "2024-01-01T10:00" (T separator, dropped zero seconds),
+            // which never string-equals the Hive-canonical stored partition value "2024-01-01 10:00:00" in
+            // matchesPredicates -> the whole table prunes to 0 rows. Render Hive-canonical text instead.
+            return hiveDateTimeString((LocalDateTime) val);
+        }
+        return String.valueOf(val);
+    }
+
+    /**
+     * Renders a DATETIME/TIMESTAMP literal as Hive-canonical partition text: {@code yyyy-MM-dd HH:mm:ss} (space
+     * separator, full seconds), appending trailing-zero-trimmed microseconds only when a sub-second part is
+     * present. Matches the stored Hive partition value for a scale-0 DATETIME partition (the only realistic case)
+     * so the pruning string-compare hits. Package-private static for offline unit testing.
+     *
+     * <p>Contract: {@code convertDateLiteral} produces microsecond precision (nano = micros*1000), so the nano is
+     * always a multiple of 1000; a sub-microsecond nano (unreachable on the pruning path) would be truncated.
+     */
+    static String hiveDateTimeString(LocalDateTime ldt) {
+        String base = ldt.format(HIVE_DATETIME_SECONDS_FORMAT);
+        int nano = ldt.getNano();
+        if (nano == 0) {
+            return base;
+        }
+        String micros = String.format("%06d", nano / 1000);
+        int end = micros.length();
+        while (end > 1 && micros.charAt(end - 1) == '0') {
+            end--;
+        }
+        return base + "." + micros.substring(0, end);
     }
 
     /**

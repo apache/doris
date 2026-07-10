@@ -35,6 +35,7 @@ import org.apache.doris.connector.hms.HmsTableInfo;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -161,6 +162,42 @@ public class HiveConnectorMetadataPartitionPruningTest {
                 metadata.applyFilter(null, handle, new ConnectorFilterConstraint(eq("code", "US:CA")));
         Assertions.assertTrue(result.isPresent());
         Assertions.assertEquals(Collections.singletonList("code=US%3ACA"), prunedLocations(result));
+    }
+
+    @Test
+    public void hiveDateTimeStringRendersHiveCanonicalText() {
+        // H2 (unit): a DATETIME/TIMESTAMP predicate literal (LocalDateTime) must render Hive-canonical text.
+        // String.valueOf would yield ISO "2024-01-01T10:00", never matching "2024-01-01 10:00:00". RED before.
+        Assertions.assertEquals("2024-01-01 10:00:00",
+                HiveConnectorMetadata.hiveDateTimeString(LocalDateTime.of(2024, 1, 1, 10, 0, 0)));
+        Assertions.assertEquals("2024-01-01 00:00:00",
+                HiveConnectorMetadata.hiveDateTimeString(LocalDateTime.of(2024, 1, 1, 0, 0, 0)));
+        Assertions.assertEquals("2024-01-01 10:00:30",
+                HiveConnectorMetadata.hiveDateTimeString(LocalDateTime.of(2024, 1, 1, 10, 0, 30)));
+        Assertions.assertEquals("2024-01-01 10:00:00.123456",
+                HiveConnectorMetadata.hiveDateTimeString(LocalDateTime.of(2024, 1, 1, 10, 0, 0, 123456 * 1000)));
+    }
+
+    @Test
+    public void testDatetimePartitionPredicatePrunesWithHiveCanonicalText() {
+        // H1+H2 composed end-to-end: a DATETIME partition value stored escaped in HMS ("dt=2024-01-01 10%3A00%3A00")
+        // must prune-in against a DATETIME predicate literal. RED before H2: the literal renders ISO
+        // "2024-01-01T10:00" and matches nothing; RED before H1: the stored ":" stays "%3A". Both are required for
+        // the real partition to survive pruning (else silent row loss).
+        List<String> parts = Arrays.asList("dt=2024-01-01 10%3A00%3A00", "dt=2024-01-02 00%3A00%3A00");
+        HiveConnectorMetadata metadata = new HiveConnectorMetadata(
+                new FakeHmsClient(parts), Collections.emptyMap(), new FakeConnectorContext());
+        HiveTableHandle handle = new HiveTableHandle.Builder("db", "t", HiveTableType.HIVE)
+                .partitionKeyNames(Collections.singletonList("dt"))
+                .build();
+        ConnectorComparison dtEq = new ConnectorComparison(ConnectorComparison.Operator.EQ,
+                new ConnectorColumnRef("dt", ConnectorType.of("DATETIMEV2", 6, 0)),
+                new ConnectorLiteral(ConnectorType.of("DATETIMEV2", 6, 0), LocalDateTime.of(2024, 1, 1, 10, 0, 0)));
+        Optional<FilterApplicationResult<ConnectorTableHandle>> result =
+                metadata.applyFilter(null, handle, new ConnectorFilterConstraint(dtEq));
+        Assertions.assertTrue(result.isPresent());
+        Assertions.assertEquals(
+                Collections.singletonList("dt=2024-01-01 10%3A00%3A00"), prunedLocations(result));
     }
 
     // ===== helpers =====

@@ -22,6 +22,7 @@ import org.apache.doris.connector.api.DorisConnectorException;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Map;
@@ -118,6 +119,27 @@ public class HudiPartitionValuesTest {
 
         Assertions.assertEquals("US:CA", values.get("code"), "colon-escaped value must be decoded");
         Assertions.assertEquals("a/b", values.get("kind"), "slash-escaped value must be decoded");
+    }
+
+    @Test
+    public void hiveDateTimeStringRendersHiveCanonicalText() {
+        // H2: a DATETIME/TIMESTAMP predicate literal arrives as a LocalDateTime. It must render as Hive-canonical
+        // partition text (space separator, full seconds) so it string-matches the stored partition value in
+        // matchesPredicates. String.valueOf(LocalDateTime) yields ISO "2024-01-01T10:00" (T separator, dropped
+        // zero seconds) which never matches "2024-01-01 10:00:00" -> the whole table prunes to 0 rows. RED before.
+        Assertions.assertEquals("2024-01-01 10:00:00",
+                HudiConnectorMetadata.hiveDateTimeString(LocalDateTime.of(2024, 1, 1, 10, 0, 0)));
+        // midnight: ISO would collapse to "2024-01-01T00:00"
+        Assertions.assertEquals("2024-01-01 00:00:00",
+                HudiConnectorMetadata.hiveDateTimeString(LocalDateTime.of(2024, 1, 1, 0, 0, 0)));
+        // non-zero seconds: ISO keeps the 'T' separator ("2024-01-01T10:00:30")
+        Assertions.assertEquals("2024-01-01 10:00:30",
+                HudiConnectorMetadata.hiveDateTimeString(LocalDateTime.of(2024, 1, 1, 10, 0, 30)));
+        // sub-second (nano = micros*1000): trailing-zero-trimmed microseconds
+        Assertions.assertEquals("2024-01-01 10:00:00.123456",
+                HudiConnectorMetadata.hiveDateTimeString(LocalDateTime.of(2024, 1, 1, 10, 0, 0, 123456 * 1000)));
+        Assertions.assertEquals("2024-01-01 10:00:00.1",
+                HudiConnectorMetadata.hiveDateTimeString(LocalDateTime.of(2024, 1, 1, 10, 0, 0, 100000 * 1000)));
     }
 
     @Test
