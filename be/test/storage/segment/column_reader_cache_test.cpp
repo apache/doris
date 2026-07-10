@@ -30,6 +30,7 @@
 #include "common/config.h"
 #include "core/assert_cast.h"
 #include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_nullable.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/local_file_system.h"
 #include "storage/segment/column_meta_accessor.h"
@@ -546,6 +547,95 @@ TEST_F(ColumnReaderCacheTest, EmptyPath) {
     EXPECT_TRUE(status.is<ErrorCode::NOT_FOUND>());
 }
 
+TEST_F(ColumnReaderCacheTest, FillMissingDecimalV2PrecisionFromTabletSchema) {
+    constexpr int32_t col_uid = 10;
+    setup_column_uid_mapping(col_uid, 0);
+    auto& tablet_column = _mock_segment->tablet_schema()->mutable_column_by_uid(col_uid);
+    tablet_column.set_type(FieldType::OLAP_FIELD_TYPE_DECIMAL);
+    tablet_column.set_precision(20);
+    tablet_column.set_frac(6);
+
+    ColumnMetaPB col_meta;
+    col_meta.set_type(static_cast<int32_t>(FieldType::OLAP_FIELD_TYPE_DECIMAL));
+    col_meta.set_unique_id(col_uid);
+    col_meta.set_encoding(get_v2_default_encoding(static_cast<FieldType>(col_meta.type())));
+    col_meta.mutable_indexes()->Add()->set_type(ORDINAL_INDEX);
+    ASSERT_FALSE(col_meta.has_precision());
+    ASSERT_FALSE(col_meta.has_frac());
+    setup_parsed_segment_footer({col_meta});
+
+    const auto& parsed_col_meta = _mock_segment->get_footer()->columns(0);
+    EXPECT_EQ(parsed_col_meta.precision(), 20);
+    EXPECT_EQ(parsed_col_meta.frac(), 6);
+
+    std::shared_ptr<ColumnReader> reader;
+    Status status = _cache->get_column_reader(col_uid, &reader, &_stats);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    ASSERT_NE(reader, nullptr);
+
+    const auto* data_type =
+            assert_cast<const DataTypeDecimalV2*>(reader->get_vec_data_type().get());
+    ASSERT_NE(data_type, nullptr);
+    EXPECT_EQ(data_type->get_original_precision(), 20);
+    EXPECT_EQ(data_type->get_original_scale(), 6);
+    EXPECT_EQ(data_type->get_precision(), 27);
+    EXPECT_EQ(data_type->get_scale(), 9);
+}
+
+TEST_F(ColumnReaderCacheTest, FillMissingDecimalV2PrecisionForComplexTypeFromTabletSchema) {
+    constexpr int32_t col_uid = 11;
+    setup_column_uid_mapping(col_uid, 0);
+    auto& tablet_column = _mock_segment->tablet_schema()->mutable_column_by_uid(col_uid);
+    tablet_column.set_type(FieldType::OLAP_FIELD_TYPE_ARRAY);
+    TabletColumn item_column;
+    item_column.set_type(FieldType::OLAP_FIELD_TYPE_DECIMAL);
+    item_column.set_precision(18);
+    item_column.set_frac(4);
+    tablet_column.add_sub_column(item_column);
+
+    ColumnMetaPB col_meta;
+    col_meta.set_type(static_cast<int32_t>(FieldType::OLAP_FIELD_TYPE_ARRAY));
+    col_meta.set_unique_id(col_uid);
+
+    auto* item_meta = col_meta.add_children_columns();
+    item_meta->set_type(static_cast<int32_t>(FieldType::OLAP_FIELD_TYPE_DECIMAL));
+    item_meta->set_encoding(get_v2_default_encoding(static_cast<FieldType>(item_meta->type())));
+    item_meta->set_num_rows(1000);
+    item_meta->mutable_indexes()->Add()->set_type(ORDINAL_INDEX);
+    ASSERT_FALSE(item_meta->has_precision());
+    ASSERT_FALSE(item_meta->has_frac());
+
+    auto* offset_meta = col_meta.add_children_columns();
+    offset_meta->set_type(static_cast<int32_t>(FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT));
+    offset_meta->set_encoding(get_v2_default_encoding(static_cast<FieldType>(offset_meta->type())));
+    offset_meta->set_num_rows(1000);
+    offset_meta->mutable_indexes()->Add()->set_type(ORDINAL_INDEX);
+    setup_parsed_segment_footer({col_meta});
+
+    const auto& parsed_item_meta = _mock_segment->get_footer()->columns(0).children_columns(0);
+    EXPECT_EQ(parsed_item_meta.precision(), 18);
+    EXPECT_EQ(parsed_item_meta.frac(), 4);
+
+    std::shared_ptr<ColumnReader> reader;
+    Status status = _cache->get_column_reader(col_uid, &reader, &_stats);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    ASSERT_NE(reader, nullptr);
+
+    auto data_type = reader->get_vec_data_type();
+    ASSERT_NE(data_type, nullptr);
+    EXPECT_EQ(data_type->get_primitive_type(), TYPE_ARRAY);
+    const auto* array_type = assert_cast<const DataTypeArray*>(data_type.get());
+    const auto* nested_type_nullable =
+            assert_cast<const DataTypeNullable*>(array_type->get_nested_type().get());
+    ASSERT_NE(nested_type_nullable, nullptr);
+    const auto* nested_type =
+            assert_cast<const DataTypeDecimalV2*>(nested_type_nullable->get_nested_type().get());
+    ASSERT_NE(nested_type, nullptr);
+    EXPECT_EQ(nested_type->get_original_precision(), 18);
+    EXPECT_EQ(nested_type->get_original_scale(), 4);
+    EXPECT_EQ(nested_type->get_precision(), 27);
+    EXPECT_EQ(nested_type->get_scale(), 9);
+}
 TEST_F(ColumnReaderCacheTest, FillMissingDecimalV3PrecisionFromTabletSchema) {
     constexpr int32_t col_uid = 10;
     setup_column_uid_mapping(col_uid, 0);

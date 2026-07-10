@@ -647,6 +647,9 @@ Status Segment::_parse_footer(std::shared_ptr<SegmentFooterPB>& footer,
                 _file_reader->path().native(), file_size,
                 file_cache_key_str(_file_reader->path().native()));
     }
+    // Segments written before #26572 do not persist decimal precision/frac in
+    // ColumnMetaPB, so recover the logical p/s from TabletSchema before
+    // ColumnReader builds DataTypeDecimal.
     fill_footer_missing_decimal_precision(_tablet_schema, footer.get());
 
     VLOG_DEBUG << fmt::format("Loading segment footer from {} finished",
