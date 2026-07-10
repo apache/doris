@@ -91,6 +91,22 @@ final class PaimonSchemaAtMemo {
     }
 
     /**
+     * Drop every memoized schema for {@code (db, table)} across all schemaIds / sys-tables / branches. Wired
+     * onto {@code REFRESH TABLE} and — via the generic {@code PluginDrivenExternalCatalog} DDL hook — onto a
+     * Doris-issued DROP/CREATE of the same name, so a drop+recreate that reuses a schemaId (e.g. schema 0)
+     * with different content does not serve a stale time-travel schema. The memo value is immutable, so
+     * dropping an entry only forces a re-read (the pre-memo behavior), never a stale/wrong value.
+     */
+    void invalidate(String databaseName, String tableName) {
+        cache.keySet().removeIf(key -> key.matches(databaseName, tableName));
+    }
+
+    /** Drop the whole memo. Wired onto {@code REFRESH CATALOG} (alongside the connector rebuild). */
+    void invalidateAll() {
+        cache.clear();
+    }
+
+    /**
      * Cache key = the handle's identity (db, table, sysTableName, branchName) plus the pinned schemaId.
      *
      * <p>The four identity fields MIRROR {@link PaimonTableHandle#equals}/{@link PaimonTableHandle#hashCode}
@@ -112,6 +128,11 @@ final class PaimonSchemaAtMemo {
             this.sysTableName = handle.getSysTableName();
             this.branchName = handle.getBranchName();
             this.schemaId = schemaId;
+        }
+
+        /** True if this key belongs to {@code (db, table)} (any schemaId / sys-table / branch). */
+        boolean matches(String db, String table) {
+            return databaseName.equals(db) && tableName.equals(table);
         }
 
         @Override

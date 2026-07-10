@@ -231,14 +231,21 @@ public class PaimonConnector implements Connector {
 
     @Override
     public void invalidateTable(String dbName, String tableName) {
-        // REFRESH TABLE: drop the cached latest snapshot id so the next read goes live. Keyed by the REMOTE
-        // db/table names, matching the key beginQuerySnapshot stores (PaimonTableHandle carries remote names).
+        // REFRESH TABLE (and, via the generic PluginDrivenExternalCatalog DDL hook, a Doris-issued
+        // DROP/CREATE of this name): drop the cached latest snapshot id so the next read goes live. Keyed by
+        // the REMOTE db/table names, matching the key beginQuerySnapshot stores (PaimonTableHandle carries
+        // remote names).
         latestSnapshotCache.invalidate(Identifier.create(dbName, tableName));
+        // Also drop the time-travel schema memo for this table: unlike the snapshot cache it is keyed by
+        // (db,table,sysTable,branch,schemaId) and would otherwise serve a stale schema-at-snapshot after a
+        // drop+recreate that reuses a schemaId (the memo's narrow write-once-per-schemaId assumption breaks).
+        schemaAtMemo.invalidate(dbName, tableName);
     }
 
     @Override
     public void invalidateAll() {
         latestSnapshotCache.invalidateAll();
+        schemaAtMemo.invalidateAll();
     }
 
     @Override
