@@ -198,7 +198,12 @@ public class ProfileManager extends MasterDaemon {
     }
 
     public ExecutionProfile getExecutionProfile(TUniqueId queryId) {
-        return this.queryIdToExecutionProfiles.get(queryId);
+        readLock.lock();
+        try {
+            return this.queryIdToExecutionProfiles.get(queryId);
+        } finally {
+            readLock.unlock();
+        }
     }
 
     public void pushProfile(Profile profile) {
@@ -1116,4 +1121,3 @@ public class ProfileManager extends MasterDaemon {
         }
     }
 }
-
