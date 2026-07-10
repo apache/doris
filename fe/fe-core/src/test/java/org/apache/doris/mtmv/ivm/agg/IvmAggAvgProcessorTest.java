@@ -18,12 +18,14 @@
 package org.apache.doris.mtmv.ivm.agg;
 
 import org.apache.doris.nereids.trees.expressions.Add;
+import org.apache.doris.nereids.trees.expressions.Divide;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.AssertTrue;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.types.BigIntType;
+import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.DoubleType;
 
 import com.google.common.collect.ImmutableList;
@@ -60,5 +62,35 @@ class IvmAggAvgProcessorTest extends IvmAggProcessorTestBase {
         Assertions.assertTrue(finalByName.get("avg_v").anyMatch(node -> node instanceof If));
         Assertions.assertTrue(finalByName.get("__ivm_sum") instanceof Add);
         Assertions.assertTrue(finalByName.get("__ivm_count").anyMatch(node -> node instanceof AssertTrue));
+    }
+
+    @Test
+    void testAvgGuardsCoercedDivisorInsideDivideForDecimal() {
+        IvmAggAvgProcessor processor = new IvmAggAvgProcessor();
+        DecimalV3Type visibleType = DecimalV3Type.createDecimalV3Type(18, 4);
+        DecimalV3Type sumType = DecimalV3Type.createDecimalV3Type(28, 4);
+        IvmAggTarget target = target(1, IvmAggFunctionKind.AVG, "avg_v", visibleType,
+                ImmutableMap.of(
+                        IvmAggStateKey.SUM, slot("__ivm_sum", sumType),
+                        IvmAggStateKey.COUNT, slot("__ivm_count", BigIntType.INSTANCE)),
+                valueArg());
+
+        Map<String, Expression> finalByName = apply(processor, target,
+                ImmutableList.of(
+                        slot("avg_v", visibleType),
+                        slot("__ivm_sum", sumType),
+                        slot("__ivm_count", BigIntType.INSTANCE)),
+                mappedDeltaSlots(processor, target, deltaOutputs(processor, target)),
+                slot("delta_group_count", BigIntType.INSTANCE));
+
+        Expression avgValue = finalByName.get("avg_v");
+        List<Divide> divides = avgValue.collectToList(node -> node instanceof Divide);
+        Assertions.assertFalse(avgValue instanceof If);
+        Assertions.assertEquals(1, divides.size());
+        Assertions.assertTrue(divides.get(0).right() instanceof If);
+
+        If guardedCount = (If) divides.get(0).right();
+        Assertions.assertEquals(guardedCount.getTrueValue().getDataType(),
+                guardedCount.getFalseValue().getDataType());
     }
 }
