@@ -430,7 +430,7 @@ public class IvmDeltaRewriteHelper {
      * Returns true if the scan is an incremental delta scan (LogicalOlapTableStreamScan
      * with isIncremental=true).
      */
-    boolean isIncrementalDeltaScan(LogicalOlapScan scan) {
+    boolean isIncrementalDeltaScan(Plan scan) {
         return scan instanceof LogicalOlapTableStreamScan
                 && ((LogicalOlapTableStreamScan) scan).isIncremental();
     }
