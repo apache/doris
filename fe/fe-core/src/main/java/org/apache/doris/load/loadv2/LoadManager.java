@@ -35,6 +35,7 @@ import org.apache.doris.common.util.LogKey;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.FailMsg;
+import org.apache.doris.load.LoadJobInfoFormatter;
 import org.apache.doris.load.LoadJobHistoryRecord;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.expressions.And;
@@ -658,7 +659,7 @@ public class LoadManager implements Writable {
      * Maps one row of {@link LoadJob#getShowInfo()} (LOAD_TITLE_NAMES order) to the unified
      * TLoadJob row served by information_schema.loads. Kept here so the fetchLoadJob RPC and
      * the loads_history sync interpret show info identically. Returns null when the row is
-     * shorter than the 20 unified fields.
+     * shorter than the legacy 20-field SHOW LOAD row.
      */
     public static TLoadJob toTLoadJob(List<Comparable> jobInfo) {
         if (jobInfo == null || jobInfo.size() < 20) {
@@ -674,8 +675,13 @@ public class LoadManager implements Writable {
         tJob.setState(String.valueOf(jobInfo.get(2)));
         tJob.setProgress(String.valueOf(jobInfo.get(3)));
         tJob.setType(String.valueOf(jobInfo.get(4)));
-        tJob.setEtlInfo(String.valueOf(jobInfo.get(5)));
-        tJob.setTaskInfo(String.valueOf(jobInfo.get(6)));
+        tJob.setEtlInfo(LoadJobInfoFormatter.buildEtlInfo(
+                String.valueOf(jobInfo.get(5)),
+                String.valueOf(jobInfo.get(9)),
+                String.valueOf(jobInfo.get(10))));
+        tJob.setTaskInfo(LoadJobInfoFormatter.buildTaskInfo(
+                String.valueOf(jobInfo.get(6)),
+                String.valueOf(jobInfo.get(14))));
         tJob.setErrorMsg(String.valueOf(jobInfo.get(7)));
         tJob.setCreateTime(String.valueOf(jobInfo.get(8)));
         tJob.setEtlStartTime(String.valueOf(jobInfo.get(9)));
@@ -689,6 +695,10 @@ public class LoadManager implements Writable {
         tJob.setUser(String.valueOf(jobInfo.get(17)));
         tJob.setComment(String.valueOf(jobInfo.get(18)));
         tJob.setFirstErrorMsg(String.valueOf(jobInfo.get(19)));
+        tJob.setErrorDetail(LoadJobInfoFormatter.buildErrorDetail(
+                String.valueOf(jobInfo.get(13)),
+                String.valueOf(jobInfo.get(16)),
+                String.valueOf(jobInfo.get(7))));
         return tJob;
     }
 

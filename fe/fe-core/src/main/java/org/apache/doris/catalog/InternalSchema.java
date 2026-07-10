@@ -239,7 +239,7 @@ public class InternalSchema {
         // Physical storage table __internal_schema.loads_history. The first two columns are
         // the UNIQUE KEY: finish_time is the typed partition column (day-level dynamic partition
         // retention) and record_key is the stable dedup key so repeated syncs upsert instead of
-        // duplicating rows. The remaining columns store the 20 unified "loads" fields verbatim as
+        // duplicating rows. The remaining columns store the 15 unified "loads" fields verbatim as
         // strings so loads_history rows line up with information_schema.loads (direct UNION ALL).
         LOADS_HISTORY_SCHEMA = new ArrayList<>();
         LOADS_HISTORY_SCHEMA.add(new ColumnDef("finish_time",
@@ -260,31 +260,21 @@ public class InternalSchema {
                 ScalarType.createType(PrimitiveType.STRING), ColumnNullableType.NULLABLE));
         LOADS_HISTORY_SCHEMA.add(new ColumnDef("task_info",
                 ScalarType.createType(PrimitiveType.STRING), ColumnNullableType.NULLABLE));
-        LOADS_HISTORY_SCHEMA.add(new ColumnDef("error_msg",
-                ScalarType.createType(PrimitiveType.STRING), ColumnNullableType.NULLABLE));
         LOADS_HISTORY_SCHEMA.add(new ColumnDef("create_time",
-                ScalarType.createVarchar(64), ColumnNullableType.NULLABLE));
-        LOADS_HISTORY_SCHEMA.add(new ColumnDef("etl_start_time",
-                ScalarType.createVarchar(64), ColumnNullableType.NULLABLE));
-        LOADS_HISTORY_SCHEMA.add(new ColumnDef("etl_finish_time",
                 ScalarType.createVarchar(64), ColumnNullableType.NULLABLE));
         LOADS_HISTORY_SCHEMA.add(new ColumnDef("load_start_time",
                 ScalarType.createVarchar(64), ColumnNullableType.NULLABLE));
         LOADS_HISTORY_SCHEMA.add(new ColumnDef("load_finish_time",
                 ScalarType.createVarchar(64), ColumnNullableType.NULLABLE));
-        LOADS_HISTORY_SCHEMA.add(new ColumnDef("url",
-                ScalarType.createType(PrimitiveType.STRING), ColumnNullableType.NULLABLE));
-        LOADS_HISTORY_SCHEMA.add(new ColumnDef("job_details",
-                ScalarType.createType(PrimitiveType.STRING), ColumnNullableType.NULLABLE));
         LOADS_HISTORY_SCHEMA.add(new ColumnDef("transaction_id",
                 ScalarType.createVarchar(128), ColumnNullableType.NULLABLE));
-        LOADS_HISTORY_SCHEMA.add(new ColumnDef("error_tablets",
-                ScalarType.createType(PrimitiveType.STRING), ColumnNullableType.NULLABLE));
         LOADS_HISTORY_SCHEMA.add(new ColumnDef("user",
                 ScalarType.createVarchar(256), ColumnNullableType.NULLABLE));
         LOADS_HISTORY_SCHEMA.add(new ColumnDef("comment",
                 ScalarType.createType(PrimitiveType.STRING), ColumnNullableType.NULLABLE));
         LOADS_HISTORY_SCHEMA.add(new ColumnDef("first_error_msg",
+                ScalarType.createType(PrimitiveType.STRING), ColumnNullableType.NULLABLE));
+        LOADS_HISTORY_SCHEMA.add(new ColumnDef("error_detail",
                 ScalarType.createType(PrimitiveType.STRING), ColumnNullableType.NULLABLE));
     }
 

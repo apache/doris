@@ -21,7 +21,7 @@ import org.apache.doris.thrift.TLoadJob;
 
 /**
  * A final-state import task snapshot to be persisted into the internal loads_history table.
- * Carries the unified 20-field row (exactly what information_schema.loads shows) plus the
+ * Carries the unified 15-field row (exactly what information_schema.loads shows) plus the
  * structured identity fields the sync needs: a stable dedup key and the typed finish time
  * used for the UNIQUE KEY and the day-level partition column.
  */

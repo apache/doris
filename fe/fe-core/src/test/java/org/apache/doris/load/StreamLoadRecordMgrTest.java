@@ -43,12 +43,9 @@ public class StreamLoadRecordMgrTest {
         Assert.assertEquals("STREAM_LOAD", job.getType());
         Assert.assertEquals("", job.getEtlInfo());
         Assert.assertEquals("", job.getCreateTime());
-        Assert.assertEquals("", job.getEtlStartTime());
-        Assert.assertEquals("", job.getEtlFinishTime());
         Assert.assertEquals("1000", job.getLoadStartTime());
         Assert.assertEquals("2000", job.getLoadFinishTime());
         Assert.assertEquals("", job.getTransactionId());
-        Assert.assertEquals("", job.getErrorTablets());
         Assert.assertEquals("user_1", job.getUser());
         Assert.assertEquals("comment_1", job.getComment());
         Assert.assertEquals("first_error", job.getFirstErrorMsg());
@@ -57,15 +54,18 @@ public class StreamLoadRecordMgrTest {
         Assert.assertEquals("db_1", taskInfo.get("Db").getAsString());
         Assert.assertEquals("tbl_1", taskInfo.get("Table").getAsString());
         Assert.assertEquals("127.0.0.1", taskInfo.get("ClientIp").getAsString());
+        Assert.assertEquals("10", taskInfo.get("TotalRows").getAsString());
+        Assert.assertEquals("9", taskInfo.get("LoadedRows").getAsString());
+        Assert.assertEquals("1", taskInfo.get("FilteredRows").getAsString());
+        Assert.assertEquals("0", taskInfo.get("UnselectedRows").getAsString());
+        Assert.assertEquals("128", taskInfo.get("LoadBytes").getAsString());
+        Assert.assertEquals("3", taskInfo.get("BeginTxnTimeMs").getAsString());
+        Assert.assertFalse(taskInfo.has("StreamLoadPutTimeMs"));
 
-        JsonObject jobDetails = JsonParser.parseString(job.getJobDetails()).getAsJsonObject();
-        Assert.assertEquals("10", jobDetails.get("TotalRows").getAsString());
-        Assert.assertEquals("9", jobDetails.get("LoadedRows").getAsString());
-        Assert.assertEquals("1", jobDetails.get("FilteredRows").getAsString());
-        Assert.assertEquals("0", jobDetails.get("UnselectedRows").getAsString());
-        Assert.assertEquals("128", jobDetails.get("LoadBytes").getAsString());
-        Assert.assertEquals("3", jobDetails.get("BeginTxnTimeMs").getAsString());
-        Assert.assertEquals("7", jobDetails.get("StreamLoadPutTimeMs").getAsString());
+        JsonObject errorDetail = JsonParser.parseString(job.getErrorDetail()).getAsJsonObject();
+        Assert.assertEquals("N/A", errorDetail.get("URL").getAsString());
+        Assert.assertEquals("", errorDetail.get("ERROR_TABLETS").getAsString());
+        Assert.assertEquals("OK", errorDetail.get("ERROR_MSG").getAsString());
     }
 
     /**

@@ -74,7 +74,7 @@ suite("test_loads_history", "p0,nonConcurrent") {
         while (true) {
             sleep(1000)
             loadsRows = sql """
-                SELECT LABEL, STATE, TYPE, PROGRESS, TASK_INFO, JOB_DETAILS
+                SELECT LABEL, STATE, TYPE, PROGRESS, TASK_INFO, ERROR_DETAIL
                 FROM information_schema.loads
                 WHERE LABEL = '${label}' AND TYPE = 'STREAM_LOAD'
             """
@@ -96,7 +96,7 @@ suite("test_loads_history", "p0,nonConcurrent") {
         while (true) {
             sleep(2000)
             historyRows = sql """
-                SELECT `label`, `state`, `type`, `progress`, `task_info`, `job_details`
+                SELECT `label`, `state`, `type`, `progress`, `task_info`, `error_detail`
                 FROM __internal_schema.loads_history
                 WHERE `label` = '${label}' AND `type` = 'STREAM_LOAD'
             """
@@ -119,8 +119,10 @@ suite("test_loads_history", "p0,nonConcurrent") {
         assertTrue(historyRow[4].toString().contains("Db"))    // task_info json
         assertTrue(historyRow[4].toString().contains("Table"))
         assertTrue(historyRow[4].toString().contains(tableName))
-        assertTrue(historyRow[5].toString().contains("TotalRows")) // job_details json
-        assertTrue(historyRow[5].toString().contains("LoadBytes"))
+        assertTrue(historyRow[4].toString().contains("TotalRows"))
+        assertTrue(historyRow[4].toString().contains("LoadBytes"))
+        assertTrue(historyRow[5].toString().contains("URL"))    // error_detail json
+        assertTrue(historyRow[5].toString().contains("ERROR_MSG"))
 
         // The original loads record is NOT removed by history write.
         def loadsStillThere = sql """

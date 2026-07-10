@@ -224,9 +224,8 @@ public class StreamLoadRecordMgr extends MasterDaemon {
      * Map a StreamLoadRecord to a TLoadJob row for the unified information_schema.loads table.
      * Stream Load records are historical completion records, so PROGRESS is always "100%"
      * and JOB_ID / CREATE_TIME / ETL_* / TRANSACTION_ID / ERROR_TABLETS are empty strings.
-     * Stream-Load-specific details that have no first-class loads column go into TASK_INFO
-     * (Db/Table/ClientIp) and JOB_DETAILS (row/byte/timing counters) as JSON, so no extra
-     * top-level column is added to the unified table.
+     * Stream-Load-specific context and counters are grouped into TASK_INFO, while URL and error
+     * text are grouped into ERROR_DETAIL.
      */
     static TLoadJob streamLoadRecordToLoadJob(StreamLoadRecord record) {
         TLoadJob tJob = new TLoadJob();
@@ -245,6 +244,12 @@ public class StreamLoadRecordMgr extends MasterDaemon {
         taskInfo.addProperty("Db", record.getDb());
         taskInfo.addProperty("Table", record.getTable());
         taskInfo.addProperty("ClientIp", record.getClientIp());
+        taskInfo.addProperty("TotalRows", record.getTotalRows());
+        taskInfo.addProperty("LoadedRows", record.getLoadedRows());
+        taskInfo.addProperty("FilteredRows", record.getFilteredRows());
+        taskInfo.addProperty("UnselectedRows", record.getUnselectedRows());
+        taskInfo.addProperty("LoadBytes", record.getLoadBytes());
+        taskInfo.addProperty("BeginTxnTimeMs", record.getBeginTxnTimeMs());
         tJob.setTaskInfo(taskInfo.toString());
 
         tJob.setErrorMsg(record.getMessage());
@@ -270,6 +275,8 @@ public class StreamLoadRecordMgr extends MasterDaemon {
         tJob.setUser(record.getUser());
         tJob.setComment(record.getComment());
         tJob.setFirstErrorMsg(record.getFirstErrorMsg());
+        tJob.setErrorDetail(LoadJobInfoFormatter.buildErrorDetail(
+                record.getUrl(), "", record.getMessage()));
         return tJob;
     }
 

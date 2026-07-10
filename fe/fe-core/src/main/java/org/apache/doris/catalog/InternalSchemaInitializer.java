@@ -409,7 +409,7 @@ public class InternalSchemaInitializer extends Thread {
          * CREATE TABLE IF NOT EXISTS `internal`.`__internal_schema`.`loads_history` (
          *   `finish_time` datetimev2(3) NOT NULL COMMENT "",
          *   `record_key` varchar(768) NOT NULL COMMENT "",
-         *   ... 20 unified "loads" string columns ...
+         *   ... 15 unified "loads" string columns ...
          * ) ENGINE = olap
          * UNIQUE KEY(`finish_time`, `record_key`)
          * PARTITION BY RANGE(`finish_time`) ()

@@ -39,8 +39,35 @@ import org.junit.Test;
 import org.junit.jupiter.api.Assertions;
 
 import java.io.IOException;
+import java.util.Arrays;
+import java.util.List;
+import java.util.stream.Collectors;
 
 public class SchemaTableTest {
+    @Test
+    public void testLoadsSchema() {
+        SchemaTable loads = (SchemaTable) SchemaTable.TABLE_MAP.get("loads");
+        List<String> columnNames = loads.getFullSchema().stream()
+                .map(Column::getName)
+                .collect(Collectors.toList());
+        Assertions.assertEquals(Arrays.asList(
+                "JOB_ID",
+                "LABEL",
+                "STATE",
+                "PROGRESS",
+                "TYPE",
+                "ETL_INFO",
+                "TASK_INFO",
+                "CREATE_TIME",
+                "LOAD_START_TIME",
+                "LOAD_FINISH_TIME",
+                "TRANSACTION_ID",
+                "USER",
+                "COMMENT",
+                "FIRST_ERROR_MSG",
+                "ERROR_DETAIL"), columnNames);
+    }
+
     @Test
     public void testGenerateAggBySchemaAggType() {
         Slot a = new SlotReference("a", IntegerType.INSTANCE);

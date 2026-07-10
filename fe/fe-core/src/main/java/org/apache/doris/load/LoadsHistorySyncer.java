@@ -65,12 +65,11 @@ public class LoadsHistorySyncer extends MasterDaemon {
     public static final String LOADS_HISTORY_TABLE = "loads_history";
 
     // Physical column order of __internal_schema.loads_history (see InternalSchema.LOADS_HISTORY_SCHEMA):
-    // the two UNIQUE KEY columns first, then the 20 unified "loads" columns.
+    // the two UNIQUE KEY columns first, then the 15 unified "loads" columns.
     private static final String INSERT_COLUMNS =
             "`finish_time`, `record_key`, `job_id`, `label`, `state`, `progress`, `type`,"
-            + " `etl_info`, `task_info`, `error_msg`, `create_time`, `etl_start_time`,"
-            + " `etl_finish_time`, `load_start_time`, `load_finish_time`, `url`, `job_details`,"
-            + " `transaction_id`, `error_tablets`, `user`, `comment`, `first_error_msg`";
+            + " `etl_info`, `task_info`, `create_time`, `load_start_time`, `load_finish_time`,"
+            + " `transaction_id`, `user`, `comment`, `first_error_msg`, `error_detail`";
 
     // Bound the rows written per INSERT statement so one cycle issues several small statements
     // instead of one huge VALUES list.
@@ -263,19 +262,14 @@ public class LoadsHistorySyncer extends MasterDaemon {
         appendString(sb, row.getType()).append(",");
         appendString(sb, row.getEtlInfo()).append(",");
         appendString(sb, row.getTaskInfo()).append(",");
-        appendString(sb, row.getErrorMsg()).append(",");
         appendString(sb, row.getCreateTime()).append(",");
-        appendString(sb, row.getEtlStartTime()).append(",");
-        appendString(sb, row.getEtlFinishTime()).append(",");
         appendString(sb, row.getLoadStartTime()).append(",");
         appendString(sb, row.getLoadFinishTime()).append(",");
-        appendString(sb, row.getUrl()).append(",");
-        appendString(sb, row.getJobDetails()).append(",");
         appendString(sb, row.getTransactionId()).append(",");
-        appendString(sb, row.getErrorTablets()).append(",");
         appendString(sb, row.getUser()).append(",");
         appendString(sb, row.getComment()).append(",");
-        appendString(sb, row.getFirstErrorMsg());
+        appendString(sb, row.getFirstErrorMsg()).append(",");
+        appendString(sb, row.getErrorDetail());
         sb.append(")");
         return sb.toString();
     }

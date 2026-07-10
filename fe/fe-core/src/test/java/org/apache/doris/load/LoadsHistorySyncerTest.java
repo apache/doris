@@ -17,13 +17,43 @@
 
 package org.apache.doris.load;
 
+import org.apache.doris.analysis.ColumnDef;
+import org.apache.doris.catalog.InternalSchema;
 import org.apache.doris.load.loadv2.JobState;
 import org.apache.doris.thrift.TLoadJob;
 
 import org.junit.Assert;
 import org.junit.Test;
 
+import java.util.Arrays;
+import java.util.List;
+import java.util.stream.Collectors;
+
 public class LoadsHistorySyncerTest {
+    @Test
+    public void testLoadsHistorySchemaOrder() {
+        List<String> columnNames = InternalSchema.LOADS_HISTORY_SCHEMA.stream()
+                .map(ColumnDef::getName)
+                .collect(Collectors.toList());
+        Assert.assertEquals(Arrays.asList(
+                "finish_time",
+                "record_key",
+                "job_id",
+                "label",
+                "state",
+                "progress",
+                "type",
+                "etl_info",
+                "task_info",
+                "create_time",
+                "load_start_time",
+                "load_finish_time",
+                "transaction_id",
+                "user",
+                "comment",
+                "first_error_msg",
+                "error_detail"), columnNames);
+    }
 
     // Stream Load dedup key: TYPE + ":" + db + ":" + label + ":" + finish_time_millis.
     @Test
@@ -63,7 +93,7 @@ public class LoadsHistorySyncerTest {
         }
     }
 
-    // A row maps to a VALUES tuple: finish_time + record_key + 20 loads columns, with SQL escaping
+    // A row maps to a VALUES tuple: finish_time + record_key + 15 loads columns, with SQL escaping
     // of embedded single quotes and NULLs rendered as SQL NULL (not quoted).
     @Test
     public void testToValuesTupleEscapingAndNull() {
@@ -75,19 +105,14 @@ public class LoadsHistorySyncerTest {
         row.setType("STREAM_LOAD");
         row.setEtlInfo("");
         row.setTaskInfo("{\"Db\":\"d\"}");
-        // error_msg intentionally left unset -> null -> SQL NULL
         row.setCreateTime("");
-        row.setEtlStartTime("");
-        row.setEtlFinishTime("");
         row.setLoadStartTime("2020-01-01 00:00:00");
         row.setLoadFinishTime("2020-01-01 00:00:01");
-        row.setUrl("");
-        row.setJobDetails("{\"TotalRows\":\"1\"}");
         row.setTransactionId("");
-        row.setErrorTablets("");
         row.setUser("root");
         row.setComment("");
         row.setFirstErrorMsg("");
+        // error_detail intentionally left unset -> null -> SQL NULL
 
         LoadJobHistoryRecord record = new LoadJobHistoryRecord(
                 "STREAM_LOAD:d:l'1:1577808001000", 1577808001000L, row);
@@ -99,7 +124,7 @@ public class LoadsHistorySyncerTest {
         Assert.assertTrue(tuple.contains("'l''1'"));
         // record_key also escaped
         Assert.assertTrue(tuple.contains("'STREAM_LOAD:d:l''1:1577808001000'"));
-        // unset error_msg -> NULL literal (not '')
+        // unset error_detail -> NULL literal (not '')
         Assert.assertTrue(tuple.contains("NULL"));
         // type present
         Assert.assertTrue(tuple.contains("'STREAM_LOAD'"));

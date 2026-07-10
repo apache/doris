@@ -82,9 +82,7 @@ suite("test_stream_load_record", "p0,nonConcurrent") {
                     PROGRESS,
                     TYPE,
                     TASK_INFO,
-                    ERROR_MSG,
-                    URL,
-                    JOB_DETAILS,
+                    ERROR_DETAIL,
                     USER,
                     COMMENT,
                     FIRST_ERROR_MSG
@@ -102,8 +100,8 @@ suite("test_stream_load_record", "p0,nonConcurrent") {
         }
 
         // Selected column order above:
-        // 0 LABEL, 1 STATE, 2 PROGRESS, 3 TYPE, 4 TASK_INFO, 5 ERROR_MSG, 6 URL,
-        // 7 JOB_DETAILS, 8 USER, 9 COMMENT, 10 FIRST_ERROR_MSG
+        // 0 LABEL, 1 STATE, 2 PROGRESS, 3 TYPE, 4 TASK_INFO, 5 ERROR_DETAIL,
+        // 6 USER, 7 COMMENT, 8 FIRST_ERROR_MSG
         def row = loadRows[0]
 
         // STATE is now unified with LoadManager vocabulary: "Success" → "FINISHED"
@@ -111,29 +109,29 @@ suite("test_stream_load_record", "p0,nonConcurrent") {
         assertEquals("FINISHED", row[1].toString())       // STATE (unified: Success→FINISHED)
         assertEquals("100%", row[2].toString())           // PROGRESS
         assertEquals("STREAM_LOAD", row[3].toString())    // TYPE
-        assertTrue(row[8].toString().length() > 0)        // USER is populated
-        // ERROR_MSG / URL / COMMENT / FIRST_ERROR_MSG are present (non-null) even when empty.
-        assertNotNull(row[5])                             // ERROR_MSG
-        assertNotNull(row[6])                             // URL
-        assertNotNull(row[9])                             // COMMENT
-        assertNotNull(row[10])                            // FIRST_ERROR_MSG
+        assertTrue(row[6].toString().length() > 0)        // USER is populated
+        assertNotNull(row[7])                             // COMMENT
+        assertNotNull(row[8])                             // FIRST_ERROR_MSG
 
-        // TASK_INFO JSON carries Db / Table / ClientIp.
+        // TASK_INFO JSON carries Stream Load context and row/byte/timing counters.
         def taskInfo = row[4].toString()
         assertTrue(taskInfo.contains("Db"))
         assertTrue(taskInfo.contains("Table"))
         assertTrue(taskInfo.contains("ClientIp"))
         assertTrue(taskInfo.contains(tableName))
+        assertTrue(taskInfo.contains("TotalRows"))
+        assertTrue(taskInfo.contains("LoadedRows"))
+        assertTrue(taskInfo.contains("FilteredRows"))
+        assertTrue(taskInfo.contains("UnselectedRows"))
+        assertTrue(taskInfo.contains("LoadBytes"))
+        assertTrue(taskInfo.contains("BeginTxnTimeMs"))
+        assertFalse(taskInfo.contains("StreamLoadPutTimeMs"))
 
-        // JOB_DETAILS JSON carries row/byte/timing counters.
-        def jobDetails = row[7].toString()
-        assertTrue(jobDetails.contains("TotalRows"))
-        assertTrue(jobDetails.contains("LoadedRows"))
-        assertTrue(jobDetails.contains("FilteredRows"))
-        assertTrue(jobDetails.contains("UnselectedRows"))
-        assertTrue(jobDetails.contains("LoadBytes"))
-        assertTrue(jobDetails.contains("BeginTxnTimeMs"))
-        assertTrue(jobDetails.contains("StreamLoadPutTimeMs"))
+        // ERROR_DETAIL groups URL, tablet errors and the load error summary.
+        def errorDetail = row[5].toString()
+        assertTrue(errorDetail.contains("URL"))
+        assertTrue(errorDetail.contains("ERROR_TABLETS"))
+        assertTrue(errorDetail.contains("ERROR_MSG"))
     } finally {
         set_be_param("enable_stream_load_record", "false")
     }
