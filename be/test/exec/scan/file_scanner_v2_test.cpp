@@ -31,6 +31,7 @@
 #include "core/assert_cast.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
+#include "exec/operator/file_scan_operator.h"
 #include "exprs/runtime_filter_expr.h"
 #include "exprs/vdirect_in_predicate.h"
 #include "exprs/vslot_ref.h"
@@ -102,6 +103,7 @@ TEST(FileScannerV2Test, SupportedFormatMatrix) {
             {"jdbc", TFileFormatType::FORMAT_PARQUET, std::nullopt, false},
             {"", TFileFormatType::FORMAT_JNI, std::nullopt, false},
             {"hive", TFileFormatType::FORMAT_ORC, std::nullopt, true},
+            {"transactional_hive", TFileFormatType::FORMAT_ORC, std::nullopt, false},
             {"jdbc", TFileFormatType::FORMAT_JNI, std::nullopt, true},
             {"hive", TFileFormatType::FORMAT_JNI, std::nullopt, false},
             {"", TFileFormatType::FORMAT_CSV_PLAIN, std::nullopt, true},
@@ -146,6 +148,41 @@ TEST(FileScannerV2Test, SupportedFormatMatrix) {
     TFileScanRangeParams params;
     params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
     EXPECT_FALSE(FileScannerV2::is_supported(params, hudi_range_with_delta_logs()));
+}
+
+TEST(FileScannerV2Test, FileScanLocalStateSelectsV2ForSupportedQueriesOnly) {
+    TQueryOptions query_options;
+    TFileScanRangeParams params;
+    params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
+
+    EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
+
+    query_options.__set_enable_file_scanner_v2(true);
+    EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
+    EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, true, params));
+
+    const std::vector<TFileFormatType::type> unsupported_formats {
+            TFileFormatType::FORMAT_WAL,
+            TFileFormatType::FORMAT_ES_HTTP,
+            TFileFormatType::FORMAT_LANCE,
+    };
+    for (const auto format : unsupported_formats) {
+        params.__set_format_type(format);
+        EXPECT_FALSE(
+                FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
+    }
+
+    params.__set_format_type(TFileFormatType::FORMAT_ORC);
+    TTableFormatFileDesc table_format_params;
+    table_format_params.__set_table_format_type("transactional_hive");
+    params.__set_table_format_params(table_format_params);
+    EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
+
+    params.table_format_params.__set_table_format_type("hive");
+    EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
+
+    query_options.__set_enable_file_scanner_v2(false);
+    EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
 }
 
 // Scenario: Once FileScannerV2 is selected, an unsupported range must fail instead of falling back
