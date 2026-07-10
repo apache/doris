@@ -154,6 +154,64 @@ instructions as well; this file adds format-v2-specific review expectations.
   layout, selectivity, writer, remote storage, and warm/cold cache states. A low pruning ratio on
   unsorted data is not itself a Reader regression.
 
+## ORC SARG and Index Filtering
+
+- Trace every pushed predicate from the `FileScanRequest` localized expression through
+  `build_orc_search_argument()`, ORC `SearchArgumentBuilder`, Stripe selection, SDK RowReader index
+  pruning, lazy callback filtering, and the residual Doris VExpr. The ORC layer must consume only
+  file-local columns and ORC type IDs; it must not redo table-schema mapping.
+- SARG conversion must be semantically equivalent to the original Doris predicate for every value,
+  including NULL. Unsupported expressions must remain on the residual row-filter path. Never push a
+  weakened or strengthened approximation that can exclude a matching row.
+- Review the complete expression tree, not just leaf predicates. Preserve AND/OR/NOT grouping,
+  comparison direction when the literal is on the left, and the semantics of `=`, `!=`, `<`, `<=`,
+  `>`, `>=`, IN, NOT IN, IS NULL, and null-safe equality. Partial conversion inside OR/NOT is unsafe
+  unless the resulting SARG is proven equivalent.
+- Check wrapper extraction for Runtime Filter, direct-IN, and TopN predicates. Ensure a refreshed or
+  wrapped expression maps to the same file-local slot and retains any part not represented by SARG
+  as a residual predicate.
+- Verify ORC predicate-domain and literal conversion for integer, floating-point, boolean, string,
+  binary, varchar, date, decimal, timestamp, and timestamp-instant. Cover overflow, non-finite
+  floating values, signed boundaries, decimal precision/scale, binary bytes, CHAR/VARCHAR behavior,
+  and invalid or NULL literals.
+- Treat schema-evolution casts as SARGable only when comparison truth is preserved in the ORC
+  domain. Review integer/floating width, exact integer representation, decimal integer digits and
+  scale, date-to-datetime boundary normalization, timestamp precision, and string/binary casts.
+  Narrowing, lossy, formatting, or timezone-changing casts must fall back to residual evaluation.
+- Timestamp SARG literals must use the same session timezone and TIMESTAMP versus TIMESTAMP_INSTANT
+  interpretation as row decoding. Test daylight-saving transitions, non-hour offsets, epoch
+  boundaries, subsecond precision, and literal values that do not fall exactly on a DATE boundary.
+- For nested predicates, verify struct field name/ordinal traversal and final ORC type ID. Array,
+  map, repeated, missing, ambiguous, or otherwise unsupported paths must not accidentally target a
+  different primitive child.
+- Apply pruning in the correct hierarchy. First intersect the Split byte window with Stripe
+  ownership, then evaluate SARG against candidate Stripes, and finally let the ORC RowReader use its
+  row indexes and Bloom filters within surviving Stripes. SARG pruning must never reintroduce a
+  Stripe outside the Split.
+- Review file/Stripe statistics, row indexes, and Bloom filters according to ORC SDK guarantees.
+  Missing or unusable index information must retain the candidate range or follow the SDK's explicit
+  error contract. Bloom may prove absence only; a positive result still requires row evaluation.
+- Validate Stripe-range compaction and advancement when surviving Stripes are non-adjacent, when all
+  Stripes are pruned, and when a Split contains no Stripe. File-global row numbers, row-position
+  virtual columns, delete predicates, and Condition Cache granules must remain correct after every
+  skipped Stripe or row group.
+- Keep ORC SDK filtering and Doris lazy materialization aligned. Filter columns must be included and
+  identified by the correct name/type ID, selected row indexes must match the original batch, and
+  non-predicate columns should be decoded only for surviving rows without desynchronizing nested
+  vectors or subsequent batches.
+- Review SARG construction and evaluation cost as well as rows pruned. Large IN lists, deep boolean
+  trees, many Runtime Filters, repeated literal conversion, extra Stripe-statistics reads, and SDK
+  index initialization can cost more than the avoided I/O. Build the SARG once per reader/Split
+  setup, keep expensive work out of batch loops, and require evidence for high-cardinality pushdown.
+- Require Profile counters/timers that distinguish evaluated and selected row groups/Stripes,
+  filtered groups/rows/bytes, groups read, lazy-filtered rows, I/O calls, decompression, and decoding.
+  A performance change must explain both pruning effectiveness and index/SARG evaluation overhead.
+- Require differential tests with SARG/index pruning enabled and disabled, comparing exact rows,
+  order, row positions, deletes, and errors. Cover NULL truth tables, literal-on-left comparisons,
+  nested AND/OR/NOT, IN/NOT IN with NULL, safe and unsafe casts, all supported literal domains,
+  nested structs, unsupported arrays/maps, multiple and non-adjacent Stripes, Split boundaries,
+  different row-index strides, Bloom present/absent, all rows filtered, and no rows filtered.
+
 ## External Compatibility
 
 - Treat the external table-format specification and the behavior of supported external writers as
