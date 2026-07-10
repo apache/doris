@@ -69,6 +69,19 @@ public final class ConnectorTableSchema {
      */
     public static final String PER_TABLE_CAPABILITIES_KEY = "connector.per-table-capabilities";
 
+    /**
+     * Reserved property key carrying a CSV of the table's distribution (bucketing) column names, already
+     * lowercased. A heterogeneous connector (hive) whose bucketing varies per table cannot express it as a
+     * connector-wide trait, so it emits it here per-table.
+     *
+     * <p>fe-core's {@code PluginDrivenExternalTable.getDistributionColumnNames()} reads it from the cached schema
+     * (no remote round-trip) so a flipped bucketed hive table picks the same NDV estimator as legacy
+     * {@code HMSExternalTable.getDistributionColumnNames} (a single bucket column selects the linear estimator in
+     * sampled analyze). A non-bucketed table omits it and connectors with no bucketing concept never emit it.
+     * Stripped from the user-facing SHOW CREATE TABLE PROPERTIES(...) block.</p>
+     */
+    public static final String DISTRIBUTION_COLUMNS_KEY = "connector.distribution-columns";
+
     private final String tableName;
     private final List<ConnectorColumn> columns;
     private final String tableFormatType;

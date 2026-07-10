@@ -19,6 +19,8 @@ package org.apache.doris.connector.api;
 
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 
+import java.util.Collections;
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -59,5 +61,18 @@ public interface ConnectorStatisticsOps {
      */
     default long estimateDataSizeByListingFiles(ConnectorSession session, ConnectorTableHandle handle) {
         return -1;
+    }
+
+    /**
+     * Returns the RAW byte length of every data file across ALL partitions of the table (not sampled, not summed),
+     * for {@code ANALYZE ... WITH SAMPLE}: fe-core seed-shuffles and cumulates these sizes to a sample scale
+     * factor, then does the Doris-type slot-width math itself. Unlike {@link #estimateDataSizeByListingFiles} it
+     * neither partition-samples nor sums, because the sampler needs the individual file sizes. A potentially
+     * expensive full remote listing, so connectors that cannot enumerate files cheaply must NOT override it
+     * (default empty -> the sampler falls back to scale factor 1). Best-effort: an override must return empty on
+     * any listing error rather than throw (statistics must not fail a query).
+     */
+    default List<Long> listFileSizes(ConnectorSession session, ConnectorTableHandle handle) {
+        return Collections.emptyList();
     }
 }

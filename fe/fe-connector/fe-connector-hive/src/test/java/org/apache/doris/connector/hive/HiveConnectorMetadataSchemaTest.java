@@ -201,6 +201,45 @@ public class HiveConnectorMetadataSchemaTest {
     }
 
     @Test
+    public void testSampleAnalyzeMarkerEmittedForEveryPlainHiveFormat() {
+        // Legacy AnalysisManager.canSample gated on dlaType==HIVE (any file format). Emit SUPPORTS_SAMPLE_ANALYZE
+        // per-table for every plain-hive table so fe-core admits ANALYZE ... WITH SAMPLE while excluding
+        // iceberg/hudi-on-HMS. Like auto-analyze there is NO orc/parquet restriction. MUTATION: gating on input
+        // format -> text/csv/json hive tables silently lose sample.
+        Assertions.assertTrue(hasCapability(schemaOf(unpartitionedTable(PARQUET_INPUT_FORMAT).build()),
+                ConnectorCapability.SUPPORTS_SAMPLE_ANALYZE));
+        Assertions.assertTrue(hasCapability(schemaOf(unpartitionedTable(ORC_INPUT_FORMAT).build()),
+                ConnectorCapability.SUPPORTS_SAMPLE_ANALYZE));
+        Assertions.assertTrue(hasCapability(schemaOf(unpartitionedTable(TEXT_INPUT_FORMAT).build()),
+                ConnectorCapability.SUPPORTS_SAMPLE_ANALYZE));
+    }
+
+    @Test
+    public void testSampleAnalyzeMarkerAbsentForView() {
+        // A view is not sampled (legacy canSample excluded it via dlaType); excluded before the format check.
+        ConnectorTableSchema schema = schemaOf(
+                unpartitionedTable(PARQUET_INPUT_FORMAT).tableType("VIRTUAL_VIEW").build());
+        Assertions.assertFalse(hasCapability(schema, ConnectorCapability.SUPPORTS_SAMPLE_ANALYZE));
+    }
+
+    @Test
+    public void testDistributionColumnsEmittedRawForBucketedTable() {
+        // Bucketing columns are emitted RAW (fe-core lowercases, mirroring legacy getDistributionColumnNames);
+        // only a bucketed table carries the marker. MUTATION: not emitting -> a flipped bucketed hive table loses
+        // the linear NDV estimator in sampled analyze.
+        ConnectorTableSchema schema = schemaOf(
+                unpartitionedTable(PARQUET_INPUT_FORMAT).bucketCols(Arrays.asList("Id", "region")).build());
+        Assertions.assertEquals("Id,region",
+                schema.getProperties().get(ConnectorTableSchema.DISTRIBUTION_COLUMNS_KEY));
+    }
+
+    @Test
+    public void testDistributionColumnsAbsentForNonBucketedTable() {
+        Assertions.assertNull(schemaOf(unpartitionedTable(PARQUET_INPUT_FORMAT).build())
+                .getProperties().get(ConnectorTableSchema.DISTRIBUTION_COLUMNS_KEY));
+    }
+
+    @Test
     public void testTopNLazyCapabilityMarkerAbsentForView() {
         // A view is excluded even when its SD carries a parquet input format, mirroring legacy
         // supportedHiveTopNLazyTable which returns false for a view BEFORE the format check.

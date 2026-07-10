@@ -44,9 +44,11 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.EnumSet;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -411,6 +413,39 @@ public class PluginDrivenExternalTableTest {
         // Independent of the other capabilities: declaring metadata-table must NOT enable auto-analyze.
         Assertions.assertFalse(pluginTableWithCapabilities(
                 EnumSet.of(ConnectorCapability.SUPPORTS_METADATA_TABLE)).supportsColumnAutoAnalyze());
+    }
+
+    @Test
+    public void supportsSampleAnalyzeReflectsConnectorCapability() {
+        // AnalysisManager.canSample / AnalyzeTableCommand.isSamplingPartition / createAnalysisTask gate on this.
+        // Hive emits it per-table for plain-hive only (legacy dlaType==HIVE); iceberg/hudi-on-HMS and native
+        // iceberg/paimon do NOT declare it, keeping their build-time reject. MUTATION: hard-coding it / reading a
+        // different capability -> sampled ANALYZE wrongly admitted or wrongly rejected.
+        Assertions.assertTrue(pluginTableWithCapabilities(
+                EnumSet.of(ConnectorCapability.SUPPORTS_SAMPLE_ANALYZE)).supportsSampleAnalyze());
+        Assertions.assertTrue(pluginTableWithCapabilities(
+                EnumSet.noneOf(ConnectorCapability.class),
+                Collections.singletonMap(ConnectorTableSchema.PER_TABLE_CAPABILITIES_KEY,
+                        ConnectorCapability.SUPPORTS_SAMPLE_ANALYZE.name())).supportsSampleAnalyze());
+        Assertions.assertFalse(pluginTableWithCapabilities(
+                EnumSet.noneOf(ConnectorCapability.class)).supportsSampleAnalyze());
+        // Independent: sample must NOT enable auto-analyze (iceberg-on-HMS gets auto-analyze but not sample).
+        Assertions.assertFalse(pluginTableWithCapabilities(
+                EnumSet.of(ConnectorCapability.SUPPORTS_SAMPLE_ANALYZE)).supportsColumnAutoAnalyze());
+    }
+
+    @Test
+    public void getDistributionColumnNamesReadsLowercasedMarker() {
+        // Bucketing columns come from the connector's per-table marker (emitted RAW), lowercased HERE to mirror
+        // legacy HMSExternalTable.getDistributionColumnNames. Consumed by sampled analyze's linear-vs-DUJ1 NDV
+        // estimator choice. MUTATION: not lowercasing / not reading the marker -> the estimator choice regresses
+        // for a flipped bucketed hive table.
+        PluginDrivenExternalTable table = pluginTableWithCapabilities(EnumSet.noneOf(ConnectorCapability.class),
+                Collections.singletonMap(ConnectorTableSchema.DISTRIBUTION_COLUMNS_KEY, "Id,Region"));
+        Assertions.assertEquals(new HashSet<>(Arrays.asList("id", "region")), table.getDistributionColumnNames());
+        // No marker -> empty (paimon/iceberg unchanged, TableIf default).
+        Assertions.assertTrue(pluginTableWithCapabilities(EnumSet.noneOf(ConnectorCapability.class))
+                .getDistributionColumnNames().isEmpty());
     }
 
     @Test

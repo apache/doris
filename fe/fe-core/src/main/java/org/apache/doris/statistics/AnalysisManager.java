@@ -43,6 +43,7 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.datasource.PluginDrivenExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.info.TableNameInfoUtils;
 import org.apache.doris.metric.MetricRepo;
@@ -1479,6 +1480,13 @@ public class AnalysisManager implements Writable {
      */
     public boolean canSample(TableIf table) {
         if (table instanceof OlapTable) {
+            return true;
+        }
+        // Additive: a flipped plain-hive table is a PluginDrivenExternalTable declaring SUPPORTS_SAMPLE_ANALYZE
+        // per-table (iceberg/hudi-on-HMS and native iceberg/paimon do NOT declare it). Keeps the legacy
+        // HMSExternalTable arm below live for the un-flipped path, like StatisticsUtil.supportAutoAnalyze.
+        if (table instanceof PluginDrivenExternalTable
+                && ((PluginDrivenExternalTable) table).supportsSampleAnalyze()) {
             return true;
         }
         return table instanceof HMSExternalTable

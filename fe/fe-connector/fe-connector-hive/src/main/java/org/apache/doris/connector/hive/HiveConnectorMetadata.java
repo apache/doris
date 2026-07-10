@@ -426,12 +426,24 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
         if (supportsHiveColumnAutoAnalyze(tableInfo)) {
             perTableCapabilities.add(ConnectorCapability.SUPPORTS_COLUMN_AUTO_ANALYZE.name());
         }
+        if (supportsHiveSampleAnalyze(tableInfo)) {
+            perTableCapabilities.add(ConnectorCapability.SUPPORTS_SAMPLE_ANALYZE.name());
+        }
         if (supportsHiveTopNLazyMaterialize(tableInfo)) {
             perTableCapabilities.add(ConnectorCapability.SUPPORTS_TOPN_LAZY_MATERIALIZE.name());
         }
         if (!perTableCapabilities.isEmpty()) {
             tableProperties.put(ConnectorTableSchema.PER_TABLE_CAPABILITIES_KEY,
                     String.join(",", perTableCapabilities));
+        }
+
+        // Distribution (bucketing) columns for the flipped table's getDistributionColumnNames() — legacy
+        // HMSExternalTable read getSd().getBucketCols(). Emitted RAW (fe-core lowercases, mirroring the legacy
+        // getDistributionColumnNames); only a bucketed table carries it. Consumed by sampled ANALYZE to pick the
+        // linear-vs-DUJ1 NDV estimator (a single bucket column that IS the analyzed column -> linear).
+        List<String> bucketCols = tableInfo.getBucketCols();
+        if (bucketCols != null && !bucketCols.isEmpty()) {
+            tableProperties.put(ConnectorTableSchema.DISTRIBUTION_COLUMNS_KEY, String.join(",", bucketCols));
         }
 
         return new ConnectorTableSchema(tableName, allColumns, formatType, tableProperties);
@@ -789,6 +801,46 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
             Configuration conf = buildHadoopConf();
             return estimateDataSize(hiveHandle, STATS_PARTITION_SAMPLE_SIZE,
                     location -> sumCachedFileSizes(hiveHandle, location, conf));
+        } finally {
+            Thread.currentThread().setContextClassLoader(previous);
+        }
+    }
+
+    /**
+     * Returns the raw byte length of every data file across ALL partitions (not sampled, not summed), a port of
+     * legacy {@code HMSExternalTable.getChunkSizes} for {@code ANALYZE ... WITH SAMPLE}. Only plain-hive tables
+     * are listed (iceberg/hudi-on-HMS are served by their own connectors via the sibling divert; a view has no
+     * data files) — anything else returns empty. Lists EVERY partition (no {@link #STATS_PARTITION_SAMPLE_SIZE}
+     * sampling, unlike {@link #estimateDataSizeByListingFiles}) because the fe-core sampler needs the individual
+     * file sizes to seed-shuffle and cumulate. Best-effort: any listing error degrades to empty, never throwing
+     * (statistics must not fail a query). Pins the TCCL to the plugin classloader for the {@code FileSystem}
+     * reflection, exactly like estimateDataSizeByListingFiles (the statistics thread is not pinned by fe-core).
+     */
+    @Override
+    public List<Long> listFileSizes(ConnectorSession session, ConnectorTableHandle handle) {
+        if (!(handle instanceof HiveTableHandle)) {
+            return siblingMetadata(session, handle).listFileSizes(session, handle);
+        }
+        HiveTableHandle hiveHandle = (HiveTableHandle) handle;
+        if (hiveHandle.getTableType() != HiveTableType.HIVE) {
+            return Collections.emptyList();
+        }
+        ClassLoader previous = Thread.currentThread().getContextClassLoader();
+        try {
+            Thread.currentThread().setContextClassLoader(getClass().getClassLoader());
+            Configuration conf = buildHadoopConf();
+            List<Long> sizes = new ArrayList<>();
+            for (String location : resolvePartitionLocations(hiveHandle)) {
+                for (HiveFileStatus file : fileListingCache.listDataFiles(
+                        hiveHandle.getDbName(), hiveHandle.getTableName(), location, conf)) {
+                    sizes.add(file.getLength());
+                }
+            }
+            return sizes;
+        } catch (RuntimeException e) {
+            LOG.warn("Failed to list hive file sizes for {}.{} for sample analyze",
+                    hiveHandle.getDbName(), hiveHandle.getTableName(), e);
+            return Collections.emptyList();
         } finally {
             Thread.currentThread().setContextClassLoader(previous);
         }
@@ -1875,6 +1927,17 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
      * {@link #reflectSiblingScanCapabilities}, and hudi-on-HMS is withheld.
      */
     private boolean supportsHiveColumnAutoAnalyze(HmsTableInfo tableInfo) {
+        return !isView(tableInfo) && HiveTableFormatDetector.detect(tableInfo) == HiveTableType.HIVE;
+    }
+
+    /**
+     * Whether {@code tableInfo} is a plain-hive data table (any file format) eligible for {@code ANALYZE ... WITH
+     * SAMPLE}, replicating legacy {@code AnalysisManager.canSample}'s {@code dlaType==HIVE} gate. Like
+     * {@link #supportsHiveColumnAutoAnalyze} there is NO orc/parquet restriction (legacy sampled any hive format);
+     * a view is excluded and an iceberg/hudi-on-HMS table is excluded ({@code detect() != HIVE}) so sampled
+     * analyze stays rejected for them (their {@code doSample} is unimplemented).
+     */
+    private boolean supportsHiveSampleAnalyze(HmsTableInfo tableInfo) {
         return !isView(tableInfo) && HiveTableFormatDetector.detect(tableInfo) == HiveTableType.HIVE;
     }
 

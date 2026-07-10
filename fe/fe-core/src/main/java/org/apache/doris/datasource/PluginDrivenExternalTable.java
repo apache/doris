@@ -50,6 +50,7 @@ import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.ExternalAnalysisTask;
+import org.apache.doris.statistics.PluginDrivenSampleAnalysisTask;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
 
@@ -61,6 +62,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.EnumSet;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -263,6 +265,19 @@ public class PluginDrivenExternalTable extends ExternalTable {
      */
     public boolean supportsMetadataTable() {
         return hasScanCapability(ConnectorCapability.SUPPORTS_METADATA_TABLE);
+    }
+
+    /**
+     * Returns whether THIS table supports {@code ANALYZE ... WITH SAMPLE}. Consulted by
+     * {@code AnalysisManager.canSample}, {@code AnalyzeTableCommand.isSamplingPartition}, {@link
+     * #createAnalysisTask} (to return a sample-capable task) and the background auto-analyze method choice.
+     * Resolved per-table via {@link #hasScanCapability}: hive emits it for its plain-hive tables only (legacy
+     * {@code dlaType==HIVE}), so iceberg/hudi-on-HMS are excluded; native iceberg/paimon never declare it (their
+     * {@code doSample} is unimplemented), keeping their current build-time reject. Mirrors
+     * {@link #supportsTopNLazyMaterialize}.
+     */
+    public boolean supportsSampleAnalyze() {
+        return hasScanCapability(ConnectorCapability.SUPPORTS_SAMPLE_ANALYZE);
     }
 
     /**
@@ -691,7 +706,8 @@ public class PluginDrivenExternalTable extends ExternalTable {
                     || ConnectorTableSchema.SHOW_LOCATION_KEY.equals(key)
                     || ConnectorTableSchema.SHOW_PARTITION_CLAUSE_KEY.equals(key)
                     || ConnectorTableSchema.SHOW_SORT_CLAUSE_KEY.equals(key)
-                    || ConnectorTableSchema.PER_TABLE_CAPABILITIES_KEY.equals(key)) {
+                    || ConnectorTableSchema.PER_TABLE_CAPABILITIES_KEY.equals(key)
+                    || ConnectorTableSchema.DISTRIBUTION_COLUMNS_KEY.equals(key)) {
                 continue;
             }
             result.put(entry.getKey(), entry.getValue());
@@ -944,6 +960,12 @@ public class PluginDrivenExternalTable extends ExternalTable {
     @Override
     public BaseAnalysisTask createAnalysisTask(AnalysisInfo info) {
         makeSureInitialized();
+        if (supportsSampleAnalyze()) {
+            // A flipped plain-hive table keeps ANALYZE ... WITH SAMPLE working (ExternalAnalysisTask.doSample
+            // throws NotImplementedException). iceberg/paimon do NOT declare the capability, so they stay on the
+            // byte-identical ExternalAnalysisTask path — the extra check is one cached capability lookup.
+            return new PluginDrivenSampleAnalysisTask(info);
+        }
         return new ExternalAnalysisTask(info);
     }
 
@@ -980,6 +1002,60 @@ public class PluginDrivenExternalTable extends ExternalTable {
             return Optional.empty();
         }
         return toColumnStatistic(statsOpt.get(), getColumn(colName));
+    }
+
+    /**
+     * The raw per-file byte sizes that {@code ANALYZE ... WITH SAMPLE} seed-shuffles and cumulates into a sample
+     * scale factor, from the connector's file listing (like legacy {@code HMSExternalTable.getChunkSizes}). The
+     * connector returns only the raw byte lengths; the Doris-type slot-width math stays fe-core-side in the sample
+     * task. Overrides {@link ExternalTable#getChunkSizes()} (which throws {@code NotImplementedException}); returns
+     * empty on any miss (non-plugin catalog / null connector / unresolved handle) so a connector that cannot list
+     * degrades the sampler to scale factor 1. Inert for iceberg/paimon — only reached from the sample task, which
+     * they never create. No TCCL pin here; the hive {@code listFileSizes} impl pins internally (parity with
+     * {@link #fetchRowCount()} / {@link #getColumnStatistic}).
+     */
+    @Override
+    public List<Long> getChunkSizes() {
+        makeSureInitialized();
+        if (!(catalog instanceof PluginDrivenExternalCatalog)) {
+            return Collections.emptyList();
+        }
+        PluginDrivenExternalCatalog pluginCatalog = (PluginDrivenExternalCatalog) catalog;
+        Connector connector = pluginCatalog.getConnector();
+        if (connector == null) {
+            return Collections.emptyList();
+        }
+        ConnectorSession session = pluginCatalog.buildConnectorSession();
+        ConnectorMetadata metadata = connector.getMetadata(session);
+        Optional<ConnectorTableHandle> handleOpt = resolveConnectorTableHandle(session, metadata);
+        if (!handleOpt.isPresent()) {
+            return Collections.emptyList();
+        }
+        return metadata.listFileSizes(session, handleOpt.get());
+    }
+
+    /**
+     * The table's distribution (bucketing) column names, lowercased, from the connector's per-table
+     * {@code connector.distribution-columns} schema marker (read from the already-cached schema, no round-trip).
+     * Overrides the {@code TableIf} empty default so a flipped bucketed hive table matches legacy
+     * {@code HMSExternalTable.getDistributionColumnNames} (which lowercased on this side too). Empty for a
+     * non-bucketed table and for connectors that emit no marker (paimon/iceberg) — byte-invariant for them. Used by
+     * sampled ANALYZE to pick the linear-vs-DUJ1 NDV estimator.
+     */
+    @Override
+    public Set<String> getDistributionColumnNames() {
+        String csv = rawTableProperties().get(ConnectorTableSchema.DISTRIBUTION_COLUMNS_KEY);
+        if (csv == null || csv.isEmpty()) {
+            return Collections.emptySet();
+        }
+        Set<String> result = new HashSet<>();
+        for (String name : csv.split(",")) {
+            String trimmed = name.trim();
+            if (!trimmed.isEmpty()) {
+                result.add(trimmed.toLowerCase());
+            }
+        }
+        return result;
     }
 
     /**
