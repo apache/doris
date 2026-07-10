@@ -563,7 +563,7 @@ public class StringArithmetic {
         float firstValue = first.getValue();
         for (int i = 0; i < second.length; i++) {
             float secondValue = second[i].getValue();
-            if (secondValue == firstValue) {
+            if (Float.compare(firstValue, secondValue) == 0) {
                 return i + 1;
             }
         }
@@ -574,7 +574,7 @@ public class StringArithmetic {
         double firstValue = first.getValue();
         for (int i = 0; i < second.length; i++) {
             double secondValue = second[i].getValue();
-            if (secondValue == firstValue) {
+            if (Double.compare(secondValue, firstValue) == 0) {
                 return i + 1;
             }
         }
