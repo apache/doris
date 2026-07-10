@@ -449,12 +449,6 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         return partRowCountSum;
     }
 
-    static void scaleNumNullsForSelectedPartitions(ColumnStatisticBuilder columnStatisticBuilder,
-            double selectedPartitionsRowCount, double tableRowCount) {
-        double scale = tableRowCount == 0 ? 1 : selectedPartitionsRowCount / tableRowCount;
-        columnStatisticBuilder.setNumNulls(columnStatisticBuilder.getNumNulls() * scale);
-    }
-
     private void setHasUnknownColStatsInStatementContext() {
         if (ConnectContext.get() != null && ConnectContext.get().getStatementContext() != null) {
             ConnectContext.get().getStatementContext().setHasUnknownColStats(true);
@@ -631,7 +625,9 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                 ColumnStatisticBuilder colStatsBuilder = new ColumnStatisticBuilder(cache,
                         selectedPartitionsRowCount);
                 colStatsBuilder.normalizeAvgSizeByte(slot.getDataType());
-                scaleNumNullsForSelectedPartitions(colStatsBuilder, selectedPartitionsRowCount, tableRowCount);
+                //scale null_num
+                double scale = tableRowCount == 0 ? 1 : selectedPartitionsRowCount / tableRowCount;
+                colStatsBuilder.setNumNulls(colStatsBuilder.getNumNulls() * scale);
                 builder.putColumnStatistics(slot, colStatsBuilder.build());
             }
             checkIfUnknownStatsUsedAsKey(builder);
