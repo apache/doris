@@ -1,57 +1,67 @@
-# FileScannerV2 Parquet 扫描链路设计说明
+# FileScannerV2 Parquet Scan Pipeline Design
 
-> **阅读目标：** 从设计视角理解 FileScannerV2 中 Parquet Reader 如何把表级谓词逐层下推到
-> Split、Row Group、Page 与 Row，并通过索引、延迟物化和多层缓存减少无效 I/O 与解码。
+> **Reading goal:** Understand how the FileScannerV2 Parquet Reader progressively pushes
+> table-level predicates down to Split, Row Group, Page, and Row granularity, then uses indexes,
+> lazy materialization, and layered caches to reduce unnecessary I/O and decoding.
 
-## 1. 设计目标与核心结论
+## 1. Design Goals and Core Conclusions
 
-Parquet V2 的核心不是“换一个解码器”，而是把一次文件扫描拆成**规划阶段**与**执行阶段**：先尽
-可能用轻量元数据消灭不可能命中的数据，再只对幸存范围读取谓词列，最后延迟读取输出列。
+Parquet V2 is not simply a replacement decoder. It divides a file scan into a **planning phase** and
+an **execution phase**: first eliminate impossible matches with lightweight metadata, then read only
+predicate columns for surviving ranges, and finally defer output-column reads until matches exist.
 
-> **一句话结论：** 扫描成本按“文件与 Split → Row Group → Page → Row → Column”逐层收缩；
-> 越早确定不命中，越少发生远端 I/O、解压、解码与物化。
+> **In one sentence:** Scan cost contracts through File and Split → Row Group → Page → Row → Column.
+> The earlier a non-match is established, the more remote I/O, decompression, decoding, and
+> materialization can be avoided.
 
-- **统一入口：** TableReader 完成表语义到文件语义的映射，ParquetReader 只处理本地化后的列与谓词。
-- **规划先行：** 打开文件后先读取 footer/schema，并生成 RowGroupReadPlan，而不是边读边临时决定。
-- **多级谓词：** 同一个表级谓词可在不同粒度复用，但每一层只做“确定安全”的排除，无法判断就保留。
-- **谓词列优先：** 先读取过滤所需列并维护 SelectionVector，输出列只为幸存行读取。
-- **缓存分层：** 数据块缓存、Parquet 页缓存、条件结果缓存、合并小 I/O 各自解决不同问题，不能互相替代。
+- **Uniform entry point:** TableReader maps table semantics to file semantics. ParquetReader handles
+  only localized columns and predicates.
+- **Planning first:** After opening a file, read footer/schema and build `RowGroupReadPlan` objects
+  instead of making ad hoc decisions during reads.
+- **Multi-level predicates:** The same table predicate may be reused at several granularities, but
+  each layer eliminates data only when it can do so safely. Uncertain cases remain candidates.
+- **Predicate columns first:** Read filter columns first and maintain a SelectionVector. Read output
+  columns only for surviving rows.
+- **Layered caches:** File-block cache, Parquet page cache, condition-result cache, and merged small
+  I/O solve different problems and are not interchangeable.
 
-**本文边界：** 聚焦 FileScannerV2 下 Parquet Reader 的设计与核心流程，不展开 Arrow 解码器、复杂
-类型重建和具体表达式实现。
+**Scope:** This document focuses on the FileScannerV2 Parquet Reader design and core pipeline. It
+does not cover Arrow decoder internals, complex-type reconstruction, or expression implementation.
 
-## 2. 总体架构分层
+## 2. Overall Architecture
 
-整体职责按“扫描编排、表语义适配、格式规划、Row Group 执行、列解码、I/O”分层。上层负责
-正确性语义，下层负责格式感知的裁剪与读取。
+Responsibilities are divided across scan orchestration, table-semantic adaptation, format planning,
+Row Group execution, column decoding, and I/O. Upper layers own correctness semantics; lower layers
+own format-aware pruning and reads.
 
 ```mermaid
 flowchart TB
-  A[FileScanOperator / ScannerScheduler<br>调度 Scanner 与 Runtime Filter] --> B[FileScannerV2<br>Split 获取、批次控制、Profile 汇总]
-  B --> C[TableReader<br>Schema 映射、分区/默认值、谓词本地化]
-  C --> D[ParquetReader<br>Footer/Schema、Row Group 扫描计划]
-  D --> E[ParquetScanScheduler<br>Row Group 生命周期、批次读取]
-  E --> F[ParquetColumnReader<br>Page 跳过、解压、解码、物化]
-  F --> G[ParquetFileContext / Arrow RandomAccessFile<br>Page Cache、MergeRange、预取]
+  A[FileScanOperator / ScannerScheduler<br>Schedule Scanners and Runtime Filters] --> B[FileScannerV2<br>Split Fetching, Batch Control, Profile Aggregation]
+  B --> C[TableReader<br>Schema Mapping, Partition/Default Values, Predicate Localization]
+  C --> D[ParquetReader<br>Footer/Schema and Row Group Scan Planning]
+  D --> E[ParquetScanScheduler<br>Row Group Lifecycle and Batch Reads]
+  E --> F[ParquetColumnReader<br>Page Skipping, Decompression, Decoding, Materialization]
+  F --> G[ParquetFileContext / Arrow RandomAccessFile<br>Page Cache, MergeRange, Prefetch]
   G --> H[Doris FileReader / FileCache / Remote FS]
 ```
 
-| 层次 | 核心职责 | 不承担的职责 |
+| Layer | Core responsibilities | Responsibilities intentionally excluded |
 | --- | --- | --- |
-| FileScannerV2 | Split 生命周期、Reader 复用、动态 batch、统一 Profile | 不理解 Parquet Page/Encoding |
-| TableReader | 把表列、分区列、缺失列、默认值和 conjunct 映射到文件局部坐标 | 不直接解析 Parquet footer |
-| ParquetReader | 构建文件上下文、Row Group 规划、汇总格式级统计 | 不负责表级 schema 演进语义 |
-| ParquetScanScheduler | 按计划打开 Row Group、组织谓词列/输出列读取顺序 | 不重新做全局谓词解析 |
-| ColumnReader | Page 定位、跳过、解压、解码、按 Selection 物化 | 不决定 Row Group 是否候选 |
-| FileContext / FileReader | 统一随机读、缓存、合并读、远端访问 | 不理解 SQL 谓词 |
+| FileScannerV2 | Split lifecycle, reader reuse, dynamic batches, and unified Profile | Does not understand Parquet pages or encodings |
+| TableReader | Map table columns, partition columns, missing columns, defaults, and conjuncts into file-local coordinates | Does not parse the Parquet footer directly |
+| ParquetReader | Build file context, plan Row Groups, and aggregate format-level statistics | Does not implement table-level schema-evolution semantics |
+| ParquetScanScheduler | Open planned Row Groups and order predicate/output column reads | Does not repeat global predicate analysis |
+| ColumnReader | Locate and skip pages, decompress, decode, and materialize by Selection | Does not decide whether a Row Group is a candidate |
+| FileContext / FileReader | Provide random reads, caches, merged reads, and remote access | Does not interpret SQL predicates |
 
-> **设计收益：** 表格式、文件格式和存储介质解耦。Parquet 层可以专注使用 footer、page index、
-> dictionary 等格式信息，上层仍保持统一扫描语义。
+> **Design benefit:** Table format, file format, and storage medium remain decoupled. The Parquet
+> layer can use footer, page index, dictionary, and other format knowledge while upper layers retain
+> uniform scan semantics.
 
-## 3. 从打开文件到生成扫描计划
+## 3. From File Open to Scan Plan
 
-一个 Split 被交给 Reader 后，首先完成文件打开和扫描计划生成。此阶段决定后续会读哪些 Row
-Group、哪些行区间、哪些列块以及是否可以安装 Page Skip Plan。
+After a reader receives a Split, it opens the file and builds the scan plan. This phase determines
+which Row Groups, row ranges, column chunks, and Page Skip Plans will be used later.
 
 ```mermaid
 sequenceDiagram
@@ -63,75 +73,84 @@ sequenceDiagram
   participant PLAN as RowGroup Planner
   participant SCH as ScanScheduler
   FS->>TR: prepare/open split
-  TR->>TR: schema 映射与谓词本地化
+  TR->>TR: Map schema and localize predicates
   TR->>PR: FileScanRequest
-  PR->>FC: open FileReader
-  FC->>META: 读取 footer 与 schema
-  META-->>PR: Row Group / Column Chunk 元数据
-  PR->>PLAN: 候选 Row Group + 本地谓词
-  PLAN->>PLAN: Split 范围选择
-  PLAN->>PLAN: Statistics/Dictionary/Bloom 剪枝
-  PLAN->>PLAN: ColumnIndex+OffsetIndex 页级剪枝
-  PLAN-->>PR: RowGroupReadPlan 列表
-  PR->>FC: 注册幸存列块的 Page Cache 范围
-  PR->>SCH: 安装计划与列读取请求
+  PR->>FC: Open FileReader
+  FC->>META: Read footer and schema
+  META-->>PR: Row Group / Column Chunk metadata
+  PR->>PLAN: Candidate Row Groups and local predicates
+  PLAN->>PLAN: Select by Split range
+  PLAN->>PLAN: Prune by Statistics/Dictionary/Bloom
+  PLAN->>PLAN: Prune pages by ColumnIndex+OffsetIndex
+  PLAN-->>PR: RowGroupReadPlan list
+  PR->>FC: Register Page Cache ranges for surviving chunks
+  PR->>SCH: Install plans and column-read request
   SCH-->>FS: ready / EOF
 ```
 
-### 计划中的关键对象
+### Key planning objects
 
-- **FileScanRequest：** 包含 predicate_columns、non_predicate_columns、本地化 conjunct、delete
-  conjunct 与列位置映射。
-- **RowGroupReadPlan：** 记录 Row Group、文件全局起始行、页索引裁出的 selected_ranges，以及
-  每个叶子列的 page_skip_plan。
-- **ParquetFileContext：** 把 Doris FileReader 适配为 Arrow RandomAccessFile，同时承载 Page
-  Cache、FileCache 预取与 MergeRange 路由。
+- **FileScanRequest:** Contains `predicate_columns`, `non_predicate_columns`, localized conjuncts,
+  delete conjuncts, and local column-position mappings.
+- **RowGroupReadPlan:** Records the Row Group, its file-global starting row, `selected_ranges`
+  produced by page-index pruning, and the `page_skip_plan` for each leaf column.
+- **ParquetFileContext:** Adapts Doris FileReader to Arrow RandomAccessFile and owns Page Cache,
+  FileCache prefetch, and MergeRange routing.
 
-> 规划顺序有意从便宜到昂贵：先用 Split/元数据缩小集合，再为幸存 Row Group 读取更细的索引；
-> 避免对注定被裁掉的数据做额外索引 I/O。
+> Planning intentionally proceeds from cheap to expensive. Split and metadata pruning reduce the
+> candidate set before finer indexes are read for surviving Row Groups, avoiding index I/O for data
+> that is already known to be irrelevant.
 
-## 4. 谓词下推的设计
+## 4. Predicate Pushdown Design
 
-谓词下推的第一步不是直接交给 Parquet，而是先把“表上的表达式”转换为“当前文件可理解的表达式”。
-这一步由 TableReader 与 ColumnMapper 完成。
+Predicate pushdown does not begin by passing table expressions directly to Parquet. TableReader and
+ColumnMapper first translate a table expression into an expression understood by the current file.
 
 ```mermaid
 flowchart LR
-  A[表级 conjunct / Runtime Filter] --> B[列引用解析]
-  B --> C{列在当前文件中?}
-  C -- "文件列" --> D[映射到 LocalColumnId / block position]
-  C -- "分区列" --> E[常量值参与提前求值]
-  C -- "缺失列" --> F[默认值或 NULL 语义]
-  D --> G[按 predicate / output 列拆分]
+  A[Table Conjunct / Runtime Filter] --> B[Resolve Column References]
+  B --> C{Column Present in Current File?}
+  C -- "File Column" --> D[Map to LocalColumnId / Block Position]
+  C -- "Partition Column" --> E[Evaluate with Constant Value]
+  C -- "Missing Column" --> F[Apply Default or NULL Semantics]
+  D --> G[Separate Predicate and Output Columns]
   E --> G
   F --> G
   G --> H[FileScanRequest]
-  H --> I[Parquet 各级索引复用本地化谓词]
+  H --> I[Reuse Localized Predicates at Parquet Index Levels]
 ```
 
-### 设计原则
+### Design principles
 
-1. **语义先于优化：** 分区常量、缺失列、默认值、类型映射先确定，再讨论是否可下推。
-2. **局部坐标：** Parquet 层只看到当前文件的列编号与 block 位置，避免反复处理表 schema 演进。
-3. **能力判定：** ZoneMap、Dictionary、Bloom 只选择自身能安全解释的表达式；其余保留为行级残余谓词。
-4. **单列优先：** 可安全拆解的单列谓词适合索引和逐列过滤；多列、带状态或错误语义敏感的表达式保留整体求值。
-5. **Runtime Filter 可刷新：** ScannerScheduler 在实际读取前刷新晚到的 Runtime Filter；分区范围
-   过滤在 TableReader 的 Split 准备阶段完成，文件内部可下推部分进入本地 conjunct。
+1. **Semantics before optimization:** Resolve partition constants, missing columns, defaults, and
+   type mappings before deciding whether pushdown is safe.
+2. **Local coordinates:** Parquet sees only the current file's column IDs and block positions, so it
+   does not repeatedly interpret table-schema evolution.
+3. **Capability checks:** ZoneMap, Dictionary, and Bloom use only expressions they can interpret
+   safely. All others remain row-level residual predicates.
+4. **Prefer safe single-column predicates:** Single-column predicates can drive indexes and staged
+   filtering. Multi-column, stateful, or error-sensitive expressions retain whole-expression
+   evaluation.
+5. **Runtime Filters can refresh:** ScannerScheduler refreshes late Runtime Filters before reading.
+   TableReader handles partition-range pruning during Split preparation, and passes file-pushable
+   parts as localized conjuncts.
 
-> 下推不是“少算一次表达式”，而是把表达式的确定性信息投射到更便宜的数据摘要上。任何不能
-> 证明不命中的情况都必须继续扫描。
+> Pushdown is not merely avoiding another expression evaluation. It projects deterministic facts
+> from the expression onto cheaper data summaries. Any case that cannot prove a non-match must
+> continue scanning.
 
-## 5. 谓词在不同数据粒度上如何生效
+## 5. Predicate Evaluation at Different Granularities
 
-同一谓词会在多个粒度尝试生效。每一层的输出都是更小的候选集合，并成为下一层的输入。
+The same predicate may be attempted at several granularities. Each layer produces a smaller
+candidate set that becomes the next layer's input.
 
 ```mermaid
 flowchart TB
-  A[Query / Runtime Filter] --> B[Split / Partition<br>整文件或分片跳过]
+  A[Query / Runtime Filter] --> B[Split / Partition<br>Skip Entire File or Fragment]
   B --> C[Row Group<br>Statistics / Dictionary / Bloom]
   C --> D[Page<br>ColumnIndex + OffsetIndex]
   D --> E[Batch / Row<br>Dictionary ID + VExpr + Delete Predicate]
-  E --> F[Column<br>只物化幸存行的输出列]
+  E --> F[Column<br>Materialize Output Only for Surviving Rows]
   style B fill:#e8f3ff
   style C fill:#eaf7ea
   style D fill:#fff5d6
@@ -139,21 +158,21 @@ flowchart TB
   style F fill:#fce8e6
 ```
 
-| 粒度 | 输入信息 | 可节省的主要成本 | 保守回退 |
+| Granularity | Input information | Main cost avoided | Conservative fallback |
 | --- | --- | --- | --- |
-| Split / Partition | 分区值、Runtime Filter Range、扫描 byte range | 整个文件/分片打开与读取 | 无法判断则保留 Split |
-| Row Group | footer statistics、dictionary、Bloom | 整组列块 I/O 与解码 | 索引缺失/不兼容则保留 Row Group |
-| Page | ColumnIndex min/max/null + OffsetIndex | 页 I/O、解压与解码 | 页索引不完整则读取相关范围 |
-| Row / Batch | 真实列值、字典 ID、残余 conjunct | 后续谓词列与输出列物化 | 使用完整 VExpr 保证语义 |
-| Column | SelectionVector | 非谓词列的读取、解码和内存写入 | 无过滤时顺序读取全部投影列 |
+| Split / Partition | Partition values, Runtime Filter range, scan byte range | Opening and reading an entire file or fragment | Retain the Split when uncertain |
+| Row Group | Footer statistics, dictionary, Bloom filter | I/O and decoding for all column chunks in the group | Retain the Row Group when an index is missing or incompatible |
+| Page | ColumnIndex min/max/null data and OffsetIndex | Page I/O, decompression, and decoding | Read the affected range when page indexes are incomplete |
+| Row / Batch | Actual column values, dictionary IDs, residual conjuncts | Later predicate-column and output-column materialization | Evaluate full VExpr semantics |
+| Column | SelectionVector | Reads, decoding, and memory writes for non-predicate columns | Read all projected columns sequentially when no filtering applies |
 
-> **关键区别：** Row Group/Page 索引通常做“排除”，不会直接产出最终结果；行级谓词才确认
-> 具体行是否满足条件。
+> **Key distinction:** Row Group and Page indexes generally eliminate impossible candidates; they
+> do not produce final query results. Row-level predicates determine whether individual rows match.
 
-## 6. Row Group 规划与索引协同
+## 6. Row Group Planning and Index Coordination
 
-Row Group Planner 把 footer 中的物理组织信息、Split byte range 和谓词索引能力合成为可执行计划。
-核心是稳定的候选集收缩顺序。
+The Row Group Planner combines physical layout from the footer, the Split byte range, and predicate
+index capabilities into an executable plan. The key property is a stable candidate-reduction order.
 
 ```mermaid
 sequenceDiagram
@@ -163,46 +182,52 @@ sequenceDiagram
   participant D as Dictionary Page
   participant B as Bloom Filter
   participant I as Page Index
-  P->>M: 枚举 footer Row Groups
-  P->>M: 以 Row Group 中点判断 Split 归属
-  loop 每个候选 Row Group
-    P->>S: evaluate ZoneMap(min/max/null)
-    alt 确定不命中
-      S-->>P: prune Row Group
-    else 仍可能命中
-      P->>D: 读取可用字典并求值
-      alt 字典全集不命中
-        D-->>P: prune Row Group
-      else 仍可能命中
-        P->>B: probe Bloom Filter
-        B-->>P: prune 或保留
+  P->>M: Enumerate footer Row Groups
+  P->>M: Assign Split by Row Group midpoint
+  loop Each candidate Row Group
+    P->>S: Evaluate ZoneMap(min/max/null)
+    alt Proven non-match
+      S-->>P: Prune Row Group
+    else Match remains possible
+      P->>D: Read and evaluate available dictionary
+      alt Dictionary domain cannot match
+        D-->>P: Prune Row Group
+      else Match remains possible
+        P->>B: Probe Bloom Filter
+        B-->>P: Prune or retain
       end
     end
   end
-  P->>I: 为幸存 Row Group 读取 ColumnIndex/OffsetIndex
+  P->>I: Read ColumnIndex/OffsetIndex for survivors
   I-->>P: selected_ranges + page_skip_plans
 ```
 
-### 为什么按这个顺序
+### Why this order is used
 
-- **Statistics：** 通常已在 footer 中，读取代价最低，适合范围与空值语义。
-- **Dictionary：** 需要读字典页，但对低基数字符串列可精确证明整组不命中。
-- **Bloom：** 需要读取 Bloom 数据；适合等值/集合类否定判断，命中仍可能是假阳性。
-- **Page Index：** 只对幸存 Row Group 构建页级行区间，避免提前为所有组支付索引代价。
+- **Statistics:** Usually already in the footer, making them the lowest-cost option for range and
+  null semantics.
+- **Dictionary:** Requires reading the dictionary page, but can prove a complete non-match for
+  low-cardinality string columns.
+- **Bloom:** Requires Bloom data I/O and is useful for negative membership tests. A positive result
+  may be a false positive.
+- **Page Index:** Builds page-level row ranges only for surviving Row Groups, avoiding index cost for
+  groups already eliminated.
 
-### 计划如何驱动物理跳过
+### How the plan drives physical skips
 
-ColumnIndex 给出每页的 min/max/null 语义；OffsetIndex 把页映射到 Row Group 内的行号和文件偏移。
-多列谓词分别生成候选行区间后取交集，形成 selected_ranges；再按每个叶子列构建
-page_skip_plan，使列 Reader 能跳过与幸存行区间不相交的数据页。
+ColumnIndex provides min/max/null semantics for each page. OffsetIndex maps pages to Row Group row
+numbers and file offsets. Candidate ranges from multiple predicate columns are intersected into
+`selected_ranges`; a `page_skip_plan` is then built for each leaf so its column reader can skip pages
+that do not overlap surviving rows.
 
-> selected_ranges 是逻辑行范围，page_skip_plan 是物理页读取计划。两者分离可让调度器按行批次
-> 推进，同时让不同列按照各自 Page 边界跳读。
+> `selected_ranges` represents logical row ranges, while `page_skip_plan` represents physical page
+> reads. Keeping them separate allows the scheduler to advance by row batch while each column skips
+> according to its own page boundaries.
 
-## 7. 批次读取、字典过滤与延迟物化
+## 7. Batch Reads, Dictionary Filtering, and Lazy Materialization
 
-执行阶段遵循“先过滤、后物化”。Scheduler 按 selected_ranges 逐段推进，遇到范围间隙先让列
-Reader skip，再读取当前 batch。
+Execution follows a filter-first, materialize-later strategy. The scheduler advances through
+`selected_ranges`, asks column readers to skip gaps, and then reads the current batch.
 
 ```mermaid
 sequenceDiagram
@@ -211,119 +236,127 @@ sequenceDiagram
   participant SEL as SelectionVector
   participant EX as Residual Expressions
   participant OC as Output Column Readers
-  S->>S: 打开下一个 Row Group
-  S->>S: 跳过 PageIndex 排除的行区间
-  S->>PC: 读取第一轮谓词列
-  PC->>SEL: 字典 ID 或真实值过滤
-  loop 后续安全单列谓词
-    S->>PC: 仅为幸存行读取/物化
-    PC->>SEL: 继续收缩选择集
+  S->>S: Open next Row Group
+  S->>S: Skip row ranges rejected by Page Index
+  S->>PC: Read first predicate column set
+  PC->>SEL: Filter with dictionary IDs or actual values
+  loop Remaining safe single-column predicates
+    S->>PC: Read/materialize only surviving rows
+    PC->>SEL: Further reduce selection
   end
-  S->>EX: 求值剩余多列谓词与 delete conjunct
-  EX->>SEL: 得到最终幸存行
-  alt 有幸存行
-    S->>OC: 预取并读取非谓词列
-    OC->>OC: 按 Selection 物化
-    S-->>S: 组装输出 Block
-  else 无幸存行
-    S->>S: 不读取延迟输出列
+  S->>EX: Evaluate residual multi-column predicates and deletes
+  EX->>SEL: Produce final survivors
+  alt Rows survive
+    S->>OC: Prefetch and read non-predicate columns
+    OC->>OC: Materialize by Selection
+    S-->>S: Assemble output Block
+  else No rows survive
+    S->>S: Do not read deferred output columns
   end
 ```
 
-### 行级字典过滤
+### Row-level dictionary filtering
 
 ```mermaid
 flowchart LR
-  A[单列谓词] --> B{列可完整字典编码?}
-  B -- "否" --> F[读取真实值并执行 VExpr]
-  B -- "是" --> C[读取 Dictionary Page]
-  C --> D[在字典值上执行谓词<br>生成 dict-id bitmap]
-  D --> E[解码数据页的字典 ID<br>直接更新 SelectionVector]
-  E --> G[只物化幸存值]
+  A[Single-column Predicate] --> B{Column Fully Dictionary Encoded?}
+  B -- "No" --> F[Read Actual Values and Execute VExpr]
+  B -- "Yes" --> C[Read Dictionary Page]
+  C --> D[Evaluate Predicate on Dictionary Values<br>Build Dictionary-ID Bitmap]
+  D --> E[Decode Data-page Dictionary IDs<br>Update SelectionVector Directly]
+  E --> G[Materialize Only Survivors]
 ```
 
-- 适用于非重复、primitive、string-like 的 BYTE_ARRAY / FIXED_LEN_BYTE_ARRAY，并要求 Column
-  Chunk 完整使用字典数据编码。
-- 安全的 AND 子表达式可以拆出已被字典精确覆盖的部分；OR 或不具备等价性的表达式不会激进改写。
-- 带状态、可能抛错或依赖完整批次语义的表达式，禁用逐轮单列调度，回退到读取所需列后整体求值。
+- Applies to non-repeated primitive, string-like BYTE_ARRAY / FIXED_LEN_BYTE_ARRAY columns whose
+  complete Column Chunk uses dictionary data encoding.
+- Safe AND subexpressions may remove components exactly covered by dictionary evaluation. OR or
+  non-equivalent expressions are not rewritten aggressively.
+- Stateful, potentially throwing, or whole-batch-sensitive expressions disable staged
+  single-column scheduling and fall back to reading required columns before whole-expression
+  evaluation.
 
-> **优化闭环：** 越早缩小 SelectionVector，后续谓词列和非谓词列需要解码、拷贝的值越少；
-> 这就是列式存储中延迟物化的主要收益。
+> **Optimization loop:** The earlier SelectionVector shrinks, the fewer values later predicate and
+> output columns must decode and copy. This is the main benefit of lazy materialization in a
+> columnar format.
 
-## 8. 支持的索引与适用边界
+## 8. Supported Indexes and Their Boundaries
 
-V2 使用的是 Parquet 原生元数据与编码信息，不额外构建 Doris 内部存储索引。下表区分“索引/摘要”、
-“作用粒度”和“判断能力”。
+V2 uses native Parquet metadata and encoding information. It does not construct Doris-internal
+storage indexes for external Parquet files.
 
-| 能力 | 粒度 | 适合谓词 | 结果特性 | 主要限制 |
+| Capability | Granularity | Suitable predicates | Result property | Main limitations |
 | --- | --- | --- | --- | --- |
-| Footer Statistics / ZoneMap | Row Group | 范围、比较、IS NULL/IS NOT NULL、可转为 ZoneMap 的组合表达式 | 可确定整组不命中 | 依赖有效 min/max/null_count 与类型转换 |
-| Dictionary Pruning | Row Group | 可在字典全集上精确求值的单列谓词 | 可确定整组不命中 | 低基数字符串类 primitive，且整块字典编码 |
-| Parquet Bloom Filter | Row Group / Column Chunk | 等值、IN 等可做成员否定的谓词 | 不命中可排除；命中仍需验证 | 可配置开关；文件必须携带 Bloom；存在假阳性 |
-| ColumnIndex | Page | 可用 min/max/null 评估的谓词 | 产生候选页/行区间 | 要求页索引存在且类型可解码 |
-| OffsetIndex | Page → Row Range | 不直接求值谓词 | 把页级结果映射为行号与物理跳页计划 | 通常与 ColumnIndex 配合 |
-| Dictionary-ID Filter | Row / Batch | 安全单列字符串类谓词 | 对真实行精确过滤 | 完整字典编码、非 repeated primitive |
-| Condition Cache Bitmap | 文件全局 granule | 稳定可缓存条件 | 复用历史过滤结果，先缩小行范围 | 不是 Parquet 原生索引；未覆盖范围保守保留 |
+| Footer Statistics / ZoneMap | Row Group | Ranges, comparisons, IS NULL/IS NOT NULL, and expressions safely convertible to ZoneMap | Can prove the entire group cannot match | Requires valid min/max/null_count and safe type conversion |
+| Dictionary Pruning | Row Group | Single-column predicates exactly evaluable over the dictionary domain | Can prove the entire group cannot match | Low-cardinality string-like primitive with complete dictionary encoding |
+| Parquet Bloom Filter | Row Group / Column Chunk | Equality and IN membership-negation predicates | Negative result can prune; positive result requires verification | Controlled by configuration; file must contain Bloom data; false positives are possible |
+| ColumnIndex | Page | Predicates evaluable from min/max/null | Produces candidate pages and row ranges | Requires an index and decodable compatible types |
+| OffsetIndex | Page → Row Range | Does not evaluate predicates directly | Maps page results to row numbers and physical skip plans | Normally used with ColumnIndex |
+| Dictionary-ID Filter | Row / Batch | Safe single-column string-like predicates | Exact filtering of actual rows | Complete dictionary encoding and non-repeated primitive only |
+| Condition Cache Bitmap | File-global granule | Stable cacheable conditions | Reuses previous filtering to reduce row ranges | Not a native Parquet index; uncovered ranges remain candidates |
 
-### 索引选择示意
+### Index-selection overview
 
 ```mermaid
 flowchart TD
-  A[本地化谓词] --> B{可做 ZoneMap 求值?}
-  B -- "是" --> C[Row Group Statistics / Page ColumnIndex]
-  B -- "否" --> D{单列且可字典求值?}
-  D -- "是" --> E[Row Group Dictionary + Row Dictionary-ID]
-  D -- "否" --> F{可做 Bloom 成员否定?}
-  F -- "是" --> G[Parquet Bloom Filter]
-  F -- "否" --> H[保留为行级 Residual VExpr]
+  A[Localized Predicate] --> B{ZoneMap Evaluatable?}
+  B -- "Yes" --> C[Row Group Statistics / Page ColumnIndex]
+  B -- "No" --> D{Single-column Dictionary Evaluatable?}
+  D -- "Yes" --> E[Row Group Dictionary + Row Dictionary-ID]
+  D -- "No" --> F{Bloom Negative-membership Test?}
+  F -- "Yes" --> G[Parquet Bloom Filter]
+  F -- "No" --> H[Retain as Row-level Residual VExpr]
   C --> H
   E --> H
   G --> H
 ```
 
-> 多个索引不是互斥选择，而是逐层叠加。索引只能删除已经证明不可能命中的范围，最终仍由残余
-> 谓词保证结果正确。
+> Indexes are layered rather than mutually exclusive. An index may remove only ranges already
+> proven impossible; residual predicates still guarantee final correctness.
 
-## 9. Cache 与 I/O 优化体系
+## 9. Cache and I/O Optimization
 
-Parquet V2 的缓存与 I/O 优化分为四条互补路径：缓存远端文件块、缓存 Parquet 范围字节、缓存
-谓词结果，以及合并小随机读。
+Parquet V2 has four complementary cache and I/O paths: cache remote file blocks, cache serialized
+Parquet ranges, cache predicate results, and merge small random reads.
 
 ```mermaid
 flowchart TB
-  A[Parquet Column Reader ReadAt] --> B{Parquet Page Cache 命中?}
-  B -- "是" --> C[返回缓存的序列化范围字节]
-  B -- "否" --> D{MergeRange 激活?}
-  D -- "是" --> E[MergeRangeFileReader<br>合并相邻小 I/O]
-  D -- "否" --> F[基础 FileReader]
+  A[Parquet Column Reader ReadAt] --> B{Parquet Page Cache Hit?}
+  B -- "Yes" --> C[Return Cached Serialized Range Bytes]
+  B -- "No" --> D{MergeRange Active?}
+  D -- "Yes" --> E[MergeRangeFileReader<br>Merge Adjacent Small I/O]
+  D -- "No" --> F[Base FileReader]
   E --> G[CachedRemoteFileReader / FileCache]
   F --> G
-  G --> H[本地块 / Peer / Remote Object Storage]
-  H --> I[回填 FileCache]
-  I --> J[符合注册范围时回填 Page Cache]
+  G --> H[Local Block / Peer / Remote Object Storage]
+  H --> I[Populate FileCache]
+  I --> J[Populate Page Cache for Registered Ranges]
 ```
 
-| 机制 | 缓存/优化对象 | 生命周期与 Key | 解决的问题 |
+| Mechanism | Cached or optimized object | Lifecycle and key | Problem addressed |
 | --- | --- | --- | --- |
-| FileCache | 远端文件块 | 文件系统/路径与文件版本相关；可本地或 Peer 命中 | 避免重复访问对象存储，支持后台预取 |
-| Parquet Page Cache | 已注册 Column Chunk 范围内的序列化字节 | 稳定文件 key 依赖路径、mtime/version、file size；mtime 不可靠则禁用 | 减少重复页读取；支持精确与子范围覆盖 |
-| Condition Cache | 条件命中的 granule bitmap | 由条件与文件范围上下文管理 | 复用过滤结果，在读列前缩小 selected_ranges |
-| MergeRangeFileReader | 不是缓存；把多个小范围读合并为较大切片 | 按当前 Row Group 的投影列块临时安装 | 减少远端小随机 I/O 和请求次数 |
+| FileCache | Remote file blocks | Related to filesystem/path and file version; may hit locally or through a peer | Avoid repeated object-storage access and support background prefetch |
+| Parquet Page Cache | Serialized bytes within registered Column Chunk ranges | Stable file key depends on path, mtime/version, and file size; disabled when mtime is unreliable | Reduce repeated page reads and support exact/subrange coverage |
+| Condition Cache | Condition-surviving granule bitmap | Managed by condition and file-range context | Reuse filtering results before reading columns |
+| MergeRangeFileReader | Not a cache; merges small ranges into larger slices | Installed temporarily for projected chunks of the current Row Group | Reduce remote small-I/O count and request overhead |
 
-### 为什么 Page Cache 只注册幸存列块
+### Why Page Cache registers only surviving chunks
 
-Footer 在 Row Group 规划之前读取，此时尚未注册 Page Cache 范围，因此不会把 footer/metadata 混入
-Parquet Page Cache。规划完成后只注册幸存 Row Group 的投影 Column Chunk，控制缓存污染和 key 数量。
+The footer is read before Row Group planning and before Page Cache ranges are registered, so
+footer/metadata bytes never enter the Parquet Page Cache. After planning, only projected Column
+Chunks from surviving Row Groups are registered, limiting pollution and key count.
 
-### 预取与 MergeRange 的关系
+### Relationship between prefetch and MergeRange
 
-- 底层是 CachedRemoteFileReader 时，可对当前 Row Group 的谓词列/输出列范围发起 FileCache 预取。
-- 平均投影列块较小且非内存 Reader 时，优先安装 MergeRangeFileReader，让后续 Arrow ReadAt 真正走合并读。
-- 有行级过滤时先预取谓词列；只有出现幸存行后才预取非谓词列，避免无效带宽。
+- When the base reader is CachedRemoteFileReader, predicate/output ranges for the current Row Group
+  may be prefetched into FileCache.
+- When average projected chunks are small and the reader is not in-memory, install
+  MergeRangeFileReader so subsequent Arrow `ReadAt` calls actually use merged reads.
+- With row-level filters, prefetch predicate columns first. Prefetch non-predicate columns only after
+  at least one row survives, avoiding unnecessary bandwidth.
 
-## 10. 其他关键优化
+## 10. Other Key Optimizations
 
-### 10.1 Condition Cache：把历史过滤结果前移
+### 10.1 Condition Cache: Move Historical Filter Results Earlier
 
 ```mermaid
 sequenceDiagram
@@ -332,121 +365,129 @@ sequenceDiagram
   participant P as RowGroup Plans
   participant R as Row Filter
   alt Cache Hit
-    T->>S: bitmap + base granule
-    S->>P: 与 selected_ranges 求交
-    P-->>S: 更小的待读行范围
+    T->>S: Bitmap + base granule
+    S->>P: Intersect with selected_ranges
+    P-->>S: Smaller pending row ranges
   else Cache Miss
-    T->>S: 空 bitmap context
-    S->>R: 正常执行行级谓词
+    T->>S: Empty bitmap context
+    S->>R: Execute normal row predicates
     R-->>S: SelectionVector
-    S->>S: 标记包含幸存行的 granules
-    S-->>T: 后续写入 Condition Cache
+    S->>S: Mark granules containing survivors
+    S-->>T: Publish to Condition Cache later
   end
 ```
 
-Cache Hit 时，只删除 bitmap 已明确证明不需要读取的 granule；超出 bitmap 覆盖范围的行会被保守
-保留。Cache Miss 时按幸存行标记 granule，粒度化结果换取可复用性与较低缓存体积。
+On a hit, only granules explicitly proven unnecessary by the bitmap are removed. Rows outside
+bitmap coverage remain candidates. On a miss, granules containing surviving rows are marked,
+trading granularity for reuse and smaller cache entries.
 
-### 10.2 自适应 Batch
+### 10.2 Adaptive Batches
 
-FileScannerV2 先用较小 probe batch 观察最终表 Block 的 bytes-per-row，再以目标 Block 字节数反推
-后续 batch rows，并受系统 batch size 上限约束。宽表减少单批内存，窄表提高吞吐。
+FileScannerV2 uses a small probe batch to measure bytes per row in the final table Block. It derives
+later batch rows from a target Block size, bounded by the system batch-size limit. Wide rows use
+smaller batches to reduce memory peaks; narrow rows use larger batches for throughput.
 
 ```mermaid
 flowchart LR
-  A[小批 probe] --> B[读取并完成表级物化]
-  B --> C[估算 bytes / row]
-  C --> D[目标 Block bytes ÷ bytes / row]
-  D --> E[生成下一批 row cap]
-  E --> F[受 batch_size 与 selected range 限制]
+  A[Small Probe Batch] --> B[Read and Complete Table-level Materialization]
+  B --> C[Estimate Bytes per Row]
+  C --> D[Target Block Bytes / Bytes per Row]
+  D --> E[Choose Next Row Cap]
+  E --> F[Bound by batch_size and Selected Range]
 ```
 
-### 10.3 聚合下推
+### 10.3 Aggregate Pushdown
 
-当 TableReader 证明不存在会改变结果的过滤、删除语义等条件时，COUNT / MIN / MAX 可直接利用
-Parquet 元数据完成或部分完成聚合，避免扫描数据页。它是元数据聚合优化，不应与 Row Group 索引
-剪枝混为一谈。
+When TableReader proves that no filter or delete semantics can change the result, COUNT / MIN / MAX
+may use Parquet metadata to compute all or part of an aggregate without scanning data pages. This is
+a metadata aggregation optimization and is distinct from Row Group index pruning.
 
-### 10.4 分阶段预取
+### 10.4 Staged Prefetch
 
-无行级过滤时可以同时暖输出列；存在过滤时先暖 predicate columns，待至少一行幸存再暖
-non-predicate columns，使网络带宽与延迟物化策略一致。
+Without row-level filtering, output columns may be warmed together. With filtering, warm predicate
+columns first and defer non-predicate columns until at least one row survives, aligning network
+bandwidth with lazy materialization.
 
-## 11. 正确性、回退原则与能力边界
+## 11. Correctness, Fallback, and Capability Boundaries
 
-V2 的优化原则是“能证明才跳过，不能证明就继续读”。任何索引缺失、类型不支持、表达式不可安全
-拆分或读取异常，都不应改变查询语义。
+V2 follows a prove-before-skip rule. Missing indexes, unsupported types, expressions that cannot be
+split safely, or read anomalies must never change query semantics.
 
-> **正确性底线：** 索引结果只用于缩小候选集；所有未被精确覆盖的表达式继续作为 residual
-> conjunct 在真实数据上执行。
+> **Correctness baseline:** Index results only reduce candidate sets. Every expression not exactly
+> covered remains a residual conjunct evaluated against actual data.
 
-| 场景 | V2 的处理 |
+| Scenario | V2 behavior |
 | --- | --- |
-| Statistics 缺失或 min/max 无法安全转换 | 该列 ZoneMap 视为不可用，保留 Row Group/Page |
-| Bloom 不存在、关闭或读取失败 | 跳过 Bloom 剪枝，不影响后续扫描 |
-| 字典页不完整、混合非字典编码、复杂/重复列 | 不启用字典裁剪或 Dictionary-ID Filter，回退到真实值 |
-| ColumnIndex/OffsetIndex 缺失或不一致 | 不做细粒度页裁剪，读取完整候选范围 |
-| 表达式含多列、OR、状态或错误顺序敏感 | 保留整体求值，避免改变 SQL 短路/错误语义 |
-| Page Cache 无稳定文件版本标识 | 禁用 Parquet Page Cache，防止读到陈旧字节 |
-| Condition Cache 覆盖不完整 | 未覆盖范围保守保留并重新计算 |
+| Missing Statistics or unsafe min/max conversion | Treat the column's ZoneMap as unavailable and retain the Row Group/Page |
+| Bloom missing, disabled, or unreadable | Skip Bloom pruning and continue with later scan stages |
+| Incomplete dictionary page, mixed non-dictionary encoding, complex/repeated column | Disable dictionary pruning and Dictionary-ID Filter; use actual values |
+| Missing or inconsistent ColumnIndex/OffsetIndex | Disable fine-grained page pruning and read the full candidate range |
+| Multi-column, OR, stateful, or error-order-sensitive expression | Preserve whole-expression evaluation to avoid changing SQL short-circuit or error semantics |
+| No stable file-version identity for Page Cache | Disable Parquet Page Cache to prevent stale-byte reads |
+| Incomplete Condition Cache coverage | Retain and recompute uncovered ranges |
 
-### 能力边界
+### Capability boundaries
 
-- Parquet Reader 使用文件中已经存在的索引与编码元数据，不负责为外部 Parquet 文件构建新索引。
-- 嵌套/重复列的 Page 边界、definition/repetition level 更复杂，部分字典和页级优化会选择保守路径。
-- Bloom 是概率型索引，只能安全用于“确定不存在”；不能把 Bloom 命中当成结果命中。
-- Page Index 的收益受文件写入端是否生成索引、数据排序程度和谓词选择性影响。
+- Parquet Reader uses indexes and encoding metadata already present in the file; it does not build
+  new indexes for external files.
+- Page boundaries and definition/repetition levels are more complex for nested/repeated columns, so
+  some dictionary and page-level optimizations conservatively fall back.
+- Bloom is probabilistic and is safe only for proving absence. A positive Bloom result is not a row
+  match.
+- Page Index benefit depends on whether the writer produced indexes, data ordering, and predicate
+  selectivity.
 
-## 12. Profile 观测与排障路径
+## 12. Profile Observation and Troubleshooting
 
-排障建议按“规划是否有效 → 行级过滤是否有效 → 延迟物化是否生效 → I/O/Cache 是否健康”的顺序
-观察，避免只看总 ScanTime。
+Troubleshoot in this order: verify planning effectiveness, row filtering, lazy materialization, and
+then I/O/cache health. Total ScanTime alone does not identify the cause.
 
 ```mermaid
 flowchart TD
-  A[扫描慢] --> B{Row Group 是否大量被裁剪?}
-  B -- "否" --> C[检查 Statistics/Dictionary/Bloom 可用性与谓词形态]
-  B -- "是" --> D{Page selected ranges 是否明显收缩?}
-  D -- "否" --> E[检查 ColumnIndex/OffsetIndex 与数据有序性]
-  D -- "是" --> F{Predicate filtered rows 是否高?}
-  F -- "是" --> G[检查非谓词列是否延迟预取/按 Selection 物化]
-  F -- "否" --> H[选择性低，关注解码与 I/O 吞吐]
-  G --> I{Cache 命中与小 I/O 是否合理?}
+  A[Slow Scan] --> B{Many Row Groups Pruned?}
+  B -- "No" --> C[Check Statistics/Dictionary/Bloom Availability and Predicate Shape]
+  B -- "Yes" --> D{Page selected_ranges Shrink Significantly?}
+  D -- "No" --> E[Check ColumnIndex/OffsetIndex and Data Ordering]
+  D -- "Yes" --> F{Many Rows Filtered by Predicates?}
+  F -- "Yes" --> G[Check Deferred Prefetch and Selection-based Output Materialization]
+  F -- "No" --> H[Low Selectivity: Inspect Decode and I/O Throughput]
+  G --> I{Cache Hits and Small I/O Reasonable?}
   H --> I
-  I -- "否" --> J[检查 FileCache、Page Cache、MergeRange、远端读]
-  I -- "是" --> K[检查类型转换、复杂列与下游算子]
+  I -- "No" --> J[Check FileCache, Page Cache, MergeRange, and Remote Reads]
+  I -- "Yes" --> K[Check Type Conversion, Complex Columns, and Downstream Operators]
 ```
 
-### 建议重点关注的指标族
+### Important metric families
 
-| 指标族 | 回答的问题 |
+| Metric family | Question answered |
 | --- | --- |
-| Row Group pruning | 总 Row Group、按 Statistics/Dictionary/Bloom 被裁掉多少，以及各阶段耗时 |
-| Page index pruning | 页索引检查数量、裁掉的页/行、selected row ranges、Page Skip 效果 |
-| Dictionary row filter | 字典重写、字典页读取、bitmap 构建、命中列与失败次数 |
-| Predicate / raw rows | 真实读入多少行、行级谓词过滤多少、延迟物化是否值得 |
-| Parquet Page Cache | hit/miss/write，以及压缩/解压形态的命中 |
-| FileCache Profile | 本地/Peer/远端字节、等待、下载与缓存命中情况 |
-| Merge / request I/O | 小 I/O 是否被合并，请求次数与读取放大是否合理 |
-| Condition Cache | 缓存命中后提前过滤的行数 |
+| Row Group pruning | How many total Row Groups were pruned by Statistics/Dictionary/Bloom, and how much time did each stage take? |
+| Page index pruning | How many indexes were checked, pages/rows were pruned, ranges selected, and pages skipped? |
+| Dictionary row filter | How often were predicates rewritten, dictionaries read, bitmaps built, and attempts successful or rejected? |
+| Predicate / raw rows | How many rows were read and rejected, and was lazy materialization worthwhile? |
+| Parquet Page Cache | What were hit/miss/write counts and compressed/decompressed hit shapes? |
+| FileCache Profile | How many local/peer/remote bytes, waits, downloads, and hits occurred? |
+| Merge / request I/O | Were small reads merged, and were request count and read amplification reasonable? |
+| Condition Cache | How many rows were skipped early after a cache hit? |
 
-> 观察剪枝比例时要结合写入布局：无序数据的 min/max 区间宽，即使索引工作正常，Row Group/Page
-> 也可能无法排除；这不是 Reader 失效。
+> Interpret pruning ratios in the context of write layout. Unsorted data produces wide min/max
+> ranges, so Row Group/Page pruning may be ineffective even when the reader and indexes work
+> correctly.
 
-## 13. 总结
+## 13. Summary
 
-FileScannerV2 的 Parquet 扫描链路可以概括为三条主线：
+The FileScannerV2 Parquet scan pipeline has three primary threads:
 
-1. **语义主线：** TableReader 把表级 schema 与谓词稳定地映射到文件局部语义，保证 schema
-   演进、分区列和缺失列正确。
-2. **裁剪主线：** Split → Row Group → Page → Row 逐层使用 Runtime Filter、Statistics、
-   Dictionary、Bloom、Page Index 和真实值过滤。
-3. **I/O 主线：** 谓词列优先、SelectionVector、延迟物化、自适应 batch、FileCache/Page
-   Cache/Condition Cache 与 MergeRange 共同降低读取放大。
+1. **Semantic thread:** TableReader maps table schema and predicates into stable file-local
+   semantics, preserving schema evolution, partition columns, and missing columns.
+2. **Pruning thread:** Split → Row Group → Page → Row progressively applies Runtime Filters,
+   Statistics, Dictionary, Bloom, Page Index, and actual-value filters.
+3. **I/O thread:** Predicate-first reads, SelectionVector, lazy materialization, adaptive batches,
+   FileCache/Page Cache/Condition Cache, and MergeRange reduce read amplification together.
 
 ```mermaid
 flowchart LR
-  A[表级语义] --> B[文件局部谓词] --> C[RowGroupReadPlan] --> D[selected_ranges] --> E[SelectionVector] --> F[最终 Block]
+  A[Table-level Semantics] --> B[File-local Predicates] --> C[RowGroupReadPlan] --> D[selected_ranges] --> E[SelectionVector] --> F[Final Block]
   G[Statistics / Dictionary / Bloom] --> C
   H[ColumnIndex / OffsetIndex] --> D
   I[FileCache / Page Cache / MergeRange] --> C
@@ -454,7 +495,9 @@ flowchart LR
   I --> E
 ```
 
-> **最终设计判断：** V2 的价值在于把“格式级知识”变成显式扫描计划，再让执行器严格按计划进行
-> 最少必要读取。索引负责安全地缩小候选集，缓存负责复用成本，延迟物化负责避免为失败行读取无关列。
+> **Final design criterion:** V2 turns format knowledge into an explicit scan plan and requires the
+> executor to perform only the minimum necessary reads. Indexes safely reduce candidates, caches
+> reuse cost, and lazy materialization avoids reading irrelevant columns for rejected rows.
 
-本文基于当前代码链路整理，适合作为架构评审、性能分析和 Profile 排障的统一阅读入口。
+This document reflects the current code pipeline and is intended as a common reference for
+architecture reviews, performance analysis, and Profile troubleshooting.
