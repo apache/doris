@@ -79,6 +79,7 @@ import java.util.Base64;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -369,7 +370,18 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
     public ConnectorTableSchema getTableSchema(
             ConnectorSession session, ConnectorTableHandle handle) {
         if (!(handle instanceof HiveTableHandle)) {
-            return siblingMetadata(session, handle).getTableSchema(session, handle);
+            // An iceberg/hudi-on-HMS table's schema is built by the embedded sibling connector, but fe-core's
+            // PluginDrivenExternalTable.hasScanCapability only ever reads the CATALOG connector (this HIVE
+            // connector), never the sibling — so a per-table scan capability the sibling declares connector-wide
+            // (auto-analyze / Top-N lazy / nested-column prune) would be lost for the embedded table. Reflect the
+            // owning sibling's connector-wide capability set onto the delegated schema as a per-table marker so it
+            // survives delegation (mirrors Trino table-redirection, where the redirected-to connector's
+            // capabilities govern the table). Only hasScanCapability consumers read the marker, so a capability
+            // that is not per-table-refinable (view / show-create / mvcc) is inert here. Resolve the owner ONCE
+            // (getMetadata is not free) and reuse it for the schema build and the capability read.
+            Connector owner = siblingOwnerResolver.apply(handle);
+            ConnectorTableSchema siblingSchema = owner.getMetadata(session).getTableSchema(session, handle);
+            return reflectSiblingScanCapabilities(owner, siblingSchema);
         }
         HiveTableHandle hiveHandle = (HiveTableHandle) handle;
         String dbName = hiveHandle.getDbName();
@@ -405,6 +417,15 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
         // cannot express for a heterogeneous hive catalog; emit it per-table so fe-core enables the optimization
         // only for eligible tables and never for text/csv/json/view/hudi.
         List<String> perTableCapabilities = new ArrayList<>();
+        // Legacy StatisticsUtil.supportAutoAnalyze admitted EVERY plain-hive (dlaType==HIVE) table into background
+        // per-column auto-analyze regardless of file format. Emit it per-table for every plain-hive data table (any
+        // format, view excluded) so fe-core's hasScanCapability admits them WITHOUT a connector-wide flag (which
+        // would also admit hudi-on-HMS, which legacy excluded). This branch is reached only for a HiveTableHandle;
+        // an iceberg-on-HMS table is served by the delegation branch above (which reflects the iceberg sibling's
+        // own auto-analyze capability), and a hudi-on-HMS table's connector declares neither.
+        if (supportsHiveColumnAutoAnalyze(tableInfo)) {
+            perTableCapabilities.add(ConnectorCapability.SUPPORTS_COLUMN_AUTO_ANALYZE.name());
+        }
         if (supportsHiveTopNLazyMaterialize(tableInfo)) {
             perTableCapabilities.add(ConnectorCapability.SUPPORTS_TOPN_LAZY_MATERIALIZE.name());
         }
@@ -414,6 +435,41 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
         }
 
         return new ConnectorTableSchema(tableName, allColumns, formatType, tableProperties);
+    }
+
+    /**
+     * Reflects the owning sibling connector's connector-wide capability set onto a delegated (iceberg/hudi-on-HMS)
+     * table's schema as a per-table {@link ConnectorTableSchema#PER_TABLE_CAPABILITIES_KEY} marker, merged with any
+     * marker the sibling already emitted. fe-core's {@code PluginDrivenExternalTable.hasScanCapability} resolves a
+     * per-table scan capability from the CATALOG (hive) connector-wide set OR this marker and NEVER consults the
+     * sibling connector directly, so without this reflection an iceberg-on-HMS table would silently lose every scan
+     * capability the iceberg sibling declares connector-wide (auto-analyze / Top-N lazy / nested-column prune).
+     * Returns the sibling schema unchanged when the sibling declares no capabilities (e.g. a hudi sibling that
+     * declares none). Only per-table-refinable capabilities are ever consulted from the marker, so reflecting the
+     * whole set (including non-scan capabilities) is inert for the rest.
+     */
+    private ConnectorTableSchema reflectSiblingScanCapabilities(Connector owner, ConnectorTableSchema siblingSchema) {
+        Set<ConnectorCapability> ownerCaps = owner.getCapabilities();
+        if (ownerCaps.isEmpty()) {
+            return siblingSchema;
+        }
+        LinkedHashSet<String> caps = new LinkedHashSet<>();
+        String existing = siblingSchema.getProperties().get(ConnectorTableSchema.PER_TABLE_CAPABILITIES_KEY);
+        if (existing != null && !existing.isEmpty()) {
+            for (String name : existing.split(",")) {
+                String trimmed = name.trim();
+                if (!trimmed.isEmpty()) {
+                    caps.add(trimmed);
+                }
+            }
+        }
+        for (ConnectorCapability cap : ownerCaps) {
+            caps.add(cap.name());
+        }
+        Map<String, String> props = new HashMap<>(siblingSchema.getProperties());
+        props.put(ConnectorTableSchema.PER_TABLE_CAPABILITIES_KEY, String.join(",", caps));
+        return new ConnectorTableSchema(siblingSchema.getTableName(), siblingSchema.getColumns(),
+                siblingSchema.getTableFormatType(), props);
     }
 
     @Override
@@ -1808,6 +1864,18 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
         }
         String inputFormat = tableInfo.getInputFormat();
         return MAPRED_PARQUET_INPUT_FORMAT.equals(inputFormat) || ORC_INPUT_FORMAT.equals(inputFormat);
+    }
+
+    /**
+     * Whether {@code tableInfo} is a plain-hive data table (any file format) eligible for background per-column
+     * auto-analyze, replicating legacy {@code StatisticsUtil.supportAutoAnalyze}'s {@code dlaType==HIVE} gate.
+     * Unlike {@link #supportsHiveTopNLazyMaterialize} there is NO orc/parquet restriction (legacy analyzed any hive
+     * format); a view is excluded (nothing to analyze) and an iceberg/hudi-on-HMS table is excluded here
+     * ({@code detect() != HIVE}) — iceberg-on-HMS instead inherits the capability from its sibling via
+     * {@link #reflectSiblingScanCapabilities}, and hudi-on-HMS is withheld.
+     */
+    private boolean supportsHiveColumnAutoAnalyze(HmsTableInfo tableInfo) {
+        return !isView(tableInfo) && HiveTableFormatDetector.detect(tableInfo) == HiveTableType.HIVE;
     }
 
     /** Whether the HMS table is a view (tableType VIRTUAL_VIEW), mirroring legacy {@code HMSExternalTable.isView}. */

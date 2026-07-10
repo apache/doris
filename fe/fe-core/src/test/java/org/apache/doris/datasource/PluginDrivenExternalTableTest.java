@@ -379,6 +379,19 @@ public class PluginDrivenExternalTableTest {
                 EnumSet.of(ConnectorCapability.SUPPORTS_COLUMN_AUTO_ANALYZE)).supportsTopNLazyMaterialize());
         Assertions.assertFalse(pluginTableWithCapabilities(
                 EnumSet.noneOf(ConnectorCapability.class)).supportsColumnAutoAnalyze());
+        // Auto-analyze is now resolved per-table (like Top-N / nested-prune): a heterogeneous hive catalog emits it
+        // via the connector.per-table-capabilities marker for its plain-hive tables (and reflects the iceberg
+        // sibling's set onto an iceberg-on-HMS table) even when the CATALOG connector-wide set lacks it. MUTATION:
+        // reverting supportsColumnAutoAnalyze() to a connector-wide-only read ignores this marker, so a flipped
+        // plain-hive / iceberg-on-HMS table silently drops out of auto-analyze -> red here.
+        Map<String, String> autoAnalyzeMarker = Collections.singletonMap(
+                ConnectorTableSchema.PER_TABLE_CAPABILITIES_KEY,
+                ConnectorCapability.SUPPORTS_COLUMN_AUTO_ANALYZE.name());
+        Assertions.assertTrue(pluginTableWithCapabilities(
+                EnumSet.noneOf(ConnectorCapability.class), autoAnalyzeMarker).supportsColumnAutoAnalyze());
+        // The marker is capability-specific: an auto-analyze marker must NOT enable Top-N.
+        Assertions.assertFalse(pluginTableWithCapabilities(
+                EnumSet.noneOf(ConnectorCapability.class), autoAnalyzeMarker).supportsTopNLazyMaterialize());
     }
 
     @Test

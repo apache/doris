@@ -215,18 +215,18 @@ public class PluginDrivenExternalTable extends ExternalTable {
     }
 
     /**
-     * Returns whether the underlying connector's tables support background per-column auto-analyze.
-     * The statistics auto-collector consults this (in place of the legacy {@code instanceof
-     * IcebergExternalTable} whitelist) to admit a flipped plugin table into the auto-analyze framework
-     * and to force FULL analyze (sample analyze is unimplemented for external SQL-driven tables).
+     * Returns whether THIS table supports background per-column auto-analyze. The statistics auto-collector
+     * consults this (in place of the legacy {@code instanceof IcebergExternalTable} whitelist) to admit a flipped
+     * plugin table into the auto-analyze framework. Resolved per-table via {@link #hasScanCapability} (not the
+     * connector-wide set alone) so a heterogeneous hive catalog can express the legacy
+     * {@code StatisticsUtil.supportAutoAnalyze} gate of {@code dlaType HIVE || ICEBERG} but NOT {@code HUDI}: a
+     * uniform-format connector (native iceberg/paimon) still declares it connector-wide, while hive emits it
+     * per-table for its plain-hive tables and reflects the iceberg sibling's connector-wide set onto an
+     * iceberg-on-HMS table's delegated schema — so hudi-on-HMS, whose connector declares neither, is correctly
+     * withheld. Mirrors {@link #supportsTopNLazyMaterialize} / {@link #supportsNestedColumnPrune}.
      */
     public boolean supportsColumnAutoAnalyze() {
-        if (!(catalog instanceof PluginDrivenExternalCatalog)) {
-            return false;
-        }
-        Connector connector = ((PluginDrivenExternalCatalog) catalog).getConnector();
-        return connector != null
-                && connector.getCapabilities().contains(ConnectorCapability.SUPPORTS_COLUMN_AUTO_ANALYZE);
+        return hasScanCapability(ConnectorCapability.SUPPORTS_COLUMN_AUTO_ANALYZE);
     }
 
     /**

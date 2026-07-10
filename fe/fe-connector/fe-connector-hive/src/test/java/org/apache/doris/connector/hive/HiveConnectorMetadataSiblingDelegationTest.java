@@ -18,6 +18,7 @@
 package org.apache.doris.connector.hive;
 
 import org.apache.doris.connector.api.Connector;
+import org.apache.doris.connector.api.ConnectorCapability;
 import org.apache.doris.connector.api.ConnectorColumn;
 import org.apache.doris.connector.api.ConnectorColumnStatistics;
 import org.apache.doris.connector.api.ConnectorMetadata;
@@ -53,6 +54,7 @@ import org.junit.jupiter.api.function.Executable;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -329,6 +331,45 @@ public class HiveConnectorMetadataSiblingDelegationTest {
         Assertions.assertTrue(siblingMetadata.calls.isEmpty(), "the sibling must not be forwarded a hive handle");
     }
 
+    @Test
+    public void foreignHandleSchemaReflectsSiblingScanCapabilitiesAsPerTableMarker() {
+        // Option C: fe-core's PluginDrivenExternalTable.hasScanCapability reads only the CATALOG (hive) connector,
+        // never the embedded sibling — so the hive gateway must reflect the sibling's connector-wide scan
+        // capabilities onto the delegated schema as a per-table marker, or an iceberg-on-HMS table silently loses
+        // auto-analyze / Top-N lazy / nested-column prune (all of which the iceberg sibling declares connector-wide).
+        // MUTATION: dropping the reflection -> the returned schema carries no marker -> the embedded table drops the
+        // capabilities post-flip -> red here.
+        Set<ConnectorCapability> siblingCaps = EnumSet.of(
+                ConnectorCapability.SUPPORTS_COLUMN_AUTO_ANALYZE,
+                ConnectorCapability.SUPPORTS_TOPN_LAZY_MATERIALIZE,
+                ConnectorCapability.SUPPORTS_NESTED_COLUMN_PRUNE);
+        HiveConnectorMetadata md = new HiveConnectorMetadata(null, Collections.emptyMap(), new FakeConnectorContext(),
+                SUPPLIER_MUST_NOT_BE_USED, SUPPLIER_MUST_NOT_BE_USED,
+                handle -> new CapabilityDeclaringSiblingConnector(siblingCaps));
+
+        ConnectorTableSchema schema = md.getTableSchema(null, foreignHandle);
+        String csv = schema.getProperties().get(ConnectorTableSchema.PER_TABLE_CAPABILITIES_KEY);
+        Assertions.assertNotNull(csv, "the delegated schema must carry the reflected per-table capability marker");
+        List<String> names = Arrays.asList(csv.split(","));
+        Assertions.assertTrue(names.contains(ConnectorCapability.SUPPORTS_COLUMN_AUTO_ANALYZE.name()),
+                "auto-analyze must survive the delegation as a per-table marker");
+        Assertions.assertTrue(names.contains(ConnectorCapability.SUPPORTS_TOPN_LAZY_MATERIALIZE.name()),
+                "Top-N lazy must survive the delegation as a per-table marker");
+        Assertions.assertTrue(names.contains(ConnectorCapability.SUPPORTS_NESTED_COLUMN_PRUNE.name()),
+                "nested-column prune must survive the delegation as a per-table marker");
+    }
+
+    @Test
+    public void foreignHandleSchemaUnchangedWhenSiblingDeclaresNoCapabilities() {
+        // A hudi sibling declares no scan capabilities -> no marker is stamped -> the embedded table stays out of
+        // auto-analyze etc. (hudi-on-HMS parity: legacy StatisticsUtil.supportAutoAnalyze excluded it). MUTATION:
+        // unconditionally stamping a marker -> hudi-on-HMS would be wrongly admitted -> red here.
+        HiveConnectorMetadata md = withSibling(); // RecordingSiblingConnector declares no capabilities
+        ConnectorTableSchema schema = md.getTableSchema(null, foreignHandle);
+        Assertions.assertNull(schema.getProperties().get(ConnectorTableSchema.PER_TABLE_CAPABILITIES_KEY),
+                "no marker when the sibling declares no capabilities");
+    }
+
     private static void assertThrowsMessage(Executable exec, String expectedMessage) {
         DorisConnectorException e = Assertions.assertThrows(DorisConnectorException.class, exec);
         Assertions.assertEquals(expectedMessage, e.getMessage(),
@@ -348,6 +389,25 @@ public class HiveConnectorMetadataSiblingDelegationTest {
         public ConnectorMetadata getMetadata(ConnectorSession session) {
             getMetadataCount++;
             return metadata;
+        }
+    }
+
+    /** A sibling {@link Connector} declaring a fixed capability set; its metadata returns a marker-less schema. */
+    private static final class CapabilityDeclaringSiblingConnector implements Connector {
+        private final Set<ConnectorCapability> caps;
+
+        CapabilityDeclaringSiblingConnector(Set<ConnectorCapability> caps) {
+            this.caps = caps;
+        }
+
+        @Override
+        public Set<ConnectorCapability> getCapabilities() {
+            return caps;
+        }
+
+        @Override
+        public ConnectorMetadata getMetadata(ConnectorSession session) {
+            return new RecordingSiblingMetadata();
         }
     }
 

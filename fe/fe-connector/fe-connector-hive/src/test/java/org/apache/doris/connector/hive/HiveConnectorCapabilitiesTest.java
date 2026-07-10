@@ -45,9 +45,6 @@ public class HiveConnectorCapabilitiesTest {
         // Legacy resolved isView() from the remote view text; the plugin view path is gated on this.
         Assertions.assertTrue(caps.contains(ConnectorCapability.SUPPORTS_VIEW),
                 "SUPPORTS_VIEW: legacy hive views are queryable/droppable/listed");
-        // Legacy StatisticsUtil.supportAutoAnalyze admitted HMS dlaType HIVE into background FULL auto-analyze.
-        Assertions.assertTrue(caps.contains(ConnectorCapability.SUPPORTS_COLUMN_AUTO_ANALYZE),
-                "SUPPORTS_COLUMN_AUTO_ANALYZE: legacy admitted HMS HIVE tables into auto-analyze");
         // Legacy HMSExternalTable.supportsExternalMetadataPreload() returned true.
         Assertions.assertTrue(caps.contains(ConnectorCapability.SUPPORTS_METADATA_PRELOAD),
                 "SUPPORTS_METADATA_PRELOAD: legacy HMS tables were preload-eligible");
@@ -75,7 +72,7 @@ public class HiveConnectorCapabilitiesTest {
     }
 
     @Test
-    public void topNAndNestedPruneAreNotConnectorWide() {
+    public void perTableScanCapabilitiesAreNotConnectorWide() {
         Set<ConnectorCapability> caps = capabilities();
         // Both are per-table markers emitted in getTableSchema (orc/parquet only), never connector-wide flags,
         // otherwise a text/json/csv/view/hudi table would be wrongly eligible.
@@ -83,5 +80,11 @@ public class HiveConnectorCapabilitiesTest {
                 "Top-N lazy is a per-table marker, not connector-wide");
         Assertions.assertFalse(caps.contains(ConnectorCapability.SUPPORTS_NESTED_COLUMN_PRUNE),
                 "nested-column-prune is a per-table marker, not connector-wide");
+        // SUPPORTS_COLUMN_AUTO_ANALYZE is likewise per-table (getTableSchema emits it for every plain-hive table).
+        // A connector-wide flag would over-admit hudi-on-HMS, which legacy StatisticsUtil.supportAutoAnalyze
+        // excluded (it admitted only dlaType HIVE || ICEBERG). MUTATION: re-declaring it connector-wide silently
+        // re-admits hudi-on-HMS -> red here.
+        Assertions.assertFalse(caps.contains(ConnectorCapability.SUPPORTS_COLUMN_AUTO_ANALYZE),
+                "auto-analyze is a per-table marker (excludes hudi-on-HMS), not connector-wide");
     }
 }

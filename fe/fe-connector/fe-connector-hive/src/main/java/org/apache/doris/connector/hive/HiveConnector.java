@@ -241,12 +241,6 @@ public class HiveConnector implements Connector {
         //    consults viewExists, routes a view DROP to dropView, and merges listViewNames into SHOW TABLES —
         //    hive returns an EMPTY listViewNames (its listTableNames already includes views), so the merge is a
         //    no-op and each view is listed once (legacy parity).
-        //  - SUPPORTS_COLUMN_AUTO_ANALYZE: legacy StatisticsUtil.supportAutoAnalyze admitted HMS tables of
-        //    dlaType HIVE and ICEBERG (NOT hudi) into the background per-column FULL auto-analyze (sample is
-        //    unimplemented for external SQL-driven tables); this capability replaces that instanceof-
-        //    HMSExternalTable arm. It is connector-wide, so at the flip it also admits hudi-on-HMS tables that
-        //    legacy excluded — a residual for the iceberg/hudi delegation substep to gate per-handle or
-        //    explicitly accept (there is no per-table escape for it today, unlike Top-N).
         //  - SUPPORTS_METADATA_PRELOAD: legacy HMSExternalTable.supportsExternalMetadataPreload() returned true;
         //    the capability replaces the legacy engine-name "jdbc" gate. Opt-in via enable_preload_external_
         //    metadata (default off), a pure lock-latency optimization with no correctness effect.
@@ -269,13 +263,19 @@ public class HiveConnector implements Connector {
         //    PARTITIONS lists names only.
         //  - SUPPORTS_TOPN_LAZY_MATERIALIZE: a per-table marker emitted in getTableSchema (orc/parquet only),
         //    never a connector-wide flag.
-        //  - SUPPORTS_NESTED_COLUMN_PRUNE: NOT emitted yet — a genuine deferral like MVCC. Legacy parquet/orc
-        //    pruned nested columns, but the connector must first carry stable nested field-ids down its column
-        //    tree (SlotTypeReplacer rewrites nested access to field-ids; without them BE reads NULL leaves).
-        //    Restore it as a per-table marker once hive field-ids are verified.
+        //  - SUPPORTS_COLUMN_AUTO_ANALYZE: legacy StatisticsUtil.supportAutoAnalyze admitted HMS tables of dlaType
+        //    HIVE and ICEBERG (NOT hudi) into background per-column auto-analyze. A connector-wide flag here would
+        //    over-admit hudi-on-HMS (which legacy excluded), so it is NOT declared connector-wide: getTableSchema
+        //    emits it per-table for every plain-hive table, and the sibling-delegation branch reflects the iceberg
+        //    sibling's connector-wide capability set onto an iceberg-on-HMS table's schema (so it survives the
+        //    delegation) — hudi-on-HMS, whose connector declares neither, is thereby correctly withheld.
+        //  - SUPPORTS_NESTED_COLUMN_PRUNE: NOT emitted for plain-hive yet — a genuine deferral like MVCC. Legacy
+        //    parquet/orc pruned nested columns, but the connector must first carry stable nested field-ids down its
+        //    column tree (SlotTypeReplacer rewrites nested access to field-ids; without them BE reads NULL leaves).
+        //    Restore it as a per-table marker once hive field-ids are verified. (An iceberg-on-HMS table DOES get
+        //    it, via the sibling-capability reflection above, because the iceberg sibling carries field-ids.)
         return EnumSet.of(
                 ConnectorCapability.SUPPORTS_VIEW,
-                ConnectorCapability.SUPPORTS_COLUMN_AUTO_ANALYZE,
                 ConnectorCapability.SUPPORTS_METADATA_PRELOAD,
                 ConnectorCapability.SUPPORTS_MVCC_SNAPSHOT);
     }

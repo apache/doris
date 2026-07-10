@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector.hive;
 
+import org.apache.doris.connector.api.ConnectorCapability;
 import org.apache.doris.connector.api.ConnectorColumn;
 import org.apache.doris.connector.api.ConnectorTableSchema;
 import org.apache.doris.connector.api.ConnectorType;
@@ -92,6 +93,20 @@ public class HiveConnectorMetadataSchemaTest {
         return schema.getProperties().get(ConnectorTableSchema.PER_TABLE_CAPABILITIES_KEY);
     }
 
+    /** Membership test over the CSV marker (order-independent, robust as more per-table capabilities are added). */
+    private static boolean hasCapability(ConnectorTableSchema schema, ConnectorCapability capability) {
+        String csv = perTableCapabilities(schema);
+        if (csv == null) {
+            return false;
+        }
+        for (String name : csv.split(",")) {
+            if (name.trim().equals(capability.name())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     @Test
     public void testPartitionColumnsPropertyEmittedWithRawNamesInOrder() {
         ConnectorTableSchema schema = schemaOf(partitionedTable().build());
@@ -147,17 +162,42 @@ public class HiveConnectorMetadataSchemaTest {
         // The connector-wide SUPPORTS_TOPN_LAZY_MATERIALIZE cannot express that for a heterogeneous hive catalog, so
         // the connector emits it per-table; fe-core (PluginDrivenExternalTable.supportsTopNLazyMaterialize) enables the
         // optimization only for tables carrying this marker. MUTATION: not emitting it -> orc/parquet hive tables lose
-        // Top-N lazy materialization.
-        Assertions.assertEquals("SUPPORTS_TOPN_LAZY_MATERIALIZE",
-                perTableCapabilities(schemaOf(unpartitionedTable(PARQUET_INPUT_FORMAT).build())));
-        Assertions.assertEquals("SUPPORTS_TOPN_LAZY_MATERIALIZE",
-                perTableCapabilities(schemaOf(unpartitionedTable(ORC_INPUT_FORMAT).build())));
+        // Top-N lazy materialization. Membership (not exact CSV) because the same marker also carries auto-analyze.
+        Assertions.assertTrue(hasCapability(schemaOf(unpartitionedTable(PARQUET_INPUT_FORMAT).build()),
+                ConnectorCapability.SUPPORTS_TOPN_LAZY_MATERIALIZE));
+        Assertions.assertTrue(hasCapability(schemaOf(unpartitionedTable(ORC_INPUT_FORMAT).build()),
+                ConnectorCapability.SUPPORTS_TOPN_LAZY_MATERIALIZE));
     }
 
     @Test
     public void testTopNLazyCapabilityMarkerAbsentForText() {
-        // A text hive table is not Top-N-lazy eligible in legacy; emitting the marker would over-enable it.
-        Assertions.assertNull(perTableCapabilities(schemaOf(unpartitionedTable(TEXT_INPUT_FORMAT).build())));
+        // A text hive table is not Top-N-lazy eligible in legacy; emitting the Top-N marker would over-enable it.
+        // (Auto-analyze IS emitted for it — legacy analyzed any hive format — asserted separately below.)
+        Assertions.assertFalse(hasCapability(schemaOf(unpartitionedTable(TEXT_INPUT_FORMAT).build()),
+                ConnectorCapability.SUPPORTS_TOPN_LAZY_MATERIALIZE));
+    }
+
+    @Test
+    public void testColumnAutoAnalyzeMarkerEmittedForEveryPlainHiveFormat() {
+        // WHY: legacy StatisticsUtil.supportAutoAnalyze admitted EVERY plain-hive (dlaType==HIVE) table into
+        // background per-column auto-analyze regardless of file format. Emitting it per-table (not connector-wide)
+        // is what lets fe-core exclude hudi-on-HMS (which legacy excluded) while admitting plain-hive. Unlike Top-N,
+        // it has NO orc/parquet restriction. MUTATION: gating it on input format -> text/csv/json hive tables
+        // silently drop out of auto-analyze.
+        Assertions.assertTrue(hasCapability(schemaOf(unpartitionedTable(PARQUET_INPUT_FORMAT).build()),
+                ConnectorCapability.SUPPORTS_COLUMN_AUTO_ANALYZE));
+        Assertions.assertTrue(hasCapability(schemaOf(unpartitionedTable(ORC_INPUT_FORMAT).build()),
+                ConnectorCapability.SUPPORTS_COLUMN_AUTO_ANALYZE));
+        Assertions.assertTrue(hasCapability(schemaOf(unpartitionedTable(TEXT_INPUT_FORMAT).build()),
+                ConnectorCapability.SUPPORTS_COLUMN_AUTO_ANALYZE));
+    }
+
+    @Test
+    public void testColumnAutoAnalyzeMarkerAbsentForView() {
+        // A view has nothing to analyze; excluded like Top-N (isView guard before the format check).
+        ConnectorTableSchema schema = schemaOf(
+                unpartitionedTable(PARQUET_INPUT_FORMAT).tableType("VIRTUAL_VIEW").build());
+        Assertions.assertFalse(hasCapability(schema, ConnectorCapability.SUPPORTS_COLUMN_AUTO_ANALYZE));
     }
 
     @Test
