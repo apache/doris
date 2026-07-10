@@ -773,6 +773,7 @@ Status CloudStorageEngine::_request_tablet_global_compaction_lock(
             LOG_WARNING("failed to request cumu compactoin global lock")
                     .tag("tablet id", tablet->tablet_id())
                     .tag("msg", st.to_string());
+            tablet->set_last_cumu_compaction_status(st.to_string());
             tablet->set_last_cumu_compaction_failure_time(now);
             return st;
         }
@@ -787,6 +788,7 @@ Status CloudStorageEngine::_request_tablet_global_compaction_lock(
             LOG_WARNING("failed to request base compactoin global lock")
                     .tag("tablet id", tablet->tablet_id())
                     .tag("msg", st.to_string());
+            tablet->set_last_base_compaction_status(st.to_string());
             tablet->set_last_base_compaction_failure_time(now);
             return st;
         }
@@ -801,6 +803,7 @@ Status CloudStorageEngine::_request_tablet_global_compaction_lock(
             LOG_WARNING("failed to request full compactoin global lock")
                     .tag("tablet id", tablet->tablet_id())
                     .tag("msg", st.to_string());
+            tablet->set_last_full_compaction_status(st.to_string());
             tablet->set_last_full_compaction_failure_time(now);
             return st;
         }
