@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector.api;
 
+import org.apache.doris.connector.api.event.ConnectorEventSource;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.handle.WriteOperation;
 import org.apache.doris.connector.api.procedure.ConnectorProcedureOps;
@@ -321,6 +322,30 @@ public interface Connector extends Closeable {
      * connectors that cache nothing.
      */
     default void invalidateDb(String dbName) {
+    }
+
+    /**
+     * Invalidates the connector-side caches for specific partitions of a table so a subsequent read
+     * reflects the latest external state. Driven by the engine's metastore-event sync when partitions
+     * are added/dropped/altered. The names are the REMOTE db/table names and canonical partition names
+     * ({@code "col=val/.../colN=valN"}); an empty/whole-table drop is expressed by
+     * {@link #invalidateTable(String, String)}. A connector whose partition cache cannot target a single
+     * name may degrade to invalidating the whole table's partition caches (correctness-safe when the
+     * cache re-lists on miss). Default no-op for connectors that cache nothing.
+     */
+    default void invalidatePartition(String dbName, String tableName, List<String> partitionNames) {
+    }
+
+    /**
+     * Returns this connector's incremental metadata-change source, or {@code null} if it has none.
+     * A capability-probe getter (mirrors {@link #getScanPlanProvider()} / {@link #getProcedureOps()}):
+     * the engine's single, connector-agnostic, role-aware event driver iterates catalogs and calls
+     * {@link ConnectorEventSource#pollOnce} only on connectors that expose a source, never via
+     * {@code instanceof}. The default returns {@code null}, so every connector without a metastore-event
+     * feed is unaffected.
+     */
+    default ConnectorEventSource getEventSource() {
+        return null;
     }
 
     /**
