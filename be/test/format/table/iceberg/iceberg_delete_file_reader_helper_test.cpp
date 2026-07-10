@@ -17,13 +17,17 @@
 
 #include "format/table/iceberg_delete_file_reader_helper.h"
 
+#include <arrow/api.h>
+#include <arrow/io/api.h>
 #include <gen_cpp/PlanNodes_types.h>
 #include <gen_cpp/Types_types.h>
 #include <gtest/gtest.h>
+#include <parquet/arrow/writer.h>
 
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <optional>
 #include <string>
 #include <thread>
 #include <unordered_map>
@@ -99,6 +103,45 @@ int64_t write_iceberg_deletion_vector_file(const std::string& file_path,
     return static_cast<int64_t>(blob.size());
 }
 
+std::string temp_parquet_path(const std::string& filename) {
+    return (std::filesystem::temp_directory_path() / filename).string();
+}
+
+void write_position_delete_parquet(const std::string& path,
+                                   const std::vector<std::optional<std::string>>& file_paths,
+                                   const std::vector<std::optional<int64_t>>& positions) {
+    ASSERT_EQ(file_paths.size(), positions.size());
+
+    arrow::StringBuilder path_builder;
+    arrow::Int64Builder pos_builder;
+    for (size_t i = 0; i < file_paths.size(); ++i) {
+        if (file_paths[i].has_value()) {
+            ASSERT_TRUE(path_builder.Append(*file_paths[i]).ok());
+        } else {
+            ASSERT_TRUE(path_builder.AppendNull().ok());
+        }
+        if (positions[i].has_value()) {
+            ASSERT_TRUE(pos_builder.Append(*positions[i]).ok());
+        } else {
+            ASSERT_TRUE(pos_builder.AppendNull().ok());
+        }
+    }
+
+    std::shared_ptr<arrow::Array> path_array;
+    std::shared_ptr<arrow::Array> pos_array;
+    ASSERT_TRUE(path_builder.Finish(&path_array).ok());
+    ASSERT_TRUE(pos_builder.Finish(&pos_array).ok());
+
+    auto schema = arrow::schema({arrow::field("file_path", arrow::utf8(), true),
+                                 arrow::field("pos", arrow::int64(), true)});
+    auto table = arrow::Table::Make(schema, {path_array, pos_array});
+
+    std::shared_ptr<arrow::io::FileOutputStream> output;
+    ASSERT_TRUE(arrow::io::FileOutputStream::Open(path).Value(&output).ok());
+    PARQUET_THROW_NOT_OK(
+            parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), output, 1024));
+}
+
 IcebergDeleteFileReaderOptions make_delete_file_reader_options(
         RuntimeState* state, RuntimeProfile* profile, const TFileScanRangeParams* scan_params,
         io::IOContext* io_ctx) {
@@ -108,6 +151,21 @@ IcebergDeleteFileReaderOptions make_delete_file_reader_options(
             .scan_params = scan_params,
             .io_ctx = io_ctx,
     };
+}
+
+IcebergDeleteFileReaderOptions delete_reader_options(RuntimeState* runtime_state,
+                                                     RuntimeProfile* profile,
+                                                     TFileScanRangeParams* scan_params,
+                                                     IcebergDeleteFileIOContext* io_context,
+                                                     FileMetaCache* meta_cache) {
+    IcebergDeleteFileReaderOptions options;
+    options.state = runtime_state;
+    options.profile = profile;
+    options.scan_params = scan_params;
+    options.io_ctx = &io_context->io_ctx;
+    options.meta_cache = meta_cache;
+    options.batch_size = 1024;
+    return options;
 }
 
 } // namespace
@@ -395,6 +453,69 @@ TEST(IcebergDeleteFileReaderHelperTest, ReadMixedEncodingParquetPositionDeleteFi
     const std::vector<int64_t> expected_positions = {0,  2,  4,  6,  8,  10, 12, 14,
                                                      16, 18, 20, 22, 24, 26, 28, 30};
     EXPECT_EQ(it->second, expected_positions);
+}
+
+TEST(IcebergDeleteFileReaderHelperTest, ReadOptionalParquetPositionDeleteColumnsWithoutNulls) {
+    const auto delete_file_path =
+            temp_parquet_path("iceberg_optional_position_delete_without_nulls.parquet");
+    write_position_delete_parquet(delete_file_path,
+                                  {std::string(kTargetDataFilePath),
+                                   std::string(kTargetDataFilePath), "s3://other/file.parquet"},
+                                  {3, 9, 11});
+
+    RuntimeProfile profile("test_profile");
+    RuntimeState runtime_state((TQueryOptions()), TQueryGlobals());
+    FileMetaCache meta_cache(1024);
+    IcebergDeleteFileIOContext io_context(&runtime_state);
+
+    TFileScanRangeParams scan_params;
+    scan_params.file_type = TFileType::FILE_LOCAL;
+    scan_params.format_type = TFileFormatType::FORMAT_PARQUET;
+
+    TIcebergDeleteFileDesc delete_file;
+    delete_file.path = delete_file_path;
+    delete_file.file_format = TFileFormatType::FORMAT_PARQUET;
+    delete_file.__isset.file_format = true;
+
+    CollectPositionDeleteVisitor visitor;
+    auto options =
+            delete_reader_options(&runtime_state, &profile, &scan_params, &io_context, &meta_cache);
+    auto st = read_iceberg_position_delete_file(delete_file, options, &visitor);
+
+    std::filesystem::remove(delete_file_path);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_EQ(visitor.total_rows, 3);
+    EXPECT_EQ(visitor.delete_rows[kTargetDataFilePath], std::vector<int64_t>({3, 9}));
+}
+
+TEST(IcebergDeleteFileReaderHelperTest, RejectParquetPositionDeleteColumnsWithActualNulls) {
+    const auto delete_file_path = temp_parquet_path("iceberg_position_delete_with_nulls.parquet");
+    write_position_delete_parquet(delete_file_path,
+                                  {std::string(kTargetDataFilePath), std::nullopt}, {3, 9});
+
+    RuntimeProfile profile("test_profile");
+    RuntimeState runtime_state((TQueryOptions()), TQueryGlobals());
+    FileMetaCache meta_cache(1024);
+    IcebergDeleteFileIOContext io_context(&runtime_state);
+
+    TFileScanRangeParams scan_params;
+    scan_params.file_type = TFileType::FILE_LOCAL;
+    scan_params.format_type = TFileFormatType::FORMAT_PARQUET;
+
+    TIcebergDeleteFileDesc delete_file;
+    delete_file.path = delete_file_path;
+    delete_file.file_format = TFileFormatType::FORMAT_PARQUET;
+    delete_file.__isset.file_format = true;
+
+    CollectPositionDeleteVisitor visitor;
+    auto options =
+            delete_reader_options(&runtime_state, &profile, &scan_params, &io_context, &meta_cache);
+    auto st = read_iceberg_position_delete_file(delete_file, options, &visitor);
+
+    std::filesystem::remove(delete_file_path);
+    ASSERT_FALSE(st.ok());
+    EXPECT_NE(st.to_string().find("file_path contains null values"), std::string::npos)
+            << st.to_string();
 }
 
 } // namespace doris
