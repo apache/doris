@@ -26,7 +26,7 @@ Legend：⬜ todo / 🔄 in progress / ✅ done / ⏸ 挂起(需决策/live)
 | # | id | 严重度 | 模块 | 一句话 | 设计 | 实现 | build+UT | 状态 |
 |---|----|-------|------|--------|------|------|----------|------|
 | 1 | **H1** | 🔴高 | hudi**+hive** | 分区名不 unescape→丢行 | ✅ | ✅ | ✅ | ✅ |
-| 2 | **H2** | 🔴高 | hudi | datetime 分区谓词 ISO→0 行 | ⬜ | ⬜ | ⬜ | ⬜ |
+| 2 | **H2** | 🔴高 | hudi**+hive** | datetime 分区谓词 ISO→0 行 | ✅ | ✅ | ✅ | ✅ |
 | 3 | **H3** | 🔴高 | hudi | HMS 名当存储路径→非 hive-style 带 filter 0 split | ⬜ | ⬜ | ⬜ | ⬜ |
 | 4 | **H4** | 🔴高 | hudi | 混大小写 Avro→JNI 崩 | ✅ | ✅ | ✅ | ✅ |
 | 5 | **M1** | 🟠中 | fe-core | TABLESAMPLE 插件路径静默全表扫 | ⬜ | ⬜ | ⬜ | ⬜ |
@@ -85,7 +85,7 @@ Legend：⬜ todo / 🔄 in progress / ✅ done / ⏸ 挂起(需决策/live)
 - **Test intent**:`HudiPartitionPruningTest` 加 HMS 名 `ts=2024-01-01 10%3A00%3A00` + 谓词 `ts='2024-01-01 10:00:00'`,断言命中(RED:被剪)。live e2e gated。
 
 ### H2 — hudi datetime 分区谓词 ISO 化 → 0 行 · reverify §2 H2
-- [ ] **H2**
+- [x] **H2**(hive+hudi 两份) · DONE `cf540eebc3c`(设计 `designs/FIX-H2-design.md`，含设计红队 SOUND)
 - **现码**:`ExprToConnectorExpressionConverter.convertDateLiteral:309-322`(非 DATE→`LocalDateTime`)+ `HudiConnectorMetadata.extractLiteralValue:1030-1036`(`String.valueOf`→`2024-01-01T10:00`)+ `matchesPredicates:1067` 字符串比 HMS `2024-01-01 10:00:00`。
 - **Fix**:时间类型不做字符串剪枝——`extractLiteralValue` 按 Hive 规范文本(空格分隔、全 `HH:mm:ss[.ffffff]`)渲染 `LocalDateTime`;更优:`matchesPredicates` type-aware 或对时间列退回 fe-core typed Nereids 剪枝。
 - **Files**:`HudiConnectorMetadata.java`(时间渲染逻辑;必要时连带 `extractLiteralValue`)。
@@ -231,3 +231,4 @@ Legend：⬜ todo / 🔄 in progress / ✅ done / ⏸ 挂起(需决策/live)
 
 - **H4** DONE `03f4c12dffa` — lowercase JNI reader 列名(hudi-only;`jniColumnNames` helper + UT)。
 - **H1** DONE `39a279e7c26` — hive+hudi 剪枝 `parsePartitionName` unescape 值(两份就地各修;widen `unescapePathName`;直接单测跨 H3 稳定 + hive e2e applyFilter 测)。
+- **H2** DONE `cf540eebc3c` — hive+hudi `extractLiteralValue` 对 `LocalDateTime` 渲 Hive-canonical 空格文本(`hiveDateTimeString` helper;设计红队 SOUND+实证 fixture `run17.hql`;H1+H2 复合 e2e 测)。
