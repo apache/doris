@@ -108,6 +108,52 @@ instructions as well; this file adds format-v2-specific review expectations.
 - For JNI readers, review local/global reference lifetime, exception propagation, type conversion,
   thread attachment assumptions, and cleanup on partial initialization.
 
+## Parquet Multi-Level Filtering
+
+- Use the [Parquet scan design](../../../docs/file-scanner-v2-parquet-scan-design.md) as the detailed
+  reference. Trace each affected predicate through localization, Row Group planning, Page ranges,
+  row-level residual evaluation, and final selected-column materialization.
+- Apply the correctness rule at every pruning layer: discard data only when the available metadata
+  proves it cannot match. Missing, malformed, truncated, unsupported, or unsafe metadata must keep
+  the candidate range and fall back to a more precise layer.
+- At Row Group level, check Split ownership and file-global row offsets, then verify Statistics,
+  Dictionary, and Bloom pruning independently. Statistics must respect logical type conversion,
+  null counts, NaN, truncated bounds, sort order, and writer validity. Dictionary pruning requires
+  complete compatible encoding. Bloom may prove absence only; a hit is never a matching row.
+- Preserve the cost order from cheap to expensive. Footer Statistics should reduce candidates before
+  Dictionary/Bloom I/O, and ColumnIndex/OffsetIndex should be read only for surviving Row Groups.
+  Flag index work whose cost is paid for ranges already known to be irrelevant.
+- At Page level, require compatible ColumnIndex and OffsetIndex semantics. Check page-to-row mapping,
+  first/last row boundaries, empty or all-null pages, multi-column range intersection, and conversion
+  from logical `selected_ranges` to each leaf reader's physical `page_skip_plan`.
+- Page skipping must keep every column reader aligned. Skipping values or pages must advance value,
+  definition, and repetition state consistently, especially for nested/repeated columns whose Page
+  boundaries do not align across leaves. Missing or inconsistent indexes must retain the affected
+  pages instead of guessing their row coverage.
+- At Row/Batch level, keep SelectionVector positions aligned with the original Row Group rows across
+  dictionary-ID filters, incremental single-column predicates, residual multi-column expressions,
+  delete conjuncts, and output materialization. Physical row positions used by deletes or virtual
+  columns must not be renumbered after Row Group/Page pruning.
+- Only split or reorder predicates when equivalence, error behavior, and evaluation state are
+  preserved. OR expressions, stateful expressions, exception-sensitive operations, and predicates
+  not exactly covered by an index must remain in the residual VExpr path.
+- Verify lazy materialization actually avoids reading and decoding non-predicate columns for rejected
+  rows while still advancing all readers correctly. Predicate columns should be read/prefetched
+  first; output-column prefetch should wait for surviving rows when filtering is active.
+- Review I/O and cache behavior together with pruning: register Parquet Page Cache ranges only for
+  surviving projected Column Chunks, require a stable file-version key, and check FileCache,
+  MergeRange, prefetch, request count, and read amplification rather than cache hit rate alone.
+- Require Profile counters/timers that make each layer observable: candidates and pruned units by
+  Statistics/Dictionary/Bloom, Page Index selected ranges and skipped rows/pages, raw and filtered
+  rows, dictionary-row filtering, lazy-read savings, cache sources, and remote I/O/request counts.
+- Require differential correctness tests against the same scan with the relevant optimization
+  disabled. Cover absent/invalid statistics, missing or partial Page Index, mixed dictionary/plain
+  encoding, Bloom false positives, NULL/NaN/type-conversion edges, cross-Page batches, nested and
+  repeated columns, multiple Row Groups/Splits, all rows filtered, and no rows filtered.
+- For performance claims, verify both pruning effectiveness and its cost with representative file
+  layout, selectivity, writer, remote storage, and warm/cold cache states. A low pruning ratio on
+  unsorted data is not itself a Reader regression.
+
 ## External Compatibility
 
 - Treat the external table-format specification and the behavior of supported external writers as
