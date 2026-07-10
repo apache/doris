@@ -78,8 +78,8 @@ public:
                       std::string prefix, std::string endpoint,
                       std::shared_ptr<GcpAdcTokenProvider> bearer_token_provider = nullptr)
             : client_(std::move(client)),
-              endpoint_(std::move(endpoint)),
-              bearer_token_provider_(std::move(bearer_token_provider)) {
+              bearer_token_provider_(std::move(bearer_token_provider)),
+              endpoint_(std::move(endpoint)) {
         req_.WithBucket(std::move(bucket)).WithPrefix(std::move(prefix));
         TEST_SYNC_POINT_CALLBACK("S3ObjListIterator", &req_);
     }
