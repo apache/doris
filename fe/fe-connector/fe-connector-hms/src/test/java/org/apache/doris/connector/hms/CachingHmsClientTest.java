@@ -25,8 +25,10 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Tests {@link CachingHmsClient}: the caching decorator over an {@link HmsClient}.
@@ -114,24 +116,79 @@ public class CachingHmsClientTest {
     // ---- getPartitions ----
 
     @Test
-    public void getPartitionsCachesByRequestedNameList() {
+    public void getPartitionsSharesPerPartitionEntriesAcrossRequests() {
         RecordingHmsClient delegate = new RecordingHmsClient();
         CachingHmsClient cache = new CachingHmsClient(delegate, Collections.emptyMap());
 
-        List<String> names = Arrays.asList("p=1", "p=2");
-        List<HmsPartitionInfo> a = cache.getPartitions("db", "t", names);
-        List<HmsPartitionInfo> b = cache.getPartitions("db", "t", new ArrayList<>(names));
-        // WHY: same requested set+order hits even if the caller passes a fresh list instance.
-        Assertions.assertSame(a, b);
+        // First request loads BOTH partitions in one delegate round-trip and caches each PER PARTITION.
+        List<HmsPartitionInfo> a = cache.getPartitions("db", "t", Arrays.asList("p=1", "p=2"));
+        Assertions.assertEquals(2, a.size());
         Assertions.assertEquals(1, delegate.getPartitionsCalls);
 
-        // WHY: a different requested set is a distinct entry (RPC-argument granularity).
+        // WHY (Rule 9 / the D2 fix): an OVERLAPPING subset request must be served entirely from the shared
+        // per-partition entries — no new delegate call. The OLD list-keyed cache re-fetched any distinct
+        // request list (this was `getPartitionsCalls == 2` here); a mutation reverting to list keying —
+        // storing the whole list under a request-name-list key — makes this re-fetch and go red.
         cache.getPartitions("db", "t", Arrays.asList("p=1"));
-        Assertions.assertEquals(2, delegate.getPartitionsCalls);
+        Assertions.assertEquals(1, delegate.getPartitionsCalls,
+                "p=1 is served from the shared per-partition entry (no re-fetch)");
 
-        // WHY: the key is order-sensitive by design (no reorder assembly) — reversed order re-loads.
-        cache.getPartitions("db", "t", Arrays.asList("p=2", "p=1"));
-        Assertions.assertEquals(3, delegate.getPartitionsCalls);
+        // WHY: order-independent too (the old list key was order-sensitive and re-loaded on a reversed list);
+        // both partitions are already cached, so a reversed request still hits.
+        List<HmsPartitionInfo> rev = cache.getPartitions("db", "t", Arrays.asList("p=2", "p=1"));
+        Assertions.assertEquals(2, rev.size());
+        Assertions.assertEquals(1, delegate.getPartitionsCalls, "reversed order still hits the shared entries");
+
+        // WHY: only a genuinely new partition triggers a delegate fetch — and ONLY for the miss (p=1 stays
+        // cached), proving misses are fetched in one round-trip while hits are served locally.
+        cache.getPartitions("db", "t", Arrays.asList("p=1", "p=3"));
+        Assertions.assertEquals(2, delegate.getPartitionsCalls, "only the new p=3 is fetched; p=1 stays cached");
+        Assertions.assertEquals(Arrays.asList("p=3"), delegate.lastGetPartitionsArg,
+                "the delegate is asked for the MISS only, not the whole requested list");
+    }
+
+    @Test
+    public void getPartitionsOmitsMissingPartitionWithoutNegativeCaching() {
+        RecordingHmsClient delegate = new RecordingHmsClient();
+        delegate.absentPartitionNames.add("p=9"); // HMS has no such partition -> omitted from the response
+        CachingHmsClient cache = new CachingHmsClient(delegate, Collections.emptyMap());
+
+        List<HmsPartitionInfo> r = cache.getPartitions("db", "t", Arrays.asList("p=1", "p=9"));
+        // WHY: a non-existent partition is OMITTED (get_partitions_by_names parity), never fabricated.
+        Assertions.assertEquals(1, r.size(), "the absent partition is omitted, not fabricated");
+        Assertions.assertEquals(1, delegate.getPartitionsCalls);
+
+        // WHY (Rule 9): the missing p=9 must NOT be negative-cached — a later request re-attempts it (so once
+        // the partition is created + REFRESH'd it is picked up). Only p=9 re-fetches; p=1 stays cached.
+        cache.getPartitions("db", "t", Arrays.asList("p=1", "p=9"));
+        Assertions.assertEquals(2, delegate.getPartitionsCalls,
+                "the absent partition is re-attempted (no negative cache); p=1 still hits");
+        Assertions.assertEquals(Arrays.asList("p=9"), delegate.lastGetPartitionsArg);
+    }
+
+    @Test
+    public void getPartitionsStaysCorrectWhenParsedNameDivergesFromStoredValues() {
+        // Pathological: the delegate returns a partition whose values do NOT match the requested name's parse
+        // (models a value the name-parse cannot round-trip). The decorator keys the STORE by the partition's
+        // OWN values but the LOOKUP by the parsed name, so they never match -> the partition is re-fetched
+        // every time. WHY (Rule 9 / Rule 12): this pins the safety contract — a parse divergence degrades to a
+        // reload (perf), NEVER a wrong or dropped partition. A mutation that keyed the STORE by the parsed name
+        // instead would make the lookup "hit" a mis-keyed entry (or drop the partition) -> the size/values
+        // asserts go red.
+        RecordingHmsClient delegate = new RecordingHmsClient();
+        delegate.forcedValues = Arrays.asList("EXOTIC"); // stored values != parse("p=1") == ["1"]
+        CachingHmsClient cache = new CachingHmsClient(delegate, Collections.emptyMap());
+
+        List<HmsPartitionInfo> r1 = cache.getPartitions("db", "t", Arrays.asList("p=1"));
+        Assertions.assertEquals(1, r1.size(), "the partition is returned even though its values diverge from the name");
+        Assertions.assertEquals(Arrays.asList("EXOTIC"), r1.get(0).getValues());
+        Assertions.assertEquals(1, delegate.getPartitionsCalls);
+
+        List<HmsPartitionInfo> r2 = cache.getPartitions("db", "t", Arrays.asList("p=1"));
+        Assertions.assertEquals(1, r2.size());
+        Assertions.assertEquals("EXOTIC", r2.get(0).getValues().get(0));
+        Assertions.assertEquals(2, delegate.getPartitionsCalls,
+                "divergence degrades to a reload, never a wrong/dropped result");
     }
 
     // ---- column statistics ----
@@ -366,6 +423,14 @@ public class CachingHmsClientTest {
         int dropTableCalls;
         int closeCalls;
         RuntimeException getTableError;
+        // Partition names the fake has NO partition for (mirrors HMS omitting non-existent partitions).
+        final Set<String> absentPartitionNames = new HashSet<>();
+        // When set, every returned partition carries these exact values regardless of the requested name
+        // (used to model a value the name-parse cannot round-trip, exercising the store-by-real-values path).
+        List<String> forcedValues;
+        // The partition-name list the decorator actually asked the delegate for on the LAST getPartitions call
+        // (so a test can assert the decorator fetches only the MISSES, not the whole requested list).
+        List<String> lastGetPartitionsArg;
 
         @Override
         public HmsTableInfo getTable(String dbName, String tableName) {
@@ -385,11 +450,29 @@ public class CachingHmsClientTest {
         @Override
         public List<HmsPartitionInfo> getPartitions(String dbName, String tableName, List<String> partNames) {
             getPartitionsCalls++;
+            lastGetPartitionsArg = new ArrayList<>(partNames);
             List<HmsPartitionInfo> out = new ArrayList<>();
-            for (int i = 0; i < partNames.size(); i++) {
-                out.add(new HmsPartitionInfo(Arrays.asList("v"), "loc", null, null, null, null));
+            for (String name : partNames) {
+                if (absentPartitionNames.contains(name)) {
+                    continue; // no such partition -> omitted (get_partitions_by_names parity)
+                }
+                // The partition's OWN values must correspond to its name ("k=v/..." -> ["v", ...]) so the
+                // decorator can key it per-partition the same way it parses the lookup name; forcedValues
+                // overrides this to model a value the name-parse cannot round-trip.
+                List<String> values = forcedValues != null ? forcedValues : valuesOf(name);
+                out.add(new HmsPartitionInfo(values, "loc/" + name, null, null, null, null));
             }
             return out;
+        }
+
+        // "p=1" -> ["1"]; "k1=a/k2=b" -> ["a", "b"] (simple split; test names carry no escaped characters).
+        private static List<String> valuesOf(String partitionName) {
+            List<String> values = new ArrayList<>();
+            for (String seg : partitionName.split("/")) {
+                int eq = seg.indexOf('=');
+                values.add(eq >= 0 ? seg.substring(eq + 1) : seg);
+            }
+            return values;
         }
 
         @Override

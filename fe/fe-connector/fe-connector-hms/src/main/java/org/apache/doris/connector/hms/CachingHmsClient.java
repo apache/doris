@@ -20,6 +20,8 @@ package org.apache.doris.connector.hms;
 import org.apache.doris.connector.cache.CacheSpec;
 import org.apache.doris.connector.cache.MetaCacheEntry;
 
+import org.apache.hadoop.hive.common.FileUtils;
+
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -50,10 +52,13 @@ import java.util.function.Function;
  *   <li>{@code listPartitionNames} — keyed by {@code (db, table, maxParts)} → partition-name list. Real
  *       callers pass the unbounded {@code maxParts}, so this is effectively one entry per table; keeping
  *       {@code maxParts} in the key keeps a bounded request from ever being served a fuller list.</li>
- *   <li>{@code getPartitions} — keyed by {@code (db, table, requested-name-list)} → partition list. This is
- *       RPC-argument granularity: a different requested set is a separate entry (no cross-request
- *       assembly). {@link HmsPartitionInfo} carries {@code transient_lastDdlTime} in its parameters, which
- *       a later step reads through this cache for the table max-modify-time.</li>
+ *   <li>{@code getPartitions} — one entry PER PARTITION, keyed by {@code (db, table, partition-values)} →
+ *       {@link HmsPartitionInfo}. A bulk request looks up each requested name (parsed to its values) and
+ *       fetches only the misses in a single delegate call, storing each returned partition under its OWN
+ *       values — so overlapping requests SHARE partition entries and the capacity bounds partition OBJECTS
+ *       (legacy {@code HiveExternalMetaCache} / Trino {@code CachingHiveMetastore} shape), not request-lists.
+ *       {@link HmsPartitionInfo} carries {@code transient_lastDdlTime} in its parameters, which a later step
+ *       reads through this cache for the table max-modify-time.</li>
  *   <li>{@code getTableColumnStatistics} — keyed by {@code (db, table, requested-column-list)} → the
  *       (possibly sparse or empty) stats list. Same RPC-argument granularity; the empty-list "no stats"
  *       result is a legitimate cached value (only {@code null} loads are skipped). This is the planner
@@ -108,7 +113,7 @@ public class CachingHmsClient implements HmsClient {
     private final HmsClient delegate;
     private final MetaCacheEntry<TableKey, HmsTableInfo> tableCache;
     private final MetaCacheEntry<PartitionNamesKey, List<String>> partitionNamesCache;
-    private final MetaCacheEntry<PartitionsKey, List<HmsPartitionInfo>> partitionsCache;
+    private final MetaCacheEntry<PartitionKey, HmsPartitionInfo> partitionsCache;
     private final MetaCacheEntry<ColumnStatsKey, List<HmsColumnStatistics>> columnStatsCache;
 
     public CachingHmsClient(HmsClient delegate, Map<String, String> properties) {
@@ -147,8 +152,67 @@ public class CachingHmsClient implements HmsClient {
 
     @Override
     public List<HmsPartitionInfo> getPartitions(String dbName, String tableName, List<String> partNames) {
-        return partitionsCache.get(new PartitionsKey(dbName, tableName, partNames),
-                key -> delegate.getPartitions(key.dbName, key.tableName, key.partNames));
+        if (partNames == null || partNames.isEmpty()) {
+            return Collections.emptyList();
+        }
+        // Per-partition assembly (Trino CachingHiveMetastore / legacy HiveExternalMetaCache shape): serve each
+        // requested partition from its own entry and fetch only the misses in ONE delegate round-trip, so
+        // overlapping requests share partition objects and the capacity bounds partition OBJECTS, not
+        // request-lists. Correctness is independent of name-parse fidelity: a LOOKUP is keyed by the requested
+        // name parsed to values, but a STORE is always keyed by the partition's OWN values, so a name whose
+        // parse diverges (a rare escaped value) simply misses and is re-fetched — never a wrong or dropped
+        // partition. Callers consume the result as a SET (they never rely on order or 1:1 name↔result
+        // correspondence — the delegate get_partitions_by_names never guaranteed either).
+        List<HmsPartitionInfo> result = new ArrayList<>(partNames.size());
+        List<String> missNames = null;
+        for (String name : partNames) {
+            HmsPartitionInfo hit =
+                    partitionsCache.getIfPresent(new PartitionKey(dbName, tableName, toPartitionValues(name)));
+            if (hit != null) {
+                result.add(hit);
+            } else {
+                if (missNames == null) {
+                    missNames = new ArrayList<>();
+                }
+                missNames.add(name);
+            }
+        }
+        if (missNames != null) {
+            for (HmsPartitionInfo info : delegate.getPartitions(dbName, tableName, missNames)) {
+                partitionsCache.put(new PartitionKey(dbName, tableName, info.getValues()), info);
+                result.add(info);
+            }
+        }
+        return result;
+    }
+
+    /**
+     * Splits a Hive partition name ("c1=a/c2=b") into its ordered values ("a", "b"), unescaping each via
+     * Hive's {@code FileUtils} (already a hms-module dependency — {@code HmsEventParser} uses it). Semantics
+     * match the write path's {@code HiveWriteUtils.toPartitionValues}, so scan and write correlate partitions
+     * identically. Only used to build the per-partition LOOKUP key: a parse that diverges from the stored
+     * partition's own values just misses and re-fetches (never a wrong/dropped partition), so this is a
+     * hit-rate optimization, not a correctness dependency.
+     */
+    private static List<String> toPartitionValues(String partitionName) {
+        List<String> values = new ArrayList<>();
+        int start = 0;
+        while (true) {
+            while (start < partitionName.length() && partitionName.charAt(start) != '=') {
+                start++;
+            }
+            start++;
+            int end = start;
+            while (end < partitionName.length() && partitionName.charAt(end) != '/') {
+                end++;
+            }
+            if (start > partitionName.length()) {
+                break;
+            }
+            values.add(FileUtils.unescapePathName(partitionName.substring(start, end)));
+            start = end + 1;
+        }
+        return values;
     }
 
     @Override
@@ -378,19 +442,20 @@ public class CachingHmsClient implements HmsClient {
         }
     }
 
-    static final class PartitionsKey {
+    static final class PartitionKey {
         private final String dbName;
         private final String tableName;
-        // Order-sensitive, defensively copied: same requested list (same order) → hit; a different set or
-        // order → separate entry. Simple and correct (no partition-name reconstruction from values).
-        private final List<String> partNames;
+        // ONE partition's ordered values (defensively copied). The cache stores one entry per partition keyed
+        // by these values (legacy / Trino per-partition shape), so the capacity bounds partition OBJECTS and
+        // overlapping requests share entries rather than duplicating partitions across request-list keys.
+        private final List<String> values;
 
-        PartitionsKey(String dbName, String tableName, List<String> partNames) {
+        PartitionKey(String dbName, String tableName, List<String> values) {
             this.dbName = dbName;
             this.tableName = tableName;
-            this.partNames = partNames == null
+            this.values = values == null
                     ? Collections.emptyList()
-                    : Collections.unmodifiableList(new ArrayList<>(partNames));
+                    : Collections.unmodifiableList(new ArrayList<>(values));
         }
 
         boolean matches(String db, String table) {
@@ -406,18 +471,18 @@ public class CachingHmsClient implements HmsClient {
             if (this == o) {
                 return true;
             }
-            if (!(o instanceof PartitionsKey)) {
+            if (!(o instanceof PartitionKey)) {
                 return false;
             }
-            PartitionsKey that = (PartitionsKey) o;
+            PartitionKey that = (PartitionKey) o;
             return Objects.equals(dbName, that.dbName)
                     && Objects.equals(tableName, that.tableName)
-                    && Objects.equals(partNames, that.partNames);
+                    && Objects.equals(values, that.values);
         }
 
         @Override
         public int hashCode() {
-            return Objects.hash(dbName, tableName, partNames);
+            return Objects.hash(dbName, tableName, values);
         }
     }
 
