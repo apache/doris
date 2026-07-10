@@ -31,6 +31,7 @@
 #include "exec/exchange/vdata_stream_mgr.h"
 #include "exec/operator/multi_cast_data_streamer.h"
 #include "exec/pipeline/dependency.h"
+#include "runtime/memory/mem_tracker.h"
 #include "testutil/column_helper.h"
 #include "testutil/mock/mock_runtime_state.h"
 
@@ -166,6 +167,57 @@ TEST_F(DataStreamRecvrTest, TestSender) {
         EXPECT_TRUE(st) << st.msg();
         EXPECT_TRUE(eos);
     }
+
+    sender->close();
+}
+
+// Regression test for a local-exchange backpressure deadlock.
+//
+// The per-queue local-channel dependency is a backpressure gate: it is blocked while the
+// receiver queue holds too many bytes and released once the queue drains. The release
+// decision used to rely *only* on the byte-based exceeds_limit(). If the queue's byte
+// accounting (_queue_mem_tracker) ever drifts above what _block_queue actually holds, then
+// exceeds_limit() keeps reporting "over limit" even after the queue is fully drained, so the
+// dependency is never released. That deadlocks the local sender (which then never delivers
+// its remaining data / EOS) against the merging exchange source dependency, which waits
+// forever on the now-empty queue -- the whole query hangs until the client socket times out.
+//
+// The fix makes an EMPTY queue a sufficient release condition on its own. This test drives
+// exactly that state: an empty _block_queue while exceeds_limit() still reports true.
+TEST_F(DataStreamRecvrTest, EmptyQueueReleasesLocalChannelBackpressure) {
+    create_recvr(1, false);
+    auto* sender = recvr->sender_queues().back();
+
+    auto sink_dep = sender->_local_channel_dependency;
+    auto source_dep = std::make_shared<Dependency>(0, 0, "test", false);
+    sender->set_dependency(source_dep);
+    ASSERT_TRUE(sink_dep->ready());
+
+    // Push one block (mem limit is 1 byte, so this trips backpressure) and then simulate the
+    // byte-accounting drift: extra bytes consumed into the queue tracker that _block_queue
+    // will never release.
+    {
+        auto block = ColumnHelper::create_block<DataTypeInt32>({1, 2, 3, 4, 5});
+        sender->add_block(&block, false);
+    }
+    sender->_queue_mem_tracker->consume(1024);
+    EXPECT_FALSE(sink_dep->ready());
+    EXPECT_EQ(sender->_block_queue.size(), 1);
+
+    // Drain the only block; the queue is now empty.
+    {
+        Block block;
+        bool eos = false;
+        auto st = sender->get_batch(&block, &eos);
+        EXPECT_TRUE(st) << st.msg();
+    }
+    EXPECT_EQ(sender->_block_queue.size(), 0);
+
+    // The injected drift keeps the byte-based limit "exceeded" even though the queue is empty.
+    EXPECT_TRUE(sender->exceeds_limit());
+    // An empty queue must nonetheless release the local-channel dependency so the sender can
+    // proceed. Before the fix this stays false and the sender deadlocks.
+    EXPECT_TRUE(sink_dep->ready());
 
     sender->close();
 }
