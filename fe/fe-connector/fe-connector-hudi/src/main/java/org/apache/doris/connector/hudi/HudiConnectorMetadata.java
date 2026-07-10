@@ -47,6 +47,7 @@ import org.apache.avro.Schema;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.table.TableSchemaResolver;
+import org.apache.hudi.common.table.timeline.HoodieInstant;
 import org.apache.hudi.common.util.Option;
 import org.apache.hudi.internal.schema.InternalSchema;
 import org.apache.hudi.internal.schema.Types;
@@ -56,6 +57,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.AbstractMap;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -689,6 +691,33 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
         return metaClientExecutor.execute(() ->
                 HudiScanPlanProvider.latestCompletedInstant(
                         HudiScanPlanProvider.buildMetaClient(buildHadoopConf(), handle.getBasePath())));
+    }
+
+    /**
+     * Engine-neutral rows for the {@code hudi_meta()} / TIMELINE metadata table: one row per instant of the FULL
+     * active timeline (all states, NOT the completed-only helper — the TVF shows a {@code state} column), each
+     * mapped to the 4 String cells the TVF renders (requestedTime / action / state / completionTime). The metaClient
+     * touch runs under the plugin auth + TCCL pin (like {@link #latestInstant} / {@link #collectPartitions}), so
+     * fe-core adds no pin of its own. {@code completionTime} is {@code null} for a non-completed instant (rendered
+     * SQL NULL) — byte-parity with the legacy fe-core inline loop. Unknown {@code kind} returns nothing.
+     */
+    @Override
+    public List<List<String>> getMetadataTableRows(ConnectorSession session, ConnectorTableHandle handle,
+            String kind) {
+        if (!"timeline".equals(kind)) {
+            return Collections.emptyList();
+        }
+        HudiTableHandle hudiHandle = (HudiTableHandle) handle;
+        return metaClientExecutor.execute(() -> {
+            HoodieTableMetaClient metaClient =
+                    HudiScanPlanProvider.buildMetaClient(buildHadoopConf(), hudiHandle.getBasePath());
+            List<List<String>> rows = new ArrayList<>();
+            for (HoodieInstant instant : metaClient.getActiveTimeline().getInstants()) {
+                rows.add(Arrays.asList(instant.requestedTime(), instant.getAction(),
+                        instant.getState().name(), instant.getCompletionTime()));
+            }
+            return rows;
+        });
     }
 
     private boolean useHiveSyncPartition() {

@@ -45,6 +45,7 @@ import org.apache.hudi.storage.hadoop.HadoopStorageConfiguration;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
@@ -101,6 +102,25 @@ public class HudiExternalMetaCache extends AbstractExternalMetaCache {
 
     public HoodieTableMetaClient getHoodieTableMetaClient(NameMapping nameMapping) {
         return metaClientEntry.get(nameMapping.getCtlId()).get(HudiMetaClientCacheKey.of(nameMapping));
+    }
+
+    /**
+     * Engine-neutral rows for the {@code hudi_meta()} / TIMELINE TVF for a LEGACY hms-backed hudi table: one row
+     * per instant of the full active timeline mapped to (requestedTime, action, state, completionTime), the same
+     * 4 String cells the TVF renders (completionTime null for a non-completed instant -> SQL NULL). Relocated here
+     * (this class already touches the hudi timeline and is part of the legacy delete-unit) so
+     * {@code MetadataGenerator} sheds its {@code org.apache.hudi} imports; byte-parity with the former inline loop.
+     * The flipped (plugin-driven) hudi table takes the connector path instead ({@code
+     * HudiConnectorMetadata.getMetadataTableRows}). Removed wholesale at the delete step with the legacy hudi package.
+     */
+    public List<List<String>> getTimelineRows(NameMapping nameMapping) {
+        HoodieTimeline timeline = getHoodieTableMetaClient(nameMapping).getActiveTimeline();
+        List<List<String>> rows = new ArrayList<>();
+        for (HoodieInstant instant : timeline.getInstants()) {
+            rows.add(Arrays.asList(instant.requestedTime(), instant.getAction(),
+                    instant.getState().name(), instant.getCompletionTime()));
+        }
+        return rows;
     }
 
     public HoodieTableFileSystemView getFsView(NameMapping nameMapping) {

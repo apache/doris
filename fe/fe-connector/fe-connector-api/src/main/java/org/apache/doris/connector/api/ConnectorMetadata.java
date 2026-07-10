@@ -228,6 +228,22 @@ public interface ConnectorMetadata extends
         return handle;  // default: connectors without column-pruned scan metadata ignore the signal
     }
 
+    /**
+     * Engine-neutral rows for a connector metadata table (e.g. the hudi commit timeline), one row per record in
+     * the fixed column order the table-valued function declares. The TVF owns the column schema; the connector
+     * returns only the {@code String} cell values in that order (a {@code null} cell renders as SQL NULL).
+     * {@code kind} selects the metadata table (currently only {@code "timeline"}).
+     *
+     * <p>Default empty: a connector without a metadata table returns nothing. The plugin-driven TVF arm gates on
+     * {@link ConnectorCapability#SUPPORTS_METADATA_TABLE} before delegating here, so only a connector that
+     * declares the capability is ever asked. Connectors overriding this that read remote metadata off the
+     * planning thread must pin the TCCL to the plugin classloader themselves (fe-core does not).</p>
+     */
+    default List<List<String>> getMetadataTableRows(ConnectorSession session, ConnectorTableHandle handle,
+            String kind) {
+        return Collections.emptyList();
+    }
+
     @Override
     default void close() throws IOException {
     }

@@ -395,6 +395,25 @@ public class PluginDrivenExternalTableTest {
     }
 
     @Test
+    public void supportsMetadataTableReflectsConnectorCapability() {
+        // The hudi_meta() / TIMELINE TVF's plugin arm gates on this. Hudi declares it connector-wide; the hive
+        // gateway reflects it onto a hudi-on-HMS table via the per-table marker (both resolved by hasScanCapability).
+        // MUTATION: hard-coding it / reading a different capability -> a flipped hudi table's hudi_meta() rejects
+        // with "not a hudi table".
+        Assertions.assertTrue(pluginTableWithCapabilities(
+                EnumSet.of(ConnectorCapability.SUPPORTS_METADATA_TABLE)).supportsMetadataTable());
+        Assertions.assertTrue(pluginTableWithCapabilities(
+                EnumSet.noneOf(ConnectorCapability.class),
+                Collections.singletonMap(ConnectorTableSchema.PER_TABLE_CAPABILITIES_KEY,
+                        ConnectorCapability.SUPPORTS_METADATA_TABLE.name())).supportsMetadataTable());
+        Assertions.assertFalse(pluginTableWithCapabilities(
+                EnumSet.noneOf(ConnectorCapability.class)).supportsMetadataTable());
+        // Independent of the other capabilities: declaring metadata-table must NOT enable auto-analyze.
+        Assertions.assertFalse(pluginTableWithCapabilities(
+                EnumSet.of(ConnectorCapability.SUPPORTS_METADATA_TABLE)).supportsColumnAutoAnalyze());
+    }
+
+    @Test
     public void supportsTopNLazyMaterializeReflectsConnectorCapability() {
         Assertions.assertTrue(pluginTableWithCapabilities(
                 EnumSet.of(ConnectorCapability.SUPPORTS_TOPN_LAZY_MATERIALIZE)).supportsTopNLazyMaterialize());

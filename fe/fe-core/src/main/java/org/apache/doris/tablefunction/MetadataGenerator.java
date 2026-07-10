@@ -126,8 +126,6 @@ import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.gson.Gson;
-import org.apache.hudi.common.table.timeline.HoodieInstant;
-import org.apache.hudi.common.table.timeline.HoodieTimeline;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
@@ -457,32 +455,42 @@ public class MetadataGenerator {
             return errorResult("The specified db or table does not exist");
         }
 
-        if (!(dorisTable instanceof HMSExternalTable)) {
-            return errorResult("The specified table is not a hudi table: " + hudiMetadataParams.getTable());
+        if (hudiQueryType != THudiQueryType.TIMELINE) {
+            return errorResult("Unsupported hudi inspect type: " + hudiQueryType);
         }
 
-        HMSExternalTable hudiTable = (HMSExternalTable) dorisTable;
-        List<TRow> dataBatch = Lists.newArrayList();
-        TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
-
-        switch (hudiQueryType) {
-            case TIMELINE:
-                HoodieTimeline timeline = Env.getCurrentEnv().getExtMetaCacheMgr()
-                        .hudi(catalog.getId())
-                        .getHoodieTableMetaClient(hudiTable.getOrBuildNameMapping())
-                        .getActiveTimeline();
-                for (HoodieInstant instant : timeline.getInstants()) {
-                    TRow trow = new TRow();
-                    trow.addToColumnValue(new TCell().setStringVal(instant.requestedTime()));
-                    trow.addToColumnValue(new TCell().setStringVal(instant.getAction()));
-                    trow.addToColumnValue(new TCell().setStringVal(instant.getState().name()));
-                    trow.addToColumnValue(new TCell().setStringVal(instant.getCompletionTime()));
-                    dataBatch.add(trow);
-                }
+        // Dual-arm on table type (mirrors partitionValuesMetadataResult): a LEGACY hms-backed hudi table is an
+        // HMSExternalTable served from HudiExternalMetaCache; a flipped hudi table is a PluginDrivenExternalTable
+        // served by its connector via the SUPPORTS_METADATA_TABLE SPI. Timeline iteration/parsing lives OUTSIDE
+        // this class in both arms, so MetadataGenerator no longer imports org.apache.hudi. The plugin arm is
+        // dormant until the hudi catalog is flipped; the HMS arm keeps serving the 4 p2 hudi_meta suites today.
+        List<List<String>> timelineRows;
+        switch (dorisTable.getType()) {
+            case HMS_EXTERNAL_TABLE:
+                timelineRows = Env.getCurrentEnv().getExtMetaCacheMgr().hudi(catalog.getId())
+                        .getTimelineRows(dorisTable.getOrBuildNameMapping());
                 break;
+            case PLUGIN_EXTERNAL_TABLE: {
+                PluginDrivenExternalTable pluginTable = (PluginDrivenExternalTable) dorisTable;
+                if (!pluginTable.supportsMetadataTable()) {
+                    return errorResult("The specified table is not a hudi table: " + hudiMetadataParams.getTable());
+                }
+                timelineRows = pluginTable.getMetadataTableRows("timeline");
+                break;
+            }
             default:
-                return errorResult("Unsupported hudi inspect type: " + hudiQueryType);
+                return errorResult("The specified table is not a hudi table: " + hudiMetadataParams.getTable());
         }
+
+        List<TRow> dataBatch = Lists.newArrayList();
+        for (List<String> row : timelineRows) {
+            TRow trow = new TRow();
+            for (String cell : row) {
+                trow.addToColumnValue(new TCell().setStringVal(cell));
+            }
+            dataBatch.add(trow);
+        }
+        TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
         result.setDataBatch(dataBatch);
         result.setStatus(new TStatus(TStatusCode.OK));
         return result;

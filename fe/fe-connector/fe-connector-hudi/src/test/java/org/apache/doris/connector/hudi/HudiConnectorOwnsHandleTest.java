@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector.hudi;
 
+import org.apache.doris.connector.api.ConnectorCapability;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.ConnectorContext;
 
@@ -24,6 +25,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
+import java.util.Set;
 
 /**
  * Pins {@link HudiConnector#ownsHandle} for the hms 3-way sibling routing: a flipped hms gateway embeds this
@@ -58,5 +60,17 @@ public class HudiConnectorOwnsHandleTest {
                 "a HudiTableHandle is owned by the hudi connector");
         Assertions.assertFalse(connector.ownsHandle(new ConnectorTableHandle() {
         }), "a foreign (non-hudi) handle is NOT owned by the hudi connector");
+    }
+
+    @Test
+    public void declaresMetadataTableCapabilityForTimeline() {
+        // WHY: the hudi_meta() / TIMELINE TVF's plugin-driven arm delegates only when the connector declares
+        // SUPPORTS_METADATA_TABLE (read via PluginDrivenExternalTable.hasScanCapability), and the hive gateway
+        // reflects it onto a hudi-on-HMS table's schema so hudi_meta keeps working through the sibling delegation.
+        // Every hudi table has a commit timeline, so it is connector-wide. MUTATION: dropping the capability -> a
+        // flipped hudi table's hudi_meta() returns "not a hudi table".
+        Set<ConnectorCapability> caps = connector().getCapabilities();
+        Assertions.assertTrue(caps.contains(ConnectorCapability.SUPPORTS_METADATA_TABLE),
+                "hudi declares the metadata-table capability so hudi_meta() works post-flip");
     }
 }

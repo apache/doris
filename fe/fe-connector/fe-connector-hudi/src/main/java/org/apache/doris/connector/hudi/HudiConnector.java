@@ -18,6 +18,7 @@
 package org.apache.doris.connector.hudi;
 
 import org.apache.doris.connector.api.Connector;
+import org.apache.doris.connector.api.ConnectorCapability;
 import org.apache.doris.connector.api.ConnectorMetadata;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.DorisConnectorException;
@@ -39,8 +40,10 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.util.Collections;
+import java.util.EnumSet;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.Callable;
 
 /**
@@ -129,6 +132,17 @@ public class HudiConnector implements Connector {
     @Override
     public boolean ownsHandle(ConnectorTableHandle handle) {
         return handle instanceof HudiTableHandle;
+    }
+
+    /**
+     * Every hudi table exposes its commit timeline via the {@code hudi_meta()} / TIMELINE TVF, so declare the
+     * metadata-table capability connector-wide. fe-core's plugin-driven {@code hudiMetadataResult} arm reads this
+     * (via {@code hasScanCapability}) to admit a flipped hudi table, and the hive gateway reflects it onto a
+     * hudi-on-HMS table's delegated schema so hudi_meta keeps working through the sibling delegation.
+     */
+    @Override
+    public Set<ConnectorCapability> getCapabilities() {
+        return EnumSet.of(ConnectorCapability.SUPPORTS_METADATA_TABLE);
     }
 
     @Override
