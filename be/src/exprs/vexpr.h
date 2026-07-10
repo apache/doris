@@ -176,6 +176,17 @@ public:
                            [](VExprSPtr child) { return child->is_blockable(); });
     }
 
+    [[nodiscard]] virtual bool is_deterministic() const {
+        return std::ranges::all_of(
+                _children, [](const VExprSPtr& child) { return child->is_deterministic(); });
+    }
+
+    [[nodiscard]] virtual bool is_safe_to_execute_on_selected_rows() const {
+        return is_deterministic() && std::ranges::all_of(_children, [](const VExprSPtr& child) {
+                   return child->is_safe_to_execute_on_selected_rows();
+               });
+    }
+
     // execute current expr with inverted index to filter block. Given a roaring bitmap of match rows
     virtual Status evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) {
         return Status::OK();

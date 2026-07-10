@@ -129,6 +129,10 @@ struct ParquetFileContext {
     bool set_random_access_ranges(const std::vector<ParquetPageCacheRange>& ranges,
                                   size_t avg_io_size, RuntimeProfile* profile,
                                   int64_t merge_read_slice_size);
+    // Restore Arrow ReadAt() to the base Doris file reader and flush any active merge-reader
+    // counters. Row-group setup uses this before dictionary-page probes, because those probes are
+    // a separate pass over the column chunk from the later Arrow RecordReader data-page stream.
+    void reset_random_access_ranges();
     ParquetPageCacheStats page_cache_stats() const;
     Status close();
 };

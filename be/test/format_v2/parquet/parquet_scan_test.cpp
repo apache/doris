@@ -146,9 +146,66 @@ private:
     const std::string _expr_name = "Int32ZoneMapExpr";
 };
 
+class Int32PairSumExpr final : public VExpr {
+public:
+    Int32PairSumExpr(int left_column_id, int right_column_id, int32_t upper_bound)
+            : VExpr(std::make_shared<DataTypeUInt8>(), false),
+              _left_column_id(left_column_id),
+              _right_column_id(right_column_id),
+              _upper_bound(upper_bound) {}
+
+    const std::string& expr_name() const override { return _expr_name; }
+
+    Status execute_column_impl(VExprContext*, const Block* block, const Selector* selector,
+                               size_t count, ColumnPtr& result_column) const override {
+        DORIS_CHECK(block != nullptr);
+        DORIS_CHECK(selector == nullptr);
+        DORIS_CHECK(_left_column_id >= 0 && _left_column_id < static_cast<int>(block->columns()));
+        DORIS_CHECK(_right_column_id >= 0 && _right_column_id < static_cast<int>(block->columns()));
+        const auto& left_column =
+                int32_data_column(*block->get_by_position(_left_column_id).column);
+        const auto& right_column =
+                int32_data_column(*block->get_by_position(_right_column_id).column);
+        DORIS_CHECK(left_column.size() >= count);
+        DORIS_CHECK(right_column.size() >= count);
+
+        auto result = ColumnUInt8::create(count, 0);
+        auto& result_data = result->get_data();
+        for (size_t row = 0; row < count; ++row) {
+            result_data[row] =
+                    left_column.get_element(row) + right_column.get_element(row) < _upper_bound;
+        }
+        result_column = std::move(result);
+        return Status::OK();
+    }
+
+    void collect_slot_column_ids(std::set<int>& column_ids) const override {
+        column_ids.insert(_left_column_id);
+        column_ids.insert(_right_column_id);
+    }
+
+private:
+    int _left_column_id;
+    int _right_column_id;
+    int32_t _upper_bound;
+    const std::string _expr_name = "Int32PairSumExpr";
+};
+
 VExprContextSPtr create_int32_zonemap_conjunct(int column_id, Int32ZoneMapExpr::Op op,
                                                int32_t value) {
     return VExprContext::create_shared(std::make_shared<Int32ZoneMapExpr>(column_id, op, value));
+}
+
+VExprContextSPtr create_int32_pair_sum_conjunct(int left_column_id, int right_column_id,
+                                                int32_t upper_bound) {
+    return VExprContext::create_shared(
+            std::make_shared<Int32PairSumExpr>(left_column_id, right_column_id, upper_bound));
+}
+
+int64_t counter_value(RuntimeProfile& profile, const std::string& name) {
+    auto* counter = profile.get_counter(name);
+    DORIS_CHECK(counter != nullptr);
+    return counter->value();
 }
 
 std::shared_ptr<arrow::Array> finish_array(arrow::ArrayBuilder* builder) {
@@ -379,6 +436,23 @@ protected:
     std::filesystem::path _test_dir;
     std::string _file_path;
 };
+
+TEST(ParquetScanSelectionTest, CompactFilterShrinksCurrentSelection) {
+    format::parquet::SelectionVector selection(4);
+    selection.set_index(0, 0);
+    selection.set_index(1, 2);
+    selection.set_index(2, 4);
+    selection.set_index(3, 5);
+
+    const IColumn::Filter compact_filter {1, 0, 1, 0};
+    const auto selected_rows =
+            format::parquet::apply_compact_filter_to_selection(compact_filter, &selection, 4);
+
+    ASSERT_EQ(selected_rows, 2);
+    EXPECT_EQ(selection.get_index(0), 0);
+    EXPECT_EQ(selection.get_index(1), 4);
+    EXPECT_TRUE(selection.verify(selected_rows, 6).ok());
+}
 
 TEST_F(ParquetScanTest, PlanRowGroupsAppliesScanRangeBeforeStatistics) {
     write_int_pair_parquet_file(_file_path, 2);
@@ -841,6 +915,134 @@ TEST_F(ParquetScanTest, NoRequestedColumnsReturnsRowsOnlyAcrossRowGroups) {
         total_rows += rows;
     }
     EXPECT_EQ(total_rows, 6);
+}
+
+TEST_F(ParquetScanTest, PredicateColumnsFilterRoundByRound) {
+    write_int_pair_parquet_file(_file_path, 6, false);
+    RuntimeProfile profile("profile");
+    auto reader = create_reader(0, -1, &profile);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    auto request = std::make_shared<format::FileScanRequest>();
+    format::FileScanRequestBuilder request_builder(request.get());
+    ASSERT_TRUE(request_builder.add_predicate_column(format::LocalColumnId(0)).ok());
+    ASSERT_TRUE(request_builder.add_predicate_column(format::LocalColumnId(1)).ok());
+    request->conjuncts.push_back(create_int32_zonemap_conjunct(0, Int32ZoneMapExpr::Op::GT, 2));
+    request->conjuncts.push_back(create_int32_zonemap_conjunct(1, Int32ZoneMapExpr::Op::LT, 50));
+    ASSERT_TRUE(reader->open(request).ok());
+
+    std::vector<int32_t> ids;
+    std::vector<int32_t> scores;
+    bool eof = false;
+    while (!eof) {
+        Block block = build_file_block(schema);
+        size_t rows = 0;
+        ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+        if (rows == 0) {
+            continue;
+        }
+        const auto& id_column = int32_data_column(*block.get_by_position(0).column);
+        const auto& score_column = int32_data_column(*block.get_by_position(1).column);
+        ASSERT_EQ(id_column.size(), rows);
+        ASSERT_EQ(score_column.size(), rows);
+        for (size_t row = 0; row < rows; ++row) {
+            ids.push_back(id_column.get_element(row));
+            scores.push_back(score_column.get_element(row));
+        }
+    }
+
+    EXPECT_EQ(ids, std::vector<int32_t>({3, 4}));
+    EXPECT_EQ(scores, std::vector<int32_t>({30, 40}));
+    EXPECT_EQ(counter_value(profile, "RawRowsRead"), 6);
+    EXPECT_EQ(counter_value(profile, "SelectedRows"), 2);
+    EXPECT_EQ(counter_value(profile, "RowsFilteredByConjunct"), 4);
+    EXPECT_EQ(counter_value(profile, "ReaderReadRows"), 10);
+    EXPECT_EQ(counter_value(profile, "ReaderSelectRows"), 4);
+    EXPECT_EQ(counter_value(profile, "ReaderSkipRows"), 2);
+}
+
+TEST_F(ParquetScanTest, PredicateColumnsSkipUnreadColumnsWhenFirstPredicateFiltersAll) {
+    write_int_pair_parquet_file(_file_path, 6, false);
+    RuntimeProfile profile("profile");
+    auto reader = create_reader(0, -1, &profile);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    auto request = std::make_shared<format::FileScanRequest>();
+    format::FileScanRequestBuilder request_builder(request.get());
+    ASSERT_TRUE(request_builder.add_predicate_column(format::LocalColumnId(0)).ok());
+    ASSERT_TRUE(request_builder.add_predicate_column(format::LocalColumnId(1)).ok());
+    request->conjuncts.push_back(create_int32_zonemap_conjunct(0, Int32ZoneMapExpr::Op::GT, 100));
+    request->conjuncts.push_back(create_int32_zonemap_conjunct(1, Int32ZoneMapExpr::Op::LT, 50));
+    ASSERT_TRUE(reader->open(request).ok());
+
+    size_t total_rows = 0;
+    bool eof = false;
+    while (!eof) {
+        Block block = build_file_block(schema);
+        size_t rows = 0;
+        ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+        total_rows += rows;
+    }
+
+    EXPECT_EQ(total_rows, 0);
+    EXPECT_EQ(counter_value(profile, "RawRowsRead"), 6);
+    EXPECT_EQ(counter_value(profile, "SelectedRows"), 0);
+    EXPECT_EQ(counter_value(profile, "RowsFilteredByConjunct"), 6);
+    EXPECT_EQ(counter_value(profile, "EmptySelectionBatches"), 1);
+    EXPECT_EQ(counter_value(profile, "ReaderReadRows"), 6);
+    EXPECT_EQ(counter_value(profile, "ReaderSelectRows"), 0);
+    EXPECT_EQ(counter_value(profile, "ReaderSkipRows"), 6);
+}
+
+TEST_F(ParquetScanTest, MultiColumnPredicateWaitsForAllPredicateColumns) {
+    write_int_pair_parquet_file(_file_path, 6, false);
+    RuntimeProfile profile("profile");
+    auto reader = create_reader(0, -1, &profile);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    auto request = std::make_shared<format::FileScanRequest>();
+    format::FileScanRequestBuilder request_builder(request.get());
+    ASSERT_TRUE(request_builder.add_predicate_column(format::LocalColumnId(0)).ok());
+    ASSERT_TRUE(request_builder.add_predicate_column(format::LocalColumnId(1)).ok());
+    request->conjuncts.push_back(create_int32_pair_sum_conjunct(0, 1, 45));
+    ASSERT_TRUE(reader->open(request).ok());
+
+    std::vector<int32_t> ids;
+    std::vector<int32_t> scores;
+    bool eof = false;
+    while (!eof) {
+        Block block = build_file_block(schema);
+        size_t rows = 0;
+        ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+        if (rows == 0) {
+            continue;
+        }
+        const auto& id_column = int32_data_column(*block.get_by_position(0).column);
+        const auto& score_column = int32_data_column(*block.get_by_position(1).column);
+        ASSERT_EQ(id_column.size(), rows);
+        ASSERT_EQ(score_column.size(), rows);
+        for (size_t row = 0; row < rows; ++row) {
+            ids.push_back(id_column.get_element(row));
+            scores.push_back(score_column.get_element(row));
+        }
+    }
+
+    EXPECT_EQ(ids, std::vector<int32_t>({1, 2, 3, 4}));
+    EXPECT_EQ(scores, std::vector<int32_t>({10, 20, 30, 40}));
+    EXPECT_EQ(counter_value(profile, "RawRowsRead"), 6);
+    EXPECT_EQ(counter_value(profile, "SelectedRows"), 4);
+    EXPECT_EQ(counter_value(profile, "RowsFilteredByConjunct"), 2);
+    EXPECT_EQ(counter_value(profile, "ReaderReadRows"), 12);
+    EXPECT_EQ(counter_value(profile, "ReaderSelectRows"), 0);
 }
 
 TEST_F(ParquetScanTest, ProfileCountersReflectPageIndexAndRangeGapPruning) {

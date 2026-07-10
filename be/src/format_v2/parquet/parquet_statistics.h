@@ -18,10 +18,12 @@
 #include <cstdint>
 #include <map>
 #include <memory>
+#include <string>
 #include <vector>
 
 #include "common/status.h"
 #include "core/field.h"
+#include "core/string_ref.h"
 #include "exprs/vexpr_fwd.h"
 #include "format_v2/file_reader.h"
 #include "format_v2/parquet/selection_vector.h"
@@ -44,6 +46,36 @@ class RuntimeState;
 namespace doris::format::parquet {
 
 struct ParquetColumnSchema;
+
+// ============================================================================
+// ============================================================================
+
+struct ParquetDictionaryWords {
+    std::vector<std::string> values;
+    std::vector<StringRef> refs;
+
+    void clear() {
+        values.clear();
+        refs.clear();
+    }
+
+    void build_refs() {
+        refs.clear();
+        refs.reserve(values.size());
+        for (const auto& value : values) {
+            refs.emplace_back(value.data(), value.size());
+        }
+    }
+};
+
+// Reads the PLAIN dictionary page for BYTE_ARRAY/FIXED_LEN_BYTE_ARRAY columns and owns copied
+// dictionary bytes in `values`. Both row-group pruning and row-level dictionary predicates use this
+// helper so they agree on dictionary id -> Doris string value mapping.
+bool read_dictionary_words(::parquet::ParquetFileReader* file_reader, int row_group_idx,
+                           int leaf_column_id, const ParquetColumnSchema& column_schema,
+                           ParquetDictionaryWords* dict_words);
+
+std::vector<Field> dictionary_fields_from_words(const ParquetDictionaryWords& dict_words);
 
 // ============================================================================
 // ============================================================================

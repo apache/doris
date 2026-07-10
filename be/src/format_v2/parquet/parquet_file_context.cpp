@@ -353,6 +353,8 @@ public:
         return true;
     }
 
+    void reset_random_access_ranges() { reset_active_file_reader(); }
+
     ParquetPageCacheStats page_cache_stats() const {
         std::lock_guard lock(_page_cache_mutex);
         return _page_cache_stats;
@@ -582,6 +584,11 @@ bool ParquetFileContext::set_random_access_ranges(const std::vector<ParquetPageC
     DORIS_CHECK(arrow_file != nullptr);
     return static_cast<DorisRandomAccessFile*>(arrow_file.get())
             ->set_random_access_ranges(ranges, avg_io_size, profile, merge_read_slice_size);
+}
+
+void ParquetFileContext::reset_random_access_ranges() {
+    DORIS_CHECK(arrow_file != nullptr);
+    static_cast<DorisRandomAccessFile*>(arrow_file.get())->reset_random_access_ranges();
 }
 
 ParquetPageCacheStats ParquetFileContext::page_cache_stats() const {
