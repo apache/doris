@@ -121,6 +121,7 @@ int64_t CloudSizeBasedCumulativeCompactionPolicy::pick_input_rowsets(
     *compaction_score = 0;
     int64_t total_size = 0;
     bool skip_trim = false; // Skip trim for Empty Rowset Compaction
+    RowsetSharedPtr last_popped;
 
     // DEFER: trim input_rowsets from back if score > max_compaction_score
     // This ensures we don't return more rowsets than allowed by max_compaction_score,
@@ -133,10 +134,18 @@ int64_t CloudSizeBasedCumulativeCompactionPolicy::pick_input_rowsets(
         // Keep at least 1 rowset to avoid removing the only rowset (consistent with fallback branch)
         while (input_rowsets->size() > 1 &&
                *compaction_score > static_cast<size_t>(max_compaction_score)) {
-            auto& last_rowset = input_rowsets->back();
-            *compaction_score -= last_rowset->rowset_meta()->get_compaction_score();
-            total_size -= last_rowset->rowset_meta()->total_disk_size();
+            last_popped = std::move(input_rowsets->back());
+            *compaction_score -= last_popped->rowset_meta()->get_compaction_score();
+            total_size -= last_popped->rowset_meta()->total_disk_size();
             input_rowsets->pop_back();
+        }
+        // A single non-overlapping rowset cannot be compacted by itself. Restore the direct
+        // successor and accept a one-off max-score overshoot to keep the input mergeable.
+        if (input_rowsets->size() == 1 && last_popped != nullptr &&
+            !input_rowsets->front()->rowset_meta()->is_segments_overlapping()) {
+            *compaction_score += last_popped->rowset_meta()->get_compaction_score();
+            total_size += last_popped->rowset_meta()->total_disk_size();
+            input_rowsets->push_back(std::move(last_popped));
         }
     });
 

@@ -134,6 +134,22 @@ static RowsetSharedPtr create_rowset(Version version, int num_segments, bool ove
     return rowset;
 }
 
+static std::vector<RowsetSharedPtr> create_max_score_trim_candidates(bool include_stranded_head) {
+    std::vector<RowsetSharedPtr> candidate_rowsets;
+    if (include_stranded_head) {
+        candidate_rowsets.push_back(create_rowset(Version(13, 56), 0, false, 0));
+    }
+    candidate_rowsets.push_back(create_rowset(Version(57, 57), 192, true, 256 * 1024 * 1024));
+    candidate_rowsets.push_back(create_rowset(Version(58, 58), 0, false, 0));
+    candidate_rowsets.push_back(create_rowset(Version(59, 59), 0, false, 0));
+    candidate_rowsets.push_back(create_rowset(Version(60, 60), 150, true, 256 * 1024 * 1024));
+    for (int64_t version = 61; version <= 67; ++version) {
+        candidate_rowsets.push_back(
+                create_rowset(Version(version, version), 1, false, 1024 * 1024));
+    }
+    return candidate_rowsets;
+}
+
 TEST_F(TestCloudSizeBasedCumulativeCompactionPolicy, new_cumulative_point) {
     std::vector<RowsetMetaSharedPtr> rs_metas;
     init_rs_meta_small_base(&rs_metas);
@@ -149,6 +165,52 @@ TEST_F(TestCloudSizeBasedCumulativeCompactionPolicy, new_cumulative_point) {
     RowsetSharedPtr output_rowset = create_rowset(Version(3, 5), 5, false, 100 * 1024 * 1024);
     Version version(1, 1);
     EXPECT_EQ(policy.new_cumulative_point(&_tablet, output_rowset, version, 2), 6);
+}
+
+TEST_F(TestCloudSizeBasedCumulativeCompactionPolicy,
+       pick_input_rowsets_restores_successor_for_non_overlapping_singleton) {
+    CloudTablet tablet(_engine, _tablet_meta);
+    tablet._base_size = 1024L * 1024 * 1024;
+    tablet._tablet_meta->_enable_unique_key_merge_on_write = true;
+    auto candidate_rowsets = create_max_score_trim_candidates(true);
+    ASSERT_EQ(12, candidate_rowsets.size());
+
+    std::vector<RowsetSharedPtr> input_rowsets;
+    Version last_delete_version {-1, -1};
+    size_t compaction_score = 0;
+    CloudSizeBasedCumulativeCompactionPolicy policy;
+    policy.pick_input_rowsets(&tablet, candidate_rowsets, 100, 5, &input_rowsets,
+                              &last_delete_version, &compaction_score, true);
+
+    ASSERT_EQ(2, input_rowsets.size());
+    EXPECT_EQ(Version(13, 56), input_rowsets[0]->version());
+    EXPECT_EQ(Version(57, 57), input_rowsets[1]->version());
+    EXPECT_EQ(193, compaction_score);
+
+    auto output_rowset = create_rowset(Version(13, 57), 1, false, 256 * 1024 * 1024);
+    ASSERT_NE(nullptr, output_rowset);
+    EXPECT_EQ(58, policy.new_cumulative_point(&tablet, output_rowset, last_delete_version, 13));
+}
+
+TEST_F(TestCloudSizeBasedCumulativeCompactionPolicy,
+       pick_input_rowsets_keeps_single_overlapping_rowset_after_trim) {
+    CloudTablet tablet(_engine, _tablet_meta);
+    tablet._base_size = 1024L * 1024 * 1024;
+    auto candidate_rowsets = create_max_score_trim_candidates(false);
+    ASSERT_EQ(11, candidate_rowsets.size());
+
+    std::vector<RowsetSharedPtr> input_rowsets;
+    Version last_delete_version {-1, -1};
+    size_t compaction_score = 0;
+    CloudSizeBasedCumulativeCompactionPolicy policy;
+    policy.pick_input_rowsets(&tablet, candidate_rowsets, 100, 5, &input_rowsets,
+                              &last_delete_version, &compaction_score, true);
+
+    // The tail was trimmed, but the overlapping head remains mergeable by itself.
+    ASSERT_EQ(1, input_rowsets.size());
+    EXPECT_GT(candidate_rowsets.size(), input_rowsets.size());
+    EXPECT_EQ(Version(57, 57), input_rowsets.front()->version());
+    EXPECT_EQ(192, compaction_score);
 }
 
 // Test case: Empty rowset compaction with skip_trim
