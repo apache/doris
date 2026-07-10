@@ -25,8 +25,12 @@ import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.PluginDrivenExternalCatalog;
+import org.apache.doris.datasource.PluginDrivenExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
+import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.qe.ConnectContext;
@@ -110,7 +114,8 @@ public class PartitionValuesTableValuedFunction extends MetadataTableValuedFunct
             throw new AnalysisException("can not find catalog: " + catalogName);
         }
         // disallow unsupported catalog
-        if (!(catalog.isInternalCatalog() || catalog instanceof HMSExternalCatalog)) {
+        if (!(catalog.isInternalCatalog() || catalog instanceof HMSExternalCatalog
+                || catalog instanceof PluginDrivenExternalCatalog)) {
             throw new AnalysisException(String.format("Catalog of type '%s' is not allowed in ShowPartitionsStmt",
                     catalog.getType()));
         }
@@ -122,19 +127,27 @@ public class PartitionValuesTableValuedFunction extends MetadataTableValuedFunct
         TableIf table;
         try {
             table = db.get().getTableOrMetaException(tableName, TableType.OLAP,
-                    TableType.HMS_EXTERNAL_TABLE, TableType.MAX_COMPUTE_EXTERNAL_TABLE);
+                    TableType.HMS_EXTERNAL_TABLE, TableType.MAX_COMPUTE_EXTERNAL_TABLE,
+                    TableType.PLUGIN_EXTERNAL_TABLE);
         } catch (MetaNotFoundException e) {
             throw new AnalysisException(e.getMessage(), e);
         }
 
-        if (!(table instanceof HMSExternalTable)) {
-            throw new AnalysisException("Currently only support hive table's partition values meta table");
+        // A flipped hms table is a PluginDrivenExternalTable, not an HMSExternalTable; both are served
+        // via their common partition SPI below, mirroring the $partitions TVF (PartitionsTableValuedFunction).
+        if (table instanceof HMSExternalTable) {
+            if (!((HMSExternalTable) table).isPartitionedTable()) {
+                throw new AnalysisException("Table " + tableName + " is not a partitioned table");
+            }
+            return table;
         }
-        HMSExternalTable hmsTable = (HMSExternalTable) table;
-        if (!hmsTable.isPartitionedTable()) {
-            throw new AnalysisException("Table " + tableName + " is not a partitioned table");
+        if (table instanceof PluginDrivenExternalTable) {
+            if (!((PluginDrivenExternalTable) table).isPartitionedTable()) {
+                throw new AnalysisException("Table " + tableName + " is not a partitioned table");
+            }
+            return table;
         }
-        return table;
+        throw new AnalysisException("Currently only support hive table's partition values meta table");
     }
 
     @Override
@@ -167,7 +180,8 @@ public class PartitionValuesTableValuedFunction extends MetadataTableValuedFunct
         Preconditions.checkNotNull(table);
         // TODO: support other type of sys tables
         if (schema == null) {
-            List<Column> partitionColumns = ((HMSExternalTable) table).getPartitionColumns();
+            List<Column> partitionColumns = ((ExternalTable) table).getPartitionColumns(
+                    MvccUtil.getSnapshotFromContext(table));
             schema = Lists.newArrayList();
             for (Column column : partitionColumns) {
                 schema.add(new Column(column));

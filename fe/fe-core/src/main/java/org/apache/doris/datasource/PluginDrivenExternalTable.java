@@ -778,6 +778,47 @@ public class PluginDrivenExternalTable extends ExternalTable {
         return nameToPartitionItem;
     }
 
+    /**
+     * Partition display-name -> per-column partition values (in partition-column order), sourced from the
+     * connector's {@code listPartitions} in one round-trip (no FE-side partition-value cache, per the
+     * cutover's connector-owned caching). Values are extracted by the cached remote names; a value absent
+     * from the connector's raw map is left {@code null} (the partition_values() TVF renders it as SQL NULL,
+     * mirroring the legacy HMS {@code HivePartitionValues.getNameToPartitionValues()}). Empty for a
+     * non-partitioned table or an unresolved handle. Partition order preserved via a {@link LinkedHashMap}.
+     *
+     * <p>Deliberately separate from {@link #getNameToPartitionItems} (not a shared helper) so that live
+     * path stays byte- and cost-identical for paimon/iceberg — a shared name-keyed map would collapse the
+     * pathological duplicate-partition-name case that the parallel-list build there tolerates.
+     */
+    public Map<String, List<String>> getNameToPartitionValues(Optional<MvccSnapshot> snapshot) {
+        if (getPartitionColumns().isEmpty()) {
+            return Collections.emptyMap();
+        }
+        List<String> remoteNames = getSchemaCacheValue()
+                .map(value -> ((PluginDrivenSchemaCacheValue) value).getPartitionColumnRemoteNames())
+                .orElse(Collections.emptyList());
+
+        PluginDrivenExternalCatalog pluginCatalog = (PluginDrivenExternalCatalog) catalog;
+        Connector connector = pluginCatalog.getConnector();
+        ConnectorSession session = pluginCatalog.buildConnectorSession();
+        ConnectorMetadata metadata = connector.getMetadata(session);
+        Optional<ConnectorTableHandle> handleOpt = resolveConnectorTableHandle(session, metadata);
+        if (!handleOpt.isPresent()) {
+            return Collections.emptyMap();
+        }
+        List<ConnectorPartitionInfo> partitions =
+                metadata.listPartitions(session, handleOpt.get(), Optional.empty());
+        Map<String, List<String>> nameToValues = Maps.newLinkedHashMap();
+        for (ConnectorPartitionInfo partition : partitions) {
+            List<String> values = new ArrayList<>(remoteNames.size());
+            for (String remoteName : remoteNames) {
+                values.add(partition.getPartitionValues().get(remoteName));
+            }
+            nameToValues.put(partition.getPartitionName(), values);
+        }
+        return nameToValues;
+    }
+
     @Override
     public long getCachedRowCount() {
         // Do NOT call makeSureInitialized() here.

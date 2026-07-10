@@ -67,11 +67,12 @@ import org.apache.doris.datasource.ExternalMetaCacheMgr;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.PluginDrivenExternalCatalog;
+import org.apache.doris.datasource.PluginDrivenExternalTable;
 import org.apache.doris.datasource.TablePartitionValues;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
-import org.apache.doris.datasource.hive.HiveExternalMetaCache;
 import org.apache.doris.datasource.metacache.MetaCacheEntryStats;
+import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.job.common.JobType;
 import org.apache.doris.job.extensions.insert.streaming.AbstractStreamingTask;
@@ -2092,6 +2093,10 @@ public class MetadataGenerator {
                     dataBatch = partitionValuesMetadataResultForHmsTable((HMSExternalTable) table,
                             params.getColumnsName());
                     break;
+                case PLUGIN_EXTERNAL_TABLE:
+                    dataBatch = partitionValuesMetadataResultForPluginTable((PluginDrivenExternalTable) table,
+                            params.getColumnsName());
+                    break;
                 default:
                     return errorResult("not support table type " + tableType.name());
             }
@@ -2107,7 +2112,23 @@ public class MetadataGenerator {
 
     private static List<TRow> partitionValuesMetadataResultForHmsTable(HMSExternalTable tbl, List<String> colNames)
             throws AnalysisException {
-        List<Column> partitionCols = tbl.getPartitionColumns();
+        Map<String, List<String>> valuesMap = tbl.getHivePartitionValues(
+                MvccUtil.getSnapshotFromContext(tbl)).getNameToPartitionValues();
+        return partitionValuesRows(tbl.getPartitionColumns(), colNames, valuesMap, tbl.getName());
+    }
+
+    // A flipped hms table (and paimon/iceberg) is a PluginDrivenExternalTable, not an HMSExternalTable; the
+    // partition values come from the connector's listPartitions via the generic SPI, then feed the same row
+    // builder as the HMS path (identical typed-TCell rendering, including HIVE_DEFAULT_PARTITION -> NULL).
+    private static List<TRow> partitionValuesMetadataResultForPluginTable(PluginDrivenExternalTable tbl,
+            List<String> colNames) throws AnalysisException {
+        Optional<MvccSnapshot> snapshot = MvccUtil.getSnapshotFromContext(tbl);
+        Map<String, List<String>> valuesMap = tbl.getNameToPartitionValues(snapshot);
+        return partitionValuesRows(tbl.getPartitionColumns(snapshot), colNames, valuesMap, tbl.getName());
+    }
+
+    private static List<TRow> partitionValuesRows(List<Column> partitionCols, List<String> colNames,
+            Map<String, List<String>> valuesMap, String tableName) throws AnalysisException {
         List<Integer> colIdxs = Lists.newArrayList();
         List<Type> types = Lists.newArrayList();
         for (String colName : colNames) {
@@ -2120,12 +2141,9 @@ public class MetadataGenerator {
         }
         if (colIdxs.size() != colNames.size()) {
             throw new AnalysisException(
-                    "column " + colNames + " does not match partition columns of table " + tbl.getName());
+                    "column " + colNames + " does not match partition columns of table " + tableName);
         }
 
-        HiveExternalMetaCache.HivePartitionValues hivePartitionValues = tbl.getHivePartitionValues(
-                MvccUtil.getSnapshotFromContext(tbl));
-        Map<String, List<String>> valuesMap = hivePartitionValues.getNameToPartitionValues();
         List<TRow> dataBatch = Lists.newArrayList();
         for (Map.Entry<String, List<String>> entry : valuesMap.entrySet()) {
             TRow trow = new TRow();
