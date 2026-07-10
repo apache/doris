@@ -897,6 +897,52 @@ public class PluginDrivenMvccExternalTableTest {
                 "the UNKNOWN sentinel must be filtered, leaving the max of the REAL values");
     }
 
+    // ==================== getNewestUpdateVersionOrTime: last-modified (hive) freshness ====================
+
+    private static final long TS_TABLE_FRESH = 1_888_000_000_000L; // distinct from the partition maxes above
+
+    @Test
+    public void testGetNewestUpdateVersionLastModifiedUsesTableFreshness() {
+        // A last-modified connector (hive) lists partitions names-only (all lastModifiedMillis == -1), so the
+        // legacy max-over-partitions path would collapse to a CONSTANT 0 and an MV / SQL dictionary over a hive
+        // base table would never auto-refresh. The pin flags last-modified freshness, so
+        // getNewestUpdateVersionOrTime must return the connector's whole-table freshness millis instead.
+        Fixture f = Fixture.partitioned();
+        flagPinLastModified(f);
+        Mockito.when(f.metadata.getTableFreshness(Mockito.any(), Mockito.any()))
+                .thenReturn(Optional.of(new ConnectorTableFreshness("dt=2024-02-02", TS_TABLE_FRESH)));
+
+        // MUTATION: taking the max-over-partitions path (ignoring the pin flag) would return the partition max
+        // TS_2024_02_02, not the freshness value TS_TABLE_FRESH -> red (the values are deliberately distinct).
+        Assertions.assertEquals(TS_TABLE_FRESH, f.table.getNewestUpdateVersionOrTime(),
+                "a last-modified connector must surface the whole-table freshness millis, not a constant 0");
+    }
+
+    @Test
+    public void testGetNewestUpdateVersionLastModifiedEmptyFreshnessReturnsZero() {
+        // A dropped catalog/table, or a genuinely empty partition set, makes getTableFreshness empty; fe-core must
+        // degrade to 0 (parity legacy getNewestUpdateVersionOrTime), NOT throw or leak a sentinel.
+        Fixture f = Fixture.partitioned();
+        flagPinLastModified(f);
+        Mockito.when(f.metadata.getTableFreshness(Mockito.any(), Mockito.any()))
+                .thenReturn(Optional.empty());
+        // MUTATION: mapping an empty freshness to anything but 0 (e.g. throwing, or leaking -1) makes this red.
+        Assertions.assertEquals(0L, f.table.getNewestUpdateVersionOrTime(),
+                "an empty whole-table freshness (dropped/empty) must reduce to the legacy 0");
+    }
+
+    @Test
+    public void testGetNewestUpdateVersionSnapshotIdConnectorSkipsFreshnessProbe() {
+        // Byte/cost-neutrality guard: a snapshot-id connector (paimon/iceberg) leaves the pin flag false, so
+        // getNewestUpdateVersionOrTime must take the EXACT pre-change max-over-partitions path and NEVER fire the
+        // freshness probe (an added metadata round-trip on the live dictionary poll).
+        Fixture f = Fixture.partitioned();   // build() pin has lastModifiedFreshness=false
+        Assertions.assertEquals(TS_2024_02_02, f.table.getNewestUpdateVersionOrTime(),
+                "a snapshot-id connector must keep the max-partition-modify path");
+        // MUTATION: dropping the pin-flag gate (probing unconditionally) makes this verify red.
+        Mockito.verify(f.metadata, Mockito.never()).getTableFreshness(Mockito.any(), Mockito.any());
+    }
+
     @Test
     public void testIsPartitionColumnAllowNullTrue() {
         Assertions.assertTrue(Fixture.partitioned().table.isPartitionColumnAllowNull());

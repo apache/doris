@@ -700,6 +700,18 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
         // Dictionary-update path: always probe LATEST (bypass any context pin), mirroring legacy
         // which passes empty/empty to force a fresh listing.
         PluginDrivenMvccSnapshot pin = materializeLatest();
+        // Last-modified connector (e.g. hive): the whole-table newest-change signal is a modify TIMESTAMP
+        // (transient_lastDdlTime / the max partition modify time), NOT the partition listing — which for hive is
+        // names-only, so every nameToLastModifiedMillis below is -1, gets filtered, and collapses to a CONSTANT 0.
+        // That constant would make Dictionary.hasNewerSourceVersion compare equal forever, so a SQL dictionary / MV
+        // over a hive base table would NEVER auto-refresh. Mirror getTableSnapshot: when the pin flags last-modified
+        // freshness, return the connector's whole-table freshness millis (cache-backed getTableFreshness, so the
+        // periodic dictionary poll stays cheap), else 0 (dropped catalog/table or a genuinely empty partition set —
+        // parity legacy). A snapshot-id connector (paimon/iceberg) leaves the flag false and takes the EXACT
+        // pre-change path below: a single boolean read, zero added metadata calls — byte- and cost-neutral.
+        if (pin.getConnectorSnapshot().isLastModifiedFreshness()) {
+            return queryTableFreshness().map(ConnectorTableFreshness::getTimestampMillis).orElse(0L);
+        }
         if (pin.getPartitionType() != null) {
             // Range-view path: nameToLastModifiedMillis holds (non-monotonic) snapshot ids, NOT a usable
             // change marker. Use the connector-supplied newest-update-time, which IS monotonic (parity master
