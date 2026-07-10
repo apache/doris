@@ -22,7 +22,7 @@ import java.util.UUID
 // default Apache Doris CI pipeline, so the case can be skipped or may not run
 // end-to-end there. That is expected. The case still serves as a valuable
 // reference for manual validation of the MetaCacheEntry refresh blocking fix.
-suite("test_jdbc_refresh_catalog_manual_miss_load", "p0,external") {
+suite("test_jdbc_refresh_catalog_manual_miss_load", "p0,external,nonConcurrent") {
     String enabled = context.config.otherConfigs.get("enableJdbcTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         return
@@ -41,6 +41,7 @@ suite("test_jdbc_refresh_catalog_manual_miss_load", "p0,external") {
     int hashMod = 512
     int slowSleepMs = 15000
     int refreshDelayMs = 5000
+    String schemaSleepDebugPoint = "JdbcExternalTable.initSchema.sleep"
 
     def mysqlJdbcUrl = "jdbc:mysql://${externalEnvIp}:${mysqlPort}"
     def configRows = sql """ADMIN SHOW FRONTEND CONFIG LIKE 'enable_external_meta_cache_manual_miss_load';"""
@@ -127,14 +128,6 @@ suite("test_jdbc_refresh_catalog_manual_miss_load", "p0,external") {
         }
     }
 
-    def preheatSchemaCache = { List<String> collisionTableNames ->
-        sql """REFRESH CATALOG ${catalogName}"""
-        collisionTableNames.each { tableName ->
-            sql """DESC ${catalogName}.${remoteDbName}.${tableName}"""
-        }
-        assertEquals(collisionTableCount, getSchemaCacheSize())
-    }
-
     // Read the current schema cache size for this catalog from information_schema.
     def getSchemaCacheSize = {
         def statRows = sql """
@@ -146,12 +139,20 @@ suite("test_jdbc_refresh_catalog_manual_miss_load", "p0,external") {
         return ((Number) statRows[0][0]).intValue()
     }
 
+    def preheatSchemaCache = { List<String> collisionTableNames ->
+        sql """REFRESH CATALOG ${catalogName}"""
+        collisionTableNames.each { tableName ->
+            sql """DESC ${catalogName}.${remoteDbName}.${tableName}"""
+        }
+        assertEquals(collisionTableCount, getSchemaCacheSize())
+    }
+
     // Run the blocking reproduction once and assert the refresh latency profile.
     def runRefreshRace = { boolean manualMissLoadEnabled, long minRefreshMs, long maxRefreshMs ->
         sql """ADMIN SET FRONTEND CONFIG ('enable_external_meta_cache_manual_miss_load' = '${manualMissLoadEnabled}')"""
         try {
             GetDebugPoint().enableDebugPointForAllFEs(
-                    "PluginDrivenExternalTable.initSchema.sleep",
+                    schemaSleepDebugPoint,
                     ["sleepMs": String.valueOf(slowSleepMs)])
 
             def descElapsedMs = -1L
@@ -190,7 +191,7 @@ suite("test_jdbc_refresh_catalog_manual_miss_load", "p0,external") {
             assertTrue(refreshElapsedMs < descElapsedMs)
             return [refreshElapsedMs, descElapsedMs]
         } finally {
-            GetDebugPoint().disableDebugPointForAllFEs("PluginDrivenExternalTable.initSchema.sleep")
+            GetDebugPoint().disableDebugPointForAllFEs(schemaSleepDebugPoint)
         }
     }
 
@@ -229,7 +230,7 @@ suite("test_jdbc_refresh_catalog_manual_miss_load", "p0,external") {
     } finally {
         try_sql("""ADMIN SET FRONTEND CONFIG ('enable_external_meta_cache_manual_miss_load' = '${originalManualMissLoadValue}')""")
         try {
-            GetDebugPoint().disableDebugPointForAllFEs("PluginDrivenExternalTable.initSchema.sleep")
+            GetDebugPoint().disableDebugPointForAllFEs(schemaSleepDebugPoint)
         } catch (Throwable t) {
             logger.warn("failed to disable debug point during cleanup", t)
         }
