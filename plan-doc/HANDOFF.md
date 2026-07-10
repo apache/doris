@@ -10,7 +10,7 @@
 catalog-SPI 迁移的剩余工作 = **HMS 翻闸**。权威计划 = **`tasks/hms-cutover-execution-plan-2026-07-10.md`**（4 阶段 + DONE 账本 + 已签字决策 + 硬门；**起步必读 #1，行号信 HEAD 不信文档**）。四阶段：
 
 - **Phase 0 连接器休眠补齐** ✅ **DONE**（读 SPI + iceberg/hudi 兄弟委派 + 整条 hudi 线）。
-- **Phase 1 翻闸前 fe-core 建设（进行中，真正剩余主活）** — 连接器自持缓存(D2) ✅ → 事件管道 Model B ✅ → 4 个耦合缝(S1–S4)+W6 ✅ → 耦合缝净室复审 ✅ → **缓存失效收尾 3 项 ✅（本轮：用户拍板 + 已修 + 已验）** → 剩余（本轮 3 修的净室对抗复核，正在跑 → 原子翻闸前置项）。
+- **Phase 1 翻闸前 fe-core 建设（进行中，真正剩余主活）** — 连接器自持缓存(D2) ✅ → 事件管道 Model B ✅ → 4 个耦合缝(S1–S4)+W6 ✅ → 耦合缝净室复审 ✅ → 缓存失效收尾 3 修 ✅（用户拍板+已修+已验）→ 对抗复核 ✅ **查出 4 个待修（3 线上+1 休眠，见下）** → 剩余（修完 4 项 → 原子翻闸前置项）。
 - **Phase 2 原子翻闸**（`SPI_READY += hms` + GSON 重映射 + 死臂/删除 + 4 守卫改接新子系统）→ **Phase 3 删除旧代码（最后做）** → **Phase 4 e2e/硬门**。
 
 **⭐ 本轮（2026-07-10）= 连接器缓存第二轮净室复审留下的 4 个"缓存失效"发现，逐一对照 HEAD 核实后收尾。**
@@ -22,10 +22,16 @@ catalog-SPI 迁移的剩余工作 = **HMS 翻闸**。权威计划 = **`tasks/hms
 
 设计文档（**起步必读**，含正确性论证 + e2e 欠账）= **`tasks/hive-cache-invalidation-followups-design-2026-07-10.md`**（§6 状态：3 修全勾 + 复审在跑）。
 
-**⭐ 下一步：**
-1. **本轮 3 修的净室对抗复核（正在后台跑，`wf_fe6ddef4-777`）** — 4 维独立冷读（D1/D1补丁/D2/完备性）+ 每发现 3-lens 对抗核实。**下个 session 起步先取它的结论**：无存活发现即收尾；有则按 severity 修（D1/D1补丁是线上路径，务必核对 paimon/iceberg 行为/成本；见 memory `plugindriven-mvcc-table-is-live-not-dormant`）。
-2. **原子翻闸前置项**（Phase 2 集：`SPI_READY += hms`、GSON `HMSExternalTable`→`PluginDrivenMvccExternalTable` 重映射、4 守卫改接新子系统、死臂/删除排序）——见 execution-plan §2/§3。**翻闸前 fe-core 建设的外部输入已全部消化**（缓存决策已拍板落地），复核通过即可开 Phase 2。
-3. **设计文档「Discovered follow-ups」2 项欠账（勿丢）**：① 删除步把 `StatisticsAutoCollector.java`/`StatisticsCache.java` 的 `org.apache.hudi...VisibleForTesting` 换 guava/doris；② 分区级 FULL analyze 缺失（所有插件表通性、非本轮引入）。
+**⭐ 净室对抗复核结论（`wf_fe6ddef4-777`，已完成，28 agent）：3 修是净改进但 INCOMPLETE，查出 4 个待修（3 线上 + 1 休眠），全部 ≥2/3 对抗票（R4 仅 1/3 但论证扎实）。报告 = `plan-doc/reviews/cache-invalidation-cleanroom-review-2026-07-10.md`（含每项修法）。均非"比修前更糟"（修前哪都不清），只是 D1 修得不完整。**
+
+**⭐ 下一步（下个 session 起步先修这 4 项，再开 Phase 2）：**
+1. **R2（线上，先修，一箭三雕）** — iceberg/paimon 没 override `invalidateDb` → 我的 `DROP DATABASE` 钩子 + **老早就存在的 `REFRESH DATABASE`** 对它俩的快照/schema 缓存都是空操作。给 `IcebergConnector`/`PaimonConnector` 补 `invalidateDb`（按 db 前缀 removeIf 清 `latestSnapshotCache` + paimon `PaimonSchemaAtMemo`）。顺带修好 `DROP DATABASE FORCE` 级联 + hive 翻闸后 `forEachBuiltSibling(sibling.invalidateDb)`。
+2. **R1（线上）** — DROP/CREATE/DROPDB 失效**只在执行 DDL 的那台 FE 生效**；follower/observer 走 editlog replay（`replayDropTable/replayCreateTable/replayDropDb` 只清 FE 名字缓存）不传到 `connector.invalidate*`。仿现成的 `replayTruncateTable` override + `replayRefreshTable→refreshTableInternal` 补 replay 侧传播。
+3. **R4（线上，弱票但论证实）** — `RENAME TABLE`（可能还有 replace/CTAS-overwrite）也没清连接器缓存（`afterExternalRename` 零 `invalidate*`、不走 `refreshTableInternal`）→ 原子换名 t↔t2 读到老快照。同 D1 类，设计文档还引了 Trino rename 自失效做样板却漏了它。
+4. **R3（休眠，最后）** — `getPartitions` 直接 `put` 绕过了老代码有的 invalidateGeneration 守卫（REFRESH 撞正在飞的取数 → 重缓存陈旧值到 TTL）。给连接器版 `MetaCacheEntry` 加个 additive 的守卫式 put（`invalidationGeneration()` + `putIfNotInvalidatedSince`），RPC 前抓 generation、逐分区守卫式 put，结果仍直接从 delegate 收（保 misparse-never-drop）。
+   - **修法/顺序/测试细节全在复核报告里**；R1/R2/R4 是线上路径，改完再跑一轮针对性对抗复核（memory `plugindriven-mvcc-table-is-live-not-dormant`）。
+5. **之后**：原子翻闸前置项（Phase 2 集：`SPI_READY += hms`、GSON 重映射、4 守卫改接、死臂/删除排序）——见 execution-plan §2/§3。
+6. **设计文档「Discovered follow-ups」2 项欠账（勿丢）**：① 删除步把 `StatisticsAutoCollector.java`/`StatisticsCache.java` 的 `org.apache.hudi...VisibleForTesting` 换 guava/doris；② 分区级 FULL analyze 缺失（所有插件表通性、非本轮引入）。
 
 **⚠ 翻闸/e2e 欠账（非静默，勿丢）**：所有连接器休眠步 + 本轮 3 修只在翻闸后 live（hive）；**paimon/iceberg 的 drop+recreate 修复现在就 live，可即刻 e2e 回归**（`DROP TABLE t; CREATE TABLE t(新schema/位置); SELECT` 无需 REFRESH 见新表；paimon 时间旅行复用 schemaId 见新 schema）。异构 HMS docker e2e 清单见 `hive-cache-invalidation-followups-design` §5 + execution plan §4/§5 + memory `hms-iceberg-delegation-needs-e2e`。删除排序最硬约束：`datasource/hive|hudi|iceberg/` ~90 个 HMS 支撑类删不掉直到翻闸切消费者（execution plan §2.4/§3）。
 

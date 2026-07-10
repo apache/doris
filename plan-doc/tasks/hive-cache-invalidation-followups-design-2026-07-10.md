@@ -221,6 +221,15 @@ paimon/iceberg — per practice + memory `plugindriven-mvcc-table-is-live-not-do
 - [x] **F1b** paimon `PaimonSchemaAtMemo` invalidate + wiring — `7b8fed012be` (`PaimonSchemaAtMemoTest` 5 pass).
 - [x] **F2** `CachingHmsClient` per-partition value keying — `982db925659` (`CachingHmsClientTest` 15 pass).
       Dormant (hive not flipped).
-- [ ] **Unified clean-room adversarial re-review** of F1/F1b (live paths) — running (`wf_fe6ddef4-777`).
+- [x] **Unified clean-room adversarial re-review** of F1/F1b (live paths) — `wf_fe6ddef4-777`, DONE. **Verdict:
+      fixes are NET IMPROVEMENTS but INCOMPLETE — 4 follow-ups required (3 live + 1 dormant). See
+      `plan-doc/reviews/cache-invalidation-cleanroom-review-2026-07-10.md`.**
+- [ ] **R1** DROP/CREATE/DROPDB invalidation is coordinator-only — followers/observers don't propagate on
+      replay (mirror `replayTruncateTable`). LIVE.
+- [ ] **R2** iceberg/paimon lack an `invalidateDb` override → DROP DATABASE hook + pre-existing REFRESH
+      DATABASE are no-ops for their snapshot/schema caches. LIVE (fixes a pre-existing bug too).
+- [ ] **R3** `getPartitions` raw `put` bypasses the invalidateGeneration guard (REFRESH-vs-in-flight race).
+      DORMANT; needs an additive guarded-put on the connector `MetaCacheEntry`.
+- [ ] **R4** RENAME (and maybe replace/CTAS-overwrite) never invalidates the connector cache. LIVE.
 - [ ] **e2e** (§5) — owed at the flip / heterogeneous-HMS docker (paimon/iceberg drop+recreate is testable
-      NOW as a live regression).
+      NOW as a live regression, once R1/R2/R4 land).
