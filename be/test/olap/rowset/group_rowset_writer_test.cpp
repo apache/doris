@@ -23,6 +23,7 @@
 
 #include <chrono>
 #include <memory>
+#include <set>
 #include <string>
 #include <thread>
 #include <vector>
@@ -36,6 +37,7 @@
 #include "runtime/runtime_profile.h"
 #include "storage/binlog.h"
 #include "storage/olap_define.h"
+#include "storage/partial_update_info.h"
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet.h"
 #include "storage/tablet/tablet_manager.h"
@@ -72,10 +74,19 @@ protected:
         ExecEnv::GetInstance()->set_storage_engine(std::move(engine));
 
         _request = testutil::create_tablet_request(
-                10010, 270068390, 10001, 1, TKeysType::UNIQUE_KEYS,
-                {{"k1", TPrimitiveType::INT, true}, {"v1", TPrimitiveType::INT, false}});
+                10010, 270068390, 10001, 2, TKeysType::UNIQUE_KEYS,
+                {{"k1", TPrimitiveType::INT, true},
+                 {"__DORIS_TEST_HIDDEN_KEY__", TPrimitiveType::BIGINT, true},
+                 {"__DORIS_TEST_HIDDEN_VALUE__", TPrimitiveType::INT, false},
+                 {"v1", TPrimitiveType::INT, false},
+                 {"v2", TPrimitiveType::BIGINT, false}});
+        _request.tablet_schema.columns[1].__set_visible(false);
+        _request.tablet_schema.columns[2].__set_visible(false);
+        _request.tablet_schema.columns[2].__set_is_allow_null(true);
+        _request.tablet_schema.columns[4].__set_is_allow_null(true);
         _request.__set_enable_unique_key_merge_on_write(true);
         testutil::enable_row_binlog(&_request);
+        _request.row_binlog_schema.columns.erase(_request.row_binlog_schema.columns.begin() + 2);
         auto profile = std::make_unique<RuntimeProfile>("GroupRowsetWriterTest");
         ASSERT_TRUE(engine_ptr->create_tablet(_request, profile.get()).ok());
         _tablet = engine_ptr->tablet_manager()->get_tablet(_request.tablet_id);
@@ -101,10 +112,27 @@ protected:
             auto& columns = columns_guard.mutable_columns();
             for (int i = 0; i < num_rows; ++i) {
                 columns[0]->insert(Field::create_field<PrimitiveType::TYPE_INT>(start_key + i));
-                columns[1]->insert(
+                columns[1]->insert(Field::create_field<PrimitiveType::TYPE_BIGINT>(
+                        static_cast<int64_t>(1000 + start_key + i)));
+                columns[2]->insert(Field::create_field<PrimitiveType::TYPE_INT>(
+                        static_cast<int32_t>(10000 + start_key + i)));
+                columns[3]->insert(
                         Field::create_field<PrimitiveType::TYPE_INT>((start_key + i) * 10));
+                columns[4]->insert(Field::create_field<PrimitiveType::TYPE_BIGINT>(
+                        static_cast<int64_t>((start_key + i) * 100)));
             }
         }
+        return block;
+    }
+
+    Block create_partial_update_block() const {
+        Block block = _tablet->tablet_schema()->create_block_by_cids({0, 1, 2, 3});
+        auto columns_guard = block.mutate_columns_scoped();
+        auto& columns = columns_guard.mutable_columns();
+        columns[0]->insert(Field::create_field<PrimitiveType::TYPE_INT>(1));
+        columns[1]->insert(Field::create_field<PrimitiveType::TYPE_BIGINT>(1001));
+        columns[2]->insert(Field::create_field<PrimitiveType::TYPE_INT>(200));
+        columns[3]->insert(Field::create_field<PrimitiveType::TYPE_INT>(20));
         return block;
     }
 
@@ -223,6 +251,58 @@ TEST_F(GroupRowsetWriterTest, success) {
             local_segment_path(_tablet->row_binlog_path(), rowsets[1]->rowset_id().to_string(), 0);
     EXPECT_TRUE(file_exists(data_segment_path));
     EXPECT_TRUE(file_exists(second_segment_path));
+}
+
+TEST_F(GroupRowsetWriterTest, partialUpdateSkipsHiddenNonKeyColumns) {
+    ASSERT_EQ(1, _tablet->row_binlog_tablet_schema()->field_index("__DORIS_TEST_HIDDEN_KEY__"));
+    ASSERT_EQ(-1, _tablet->row_binlog_tablet_schema()->field_index("__DORIS_TEST_HIDDEN_VALUE__"));
+
+    auto partial_update_info = std::make_shared<PartialUpdateInfo>();
+    ASSERT_TRUE(
+            partial_update_info
+                    ->init(_tablet->tablet_id(), 1, *_tablet->tablet_schema(),
+                           UniqueKeyUpdateModePB::UPDATE_FIXED_COLUMNS,
+                           PartialUpdateNewRowPolicyPB::APPEND,
+                           {"k1", "__DORIS_TEST_HIDDEN_KEY__", "__DORIS_TEST_HIDDEN_VALUE__", "v1"},
+                           false, 0, 0, "", "")
+                    .ok());
+    EXPECT_EQ((std::vector<uint32_t> {0, 1, 2, 3}), partial_update_info->update_cids);
+    EXPECT_EQ((std::vector<uint32_t> {4}), partial_update_info->missing_cids);
+
+    RowsetWriterContext row_binlog_context;
+    row_binlog_context.tablet = _tablet;
+    row_binlog_context.tablet_schema = _tablet->row_binlog_tablet_schema();
+    row_binlog_context.rowset_state = PREPARED;
+    row_binlog_context.segments_overlap = NONOVERLAPPING;
+    row_binlog_context.max_rows_per_segment = 1024;
+    row_binlog_context.write_type = DataWriteType::TYPE_DIRECT;
+    row_binlog_context.partial_update_info = partial_update_info;
+    row_binlog_context.mow_context =
+            std::make_shared<MowContext>(1, 1, std::make_shared<RowsetIdUnorderedSet>(),
+                                         std::vector<RowsetSharedPtr> {}, nullptr);
+    row_binlog_context.write_binlog_opt().enable = true;
+    auto& binlog_options = row_binlog_context.write_binlog_opt().write_binlog_config();
+    binlog_options.source.tablet_schema = _tablet->tablet_schema();
+    binlog_options.source.partial_update_info = partial_update_info;
+    binlog_options.source.mow_context = row_binlog_context.mow_context;
+    binlog_options.source.source_write_type = DataWriteType::TYPE_DIRECT;
+
+    auto lsn_buffer = AutoIncIDBuffer::create_shared(1, 1, kBinlogLsnAutoIncId);
+    lsn_buffer->append_range_for_test(1000, 1);
+    std::shared_ptr<std::vector<int64_t>> lsn_ids;
+    ASSERT_TRUE(allocate_binlog_lsn(lsn_buffer, 1, &lsn_ids).ok());
+    binlog_options.insert_seg_lsn(0, lsn_ids);
+
+    auto row_binlog_writer_res = _tablet->create_rowset_writer(row_binlog_context, false);
+    ASSERT_TRUE(row_binlog_writer_res.has_value());
+    auto row_binlog_writer = std::move(row_binlog_writer_res.value());
+
+    Block block = create_partial_update_block();
+    ASSERT_TRUE(row_binlog_writer->flush_single_block(&block).ok());
+
+    RowsetSharedPtr row_binlog_rowset;
+    ASSERT_TRUE(row_binlog_writer->build(row_binlog_rowset).ok());
+    EXPECT_EQ(1, row_binlog_rowset->num_segments());
 }
 
 } // namespace doris
