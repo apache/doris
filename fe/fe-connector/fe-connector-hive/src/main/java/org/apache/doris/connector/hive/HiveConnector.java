@@ -205,7 +205,10 @@ public class HiveConnector implements Connector {
      * handle is passed through UNMODIFIED and NEVER cast (its concrete sibling type is invisible across the loader
      * split — a cast would CCE). A HUDI-stamped HiveTableHandle stays on the hive write path. Mirrors {@link
      * #getScanPlanProvider(ConnectorTableHandle)}; dormant until hms enters SPI_READY_TYPES. The returned sibling
-     * provider runs its planWrite on fe-core threads — the write-path TCCL pin is a separate flip-time concern.
+     * provider's planWrite runs on fe-core threads, but the write-path TCCL pin is already carried by the sibling's
+     * own {@code TcclPinningConnectorContext} (e.g. {@code IcebergConnector} wraps {@code executeAuthenticated},
+     * classloader-thread-independent), so no additional pin is needed here — verified, not an open flip-time gap.
+     * The iceberg-on-HMS write path is e2e-owed on a heterogeneous HMS catalog.
      */
     @Override
     public ConnectorWritePlanProvider getWritePlanProvider(ConnectorTableHandle handle) {
