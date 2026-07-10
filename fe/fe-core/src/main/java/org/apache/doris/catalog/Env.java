@@ -101,6 +101,7 @@ import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalMetaCacheMgr;
 import org.apache.doris.datasource.ExternalMetaIdMgr;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.datasource.MetastoreEventSyncDriver;
 import org.apache.doris.datasource.PluginDrivenExternalTable;
 import org.apache.doris.datasource.PluginDrivenSysExternalTable;
 import org.apache.doris.datasource.SplitSourceManager;
@@ -408,6 +409,9 @@ public class Env {
     private CooldownConfHandler cooldownConfHandler;
     private ExternalMetaIdMgr externalMetaIdMgr;
     private MetastoreEventsProcessor metastoreEventsProcessor;
+    // Connector-agnostic incremental metastore-event sync driver (Model B). Dormant until an HMS catalog is
+    // served by a PluginDrivenExternalCatalog whose connector exposes an event source.
+    private MetastoreEventSyncDriver metastoreEventSyncDriver;
 
     private JobManager<? extends AbstractJob<?, ?>, ?> jobManager;
     private LabelProcessor labelProcessor;
@@ -763,6 +767,7 @@ public class Env {
         }
         this.externalMetaIdMgr = new ExternalMetaIdMgr();
         this.metastoreEventsProcessor = new MetastoreEventsProcessor();
+        this.metastoreEventSyncDriver = new MetastoreEventSyncDriver();
         this.jobManager = new JobManager<>();
         this.labelProcessor = new LabelProcessor();
         this.transientTaskManager = new TransientTaskManager();
@@ -1041,6 +1046,10 @@ public class Env {
 
     public MetastoreEventsProcessor getMetastoreEventsProcessor() {
         return metastoreEventsProcessor;
+    }
+
+    public MetastoreEventSyncDriver getMetastoreEventSyncDriver() {
+        return metastoreEventSyncDriver;
     }
 
     public KeyManagerStore getKeyManagerStore() {
@@ -2079,6 +2088,8 @@ public class Env {
         feDiskUpdater.start();
 
         metastoreEventsProcessor.start();
+        // Dormant pre-flip: only drives PluginDrivenExternalCatalogs whose connector exposes an event source.
+        metastoreEventSyncDriver.start();
 
         dnsCache.start();
 
