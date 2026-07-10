@@ -58,6 +58,7 @@ import org.apache.hadoop.hive.metastore.api.Database;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.Table;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedConstruction;
 import org.mockito.Mockito;
@@ -70,6 +71,11 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
+// Disabled at the hms SPI cutover: `CREATE CATALOG ... type=hms` now routes through the plugin SPI, and the
+// fe-core test classpath has no hms connector provider, so the catalog setup here throws. This test drives the
+// legacy hive DDL/DML planning path (HMSExternalCatalog + HiveMetadataOps), which is dead-for-hms in production
+// post-flip. The legacy subsystem and this test are removed together in the Phase-3 deletion.
+@Disabled("Legacy hive path retired at the hms SPI cutover; removed with the legacy subsystem in Phase 3")
 public class HiveDDLAndDMLPlanTest extends TestWithFeService {
     private static final String mockedCtlName = "hive";
     private static final String mockedDbName = "mockedDb";

@@ -43,12 +43,18 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.junit.Assert;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 import java.util.List;
 import java.util.Optional;
 
+// Disabled at the hms SPI cutover: `CREATE CATALOG ... type=hms` now routes through the plugin SPI, and the
+// fe-core test classpath has no hms connector provider, so the catalog setup here throws. This test asserts the
+// legacy HMSExternalCatalog/HMSExternalTable behavior (hive views/query cache), which is dead-for-hms in
+// production post-flip. The legacy subsystem and this test are removed together in the Phase-3 deletion.
+@Disabled("Legacy hive path retired at the hms SPI cutover; removed with the legacy subsystem in Phase 3")
 public class HmsCatalogTest extends AnalyzeCheckTestBase {
     private static final String HMS_CATALOG = "hms_ctl";
     private static final long NOW = System.currentTimeMillis();

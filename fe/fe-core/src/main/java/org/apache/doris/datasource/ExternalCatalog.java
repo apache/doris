@@ -41,7 +41,6 @@ import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.connectivity.CatalogConnectivityTestCoordinator;
 import org.apache.doris.datasource.doris.RemoteDorisExternalDatabase;
-import org.apache.doris.datasource.hive.HMSExternalDatabase;
 import org.apache.doris.datasource.infoschema.ExternalInfoSchemaDatabase;
 import org.apache.doris.datasource.infoschema.ExternalMysqlDatabase;
 import org.apache.doris.datasource.lakesoul.LakeSoulExternalDatabase;
@@ -1066,7 +1065,14 @@ public abstract class ExternalCatalog
         }
         switch (logType) {
             case HMS:
-                return new HMSExternalDatabase(this, dbId, localDbName, remoteDbName);
+                // Hive (hms) is flipped to the plugin path (PluginDrivenExternalCatalog); the HMSExternalDatabase
+                // entity class is dead-for-hms (deleted with the legacy subsystem in the deletion phase). This
+                // case only fires when replaying an old InitCatalogLog persisted with Type.HMS (a base
+                // ExternalCatalog whose logType was serialized as HMS) — build the post-flip runtime type so the
+                // db (and the PluginDrivenMvccExternalTable it builds) matches the GSON remap. Keep the case
+                // label: deleting it would fall through to `return null` and break db init on replay. The
+                // Type.HMS enum is retained for old-image deserialization.
+                return new PluginDrivenExternalDatabase(this, dbId, localDbName, remoteDbName);
             case JDBC:
                 return new PluginDrivenExternalDatabase(this, dbId, localDbName, remoteDbName);
             case ICEBERG:
