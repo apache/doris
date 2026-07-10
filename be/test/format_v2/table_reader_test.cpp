@@ -1196,7 +1196,8 @@ TEST(TableReaderTest, PrepareSplitPrunesPartitionRuntimeFilter) {
                             })
                         .ok());
 
-    auto pruned_split = build_split_options("unused-pruned-file");
+    SplitReadOptions pruned_split;
+    pruned_split.current_range.__set_path("unused-pruned-file");
     pruned_split.partition_values.emplace("part", Field::create_field<TYPE_INT>(7));
     pruned_split.partition_prune_conjuncts.push_back(VExprContext::create_shared(
             runtime_filter_wrapper_expr(table_int32_greater_than_expr(0, 0, 10))));
@@ -1205,7 +1206,8 @@ TEST(TableReaderTest, PrepareSplitPrunesPartitionRuntimeFilter) {
     ASSERT_NE(profile.get_counter("RuntimeFilterPartitionPrunedRangeNum"), nullptr);
     EXPECT_EQ(profile.get_counter("RuntimeFilterPartitionPrunedRangeNum")->value(), 1);
 
-    auto retained_split = build_split_options("unused-retained-file");
+    SplitReadOptions retained_split;
+    retained_split.current_range.__set_path("unused-retained-file");
     retained_split.partition_values.emplace("part", Field::create_field<TYPE_INT>(11));
     retained_split.partition_prune_conjuncts.push_back(VExprContext::create_shared(
             runtime_filter_wrapper_expr(table_int32_greater_than_expr(0, 0, 10))));
