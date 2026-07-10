@@ -333,8 +333,10 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
     }
 
     private boolean isBottomJoin(LogicalJoin<? extends Plan, ? extends Plan> join) {
-        return join.children().stream().allMatch(plan -> plan instanceof LogicalFilter<?>
-                || plan instanceof LogicalProject<?> || plan instanceof LogicalRelation);
+        return join.children().stream().allMatch(plan ->
+                plan.allMatch(node ->
+                        node instanceof LogicalFilter<?> || node instanceof LogicalProject<?>
+                                || node instanceof LogicalRelation));
     }
 
     private boolean isPassThroughBigJoin(LogicalJoin<? extends Plan, ? extends Plan> join,
