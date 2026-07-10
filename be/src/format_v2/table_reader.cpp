@@ -502,6 +502,10 @@ Status TableReader::init(TableReadOptions&& options) {
                 ADD_CHILD_TIMER_WITH_LEVEL(_scanner_profile, "PushDownAggTime", table_profile, 1);
         _profile.open_reader_timer =
                 ADD_CHILD_TIMER_WITH_LEVEL(_scanner_profile, "OpenReaderTime", table_profile, 1);
+        _profile.runtime_filter_partition_prune_timer = ADD_TIMER_WITH_LEVEL(
+                _scanner_profile, "FileScannerRuntimeFilterPartitionPruningTime", 1);
+        _profile.runtime_filter_partition_pruned_range_counter = ADD_COUNTER_WITH_LEVEL(
+                _scanner_profile, "RuntimeFilterPartitionPrunedRangeNum", TUnit::UNIT, 1);
     }
     return Status::OK();
 }
@@ -733,12 +737,12 @@ std::unique_ptr<io::FileDescription> create_file_description(const TFileRangeDes
 
 Status TableReader::prepare_split(const SplitReadOptions& options) {
     SCOPED_TIMER(_profile.prepare_split_timer);
+    _current_split_pruned = false;
     // Update to current split format to handle ORC/PARQUET files in one table.
     _format = options.current_split_format;
     _partition_values = std::move(options.partition_values);
-    _current_task = std::make_unique<ScanTask>();
-    _current_task->data_file = create_file_description(options.current_range);
-    _current_file_description = *_current_task->data_file;
+    _current_task.reset();
+    _current_file_description.reset();
     _current_file_range_desc = options.current_range;
     _current_range_compress_type = options.current_range.__isset.compress_type
                                            ? options.current_range.compress_type
@@ -751,6 +755,15 @@ Status TableReader::prepare_split(const SplitReadOptions& options) {
     _aggregate_pushdown_tried = false;
     _remaining_table_level_count = -1;
     _current_reader_reached_eof = false;
+    RETURN_IF_ERROR(_evaluate_partition_prune_conjuncts(options.partition_prune_conjuncts,
+                                                        &_current_split_pruned));
+    if (_current_split_pruned) {
+        COUNTER_UPDATE(_profile.runtime_filter_partition_pruned_range_counter, 1);
+        return Status::OK();
+    }
+    _current_task = std::make_unique<ScanTask>();
+    _current_task->data_file = create_file_description(options.current_range);
+    _current_file_description = *_current_task->data_file;
     if (_push_down_agg_type == TPushAggOp::type::COUNT &&
         options.current_range.__isset.table_format_params &&
         options.current_range.table_format_params.__isset.table_level_row_count) {
@@ -762,6 +775,70 @@ Status TableReader::prepare_split(const SplitReadOptions& options) {
         return Status::OK();
     }
     return _parse_delete_predicates(options);
+}
+
+Status TableReader::_evaluate_partition_prune_conjuncts(const VExprContextSPtrs& conjuncts,
+                                                        bool* can_filter_all) {
+    DORIS_CHECK(can_filter_all != nullptr);
+    SCOPED_TIMER(_profile.runtime_filter_partition_prune_timer);
+    *can_filter_all = false;
+    if (conjuncts.empty() || _partition_values.empty()) {
+        return Status::OK();
+    }
+
+    VExprContextSPtrs partition_conjuncts;
+    for (const auto& conjunct : conjuncts) {
+        DORIS_CHECK(conjunct != nullptr);
+        DORIS_CHECK(conjunct->root() != nullptr);
+        std::set<GlobalIndex> global_indices;
+        collect_global_indices(conjunct->root(), &global_indices);
+        if (global_indices.empty()) {
+            continue;
+        }
+        const bool partition_only = std::ranges::all_of(global_indices, [&](GlobalIndex index) {
+            if (index.value() >= _projected_columns.size()) {
+                return false;
+            }
+            const auto& column = _projected_columns[index.value()];
+            return column.is_partition_key &&
+                   find_partition_value(column, _partition_values) != nullptr;
+        });
+        if (partition_only) {
+            partition_conjuncts.push_back(conjunct);
+        }
+    }
+    if (partition_conjuncts.empty()) {
+        return Status::OK();
+    }
+
+    Block block;
+    RETURN_IF_ERROR(_build_partition_prune_block(&block));
+    RowDescriptor row_desc;
+    for (const auto& conjunct : partition_conjuncts) {
+        RETURN_IF_ERROR(conjunct->prepare(_runtime_state, row_desc));
+        RETURN_IF_ERROR(conjunct->open(_runtime_state));
+    }
+    IColumn::Filter result_filter(block.rows(), 1);
+    return VExprContext::execute_conjuncts(partition_conjuncts, nullptr, &block, &result_filter,
+                                           can_filter_all);
+}
+
+Status TableReader::_build_partition_prune_block(Block* block) const {
+    DORIS_CHECK(block != nullptr);
+    DORIS_CHECK(!_projected_columns.empty());
+    block->clear();
+    for (const auto& column : _projected_columns) {
+        DORIS_CHECK(column.type != nullptr);
+        ColumnPtr value_column = column.type->create_column_const_with_default_value(1);
+        if (column.is_partition_key) {
+            const auto* partition_value = find_partition_value(column, _partition_values);
+            if (partition_value != nullptr) {
+                value_column = column.type->create_column_const(1, *partition_value);
+            }
+        }
+        block->insert({std::move(value_column), column.type, column.name});
+    }
+    return Status::OK();
 }
 
 Status TableReader::_parse_delete_predicates(const SplitReadOptions& options) {

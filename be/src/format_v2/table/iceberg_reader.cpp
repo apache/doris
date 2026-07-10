@@ -183,6 +183,9 @@ Status IcebergTableReader::prepare_split(const format::SplitReadOptions& options
         }
     }
     RETURN_IF_ERROR(TableReader::prepare_split(options));
+    if (current_split_pruned()) {
+        return Status::OK();
+    }
     if (_is_table_level_count_active()) {
         return Status::OK();
     }
