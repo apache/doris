@@ -58,6 +58,7 @@
 #include "format_v2/table/paimon_reader.h"
 #include "format_v2/table/remote_doris_reader.h"
 #include "format_v2/table_reader.h"
+#include "io/cache/block_file_cache_profile.h"
 #include "io/fs/file_meta_cache.h"
 #include "io/io_common.h"
 #include "runtime/descriptors.h"
@@ -242,6 +243,11 @@ FileScannerV2::RealtimeCounterDeltas FileScannerV2::TEST_collect_realtime_counte
                                             uncached_reader_bytes_storage, last_read_bytes,
                                             last_read_rows, last_bytes_read_from_local,
                                             last_bytes_read_from_remote);
+}
+
+void FileScannerV2::TEST_report_file_cache_profile(
+        RuntimeProfile* profile, const io::FileCacheStatistics& file_cache_statistics) {
+    _report_file_cache_profile(profile, file_cache_statistics);
 }
 #endif
 
@@ -874,6 +880,12 @@ FileScannerV2::UncachedReaderBytesStorage FileScannerV2::_uncached_reader_bytes_
 void FileScannerV2::_collect_profile_before_close() {
     _report_file_reader_predicate_filtered_rows();
     Scanner::_collect_profile_before_close();
+    if (config::enable_file_cache && _state->query_options().enable_file_cache &&
+        _profile != nullptr) {
+        _report_file_cache_profile(_profile, *_file_cache_statistics);
+        _state->get_query_ctx()->resource_ctx()->io_context()->update_bytes_write_into_cache(
+                _file_cache_statistics->bytes_write_into_cache);
+    }
     if (_file_reader_stats != nullptr) {
         COUNTER_SET(_file_read_bytes_counter, cast_set<int64_t>(_file_reader_stats->read_bytes));
         COUNTER_SET(_file_read_calls_counter, cast_set<int64_t>(_file_reader_stats->read_calls));
@@ -882,6 +894,12 @@ void FileScannerV2::_collect_profile_before_close() {
     // Query profiles can be collected before Scanner::close() runs. Publish condition-cache
     // counters here as well, using deltas so this method and close() cannot double count.
     _report_condition_cache_profile();
+}
+
+void FileScannerV2::_report_file_cache_profile(
+        RuntimeProfile* profile, const io::FileCacheStatistics& file_cache_statistics) {
+    io::FileCacheProfileReporter cache_profile(profile);
+    cache_profile.update(&file_cache_statistics);
 }
 
 bool FileScannerV2::_should_update_load_counters() const {

@@ -80,6 +80,8 @@ public:
             UncachedReaderBytesStorage uncached_reader_bytes_storage, int64_t* last_read_bytes,
             int64_t* last_read_rows, int64_t* last_bytes_read_from_local,
             int64_t* last_bytes_read_from_remote);
+    static void TEST_report_file_cache_profile(
+            RuntimeProfile* profile, const io::FileCacheStatistics& file_cache_statistics);
 #endif
 
     FileScannerV2(RuntimeState* state, FileScanLocalState* parent, int64_t limit,
@@ -135,6 +137,8 @@ private:
             int64_t* last_read_rows, int64_t* last_bytes_read_from_local,
             int64_t* last_bytes_read_from_remote);
     static UncachedReaderBytesStorage _uncached_reader_bytes_storage(TFileType::type file_type);
+    static void _report_file_cache_profile(RuntimeProfile* profile,
+                                           const io::FileCacheStatistics& file_cache_statistics);
     void _report_file_reader_predicate_filtered_rows();
     void _report_condition_cache_profile();
 
