@@ -61,7 +61,8 @@ public:
 
     virtual ~BaseDeltaWriter();
 
-    virtual Status write(const Block* block, const DorisVector<uint32_t>& row_idxs) = 0;
+    virtual Status write(const Block* block, const DorisVector<uint32_t>& row_idxs,
+                         bool* memtable_flushed = nullptr) = 0;
 
     // flush the last memtable to flush queue, must call it before build_rowset()
     virtual Status close() = 0;
@@ -81,7 +82,11 @@ public:
     // Wait all memtable in flush queue to be flushed
     Status wait_flush();
 
+    virtual Status flush_memtable_async();
+
     int64_t partition_id() const { return _req.partition_id; }
+
+    int64_t table_id() const;
 
     int64_t tablet_id() const { return _req.tablet_id; }
 
@@ -130,9 +135,12 @@ public:
 
     ~DeltaWriter() override;
 
-    Status write(const Block* block, const DorisVector<uint32_t>& row_idxs) override;
+    Status write(const Block* block, const DorisVector<uint32_t>& row_idxs,
+                 bool* memtable_flushed = nullptr) override;
 
     Status close() override;
+
+    Status flush_memtable_async() override;
 
     Status cancel_with_status(const Status& st) override;
 

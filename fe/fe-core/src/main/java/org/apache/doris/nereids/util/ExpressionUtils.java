@@ -42,7 +42,6 @@ import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
-import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.IsNull;
@@ -419,41 +418,6 @@ public class ExpressionUtils {
             }
         }
         return minSlot;
-    }
-
-    /**
-     * Check whether the input expression is a {@link org.apache.doris.nereids.trees.expressions.Slot}
-     * or at least one {@link Cast} on a {@link org.apache.doris.nereids.trees.expressions.Slot}
-     * <p>
-     * for example:
-     * - SlotReference to a column:
-     * col
-     * - Cast on SlotReference:
-     * cast(int_col as string)
-     * cast(cast(int_col as long) as string)
-     *
-     * @param expr input expression
-     * @return Return Optional[ExprId] of underlying slot reference if input expression is a slot or cast on slot.
-     *         Otherwise, return empty optional result.
-     */
-    public static Optional<ExprId> isSlotOrCastOnSlot(Expression expr) {
-        return extractSlotOrCastOnSlot(expr).map(Slot::getExprId);
-    }
-
-    /**
-     * Check whether the input expression is a {@link org.apache.doris.nereids.trees.expressions.Slot}
-     * or at least one {@link Cast} on a {@link org.apache.doris.nereids.trees.expressions.Slot}
-     */
-    public static Optional<Slot> extractSlotOrCastOnSlot(Expression expr) {
-        while (expr instanceof Cast) {
-            expr = expr.child(0);
-        }
-
-        if (expr instanceof SlotReference) {
-            return Optional.of((Slot) expr);
-        } else {
-            return Optional.empty();
-        }
     }
 
     /**
@@ -1131,6 +1095,20 @@ public class ExpressionUtils {
     public static Expression getExpressionCoveredByCast(Expression expression) {
         while (expression instanceof Cast) {
             expression = ((Cast) expression).child();
+        }
+        return expression;
+    }
+
+    /**
+     * Strip only casts that preserve distinctness of the child expression.
+     */
+    public static Expression getExpressionCoveredBySafetyCast(Expression expression) {
+        while (expression instanceof Cast) {
+            if (((Cast) expression).child().getDataType().isInjectiveCastTo(expression.getDataType())) {
+                expression = ((Cast) expression).child();
+            } else {
+                break;
+            }
         }
         return expression;
     }

@@ -62,7 +62,6 @@ Usage: $0 <options>
      --index-tool               build Backend inverted index tool. Default OFF.
      --benchmark                build Google Benchmark. Default OFF.
      --task-executor-simulator  build Backend task executor simulator. Default OFF.
-     --broker                   build Broker. Default ON.
      --hive-udf                 build Hive UDF library for Ingestion Load. Default ON.
      --be-java-extensions       build Backend java extensions. Default ON.
      --be-cdc-client            build Cdc Client for backend. Default ON.
@@ -97,7 +96,6 @@ Usage: $0 <options>
     $0 --fe --clean                         clean and build Frontend.
     $0 --fe --be --clean                    clean and build Frontend and Backend
     $0 --task-executor-simulator            build task executor simulator
-    $0 --broker                             build Broker
     $0 --be --fe                            build Backend, Frontend, and Java UDF library
     $0 --be --coverage                      build Backend with coverage enabled
     $0 --be --output PATH                   build Backend, the result will be output to PATH(relative paths are available)
@@ -277,7 +275,6 @@ PARALLEL="$(($(nproc) / 4 + 1))"
 BUILD_FE=0
 BUILD_BE=0
 BUILD_CLOUD=0
-BUILD_BROKER=0
 BUILD_META_TOOL='OFF'
 BUILD_FILE_CACHE_MICROBENCH_TOOL='OFF'
 BUILD_INDEX_TOOL='OFF'
@@ -302,7 +299,6 @@ if [[ "$#" == 1 ]]; then
     BUILD_BE=1
     BUILD_CLOUD=1
 
-    BUILD_BROKER=1
     BUILD_META_TOOL='OFF'
     BUILD_FILE_CACHE_MICROBENCH_TOOL='OFF'
     BUILD_TASK_EXECUTOR_SIMULATOR='OFF'
@@ -332,10 +328,6 @@ else
             BUILD_BE_JAVA_EXTENSIONS=1
             shift
             ;;
-        --broker)
-            BUILD_BROKER=1
-            shift
-            ;;
         --meta-tool)
             BUILD_META_TOOL='ON'
             shift
@@ -360,6 +352,13 @@ else
             ;;
         --spark-dpp)
             BUILD_SPARK_DPP=1
+            shift
+            ;;
+        --broker)
+            # Deprecated no-op: the in-tree apache_hdfs_broker daemon has been
+            # removed. The option is still accepted so existing build/CI scripts
+            # that pass --broker do not break, but it no longer builds anything.
+            echo "Warning: --broker is deprecated and has no effect; the apache_hdfs_broker module has been removed."
             shift
             ;;
         --hive-udf)
@@ -434,7 +433,6 @@ else
         BUILD_FE=1
         BUILD_BE=1
         BUILD_CLOUD=1
-        BUILD_BROKER=1
         BUILD_META_TOOL='ON'
         BUILD_FILE_CACHE_MICROBENCH_TOOL='OFF'
         BUILD_INDEX_TOOL='ON'
@@ -546,14 +544,6 @@ fi
 
 if [[ -z "${USE_BTHREAD_SCANNER}" ]]; then
     USE_BTHREAD_SCANNER='OFF'
-fi
-
-if [[ -z "${USE_UNWIND}" ]]; then
-    if [[ "${TARGET_SYSTEM}" != 'Darwin' ]]; then
-        USE_UNWIND='ON'
-    else
-        USE_UNWIND='OFF'
-    fi
 fi
 
 if [[ -z "${DISPLAY_BUILD_TIME}" ]]; then
@@ -671,7 +661,6 @@ echo "Get params:
     BUILD_FE                            -- ${BUILD_FE}
     BUILD_BE                            -- ${BUILD_BE}
     BUILD_CLOUD                         -- ${BUILD_CLOUD}
-    BUILD_BROKER                        -- ${BUILD_BROKER}
     BUILD_META_TOOL                     -- ${BUILD_META_TOOL}
     BUILD_FILE_CACHE_MICROBENCH_TOOL    -- ${BUILD_FILE_CACHE_MICROBENCH_TOOL}
     BUILD_INDEX_TOOL                    -- ${BUILD_INDEX_TOOL}
@@ -687,7 +676,6 @@ echo "Get params:
     GLIBC_COMPATIBILITY                 -- ${GLIBC_COMPATIBILITY}
     USE_AVX2                            -- ${USE_AVX2}
     USE_LIBCPP                          -- ${USE_LIBCPP}
-    USE_UNWIND                          -- ${USE_UNWIND}
     STRIP_DEBUG_INFO                    -- ${STRIP_DEBUG_INFO}
     USE_JEMALLOC                        -- ${USE_JEMALLOC}
     USE_BTHREAD_SCANNER                 -- ${USE_BTHREAD_SCANNER}
@@ -703,6 +691,7 @@ echo "Get params:
 FEAT=()
 FEAT+=($(feature_enabled "tde" && echo "+TDE" || echo "-TDE"))
 FEAT+=($(feature_enabled "tls" && echo "+TLS" || echo "-TLS"))
+FEAT+=($(feature_enabled "variant-nested-group" && echo "+VARIANT_NESTED_GROUP" || echo "-VARIANT_NESTED_GROUP"))
 FEAT+=($([[ "${ENABLE_HDFS_STORAGE_VAULT:-OFF}" == "ON" ]] && echo "+HDFS_STORAGE_VAULT" || echo "-HDFS_STORAGE_VAULT"))
 FEAT+=($([[ ${BUILD_UI} -eq 1 ]] && echo "+UI" || echo "-UI"))
 FEAT+=($([[ "${BUILD_AZURE}" == "ON" ]] && echo "+AZURE_BLOB,+AZURE_STORAGE_VAULT" || echo "-AZURE_BLOB,-AZURE_STORAGE_VAULT"))
@@ -728,7 +717,7 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     # Filesystem API and SPI plugin modules (loaded at runtime as plugins)
     modules+=("fe-filesystem/fe-filesystem-api")
     modules+=("fe-filesystem/fe-filesystem-spi")
-    for _fs_mod in s3 oss cos obs azure hdfs local broker; do
+    for _fs_mod in s3 oss cos obs azure hdfs local broker http; do
         if [[ -d "${DORIS_HOME}/fe/fe-filesystem/fe-filesystem-${_fs_mod}" ]]; then
             modules+=("fe-filesystem/fe-filesystem-${_fs_mod}")
         fi
@@ -843,7 +832,6 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         -DBUILD_FILE_CACHE_MICROBENCH_TOOL="${BUILD_FILE_CACHE_MICROBENCH_TOOL}" \
         -DBUILD_INDEX_TOOL="${BUILD_INDEX_TOOL}" \
         -DSTRIP_DEBUG_INFO="${STRIP_DEBUG_INFO}" \
-        -DUSE_UNWIND="${USE_UNWIND}" \
         -DDISPLAY_BUILD_TIME="${DISPLAY_BUILD_TIME}" \
         -DENABLE_PCH="${ENABLE_PCH}" \
         -DUSE_JEMALLOC="${USE_JEMALLOC}" \
@@ -1061,7 +1049,7 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     # Deploy filesystem provider plugins as independent plugin directories
     # Each sub-directory is one storage backend loaded at runtime by FileSystemPluginManager.
     FS_PLUGIN_DIR="${DORIS_OUTPUT}/fe/plugins/filesystem"
-    for fs_module in s3 azure oss cos obs hdfs local broker; do
+    for fs_module in s3 azure oss cos obs hdfs local broker http; do
         fs_plugin_target="${FS_PLUGIN_DIR}/${fs_module}"
         fs_module_dir="${DORIS_HOME}/fe/fe-filesystem/fe-filesystem-${fs_module}"
         if [ ! -d "${fs_module_dir}" ]; then
@@ -1267,17 +1255,6 @@ EOF
     mkdir -p "${DORIS_OUTPUT}/be/plugins/hadoop_conf/"
     mkdir -p "${DORIS_OUTPUT}/be/plugins/java_extensions/"
     cp -r -p "${DORIS_HOME}/be/src/udf/python/python_server.py" "${DORIS_OUTPUT}/be/plugins/python_udf/"
-fi
-
-if [[ "${BUILD_BROKER}" -eq 1 ]]; then
-    install -d "${DORIS_OUTPUT}/apache_hdfs_broker"
-
-    cd "${DORIS_HOME}/fs_brokers/apache_hdfs_broker"
-    bash ./build.sh
-    rm -rf "${DORIS_OUTPUT}/apache_hdfs_broker"/*
-    cp -r -p "${DORIS_HOME}/fs_brokers/apache_hdfs_broker/output/apache_hdfs_broker"/* "${DORIS_OUTPUT}/apache_hdfs_broker"/
-    copy_common_files "${DORIS_OUTPUT}/apache_hdfs_broker/"
-    cd "${DORIS_HOME}"
 fi
 
 if [[ "${BUILD_BE_CDC_CLIENT}" -eq 1 ]]; then

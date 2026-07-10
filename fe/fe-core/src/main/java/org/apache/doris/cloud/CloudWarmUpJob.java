@@ -46,6 +46,8 @@ import org.apache.doris.thrift.TWarmUpTabletsResponse;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonObject;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
@@ -55,10 +57,13 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 public class CloudWarmUpJob implements Writable {
@@ -77,7 +82,8 @@ public class CloudWarmUpJob implements Writable {
 
     public enum JobType {
         CLUSTER,
-        TABLE;
+        TABLE,
+        TABLES;
     }
 
     public enum SyncMode {
@@ -139,6 +145,32 @@ public class CloudWarmUpJob implements Writable {
     @SerializedName(value = "syncEvent")
     protected SyncEvent syncEvent;
 
+    @SerializedName(value = "tableFilterRules")
+    protected List<PersistedTableFilterRule> tableFilterRules = new ArrayList<>();
+
+    // Computed from tableFilterRules via canonicalize(); not persisted.
+    private transient String tableFilterExpr = "";
+    private transient OnTablesFilter onTablesFilter;
+    // Maps table ID → "db.table" qualified name for matched tables.
+    private transient volatile Map<Long, String> currentTableIdNames = new ConcurrentHashMap<>();
+
+    // Latest event-driven SyncStats collected by FE background metrics refresh. Not persisted.
+    private transient volatile JobWarmUpStats syncStats;
+
+    /**
+     * Serializable rule for GSON persistence.
+     */
+    public static class PersistedTableFilterRule {
+        @SerializedName("ruleType")
+        public String ruleType;
+        @SerializedName("pattern")
+        public String pattern;
+    }
+
+    private static final Comparator<PersistedTableFilterRule> TABLE_FILTER_RULE_COMPARATOR =
+            Comparator.comparingInt(CloudWarmUpJob::tableFilterRuleTypeOrder)
+                    .thenComparing(rule -> StringUtils.defaultString(rule.pattern));
+
     private Map<Long, Client> beToClient;
 
     private Map<Long, TNetworkAddress> beToAddr;
@@ -159,6 +191,7 @@ public class CloudWarmUpJob implements Writable {
         private SyncMode syncMode = SyncMode.ONCE;
         private SyncEvent syncEvent;
         private long syncInterval;
+        private List<PersistedTableFilterRule> tableFilterRules = new ArrayList<>();
 
         public Builder() {}
 
@@ -197,6 +230,11 @@ public class CloudWarmUpJob implements Writable {
             return this;
         }
 
+        public Builder setTableFilterRules(List<PersistedTableFilterRule> tableFilterRules) {
+            this.tableFilterRules = tableFilterRules;
+            return this;
+        }
+
         public CloudWarmUpJob build() {
             if (jobId == 0 || srcClusterName == null || dstClusterName == null || jobType == null || syncMode == null) {
                 throw new IllegalStateException("Missing required fields for CloudWarmUpJob");
@@ -214,6 +252,8 @@ public class CloudWarmUpJob implements Writable {
         this.syncMode = builder.syncMode;
         this.syncEvent = builder.syncEvent;
         this.syncInterval = builder.syncInterval;
+        this.tableFilterRules = normalizeTableFilterRules(builder.tableFilterRules);
+        this.tableFilterExpr = computeTableFilterExpr();
         this.createTimeMs = System.currentTimeMillis();
     }
 
@@ -273,7 +313,7 @@ public class CloudWarmUpJob implements Writable {
         if (FeConstants.runningUnitTest) {
             return;
         }
-        if (jobType == JobType.TABLE) {
+        if (jobType == JobType.TABLE || jobType == JobType.TABLES) {
             // warm up with table will have to set tablets on creation
             return;
         }
@@ -338,6 +378,10 @@ public class CloudWarmUpJob implements Writable {
         return createTimeMs;
     }
 
+    public long getStartTimeMs() {
+        return startTimeMs;
+    }
+
     public String getErrMsg() {
         return errMsg;
     }
@@ -366,6 +410,18 @@ public class CloudWarmUpJob implements Writable {
         return syncMode;
     }
 
+    public SyncEvent getSyncEvent() {
+        return syncEvent;
+    }
+
+    public JobWarmUpStats getSyncStats() {
+        return syncStats;
+    }
+
+    public void setSyncStats(JobWarmUpStats syncStats) {
+        this.syncStats = syncStats;
+    }
+
     public String getSyncModeString() {
         if (syncMode == null) {
             // For backward compatibility: older FE versions did not set syncMode for jobs,
@@ -390,7 +446,11 @@ public class CloudWarmUpJob implements Writable {
         return sb.toString();
     }
 
-    public List<String> getJobInfo() {
+    public List<String> getJobInfo(JobWarmUpStats stats) {
+        return getJobInfo(stats, true);
+    }
+
+    public List<String> getJobInfo(JobWarmUpStats stats, boolean showDetailedSyncStats) {
         List<String> info = Lists.newArrayList();
         info.add(String.valueOf(jobId));
         info.add(srcClusterName);
@@ -416,7 +476,40 @@ public class CloudWarmUpJob implements Writable {
                         ? t.getLeft() + "." + t.getMiddle()
                         : t.getLeft() + "." + t.getMiddle() + "." + t.getRight())
                 .collect(Collectors.joining(", ")));
+        info.add(tableFilterExpr == null ? "" : tableFilterExpr);
+        info.add(getMatchedTablesString());
+        // SyncStats: only for event-driven jobs
+        if (isEventDriven() && stats != null) {
+            info.add(showDetailedSyncStats ? stats.toJsonString() : stats.toSummaryJsonString());
+        } else {
+            info.add("");
+        }
         return info;
+    }
+
+    private String getMatchedTablesString() {
+        if (currentTableIdNames == null || currentTableIdNames.isEmpty()) {
+            return "";
+        }
+        return formatMatchedTablesForDisplay(currentTableIdNames.values().stream()
+                .sorted()
+                .collect(Collectors.toList()));
+    }
+
+    static String formatMatchedTablesForDisplay(List<String> matchedTables) {
+        if (matchedTables == null || matchedTables.isEmpty()) {
+            return "";
+        }
+        int displayLimit = Math.max(0, Config.cloud_warm_up_matched_tables_display_limit);
+        int shownCount = Math.min(matchedTables.size(), displayLimit);
+        String result = matchedTables.stream()
+                .limit(shownCount)
+                .collect(Collectors.joining(", "));
+        if (matchedTables.size() <= displayLimit) {
+            return result;
+        }
+        String truncatedSuffix = "... (truncated, " + shownCount + " of " + matchedTables.size() + " shown)";
+        return result.isEmpty() ? truncatedSuffix : result + ", " + truncatedSuffix;
     }
 
     public void setJobState(JobState jobState) {
@@ -429,6 +522,14 @@ public class CloudWarmUpJob implements Writable {
 
     public void setErrMsg(String msg) {
         this.errMsg = msg;
+    }
+
+    private boolean resetErrMsg() {
+        if (StringUtils.isEmpty(errMsg)) {
+            return false;
+        }
+        this.errMsg = "";
+        return true;
     }
 
     public void setFinishedTimeMs(long timeMs) {
@@ -475,6 +576,153 @@ public class CloudWarmUpJob implements Writable {
 
     public String getSrcClusterName() {
         return srcClusterName;
+    }
+
+    public boolean hasTableFilter() {
+        return tableFilterRules != null && !tableFilterRules.isEmpty();
+    }
+
+    public String getTableFilterExpr() {
+        return tableFilterExpr;
+    }
+
+    public List<PersistedTableFilterRule> getTableFilterRules() {
+        return tableFilterRules;
+    }
+
+    public OnTablesFilter getOnTablesFilter() {
+        return onTablesFilter;
+    }
+
+    /**
+     * Returns the set of currently matched table IDs.
+     */
+    public Set<Long> getCurrentTableIds() {
+        if (currentTableIdNames == null) {
+            currentTableIdNames = new ConcurrentHashMap<>();
+        }
+        return currentTableIdNames.keySet();
+    }
+
+    /**
+     * Sets the current matched table ID-to-name mapping.
+     */
+    public void setCurrentTableIdNames(Map<Long, String> idNames) {
+        this.currentTableIdNames = new ConcurrentHashMap<>(idNames);
+    }
+
+    public Map<Long, String> getCurrentTableIdNames() {
+        if (currentTableIdNames == null) {
+            currentTableIdNames = new ConcurrentHashMap<>();
+        }
+        return currentTableIdNames;
+    }
+
+    /**
+     * Compute the canonical table filter expression from persisted rules.
+     * Returns empty string when no table filter rules exist.
+     */
+    private String computeTableFilterExpr() {
+        List<PersistedTableFilterRule> normalizedRules = normalizeTableFilterRules(tableFilterRules);
+        tableFilterRules = normalizedRules;
+        if (normalizedRules.isEmpty()) {
+            return "";
+        }
+        return canonicalizeNormalizedRules(normalizedRules);
+    }
+
+    /**
+     * Generate canonical JSON from persisted rules for JobKey dedup and SHOW output.
+     * Steps: group by type → sort alphabetically → deduplicate → compact JSON.
+     */
+    public static String canonicalize(List<PersistedTableFilterRule> rules) {
+        return canonicalizeNormalizedRules(normalizeTableFilterRules(rules));
+    }
+
+    private static String canonicalizeNormalizedRules(List<PersistedTableFilterRule> normalizedRules) {
+        List<String> includes = normalizedRules.stream()
+                .filter(r -> "INCLUDE".equals(r.ruleType))
+                .map(r -> r.pattern)
+                .collect(Collectors.toList());
+        List<String> excludes = normalizedRules.stream()
+                .filter(r -> "EXCLUDE".equals(r.ruleType))
+                .map(r -> r.pattern)
+                .collect(Collectors.toList());
+
+        JsonObject json = new JsonObject();
+        JsonArray incArr = new JsonArray();
+        includes.forEach(incArr::add);
+        json.add("include", incArr);
+        if (!excludes.isEmpty()) {
+            JsonArray excArr = new JsonArray();
+            excludes.forEach(excArr::add);
+            json.add("exclude", excArr);
+        }
+        return json.toString();
+    }
+
+    /**
+     * Rebuild the transient OnTablesFilter and tableFilterExpr from persisted tableFilterRules.
+     * Called after deserialization (EditLog replay, FE restart).
+     */
+    public void rebuildOnTablesFilter() {
+        if (currentTableIdNames == null) {
+            currentTableIdNames = new ConcurrentHashMap<>();
+        }
+        if (tableFilterRules == null || tableFilterRules.isEmpty()) {
+            this.tableFilterRules = new ArrayList<>();
+            this.tableFilterExpr = "";
+            this.onTablesFilter = null;
+            return;
+        }
+        this.tableFilterExpr = computeTableFilterExpr();
+        List<OnTablesFilter.TableFilterRule> rules = tableFilterRules.stream()
+                .map(r -> new OnTablesFilter.TableFilterRule(
+                        "INCLUDE".equals(r.ruleType)
+                                ? OnTablesFilter.TableFilterRule.RuleType.INCLUDE
+                                : OnTablesFilter.TableFilterRule.RuleType.EXCLUDE,
+                        r.pattern))
+                .collect(Collectors.toList());
+        this.onTablesFilter = new OnTablesFilter(rules);
+    }
+
+    private static int tableFilterRuleTypeOrder(PersistedTableFilterRule rule) {
+        return "INCLUDE".equals(rule.ruleType) ? 0 : 1;
+    }
+
+    private static String normalizeTableFilterRuleType(String ruleType) {
+        Preconditions.checkNotNull(ruleType, "table filter rule type cannot be null");
+        Preconditions.checkState("INCLUDE".equalsIgnoreCase(ruleType) || "EXCLUDE".equalsIgnoreCase(ruleType),
+                "Unexpected table filter rule type: %s", ruleType);
+        return "INCLUDE".equalsIgnoreCase(ruleType) ? "INCLUDE" : "EXCLUDE";
+    }
+
+    private static PersistedTableFilterRule copyNormalizedTableFilterRule(PersistedTableFilterRule rule) {
+        PersistedTableFilterRule normalizedRule = new PersistedTableFilterRule();
+        normalizedRule.ruleType = normalizeTableFilterRuleType(rule.ruleType);
+        normalizedRule.pattern = rule.pattern;
+        return normalizedRule;
+    }
+
+    private static List<PersistedTableFilterRule> normalizeTableFilterRules(List<PersistedTableFilterRule> rules) {
+        if (rules == null || rules.isEmpty()) {
+            return new ArrayList<>();
+        }
+        List<PersistedTableFilterRule> sortedRules = rules.stream()
+                .map(CloudWarmUpJob::copyNormalizedTableFilterRule)
+                .sorted(TABLE_FILTER_RULE_COMPARATOR)
+                .collect(Collectors.toList());
+        List<PersistedTableFilterRule> normalizedRules = new ArrayList<>();
+        String lastRuleKey = null;
+        for (PersistedTableFilterRule rule : sortedRules) {
+            String ruleKey = rule.ruleType + "\0" + StringUtils.defaultString(rule.pattern);
+            if (ruleKey.equals(lastRuleKey)) {
+                continue;
+            }
+            normalizedRules.add(rule);
+            lastRuleKey = ruleKey;
+        }
+        return normalizedRules;
     }
 
     public synchronized void run() {
@@ -729,6 +977,7 @@ public class CloudWarmUpJob implements Writable {
     }
 
     private void runEventDrivenJob() throws Exception {
+        boolean hasError = false;
         try {
             refreshEventDrivenBeToThriftAddress();
             initClients();
@@ -741,10 +990,16 @@ public class CloudWarmUpJob implements Writable {
                     throw new IllegalArgumentException("Unknown SyncEvent " + syncEvent);
                 }
                 request.setEvent(event);
-                LOG.debug("send warm up request to BE {} ({}). job_id={}, event={}, request_type=SET_JOB(EVENT)",
-                        entry.getKey(), getBackendEndpoint(entry.getKey()), jobId, syncEvent);
+                if (hasTableFilter()) {
+                    request.setTableIds(new ArrayList<>(getCurrentTableIds()));
+                }
+                LOG.debug("send warm up request to BE {} ({}). job_id={}, event={}, "
+                                + "request_type=SET_JOB(EVENT), table_ids_count={}",
+                        entry.getKey(), getBackendEndpoint(entry.getKey()), jobId, syncEvent,
+                        hasTableFilter() ? getCurrentTableIdNames().size() : "all");
                 TWarmUpTabletsResponse response = entry.getValue().warmUpTablets(request);
                 if (response.getStatus().getStatusCode() != TStatusCode.OK) {
+                    hasError = true;
                     if (!response.getStatus().getErrorMsgs().isEmpty()) {
                         errMsg = response.getStatus().getErrorMsgs().get(0);
                     }
@@ -752,7 +1007,11 @@ public class CloudWarmUpJob implements Writable {
                             jobId, syncEvent, errMsg);
                 }
             }
+            if (!hasError && resetErrMsg()) {
+                Env.getCurrentEnv().getEditLog().logModifyCloudWarmUpJob(this);
+            }
         } catch (Exception e) {
+            errMsg = e.getMessage();
             LOG.warn("send warm up request job_id={} failed with exception {}",
                     jobId, e);
         } finally {
@@ -859,6 +1118,7 @@ public class CloudWarmUpJob implements Writable {
                     }
                     if (allBatchesDone) {
                         clearJobOnBEs();
+                        resetErrMsg();
                         this.finishedTimeMs = System.currentTimeMillis();
                         if (this.isPeriodic()) {
                             // wait for next schedule
@@ -901,6 +1161,8 @@ public class CloudWarmUpJob implements Writable {
 
     public static CloudWarmUpJob read(DataInput in) throws IOException {
         String json = Text.readString(in);
-        return GsonUtils.GSON.fromJson(json, CloudWarmUpJob.class);
+        CloudWarmUpJob job = GsonUtils.GSON.fromJson(json, CloudWarmUpJob.class);
+        job.rebuildOnTablesFilter();
+        return job;
     }
 }

@@ -117,7 +117,7 @@ struct PopData : BaseData<T> {
     static const char* name() { return "covar"; }
 
     void insert_result_into(IColumn& to) const {
-        auto& col = assert_cast<ColumnFloat64&>(to);
+        auto& col = assert_cast<ColumnFloat64&, TypeCheckOnRelease::DISABLE>(to);
         col.get_data().push_back(this->get_pop_result());
     }
 };
@@ -127,7 +127,7 @@ struct SampData : BaseData<T> {
     static const char* name() { return "covar_samp"; }
 
     void insert_result_into(IColumn& to) const {
-        auto& col = assert_cast<ColumnFloat64&>(to);
+        auto& col = assert_cast<ColumnFloat64&, TypeCheckOnRelease::DISABLE>(to);
         if (this->count == 1 || this->count == 0) {
             col.insert_default();
         } else {

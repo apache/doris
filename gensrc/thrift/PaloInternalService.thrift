@@ -471,7 +471,6 @@ struct TQueryOptions {
   // session variable `spill_repartition_max_depth` in FE. Default is 8.
   209: optional i32 spill_repartition_max_depth = 8
 
-
   210: optional double max_scan_mem_ratio = 0.3;
   211: optional bool enable_adaptive_scan = false;
 
@@ -493,11 +492,28 @@ struct TQueryOptions {
   219: optional bool enable_segment_limit_pushdown = true
 
   220: optional bool enable_ann_index_result_cache = true
+  // ANN search falls back to exact vector distance evaluation when candidate rows
+  // before ANN search are less than this value. 0 disables the absolute threshold.
+  221: optional i64 ann_index_candidate_rows_threshold = 0
+  // Candidate row ratio threshold against segment rows. Existing default is 0.3.
+  222: optional double ann_index_candidate_rows_percent_threshold = 0.3
+
+  // enable plan local exchange node in fe
+  223: optional bool enable_local_shuffle_planner;
+
+  // To control whether BE scan readers may apply expression-based ZoneMap pruning.
+  224: optional bool enable_expr_zonemap_filter = true
+
+  225: optional i64 runtime_filter_tree_publish_max_send_bytes = 268435456
+
+  226: optional bool enable_prune_nested_column = false;
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
   // In read path, read from file cache or remote storage when execute query.
   1000: optional bool disable_file_cache = false
   1001: optional i32 file_cache_query_limit_percent = -1
+  1002: optional bool enable_file_scanner_v2 = false
+  1003: optional bool enable_topn_lazy_mat_phase2_no_write_file_cache = false
 }
 
 
@@ -505,13 +521,6 @@ struct TQueryOptions {
 struct TScanRangeParams {
   1: required PlanNodes.TScanRange scan_range
   2: optional i32 volume_id = -1
-}
-
-// deprecated
-struct TRuntimeFilterTargetParams {
-  1: required Types.TUniqueId target_fragment_instance_id
-  // The address of the instance where the fragment is expected to run
-  2: required Types.TNetworkAddress target_fragment_instance_addr
 }
 
 struct TRuntimeFilterTargetParamsV2 {
@@ -524,10 +533,6 @@ struct TRuntimeFilterTargetParamsV2 {
 struct TRuntimeFilterParams {
   // Runtime filter merge instance address. Used if this filter has a remote target
   1: optional Types.TNetworkAddress runtime_filter_merge_addr
-
-  // keep 2/3/4/5 unset if BE is not used for merge 
-  // deprecated
-  2: optional map<i32, list<TRuntimeFilterTargetParams>> rid_to_target_param
 
   // Runtime filter ID to the runtime filter desc
   // Used if this filter has a remote target

@@ -102,6 +102,7 @@ import org.apache.doris.nereids.trees.plans.commands.Forward;
 import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.PrepareCommand;
 import org.apache.doris.nereids.trees.plans.commands.Redirect;
+import org.apache.doris.nereids.trees.plans.commands.SupportProfile;
 import org.apache.doris.nereids.trees.plans.commands.TransactionCommand;
 import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.BatchInsertIntoTableCommand;
@@ -109,6 +110,7 @@ import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableComma
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertOverwriteTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.OlapGroupCommitInsertExecutor;
 import org.apache.doris.nereids.trees.plans.commands.insert.OlapInsertExecutor;
+import org.apache.doris.nereids.trees.plans.commands.merge.MergeIntoCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSqlCache;
 import org.apache.doris.planner.GroupCommitScanNode;
@@ -189,6 +191,10 @@ public class StmtExecutor {
     private MysqlSerializer serializer;
     private OriginStatement originStmt;
     private StatementBase parsedStmt;
+    // Snapshot of changed session variables taken BEFORE per-query SET_VAR hint values are
+    // reverted, so the audit log (built after execute() returns) can reflect the values that
+    // were actually in effect for this statement. Null when no SET_VAR hint was used.
+    private List<List<String>> changedSessionVarsForAudit;
     private ProfileType profileType = ProfileType.QUERY;
 
     @Setter
@@ -551,6 +557,10 @@ public class StmtExecutor {
         return parsedStmt;
     }
 
+    public List<List<String>> getChangedSessionVarsForAudit() {
+        return changedSessionVarsForAudit;
+    }
+
     /**
      * Replace the executor statement context and synchronize it to the owning ConnectContext.
      */
@@ -583,6 +593,7 @@ public class StmtExecutor {
         TUniqueId firstQueryId = queryId;
         int retryTime = Config.max_query_retry_time;
         retryTime = retryTime <= 0 ? 1 : retryTime + 1;
+        boolean disableCloudVersionCacheOnRetry = false;
         // If the query is an `outfile` statement,
         // we execute it only once to avoid exporting redundant data.
         if (parsedStmt instanceof Queriable) {
@@ -590,7 +601,11 @@ public class StmtExecutor {
         }
         for (int i = 1; i <= retryTime; i++) {
             try {
-                execute(queryId);
+                if (disableCloudVersionCacheOnRetry) {
+                    executeWithVersionCacheDisabled(queryId);
+                } else {
+                    execute(queryId);
+                }
                 return;
             } catch (UserException e) {
                 if (!SystemInfoService.needRetryWithReplan(e.getMessage()) || i == retryTime) {
@@ -602,6 +617,7 @@ public class StmtExecutor {
                 if (this.coord != null && this.coord.isQueryCancelled()) {
                     throw e;
                 }
+                disableCloudVersionCacheOnRetry = shouldDisableCloudVersionCacheOnRetry(e.getMessage());
                 TUniqueId lastQueryId = queryId;
                 queryId = UniqueIdUtils.fastUniqueId();
                 int randomMillis = 10 + (int) (Math.random() * 10);
@@ -620,6 +636,34 @@ public class StmtExecutor {
                 throw e;
             }
         }
+    }
+
+    // Temporarily disable the cloud version cache for this single attempt so that the retry
+    // re-fetches the visible version from meta-service, then restore the user-set TTLs.
+    private void executeWithVersionCacheDisabled(TUniqueId queryId) throws Exception {
+        SessionVariable sessionVariable = context.getSessionVariable();
+        long oldPartitionTtl = sessionVariable.cloudPartitionVersionCacheTtlMs;
+        long oldTableTtl = sessionVariable.cloudTableVersionCacheTtlMs;
+        try {
+            sessionVariable.cloudPartitionVersionCacheTtlMs = 0;
+            sessionVariable.cloudTableVersionCacheTtlMs = 0;
+            LOG.info("temporarily set {} from {} to 0 and {} from {} to 0 before retry. {}",
+                    SessionVariable.CLOUD_PARTITION_VERSION_CACHE_TTL_MS, oldPartitionTtl,
+                    SessionVariable.CLOUD_TABLE_VERSION_CACHE_TTL_MS, oldTableTtl,
+                    context.getQueryIdentifier());
+            execute(queryId);
+        } finally {
+            sessionVariable.cloudPartitionVersionCacheTtlMs = oldPartitionTtl;
+            sessionVariable.cloudTableVersionCacheTtlMs = oldTableTtl;
+        }
+    }
+
+    boolean shouldDisableCloudVersionCacheOnRetry(String errorMessage) {
+        return Config.isCloudMode()
+                && errorMessage != null
+                && errorMessage.contains(SystemInfoService.ERROR_E230)
+                && (context.getSessionVariable().cloudPartitionVersionCacheTtlMs != 0
+                || context.getSessionVariable().cloudTableVersionCacheTtlMs != 0);
     }
 
     public void execute(TUniqueId queryId) throws Exception {
@@ -650,6 +694,17 @@ public class StmtExecutor {
                 throw e;
             }
         } finally {
+            // Snapshot changed session variables (including SET_VAR hint values) BEFORE revert,
+            // so the audit log (logged after execute() returns, i.e. after the revert below) can
+            // reflect what was actually in effect for this statement instead of the reverted values.
+            if (sessionVariable.getIsSingleSetVar()) {
+                try {
+                    changedSessionVarsForAudit = VariableMgr.dumpChangedVars(sessionVariable);
+                } catch (Throwable t) {
+                    LOG.warn("failed to snapshot changed session variables for audit. {}",
+                            context.getQueryIdentifier(), t);
+                }
+            }
             // revert Session Value
             try {
                 VariableMgr.revertSessionValue(sessionVariable);
@@ -1126,12 +1181,19 @@ public class StmtExecutor {
             return true;
         }
 
+        // Computed DML profiles are currently only supported for OLAP target tables.
+        if (plan instanceof SupportProfile && ((SupportProfile) plan).isTargetTableOlap(context)) {
+            return true;
+        }
+
         // Generate profile for:
         // 1. CreateTableCommand(mainly for create as select).
         // 2. LoadCommand.
         // 3. InsertOverwriteTableCommand.
+        // 4. MergeIntoCommand (merge into ... using ...).
         if ((plan instanceof Command) && !(plan instanceof LoadCommand)
-                && !(plan instanceof CreateTableCommand) && !(plan instanceof InsertOverwriteTableCommand)) {
+                && !(plan instanceof CreateTableCommand) && !(plan instanceof InsertOverwriteTableCommand)
+                && !(plan instanceof MergeIntoCommand)) {
             // Commands like SHOW QUERY PROFILE will not have profile.
             return false;
         } else {

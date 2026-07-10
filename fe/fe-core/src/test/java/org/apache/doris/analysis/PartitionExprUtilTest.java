@@ -224,4 +224,48 @@ public class PartitionExprUtilTest extends TestWithFeService {
         Assertions.assertNotNull(p2);
         Assertions.assertEquals(p1.getDistributionInfo().getBucketNum(), p2.getDistributionInfo().getBucketNum());
     }
+
+    @Test
+    public void testAutoPartitionDateTruncTimestampTzKeepsUtcBoundary() throws Exception {
+        String originalTimeZone = connectContext.getSessionVariable().getTimeZone();
+        try {
+            connectContext.getSessionVariable().setTimeZone("+00:00");
+            String createOlapTblStmt = "CREATE TABLE test.auto_timestamptz_day_partition (\n"
+                    + "  id INT,\n"
+                    + "  ts_tz TIMESTAMPTZ(6) NOT NULL\n"
+                    + ")\n"
+                    + "DUPLICATE KEY(id)\n"
+                    + "AUTO PARTITION BY RANGE (date_trunc(ts_tz, 'day')) ()\n"
+                    + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
+                    + "PROPERTIES(\"replication_num\"=\"1\");";
+
+            createTable(createOlapTblStmt);
+            Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
+            OlapTable table = (OlapTable) db.getTableOrAnalysisException("auto_timestamptz_day_partition");
+
+            List<List<TNullableStringLiteral>> partitionValues = new ArrayList<>();
+            List<TNullableStringLiteral> values = new ArrayList<>();
+            TNullableStringLiteral truncatedValue = new TNullableStringLiteral();
+            truncatedValue.setValue("2024-06-15 00:00:00");
+            values.add(truncatedValue);
+            partitionValues.add(values);
+
+            FrontendServiceImpl impl = new FrontendServiceImpl(exeEnv);
+            TCreatePartitionRequest request = new TCreatePartitionRequest();
+            request.setDbId(db.getId());
+            request.setTableId(table.getId());
+            request.setPartitionValues(partitionValues);
+
+            TCreatePartitionResult result = impl.createPartition(request);
+            Assertions.assertEquals(TStatusCode.OK, result.getStatus().getStatusCode());
+            Assertions.assertNotNull(table.getPartition("p20240615000000"));
+
+            List<String> createTableStmt = new ArrayList<>();
+            Env.getDdlStmt(table, createTableStmt, null, null, false, true, -1L);
+            Assertions.assertTrue(createTableStmt.get(0).contains(
+                    "PARTITION p20240615000000 VALUES [('2024-06-15 00:00:00.000000+00:00'), ('2024-06-16 00:00:00.000000+00:00'))"));
+        } finally {
+            connectContext.getSessionVariable().setTimeZone(originalTimeZone);
+        }
+    }
 }

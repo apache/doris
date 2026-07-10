@@ -27,7 +27,9 @@
 #include <memory>
 #include <numeric>
 #include <ostream>
+#include <set>
 #include <shared_mutex>
+#include <unordered_map>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
@@ -43,10 +45,12 @@
 #include "runtime/query_context.h"
 #include "runtime/runtime_predicate.h"
 #include "runtime/runtime_state.h"
+#include "storage/delete/delete_handler.h"
 #include "storage/index/bloom_filter/bloom_filter.h"
 #include "storage/itoken_extractor.h"
 #include "storage/olap_common.h"
 #include "storage/olap_define.h"
+#include "storage/predicate/block_column_predicate.h"
 #include "storage/predicate/column_predicate.h"
 #include "storage/predicate/like_column_predicate.h"
 #include "storage/predicate/predicate_creator.h"
@@ -75,6 +79,21 @@ Status TabletReader::init(const ReaderParams& read_params) {
                      << ", version:" << read_params.version;
     }
     return res;
+}
+
+void TabletReader::remove_delete_columns_from_access_paths(
+        const DeleteHandler& delete_handler, const TabletSchema& tablet_schema,
+        std::map<int32_t, TColumnAccessPaths>& all_access_paths) {
+    auto delete_predicates = AndBlockColumnPredicate::create_shared();
+    std::unordered_map<int32_t, std::vector<std::shared_ptr<const ColumnPredicate>>>
+            del_predicates_for_zone_map;
+    delete_handler.get_delete_conditions_after_version(0, delete_predicates.get(),
+                                                       &del_predicates_for_zone_map);
+    std::set<ColumnId> delete_column_ids;
+    delete_predicates->get_all_column_ids(delete_column_ids);
+    for (auto cid : delete_column_ids) {
+        all_access_paths.erase(tablet_schema.column(cid).unique_id());
+    }
 }
 
 Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
@@ -162,6 +181,7 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
     _reader_context.force_key_ordered_read = read_params.force_key_ordered_read;
     _reader_context.read_orderby_key_limit = read_params.read_orderby_key_limit;
     _reader_context.return_columns = &_return_columns;
+    _reader_context.tso_predicate_column_id = read_params.tso_predicate_column_id;
     _reader_context.read_orderby_key_columns =
             !_orderby_key_columns.empty() ? &_orderby_key_columns : nullptr;
     _reader_context.predicates = &_col_predicates;
@@ -185,26 +205,29 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
     _reader_context.is_key_column_group = read_params.is_key_column_group;
     _reader_context.common_expr_ctxs_push_down = read_params.common_expr_ctxs_push_down;
     _reader_context.output_columns = &read_params.output_columns;
+    _reader_context.extra_columns = read_params.extra_columns;
     _reader_context.push_down_agg_type_opt = read_params.push_down_agg_type_opt;
     _reader_context.ttl_seconds = _tablet->ttl_seconds();
     _reader_context.score_runtime = read_params.score_runtime;
     _reader_context.collection_statistics = read_params.collection_statistics;
 
     _reader_context.virtual_column_exprs = read_params.virtual_column_exprs;
-    _reader_context.vir_cid_to_idx_in_block = read_params.vir_cid_to_idx_in_block;
-    _reader_context.vir_col_idx_to_type = read_params.vir_col_idx_to_type;
     _reader_context.ann_topn_runtime = read_params.ann_topn_runtime;
 
     _reader_context.condition_cache_digest = read_params.condition_cache_digest;
     _reader_context.all_access_paths = read_params.all_access_paths;
     _reader_context.predicate_access_paths = read_params.predicate_access_paths;
 
+    // Force a full read of delete-condition columns: the FE can't see storage deletes and may
+    // mark them meta-only (OFFSET/NULL), whose content-less read makes the delete predicate
+    // match nothing and leak deleted rows.
+    if (!_delete_handler.empty() && !_reader_context.all_access_paths.empty()) {
+        remove_delete_columns_from_access_paths(_delete_handler, *_tablet_schema,
+                                                _reader_context.all_access_paths);
+    }
+
     // Propagate general read limit for DUP_KEYS and UNIQUE_KEYS with MOW
     _reader_context.general_read_limit = read_params.general_read_limit;
-
-    // Preserve the original requested output layout so BlockReader can map expanded storage
-    // columns (for non-direct AGG/UNIQUE paths) back to the final output block.
-    _reader_context.origin_return_columns = read_params.origin_return_columns;
 
     return Status::OK();
 }
@@ -449,8 +472,7 @@ Status TabletReader::_init_conditions_param(const ReaderParams& read_params) {
               std::inserter(predicates, predicates.begin()));
     // Function filter push down to storage engine
     auto is_like_predicate = [](std::shared_ptr<ColumnPredicate> _pred) {
-        return dynamic_cast<LikeColumnPredicate<TYPE_CHAR>*>(_pred.get()) != nullptr ||
-               dynamic_cast<LikeColumnPredicate<TYPE_STRING>*>(_pred.get()) != nullptr;
+        return dynamic_cast<LikeColumnPredicate*>(_pred.get()) != nullptr;
     };
 
     for (const auto& filter : read_params.function_filters) {

@@ -47,7 +47,7 @@ suite("test_pushdown_common_expr") {
      """
 
     sql """set batch_size=8"""
-    sql """set enable_common_expr_pushdown=true"""
+    sql """set enable_segment_limit_pushdown=true"""
 
     order_qt_1 """
         SELECT * FROM t_pushdown_common_expr WHERE c3 LIKE "%c%" OR c1 < 10;
@@ -103,7 +103,7 @@ suite("test_pushdown_common_expr") {
         ) AS t2 ON t1.c1 = t2.c1
     """
 
-    sql """set enable_common_expr_pushdown=false"""
+    sql """set enable_segment_limit_pushdown = false"""
 
     order_qt_1 """
         SELECT * FROM t_pushdown_common_expr WHERE c3 LIKE "%h%" OR c1 < 10;
@@ -128,7 +128,7 @@ suite("test_pushdown_common_expr") {
     order_qt_6 """
         SELECT * FROM t_pushdown_common_expr WHERE random() > 1
     """
-    
+
     order_qt_7 """
         SELECT * FROM t_pushdown_common_expr WHERE random() > 1 AND c1 > 0
     """
@@ -182,7 +182,7 @@ suite("test_pushdown_common_expr") {
         (7,'g','gg','ggg','gggg','ggggg','gggggg');
      """
 
-    sql """set enable_common_expr_pushdown=true"""
+    sql """set enable_segment_limit_pushdown=true"""
 
     // delete condition columns num > block columns num
     order_qt_1 """

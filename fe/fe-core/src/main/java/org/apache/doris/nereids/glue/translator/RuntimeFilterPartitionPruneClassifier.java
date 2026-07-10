@@ -36,6 +36,7 @@ import org.apache.doris.nereids.trees.expressions.functions.Monotonic;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanNode;
+import org.apache.doris.thrift.TRuntimeFilterType;
 import org.apache.doris.thrift.TTargetExprMonotonicity;
 
 import com.google.common.collect.Range;
@@ -55,7 +56,8 @@ final class RuntimeFilterPartitionPruneClassifier {
     private RuntimeFilterPartitionPruneClassifier() {
     }
 
-    static Classification classify(Expr targetExpr, Expression nereidsTargetExpr, PlanNode scanNode) {
+    static Classification classify(TRuntimeFilterType filterType, Expr targetExpr,
+            Expression nereidsTargetExpr, PlanNode scanNode) {
         if (!(scanNode instanceof OlapScanNode)) {
             return Classification.unsupported("target scan is not an OlapScanNode");
         }
@@ -70,6 +72,9 @@ final class RuntimeFilterPartitionPruneClassifier {
         PartitionType partType = partitionInfo.getType();
         if (partType != PartitionType.RANGE && partType != PartitionType.LIST) {
             return Classification.unsupported("partition type is not RANGE or LIST");
+        }
+        if (filterType == TRuntimeFilterType.BLOOM && partType == PartitionType.RANGE) {
+            return Classification.unsupported("BLOOM runtime filter does not support RANGE partition pruning");
         }
         if (hasUnsupportedAutomaticPartitionExpression(partitionInfo)) {
             return Classification.unsupported("automatic partition expression boundary is not modeled");

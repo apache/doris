@@ -31,6 +31,10 @@ std::shared_ptr<AtomicStatistics> FileCacheMetrics::report() {
     output_stats->num_io_bytes_read_from_cache += _statistics->num_io_bytes_read_from_cache;
     output_stats->num_io_bytes_read_from_remote += _statistics->num_io_bytes_read_from_remote;
     output_stats->num_io_bytes_read_from_peer += _statistics->num_io_bytes_read_from_peer;
+    output_stats->inverted_index_bytes_read_from_remote +=
+            _statistics->inverted_index_bytes_read_from_remote;
+    output_stats->segment_footer_index_bytes_read_from_remote +=
+            _statistics->segment_footer_index_bytes_read_from_remote;
     return output_stats;
 }
 
@@ -45,6 +49,10 @@ void FileCacheMetrics::update(FileCacheStatistics* input_stats) {
     _statistics->num_io_bytes_read_from_cache += input_stats->bytes_read_from_local;
     _statistics->num_io_bytes_read_from_remote += input_stats->bytes_read_from_remote;
     _statistics->num_io_bytes_read_from_peer += input_stats->bytes_read_from_peer;
+    _statistics->inverted_index_bytes_read_from_remote +=
+            input_stats->inverted_index_bytes_read_from_remote;
+    _statistics->segment_footer_index_bytes_read_from_remote +=
+            input_stats->segment_footer_index_bytes_read_from_remote;
 }
 
 void FileCacheMetrics::register_entity() {
@@ -63,6 +71,10 @@ void FileCacheMetrics::update_metrics_callback() {
     DorisMetrics::instance()->num_io_bytes_read_total->set_value(
             stats->num_io_bytes_read_from_cache + stats->num_io_bytes_read_from_remote +
             stats->num_io_bytes_read_from_peer);
+    DorisMetrics::instance()->inverted_index_bytes_read_from_remote->set_value(
+            stats->inverted_index_bytes_read_from_remote);
+    DorisMetrics::instance()->segment_footer_index_bytes_read_from_remote->set_value(
+            stats->segment_footer_index_bytes_read_from_remote);
 }
 
 FileCacheStatistics diff_file_cache_statistics(const FileCacheStatistics& current,
@@ -98,11 +110,21 @@ FileCacheStatistics diff_file_cache_statistics(const FileCacheStatistics& curren
     SUBTRACT_FIELD(inverted_index_remote_io_timer);
     SUBTRACT_FIELD(inverted_index_peer_io_timer);
     SUBTRACT_FIELD(inverted_index_io_timer);
+
+    SUBTRACT_FIELD(segment_footer_index_num_local_io_total);
+    SUBTRACT_FIELD(segment_footer_index_num_remote_io_total);
+    SUBTRACT_FIELD(segment_footer_index_num_peer_io_total);
+    SUBTRACT_FIELD(segment_footer_index_bytes_read_from_local);
+    SUBTRACT_FIELD(segment_footer_index_bytes_read_from_remote);
+    SUBTRACT_FIELD(segment_footer_index_bytes_read_from_peer);
+    SUBTRACT_FIELD(segment_footer_index_local_io_timer);
+    SUBTRACT_FIELD(segment_footer_index_remote_io_timer);
+    SUBTRACT_FIELD(segment_footer_index_peer_io_timer);
 #undef SUBTRACT_FIELD
     return diff;
 }
 
-FileCacheProfileReporter::FileCacheProfileReporter(RuntimeProfile* profile) {
+FileCacheProfileReporter::FileCacheProfileReporter(RuntimeProfile* profile) : _profile(profile) {
     static const char* cache_profile = "FileCache";
     ADD_TIMER_WITH_LEVEL(profile, cache_profile, 2);
     num_local_io_total =
@@ -156,6 +178,46 @@ FileCacheProfileReporter::FileCacheProfileReporter(RuntimeProfile* profile) {
             ADD_CHILD_TIMER_WITH_LEVEL(profile, "InvertedIndexPeerIOUseTimer", cache_profile, 1);
     inverted_index_io_timer =
             ADD_CHILD_TIMER_WITH_LEVEL(profile, "InvertedIndexIOTimer", cache_profile, 1);
+
+    segment_footer_index_num_local_io_total = ADD_CHILD_COUNTER_WITH_LEVEL(
+            profile, "SegmentFooterIndexNumLocalIOTotal", TUnit::UNIT, cache_profile, 1);
+    segment_footer_index_num_remote_io_total = ADD_CHILD_COUNTER_WITH_LEVEL(
+            profile, "SegmentFooterIndexNumRemoteIOTotal", TUnit::UNIT, cache_profile, 1);
+    segment_footer_index_num_peer_io_total = ADD_CHILD_COUNTER_WITH_LEVEL(
+            profile, "SegmentFooterIndexNumPeerIOTotal", TUnit::UNIT, cache_profile, 1);
+    segment_footer_index_bytes_scanned_from_cache = ADD_CHILD_COUNTER_WITH_LEVEL(
+            profile, "SegmentFooterIndexBytesScannedFromCache", TUnit::BYTES, cache_profile, 1);
+    segment_footer_index_bytes_scanned_from_remote = ADD_CHILD_COUNTER_WITH_LEVEL(
+            profile, "SegmentFooterIndexBytesScannedFromRemote", TUnit::BYTES, cache_profile, 1);
+    segment_footer_index_bytes_scanned_from_peer = ADD_CHILD_COUNTER_WITH_LEVEL(
+            profile, "SegmentFooterIndexBytesScannedFromPeer", TUnit::BYTES, cache_profile, 1);
+    segment_footer_index_local_io_timer = ADD_CHILD_TIMER_WITH_LEVEL(
+            profile, "SegmentFooterIndexLocalIOUseTimer", cache_profile, 1);
+    segment_footer_index_remote_io_timer = ADD_CHILD_TIMER_WITH_LEVEL(
+            profile, "SegmentFooterIndexRemoteIOUseTimer", cache_profile, 1);
+    segment_footer_index_peer_io_timer = ADD_CHILD_TIMER_WITH_LEVEL(
+            profile, "SegmentFooterIndexPeerIOUseTimer", cache_profile, 1);
+
+    num_cross_cg_peer_io_total = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "CrossCGPeerIOTotal",
+                                                              TUnit::UNIT, cache_profile, 1);
+    bytes_scanned_from_cross_cg_peer = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "CrossCGPeerBytesRead",
+                                                                    TUnit::BYTES, cache_profile, 1);
+    cross_cg_peer_io_timer =
+            ADD_CHILD_TIMER_WITH_LEVEL(profile, "CrossCGPeerIOTime", cache_profile, 1);
+    num_same_cg_peer_io_total = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "SameCGPeerIOTotal",
+                                                             TUnit::UNIT, cache_profile, 1);
+    bytes_scanned_from_same_cg_peer = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "SameCGPeerBytesRead",
+                                                                   TUnit::BYTES, cache_profile, 1);
+    same_cg_peer_io_timer =
+            ADD_CHILD_TIMER_WITH_LEVEL(profile, "SameCGPeerIOTime", cache_profile, 1);
+    num_peer_race_peer_win =
+            ADD_CHILD_COUNTER_WITH_LEVEL(profile, "PeerRaceWin", TUnit::UNIT, cache_profile, 1);
+    num_peer_race_s3_win =
+            ADD_CHILD_COUNTER_WITH_LEVEL(profile, "S3RaceWin", TUnit::UNIT, cache_profile, 1);
+    num_peer_lazy_fetch =
+            ADD_CHILD_COUNTER_WITH_LEVEL(profile, "PeerLazyFetch", TUnit::UNIT, cache_profile, 1);
+    peer_lazy_fetch_timer =
+            ADD_CHILD_TIMER_WITH_LEVEL(profile, "PeerLazyFetchTime", cache_profile, 1);
 }
 
 void FileCacheProfileReporter::update(const FileCacheStatistics* statistics) const {
@@ -193,6 +255,47 @@ void FileCacheProfileReporter::update(const FileCacheStatistics* statistics) con
     COUNTER_UPDATE(inverted_index_remote_io_timer, statistics->inverted_index_remote_io_timer);
     COUNTER_UPDATE(inverted_index_peer_io_timer, statistics->inverted_index_peer_io_timer);
     COUNTER_UPDATE(inverted_index_io_timer, statistics->inverted_index_io_timer);
+
+    COUNTER_UPDATE(segment_footer_index_num_local_io_total,
+                   statistics->segment_footer_index_num_local_io_total);
+    COUNTER_UPDATE(segment_footer_index_num_remote_io_total,
+                   statistics->segment_footer_index_num_remote_io_total);
+    COUNTER_UPDATE(segment_footer_index_num_peer_io_total,
+                   statistics->segment_footer_index_num_peer_io_total);
+    COUNTER_UPDATE(segment_footer_index_bytes_scanned_from_cache,
+                   statistics->segment_footer_index_bytes_read_from_local);
+    COUNTER_UPDATE(segment_footer_index_bytes_scanned_from_remote,
+                   statistics->segment_footer_index_bytes_read_from_remote);
+    COUNTER_UPDATE(segment_footer_index_bytes_scanned_from_peer,
+                   statistics->segment_footer_index_bytes_read_from_peer);
+    COUNTER_UPDATE(segment_footer_index_local_io_timer,
+                   statistics->segment_footer_index_local_io_timer);
+    COUNTER_UPDATE(segment_footer_index_remote_io_timer,
+                   statistics->segment_footer_index_remote_io_timer);
+    COUNTER_UPDATE(segment_footer_index_peer_io_timer,
+                   statistics->segment_footer_index_peer_io_timer);
+
+    COUNTER_UPDATE(num_cross_cg_peer_io_total, statistics->num_cross_cg_peer_io_total);
+    COUNTER_UPDATE(bytes_scanned_from_cross_cg_peer, statistics->bytes_read_from_cross_cg_peer);
+    COUNTER_UPDATE(cross_cg_peer_io_timer, statistics->cross_cg_peer_io_timer);
+    COUNTER_UPDATE(num_same_cg_peer_io_total, statistics->num_same_cg_peer_io_total);
+    COUNTER_UPDATE(bytes_scanned_from_same_cg_peer, statistics->bytes_read_from_same_cg_peer);
+    COUNTER_UPDATE(same_cg_peer_io_timer, statistics->same_cg_peer_io_timer);
+    COUNTER_UPDATE(num_peer_race_peer_win, statistics->num_peer_race_peer_win);
+    COUNTER_UPDATE(num_peer_race_s3_win, statistics->num_peer_race_s3_win);
+    COUNTER_UPDATE(num_peer_lazy_fetch, statistics->num_peer_lazy_fetch);
+    COUNTER_UPDATE(peer_lazy_fetch_timer, statistics->peer_lazy_fetch_timer);
+
+    if (!statistics->peer_hosts.empty() && _profile != nullptr) {
+        std::string peer_nodes;
+        for (const auto& host : statistics->peer_hosts) {
+            if (!peer_nodes.empty()) {
+                peer_nodes += ", ";
+            }
+            peer_nodes += host;
+        }
+        _profile->add_info_string("PeerCacheNodes", peer_nodes);
+    }
 }
 
 } // namespace doris::io

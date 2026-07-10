@@ -85,7 +85,7 @@ public:
             : _inner(std::move(inner)), _owner(std::move(owner)) {
         DCHECK(_inner != nullptr);
         set_column_name(_inner->column_name());
-        set_reading_flag(_inner->reading_flag());
+        set_read_requirement(_inner->read_requirement());
     }
 
     Status init(const ColumnIteratorOptions& opts) override { return _inner->init(opts); }
@@ -129,14 +129,35 @@ public:
     Status set_access_paths(const TColumnAccessPaths& all_access_paths,
                             const TColumnAccessPaths& predicate_access_paths) override {
         RETURN_IF_ERROR(_inner->set_access_paths(all_access_paths, predicate_access_paths));
-        set_reading_flag(_inner->reading_flag());
+        ColumnIterator::set_read_requirement_self(_inner->read_requirement());
         return Status::OK();
     }
 
-    void set_need_to_read() override {
-        _inner->set_need_to_read();
-        set_reading_flag(_inner->reading_flag());
+    void set_read_requirement(ReadRequirement requirement) override {
+        _inner->set_read_requirement(requirement);
+        ColumnIterator::set_read_requirement_self(_inner->read_requirement());
     }
+
+    void set_read_requirement_self(ReadRequirement requirement) override {
+        _inner->set_read_requirement_self(requirement);
+        ColumnIterator::set_read_requirement_self(_inner->read_requirement());
+    }
+
+    void set_lazy_output_requirement() override {
+        _inner->set_lazy_output_requirement();
+        ColumnIterator::set_read_requirement_self(_inner->read_requirement());
+    }
+
+    void set_read_phase(ReadPhase mode) override {
+        ColumnIterator::set_read_phase(mode);
+        _inner->set_read_phase(mode);
+    }
+
+    void finalize_lazy_phase(MutableColumnPtr& dst) override { _inner->finalize_lazy_phase(dst); }
+
+    bool has_lazy_read_target() const override { return _inner->has_lazy_read_target(); }
+
+    bool need_to_read() const override { return _inner->need_to_read(); }
 
     void remove_pruned_sub_iterators() override { _inner->remove_pruned_sub_iterators(); }
 
@@ -192,9 +213,9 @@ bool VariantColumnReader::is_exceeded_sparse_column_limit() const {
 }
 
 bool VariantColumnReader::_is_exceeded_sparse_column_limit_unlocked() const {
-    bool exceeded_sparse_column_limit = !_statistics->sparse_column_non_null_size.empty() &&
-                                        _statistics->sparse_column_non_null_size.size() >=
-                                                _variant_sparse_column_statistics_size;
+    const bool exceeded_sparse_column_limit = !_statistics->sparse_column_non_null_size.empty() &&
+                                              _statistics->sparse_column_non_null_size.size() >=
+                                                      _variant_sparse_column_statistics_size;
     DBUG_EXECUTE_IF("exceeded_sparse_column_limit_must_be_false", {
         if (exceeded_sparse_column_limit) {
             throw doris::Exception(
@@ -882,8 +903,12 @@ Status VariantColumnReader::_build_read_plan(ReadPlan* plan, const TabletColumn&
     }
 
     // Check if path is prefix, example sparse columns path: a.b.c, a.b.e, access prefix: a.b.
-    // Or access root path
-    if (_has_prefix_path_unlocked(relative_path)) {
+    // Or access root path. If sparse stats reached the configured limit, an exact sparse path can
+    // still have unrecorded sparse children such as a.b.c.
+    const bool has_prefix_path = _has_prefix_path_unlocked(relative_path);
+    const bool sparse_stats_may_have_unrecorded_children =
+            exceeded_sparse_column_limit && existed_in_sparse_column;
+    if (has_prefix_path || sparse_stats_may_have_unrecorded_children) {
         // Example {"b" : {"c":456,"e":7.111}}
         // b.c is sparse column, b.e is subcolumn, so b is both the prefix of sparse column and
         // subcolumn
@@ -951,7 +976,8 @@ Status VariantColumnReader::_build_read_plan(ReadPlan* plan, const TabletColumn&
         }
 
         if (exceeded_sparse_column_limit) {
-            // maybe exist prefix path in sparse column
+            // Sparse stats are truncated, so a missing exact sparse path does not prove that the
+            // path is absent. It may still be nested under a recorded sparse object.
             plan->kind = ReadKind::HIERARCHICAL;
             plan->type = create_variant_type(target_col);
             plan->relative_path = relative_path;

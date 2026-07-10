@@ -627,6 +627,11 @@ public class Config extends ConfigBase {
             "Whether to enable memtable on sink node by default in stream load"})
     public static boolean stream_load_default_memtable_on_sink_node = false;
 
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "Whether to enable forwarding group commit stream load to follower nodes."
+                    + " If true, stream load with group commit mode will be forwarded to a follower FE round robin."})
+    public static boolean enable_forward_group_commit_stream_load_to_follower = false;
+
     @ConfField(mutable = true, masterOnly = true, description = {"Maximum timeout for load jobs, in seconds."})
     public static int max_load_timeout_second = 259200; // 3days
 
@@ -1193,11 +1198,21 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int streaming_task_timeout_multiplier = 10;
 
+    /**
+     * streaming task min timeout second.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int streaming_task_min_timeout_sec = 300;
+
     @ConfField(mutable = true, masterOnly = true)
     public static int streaming_cdc_light_rpc_timeout_sec = 90;
 
     @ConfField(mutable = true, masterOnly = true)
     public static int streaming_cdc_heavy_rpc_timeout_sec = 600;
+
+    // Max byte length of a PG database name for a CDC job; raise only for a larger NAMEDATALEN build.
+    @ConfField(mutable = true, masterOnly = true)
+    public static int streaming_pg_max_identifier_length = 63;
 
     @ConfField(mutable = true, masterOnly = true)
     public static int streaming_cdc_fetch_splits_batch_size = 100;
@@ -2183,6 +2198,11 @@ public class Config extends ConfigBase {
     @ConfField(description = {"The auto-refresh interval of the external meta cache."})
     public static long external_cache_refresh_time_minutes = 10; // 10 mins
 
+    // Enable manual miss load for external meta cache to avoid blocking replayer on slow loaders.
+    @ConfField(mutable = true, masterOnly = false,
+            description = {"Whether external meta cache uses manual miss load instead of Caffeine sync load."})
+    public static boolean enable_external_meta_cache_manual_miss_load = true;
+
     /**
      * Github workflow test type, for setting some session variables
      * only for certain test type. E.g. only settting batch_size to small
@@ -2613,7 +2633,7 @@ public class Config extends ConfigBase {
     public static long analyze_record_limit = 20000;
 
     @ConfField(mutable = true, masterOnly = true, description = {"Minimum number of buckets for auto bucketing."})
-    public static int autobucket_min_buckets = 1;
+    public static int autobucket_min_buckets = 3;
 
     @ConfField(mutable = true, masterOnly = true, description = {"Maximum number of buckets for auto bucketing."})
     public static int autobucket_max_buckets = 128;
@@ -3274,6 +3294,21 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static long cloud_warm_up_job_max_bytes_per_batch = 21474836480L; // 20GB
 
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "zh-CN: 定期刷新 table-level warmup 任务匹配的 table ID 集合的时间间隔（毫秒）",
+            "en: Interval in milliseconds to refresh matched table IDs for table-level warmup jobs"})
+    public static long cloud_warm_up_table_filter_refresh_interval_ms = 60000; // 60 seconds
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "zh-CN: 定期从 BE 拉取主动增量预热 SyncStats 并缓存到 FE job 的时间间隔（毫秒）",
+            "en: Interval in milliseconds to collect event-driven warmup SyncStats from BEs and cache it in FE jobs"})
+    public static long cloud_warm_up_sync_stats_refresh_interval_ms = 15000; // 15 seconds
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "zh-CN: SHOW WARM UP JOB 和 FE 日志中 MatchedTables 最多展示的表数量",
+            "en: Maximum number of MatchedTables entries displayed in SHOW WARM UP JOB and FE logs"})
+    public static int cloud_warm_up_matched_tables_display_limit = 100;
+
     @ConfField(mutable = true, masterOnly = true)
     public static boolean cloud_warm_up_force_all_partitions = false;
 
@@ -3369,6 +3404,12 @@ public class Config extends ConfigBase {
                     "Time in seconds after a BE goes down before its tablets are permanently reassigned "
                             + "to other BEs in cloud mode."})
     public static int rehash_tablet_after_be_dead_seconds = 3600;
+
+    @ConfField(mutable = false, masterOnly = true,
+            description = {
+                    "Whether to use rendezvous hashing for colocate bucket placement in cloud mode. "
+                            + "If false, use the legacy modulo placement. Restart-only."})
+    public static boolean enable_cloud_colocate_consistent_hash = true;
 
     @ConfField(mutable = true, description = {
             "Whether to enable the automatic start-stop feature in cloud model, default is true."})
@@ -3664,4 +3705,15 @@ public class Config extends ConfigBase {
                     + "obtaining partition version information when calculating the delete bitmap. Enabled "
                     + "by default."})
     public static boolean calc_delete_bitmap_get_versions_waiting_for_pending_txns = true;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "Whether to enable adaptive random bucket load. When enabled, each BE computes its own local "
+                    + "bucket set (buckets whose primary replica it hosts) from the tablet location info "
+                    + "sent by FE, and rotates across those buckets once per-tablet write volume exceeds "
+                    + "the threshold (default 200 MB). This reduces import memory pressure and improves "
+                    + "throughput for random-distribution tables. Covers all load types uniformly.",
+            "是否启用自适应随机桶导入。开启后每个 BE 根据 FE 下发的 tablet 位置信息自行计算本地桶集合"
+                    + "（持有主副本的桶），并在单个 tablet 写入量超过阈值（默认 200 MB）后在本地桶之间轮转。"
+                    + "可降低导入内存压力并提升随机分桶表的吞吐量，覆盖所有导入类型。"})
+    public static boolean enable_adaptive_random_bucket_load = true;
 }

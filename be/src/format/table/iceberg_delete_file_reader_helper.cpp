@@ -17,6 +17,7 @@
 
 #include "format/table/iceberg_delete_file_reader_helper.h"
 
+#include <fmt/format.h>
 #include <gen_cpp/parquet_types.h>
 #include <parallel_hashmap/phmap.h>
 
@@ -29,8 +30,10 @@
 #include "core/block/block.h"
 #include "core/block/column_with_type_and_name.h"
 #include "core/column/column_dictionary.h"
+#include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/column/column_vector.h"
+#include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "exec/common/endian.h"
@@ -43,6 +46,7 @@
 #include "io/hdfs_builder.h"
 #include "runtime/runtime_state.h"
 #include "storage/predicate/column_predicate.h"
+#include "util/debug_points.h"
 
 namespace doris {
 
@@ -88,9 +92,26 @@ Status visit_position_delete_block(const Block& block, size_t read_rows,
         return Status::InternalError("Position delete block is missing required columns");
     }
 
-    const auto* pos_column =
-            assert_cast<const ColumnInt64*>(block.get_by_position(pos_it->second).column.get());
-    const auto* path_column = block.get_by_position(path_it->second).column.get();
+    ColumnPtr path_column_ptr = block.get_by_position(path_it->second).column;
+    ColumnPtr pos_column_ptr = block.get_by_position(pos_it->second).column;
+    if (const auto* nullable_col = check_and_get_column<ColumnNullable>(*path_column_ptr);
+        nullable_col != nullptr) {
+        if (nullable_col->has_null(0, read_rows)) {
+            return Status::Corruption(
+                    "Iceberg position delete column file_path contains null values");
+        }
+        path_column_ptr = remove_nullable(path_column_ptr);
+    }
+    if (const auto* nullable_col = check_and_get_column<ColumnNullable>(*pos_column_ptr);
+        nullable_col != nullptr) {
+        if (nullable_col->has_null(0, read_rows)) {
+            return Status::Corruption("Iceberg position delete column pos contains null values");
+        }
+        pos_column_ptr = remove_nullable(pos_column_ptr);
+    }
+
+    const auto* pos_column = assert_cast<const ColumnInt64*>(pos_column_ptr.get());
+    const auto* path_column = path_column_ptr.get();
 
     if (const auto* string_column = check_and_get_column<ColumnString>(path_column);
         string_column != nullptr) {
@@ -216,6 +237,13 @@ bool is_iceberg_deletion_vector(const TIcebergDeleteFileDesc& delete_file) {
     return delete_file.__isset.content && delete_file.content == 3;
 }
 
+std::string build_iceberg_deletion_vector_cache_key(const std::string& data_file_path,
+                                                    const TIcebergDeleteFileDesc& delete_file) {
+    return fmt::format("delete_dv_{}:{}{}:{}#{}#{}", data_file_path.size(), data_file_path,
+                       delete_file.path.size(), delete_file.path, delete_file.content_offset,
+                       delete_file.content_size_in_bytes);
+}
+
 Status read_iceberg_position_delete_file(const TIcebergDeleteFileDesc& delete_file,
                                          const IcebergDeleteFileReaderOptions& options,
                                          IcebergPositionDeleteVisitor* visitor) {
@@ -244,15 +272,14 @@ Status read_iceberg_position_delete_file(const TIcebergDeleteFileDesc& delete_fi
             Block block;
             if (dictionary_coded) {
                 block.insert(ColumnWithTypeAndName(
-                        ColumnDictI32::create(FieldType::OLAP_FIELD_TYPE_VARCHAR),
-                        std::make_shared<DataTypeString>(), ICEBERG_FILE_PATH));
+                        ColumnNullable::create(ColumnDictI32::create(), ColumnUInt8::create()),
+                        make_nullable(std::make_shared<DataTypeString>()), ICEBERG_FILE_PATH));
             } else {
-                block.insert(ColumnWithTypeAndName(ColumnString::create(),
-                                                   std::make_shared<DataTypeString>(),
-                                                   ICEBERG_FILE_PATH));
+                block.insert(ColumnWithTypeAndName(
+                        make_nullable(std::make_shared<DataTypeString>()), ICEBERG_FILE_PATH));
             }
-            block.insert(ColumnWithTypeAndName(ColumnInt64::create(),
-                                               std::make_shared<DataTypeInt64>(), ICEBERG_ROW_POS));
+            block.insert(ColumnWithTypeAndName(make_nullable(std::make_shared<DataTypeInt64>()),
+                                               ICEBERG_ROW_POS));
             size_t read_rows = 0;
             RETURN_IF_ERROR(reader.get_next_block(&block, &read_rows, &eof));
             RETURN_IF_ERROR(visit_position_delete_block(block, read_rows, visitor));
@@ -293,6 +320,10 @@ Status read_iceberg_deletion_vector(const TIcebergDeleteFileDesc& delete_file,
     if (!delete_file.__isset.content_offset || !delete_file.__isset.content_size_in_bytes) {
         return Status::InternalError("Deletion vector is missing content offset or length");
     }
+    DBUG_EXECUTE_IF("IcebergDeleteFileReader.read_deletion_vector.io_error",
+                    { return Status::IOError("injected Iceberg deletion vector read failure"); });
+    DBUG_EXECUTE_IF("IcebergDeleteFileReader.read_deletion_vector.should_stop",
+                    { return Status::EndOfFile("stop read."); });
 
     TFileRangeDesc delete_range = build_iceberg_delete_file_range(delete_file.path);
     if (options.fs_name != nullptr && !options.fs_name->empty()) {
@@ -309,6 +340,11 @@ Status read_iceberg_deletion_vector(const TIcebergDeleteFileDesc& delete_file,
     RETURN_IF_ERROR(dv_reader.read_at(delete_range.start_offset,
                                       {buf.data(), cast_set<size_t>(delete_range.size)}));
     return decode_deletion_vector_buffer(buf.data(), delete_range.size, rows_to_delete);
+}
+
+Status decode_iceberg_deletion_vector_buffer(const char* buf, size_t buffer_size,
+                                             roaring::Roaring64Map* rows_to_delete) {
+    return decode_deletion_vector_buffer(buf, buffer_size, rows_to_delete);
 }
 
 } // namespace doris

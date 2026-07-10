@@ -37,9 +37,11 @@
 #include "core/block/block.h"
 #include "core/block/column_with_type_and_name.h"
 #include "core/column/column.h"
+#include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_factory.hpp"
+#include "core/data_type/data_type_nullable.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/data_type/primitive_type.h"
 #include "core/string_ref.h"
@@ -386,24 +388,26 @@ Status IcebergParquetReader::_read_position_delete_file(const TFileRangeDesc* de
             break;
         }
     }
-    DataTypePtr data_type_file_path {new DataTypeString};
-    DataTypePtr data_type_pos {new DataTypeInt64};
+    DataTypePtr data_type_file_path = make_nullable(std::make_shared<DataTypeString>());
+    DataTypePtr data_type_pos = make_nullable(std::make_shared<DataTypeInt64>());
     bool eof = false;
     while (!eof) {
-        Block block = {dictionary_coded
-                               ? ColumnWithTypeAndName {ColumnDictI32::create(
-                                                                FieldType::OLAP_FIELD_TYPE_VARCHAR),
-                                                        data_type_file_path, ICEBERG_FILE_PATH}
-                               : ColumnWithTypeAndName {data_type_file_path, ICEBERG_FILE_PATH},
+        Block block = {
+                dictionary_coded
+                        ? ColumnWithTypeAndName {ColumnNullable::create(ColumnDictI32::create(),
+                                                                        ColumnUInt8::create()),
+                                                 data_type_file_path, ICEBERG_FILE_PATH}
+                        : ColumnWithTypeAndName {data_type_file_path, ICEBERG_FILE_PATH},
 
-                       {data_type_pos, ICEBERG_ROW_POS}};
+                {data_type_pos, ICEBERG_ROW_POS}};
         size_t read_rows = 0;
         RETURN_IF_ERROR(parquet_delete_reader.get_next_block(&block, &read_rows, &eof));
 
         if (read_rows <= 0) {
             break;
         }
-        _gen_position_delete_file_range(block, position_delete, read_rows, dictionary_coded);
+        RETURN_IF_ERROR(_gen_position_delete_file_range(block, position_delete, read_rows,
+                                                        dictionary_coded));
     }
     return Status::OK();
 };
@@ -651,7 +655,7 @@ Status IcebergOrcReader::_read_position_delete_file(const TFileRangeDesc* delete
         size_t read_rows = 0;
         RETURN_IF_ERROR(orc_delete_reader.get_next_block(&block, &read_rows, &eof));
 
-        _gen_position_delete_file_range(block, position_delete, read_rows, false);
+        RETURN_IF_ERROR(_gen_position_delete_file_range(block, position_delete, read_rows, false));
     }
     return Status::OK();
 }

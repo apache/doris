@@ -17,7 +17,7 @@
 
 suite("cast_string_as_array") {
     sql "unset variable all;"
-    sql "set enable_common_expr_pushdown=true;"
+    sql "set enable_segment_limit_pushdown=true;"
 
     // L2 table: dim=3
     sql "drop table if exists ann_cast_rhs_l2"
@@ -52,7 +52,7 @@ suite("cast_string_as_array") {
 
         exception "Ann query vector cannot be NULL"
     }
-    
+
     // Success: nested cast(string->string->array<float>) should also work
     qt_sql_1 "select id from ann_cast_rhs_l2 order by l2_distance_approximate(embedding, cast(cast('[1.0,2.0,3.0]' as string) as array<float>)) limit 3;"
 
@@ -69,8 +69,8 @@ suite("cast_string_as_array") {
         sql "select id from ann_cast_rhs_l2 order by l2_distance_approximate(embedding, cast(NULL as array<float>)) limit 1;"
         exception "Ann query vector cannot be NULL"
     }
-    
-        
+
+
     // Failure: dim mismatch (2 vs table dim=3)
     test {
         sql "select id from ann_cast_rhs_l2 order by l2_distance_approximate(embedding, cast('[1.0,2.0]' as array<float>)) limit 1;"
@@ -142,10 +142,10 @@ suite("cast_string_as_array") {
     // ----------------------
     // Non-constant RHS behavior
     // ----------------------
-    
+
     // Fall back to full scan if RHS is not constant
     qt_sql_fall_back "select l2_distance_approximate(embedding, embedding) from ann_cast_rhs_l2 order by l2_distance_approximate(embedding, embedding) limit 10;"
-        
+
     // Range search with non-constant RHS should execute without index pushdown
     // L2: distance(embedding, embedding) == 0, so <= 0 selects all rows
     qt_sql_rs_l2_nonconst_le "select id from ann_cast_rhs_l2 where l2_distance_approximate(embedding, embedding) <= 0.0 order by id;"

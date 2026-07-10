@@ -324,6 +324,8 @@ public class ModifyTablePropertiesOp extends AlterTableOp {
             PropertyAnalyzer.analyzeGroupCommitMode(properties, false);
             this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_FILE_CACHE_TTL_SECONDS)) {
+            PropertyAnalyzer.analyzeFileCacheTtlSeconds(
+                    properties.get(PropertyAnalyzer.PROPERTIES_FILE_CACHE_TTL_SECONDS));
             this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_PARTITION_RETENTION_COUNT)) {
             // do a check here for valid value
