@@ -15,8 +15,8 @@ instructions as well; this file adds format-v2-specific review expectations.
 
 ## Architecture and Interface Contracts
 
-- Use the [FileScannerV2 design document](https://selectdb.feishu.cn/wiki/USn1wKZkLiqs15k9vqUceQl2nid)
-  as the architectural reference. Preserve the one-way responsibility chain: Scanner manages query
+- Use the [FileScannerV2 design document](../../../docs/file-scanner-v2-design.md) as the
+  architectural reference. Preserve the one-way responsibility chain: Scanner manages query
   integration and Split progression, `TableReader` manages table semantics, and `FileReader`
   interprets physical files. Layer boundaries take priority over incidental code reuse.
 - `TableReader` owns table-level projection and column order, partition/default/virtual columns,
