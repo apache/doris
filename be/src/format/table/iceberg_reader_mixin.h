@@ -81,6 +81,21 @@ public:
                 ADD_CHILD_TIMER(this->get_profile(), "DeleteRowsSortTime", iceberg_profile);
         _iceberg_profile.parse_delete_file_time =
                 ADD_CHILD_TIMER(this->get_profile(), "ParseDeleteFileTime", iceberg_profile);
+        _iceberg_profile.decoded_cache_hit_count =
+                ADD_CHILD_COUNTER(this->get_profile(), "DeletionVectorDecodedCacheHitCount",
+                                  TUnit::UNIT, iceberg_profile);
+        _iceberg_profile.decoded_cache_miss_count =
+                ADD_CHILD_COUNTER(this->get_profile(), "DeletionVectorDecodedCacheMissCount",
+                                  TUnit::UNIT, iceberg_profile);
+        _iceberg_profile.file_cache_hit_count =
+                ADD_CHILD_COUNTER(this->get_profile(), "DeletionVectorFileCacheHitCount",
+                                  TUnit::UNIT, iceberg_profile);
+        _iceberg_profile.file_cache_miss_count =
+                ADD_CHILD_COUNTER(this->get_profile(), "DeletionVectorFileCacheMissCount",
+                                  TUnit::UNIT, iceberg_profile);
+        _iceberg_profile.file_cache_peer_read_count =
+                ADD_CHILD_COUNTER(this->get_profile(), "DeletionVectorFileCachePeerReadCount",
+                                  TUnit::UNIT, iceberg_profile);
     }
 
     ~IcebergReaderMixin() override = default;
@@ -96,6 +111,7 @@ public:
     enum Fileformat { NONE, PARQUET, ORC, AVRO };
 
     virtual void set_delete_rows() = 0;
+    virtual void set_deletion_vector() = 0;
 
     // Table-level COUNT(*) is handled by CountReader (created by FileScanner after
     // init_reader). If _do_get_next_block is called, COUNT must have been resolved.
@@ -318,6 +334,11 @@ protected:
         RuntimeProfile::Counter* delete_files_read_time;
         RuntimeProfile::Counter* delete_rows_sort_time;
         RuntimeProfile::Counter* parse_delete_file_time;
+        RuntimeProfile::Counter* decoded_cache_hit_count;
+        RuntimeProfile::Counter* decoded_cache_miss_count;
+        RuntimeProfile::Counter* file_cache_hit_count;
+        RuntimeProfile::Counter* file_cache_miss_count;
+        RuntimeProfile::Counter* file_cache_peer_read_count;
     };
 
     bool _need_row_id_column = false;
@@ -328,6 +349,7 @@ protected:
     ShardedKVCache* _kv_cache;
     IcebergProfile _iceberg_profile;
     const std::vector<int64_t>* _iceberg_delete_rows = nullptr;
+    const DeletionVector* _iceberg_deletion_vector = nullptr;
     std::vector<std::string> _expand_col_names;
     std::vector<ColumnWithTypeAndName> _expand_columns;
     std::vector<std::string> _all_required_col_names;
@@ -834,35 +856,44 @@ Status IcebergReaderMixin<BaseReader>::read_deletion_vector(
         const std::string& data_file_path, const TIcebergDeleteFileDesc& delete_file_desc) {
     Status create_status = Status::OK();
     SCOPED_TIMER(_iceberg_profile.delete_files_read_time);
-    _iceberg_delete_rows = _kv_cache->template get<DeleteRows>(
+    bool decoded_cache_hit = false;
+    _iceberg_deletion_vector = _kv_cache->template get<DeletionVector>(
             build_iceberg_deletion_vector_cache_key(data_file_path, delete_file_desc),
-            [&]() -> DeleteRows* {
-                auto delete_rows = std::make_unique<DeleteRows>();
+            [&]() -> DeletionVector* {
+                auto deletion_vector = std::make_unique<DeletionVector>();
 
-                roaring::Roaring64Map bitmap;
+                io::FileCacheStatistics file_cache_stats;
                 IcebergDeleteFileReaderOptions options;
                 options.state = this->get_state();
                 options.profile = this->get_profile();
                 options.scan_params = &this->get_scan_params();
                 options.io_ctx = this->get_io_ctx();
                 options.fs_name = &this->get_scan_range().fs_name;
-                create_status = read_iceberg_deletion_vector(delete_file_desc, options, &bitmap);
+                options.deletion_vector_file_cache_stats = &file_cache_stats;
+                create_status = read_iceberg_deletion_vector(delete_file_desc, options,
+                                                             deletion_vector.get());
+                COUNTER_UPDATE(_iceberg_profile.file_cache_hit_count,
+                               file_cache_stats.num_local_io_total);
+                COUNTER_UPDATE(_iceberg_profile.file_cache_miss_count,
+                               file_cache_stats.num_remote_io_total);
+                COUNTER_UPDATE(_iceberg_profile.file_cache_peer_read_count,
+                               file_cache_stats.num_peer_io_total);
                 if (!create_status.ok()) [[unlikely]] {
                     return nullptr;
                 }
 
                 SCOPED_TIMER(_iceberg_profile.parse_delete_file_time);
-                delete_rows->reserve(bitmap.cardinality());
-                for (auto it = bitmap.begin(); it != bitmap.end(); it++) {
-                    delete_rows->push_back(*it);
-                }
-                COUNTER_UPDATE(_iceberg_profile.num_delete_rows, delete_rows->size());
-                return delete_rows.release();
-            });
+                COUNTER_UPDATE(_iceberg_profile.num_delete_rows, deletion_vector->cardinality());
+                return deletion_vector.release();
+            },
+            &decoded_cache_hit);
 
     RETURN_IF_ERROR(create_status);
-    if (!_iceberg_delete_rows->empty()) [[likely]] {
-        set_delete_rows();
+    COUNTER_UPDATE(decoded_cache_hit ? _iceberg_profile.decoded_cache_hit_count
+                                     : _iceberg_profile.decoded_cache_miss_count,
+                   1);
+    if (!_iceberg_deletion_vector->isEmpty()) [[likely]] {
+        set_deletion_vector();
     }
     return Status::OK();
 }

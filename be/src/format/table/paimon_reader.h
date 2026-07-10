@@ -27,6 +27,7 @@
 #include "common/status.h"
 #include "format/orc/vorc_reader.h"
 #include "format/parquet/vparquet_reader.h"
+#include "format/table/deletion_vector.h"
 #include "format/table/table_schema_change_helper.h"
 
 namespace doris {
@@ -35,7 +36,7 @@ class ShardedKVCache;
 std::string build_paimon_deletion_vector_cache_key(const TPaimonDeletionFileDesc& deletion_file);
 
 Status decode_paimon_deletion_vector_buffer(const char* buf, size_t buffer_size,
-                                            std::vector<int64_t>* delete_rows);
+                                            DeletionVector* deletion_vector);
 
 // PaimonOrcReader: directly inherits OrcReader (no composition wrapping).
 // Schema mapping in on_before_init_reader, deletion vector reading in on_after_init_reader.
@@ -79,9 +80,14 @@ private:
         RuntimeProfile::Counter* num_delete_rows = nullptr;
         RuntimeProfile::Counter* delete_files_read_time = nullptr;
         RuntimeProfile::Counter* parse_deletion_vector_time = nullptr;
+        RuntimeProfile::Counter* decoded_cache_hit_count = nullptr;
+        RuntimeProfile::Counter* decoded_cache_miss_count = nullptr;
+        RuntimeProfile::Counter* file_cache_hit_count = nullptr;
+        RuntimeProfile::Counter* file_cache_miss_count = nullptr;
+        RuntimeProfile::Counter* file_cache_peer_read_count = nullptr;
     };
 
-    const std::vector<int64_t>* _delete_rows = nullptr;
+    const DeletionVector* _deletion_vector = nullptr;
     ShardedKVCache* _kv_cache;
     PaimonProfile _paimon_profile;
 };
@@ -126,9 +132,14 @@ private:
         RuntimeProfile::Counter* num_delete_rows = nullptr;
         RuntimeProfile::Counter* delete_files_read_time = nullptr;
         RuntimeProfile::Counter* parse_deletion_vector_time = nullptr;
+        RuntimeProfile::Counter* decoded_cache_hit_count = nullptr;
+        RuntimeProfile::Counter* decoded_cache_miss_count = nullptr;
+        RuntimeProfile::Counter* file_cache_hit_count = nullptr;
+        RuntimeProfile::Counter* file_cache_miss_count = nullptr;
+        RuntimeProfile::Counter* file_cache_peer_read_count = nullptr;
     };
 
-    const std::vector<int64_t>* _delete_rows = nullptr;
+    const DeletionVector* _deletion_vector = nullptr;
     ShardedKVCache* _kv_cache;
     PaimonProfile _paimon_profile;
 };
