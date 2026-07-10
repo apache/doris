@@ -122,5 +122,20 @@ public enum ConnectorCapability {
      * cheap or not yet validated for concurrent pre-warming (e.g. ES) simply do not declare it and fall back
      * to synchronous load at binding time.</p>
      */
-    SUPPORTS_METADATA_PRELOAD
+    SUPPORTS_METADATA_PRELOAD,
+    /**
+     * Indicates the connector projects the querying user's per-connection delegated credential (OIDC/JWT/SAML)
+     * onto the remote metadata source, so metadata reads are authorized as that user rather than a single shared
+     * catalog identity (the Iceberg REST {@code iceberg.rest.session=user} model).
+     *
+     * <p>This capability gates two behaviors. (a) FE credential injection: {@code ConnectorSessionBuilder.from}
+     * copies the user's delegated credential onto the {@link ConnectorSession} ONLY for connectors declaring
+     * this, so a JDBC/ES/hive-iceberg session never carries an OIDC token it would never use (least-privilege).
+     * (b) Shared-cache bypass: {@code ExternalCatalog.shouldBypassTableNameCache} / {@code ExternalDatabase}
+     * skip the catalog+name-keyed (NOT user-keyed) FE metadata caches for a credential-bearing session, so one
+     * user's REST-authorized/vended view is never served to another (cross-user leakage). Connectors that
+     * authenticate with a single static catalog identity (every non-REST iceberg flavor, JDBC, ES, ...) must
+     * NOT declare it. Declared by the iceberg connector only when configured {@code iceberg.rest.session=user}.</p>
+     */
+    SUPPORTS_USER_SESSION
 }
