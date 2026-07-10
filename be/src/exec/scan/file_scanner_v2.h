@@ -65,6 +65,8 @@ public:
 
     static bool is_supported(const TFileScanRangeParams& params, const TFileRangeDesc& range);
 #ifdef BE_TEST
+    static Status TEST_validate_scan_range(const TFileScanRangeParams& params,
+                                           const TFileRangeDesc& range);
     static Status TEST_to_file_format(TFileFormatType::type format_type,
                                       format::FileFormat* file_format);
     static bool TEST_is_partition_slot(const TFileScanSlotInfo& slot_info,
@@ -104,6 +106,9 @@ protected:
     bool _should_update_load_counters() const override;
 
 private:
+    static Status _validate_scan_range(const TFileScanRangeParams& params,
+                                       const TFileRangeDesc& range);
+    Status _get_next_scan_range(bool* has_next);
     TFileFormatType::type _get_current_format_type() const;
     Status _init_io_ctx();
     Status _init_expr_ctxes();

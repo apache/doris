@@ -31,7 +31,7 @@
 #include "core/assert_cast.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
-#include "exec/scan/split_source_connector.h"
+#include "exec/operator/file_scan_operator.h"
 #include "exprs/runtime_filter_expr.h"
 #include "exprs/vdirect_in_predicate.h"
 #include "exprs/vslot_ref.h"
@@ -57,12 +57,6 @@ TFileRangeDesc hudi_range_with_delta_logs() {
     hudi_params.__set_delta_logs({"delta.log"});
     range.table_format_params.__set_hudi_params(std::move(hudi_params));
     return range;
-}
-
-TScanRangeParams scan_range_param(const TFileRangeDesc& range) {
-    TScanRangeParams params;
-    params.scan_range.ext_scan_range.file_scan_range.ranges.push_back(range);
-    return params;
 }
 
 VExprSPtr slot_ref(int slot_id, int column_id, DataTypePtr type, const std::string& name) {
@@ -109,6 +103,7 @@ TEST(FileScannerV2Test, SupportedFormatMatrix) {
             {"jdbc", TFileFormatType::FORMAT_PARQUET, std::nullopt, false},
             {"", TFileFormatType::FORMAT_JNI, std::nullopt, false},
             {"hive", TFileFormatType::FORMAT_ORC, std::nullopt, true},
+            {"transactional_hive", TFileFormatType::FORMAT_ORC, std::nullopt, false},
             {"jdbc", TFileFormatType::FORMAT_JNI, std::nullopt, true},
             {"hive", TFileFormatType::FORMAT_JNI, std::nullopt, false},
             {"", TFileFormatType::FORMAT_CSV_PLAIN, std::nullopt, true},
@@ -132,6 +127,8 @@ TEST(FileScannerV2Test, SupportedFormatMatrix) {
             {"hive", TFileFormatType::FORMAT_ARROW, std::nullopt, false},
             {"", TFileFormatType::FORMAT_ARROW, std::nullopt, false},
             {"", TFileFormatType::FORMAT_WAL, std::nullopt, false},
+            {"", TFileFormatType::FORMAT_ES_HTTP, std::nullopt, false},
+            {"", TFileFormatType::FORMAT_LANCE, std::nullopt, false},
     };
 
     for (const auto& test_case : cases) {
@@ -153,35 +150,54 @@ TEST(FileScannerV2Test, SupportedFormatMatrix) {
     EXPECT_FALSE(FileScannerV2::is_supported(params, hudi_range_with_delta_logs()));
 }
 
-// Scenario: SplitSourceConnector should route to FileScannerV2 only when every scan range in the
-// source is supported; one unsupported table format or file format must make the match fail.
-TEST(FileScannerV2Test, SplitSourceAllScanRangesMatchRequiresEveryRangeSupported) {
+TEST(FileScannerV2Test, FileScanLocalStateSelectsV2ForSupportedQueriesOnly) {
+    TQueryOptions query_options;
+    TFileScanRangeParams params;
+    params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
+
+    EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
+
+    query_options.__set_enable_file_scanner_v2(true);
+    EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
+    EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, true, params));
+
+    const std::vector<TFileFormatType::type> unsupported_formats {
+            TFileFormatType::FORMAT_WAL,
+            TFileFormatType::FORMAT_ES_HTTP,
+            TFileFormatType::FORMAT_LANCE,
+    };
+    for (const auto format : unsupported_formats) {
+        params.__set_format_type(format);
+        EXPECT_FALSE(
+                FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
+    }
+
+    params.__set_format_type(TFileFormatType::FORMAT_ORC);
+    TTableFormatFileDesc table_format_params;
+    table_format_params.__set_table_format_type("transactional_hive");
+    params.__set_table_format_params(table_format_params);
+    EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
+
+    params.table_format_params.__set_table_format_type("hive");
+    EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
+
+    query_options.__set_enable_file_scanner_v2(false);
+    EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
+}
+
+// Scenario: Once FileScannerV2 is selected, an unsupported range must fail instead of falling back
+// to FileScanner.
+TEST(FileScannerV2Test, ValidateScanRangeRejectsUnsupportedRange) {
     TFileScanRangeParams params;
     params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
 
     const auto supported = range_with_format("hive", TFileFormatType::FORMAT_PARQUET);
-    const auto unsupported_table = range_with_format("lakesoul", TFileFormatType::FORMAT_PARQUET);
-    const auto unsupported_format = range_with_format("hive", TFileFormatType::FORMAT_WAL);
+    EXPECT_TRUE(FileScannerV2::TEST_validate_scan_range(params, supported).ok());
 
-    LocalSplitSourceConnector all_supported(
-            {scan_range_param(supported),
-             scan_range_param(range_with_format("iceberg", TFileFormatType::FORMAT_PARQUET))},
-            1);
-    EXPECT_TRUE(all_supported.all_scan_ranges_match(params, FileScannerV2::is_supported));
-
-    LocalSplitSourceConnector hudi_supported(
-            {scan_range_param(supported),
-             scan_range_param(range_with_format("hudi", TFileFormatType::FORMAT_PARQUET))},
-            1);
-    EXPECT_TRUE(hudi_supported.all_scan_ranges_match(params, FileScannerV2::is_supported));
-
-    LocalSplitSourceConnector table_mismatch(
-            {scan_range_param(supported), scan_range_param(unsupported_table)}, 1);
-    EXPECT_FALSE(table_mismatch.all_scan_ranges_match(params, FileScannerV2::is_supported));
-
-    LocalSplitSourceConnector format_mismatch(
-            {scan_range_param(supported), scan_range_param(unsupported_format)}, 1);
-    EXPECT_FALSE(format_mismatch.all_scan_ranges_match(params, FileScannerV2::is_supported));
+    const auto unsupported = range_with_format("lakesoul", TFileFormatType::FORMAT_PARQUET);
+    const auto status = FileScannerV2::TEST_validate_scan_range(params, unsupported);
+    EXPECT_TRUE(status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>());
+    EXPECT_NE(status.to_string().find("lakesoul"), std::string::npos);
 }
 
 // Scenario: FileScannerV2 converts only the file formats implemented by format_v2 readers and

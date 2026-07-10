@@ -212,6 +212,11 @@ Status rewrite_slot_refs_to_global_index(
 } // namespace
 
 #ifdef BE_TEST
+Status FileScannerV2::TEST_validate_scan_range(const TFileScanRangeParams& params,
+                                               const TFileRangeDesc& range) {
+    return _validate_scan_range(params, range);
+}
+
 Status FileScannerV2::TEST_to_file_format(TFileFormatType::type format_type,
                                           format::FileFormat* file_format) {
     return _to_file_format(format_type, file_format);
@@ -273,6 +278,16 @@ bool FileScannerV2::is_supported(const TFileScanRangeParams& params, const TFile
     }
 }
 
+Status FileScannerV2::_validate_scan_range(const TFileScanRangeParams& params,
+                                           const TFileRangeDesc& range) {
+    if (!is_supported(params, range)) {
+        return Status::NotSupported(
+                "FileScannerV2 does not support table format {} with file format {}",
+                table_format_name(range), to_string(get_range_format_type(params, range)));
+    }
+    return Status::OK();
+}
+
 FileScannerV2::FileScannerV2(RuntimeState* state, FileScanLocalState* local_state, int64_t limit,
                              std::shared_ptr<SplitSourceConnector> split_source,
                              RuntimeProfile* profile, ShardedKVCache* kv_cache,
@@ -321,12 +336,21 @@ Status FileScannerV2::init(RuntimeState* state, const VExprContextSPtrs& conjunc
 Status FileScannerV2::_open_impl(RuntimeState* state) {
     RETURN_IF_CANCELLED(state);
     RETURN_IF_ERROR(Scanner::_open_impl(state));
-    RETURN_IF_ERROR(_split_source->get_next(&_first_scan_range, &_current_range));
+    RETURN_IF_ERROR(_get_next_scan_range(&_first_scan_range));
     if (_first_scan_range) {
         RETURN_IF_ERROR(_create_table_reader_for_format(_current_range, &_table_reader));
         DORIS_CHECK(_table_reader != nullptr);
         RETURN_IF_ERROR(_init_expr_ctxes());
         RETURN_IF_ERROR(_init_table_reader(_current_range));
+    }
+    return Status::OK();
+}
+
+Status FileScannerV2::_get_next_scan_range(bool* has_next) {
+    DORIS_CHECK(has_next != nullptr);
+    RETURN_IF_ERROR(_split_source->get_next(has_next, &_current_range));
+    if (*has_next) {
+        RETURN_IF_ERROR(_validate_scan_range(*_params, _current_range));
     }
     return Status::OK();
 }
@@ -373,7 +397,7 @@ Status FileScannerV2::_prepare_next_split(bool* eos) {
     while (true) {
         bool has_next = _first_scan_range;
         if (!_first_scan_range) {
-            RETURN_IF_ERROR(_split_source->get_next(&has_next, &_current_range));
+            RETURN_IF_ERROR(_get_next_scan_range(&has_next));
         }
         _first_scan_range = false;
         if (!has_next || _should_stop) {
