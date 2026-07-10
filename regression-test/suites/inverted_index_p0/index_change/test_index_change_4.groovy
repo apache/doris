@@ -20,13 +20,13 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 suite("test_index_change_4") {
     def timeout = 300000
     def delta_time = 1000
-    def alter_res = "null"
-    def useTime = 0
 
     sql "set enable_add_index_for_new_data = true"
 
     def wait_for_build_index_on_partition_finish = { table_name, OpTimeout ->
-        for(int t = delta_time; t <= OpTimeout; t += delta_time){
+        def finished = false
+        def alter_res = []
+        for(int t = 0; t <= OpTimeout; t += delta_time){
             alter_res = sql """SHOW BUILD INDEX WHERE TableName = "${table_name}";"""
             def expected_finished_num = alter_res.size();
             def finished_num = 0;
@@ -39,12 +39,15 @@ suite("test_index_change_4") {
             if (finished_num == expected_finished_num) {
                 sleep(10000)
                 logger.info(table_name + " all build index jobs finished, detail: " + alter_res)
+                finished = true
                 break
             }
-            useTime = t
+            if (t >= OpTimeout) {
+                break
+            }
             sleep(delta_time)
         }
-        assertTrue(useTime <= OpTimeout, "wait_for_latest_build_index_on_partition_finish timeout")
+        assertTrue(finished, "wait_for_build_index_on_partition_finish timeout, latest result: ${alter_res}")
     }
     
     def tableName = "test_index_change_4"
