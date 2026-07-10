@@ -938,17 +938,54 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
     public ConnectorSession buildConnectorSession() {
         ConnectContext ctx = ConnectContext.get();
         if (ctx != null) {
+            // Interactive path: inject the user's delegated credential when the connector opts in
+            // (SUPPORTS_USER_SESSION). The credential rides the session and is consumed connector-side.
             return ConnectorSessionBuilder.from(ctx)
                     .withCatalogId(getId())
                     .withCatalogName(getName())
                     .withCatalogProperties(catalogProperty.getProperties())
+                    .withUserSessionCapability(supportsUserSession())
                     .build();
         }
+        // Background/internal path (no ConnectContext): never carries a delegated credential — a
+        // session=user connector then fails closed on interactive callers and gets no borrowed identity here.
         return ConnectorSessionBuilder.create()
                 .withCatalogId(getId())
                 .withCatalogName(getName())
                 .withCatalogProperties(catalogProperty.getProperties())
                 .build();
+    }
+
+    /**
+     * Whether the backing connector projects the querying user's delegated credential onto the remote
+     * metadata source ({@link ConnectorCapability#SUPPORTS_USER_SESSION}), gating both the FE credential
+     * injection above and the shared-cache bypass ({@link #shouldBypassTableNameCache}).
+     */
+    private boolean supportsUserSession() {
+        return connector != null
+                && connector.getCapabilities().contains(ConnectorCapability.SUPPORTS_USER_SESSION);
+    }
+
+    /**
+     * Under a {@link ConnectorCapability#SUPPORTS_USER_SESSION} connector carrying a per-request delegated
+     * credential, the remote source returns PER-USER table metadata, so the shared (catalog+name-keyed, NOT
+     * user-keyed) table-name cache must be bypassed — otherwise one user's REST-authorized/vended table set
+     * would be served to another (cross-user leakage). A session with no credential keeps the shared cache;
+     * the fail-closed rejection then happens connector-side on the actual metadata read, never here.
+     */
+    @Override
+    protected boolean shouldBypassTableNameCache(SessionContext ctx) {
+        return supportsUserSession() && ctx != null && ctx.hasDelegatedCredential();
+    }
+
+    /**
+     * Db-level analog of {@link #shouldBypassTableNameCache}: under a session=user connector with a per-request
+     * credential the remote source returns PER-USER databases, so the shared db-name cache is bypassed to avoid
+     * leaking one user's visible database set to another (O2). Same capability + credential gate.
+     */
+    @Override
+    protected boolean shouldBypassDbNameCache(SessionContext ctx) {
+        return supportsUserSession() && ctx != null && ctx.hasDelegatedCredential();
     }
 
     @Override
