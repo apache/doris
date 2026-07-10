@@ -108,109 +108,16 @@ instructions as well; this file adds format-v2-specific review expectations.
 - For JNI readers, review local/global reference lifetime, exception propagation, type conversion,
   thread attachment assumptions, and cleanup on partial initialization.
 
-## Parquet Multi-Level Filtering
+## Detailed FileReader Review Guides
 
-- Use the [Parquet scan design](../../../docs/file-scanner-v2-parquet-scan-design.md) as the detailed
-  reference. Trace each affected predicate through localization, Row Group planning, Page ranges,
-  row-level residual evaluation, and final selected-column materialization.
-- Apply the correctness rule at every pruning layer: discard data only when the available metadata
-  proves it cannot match. Missing, malformed, truncated, unsupported, or unsafe metadata must keep
-  the candidate range and fall back to a more precise layer.
-- At Row Group level, check Split ownership and file-global row offsets, then verify Statistics,
-  Dictionary, and Bloom pruning independently. Statistics must respect logical type conversion,
-  null counts, NaN, truncated bounds, sort order, and writer validity. Dictionary pruning requires
-  complete compatible encoding. Bloom may prove absence only; a hit is never a matching row.
-- Preserve the cost order from cheap to expensive. Footer Statistics should reduce candidates before
-  Dictionary/Bloom I/O, and ColumnIndex/OffsetIndex should be read only for surviving Row Groups.
-  Flag index work whose cost is paid for ranges already known to be irrelevant.
-- At Page level, require compatible ColumnIndex and OffsetIndex semantics. Check page-to-row mapping,
-  first/last row boundaries, empty or all-null pages, multi-column range intersection, and conversion
-  from logical `selected_ranges` to each leaf reader's physical `page_skip_plan`.
-- Page skipping must keep every column reader aligned. Skipping values or pages must advance value,
-  definition, and repetition state consistently, especially for nested/repeated columns whose Page
-  boundaries do not align across leaves. Missing or inconsistent indexes must retain the affected
-  pages instead of guessing their row coverage.
-- At Row/Batch level, keep SelectionVector positions aligned with the original Row Group rows across
-  dictionary-ID filters, incremental single-column predicates, residual multi-column expressions,
-  delete conjuncts, and output materialization. Physical row positions used by deletes or virtual
-  columns must not be renumbered after Row Group/Page pruning.
-- Only split or reorder predicates when equivalence, error behavior, and evaluation state are
-  preserved. OR expressions, stateful expressions, exception-sensitive operations, and predicates
-  not exactly covered by an index must remain in the residual VExpr path.
-- Verify lazy materialization actually avoids reading and decoding non-predicate columns for rejected
-  rows while still advancing all readers correctly. Predicate columns should be read/prefetched
-  first; output-column prefetch should wait for surviving rows when filtering is active.
-- Review I/O and cache behavior together with pruning: register Parquet Page Cache ranges only for
-  surviving projected Column Chunks, require a stable file-version key, and check FileCache,
-  MergeRange, prefetch, request count, and read amplification rather than cache hit rate alone.
-- Require Profile counters/timers that make each layer observable: candidates and pruned units by
-  Statistics/Dictionary/Bloom, Page Index selected ranges and skipped rows/pages, raw and filtered
-  rows, dictionary-row filtering, lazy-read savings, cache sources, and remote I/O/request counts.
-- Require differential correctness tests against the same scan with the relevant optimization
-  disabled. Cover absent/invalid statistics, missing or partial Page Index, mixed dictionary/plain
-  encoding, Bloom false positives, NULL/NaN/type-conversion edges, cross-Page batches, nested and
-  repeated columns, multiple Row Groups/Splits, all rows filtered, and no rows filtered.
-- For performance claims, verify both pruning effectiveness and its cost with representative file
-  layout, selectivity, writer, remote storage, and warm/cold cache states. A low pruning ratio on
-  unsorted data is not itself a Reader regression.
-
-## ORC SARG and Index Filtering
-
-- Trace every pushed predicate from the `FileScanRequest` localized expression through
-  `build_orc_search_argument()`, ORC `SearchArgumentBuilder`, Stripe selection, SDK RowReader index
-  pruning, lazy callback filtering, and the residual Doris VExpr. The ORC layer must consume only
-  file-local columns and ORC type IDs; it must not redo table-schema mapping.
-- SARG conversion must be semantically equivalent to the original Doris predicate for every value,
-  including NULL. Unsupported expressions must remain on the residual row-filter path. Never push a
-  weakened or strengthened approximation that can exclude a matching row.
-- Review the complete expression tree, not just leaf predicates. Preserve AND/OR/NOT grouping,
-  comparison direction when the literal is on the left, and the semantics of `=`, `!=`, `<`, `<=`,
-  `>`, `>=`, IN, NOT IN, IS NULL, and null-safe equality. Partial conversion inside OR/NOT is unsafe
-  unless the resulting SARG is proven equivalent.
-- Check wrapper extraction for Runtime Filter, direct-IN, and TopN predicates. Ensure a refreshed or
-  wrapped expression maps to the same file-local slot and retains any part not represented by SARG
-  as a residual predicate.
-- Verify ORC predicate-domain and literal conversion for integer, floating-point, boolean, string,
-  binary, varchar, date, decimal, timestamp, and timestamp-instant. Cover overflow, non-finite
-  floating values, signed boundaries, decimal precision/scale, binary bytes, CHAR/VARCHAR behavior,
-  and invalid or NULL literals.
-- Treat schema-evolution casts as SARGable only when comparison truth is preserved in the ORC
-  domain. Review integer/floating width, exact integer representation, decimal integer digits and
-  scale, date-to-datetime boundary normalization, timestamp precision, and string/binary casts.
-  Narrowing, lossy, formatting, or timezone-changing casts must fall back to residual evaluation.
-- Timestamp SARG literals must use the same session timezone and TIMESTAMP versus TIMESTAMP_INSTANT
-  interpretation as row decoding. Test daylight-saving transitions, non-hour offsets, epoch
-  boundaries, subsecond precision, and literal values that do not fall exactly on a DATE boundary.
-- For nested predicates, verify struct field name/ordinal traversal and final ORC type ID. Array,
-  map, repeated, missing, ambiguous, or otherwise unsupported paths must not accidentally target a
-  different primitive child.
-- Apply pruning in the correct hierarchy. First intersect the Split byte window with Stripe
-  ownership, then evaluate SARG against candidate Stripes, and finally let the ORC RowReader use its
-  row indexes and Bloom filters within surviving Stripes. SARG pruning must never reintroduce a
-  Stripe outside the Split.
-- Review file/Stripe statistics, row indexes, and Bloom filters according to ORC SDK guarantees.
-  Missing or unusable index information must retain the candidate range or follow the SDK's explicit
-  error contract. Bloom may prove absence only; a positive result still requires row evaluation.
-- Validate Stripe-range compaction and advancement when surviving Stripes are non-adjacent, when all
-  Stripes are pruned, and when a Split contains no Stripe. File-global row numbers, row-position
-  virtual columns, delete predicates, and Condition Cache granules must remain correct after every
-  skipped Stripe or row group.
-- Keep ORC SDK filtering and Doris lazy materialization aligned. Filter columns must be included and
-  identified by the correct name/type ID, selected row indexes must match the original batch, and
-  non-predicate columns should be decoded only for surviving rows without desynchronizing nested
-  vectors or subsequent batches.
-- Review SARG construction and evaluation cost as well as rows pruned. Large IN lists, deep boolean
-  trees, many Runtime Filters, repeated literal conversion, extra Stripe-statistics reads, and SDK
-  index initialization can cost more than the avoided I/O. Build the SARG once per reader/Split
-  setup, keep expensive work out of batch loops, and require evidence for high-cardinality pushdown.
-- Require Profile counters/timers that distinguish evaluated and selected row groups/Stripes,
-  filtered groups/rows/bytes, groups read, lazy-filtered rows, I/O calls, decompression, and decoding.
-  A performance change must explain both pruning effectiveness and index/SARG evaluation overhead.
-- Require differential tests with SARG/index pruning enabled and disabled, comparing exact rows,
-  order, row positions, deletes, and errors. Cover NULL truth tables, literal-on-left comparisons,
-  nested AND/OR/NOT, IN/NOT IN with NULL, safe and unsafe casts, all supported literal domains,
-  nested structs, unsupported arrays/maps, multiple and non-adjacent Stripes, Split boundaries,
-  different row-index strides, Bloom present/absent, all rows filtered, and no rows filtered.
+- Before reviewing any FileReader implementation, index, predicate path, cache, or virtual column,
+  read and apply the common checklist in
+  [FileScannerV2 Code Review Guide](../../../docs/file-scanner-v2-code-review-guide.md).
+- For Parquet changes, also apply the guide's Parquet checklist and read
+  [FileScannerV2 Parquet Scan Design](../../../docs/file-scanner-v2-parquet-scan-design.md).
+- For ORC changes, also apply the guide's ORC SARG and index checklist.
+- These detailed guides are mandatory review instructions for their scope, not optional background
+  reading. Report any conflict between an implementation and the documented layer contract.
 
 ## External Compatibility
 
