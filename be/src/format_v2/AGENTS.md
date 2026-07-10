@@ -65,6 +65,42 @@ instructions as well; this file adds format-v2-specific review expectations.
 - For JNI readers, review local/global reference lifetime, exception propagation, type conversion,
   thread attachment assumptions, and cleanup on partial initialization.
 
+## External Compatibility
+
+- Treat the external table-format specification and the behavior of supported external writers as
+  compatibility inputs. Do not assume Doris-generated fixtures or an existing Doris implementation
+  are authoritative when they conflict with the external contract.
+- Do not require the external representation to behave like Doris internal storage. Verify the
+  complete translation from external semantics, through the format-v2 adapter, to the observable
+  Doris query result. Any intentional semantic difference must be documented and tested.
+- Identify the compatibility matrix affected by a change: lake format and version, physical file
+  format and version, producing engine/writer, feature flags, encoding, compression codec, and
+  metadata version. Avoid fixes that only work for one writer's representation.
+- Preserve backward compatibility with files and metadata produced by supported older versions.
+  For newer or unknown versions and features, follow the external specification's compatibility
+  rules; do not guess or silently reinterpret metadata.
+- Review snapshot selection, time travel, manifest and partition evolution, schema and field IDs,
+  name and case matching, file identity, path normalization, and partition value decoding according
+  to the relevant lake-format semantics.
+- Review writer-dependent physical representations, including Parquet logical annotations and
+  legacy encodings, ORC type attributes, timestamps and timezones, decimals, signedness, CHAR
+  padding, nested LIST/MAP layouts, null counts, NaN values, statistics, page/stripe indexes, and
+  optional or missing metadata.
+- Capability detection and dispatch must happen before relying on a feature. Unsupported table
+  modes, metadata features, encodings, or semantic conversions must use the explicitly designed
+  fallback or return a clear error; they must never produce plausible but incorrect rows.
+- Predicate, delete, statistics, and aggregate pushdown must return the same observable result as
+  reading and evaluating the external data without that optimization, including NULL, NaN,
+  timezone, collation/case, overflow, and precision edge cases.
+- Check that a compatibility fix for one combination does not change existing behavior for other
+  lake formats, file formats, writers, or versions sharing the same abstraction.
+- Require interoperability coverage using artifacts produced by representative external systems
+  such as Spark, Hive, Flink, or Trino when applicable. Prefer differential tests against a
+  non-pushdown path or the source system's expected result; do not rely only on files synthesized by
+  Doris test code.
+- Each compatibility finding should state the affected external system or specification, versions
+  or writer variants, reachable input, Doris result, and expected result.
+
 ## Performance and Observability
 
 - Treat per-row allocation, expression cloning, virtual dispatch, repeated schema work, unnecessary
