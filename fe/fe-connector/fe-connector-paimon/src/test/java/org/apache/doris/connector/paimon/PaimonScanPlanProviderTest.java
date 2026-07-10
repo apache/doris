@@ -1680,6 +1680,25 @@ public class PaimonScanPlanProviderTest {
         Assertions.assertEquals(3, opts.size());
     }
 
+    @Test
+    public void backendOptionsForwardFileReaderAsyncOptOut() {
+        Map<String, String> props = new HashMap<>();
+        props.put("paimon.catalog.type", "filesystem");
+        props.put("paimon.jni.enable_file_reader_async", "false");
+        PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
+                props, new RecordingPaimonCatalogOps(), envContext(Collections.emptyMap()));
+
+        Map<String, String> opts = provider.getBackendPaimonOptions();
+
+        // WHY (#65365): BE's PaimonJniScanner disables paimon's async file reader only when FE ships
+        // jni.enable_file_reader_async=false (BE re-adds the paimon. prefix). Upstream added the key to
+        // the legacy PaimonScanNode forwarding list, which this branch deleted with the fe-core paimon
+        // subsystem — the connector list is now the only path to BE.
+        // MUTATION: dropping the key from BACKEND_PAIMON_JNI_OPTIONS -> flag never reaches BE -> red.
+        Assertions.assertEquals("false", opts.get("jni.enable_file_reader_async"));
+        Assertions.assertEquals(1, opts.size());
+    }
+
     // ---- FIX-SCHEMA-EVOLUTION (B-1a): native-reader schema dictionary ----
 
     @Test
