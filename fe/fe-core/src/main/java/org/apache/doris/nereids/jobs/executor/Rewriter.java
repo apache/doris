@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.jobs.executor;
 
-import org.apache.doris.common.Config;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.rewrite.CostBasedRewriteJob;
@@ -728,6 +727,9 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                 new LogicalResultSinkToShortCircuitPointQuery(),
                                 new PruneOlapScanPartition(),
                                 new PruneEmptyPartition(),
+                                // Stream lowering needs the pruned partitions and must finish before
+                                // OperativeColumnDerive treats stream virtual columns as scan slots.
+                                new NormalizeOlapTableStreamScan(),
                                 new PruneFileScanPartition(),
                                 new PushDownFilterIntoSchemaScan(),
                                 new PruneOlapScanTablet()
@@ -959,13 +961,6 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     return rewriteJobs;
                 }
         ));
-        if (Config.enable_table_stream) {
-            builder.addAll(jobs(
-                    topic("normalize olap table stream scan after cte inline",
-                            topDown(new NormalizeOlapTableStreamScan())
-                    )
-            ));
-        }
         return builder.build();
     }
 
