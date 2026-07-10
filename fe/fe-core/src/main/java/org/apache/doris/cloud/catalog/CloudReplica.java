@@ -167,28 +167,54 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
         }
 
         GroupId groupId = Env.getCurrentColocateIndex().getGroupNoLock(tableId);
-        HashCode hashCode = Hashing.murmur3_128().hashLong(groupId.grpId);
         if (availableBes.size() != bes.size()) {
-            // some be is dead recently, still hash tablets on all backends.
             long needRehashDeadTime = System.currentTimeMillis() - Config.rehash_tablet_after_be_dead_seconds * 1000L;
             if (bes.stream().anyMatch(be -> !be.isAlive() && be.getLastUpdateMs() > needRehashDeadTime)) {
                 List<Backend> beAliveOrDeadShort = bes.stream()
                         .filter(be -> be.isAlive() || be.getLastUpdateMs() > needRehashDeadTime)
                         .collect(Collectors.toList());
-                long index = getIndexByBeNum(hashCode.asLong() + idx, beAliveOrDeadShort.size());
-                Backend be = beAliveOrDeadShort.get((int) index);
+                Backend be = pickColocatedBackendForDeadGrace(infoService, groupId, clusterId, beAliveOrDeadShort);
                 if (be.isAlive() && !isDecommissioningOrDecommissioned(be)) {
                     return be.getId();
                 }
             }
         }
 
-        // Tablets with the same idx will be hashed to the same BE, which
-        // meets the requirements of colocated table.
-        long index = getIndexByBeNum(hashCode.asLong() + idx, availableBes.size());
-        long pickedBeId = availableBes.get((int) index).getId();
+        return pickColocatedBackend(infoService, groupId, clusterId, availableBes).getId();
+    }
 
-        return pickedBeId;
+    private Backend pickColocatedBackendForDeadGrace(CloudSystemInfoService infoService, GroupId groupId,
+            String clusterId, List<Backend> availableBes) {
+        if (!Config.enable_cloud_colocate_consistent_hash) {
+            return pickColocatedBackend(infoService, groupId, clusterId, availableBes);
+        }
+        int bucketNum = infoService.getCloudColocateBucketsNum(groupId);
+        CloudSystemInfoService.checkCloudColocateBucketIdx(groupId, clusterId, idx, bucketNum);
+        long[] availableBeIds = availableBes.stream().mapToLong(Backend::getId).toArray();
+        long pickedBeId = CloudColocatePlacement.pickBackendId(groupId.grpId, idx, availableBeIds);
+        return findPickedBackend(pickedBeId, groupId, clusterId, availableBes);
+    }
+
+    Backend pickColocatedBackend(CloudSystemInfoService infoService, GroupId groupId, String clusterId,
+            List<Backend> availableBes) {
+        if (Config.enable_cloud_colocate_consistent_hash) {
+            List<Long> availableBeIds = availableBes.stream().map(Backend::getId).collect(Collectors.toList());
+            long pickedBeId = infoService.getCloudColocateHrwBeId(groupId, clusterId, availableBeIds, idx);
+            return findPickedBackend(pickedBeId, groupId, clusterId, availableBes);
+        }
+
+        HashCode hashCode = Hashing.murmur3_128().hashLong(groupId.grpId);
+        long index = getIndexByBeNum(hashCode.asLong() + idx, availableBes.size());
+        return availableBes.get((int) index);
+    }
+
+    private Backend findPickedBackend(long pickedBeId, GroupId groupId, String clusterId, List<Backend> availableBes) {
+        return availableBes.stream().filter(be -> be.getId() == pickedBeId).findFirst()
+                .orElseThrow(() -> new IllegalStateException(String.format(
+                        "picked colocate backend %s is not in candidate set, group %s, cluster %s, bucket idx %s, "
+                                + "candidate backend ids %s",
+                        pickedBeId, groupId, clusterId, idx,
+                        availableBes.stream().map(Backend::getId).collect(Collectors.toList()))));
     }
 
     @Override
