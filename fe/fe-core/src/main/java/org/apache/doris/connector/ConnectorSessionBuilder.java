@@ -19,7 +19,10 @@ package org.apache.doris.connector;
 
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.connector.api.ConnectorDelegatedCredential;
 import org.apache.doris.connector.api.ConnectorSession;
+import org.apache.doris.datasource.DelegatedCredential;
+import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.VariableMgr;
@@ -43,6 +46,16 @@ public final class ConnectorSessionBuilder {
     private String catalogName;
     private Map<String, String> catalogProperties = Collections.emptyMap();
     private Map<String, String> sessionProperties = Collections.emptyMap();
+    // The originating ConnectContext (from #from), read at build() time to pull the retained per-connection
+    // delegated credential + session id off SessionContext — but ONLY when the target connector declares
+    // SUPPORTS_USER_SESSION (userSessionCapable). Kept as a reference (not eagerly extracted) so a non-opt-in
+    // connector never even touches the credential (least-privilege).
+    private ConnectContext connectContext;
+    private boolean userSessionCapable;
+    // Explicit overrides for tests / callers without a live ConnectContext; when set (and capable) they win
+    // over the ConnectContext extraction.
+    private String sessionId;
+    private ConnectorDelegatedCredential delegatedCredential;
 
     private ConnectorSessionBuilder() {}
 
@@ -59,6 +72,7 @@ public final class ConnectorSessionBuilder {
         b.timeZone = ctx.getSessionVariable().getTimeZone();
         b.locale = "en_US";  // Doris doesn't have per-session locale yet
         b.sessionProperties = extractSessionProperties(ctx);
+        b.connectContext = ctx;  // read for the delegated credential at build() time, gated by capability
         return b;
     }
 
@@ -102,10 +116,62 @@ public final class ConnectorSessionBuilder {
         return this;
     }
 
+    /**
+     * Declares whether the target connector consumes the user's delegated credential
+     * ({@link org.apache.doris.connector.api.ConnectorCapability#SUPPORTS_USER_SESSION}). When {@code false}
+     * (the default), {@link #build()} carries neither the session id nor the credential onto the session, so a
+     * connector that would never use the OIDC token never receives it (least-privilege).
+     */
+    public ConnectorSessionBuilder withUserSessionCapability(boolean capable) {
+        this.userSessionCapable = capable;
+        return this;
+    }
+
+    /** Sets the session id explicitly (for callers without a live {@link ConnectContext}, e.g. tests). */
+    public ConnectorSessionBuilder withSessionId(String sessionId) {
+        this.sessionId = sessionId;
+        return this;
+    }
+
+    /** Sets the delegated credential explicitly (for callers without a live {@link ConnectContext}, e.g. tests). */
+    public ConnectorSessionBuilder withDelegatedCredential(ConnectorDelegatedCredential credential) {
+        this.delegatedCredential = credential;
+        return this;
+    }
+
     /** Builds an immutable {@link ConnectorSession} instance. */
     public ConnectorSession build() {
+        String sid = null;
+        ConnectorDelegatedCredential cred = null;
+        // Only a SUPPORTS_USER_SESSION connector receives the credential. An explicit override (tests) wins;
+        // otherwise pull the retained per-connection SessionContext off the originating ConnectContext (the
+        // #63068 generic base re-materializes it on the executing FE, incl. after observer->master forwarding).
+        if (userSessionCapable) {
+            if (delegatedCredential != null) {
+                sid = sessionId;
+                cred = delegatedCredential;
+            } else if (connectContext != null) {
+                SessionContext sc = connectContext.getSessionContext();
+                if (sc != null && sc.hasDelegatedCredential()) {
+                    sid = sc.getSessionId();
+                    cred = toConnectorCredential(sc.getDelegatedCredential().get());
+                }
+            }
+        }
         return new ConnectorSessionImpl(queryId, user, timeZone, locale,
-                catalogId, catalogName, catalogProperties, sessionProperties);
+                catalogId, catalogName, catalogProperties, sessionProperties, sid, cred);
+    }
+
+    /**
+     * Maps the fe-core {@link DelegatedCredential} to the neutral SPI {@link ConnectorDelegatedCredential} so
+     * the connector never imports a fe-core type. The {@code Type} is bridged by enum name — the two enums are
+     * kept constant-for-constant identical ({@code ACCESS_TOKEN/ID_TOKEN/JWT/SAML}), so an added-but-unmapped
+     * type fails loud here rather than being silently dropped.
+     */
+    private static ConnectorDelegatedCredential toConnectorCredential(DelegatedCredential credential) {
+        return new ConnectorDelegatedCredential(
+                ConnectorDelegatedCredential.Type.valueOf(credential.getType().name()),
+                credential.getToken(), credential.getExpiresAtMillis());
     }
 
     /**
