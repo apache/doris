@@ -1075,6 +1075,8 @@ Status CloudStorageEngine::_submit_cumulative_compaction_task(const CloudTabletS
                     long now = duration_cast<milliseconds>(system_clock::now().time_since_epoch())
                                        .count();
                     // sleep 5s for this tablet
+                    tablet->set_last_cumu_compaction_status(
+                            "cumulative compaction delayed: large task thread pool intensive");
                     tablet->set_last_cumu_compaction_failure_time(now);
                     erase_executing_cumu_compaction();
                     LOG_WARNING(
