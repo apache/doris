@@ -204,7 +204,7 @@ final class HiveWriteUtils {
      * {@code org.apache.hadoop.hive.common.FileUtils.unescapePathName}, inlined to avoid a hive-common
      * dependency.
      */
-    private static String unescapePathName(String path) {
+    static String unescapePathName(String path) {
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < path.length(); i++) {
             char c = path.charAt(i);

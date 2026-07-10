@@ -136,6 +136,33 @@ public class HiveConnectorMetadataPartitionPruningTest {
         Assertions.assertFalse(result.isPresent());
     }
 
+    @Test
+    public void parsePartitionNameUnescapesValues() {
+        // H1 (unit, durable): the pruning-decision parse must unescape values the same way the sibling
+        // HiveWriteUtils.toPartitionValues does, or an escaped partition value never string-equals the
+        // unescaped predicate literal. RED before the fix: "US%3ACA".
+        Map<String, String> values = HiveConnectorMetadata.parsePartitionName(
+                "code=US%3ACA", Collections.singletonList("code"));
+        Assertions.assertEquals("US:CA", values.get("code"), "colon-escaped value must be decoded");
+    }
+
+    @Test
+    public void testEscapedPartitionValuePrunesInsteadOfDropping() {
+        // H1 (end-to-end via applyFilter): a partition value with a Hive-escaped char (":" stored as "%3A")
+        // must still match its unescaped predicate literal. RED before the fix: both escaped names fail the
+        // string compare -> the pruned set is EMPTY, dropping the real partition (silent row loss).
+        List<String> escaped = Arrays.asList("code=US%3ACA", "code=EU%3ADE");
+        HiveConnectorMetadata metadata = new HiveConnectorMetadata(
+                new FakeHmsClient(escaped), Collections.emptyMap(), new FakeConnectorContext());
+        HiveTableHandle handle = new HiveTableHandle.Builder("db", "t", HiveTableType.HIVE)
+                .partitionKeyNames(Collections.singletonList("code"))
+                .build();
+        Optional<FilterApplicationResult<ConnectorTableHandle>> result =
+                metadata.applyFilter(null, handle, new ConnectorFilterConstraint(eq("code", "US:CA")));
+        Assertions.assertTrue(result.isPresent());
+        Assertions.assertEquals(Collections.singletonList("code=US%3ACA"), prunedLocations(result));
+    }
+
     // ===== helpers =====
 
     private Optional<FilterApplicationResult<ConnectorTableHandle>> applyFilter(

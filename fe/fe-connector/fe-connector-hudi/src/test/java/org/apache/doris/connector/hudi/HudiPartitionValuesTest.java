@@ -107,6 +107,20 @@ public class HudiPartitionValuesTest {
     }
 
     @Test
+    public void parsePartitionNameUnescapesValuesForPruning() {
+        // H1: the PRUNING-decision parse (HudiConnectorMetadata.parsePartitionName, fed the ESCAPED HMS
+        // get_partition_names output) must unescape values the same way the scan-side parsePartitionValues does.
+        // Otherwise an escaped partition value ("code=US%3ACA") never string-equals the unescaped predicate
+        // literal ("US:CA") in matchesPredicates, so the real partition is pruned OUT -> silent row loss. RED
+        // before the fix: values stay "US%3ACA" / "a%2Fb".
+        Map<String, String> values = HudiConnectorMetadata.parsePartitionName(
+                "code=US%3ACA/kind=a%2Fb", Arrays.asList("code", "kind"));
+
+        Assertions.assertEquals("US:CA", values.get("code"), "colon-escaped value must be decoded");
+        Assertions.assertEquals("a/b", values.get("kind"), "slash-escaped value must be decoded");
+    }
+
+    @Test
     public void emptyPartitionKeysReturnsEmptyForUnpartitionedTable() {
         // Unpartitioned tables reach here with an empty key list and an empty path; the result must be empty
         // (no spurious partition column).

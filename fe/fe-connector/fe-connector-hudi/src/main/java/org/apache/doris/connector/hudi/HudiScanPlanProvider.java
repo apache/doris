@@ -810,7 +810,7 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
      * {@code org.apache.hadoop.hive.common.FileUtils.unescapePathName} (identical to the fe-connector-hive
      * inlined copy in {@code HiveWriteUtils}), so the connector needs no hive-common dependency.
      */
-    private static String unescapePathName(String path) {
+    static String unescapePathName(String path) {
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < path.length(); i++) {
             char c = path.charAt(i);

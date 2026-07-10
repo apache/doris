@@ -2066,14 +2066,20 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
         return matched;
     }
 
-    private Map<String, String> parsePartitionName(String partName,
+    static Map<String, String> parsePartitionName(String partName,
             List<String> partKeyNames) {
         Map<String, String> values = new HashMap<>();
         String[] parts = partName.split("/");
         for (String part : parts) {
             int eq = part.indexOf('=');
             if (eq > 0) {
-                values.put(part.substring(0, eq), part.substring(eq + 1));
+                // Unescape the VALUE: HMS get_partition_names returns Hive-escaped names (e.g. "%3A" for ':').
+                // The predicate literal side (extractLiteralValue) is unescaped, so matchesPredicates' string
+                // compare needs the value unescaped too — otherwise an escaped partition value silently drops
+                // rows. Mirrors the sibling partition-value parse (HiveWriteUtils.toPartitionValues) and legacy
+                // FileUtils.unescapePathName. The key is a column name (never escaped), left as-is.
+                values.put(part.substring(0, eq),
+                        HiveWriteUtils.unescapePathName(part.substring(eq + 1)));
             }
         }
         return values;
