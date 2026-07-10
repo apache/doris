@@ -224,12 +224,27 @@ paimon/iceberg — per practice + memory `plugindriven-mvcc-table-is-live-not-do
 - [x] **Unified clean-room adversarial re-review** of F1/F1b (live paths) — `wf_fe6ddef4-777`, DONE. **Verdict:
       fixes are NET IMPROVEMENTS but INCOMPLETE — 4 follow-ups required (3 live + 1 dormant). See
       `plan-doc/reviews/cache-invalidation-cleanroom-review-2026-07-10.md`.**
-- [ ] **R1** DROP/CREATE/DROPDB invalidation is coordinator-only — followers/observers don't propagate on
-      replay (mirror `replayTruncateTable`). LIVE.
-- [ ] **R2** iceberg/paimon lack an `invalidateDb` override → DROP DATABASE hook + pre-existing REFRESH
-      DATABASE are no-ops for their snapshot/schema caches. LIVE (fixes a pre-existing bug too).
-- [ ] **R3** `getPartitions` raw `put` bypasses the invalidateGeneration guard (REFRESH-vs-in-flight race).
-      DORMANT; needs an additive guarded-put on the connector `MetaCacheEntry`.
-- [ ] **R4** RENAME (and maybe replace/CTAS-overwrite) never invalidates the connector cache. LIVE.
-- [ ] **e2e** (§5) — owed at the flip / heterogeneous-HMS docker (paimon/iceberg drop+recreate is testable
-      NOW as a live regression, once R1/R2/R4 land).
+- [x] **R2** iceberg/paimon db-scoped `invalidateDb` — `7b7b3c25953`. Adds `IcebergConnector`/`PaimonConnector`
+      `invalidateDb` (+ db-scoped removeIf on the snapshot caches + `PaimonSchemaAtMemo`), so the DROP DATABASE
+      hook AND the pre-existing REFRESH DATABASE both take effect (incl. the FORCE table cascade), and arms
+      hive's `forEachBuiltSibling(sibling.invalidateDb)`. LIVE. iceberg 16 + paimon 17 pass, checkstyle 0.
+- [x] **R1** DROP/CREATE/DROPDB invalidation propagates on editlog replay — `a562c91e55b`. Overrides
+      `replayDropTable`/`replayCreateTable`/`replayDropDb` in `PluginDrivenExternalCatalog` (mirrors the existing
+      `replayTruncateTable`), keyed like the coordinator; never force-inits (gated by getDbForReplay). LIVE.
+      `PluginDrivenExternalCatalogDdlRoutingTest` 60 pass, checkstyle 0.
+- [x] **R4** RENAME invalidates the connector cache (coordinator + replay) — `43db3e8214f`.
+      `PluginDrivenExternalCatalog.renameTable` drops source+target after the mutation;
+      `RefreshManager.replayRefreshTable` rename branch propagates to followers. No `replaceTable`/CTAS-overwrite
+      path exists for plugin catalogs (verified) → RENAME was the only remaining gap. LIVE. DDL routing 60 +
+      new `RefreshManagerRenameReplayTest` 2 pass, checkstyle 0.
+- [x] **R3** `getPartitions` generation-guarded put — `d26bfa52eea`. Additive
+      `MetaCacheEntry.invalidationGeneration()`/`putIfNotInvalidatedSince()` (connector copy only) + wired into
+      `CachingHmsClient.getPartitions` (capture generation before the RPC). DORMANT. `MetaCacheEntryTest` 7 +
+      `CachingHmsClientTest` 16 pass, checkstyle 0.
+- [x] **Targeted adversarial re-review** of R1/R2/R4 (live paths) + R3 — `wf_b730a7d4-6a3` (6 blind finders +
+      3-lens verify). **Verdict: CLEAN — 0 findings; the four fixes are correct AND complete, no follow-ups.**
+      Report = `plan-doc/reviews/cache-invalidation-fixes-rereview-2026-07-10.md` (confirms hudi correctly
+      needs no `invalidateDb` — raw ThriftHmsClient, reads fresh; no other same-class path unfixed; replay
+      never force-inits). The whole D1/D2 → R1–R4 follow-up is DONE.
+- [ ] **e2e** (§5) — owed at the flip / heterogeneous-HMS docker (paimon/iceberg drop+recreate AND rename-swap
+      are testable NOW as live regressions, since R1/R2/R4 are landed).
