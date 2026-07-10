@@ -21,6 +21,7 @@ import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.stream.OlapTableStream;
 import org.apache.doris.catalog.stream.OlapTableStreamWrapper;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.nereids.memo.GroupExpression;
@@ -39,6 +40,7 @@ import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.ScoreRangeInfo;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -122,7 +124,8 @@ public class LogicalOlapTableStreamScan extends LogicalOlapScan {
                         hints, cacheSlotWithSlotName, cachedOutput, tableSample, directMvScan,
                         colToSubPathsMap, manuallySpecifiedTabletIds, operativeSlots, virtualColumns,
                         scoreOrderKeys, scoreLimit, scoreRangeInfo, annOrderKeys, annLimit, tableAlias,
-                        partitionPrunablePredicates, scanParams, isReset, isSnapshot));
+                        partitionPrunablePredicates, scanParams,
+                        isReset, isSnapshot));
     }
 
     @Override
@@ -130,10 +133,13 @@ public class LogicalOlapTableStreamScan extends LogicalOlapScan {
         if (cachedOutput.isPresent()) {
             return cachedOutput.get();
         }
-        // for reset, we could use get full schema of base table;
-        // otherwise, we only need to get the schema without hidden columns
-        List<Column> baseSchema = table.getBaseSchema(isReset);
+        List<Column> baseSchema = table.getBaseSchema(true);
         List<SlotReference> slotFromColumn = createSlotsVectorized(baseSchema);
+
+        ConnectContext connectContext = ConnectContext.get();
+        boolean ivmRewriteEnabled = connectContext != null
+                && connectContext.getStatementContext() != null
+                && connectContext.getStatementContext().getIvmRewriteContext().isPresent();
 
         ImmutableList.Builder<Slot> slots = ImmutableList.builder();
         IdGenerator<ExprId> exprIdGenerator = StatementScopeIdGenerator.getExprIdGenerator();
@@ -142,6 +148,10 @@ public class LogicalOlapTableStreamScan extends LogicalOlapScan {
             final int index = i;
             Column col = baseSchema.get(i);
             if (col.getName().startsWith(Column.BINLOG_BEFORE_PREFIX)) {
+                continue;
+            }
+            // Keep visible columns, and IVM row-id during IVM rewrite. Skip all other hidden columns.
+            if (!col.isVisible() && !(Column.IVM_ROW_ID_COL.equals(col.getName()) && ivmRewriteEnabled)) {
                 continue;
             }
             Pair<Long, String> key = Pair.of(selectedIndexId, col.getName());
@@ -160,7 +170,7 @@ public class LogicalOlapTableStreamScan extends LogicalOlapScan {
                 }
             }
         }
-        if (isIncremental()) {
+        if (!isSnapshot && !isReset) {
             // add stream exclusive virtual columns.
             slots.add(SlotReference.fromColumn(
                     exprIdGenerator.getNextId(), table, Column.STREAM_SEQ_VIRTUAL_COLUMN, qualified()));
