@@ -374,6 +374,9 @@ struct TGroupCommitInfo{
     7: optional i64 receiveData
     8: optional string loadSelectionPreferredKey
     9: optional string loadSelectionMode
+    // set by followers that understand selection errors carried in TMasterOpResult
+    // statusCode/errMessage; masters must keep throwing for callers without it
+    10: optional bool supportsSelectionErrorResult
 }
 
 struct TMasterOpRequest {

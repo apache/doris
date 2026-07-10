@@ -40,6 +40,7 @@ import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPipelineFragmentParams;
 import org.apache.doris.thrift.TPipelineInstanceParams;
 import org.apache.doris.thrift.TPlanFragment;
+import org.apache.doris.thrift.TQueryType;
 import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TTopnFilterDesc;
@@ -56,6 +57,7 @@ import org.mockito.Mockito;
 
 import java.io.IOException;
 import java.lang.reflect.Field;
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -203,6 +205,114 @@ public class CoordinatorTest extends TestWithFeService {
         }
     }
 
+    @Test
+    public void testCoordinatorSkipsQuerySelectionWithoutPreference() throws Exception {
+        ConnectContext context = new ConnectContext();
+        context.setQueryId(new TUniqueId(4L, 4L));
+        Coordinator coordinator = new Coordinator(context, mockPlanner());
+
+        Backend tagABackend = createAvailableBackend(10001L, "127.0.0.1", 9060, "tag_a");
+        Backend tagBBackend = createAvailableBackend(10002L, "127.0.0.2", 9061, "tag_b");
+        coordinator.idToBackend = ImmutableMap.of(tagABackend.getId(), tagABackend, tagBBackend.getId(), tagBBackend);
+
+        TScanRangeLocations scanRangeLocations = new TScanRangeLocations();
+        scanRangeLocations.setLocations(new ArrayList<>());
+        scanRangeLocations.addToLocations(createScanRangeLocation(tagABackend));
+        scanRangeLocations.addToLocations(createScanRangeLocation(tagBBackend));
+
+        ContextCapturingQuerySelectionPolicy policy = new ContextCapturingQuerySelectionPolicy("tag_b", false);
+        try (MockedStatic<BackendSelectionPolicyFactory> mockedFactory =
+                Mockito.mockStatic(BackendSelectionPolicyFactory.class)) {
+            mockedFactory.when(BackendSelectionPolicyFactory::get).thenReturn(policy);
+
+            Reference<Long> backendIdRef = new Reference<>();
+            selectBackendsByRoundRobinWithSelection(coordinator, scanRangeLocations, new HashMap<>(),
+                    initialReplicaNumPerHost(scanRangeLocations), backendIdRef);
+
+            Assertions.assertEquals(tagABackend.getId(), backendIdRef.getRef());
+            Assertions.assertFalse(policy.isOrderQueryCandidatesCalled());
+        }
+    }
+
+    @Test
+    public void testLoadSelectionWithoutPreferenceFallsBackToSimpleScheduler() throws Exception {
+        ConnectContext context = new ConnectContext();
+        context.setQueryId(new TUniqueId(5L, 5L));
+        BackendSelection.SelectionHint hint = BackendSelection.SelectionHint.noSelection();
+        context.recordLoadBackendSelectionDecision(hint);
+        Coordinator coordinator = new Coordinator(context, mockPlanner());
+        coordinator.setQueryType(TQueryType.LOAD);
+
+        Backend first = createAvailableBackend(10001L, "127.0.0.1", 9060, "tag_a");
+        Backend second = createAvailableBackend(10002L, "127.0.0.2", 9061, "tag_b");
+        ImmutableMap<Long, Backend> backends = ImmutableMap.of(first.getId(), first, second.getId(), second);
+        coordinator.idToBackend = backends;
+        Map<TNetworkAddress, Long> addressToBackendId = new HashMap<>();
+        addressToBackendId.put(new TNetworkAddress(first.getHost(), first.getBePort()), first.getId());
+        addressToBackendId.put(new TNetworkAddress(second.getHost(), second.getBePort()), second.getId());
+
+        BackendSelectionPolicy policy = Mockito.mock(BackendSelectionPolicy.class);
+        Mockito.when(policy.hasLoadSelectionPreference(hint)).thenReturn(false);
+        TNetworkAddress hostFallback = new TNetworkAddress("127.0.0.10", 9070);
+        TNetworkAddress currentBackendFallback = new TNetworkAddress("127.0.0.11", 9071);
+        Reference<Long> backendIdRef = new Reference<>();
+        try (MockedStatic<BackendSelectionPolicyFactory> mockedFactory =
+                Mockito.mockStatic(BackendSelectionPolicyFactory.class);
+                MockedStatic<SimpleScheduler> mockedScheduler =
+                        Mockito.mockStatic(SimpleScheduler.class, Mockito.CALLS_REAL_METHODS)) {
+            mockedFactory.when(BackendSelectionPolicyFactory::get).thenReturn(policy);
+            mockedScheduler.when(() -> SimpleScheduler.getHost(backends, backendIdRef)).thenReturn(hostFallback);
+            mockedScheduler.when(() -> SimpleScheduler.getHostByCurrentBackend(addressToBackendId))
+                    .thenReturn(currentBackendFallback);
+
+            Assertions.assertSame(hostFallback, chooseHostWithSelection(coordinator, backends, backendIdRef));
+            Assertions.assertSame(currentBackendFallback,
+                    chooseHostByCurrentBackendSelection(coordinator, addressToBackendId));
+        }
+    }
+
+    @Test
+    public void testRequiredLoadSelectionDoesNotFallBackToSimpleScheduler() throws Exception {
+        ConnectContext context = new ConnectContext();
+        context.setQueryId(new TUniqueId(6L, 6L));
+        BackendSelection.SelectionHint hint = new BackendSelection.SelectionHint(
+                "tag_a", BackendSelection.Mode.REQUIRE, "test");
+        context.recordLoadBackendSelectionDecision(hint);
+        Coordinator coordinator = new Coordinator(context, mockPlanner());
+        coordinator.setQueryType(TQueryType.LOAD);
+
+        Backend unavailable = createAvailableBackend(10001L, "127.0.0.1", 9060, "tag_a");
+        unavailable.setAlive(false);
+        ImmutableMap<Long, Backend> backends = ImmutableMap.of(unavailable.getId(), unavailable);
+        coordinator.idToBackend = backends;
+        Map<TNetworkAddress, Long> addressToBackendId = new HashMap<>();
+        addressToBackendId.put(new TNetworkAddress(unavailable.getHost(), unavailable.getBePort()),
+                unavailable.getId());
+
+        BackendSelectionPolicy policy = Mockito.mock(BackendSelectionPolicy.class);
+        Mockito.when(policy.partitionRequiredLoadCandidates(hint, Collections.singletonList(unavailable)))
+                .thenReturn(new BackendSelection.CandidateSelection<>(
+                        Collections.singletonList(unavailable), Collections.emptyList()));
+        Reference<Long> backendIdRef = new Reference<>();
+        try (MockedStatic<BackendSelectionPolicyFactory> mockedFactory =
+                Mockito.mockStatic(BackendSelectionPolicyFactory.class);
+                MockedStatic<SimpleScheduler> mockedScheduler =
+                        Mockito.mockStatic(SimpleScheduler.class, Mockito.CALLS_REAL_METHODS)) {
+            mockedFactory.when(BackendSelectionPolicyFactory::get).thenReturn(policy);
+
+            InvocationTargetException hostException = Assertions.assertThrows(InvocationTargetException.class,
+                    () -> chooseHostWithSelection(coordinator, backends, backendIdRef));
+            Assertions.assertInstanceOf(UserException.class, hostException.getCause());
+            InvocationTargetException currentBackendException = Assertions.assertThrows(
+                    InvocationTargetException.class,
+                    () -> chooseHostByCurrentBackendSelection(coordinator, addressToBackendId));
+            Assertions.assertInstanceOf(UserException.class, currentBackendException.getCause());
+            mockedScheduler.verify(() -> SimpleScheduler.getHost(backends, backendIdRef), Mockito.never());
+            mockedScheduler.verify(() -> SimpleScheduler.getHostByCurrentBackend(addressToBackendId),
+                    Mockito.never());
+        }
+    }
+
     private NereidsPlanner plan(String sql) throws IOException {
         connectContext.getSessionVariable().setDisableNereidsRules(
                 "PRUNE_EMPTY_PARTITION,OLAP_SCAN_TABLET_PRUNE");
@@ -269,16 +379,43 @@ public class CoordinatorTest extends TestWithFeService {
                 false, true);
     }
 
+    private TNetworkAddress chooseHostWithSelection(Coordinator coordinator, ImmutableMap<Long, Backend> backends,
+            Reference<Long> backendIdRef) throws Exception {
+        Method method = Coordinator.class.getDeclaredMethod(
+                "chooseHostWithSelection", ImmutableMap.class, Reference.class);
+        method.setAccessible(true);
+        return (TNetworkAddress) method.invoke(coordinator, backends, backendIdRef);
+    }
+
+    private TNetworkAddress chooseHostByCurrentBackendSelection(Coordinator coordinator,
+            Map<TNetworkAddress, Long> addressToBackendId) throws Exception {
+        Method method = Coordinator.class.getDeclaredMethod(
+                "chooseHostByCurrentBackendSelection", Map.class);
+        method.setAccessible(true);
+        return (TNetworkAddress) method.invoke(coordinator, addressToBackendId);
+    }
+
     private static final class ContextCapturingQuerySelectionPolicy implements BackendSelectionPolicy {
         private final String preferredTag;
+        private final boolean hasPreference;
         private ConnectContext decideContext;
+        private boolean orderQueryCandidatesCalled;
 
         private ContextCapturingQuerySelectionPolicy(String preferredTag) {
+            this(preferredTag, true);
+        }
+
+        private ContextCapturingQuerySelectionPolicy(String preferredTag, boolean hasPreference) {
             this.preferredTag = preferredTag;
+            this.hasPreference = hasPreference;
         }
 
         private ConnectContext getDecideContext() {
             return decideContext;
+        }
+
+        private boolean isOrderQueryCandidatesCalled() {
+            return orderQueryCandidatesCalled;
         }
 
         @Override
@@ -289,8 +426,14 @@ public class CoordinatorTest extends TestWithFeService {
         }
 
         @Override
+        public boolean hasQuerySelectionPreference(BackendSelection.SelectionHint hint) {
+            return hasPreference;
+        }
+
+        @Override
         public <T> List<T> orderQueryCandidates(BackendSelection.SelectionHint decision, List<T> candidates,
                 Function<T, Tag> beTagOf) throws UserException {
+            orderQueryCandidatesCalled = true;
             if (!preferredTag.equals(decision.getPreferredKey())) {
                 return candidates;
             }

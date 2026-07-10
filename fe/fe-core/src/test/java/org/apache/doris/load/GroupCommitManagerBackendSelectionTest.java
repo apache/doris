@@ -30,6 +30,7 @@ import org.apache.doris.resource.BackendSelectionPolicyFactory;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 
+import com.google.common.cache.Cache;
 import com.google.common.collect.ImmutableMap;
 import org.junit.After;
 import org.junit.Assert;
@@ -37,6 +38,7 @@ import org.junit.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.lang.reflect.Field;
 import java.util.List;
 
 public class GroupCommitManagerBackendSelectionTest {
@@ -64,21 +66,7 @@ public class GroupCommitManagerBackendSelectionTest {
     }
 
     @Test
-    public void testEnabledLoadSelectionReturnsDecision() {
-        ConnectContext context = new ConnectContext();
-        EnabledLoadSelectionPolicy policy = new EnabledLoadSelectionPolicy();
-
-        try (MockedStatic<BackendSelectionPolicyFactory> mockedFactory =
-                Mockito.mockStatic(BackendSelectionPolicyFactory.class)) {
-            mockedFactory.when(BackendSelectionPolicyFactory::get).thenReturn(policy);
-
-            Assert.assertSame(policy.decision, GroupCommitManager.getGroupCommitLoadSelectionHint(context));
-            Assert.assertEquals(1, policy.getLoadSelectionHintCalls);
-        }
-    }
-
-    @Test
-    public void testEffectiveLoadSelectionReusesCachedBackend() throws Exception {
+    public void testEffectiveLoadSelectionCacheUsesSelectionKey() throws Exception {
         Config.cloud_unique_id = "";
         Config.deploy_mode = "";
         long tableId = 10001L;
@@ -96,20 +84,25 @@ public class GroupCommitManagerBackendSelectionTest {
 
             long firstBackendId = manager.selectBackendForGroupCommitInternal(tableId, "", policy.decision);
             long secondBackendId = manager.selectBackendForGroupCommitInternal(tableId, "", policy.decision);
+            long otherBackendId = manager.selectBackendForGroupCommitInternal(tableId, "", policy.otherDecision);
+            long cachedOtherBackendId = manager.selectBackendForGroupCommitInternal(
+                    tableId, "", policy.otherDecision);
 
             Assert.assertEquals(1L, firstBackendId);
             Assert.assertEquals(1L, secondBackendId);
-            Assert.assertEquals(1, policy.orderLoadCandidatesCalls);
+            Assert.assertEquals(1L, otherBackendId);
+            Assert.assertEquals(1L, cachedOtherBackendId);
+            Assert.assertEquals(2, policy.orderLoadCandidatesCalls);
         }
     }
 
     @Test
-    public void testDifferentEffectiveLoadSelectionUsesSeparateCache() throws Exception {
+    public void testRequiredLoadSelectionDoesNotReuseCachedBackend() throws Exception {
         Config.cloud_unique_id = "";
         Config.deploy_mode = "";
-        long tableId = 10002L;
+        long tableId = 10005L;
         GroupCommitManager manager = new GroupCommitManager();
-        CountingLoadSelectionPolicy policy = new CountingLoadSelectionPolicy();
+        RequiredLoadSelectionPolicy policy = new RequiredLoadSelectionPolicy();
         Env env = mockEnv(tableId);
         SystemInfoService systemInfoService = mockSystemInfoService();
 
@@ -120,13 +113,47 @@ public class GroupCommitManagerBackendSelectionTest {
             mockedEnv.when(Env::getCurrentSystemInfo).thenReturn(systemInfoService);
             mockedFactory.when(BackendSelectionPolicyFactory::get).thenReturn(policy);
 
-            long firstBackendId = manager.selectBackendForGroupCommitInternal(tableId, "", policy.decision);
-            long secondBackendId = manager.selectBackendForGroupCommitInternal(tableId, "", policy.otherDecision);
-
-            Assert.assertEquals(1L, firstBackendId);
-            Assert.assertEquals(1L, secondBackendId);
-            Assert.assertEquals(2, policy.orderLoadCandidatesCalls);
+            Assert.assertEquals(1L, manager.selectBackendForGroupCommitInternal(tableId, "", policy.decision));
+            Assert.assertEquals(1L, manager.selectBackendForGroupCommitInternal(tableId, "", policy.decision));
+            Assert.assertEquals(2, policy.partitionCalls);
         }
+    }
+
+    @Test
+    public void testNullSelectionHintDoesNotReachPolicyPreferencePredicate() throws Exception {
+        Config.cloud_unique_id = "";
+        Config.deploy_mode = "";
+        long tableId = 10004L;
+        GroupCommitManager manager = new GroupCommitManager();
+        NullRejectingLoadSelectionPolicy policy = new NullRejectingLoadSelectionPolicy();
+        Env env = mockEnv(tableId);
+        SystemInfoService systemInfoService = mockSystemInfoService();
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class);
+                MockedStatic<BackendSelectionPolicyFactory> mockedFactory =
+                        Mockito.mockStatic(BackendSelectionPolicyFactory.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            mockedEnv.when(Env::getCurrentSystemInfo).thenReturn(systemInfoService);
+            mockedFactory.when(BackendSelectionPolicyFactory::get).thenReturn(policy);
+
+            Assert.assertEquals(1L, manager.selectBackendForGroupCommitInternal(tableId, "", null));
+        }
+    }
+
+    @Test
+    public void testPreferenceKeyedBackendCacheStaysBounded() throws Exception {
+        GroupCommitManager manager = new GroupCommitManager();
+        Field field = GroupCommitManager.class.getDeclaredField("tableToBeMap");
+        field.setAccessible(true);
+        @SuppressWarnings("unchecked")
+        Cache<String, Long> cache = (Cache<String, Long>) field.get(manager);
+
+        for (int i = 0; i < 20000; i++) {
+            cache.put("10001#key_" + i + "#PREFER", 1L);
+        }
+        cache.cleanUp();
+
+        Assert.assertTrue("cache must stay bounded, size=" + cache.size(), cache.size() <= 10000);
     }
 
     @Test
@@ -176,23 +203,6 @@ public class GroupCommitManagerBackendSelectionTest {
         }
     }
 
-    private static final class EnabledLoadSelectionPolicy implements BackendSelectionPolicy {
-        private final BackendSelection.SelectionHint decision =
-                new BackendSelection.SelectionHint("key_a", BackendSelection.Mode.PREFER, "test");
-        private int getLoadSelectionHintCalls;
-
-        @Override
-        public boolean isLoadSelectionEnabled(ConnectContext context) {
-            return true;
-        }
-
-        @Override
-        public BackendSelection.SelectionHint getLoadSelectionHint(ConnectContext context) {
-            getLoadSelectionHintCalls++;
-            return decision;
-        }
-    }
-
     private static final class CountingLoadSelectionPolicy implements BackendSelectionPolicy {
         private final BackendSelection.SelectionHint decision =
                 new BackendSelection.SelectionHint("key_a", BackendSelection.Mode.PREFER, "test");
@@ -210,6 +220,26 @@ public class GroupCommitManagerBackendSelectionTest {
                 List<Backend> candidates) {
             orderLoadCandidatesCalls++;
             return candidates;
+        }
+    }
+
+    private static final class NullRejectingLoadSelectionPolicy implements BackendSelectionPolicy {
+        @Override
+        public boolean hasLoadSelectionPreference(BackendSelection.SelectionHint decision) {
+            throw new AssertionError("null selection hints must be handled by BackendSelectionService");
+        }
+    }
+
+    private static final class RequiredLoadSelectionPolicy implements BackendSelectionPolicy {
+        private final BackendSelection.SelectionHint decision =
+                new BackendSelection.SelectionHint("key_a", BackendSelection.Mode.REQUIRE, "test");
+        private int partitionCalls;
+
+        @Override
+        public BackendSelection.CandidateSelection<Backend> partitionRequiredLoadCandidates(
+                BackendSelection.SelectionHint decision, List<Backend> candidates) {
+            partitionCalls++;
+            return new BackendSelection.CandidateSelection<>(candidates, java.util.Collections.emptyList());
         }
     }
 

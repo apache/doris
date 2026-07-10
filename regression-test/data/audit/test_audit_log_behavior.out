@@ -42,5 +42,6 @@ is_nereids	tinyint	Yes	false	\N	NONE
 is_internal	tinyint	Yes	false	\N	NONE
 workload_group	text	Yes	false	\N	NONE
 compute_group	text	Yes	false	\N	NONE
+backend_selection_preferred_key	text	Yes	false	\N	NONE
+backend_selection_mode	text	Yes	false	\N	NONE
 stmt	text	Yes	false	\N	NONE
-

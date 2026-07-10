@@ -53,6 +53,7 @@ import org.apache.doris.load.FailMsg;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.resource.BackendSelectionService;
 import org.apache.doris.resource.computegroup.ComputeGroup;
 import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FrontendOptions;
@@ -254,6 +255,7 @@ public class BrokerLoadJob extends BulkLoadJob {
         }
 
         context.setComputeGroup(computeGroup);
+        BackendSelectionService.restoreLoadSelection(context, getLoadBackendSelectionHint());
     }
 
     protected LoadLoadingTask createTask(Database db, OlapTable table, List<BrokerFileGroup> brokerFileGroups,

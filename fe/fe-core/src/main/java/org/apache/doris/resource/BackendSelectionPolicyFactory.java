@@ -24,7 +24,7 @@ import java.util.Iterator;
 import java.util.ServiceLoader;
 
 /**
- * Discovers a {@link BackendSelectionPolicy} via {@link ServiceLoader}. If no custom
+ * Discovers a {@link BackendSelectionPolicy} via {@link ServiceLoader}. If no registered
  * provider is on the classpath, falls back to the interface's no-op defaults.
  */
 public class BackendSelectionPolicyFactory {

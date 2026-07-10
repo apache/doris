@@ -250,6 +250,7 @@ public class ConnectContext {
     private String workloadGroupName = "";
     private boolean isGroupCommit;
     private BackendSelection.SelectionHint queryBackendSelectionDecision;
+    private BackendSelection.SelectionHint loadBackendSelectionDecision;
 
     private TResultSinkType resultSinkType = TResultSinkType.MYSQL_PROTOCOL;
 
@@ -773,6 +774,7 @@ public class ConnectContext {
         startTime = System.currentTimeMillis();
         returnRows = 0;
         queryBackendSelectionDecision = null;
+        loadBackendSelectionDecision = null;
     }
 
     public BackendSelection.SelectionHint getQueryBackendSelectionDecision() {
@@ -788,6 +790,21 @@ public class ConnectContext {
         return queryBackendSelectionDecision == null
                 ? BackendSelection.SelectionHint.noSelection()
                 : queryBackendSelectionDecision;
+    }
+
+    // Load hints are resolved at several scheduling sites (sink, coordinator, group commit);
+    // each records the statement-level hint here so the audit reflects the load decision
+    // instead of the scan-side query decision.
+    public void recordLoadBackendSelectionDecision(BackendSelection.SelectionHint hint) {
+        loadBackendSelectionDecision = hint;
+    }
+
+    public BackendSelection.SelectionHint getLoadBackendSelectionDecision() {
+        return loadBackendSelectionDecision;
+    }
+
+    public BackendSelection.SelectionHint getLoadBackendSelectionDecisionForAudit() {
+        return loadBackendSelectionDecision;
     }
 
     public void updateReturnRows(int returnRows) {

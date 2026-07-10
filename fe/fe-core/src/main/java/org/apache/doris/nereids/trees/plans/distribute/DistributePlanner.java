@@ -74,13 +74,16 @@ public class DistributePlanner {
     private final FragmentIdMapping<PlanFragment> idToFragments;
     private final boolean notNeedBackend;
     private final boolean isLoadJob;
+    private final boolean useLoadBackendSelection;
 
     public DistributePlanner(StatementContext statementContext,
-            List<PlanFragment> fragments, boolean notNeedBackend, boolean isLoadJob) {
+            List<PlanFragment> fragments, boolean notNeedBackend, boolean isLoadJob,
+            boolean useLoadBackendSelection) {
         this.statementContext = Objects.requireNonNull(statementContext, "statementContext can not be null");
         this.idToFragments = FragmentIdMapping.buildFragmentMapping(fragments);
         this.notNeedBackend = notNeedBackend;
         this.isLoadJob = isLoadJob;
+        this.useLoadBackendSelection = useLoadBackendSelection;
     }
 
     /** plan */
@@ -90,7 +93,8 @@ public class DistributePlanner {
             BackendDistributedPlanWorkerManager workerManager = new BackendDistributedPlanWorkerManager(
                             statementContext.getConnectContext(), notNeedBackend, isLoadJob);
             addExternalBackends(workerManager);
-            LoadBalanceScanWorkerSelector workerSelector = new LoadBalanceScanWorkerSelector(workerManager);
+            LoadBalanceScanWorkerSelector workerSelector = new LoadBalanceScanWorkerSelector(
+                    workerManager, statementContext.getConnectContext(), useLoadBackendSelection);
             FragmentIdMapping<UnassignedJob> fragmentJobs
                     = UnassignedJobBuilder.buildJobs(workerSelector, statementContext, idToFragments);
             // assign BE and dop, to instance

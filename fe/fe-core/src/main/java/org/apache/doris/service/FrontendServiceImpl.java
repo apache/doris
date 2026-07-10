@@ -1207,22 +1207,24 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     private TMasterOpResult createForwardResultWithoutJournalSync() {
         TMasterOpResult result = new TMasterOpResult();
-        // Group commit shortcuts update master memory only and must not force follower journal replay.
+        // Group commit shortcuts update master memory without producing a journal id.
         result.setPacket("".getBytes());
         return result;
     }
 
-    private TMasterOpResult handleGroupCommitLoadBeId(TGroupCommitInfo info) {
+    private TMasterOpResult handleGroupCommitLoadBeId(TGroupCommitInfo info) throws TException {
         TMasterOpResult result = createForwardResultWithoutJournalSync();
         try {
             result.setGroupCommitLoadBeId(Env.getCurrentEnv().getGroupCommitManager()
                     .selectBackendForGroupCommitInternal(info.groupCommitLoadTableId, info.cluster,
                             forwardedGroupCommitLoadSelectionHint(info)));
         } catch (LoadException | DdlException e) {
-            // Throwing TException here surfaces on the requesting FE as a transport error with a
-            // null message; carry the selection error through the result instead.
             LOG.warn("failed to select backend for forwarded group commit load, tableId={}, cluster={}",
                     info.groupCommitLoadTableId, info.cluster, e);
+            // Callers without the result-error capability interpret an unset backend id as 0.
+            if (!info.isSetSupportsSelectionErrorResult() || !info.isSupportsSelectionErrorResult()) {
+                throw new TException(e.getMessage() == null ? e.toString() : e.getMessage());
+            }
             result.setStatusCode(1);
             result.setErrMessage(e.getMessage() == null ? e.toString() : e.getMessage());
         }

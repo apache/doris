@@ -208,6 +208,13 @@ public class FederationBackendPolicy {
         return selectedBackend;
     }
 
+    /** Replace only the round-robin order; candidate membership and backend metadata remain unchanged. */
+    public void replaceBackendOrder(List<Backend> orderedBackends) {
+        backends.clear();
+        backends.addAll(orderedBackends);
+        nextBe = 0;
+    }
+
     @VisibleForTesting
     public void setEnableSplitsRedistribution(boolean enableSplitsRedistribution) {
         this.enableSplitsRedistribution = enableSplitsRedistribution;
@@ -500,4 +507,3 @@ public class FederationBackendPolicy {
         }
     }
 }
-

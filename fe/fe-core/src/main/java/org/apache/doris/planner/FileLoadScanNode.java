@@ -27,12 +27,15 @@ import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.nereids.load.NereidsFileGroupInfo;
 import org.apache.doris.nereids.load.NereidsLoadPlanInfoCollector;
 import org.apache.doris.nereids.load.NereidsParamCreateContext;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.resource.BackendSelectionService;
 import org.apache.doris.system.BeSelectionPolicy;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Map;
@@ -79,6 +82,7 @@ public class FileLoadScanNode extends FileScanNode {
                 .build();
         FederationBackendPolicy localBackendPolicy = new FederationBackendPolicy();
         localBackendPolicy.init(policy);
+        applyLoadBackendSelection(ConnectContext.get(), localBackendPolicy);
         for (int i = 0; i < contexts.size(); ++i) {
             NereidsParamCreateContext context = contexts.get(i);
             NereidsFileGroupInfo fileGroupInfo = fileGroupInfos.get(i);
@@ -99,6 +103,13 @@ public class FileLoadScanNode extends FileScanNode {
                 this.totalFileSize += fileStatus.getSize();
             }
         }
+    }
+
+    static void applyLoadBackendSelection(ConnectContext context, FederationBackendPolicy backendPolicy)
+            throws UserException {
+        backendPolicy.replaceBackendOrder(
+                BackendSelectionService.orderLoadCandidates(
+                        context, ImmutableList.copyOf(backendPolicy.getBackends())));
     }
 
     private void createScanRangeLocations(NereidsParamCreateContext context,

@@ -78,6 +78,24 @@ public class MasterOpExecutorBackendSelectionTest {
     }
 
     @Test
+    public void testGroupCommitLoadBackendRequestAlwaysSignalsErrorResultCapability() throws Exception {
+        TMasterOpResult result = new TMasterOpResult();
+        result.setGroupCommitLoadBeId(123L);
+        ConnectContext context = mockConnectContext();
+        Env env = context.getEnv();
+        Mockito.when(env.getSelfNode()).thenReturn(new HostInfo("127.0.0.1", 9010));
+        TestingMasterOpExecutor executor = new TestingMasterOpExecutor(context, result);
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+
+            executor.getGroupCommitLoadBeId(1L, "");
+
+            Assert.assertTrue(executor.capturedRequest.getGroupCommitInfo().isSupportsSelectionErrorResult());
+        }
+    }
+
+    @Test
     public void testGroupCommitUpdateLoadDataDoesNotWaitJournalReplay() throws Exception {
         TMasterOpResult result = new TMasterOpResult();
         result.setMaxJournalId(456L);
@@ -181,6 +199,7 @@ public class MasterOpExecutorBackendSelectionTest {
 
     private static final class TestingMasterOpExecutor extends MasterOpExecutor {
         private final TMasterOpResult forwardResult;
+        private TMasterOpRequest capturedRequest;
 
         private TestingMasterOpExecutor(ConnectContext context, TMasterOpResult forwardResult) {
             super(context);
@@ -189,6 +208,7 @@ public class MasterOpExecutorBackendSelectionTest {
 
         @Override
         protected TMasterOpResult forward(TMasterOpRequest params) {
+            capturedRequest = params;
             return forwardResult;
         }
     }

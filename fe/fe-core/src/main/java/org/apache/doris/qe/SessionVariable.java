@@ -42,6 +42,7 @@ import org.apache.doris.nereids.rules.rewrite.eageraggregation.EagerAggHints;
 import org.apache.doris.nereids.rules.rewrite.eageraggregation.EagerAggHints.Action;
 import org.apache.doris.planner.GroupCommitBlockSink;
 import org.apache.doris.qe.VarAttrDef.VarAttr;
+import org.apache.doris.resource.BackendSelectionPolicyFactory;
 import org.apache.doris.thrift.TGroupCommitMode;
 import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 import org.apache.doris.thrift.TQueryOptions;
@@ -1295,18 +1296,18 @@ public class SessionVariable implements Serializable, Writable {
             setter = "setBackendSelectionMode",
             options = {"prefer", "require", "default"},
             description = {
-                "Backend 选择模式，供可选扩展实现消费。默认公共实现为 no-op，不会改变副本或 Backend 选择行为。"
+                "Backend 选择模式，供可选策略消费。`require` 仅在扩展实现声明支持时可用。"
                         + "可选值：`prefer`、`require`、`default`。",
-                "Backend selection mode for optional extension implementations. The default public implementation "
-                        + "is a no-op and does not change replica or backend selection behavior. Supported values "
-                        + "are `prefer`, `require`, and `default`."
+                "Backend selection mode for optional policies. The default policy is a no-op and does not change "
+                        + "replica or backend selection behavior. `require` is available only when the extension "
+                        + "declares support. Supported values are `prefer`, `require`, and `default`."
             })
     public String backendSelectionMode = "prefer";
 
     @VarAttrDef.VarAttr(name = ENABLE_LOAD_BACKEND_SELECTION, needForward = true, description = {
-            "是否允许可选 Backend 选择扩展实现参与导入调度。默认公共实现为 no-op，不改变导入行为。",
-            "Whether optional backend selection extension implementations may participate in load scheduling. "
-                    + "The default public implementation is a no-op and does not change load behavior."
+            "是否允许可选 Backend 选择策略参与导入调度。默认策略为 no-op，不改变导入行为。",
+            "Whether optional backend selection policies may participate in load scheduling. "
+                    + "The default policy is a no-op and does not change load behavior."
     })
     public boolean enableLoadBackendSelection = false;
 
@@ -4548,6 +4549,14 @@ public class SessionVariable implements Serializable, Writable {
                     "backend_selection_mode value is invalid, the invalid value is "
                             + backendSelectionMode
                             + ", supported values are prefer, require and default");
+        }
+        if ("require".equals(normalized) && Config.isCloudMode()) {
+            throw new UnsupportedOperationException(
+                    "Required backend selection is not supported in cloud mode");
+        }
+        if ("require".equals(normalized) && !BackendSelectionPolicyFactory.get().supportsRequiredSelection()) {
+            throw new UnsupportedOperationException(
+                    "Backend selection provider does not support required backend selection");
         }
     }
 

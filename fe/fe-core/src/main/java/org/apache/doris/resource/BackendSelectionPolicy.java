@@ -18,22 +18,20 @@
 package org.apache.doris.resource;
 
 import org.apache.doris.catalog.Replica;
-import org.apache.doris.common.LoadException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.Backend;
 
-import java.util.Comparator;
 import java.util.List;
-import java.util.Set;
 import java.util.function.Function;
-import java.util.function.Predicate;
 
 /**
  * SPI for optional backend selection hints.
  * <p>
- * The public default is a pass-through no-op. Extension builds may register an implementation
- * via {@link java.util.ServiceLoader}; {@link BackendSelectionPolicyFactory} then selects it.
+ * Implementations are discovered through {@link java.util.ServiceLoader}. Default methods preserve
+ * the existing backend selection behavior. Candidate-ordering methods must not mutate their input list:
+ * implementations that change the order must return a new list, while implementations that keep the order
+ * may return the input list unchanged.
  */
 public interface BackendSelectionPolicy {
 
@@ -46,7 +44,7 @@ public interface BackendSelectionPolicy {
         FALLBACK_SLOT_FULL
     }
 
-    /** Whether repair-clone source selection is active. Open-source no-op: always {@code false}. */
+    /** Whether repair-clone source selection is active. */
     default boolean isRepairSourceSelectionEnabled() {
         return false;
     }
@@ -54,8 +52,6 @@ public interface BackendSelectionPolicy {
     /**
      * Reorder healthy clone-source candidates while preserving the caller's existing ordering inside
      * each implementation-defined tier. Implementations must not drop candidates.
-     * <p>
-     * Open-source no-op: returns {@code healthyCandidates} unchanged.
      */
     default List<Replica> orderRepairSourceCandidates(List<Replica> healthyCandidates, long destBackendId) {
         return healthyCandidates;
@@ -63,7 +59,6 @@ public interface BackendSelectionPolicy {
 
     /**
      * Classify which implementation-defined tier the finally chosen source fell into, for observability.
-     * Open-source no-op: returns {@link RepairSourceSelectionResult#DISABLED}.
      */
     default RepairSourceSelectionResult classifyRepairSource(long chosenSrcBackendId, long destBackendId,
             List<Replica> allReplicas, List<Replica> healthyCandidates) {
@@ -74,13 +69,22 @@ public interface BackendSelectionPolicy {
         return BackendSelection.SelectionHint.noSelection();
     }
 
-    default BackendSelection.SelectionHint getQuerySelectionHint(
-            ConnectContext context, Set<Tag> allowedTags, boolean needCheckTags) {
-        return BackendSelection.SelectionHint.noSelection();
-    }
-
     default boolean hasQuerySelectionPreference(BackendSelection.SelectionHint hint) {
         return false;
+    }
+
+    /** Whether this provider implements required query and load candidate partitioning. */
+    default boolean supportsRequiredSelection() {
+        return false;
+    }
+
+    /**
+     * Partition query candidates for {@link BackendSelection.Mode#REQUIRE}. The two lists must contain every
+     * input candidate exactly once using the original instances. The kernel schedules only preferred candidates.
+     */
+    default <T> BackendSelection.CandidateSelection<T> partitionRequiredQueryCandidates(
+            BackendSelection.SelectionHint hint, List<T> candidates, Function<T, Tag> beTagOf) throws UserException {
+        throw new UserException("BackendSelectionPolicy does not support required backend selection");
     }
 
     /**
@@ -93,50 +97,30 @@ public interface BackendSelectionPolicy {
         return candidates;
     }
 
-    /**
-     * Optionally reorder only candidates that are otherwise tied by the caller's load-balancing
-     * key. Implementations must preserve candidates outside the tied groups.
-     */
-    default <T> List<T> orderTiedQueryCandidates(BackendSelection.SelectionHint hint,
-            List<T> sortedCandidates, Comparator<T> tieKey, Function<T, Tag> beTagOf) throws UserException {
-        return sortedCandidates;
-    }
-
     default boolean isLoadSelectionEnabled(ConnectContext context) {
         return false;
     }
 
-    default List<Backend> orderLoadCandidates(ConnectContext context, List<Backend> candidates) throws UserException {
-        return candidates;
-    }
-
+    /**
+     * Reorder load candidates without changing the candidate set. Implementations must return every input
+     * candidate exactly once and must not add candidates.
+     */
     default List<Backend> orderLoadCandidates(BackendSelection.SelectionHint hint,
             List<Backend> candidates) throws UserException {
         return candidates;
     }
 
-    default Backend chooseFirstAvailableLoadBackend(ConnectContext context, List<Backend> candidates,
-            Predicate<Backend> available) throws UserException {
-        for (Backend backend : candidates) {
-            if (available.test(backend)) {
-                return backend;
-            }
-        }
-        return null;
+    /**
+     * Partition load candidates for {@link BackendSelection.Mode#REQUIRE}. The two lists must contain every
+     * input candidate exactly once using the original instances. The kernel schedules only preferred candidates.
+     */
+    default BackendSelection.CandidateSelection<Backend> partitionRequiredLoadCandidates(
+            BackendSelection.SelectionHint hint, List<Backend> candidates) throws UserException {
+        throw new UserException("BackendSelectionPolicy does not support required backend selection");
     }
 
     default boolean hasLoadSelectionPreference(BackendSelection.SelectionHint hint) {
         return false;
-    }
-
-    default Backend chooseLoadBackend(ConnectContext context, List<Backend> candidates)
-            throws LoadException {
-        for (Backend backend : candidates) {
-            if (backend.isLoadAvailable()) {
-                return backend;
-            }
-        }
-        return null;
     }
 
     default BackendSelection.SelectionHint getLoadSelectionHint(ConnectContext context) {

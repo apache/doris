@@ -139,6 +139,12 @@ public class DorisFE {
         }
 
         try {
+            CommandLine commandLine = parseArgs(args);
+            if (commandLine.hasOption('v') || commandLine.hasOption("version")) {
+                printVersion();
+                return;
+            }
+
             // init config
             Config config = new Config();
             config.init(dorisHomeDir + "/conf/fe.conf");
@@ -146,7 +152,8 @@ public class DorisFE {
             // Because the path of custom config file is defined in fe.conf
             config.initCustom(Config.custom_config_dir + "/fe_custom.conf");
 
-            CommandLineOptions cmdLineOpts = parseArgs(args);
+            applyCommandLineOverrides(commandLine);
+            CommandLineOptions cmdLineOpts = buildCommandLineOptions(commandLine);
 
             LdapConfig ldapConfig = new LdapConfig();
             if (new File(dorisHomeDir + "/conf/ldap.conf").exists()) {
@@ -363,7 +370,7 @@ public class DorisFE {
      *              Specify the meta version to decode log value
      *
      */
-    private static CommandLineOptions parseArgs(String[] args) {
+    private static CommandLine parseArgs(String[] args) {
         CommandLineParser commandLineParser = new DefaultParser();
         Options options = new Options();
         options.addOption("v", "version", false, "Print the version of Doris Frontend");
@@ -396,11 +403,13 @@ public class DorisFE {
             System.exit(-1);
         }
 
-        String localResourceGroup = resolveLocalResourceGroup(cmd);
+        return cmd;
+    }
 
+    private static CommandLineOptions buildCommandLineOptions(CommandLine cmd) {
         // version
         if (cmd.hasOption('v') || cmd.hasOption("version")) {
-            return new CommandLineOptions(true, "", null, "", null, localResourceGroup);
+            return new CommandLineOptions(true, "", null, "");
         }
         // helper
         if (cmd.hasOption('h') || cmd.hasOption("helper")) {
@@ -409,7 +418,7 @@ public class DorisFE {
                 System.err.println("Missing helper node");
                 System.exit(-1);
             }
-            return new CommandLineOptions(false, helperNode, null, "", null, localResourceGroup);
+            return new CommandLineOptions(false, helperNode, null, "");
         }
         // image
         if (cmd.hasOption('i') || cmd.hasOption("image")) {
@@ -419,27 +428,13 @@ public class DorisFE {
                 System.err.println("imagePath is not set");
                 System.exit(-1);
             }
-            return new CommandLineOptions(false, "", null, imagePath, null, localResourceGroup);
-        }
-        if (cmd.hasOption('r') || cmd.hasOption(FeConstants.METADATA_FAILURE_RECOVERY_KEY)) {
-            System.setProperty(FeConstants.METADATA_FAILURE_RECOVERY_KEY, "true");
-        }
-        if (cmd.hasOption(FeConstants.RECOVERY_JOURNAL_ID_KEY)) {
-            String recoveryJournalId = cmd.getOptionValue(FeConstants.RECOVERY_JOURNAL_ID_KEY);
-            if (Strings.isNullOrEmpty(recoveryJournalId)) {
-                System.err.println("recovery_journal_id is missing");
-                System.exit(-1);
-            }
-            System.setProperty(FeConstants.RECOVERY_JOURNAL_ID_KEY, recoveryJournalId.trim());
-        }
-        if (cmd.hasOption(FeConstants.DROP_BACKENDS_KEY)) {
-            System.setProperty(FeConstants.DROP_BACKENDS_KEY, "true");
+            return new CommandLineOptions(false, "", null, imagePath);
         }
         if (cmd.hasOption('b') || cmd.hasOption("bdb")) {
             if (cmd.hasOption('l') || cmd.hasOption("listdb")) {
                 // list bdb je databases
                 BDBToolOptions bdbOpts = new BDBToolOptions(true, "", false, "", "", 0);
-                return new CommandLineOptions(false, "", bdbOpts, "", null, localResourceGroup);
+                return new CommandLineOptions(false, "", bdbOpts, "");
             }
             if (cmd.hasOption('d') || cmd.hasOption("db")) {
                 // specify a database
@@ -450,7 +445,7 @@ public class DorisFE {
                 }
                 if (cmd.hasOption('s') || cmd.hasOption("stat")) {
                     BDBToolOptions bdbOpts = new BDBToolOptions(false, dbName, true, "", "", 0);
-                    return new CommandLineOptions(false, "", bdbOpts, "", null, localResourceGroup);
+                    return new CommandLineOptions(false, "", bdbOpts, "");
                 }
                 String fromKey = "";
                 String endKey = "";
@@ -479,7 +474,7 @@ public class DorisFE {
                 }
 
                 BDBToolOptions bdbOpts = new BDBToolOptions(false, dbName, false, fromKey, endKey, metaVersion);
-                return new CommandLineOptions(false, "", bdbOpts, "", null, localResourceGroup);
+                return new CommandLineOptions(false, "", bdbOpts, "");
 
             } else {
                 System.err.println("Invalid options when running bdb je tools");
@@ -493,14 +488,29 @@ public class DorisFE {
                 System.err.println("Missing cluster_snapshot file");
                 System.exit(-1);
             }
-            return new CommandLineOptions(false, null, null, "", clusterSnapshotFile.trim(), localResourceGroup);
+            return new CommandLineOptions(false, null, null, "", clusterSnapshotFile.trim());
         }
 
         // helper node is null, means no helper node is specified
-        return new CommandLineOptions(false, null, null, "", null, localResourceGroup);
+        return new CommandLineOptions(false, null, null, "");
     }
 
-    private static String resolveLocalResourceGroup(CommandLine cmd) {
+    private static void applyCommandLineOverrides(CommandLine cmd) {
+        if (cmd.hasOption('r') || cmd.hasOption(FeConstants.METADATA_FAILURE_RECOVERY_KEY)) {
+            System.setProperty(FeConstants.METADATA_FAILURE_RECOVERY_KEY, "true");
+        }
+        if (cmd.hasOption(FeConstants.RECOVERY_JOURNAL_ID_KEY)) {
+            String recoveryJournalId = cmd.getOptionValue(FeConstants.RECOVERY_JOURNAL_ID_KEY);
+            if (Strings.isNullOrEmpty(recoveryJournalId)) {
+                System.err.println("recovery_journal_id is missing");
+                System.exit(-1);
+            }
+            System.setProperty(FeConstants.RECOVERY_JOURNAL_ID_KEY, recoveryJournalId.trim());
+        }
+        if (cmd.hasOption(FeConstants.DROP_BACKENDS_KEY)) {
+            System.setProperty(FeConstants.DROP_BACKENDS_KEY, "true");
+        }
+
         String localResourceGroup = Strings.nullToEmpty(Config.local_resource_group);
         String source = localResourceGroup.isEmpty() ? "DEFAULT" : "FE_CONF";
         if (System.getenv().containsKey(LOCAL_RESOURCE_GROUP_ENV)) {
@@ -524,7 +534,6 @@ public class DorisFE {
                 System.exit(-1);
             }
         }
-        return localResourceGroup;
     }
 
     private static void printVersion() {

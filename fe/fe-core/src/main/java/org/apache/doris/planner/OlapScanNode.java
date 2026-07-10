@@ -77,8 +77,7 @@ import org.apache.doris.planner.normalize.Normalizer;
 import org.apache.doris.planner.normalize.PartitionRangePredicateNormalizer;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.BackendSelection;
-import org.apache.doris.resource.BackendSelectionPolicy;
-import org.apache.doris.resource.BackendSelectionPolicyFactory;
+import org.apache.doris.resource.BackendSelectionService;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.resource.computegroup.ComputeGroup;
 import org.apache.doris.system.Backend;
@@ -523,6 +522,13 @@ public class OlapScanNode extends ScanNode {
         boolean isInvalidComputeGroup = ComputeGroup.INVALID_COMPUTE_GROUP.equals(computeGroup);
         boolean isNotCloudComputeGroup = computeGroup != null && !Config.isCloudMode();
 
+        if (context != null && !Config.isCloudMode() && (skipMissingVersion || useFixReplica >= 0)) {
+            if (selectionHint == null) {
+                selectionHint = context.getQueryBackendSelectionDecision();
+            }
+            validateRequiredQuerySelection(skipMissingVersion, useFixReplica, selectionHint);
+        }
+
         ImmutableMap<Long, Backend> allBackends = olapTable.getAllBackendsByAllCluster();
         long partitionVisibleVersion = visibleVersion;
         String partitionVisibleVersionStr = fastToString(visibleVersion);
@@ -610,10 +616,10 @@ public class OlapScanNode extends ScanNode {
                     if (selectionHint == null) {
                         selectionHint = context.getQueryBackendSelectionDecision();
                     }
-                    BackendSelectionPolicy selectionPolicy = BackendSelectionPolicyFactory.get();
-                    if (selectionPolicy.hasQuerySelectionPreference(selectionHint)) {
-                        replicas = new ArrayList<>(selectionPolicy.orderQueryCandidates(selectionHint, replicas,
-                                replica -> getReplicaLocationTag(replica, allBackends)));
+                    List<Replica> orderedReplicas = BackendSelectionService.orderQueryCandidates(
+                            selectionHint, replicas, replica -> getReplicaLocationTag(replica, allBackends));
+                    if (orderedReplicas != replicas) {
+                        replicas = new ArrayList<>(orderedReplicas);
                         scanBackendOrderBySelection = true;
                     }
                 }
@@ -1085,13 +1091,28 @@ public class OlapScanNode extends ScanNode {
     @VisibleForTesting
     static boolean shouldFilterReplicaByResourceTag(boolean isInvalidComputeGroup, boolean isNotCloudComputeGroup,
             ComputeGroup computeGroup, String beTagName) {
-        return Config.resource_tag_location_check
-                && (isInvalidComputeGroup || (isNotCloudComputeGroup && !computeGroup.containsBackend(beTagName)));
+        return isInvalidComputeGroup
+                || (Config.resource_tag_location_check
+                        && isNotCloudComputeGroup && !computeGroup.containsBackend(beTagName));
     }
 
     @VisibleForTesting
     static boolean shouldApplyQuerySelection(boolean skipMissingVersion) {
         return !Config.isCloudMode() && !skipMissingVersion;
+    }
+
+    @VisibleForTesting
+    static void validateRequiredQuerySelection(boolean skipMissingVersion, int useFixReplica,
+            BackendSelection.SelectionHint hint) throws UserException {
+        if (!BackendSelectionService.isRequiredSelection(hint)) {
+            return;
+        }
+        if (skipMissingVersion) {
+            throw new UserException("Required backend selection is incompatible with skip_missing_version");
+        }
+        if (useFixReplica >= 0) {
+            throw new UserException("Required backend selection is incompatible with use_fix_replica");
+        }
     }
 
     @Override

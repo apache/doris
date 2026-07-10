@@ -18,6 +18,8 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.common.Config;
+import org.apache.doris.common.UserException;
+import org.apache.doris.resource.BackendSelection;
 import org.apache.doris.resource.computegroup.ComputeGroup;
 
 import org.junit.jupiter.api.Assertions;
@@ -29,11 +31,12 @@ class OlapScanNodeBackendSelectionConfigTest {
         boolean oldConfig = Config.resource_tag_location_check;
         try {
             Config.resource_tag_location_check = false;
-            Assertions.assertFalse(OlapScanNode.shouldFilterReplicaByResourceTag(
+            Assertions.assertTrue(OlapScanNode.shouldFilterReplicaByResourceTag(
                     true, true, ComputeGroup.INVALID_COMPUTE_GROUP, "rg_a"));
+            ComputeGroup computeGroup = new ComputeGroup("rg_a", "rg_a", null);
+            Assertions.assertFalse(OlapScanNode.shouldFilterReplicaByResourceTag(false, true, computeGroup, "rg_b"));
 
             Config.resource_tag_location_check = true;
-            ComputeGroup computeGroup = new ComputeGroup("rg_a", "rg_a", null);
             Assertions.assertTrue(OlapScanNode.shouldFilterReplicaByResourceTag(
                     true, false, ComputeGroup.INVALID_COMPUTE_GROUP, "rg_a"));
             Assertions.assertTrue(OlapScanNode.shouldFilterReplicaByResourceTag(false, true, computeGroup, "rg_b"));
@@ -41,28 +44,6 @@ class OlapScanNodeBackendSelectionConfigTest {
         } finally {
             Config.resource_tag_location_check = oldConfig;
         }
-    }
-
-    @Test
-    void testInvalidComputeGroupDoesNotCheckBackendMembership() {
-        boolean oldConfig = Config.resource_tag_location_check;
-        try {
-            Config.resource_tag_location_check = true;
-            Assertions.assertDoesNotThrow(() -> Assertions.assertTrue(
-                    OlapScanNode.shouldFilterReplicaByResourceTag(
-                            true, true, ComputeGroup.INVALID_COMPUTE_GROUP, "rg_a")));
-        } finally {
-            Config.resource_tag_location_check = oldConfig;
-        }
-    }
-
-    @Test
-    void testBackendComputeGroupMembership() {
-        ComputeGroup computeGroup = new ComputeGroup("rg_a", "rg_a", null);
-
-        Assertions.assertFalse(OlapScanNode.shouldFilterReplicaByResourceTag(false, true, computeGroup, "rg_a"));
-        Assertions.assertTrue(OlapScanNode.shouldFilterReplicaByResourceTag(false, true, computeGroup, "rg_b"));
-        Assertions.assertFalse(OlapScanNode.shouldFilterReplicaByResourceTag(false, false, computeGroup, "rg_a"));
     }
 
     @Test
@@ -83,5 +64,18 @@ class OlapScanNodeBackendSelectionConfigTest {
             Config.cloud_unique_id = oldCloudUniqueId;
             Config.deploy_mode = oldDeployMode;
         }
+    }
+
+    @Test
+    void testRequiredQuerySelectionRejectsBypassModes() {
+        BackendSelection.SelectionHint hint = new BackendSelection.SelectionHint(
+                "key_a", BackendSelection.Mode.REQUIRE, "test");
+
+        Assertions.assertThrows(UserException.class,
+                () -> OlapScanNode.validateRequiredQuerySelection(true, -1, hint));
+        Assertions.assertThrows(UserException.class,
+                () -> OlapScanNode.validateRequiredQuerySelection(false, 0, hint));
+        Assertions.assertDoesNotThrow(
+                () -> OlapScanNode.validateRequiredQuerySelection(false, -1, hint));
     }
 }

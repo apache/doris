@@ -46,6 +46,8 @@ import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.resource.BackendSelection;
+import org.apache.doris.resource.BackendSelectionService;
 import org.apache.doris.transaction.TabletCommitInfo;
 import org.apache.doris.transaction.TransactionState;
 
@@ -90,6 +92,9 @@ public abstract class BulkLoadJob extends LoadJob implements GsonPostProcessable
     // we persist these sessionVariables due to the session is not available when replaying the job.
     @SerializedName(value = "svs")
     protected Map<String, String> sessionVariables = Maps.newHashMap();
+
+    @SerializedName(value = "lbsc")
+    private BackendSelection.SelectionHint loadBackendSelectionHint;
 
     public BulkLoadJob(EtlJobType jobType) {
         super(jobType);
@@ -138,6 +143,7 @@ public abstract class BulkLoadJob extends LoadJob implements GsonPostProcessable
             }
             bulkLoadJob.setComment(command.getComment());
             bulkLoadJob.setJobProperties(command.getProperties());
+            bulkLoadJob.setLoadBackendSelectionHint(BackendSelectionService.captureLoadSelection(ctx));
             bulkLoadJob.checkAndSetDataSourceInfoByNereids(db, command.getDataDescriptions(), ctx);
             // In the construction method, there may not be table information yet
             bulkLoadJob.rebuildAuthorizationInfo();
@@ -145,6 +151,14 @@ public abstract class BulkLoadJob extends LoadJob implements GsonPostProcessable
         } catch (MetaNotFoundException e) {
             throw new DdlException(e.getMessage());
         }
+    }
+
+    public void setLoadBackendSelectionHint(BackendSelection.SelectionHint hint) {
+        loadBackendSelectionHint = hint;
+    }
+
+    public BackendSelection.SelectionHint getLoadBackendSelectionHint() {
+        return loadBackendSelectionHint;
     }
 
     public void checkAndSetDataSourceInfoByNereids(Database db, List<NereidsDataDescription> dataDescriptions,

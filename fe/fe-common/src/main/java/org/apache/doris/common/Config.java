@@ -142,10 +142,11 @@ public class Config extends ConfigBase {
                     + "`DORIS_LOCAL_RESOURCE_GROUP` environment variable. An empty string means unset."})
     public static String local_resource_group = "";
 
-    @ConfField(mutable = false, description = {"是否启用基于 location resource tag 的权限检查。关闭后，不再根据"
-            + "用户的 location resource tag 过滤可访问的副本。",
-            "Whether to enable permission checks based on location resource tags. If disabled, "
-                    + "accessible replicas will no longer be filtered by the user's location resource tags."})
+    @ConfField(mutable = false, description = {"是否启用基于 location resource tag 的副本过滤。关闭后，仍会拒绝无效"
+            + " compute group，但不再根据用户的 location resource tag 过滤可访问的副本。",
+            "Whether to enable replica filtering based on location resource tags. If disabled, invalid compute "
+                    + "groups are still rejected, but replicas are no longer filtered by the user's location "
+                    + "resource tag."})
     public static boolean resource_tag_location_check = true;
 
     @ConfField(mutable = true, masterOnly = false,
@@ -1015,10 +1016,10 @@ public class Config extends ConfigBase {
     public static long tablet_schedule_high_priority_second = 30 * 60;
 
     @ConfField(mutable = true, masterOnly = true,
-            description = {"是否允许可选 Backend 选择扩展实现参与副本修复 clone 选源。"
-                    + "默认公共实现为 no-op，不改变修复行为。",
-                    "Whether optional backend selection extension implementations may participate in repair clone "
-                    + "source selection. The default public implementation is a no-op and does not change repair "
+            description = {"是否允许可选 Backend 选择策略参与副本修复 clone 选源。"
+                    + "默认策略为 no-op，不改变修复行为。",
+                    "Whether optional backend selection policies may participate in repair clone source selection. "
+                    + "The default policy is a no-op and does not change repair "
                     + "behavior."})
     public static boolean enable_repair_source_backend_selection = true;
 

@@ -38,7 +38,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.planner.GroupCommitPlanner;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
-import org.apache.doris.resource.BackendSelectionPolicyFactory;
+import org.apache.doris.resource.BackendSelectionService;
 import org.apache.doris.resource.computegroup.ComputeGroup;
 import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.system.Backend;
@@ -79,7 +79,7 @@ public class LoadAction extends RestBaseController {
     public static final String HEADER_REDIRECT_POLICY = "redirect-policy";
 
     public static final String REDIRECT_POLICY_PUBLIC_PRIVATE = "public-private";
-    public static final String REDIRECT_POLICY_RANDOM_BE = "default-be";
+    public static final String REDIRECT_POLICY_RANDOM_BE = "random-be";
     public static final String REDIRECT_POLICY_DIRECT = "direct";
     public static final String REDIRECT_POLICY_PUBLIC = "public";
     public static final String REDIRECT_POLICY_PRIVATE = "private";
@@ -453,8 +453,7 @@ public class LoadAction extends RestBaseController {
                 candidates.add(candidate);
             }
         }
-        return BackendSelectionPolicyFactory.get()
-                .chooseLoadBackend(context, candidates);
+        return BackendSelectionService.chooseLoadBackend(context, candidates);
     }
 
     private TNetworkAddress selectCloudRedirectBackend(String clusterName, HttpServletRequest req, boolean groupCommit,
@@ -798,7 +797,10 @@ public class LoadAction extends RestBaseController {
         if (source == null) {
             return;
         }
-        target.setCurrentUserIdentity(source.getCurrentUserIdentity());
+        UserIdentity sourceIdentity = source.getCurrentUserIdentity();
+        if (sourceIdentity != null) {
+            target.setCurrentUserIdentity(sourceIdentity);
+        }
         target.getSessionVariable().enableLoadBackendSelection =
                 source.getSessionVariable().isEnableLoadBackendSelection();
         target.getSessionVariable().preferredBackendSelectionKey =
@@ -861,7 +863,7 @@ public class LoadAction extends RestBaseController {
      * Problem:
      * Group commit requires that requests for the same table be sent to the same BE node
      * to achieve better batching efficiency. However, in cloud mode with Load Balancer (LB),
-     * the LB defaultly selects a BE node for forwarding, which breaks the group commit strategy
+     * the LB selects a BE node by default for forwarding, which breaks the group commit strategy
      * and reduces batching effectiveness.
      *
      * Solution:

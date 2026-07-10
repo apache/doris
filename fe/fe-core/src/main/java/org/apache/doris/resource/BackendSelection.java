@@ -17,6 +17,10 @@
 
 package org.apache.doris.resource;
 
+import com.google.gson.annotations.SerializedName;
+
+import java.util.List;
+
 public final class BackendSelection {
     public enum Mode {
         PREFER,
@@ -24,9 +28,31 @@ public final class BackendSelection {
         DEFAULT
     }
 
+    /** Provider partition used by the kernel to enforce required backend selection. */
+    public static final class CandidateSelection<T> {
+        private final List<T> preferredCandidates;
+        private final List<T> fallbackCandidates;
+
+        public CandidateSelection(List<T> preferredCandidates, List<T> fallbackCandidates) {
+            this.preferredCandidates = preferredCandidates;
+            this.fallbackCandidates = fallbackCandidates;
+        }
+
+        public List<T> getPreferredCandidates() {
+            return preferredCandidates;
+        }
+
+        public List<T> getFallbackCandidates() {
+            return fallbackCandidates;
+        }
+    }
+
     public static final class SelectionHint {
+        @SerializedName("k")
         private final String preferredKey;
+        @SerializedName("m")
         private final Mode mode;
+        @SerializedName("r")
         private final String reason;
 
         public SelectionHint(String preferredKey, Mode mode, String reason) {
@@ -40,15 +66,15 @@ public final class BackendSelection {
         }
 
         public String getPreferredKey() {
-            return preferredKey;
+            return preferredKey == null ? "" : preferredKey;
         }
 
         public Mode getMode() {
-            return mode;
+            return mode == null ? Mode.DEFAULT : mode;
         }
 
         public String getReason() {
-            return reason;
+            return reason == null ? "" : reason;
         }
     }
 

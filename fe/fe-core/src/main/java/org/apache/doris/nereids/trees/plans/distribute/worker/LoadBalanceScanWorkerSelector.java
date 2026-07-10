@@ -17,7 +17,9 @@
 
 package org.apache.doris.nereids.trees.plans.distribute.worker;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.plans.distribute.worker.job.BucketScanSource;
 import org.apache.doris.nereids.trees.plans.distribute.worker.job.DefaultScanSource;
@@ -30,6 +32,8 @@ import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.resource.BackendSelectionService;
+import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TExternalScanRange;
 import org.apache.doris.thrift.TFileRangeDesc;
@@ -56,10 +60,15 @@ import java.util.function.BiFunction;
 /** LoadBalanceScanWorkerSelector */
 public class LoadBalanceScanWorkerSelector implements ScanWorkerSelector {
     private final DistributedPlanWorkerManager workerManager;
+    private final ConnectContext context;
+    private final boolean useLoadBackendSelection;
     private final Map<DistributedPlanWorker, WorkerWorkload> workloads = Maps.newLinkedHashMap();
 
-    public LoadBalanceScanWorkerSelector(DistributedPlanWorkerManager workerManager) {
+    public LoadBalanceScanWorkerSelector(DistributedPlanWorkerManager workerManager,
+            ConnectContext context, boolean useLoadBackendSelection) {
         this.workerManager = workerManager;
+        this.context = context;
+        this.useLoadBackendSelection = useLoadBackendSelection;
     }
 
     @Override
@@ -258,6 +267,7 @@ public class LoadBalanceScanWorkerSelector implements ScanWorkerSelector {
             replicaLocations = Lists.newArrayList(replicaLocations);
             Collections.sort(replicaLocations);
         }
+        replicaLocations = orderLoadReplicas(replicaLocations, catalogId);
 
         int replicaNum = replicaLocations.size();
         WorkerWorkload minWorkload = new WorkerWorkload(Integer.MAX_VALUE, Long.MAX_VALUE);
@@ -288,6 +298,30 @@ public class LoadBalanceScanWorkerSelector implements ScanWorkerSelector {
             scanRanges.addScanRange(scanReplicaParams, tabletBytes);
             return new WorkerScanRanges(minWorkLoadWorker, scanRanges);
         }
+    }
+
+    List<TScanRangeLocation> orderLoadReplicas(List<TScanRangeLocation> locations, long catalogId) {
+        if (!useLoadBackendSelection || Config.isCloudMode()
+                || !BackendSelectionService.hasLoadSelectionPreference(context)) {
+            return locations;
+        }
+        Map<Long, TScanRangeLocation> locationByBackendId = Maps.newHashMap();
+        List<Backend> candidates = Lists.newArrayList();
+        for (TScanRangeLocation location : locations) {
+            BackendWorker worker = (BackendWorker) workerManager.getWorker(catalogId, location.getBackendId());
+            Backend backend = worker.getBackend();
+            candidates.add(backend);
+            locationByBackendId.put(backend.getId(), location);
+        }
+        List<TScanRangeLocation> orderedLocations = Lists.newArrayList();
+        try {
+            for (Backend backend : BackendSelectionService.orderLoadCandidates(context, candidates)) {
+                orderedLocations.add(locationByBackendId.get(backend.getId()));
+            }
+        } catch (UserException e) {
+            throw new AnalysisException(e.getMessage(), e);
+        }
+        return orderedLocations;
     }
 
     private List<Pair<TScanRangeParams, Long>> filterReplicaByWorkerInBucket(

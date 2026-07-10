@@ -22,8 +22,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.resource.BackendSelection;
-import org.apache.doris.resource.BackendSelectionPolicy;
-import org.apache.doris.resource.BackendSelectionPolicyFactory;
+import org.apache.doris.resource.BackendSelectionService;
 import org.apache.doris.thrift.TGroupCommitInfo;
 import org.apache.doris.thrift.TMasterOpRequest;
 import org.apache.doris.thrift.TMasterOpResult;
@@ -86,8 +85,6 @@ public class MasterOpExecutor extends FEOpExecutor {
             throw new LoadException(getForwardResultErrorMessage(result));
         }
         if (result.isSetErrMessage()) {
-            // the master carries selection failures in the result;
-            // a thrift-level exception would lose the message on the wire
             throw new LoadException(result.getErrMessage());
         }
         return result.groupCommitLoadBeId;
@@ -122,16 +119,13 @@ public class MasterOpExecutor extends FEOpExecutor {
         groupCommitParams.setGetGroupCommitLoadBeId(true);
         groupCommitParams.setGroupCommitLoadTableId(tableId);
         groupCommitParams.setCluster(cluster);
+        groupCommitParams.setSupportsSelectionErrorResult(true);
         setGroupCommitLoadSelectionHint(groupCommitParams, ctx);
         return getMasterOpRequestForGroupCommit(groupCommitParams);
     }
 
     static void setGroupCommitLoadSelectionHint(TGroupCommitInfo groupCommitParams, ConnectContext context) {
-        BackendSelectionPolicy policy = BackendSelectionPolicyFactory.get();
-        if (!policy.isLoadSelectionEnabled(context)) {
-            return;
-        }
-        BackendSelection.SelectionHint decision = policy.getLoadSelectionHint(context);
+        BackendSelection.SelectionHint decision = BackendSelectionService.resolveLoadSelectionHint(context);
         if (decision == null) {
             return;
         }

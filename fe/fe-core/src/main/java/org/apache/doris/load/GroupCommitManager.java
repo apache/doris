@@ -36,14 +36,15 @@ import org.apache.doris.proto.InternalService.PGetWalQueueSizeResponse;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.MasterOpExecutor;
 import org.apache.doris.resource.BackendSelection;
-import org.apache.doris.resource.BackendSelectionPolicy;
-import org.apache.doris.resource.BackendSelectionPolicyFactory;
+import org.apache.doris.resource.BackendSelectionService;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TStatusCode;
 
 import com.google.common.base.Strings;
+import com.google.common.cache.Cache;
+import com.google.common.cache.CacheBuilder;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -56,6 +57,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 public class GroupCommitManager {
@@ -64,8 +66,11 @@ public class GroupCommitManager {
 
     private Set<Long> blockedTableIds = new HashSet<>();
 
-    // Group commit backend cache key to BE id map.
-    private final Map<String, Long> tableToBeMap = new ConcurrentHashMap<>();
+    // Selection preferences are part of the bounded cache key.
+    private final Cache<String, Long> tableToBeMap = CacheBuilder.newBuilder()
+            .maximumSize(10000)
+            .expireAfterAccess(1, TimeUnit.HOURS)
+            .build();
     // Table id to pressure map. Only for group commit.
     private final Map<Long, SlidingWindowCounter> tableToPressureMap = new ConcurrentHashMap<>();
 
@@ -246,11 +251,7 @@ public class GroupCommitManager {
 
     @Nullable
     static BackendSelection.SelectionHint getGroupCommitLoadSelectionHint(ConnectContext context) {
-        BackendSelectionPolicy policy = BackendSelectionPolicyFactory.get();
-        if (!policy.isLoadSelectionEnabled(context)) {
-            return null;
-        }
-        return policy.getLoadSelectionHint(context);
+        return BackendSelectionService.resolveLoadSelectionHint(context);
     }
 
     public long selectBackendForGroupCommitInternal(long tableId, String cluster)
@@ -299,7 +300,7 @@ public class GroupCommitManager {
             throws DdlException, LoadException {
         if (LOG.isDebugEnabled()) {
             LOG.debug("cloud group commit select be info, tableToBeMap {}, tablePressureMap {}",
-                    tableToBeMap.toString(), tableToPressureMap.toString());
+                    tableToBeMap.asMap().toString(), tableToPressureMap.toString());
         }
         if (Strings.isNullOrEmpty(cluster)) {
             ErrorReport.reportDdlException(ErrorCode.ERR_NO_CLUSTER_ERROR);
@@ -333,13 +334,13 @@ public class GroupCommitManager {
     private long selectBackendForLocalGroupCommitInternal(long tableId,
             @Nullable BackendSelection.SelectionHint selectionHint) throws LoadException {
         if (LOG.isDebugEnabled()) {
-            LOG.debug("group commit select be info, tableToBeMap {}, tablePressureMap {}", tableToBeMap.toString(),
-                    tableToPressureMap.toString());
+            LOG.debug("group commit select be info, tableToBeMap {}, tablePressureMap {}",
+                    tableToBeMap.asMap().toString(), tableToPressureMap.toString());
         }
-        BackendSelectionPolicy selectionPolicy = BackendSelectionPolicyFactory.get();
-        boolean hasLoadSelectionPreference = selectionPolicy.hasLoadSelectionPreference(selectionHint);
+        boolean hasLoadSelectionPreference = BackendSelectionService.hasLoadSelectionPreference(selectionHint);
         String cacheKey = buildLocalGroupCommitCacheKey(tableId, selectionHint, hasLoadSelectionPreference);
-        Long cachedBackendId = getCachedLocalBackend(cacheKey, tableId);
+        Long cachedBackendId = BackendSelectionService.isRequiredSelection(selectionHint)
+                ? null : getCachedLocalBackend(cacheKey, tableId);
         if (cachedBackendId != null) {
             return cachedBackendId;
         }
@@ -357,7 +358,7 @@ public class GroupCommitManager {
         }
 
         // If the cached backend is not active or decommissioned, select a random new backend.
-        Long randomBackendId = getRandomLocalBackend(cacheKey, tableId, backends, selectionPolicy, selectionHint,
+        Long randomBackendId = getRandomLocalBackend(cacheKey, tableId, backends, selectionHint,
                 hasLoadSelectionPreference);
         if (randomBackendId != null) {
             return randomBackendId;
@@ -383,26 +384,23 @@ public class GroupCommitManager {
     @Nullable
     private Long getCachedBackend(String cacheKey, @Nullable String cloudCluster, long tableId) {
         OlapTable table = (OlapTable) Env.getCurrentEnv().getInternalCatalog().getTableByTableId(tableId);
-        if (tableToBeMap.containsKey(cacheKey)) {
+        // There are multiple threads getting cached backends for the same table.
+        // Maybe one thread removes the tableId from the tableToBeMap.
+        // Another thread gets the same tableId but can not find this tableId.
+        // So another thread needs to get the random backend.
+        Long backendId = tableToBeMap.getIfPresent(cacheKey);
+        if (backendId != null) {
             if (tableToPressureMap.get(tableId) == null) {
                 return null;
             } else if (tableToPressureMap.get(tableId).get() < table.getGroupCommitDataBytes()) {
-                // There are multiple threads getting cached backends for the same table.
-                // Maybe one thread removes the tableId from the tableToBeMap.
-                // Another thread gets the same tableId but can not find this tableId.
-                // So another thread needs to get the random backend.
-                Long backendId = tableToBeMap.get(cacheKey);
-                if (backendId == null) {
-                    return null;
-                }
                 Backend backend = Env.getCurrentSystemInfo().getBackend(backendId);
                 if (isBackendAvailable(backend, cloudCluster)) {
                     return backend.getId();
                 } else {
-                    tableToBeMap.remove(cacheKey);
+                    tableToBeMap.invalidate(cacheKey);
                 }
             } else {
-                tableToBeMap.remove(cacheKey);
+                tableToBeMap.invalidate(cacheKey);
             }
         }
         return null;
@@ -429,7 +427,6 @@ public class GroupCommitManager {
 
     @Nullable
     private Long getRandomLocalBackend(String cacheKey, long tableId, List<Backend> backends,
-            BackendSelectionPolicy selectionPolicy,
             @Nullable BackendSelection.SelectionHint selectionHint, boolean hasLoadSelectionPreference)
             throws LoadException {
         OlapTable table = (OlapTable) Env.getCurrentEnv().getInternalCatalog().getTableByTableId(tableId);
@@ -437,7 +434,7 @@ public class GroupCommitManager {
         List<Backend> orderedBackends;
         try {
             orderedBackends = hasLoadSelectionPreference
-                    ? selectionPolicy.orderLoadCandidates(selectionHint, backends)
+                    ? BackendSelectionService.orderLoadCandidates(selectionHint, backends)
                     : backends;
         } catch (UserException e) {
             throw new LoadException(e.getMessage());

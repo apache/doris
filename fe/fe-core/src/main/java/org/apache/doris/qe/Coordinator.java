@@ -84,7 +84,7 @@ import org.apache.doris.proto.Types.PUniqueId;
 import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.qe.QueryStatisticsItem.FragmentInstanceInfo;
 import org.apache.doris.resource.BackendSelection;
-import org.apache.doris.resource.BackendSelectionPolicyFactory;
+import org.apache.doris.resource.BackendSelectionService;
 import org.apache.doris.resource.workloadgroup.QueryQueue;
 import org.apache.doris.resource.workloadgroup.QueueToken;
 import org.apache.doris.resource.workloadgroup.WorkloadGroup;
@@ -2175,7 +2175,11 @@ public class Coordinator implements CoordInterface {
 
     private boolean isLoadSelectionCoordinator() {
         return queryOptions != null && queryOptions.getQueryType() == TQueryType.LOAD
-                && BackendSelectionPolicyFactory.get().isLoadSelectionEnabled(context);
+                && BackendSelectionService.isLoadSelectionEnabled(context);
+    }
+
+    private BackendSelection.SelectionHint resolveLoadSelectionHint() {
+        return BackendSelectionService.resolveLoadSelectionHint(context);
     }
 
     private TNetworkAddress chooseHostWithSelection(ImmutableMap<Long, Backend> backends, Reference<Long> backendIdRef)
@@ -2183,15 +2187,15 @@ public class Coordinator implements CoordInterface {
         if (!isLoadSelectionCoordinator()) {
             return SimpleScheduler.getHost(backends, backendIdRef);
         }
-        BackendSelection.SelectionHint decision =
-                BackendSelectionPolicyFactory.get().getLoadSelectionHint(context);
-        if (!BackendSelectionPolicyFactory.get().hasLoadSelectionPreference(decision)) {
+        BackendSelection.SelectionHint decision = resolveLoadSelectionHint();
+        if (!BackendSelectionService.hasLoadSelectionPreference(decision)) {
             return SimpleScheduler.getHost(backends, backendIdRef);
         }
-        List<Backend> orderedBackends = BackendSelectionPolicyFactory.get()
-                .orderLoadCandidates(decision, ImmutableList.copyOf(backends.values()));
+        List<Backend> orderedBackends = BackendSelectionService.orderLoadCandidates(
+                decision, ImmutableList.copyOf(backends.values()));
         TNetworkAddress address = firstAvailableLoadBackend(orderedBackends, backendIdRef);
         if (address == null) {
+            BackendSelectionService.ensureRequiredSelectionSatisfied(decision, false);
             return SimpleScheduler.getHost(backends, backendIdRef);
         }
         return address;
@@ -2209,16 +2213,15 @@ public class Coordinator implements CoordInterface {
                 candidateBuilder.add(backend);
             }
         }
-        BackendSelection.SelectionHint decision =
-                BackendSelectionPolicyFactory.get().getLoadSelectionHint(context);
-        if (!BackendSelectionPolicyFactory.get().hasLoadSelectionPreference(decision)) {
+        BackendSelection.SelectionHint decision = resolveLoadSelectionHint();
+        if (!BackendSelectionService.hasLoadSelectionPreference(decision)) {
             return SimpleScheduler.getHostByCurrentBackend(addressToBackendID);
         }
         Reference<Long> backendIdRef = new Reference<>();
-        List<Backend> orderedBackends = BackendSelectionPolicyFactory.get()
-                .orderLoadCandidates(decision, candidateBuilder.build());
+        List<Backend> orderedBackends = BackendSelectionService.orderLoadCandidates(decision, candidateBuilder.build());
         TNetworkAddress address = firstAvailableLoadBackend(orderedBackends, backendIdRef);
         if (address == null) {
+            BackendSelectionService.ensureRequiredSelectionSatisfied(decision, false);
             return SimpleScheduler.getHostByCurrentBackend(addressToBackendID);
         }
         return address;
@@ -2409,10 +2412,12 @@ public class Coordinator implements CoordInterface {
             // A fragment may contain both colocate join and bucket shuffle join
             // on need both compute scanRange to init basic data for query coordinator
             if (fragmentContainsColocateJoin) {
+                // Query selection already orders OlapScanNode replica locations before bucket assignment.
                 computeScanRangeAssignmentByColocate((OlapScanNode) scanNode, assignedBytesPerHost,
                         replicaNumPerHost, isEnableOrderedLocations);
             }
             if (fragmentContainsBucketShuffleJoin) {
+                // Keep bucket co-location intact; use the replica order produced by OlapScanNode as the hint.
                 bucketShuffleJoinController.computeScanRangeAssignmentByBucket((OlapScanNode) scanNode,
                         idToBackend, addressToBackendID, replicaNumPerHost);
             }
@@ -2544,11 +2549,11 @@ public class Coordinator implements CoordInterface {
 
     private List<TScanRangeLocation> applyBackendSelection(List<TScanRangeLocation> locations,
             boolean enableBackendSelection) throws UserException {
-        if (!enableBackendSelection) {
+        if (!enableBackendSelection || Config.isCloudMode()) {
             return locations;
         }
         BackendSelection.SelectionHint decision = getQueryBackendSelectionDecision();
-        return BackendSelectionPolicyFactory.get().orderQueryCandidates(decision, locations,
+        return BackendSelectionService.orderQueryCandidates(decision, locations,
                 location -> {
                     Backend backend = idToBackend.get(location.backend_id);
                     return backend == null ? null : backend.getLocationTag();

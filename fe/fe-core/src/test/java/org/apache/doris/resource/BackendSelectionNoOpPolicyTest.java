@@ -39,21 +39,29 @@ class BackendSelectionNoOpPolicyTest {
     }
 
     @Test
-    void testQueryNoOpDecisionAndApplyKeepCandidatesUnchanged() throws Exception {
+    void testDefaultPolicyKeepsQueryAndLoadCandidatesUnchanged() throws Exception {
         BackendSelectionPolicy policy = BackendSelectionPolicyFactory.load(
                 BackendSelectionNoOpPolicyTest.class.getClassLoader());
-        List<Candidate> candidates = ImmutableList.of(candidate("a", "key_b"), candidate("b", "key_a"));
+        List<Candidate> queryCandidates = ImmutableList.of(candidate("a", "key_b"), candidate("b", "key_a"));
 
         BackendSelection.SelectionHint decision = policy.getQuerySelectionHint(new ConnectContext());
-        List<Candidate> ordered = policy.orderQueryCandidates(decision, candidates, candidate -> candidate.tag);
-        List<Candidate> orderedWithinTies = policy.orderTiedQueryCandidates(decision, candidates,
-                (left, right) -> 0, candidate -> candidate.tag);
+        List<Candidate> ordered = policy.orderQueryCandidates(
+                decision, queryCandidates, candidate -> candidate.tag);
 
         Assertions.assertEquals(BackendSelection.Mode.DEFAULT, decision.getMode());
         Assertions.assertEquals("", decision.getPreferredKey());
         Assertions.assertFalse(policy.hasQuerySelectionPreference(decision));
-        Assertions.assertSame(candidates, ordered);
-        Assertions.assertSame(candidates, orderedWithinTies);
+        Assertions.assertSame(queryCandidates, ordered);
+
+        ConnectContext context = new ConnectContext();
+        context.getSessionVariable().enableLoadBackendSelection = true;
+        List<Backend> loadCandidates = ImmutableList.of(backend(1, "key_a"), backend(2, "key_b"));
+        Assertions.assertFalse(policy.isLoadSelectionEnabled(context));
+        Assertions.assertNull(policy.getLoadSelectionHint(context));
+        Assertions.assertFalse(policy.hasLoadSelectionPreference(null));
+        Assertions.assertSame(loadCandidates, policy.orderLoadCandidates(
+                (BackendSelection.SelectionHint) null, loadCandidates));
+        Assertions.assertNull(policy.getForwardedLoadSelectionHint("key_a", "default"));
     }
 
     @Test
@@ -65,42 +73,6 @@ class BackendSelectionNoOpPolicyTest {
 
         context.setStartTime();
         Assertions.assertNotSame(first, context.getQueryBackendSelectionDecision());
-    }
-
-    @Test
-    void testLoadNoOpSemantics() throws Exception {
-        BackendSelectionPolicy policy = BackendSelectionPolicyFactory.load(
-                BackendSelectionNoOpPolicyTest.class.getClassLoader());
-        ConnectContext context = new ConnectContext();
-        context.getSessionVariable().enableLoadBackendSelection = true;
-        Backend unavailable = backend(1, "key_a");
-        unavailable.setAlive(false);
-        Backend available = backend(2, "key_b");
-        List<Backend> candidates = ImmutableList.of(unavailable, available);
-
-        Assertions.assertFalse(policy.isLoadSelectionEnabled(context));
-        Assertions.assertNull(policy.getLoadSelectionHint(context));
-        Assertions.assertFalse(policy.hasLoadSelectionPreference(null));
-        Assertions.assertSame(candidates, policy.orderLoadCandidates(context, candidates));
-        Assertions.assertSame(candidates, policy.orderLoadCandidates(
-                (BackendSelection.SelectionHint) null, candidates));
-        Assertions.assertEquals(available, policy.chooseLoadBackend(context, candidates));
-        Assertions.assertNull(policy.getForwardedLoadSelectionHint("key_a", "default"));
-    }
-
-    @Test
-    void testLoadNoOpReturnsNullWhenNoneLoadAvailable() throws Exception {
-        BackendSelectionPolicy policy = BackendSelectionPolicyFactory.load(
-                BackendSelectionNoOpPolicyTest.class.getClassLoader());
-        Backend first = backend(1, "key_a");
-        Backend second = backend(2, "key_b");
-        first.setAlive(false);
-        second.setAlive(false);
-
-        Backend selected = policy.chooseLoadBackend(new ConnectContext(),
-                ImmutableList.of(first, second));
-
-        Assertions.assertNull(selected);
     }
 
     private Backend backend(long id, String group) {

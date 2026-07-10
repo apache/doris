@@ -281,7 +281,12 @@ public class AuditLogHelper {
                 .setCloudCluster(Strings.isNullOrEmpty(cluster) ? "UNKNOWN" : cluster)
                 .setWorkloadGroup(ctx.getWorkloadGroupName());
 
-        BackendSelection.SelectionHint selectionHint = ctx.getQueryBackendSelectionDecisionForAudit();
+        // load statements resolve their own hint at the scheduling sites and record it on the
+        // context; prefer it over the scan-side query decision so load audits are accurate
+        BackendSelection.SelectionHint selectionHint = ctx.getLoadBackendSelectionDecisionForAudit();
+        if (selectionHint == null) {
+            selectionHint = ctx.getQueryBackendSelectionDecisionForAudit();
+        }
         auditEventBuilder.setBackendSelectionPreferredKey(selectionHint.getPreferredKey())
                 .setBackendSelectionMode(selectionHint.getMode().name()
                         .toLowerCase(Locale.ROOT));

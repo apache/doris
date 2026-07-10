@@ -101,6 +101,7 @@ public class FrontendServiceImplBackendSelectionTest {
         TGroupCommitInfo info = new TGroupCommitInfo();
         info.setGroupCommitLoadTableId(10L);
         info.setCluster("cluster_a");
+        info.setSupportsSelectionErrorResult(true);
         FrontendServiceImpl service = new FrontendServiceImpl(Mockito.mock(ExecuteEnv.class));
 
         try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class);
@@ -113,6 +114,31 @@ public class FrontendServiceImplBackendSelectionTest {
             Assert.assertTrue(result.getErrMessage().contains("no backend"));
             Assert.assertTrue(appender.contains(Level.WARN,
                     "failed to select backend for forwarded group commit load, tableId=10, cluster=cluster_a"));
+        }
+    }
+
+    @Test
+    public void testGroupCommitLoadBackendSelectionFailureThrowsForOldFollower() throws Exception {
+        Env env = Mockito.mock(Env.class);
+        GroupCommitManager manager = Mockito.mock(GroupCommitManager.class);
+        Mockito.when(env.getGroupCommitManager()).thenReturn(manager);
+        Mockito.when(manager.selectBackendForGroupCommitInternal(Mockito.eq(10L), Mockito.eq("cluster_a"),
+                Mockito.<BackendSelection.SelectionHint>isNull())).thenThrow(new LoadException("no backend"));
+        TGroupCommitInfo info = new TGroupCommitInfo();
+        info.setGroupCommitLoadTableId(10L);
+        info.setCluster("cluster_a");
+        FrontendServiceImpl service = new FrontendServiceImpl(Mockito.mock(ExecuteEnv.class));
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+
+            try {
+                invokeHandleGroupCommitLoadBeId(service, info);
+                Assert.fail("expected TException for a follower without supportsSelectionErrorResult");
+            } catch (java.lang.reflect.InvocationTargetException e) {
+                Assert.assertTrue(e.getCause() instanceof org.apache.thrift.TException);
+                Assert.assertTrue(e.getCause().getMessage().contains("no backend"));
+            }
         }
     }
 
