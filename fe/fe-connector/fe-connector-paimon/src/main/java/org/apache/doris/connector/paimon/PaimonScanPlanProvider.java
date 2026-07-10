@@ -1129,7 +1129,9 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
     private static final List<String> BACKEND_PAIMON_JNI_OPTIONS = Arrays.asList(
             "doris.enable_jni_io_manager",
             "doris.jni_io_manager.tmp_dir",
-            "doris.jni_io_manager.impl_class");
+            "doris.jni_io_manager.impl_class",
+            // #65365: user opt-out of paimon's async file reader (BE reads paimon.jni.enable_file_reader_async).
+            "jni.enable_file_reader_async");
 
     // Package-private for direct unit testing (PaimonScanPlanProviderTest).
     Map<String, String> getBackendPaimonOptions() {
