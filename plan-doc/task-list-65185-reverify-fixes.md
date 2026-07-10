@@ -28,7 +28,7 @@ Legend：⬜ todo / 🔄 in progress / ✅ done / ⏸ 挂起(需决策/live)
 | 1 | **H1** | 🔴高 | hudi | 分区名不 unescape→丢行 | ⬜ | ⬜ | ⬜ | ⬜ |
 | 2 | **H2** | 🔴高 | hudi | datetime 分区谓词 ISO→0 行 | ⬜ | ⬜ | ⬜ | ⬜ |
 | 3 | **H3** | 🔴高 | hudi | HMS 名当存储路径→非 hive-style 带 filter 0 split | ⬜ | ⬜ | ⬜ | ⬜ |
-| 4 | **H4** | 🔴高 | hudi | 混大小写 Avro→JNI 崩 | ⬜ | ⬜ | ⬜ | ⬜ |
+| 4 | **H4** | 🔴高 | hudi | 混大小写 Avro→JNI 崩 | ✅ | ✅ | ✅ | ✅ |
 | 5 | **M1** | 🟠中 | fe-core | TABLESAMPLE 插件路径静默全表扫 | ⬜ | ⬜ | ⬜ | ⬜ |
 | 6 | **M2** | 🟠中 | hive | 翻闸 hive 丢批量/异步 split | ⬜ | ⬜ | ⬜ | ⬜ |
 | 7 | **M3** | 🟠中 | fe-core | MC batch 闸门 `!=NOT_PRUNED`→`!isPruned` | ⬜ | ⬜ | ⬜ | ⬜ |
@@ -100,7 +100,7 @@ Legend：⬜ todo / 🔄 in progress / ✅ done / ⏸ 挂起(需决策/live)
 - **Test intent**:非 hive-style 表断言「带 filter 分区集 == 不带 filter」(RED:带 filter 0 split)。live e2e gated。
 
 ### H4 — hudi 混大小写 Avro → JNI/MOR reader 崩 · reverify §2 H4
-- [ ] **H4**(最小,建议先做)
+- [x] **H4**(最小,建议先做) · DONE `03f4c12dffa`(设计 `designs/FIX-H4-design.md`)
 - **现码**:`HudiScanPlanProvider.planScan:180-181` `.map(Schema.Field::name)`(原始大小写)→ `HudiScanRange:220` → BE `HadoopHudiJniScanner.initRequiredColumnsAndTypes:227-229` 对 lowercase `requiredField` 精确 `containsKey`→throw。
 - **Fix**:`planScan:181` 改 `.map(f -> f.name().toLowerCase(java.util.Locale.ROOT))`(与 `HudiConnectorMetadata.avroSchemaToColumns:905`、`HudiSchemaUtils:137` 一致);列类型顺序不变。
 - **Files**:`HudiScanPlanProvider.java`。
@@ -227,4 +227,6 @@ Legend：⬜ todo / 🔄 in progress / ✅ done / ⏸ 挂起(需决策/live)
 
 > 每完成一条:此处记 `<id> DONE <commit> — 一句话` + 勾总表 + 更新 `HANDOFF.md`。
 
-- (尚未开始)
+**⭐ 批次 0 范围决策(用户 2026-07-11 签字)**：对抗 agent 已证实 **H1/H2 不是 hudi 独有——`HiveConnectorMetadata` 逐字节相同的剪枝块(parsePartitionName/matchesPredicates/extractLiteralValue)同样静默丢行**(fe-core 算出正确 typed 分区集但 hive `planScan` 丢弃、只认 applyFilter 那份 bug 结果)。用户选 **「两份就地各修」**(选项 2)：H1/H2 在 hive 和 hudi **两份副本各自就地修**(不抽共享 helper),H3/H4 仅 hudi。**D-PRUNE 抽取继续延后**为 ⚪ 设计债(reverify §4 DUPLICATION:partition-prune)。
+
+- **H4** DONE `03f4c12dffa` — lowercase JNI reader 列名(hudi-only;`jniColumnNames` helper + UT)。
