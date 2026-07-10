@@ -65,6 +65,7 @@
 
 ### 2.4 翻转时接线（Phase 2，非本步；本步只留清单）
 - `MetastoreEventsProcessor:116` 老 gate 去除；`ExternalMetaIdMgr.replayMetaIdMappingsLog` 的游标回放**改指新驱动**（或双写，二选一，翻转时定）；启用新驱动对 flipped-hms 生效。老 poller + `datasource/hive/event/` 整目录 **Phase 3 删**（新驱动替换入口后）。
+- **（复审新增，finding #2）主节点须初始化 flipped 事件源目录**：新驱动只处理已初始化的目录（避免 force-init 空闲的 paimon/iceberg/jdbc，保 pre-flip 字节不变）。但老 poller 曾在主节点强制初始化每个 HMS 目录。故翻转时须有一处让主节点**初始化 flipped 事件源目录**（否则"主从只读分离、某目录仅被从节点查询"时，主不 seed 游标 → 该从节点静默停更）。若不做则须签字接受该 HA 退化 + e2e 断言。
 
 ---
 
@@ -92,3 +93,16 @@
 - 跨边界 pin TCCL（驱动线程包 pollOnce）✓
 - `history_schema_info` 逐层小写：本步不涉 schema 字典 ✓
 - `PluginDrivenMvccExternalTable` 字节+成本双不变：本步不改其共享方法（只经 `buildTableInternal` 新建，走既有路径）✓
+
+---
+
+## 6. 落地 + 净室复审记录（2026-07-10 晚，DONE）
+6 步全部落地（休眠、独立提交、各 test-compile SUCCESS + checkstyle 0 + import gate ok）：
+E-a `0214f04`（SPI）→ E-b `b13ed79`（插件取数）→ E-c `902546d`（插件事件源）→ E-d `3552554`（fe-core mutator 泛化）→ E-e `6a96820`（fe-core 驱动）→ E-f `9113c51`（休眠 parser 单测，6 绿）。
+
+**净室对抗复审**（`wf_0d49c409-a86`：6 维盲评 → 逐条 refute-by-default 对抗验证）= 14 疑点、4 坐实（其余 10 条含大小写/空分区/enable-gate 等经验证为误报或休眠+翻闸自owed）。4 坐实收敛为 3 个真回归（均休眠 pre-flip、须翻闸前修）：
+- **自愈丢失（poison event 死锁，#1≡#3，#4 的根因）** → 已修 `fb21498`：老 poller 遇处理异常做 `onRefreshCache(true)+游标归 -1` 自愈跳过毒事件；新驱动之前无限重试。修法=`HmsEventSource` 把**瞬时 fetch 错误**原地重试(`ofNothing`，不 reset/不invalidate)，只让**确定性 parse/apply 错误**上抛；驱动 `realRun` catch 把游标归 -1 → 下轮 first-pull 全刷跳过毒事件；`applyDescriptors` 不再回退一格。
+- **eager gzip 解压（#4）** → 已修 `134907b`：`prepareBody` 按 `needsBody(type)` 惰性——db/insert/ignored 事件不解压（省 CPU + 损坏体不抛；死锁本身已由自愈兜底）。
+- **`isInitialized()` gate（#2，未改代码，留翻闸项）**：跳过主节点空闲目录会漏 seed 游标 → 从节点静默停更；但去掉 gate 会 force-init 空闲 paimon/iceberg/jdbc（破坏 pre-flip 字节不变）——**两难**。裁决=保 gate（字节不变优先）+ 改诚实注释 + 列为翻闸项（§2.4 复审新增：翻转时主节点初始化 flipped 事件源目录）。
+
+**⚠ 复审确认的 e2e 欠账（补 §4）**：毒事件自愈（构造确定性抛错的 descriptor，断言下轮全刷自愈非死锁）；主从只读分离下 flipped 目录游标传播（断言从节点不停更）；gzip/plain 各事件类型的表/分区体解析忠实度（本步单测只覆盖 body-free 中立路径）。
