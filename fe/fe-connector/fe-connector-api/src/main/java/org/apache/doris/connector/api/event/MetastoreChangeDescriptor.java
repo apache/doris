@@ -114,6 +114,18 @@ public final class MetastoreChangeDescriptor {
                 updateTime, eventId);
     }
 
+    /**
+     * A {@link Op#RENAME_TABLE} change (also used for view-recreate, where the after-db/table equal the
+     * before-db/table). Carries both the before ({@code dbName}/{@code tableName}) and after
+     * ({@code dbNameAfter}/{@code tableNameAfter}) identities, since a Hive table rename may move the
+     * table across databases.
+     */
+    public static MetastoreChangeDescriptor forTableRename(String dbName, String tableName,
+            String dbNameAfter, String tableNameAfter, long eventId, long updateTime) {
+        return new MetastoreChangeDescriptor(Op.RENAME_TABLE, dbName, tableName, dbNameAfter,
+                tableNameAfter, null, updateTime, eventId);
+    }
+
     /** A partition-level change ({@code ADD_/DROP_/REFRESH_PARTITIONS}). */
     public static MetastoreChangeDescriptor forPartitions(Op op, String dbName, String tableName,
             List<String> partitionNames, long eventId, long updateTime) {

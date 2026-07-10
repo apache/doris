@@ -93,6 +93,18 @@ public final class HiveConnectorProperties {
      */
     public static final String BUCKET_ALGO_RANDOM = "doris_random";
 
+    // ===== Metastore incremental event sync (per-catalog opt-in) =====
+
+    /** Whether this catalog polls HMS notification events for incremental metadata refresh. */
+    public static final String ENABLE_HMS_EVENTS_INCREMENTAL_SYNC =
+            "hive.enable_hms_events_incremental_sync";
+
+    /** Max notification events fetched per RPC when incremental event sync is enabled. */
+    public static final String HMS_EVENTS_BATCH_SIZE_PER_RPC = "hive.hms_events_batch_size_per_rpc";
+
+    /** Default batch size, matching the engine's legacy {@code hms_events_batch_size_per_rpc} default. */
+    public static final int DEFAULT_HMS_EVENTS_BATCH_SIZE = 500;
+
     /**
      * Parse an integer property with a default value.
      */
@@ -106,5 +118,16 @@ public final class HiveConnectorProperties {
         } catch (NumberFormatException e) {
             return defaultVal;
         }
+    }
+
+    /**
+     * Parse a boolean property with a default value.
+     */
+    public static boolean getBoolean(Map<String, String> props, String key, boolean defaultVal) {
+        String value = props.get(key);
+        if (value == null || value.isEmpty()) {
+            return defaultVal;
+        }
+        return Boolean.parseBoolean(value.trim());
     }
 }

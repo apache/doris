@@ -22,6 +22,7 @@ import org.apache.doris.connector.api.ConnectorCapability;
 import org.apache.doris.connector.api.ConnectorMetadata;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.DorisConnectorException;
+import org.apache.doris.connector.api.event.ConnectorEventSource;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.procedure.ConnectorProcedureOps;
 import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
@@ -30,6 +31,7 @@ import org.apache.doris.connector.hms.CachingHmsClient;
 import org.apache.doris.connector.hms.HmsClient;
 import org.apache.doris.connector.hms.HmsClientConfig;
 import org.apache.doris.connector.hms.ThriftHmsClient;
+import org.apache.doris.connector.hms.event.HmsEventSource;
 import org.apache.doris.connector.metastore.HmsMetaStoreProperties;
 import org.apache.doris.connector.metastore.spi.MetaStoreProviders;
 import org.apache.doris.connector.spi.ConnectorContext;
@@ -44,6 +46,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.IOException;
 import java.util.Collections;
 import java.util.EnumSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -344,6 +347,51 @@ public class HiveConnector implements Connector {
             ((CachingHmsClient) client).flushAll();
         }
         fileListingCache.invalidateAll();
+    }
+
+    /**
+     * Invalidates a table's caches on a partition add/drop/alter. The connector's partition caches are
+     * keyed by name-LIST ({@link CachingHmsClient}) and directory LOCATION ({@link HiveFileListingCache}),
+     * neither of which can target a single partition name — so this degrades to a table-level flush, which
+     * is correctness-safe because both caches re-list on the next miss. The names are still carried on the
+     * SPI for future precision. Also forwarded to the already-built embedded siblings.
+     */
+    @Override
+    public void invalidatePartition(String dbName, String tableName, List<String> partitionNames) {
+        invalidatePartition(hmsClient, dbName, tableName);
+        forEachBuiltSibling(sibling -> sibling.invalidatePartition(dbName, tableName, partitionNames));
+    }
+
+    // Package-private seam (mirrors invalidateTable): the metastore half needs an observable CachingHmsClient.
+    void invalidatePartition(HmsClient client, String dbName, String tableName) {
+        if (client instanceof CachingHmsClient) {
+            ((CachingHmsClient) client).flush(dbName, tableName);
+        }
+        fileListingCache.invalidateTable(dbName, tableName);
+    }
+
+    /**
+     * The catalog's incremental metadata-change source, or {@code null} when this catalog does not opt into
+     * HMS notification-event sync. The per-catalog opt-in is the connector's concern (fe-core does not parse
+     * hive properties): a source is returned only when the
+     * {@code hive.enable_hms_events_incremental_sync} property is set, and the engine's role-aware event
+     * driver skips connectors whose source is null. A malformed / not-yet-initialized property reads as
+     * disabled, mirroring the legacy poller's skip-on-throw.
+     */
+    @Override
+    public ConnectorEventSource getEventSource() {
+        try {
+            if (!HiveConnectorProperties.getBoolean(properties,
+                    HiveConnectorProperties.ENABLE_HMS_EVENTS_INCREMENTAL_SYNC, false)) {
+                return null;
+            }
+        } catch (RuntimeException e) {
+            return null;
+        }
+        int batchSize = HiveConnectorProperties.getInt(properties,
+                HiveConnectorProperties.HMS_EVENTS_BATCH_SIZE_PER_RPC,
+                HiveConnectorProperties.DEFAULT_HMS_EVENTS_BATCH_SIZE);
+        return new HmsEventSource(getOrCreateClient(), batchSize);
     }
 
     /**
