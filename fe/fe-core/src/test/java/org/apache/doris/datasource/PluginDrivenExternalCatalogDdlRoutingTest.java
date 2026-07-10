@@ -830,6 +830,80 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
         }
     }
 
+    // ==================== EDIT-LOG REPLAY (follower / observer propagation) ====================
+    // R1: the coordinator dropTable/createTable/dropDb hooks drop the connector's OWN cache, but editlog
+    // replay on followers/observers went through the base ExternalCatalog.replay* plugin branch, which only
+    // touched the FE name cache — so a follower kept the dropped/renamed object's snapshot pin to the TTL.
+    // These overrides propagate connector.invalidate* on replay too, keyed like the coordinator, WITHOUT
+    // force-initializing a catalog (the getDbForReplay/getTableForReplay match is present only when already
+    // initialized on this FE).
+
+    @Test
+    public void testReplayDropTableInvalidatesConnectorOnFollower() {
+        // local db1.t1 maps to remote DB1.TBL1; the table is still in the replay cache when the drop replays.
+        ExternalDatabase<? extends ExternalTable> replayDb = mockExternalDatabase();
+        Mockito.when(replayDb.getRemoteName()).thenReturn("DB1");
+        ExternalTable cached = Mockito.mock(ExternalTable.class);
+        Mockito.when(cached.getRemoteName()).thenReturn("TBL1");
+        Mockito.doReturn(Optional.of(cached)).when(replayDb).getTableForReplay("t1");
+        catalog.dbForReplayResult = Optional.of(replayDb);
+
+        catalog.replayDropTable("db1", "t1");
+
+        // WHY (Rule 9 / R1): without the override a follower kept the dropped table's latest-snapshot pin (and
+        // paimon schema memo) to the 24h TTL — the coordinator-only half of the drop+recreate fix. Replay must
+        // drop it, keyed by the REMOTE names resolved from the still-cached table BEFORE unregister. MUTATION:
+        // removing the override, or passing the LOCAL names, turns this red.
+        Mockito.verify(connector).invalidateTable("DB1", "TBL1");
+        // Base bookkeeping is preserved: the table is still unregistered from the FE name cache.
+        Mockito.verify(replayDb).unregisterTable("t1");
+    }
+
+    @Test
+    public void testReplayDropTableUninitializedCatalogSkipsInvalidate() {
+        // A follower that never initialized this catalog: getDbForReplay returns empty -> no connector cache
+        // exists to drop, and the override must NOT force-initialize the catalog (no invalidate, no throw).
+        catalog.dbForReplayResult = Optional.empty();
+
+        catalog.replayDropTable("db1", "t1");
+
+        // WHY (R1 no-force-init): the connector is untouched when the catalog is not initialized on this FE.
+        // MUTATION: using getConnector() unconditionally (force-init) would invoke the connector here -> red.
+        Mockito.verify(connector, Mockito.never()).invalidateTable(Mockito.any(), Mockito.any());
+    }
+
+    @Test
+    public void testReplayDropDbInvalidatesConnectorOnFollower() {
+        ExternalDatabase<? extends ExternalTable> replayDb = mockExternalDatabase();
+        Mockito.when(replayDb.getRemoteName()).thenReturn("DB1");
+        catalog.dbForReplayResult = Optional.of(replayDb);
+
+        catalog.replayDropDb("db1");
+
+        // WHY (R1): DROP DATABASE replay must drop every table's connector cache for the db (keyed by the
+        // REMOTE db name), mirroring the coordinator dropDb hook. MUTATION: removing the override or passing
+        // the LOCAL "db1" turns this red.
+        Mockito.verify(connector).invalidateDb("DB1");
+        // Base bookkeeping is preserved (the db is unregistered by the LOCAL name).
+        Assertions.assertEquals("db1", catalog.unregisteredDb);
+    }
+
+    @Test
+    public void testReplayCreateTableInvalidatesConnectorOnFollower() {
+        ExternalDatabase<? extends ExternalTable> replayDb = mockExternalDatabase();
+        Mockito.when(replayDb.getRemoteName()).thenReturn("DB1");
+        catalog.dbForReplayResult = Optional.of(replayDb);
+
+        catalog.replayCreateTable("db1", "t1");
+
+        // WHY (R1): belt-and-suspenders parity with the coordinator createTable hook — keyed by the REMOTE db
+        // name "DB1" but the (non-remote-resolved) table name "t1". MUTATION: flipping the table name to remote
+        // or dropping the call turns this red.
+        Mockito.verify(connector).invalidateTable("DB1", "t1");
+        // Base bookkeeping is preserved (the db's table-name cache is refreshed).
+        Mockito.verify(replayDb).resetMetaCacheNames();
+    }
+
     // ==================== COLUMN EVOLUTION (B2) ====================
     // The 6 column-op overrides resolve the connector handle by REMOTE names (like dropTable), convert the
     // Doris Column/ColumnPosition to the neutral SPI types, dispatch, wrap DorisConnectorException as

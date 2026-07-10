@@ -706,6 +706,54 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
     }
 
     /**
+     * Propagates the coordinator {@link #dropTable} hook's connector-cache invalidation to followers/observers
+     * on edit-log replay. The base {@link ExternalCatalog#replayDropTable} plugin branch only touches the FE
+     * name cache ({@code unregisterTable}); without this, a follower that had queried a paimon/iceberg table
+     * keeps its latest-snapshot pin (and paimon's schema memo) for the dropped name until the 24h access-TTL —
+     * the coordinator-only half of the drop+recreate fix. Resolves the REMOTE names from the still-cached
+     * table BEFORE the base unregisters it, keyed exactly like the coordinator (mirrors
+     * {@code RefreshManager.replayRefreshTable → refreshTableInternal}'s connector hook).
+     *
+     * <p><b>Never force-initializes during replay:</b> {@code getConnector()} runs only inside the
+     * {@code getDbForReplay}/{@code getTableForReplay} match, which is present only when this catalog is
+     * already initialized on this FE (both return empty otherwise). A never-initialized catalog has no
+     * connector cache to drop, so skipping it is correct — mirroring {@code HiveConnector.forEachBuiltSibling}
+     * ("a never-built sibling has no cache") and preserving the base's no-force-init replay behavior.
+     */
+    @Override
+    public void replayDropTable(String dbName, String tblName) {
+        getDbForReplay(dbName).ifPresent(db ->
+                db.getTableForReplay(tblName).ifPresent(tbl ->
+                        getConnector().invalidateTable(db.getRemoteName(), tbl.getRemoteName())));
+        super.replayDropTable(dbName, tblName);
+    }
+
+    /**
+     * Replay analogue of the coordinator {@link #dropDb} hook's connector-cache invalidation — clears every
+     * table's connector cache for the dropped database on followers/observers (the base
+     * {@link ExternalCatalog#replayDropDb} plugin branch only unregisters the FE db). Resolves the REMOTE db
+     * name BEFORE the base unregisters the database. See {@link #replayDropTable} for the no-force-init
+     * rationale.
+     */
+    @Override
+    public void replayDropDb(String dbName) {
+        getDbForReplay(dbName).ifPresent(db -> getConnector().invalidateDb(db.getRemoteName()));
+        super.replayDropDb(dbName);
+    }
+
+    /**
+     * Replay analogue of the coordinator {@link #createTable} hook's belt-and-suspenders connector-cache
+     * invalidation (uniform with the drop path). The table name is NOT remote-resolved — parity with the
+     * coordinator, where a brand-new table has no local→remote mapping. See {@link #replayDropTable} for the
+     * no-force-init rationale.
+     */
+    @Override
+    public void replayCreateTable(String dbName, String tblName) {
+        super.replayCreateTable(dbName, tblName);
+        getDbForReplay(dbName).ifPresent(db -> getConnector().invalidateTable(db.getRemoteName(), tblName));
+    }
+
+    /**
      * Routes {@code ALTER TABLE ... ADD/DROP/RENAME/MODIFY/REORDER COLUMN} through the SPI's
      * {@code ConnectorTableOps} column-evolution methods instead of the legacy {@code metadataOps} path used
      * by other {@link ExternalCatalog} subclasses (which PluginDriven never sets, so the base ops would
