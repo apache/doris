@@ -120,7 +120,7 @@ class IvmJoinDeltaHandler {
         } else {
             NullSideDeltaContext deltaContext = new NullSideDeltaContext(
                     join, leftResult, rightResult, deltaOnLeft);
-            return rewriteNullSideDelta(deltaContext, context);
+            return rewriteNullSideDelta(deltaContext);
         }
     }
 
@@ -192,23 +192,21 @@ class IvmJoinDeltaHandler {
      * predicates. FULL OUTER JOIN uses the general three-branch path because the first branch must also keep
      * unmatched delta-side rows with LEFT/RIGHT OUTER JOIN.
      */
-    private IvmDeltaRewriteResult rewriteNullSideDelta(
-            NullSideDeltaContext deltaContext, IvmRefreshContext context) {
+    private IvmDeltaRewriteResult rewriteNullSideDelta(NullSideDeltaContext deltaContext) {
         LogicalJoin<? extends Plan, ? extends Plan> join = deltaContext.join;
         boolean isFullOuterJoin = join.getJoinType().isFullOuterJoin();
         EquiJoinKeys equiJoinKeys = isFullOuterJoin ? null : extractEquiJoinKeys(join);
         if (equiJoinKeys != null) {
-            return rewriteNullSideDeltaWithNullSideEvents(deltaContext, equiJoinKeys, context);
+            return rewriteNullSideDeltaWithNullSideEvents(deltaContext, equiJoinKeys);
         } else {
-            return rewriteNullSideDeltaWithRepairBranches(deltaContext, context);
+            return rewriteNullSideDeltaWithRepairBranches(deltaContext);
         }
     }
 
     /**
      * General null-side delta rewrite using one joined-row branch and two NULL-row repair branches.
      */
-    private IvmDeltaRewriteResult rewriteNullSideDeltaWithRepairBranches(
-            NullSideDeltaContext deltaContext, IvmRefreshContext context) {
+    private IvmDeltaRewriteResult rewriteNullSideDeltaWithRepairBranches(NullSideDeltaContext deltaContext) {
         // Null-side delta for:
         //   retained_snapshot OUTER JOIN null_side_delta
         //
@@ -238,7 +236,7 @@ class IvmJoinDeltaHandler {
         //      that have no matching null-side row after this delta. For those rows, the new MV
         //      needs one null-side row, so we emit that row with dml_factor = +1.
         LogicalProject<Plan> joinedProject = rewriteNullSideJoinedRowsDelta(deltaContext);
-        List<LogicalProject<Plan>> repairProjects = buildNullSideRepairProjects(deltaContext, context);
+        List<LogicalProject<Plan>> repairProjects = buildNullSideRepairProjects(deltaContext);
 
         LogicalUnion union = helper.buildUnionAll(ImmutableList.of(
                 joinedProject, repairProjects.get(0), repairProjects.get(1)));
@@ -276,7 +274,7 @@ class IvmJoinDeltaHandler {
      * for retained rows that move from matched to a null-side row.
      */
     private List<LogicalProject<Plan>> buildNullSideRepairProjects(
-            NullSideDeltaContext deltaContext, IvmRefreshContext context) {
+            NullSideDeltaContext deltaContext) {
         Pair<Plan, Map<Slot, Slot>> insertedNullSideDelta = helper.remapOutputs(helper.aliasPlan(
                 helper.freshPlan(deltaContext.deltaSideResult().plan), NULL_SIDE_INSERT_DELTA_ALIAS));
         Slot insertedNullSideDmlFactor = findSlotByName(insertedNullSideDelta.first.getOutput(),
@@ -297,10 +295,10 @@ class IvmJoinDeltaHandler {
         // full null-side relation, so retain all branches and only replace the one delta scan
         // with its pre/post snapshot.
         Pair<Plan, Map<Slot, Slot>> nullSidePreSnapshot = helper.remapOutputs(helper.aliasPlan(
-                helper.freshPlan(copyDeltaScanAsSnapshot(deltaContext.deltaSideChild(), false, context)),
+                helper.freshPlan(copyDeltaScanAsSnapshot(deltaContext.deltaSideChild(), false)),
                 NULL_SIDE_PRE_SNAPSHOT_ALIAS));
         Pair<Plan, Map<Slot, Slot>> nullSidePostSnapshot = helper.remapOutputs(helper.aliasPlan(
-                helper.freshPlan(copyDeltaScanAsSnapshot(deltaContext.deltaSideChild(), true, context)),
+                helper.freshPlan(copyDeltaScanAsSnapshot(deltaContext.deltaSideChild(), true)),
                 NULL_SIDE_POST_SNAPSHOT_ALIAS));
         LogicalProject<Plan> preNullProject = buildNullSideRepairProject(deltaContext,
                 helper.remapOutputs(helper.freshPlan(deltaContext.nonDeltaSideResult().plan)),
@@ -317,7 +315,7 @@ class IvmJoinDeltaHandler {
      * Optimized null-side delta rewrite that encodes joined-row changes and NULL-row repair as key events.
      */
     private IvmDeltaRewriteResult rewriteNullSideDeltaWithNullSideEvents(
-            NullSideDeltaContext deltaContext, EquiJoinKeys equiJoinKeys, IvmRefreshContext context) {
+            NullSideDeltaContext deltaContext, EquiJoinKeys equiJoinKeys) {
         LogicalJoin<? extends Plan, ? extends Plan> join = deltaContext.join;
         // Null-side delta for equi outer join can be reduced to one probe:
         //   retained_snapshot INNER JOIN null_side_events
@@ -363,7 +361,7 @@ class IvmJoinDeltaHandler {
         List<Slot> targetOutputs = buildBareJoinDeltaOutputs(deltaContext);
         Pair<Plan, Map<Slot, Slot>> retainedSnapshot = helper.remapOutputs(
                 helper.freshPlan(deltaContext.nonDeltaSideResult().plan));
-        NullSideEventPlan nullSideEvents = buildNullSideEventPlan(deltaContext, equiJoinKeys, context);
+        NullSideEventPlan nullSideEvents = buildNullSideEventPlan(deltaContext, equiJoinKeys);
 
         // Join retained rows with the event relation by the extracted equality keys. A detail event produces a
         // normal joined-row change; a repair event produces the same retained row with null-side payloads set to NULL.
@@ -478,7 +476,7 @@ class IvmJoinDeltaHandler {
         // Repair rows are synthetic — either +1 or -1 would be correct here. Using +1 puts
         // them into insert_delta, keeping delete_delta smaller (only real base-table deletes).
         projects.add(new Alias(new TinyIntLiteral((byte) 1), Column.IVM_BASE_OP_COL));
-        return new LogicalProject<>(projects.build(), (LogicalPlan) source);
+        return new LogicalProject<>(projects.build(), source);
     }
 
     /**
@@ -491,12 +489,12 @@ class IvmJoinDeltaHandler {
      * retained snapshot after probing by the event keys.
      */
     private NullSideEventPlan buildNullSideEventPlan(
-            NullSideDeltaContext deltaContext, EquiJoinKeys equiJoinKeys, IvmRefreshContext context) {
+            NullSideDeltaContext deltaContext, EquiJoinKeys equiJoinKeys) {
         Plan detailEvent = buildNullSideDetailEvent(deltaContext, equiJoinKeys);
         Plan preNullEvent = buildNullSideRepairEvent(deltaContext, equiJoinKeys, false,
-                new TinyIntLiteral((byte) -1), context);
+                new TinyIntLiteral((byte) -1));
         Plan postNullEvent = buildNullSideRepairEvent(deltaContext, equiJoinKeys, true,
-                new TinyIntLiteral((byte) 1), context);
+                new TinyIntLiteral((byte) 1));
         LogicalUnion union = helper.buildUnionAll(ImmutableList.of(detailEvent, preNullEvent, postNullEvent));
 
         List<Slot> unionOutputs = union.getOutput();
@@ -534,7 +532,7 @@ class IvmJoinDeltaHandler {
                 Column.IVM_DML_FACTOR_COL));
         projects.add(new Alias(nullSideDelta.second.get(deltaContext.deltaSideResult().baseOpSlot),
                 Column.IVM_BASE_OP_COL));
-        return new LogicalProject<>(projects.build(), (LogicalPlan) nullSideDelta.first);
+        return new LogicalProject<>(projects.build(), nullSideDelta.first);
     }
 
     /**
@@ -545,7 +543,7 @@ class IvmJoinDeltaHandler {
      */
     private Plan buildNullSideRepairEvent(
             NullSideDeltaContext deltaContext, EquiJoinKeys equiJoinKeys, boolean postSnapshot,
-            Expression dmlFactor, IvmRefreshContext context) {
+            Expression dmlFactor) {
         LogicalJoin<? extends Plan, ? extends Plan> join = deltaContext.join;
         NullSideDeltaKeyPlan deltaKeys = buildNullSideDeltaKeyPlan(deltaContext, equiJoinKeys);
         Slot flagSlot = postSnapshot ? deltaKeys.negativeSlot : deltaKeys.positiveSlot;
@@ -553,7 +551,7 @@ class IvmJoinDeltaHandler {
                 new GreaterThan(flagSlot, new TinyIntLiteral((byte) 0))), deltaKeys.plan);
         String snapshotAlias = postSnapshot ? NULL_SIDE_POST_SNAPSHOT_ALIAS : NULL_SIDE_PRE_SNAPSHOT_ALIAS;
         Pair<Plan, Map<Slot, Slot>> nullSideSnapshot = helper.remapOutputs(helper.aliasPlan(
-                helper.freshPlan(copyDeltaScanAsSnapshot(deltaContext.deltaSideChild(), postSnapshot, context)),
+                helper.freshPlan(copyDeltaScanAsSnapshot(deltaContext.deltaSideChild(), postSnapshot)),
                 snapshotAlias));
 
         ImmutableList.Builder<Expression> antiConjuncts = ImmutableList.builderWithExpectedSize(
@@ -637,7 +635,7 @@ class IvmJoinDeltaHandler {
             }
             projects.add(new Alias(target.getExprId(), expr, target.getName()));
         }
-        return new LogicalProject<>(projects.build(), (LogicalPlan) source);
+        return new LogicalProject<>(projects.build(), source);
     }
 
     /**
@@ -770,20 +768,20 @@ class IvmJoinDeltaHandler {
      * TODO: Once streams are auto-created (Phase 1), compute TSO from
      * OlapTableStream.getStreamUpdate() instead of using placeholder values.
      */
-    private Plan copyDeltaScanAsSnapshot(Plan plan, boolean postSnapshot, IvmRefreshContext context) {
+    private Plan copyDeltaScanAsSnapshot(Plan plan, boolean postSnapshot) {
         int[] deltaScanCount = new int[1];
         Plan snapshot = plan.rewriteDownShortCircuit(node -> {
             if (node instanceof LogicalProject) {
                 LogicalProject<?> project = (LogicalProject<?>) node;
                 Plan child = project.child();
-                if (child instanceof LogicalOlapScan
-                        && IvmDeltaRewriteHelper.INSTANCE.isIncrementalDeltaScan((LogicalOlapScan) child)) {
+                if (child instanceof LogicalOlapTableStreamScan
+                        && IvmDeltaRewriteHelper.INSTANCE.isIncrementalDeltaScan(child)) {
                     LogicalOlapTableStreamScan streamScan = (LogicalOlapTableStreamScan) child;
                     deltaScanCount[0]++;
                     LogicalPlan snapshotScan = postSnapshot
                             ? streamScan.withPostSnapshot()
                             : streamScan.withPreSnapshot(Optional.empty());
-                    return helper.remapProjectChildToNewPlan(project, (LogicalPlan) snapshotScan);
+                    return helper.remapProjectChildToNewPlan(project, snapshotScan);
                 }
             }
             return node;

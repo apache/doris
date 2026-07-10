@@ -20,6 +20,7 @@ package org.apache.doris.mtmv.ivm;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.info.TableNameInfo;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mtmv.MTMVPlanUtil;
 import org.apache.doris.nereids.StatementContext;
@@ -74,7 +75,8 @@ public class IvmRefreshManager {
         } catch (RuntimeException e) {
             throw e;
         } catch (Exception e) {
-            throw new RuntimeException("IVM refresh execution failed for mv=" + mtmv.getName(), e);
+            throw new RuntimeException("IVM refresh execution failed for mv=" + mtmv.getName()
+                    + ", detail=" + Util.getRootCauseMessage(e), e);
         }
     }
 

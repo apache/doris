@@ -56,11 +56,13 @@ class IvmAggAvgProcessor extends IvmAggSumLikeProcessor {
         Expression newCount = applyContext.buildNewHiddenCount(target);
         applyContext.putFinalExpression(target.getHiddenStateSlot(IvmAggStateKey.SUM).getName(), newSum);
         applyContext.putFinalExpression(target.getHiddenStateSlot(IvmAggStateKey.COUNT).getName(), newCount);
+        Divide coercedDivide = (Divide) TypeCoercionUtils.processDivide(new Divide(newSum, newCount));
+        Expression guardedCount = new If(ctx.isPositive(newCount), coercedDivide.right(),
+                new NullLiteral(coercedDivide.right().getDataType()));
         Expression visibleValue = TypeCoercionUtils.castIfNotMatchType(
-                TypeCoercionUtils.processDivide(new Divide(newSum, newCount)),
+                coercedDivide.withChildren(coercedDivide.left(), guardedCount),
                 target.getVisibleSlot().getDataType());
         applyContext.putFinalExpression(target.getVisibleSlot().getName(),
-                new If(ctx.isPositive(newCount), visibleValue,
-                        new NullLiteral(target.getVisibleSlot().getDataType())));
+                visibleValue);
     }
 }

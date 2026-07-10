@@ -70,12 +70,12 @@ suite("test_ivm_agg_1") {
     def descResult = sql """desc test_ivm_agg_mtmv_mv all"""
     assertTrue(descResult.toString().contains("UNIQUE_KEYS"))
 
-    // 6. First COMPLETE refresh
-    sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_mv COMPLETE"""
+    // 6. Initial INCREMENTAL refresh consumes the historical binlog and establishes the stream offset.
+    sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_mv")
 
     // Each k1 maps to 1 row, so COUNT(*)=1, SUM(v1)=v1
-    order_qt_agg_after_first_complete """SELECT k1, cnt, sum_v1 FROM test_ivm_agg_mtmv_mv"""
+    order_qt_agg_after_initial_incremental """SELECT k1, cnt, sum_v1 FROM test_ivm_agg_mtmv_mv"""
 
     // 7. Insert new rows: new group k1=4 and update existing k1=1 (MOW upsert replaces v1)
     sql """
@@ -84,16 +84,11 @@ suite("test_ivm_agg_1") {
             (1, 15);
     """
 
-    // 8. INCREMENTAL refresh — verify it completes and produces queryable data.
-    //    NOTE: The current IVM mock reads the full base table as delta, so aggregate values
-    //    may be inflated (mock delta counts every row as a new insert).
-    //    We assert that the task finishes in SUCCESS state and output rows are queryable.
+    // 8. INCREMENTAL refresh consumes only the binlog records written after the initial refresh.
     sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_mv")
 
-    // After first INCREMENTAL: mock delta includes all 4 rows (k1=1,2,3,4), each counted once.
-    // Due to mock full-table delta, counts are inflated — output is queryable but not yet correct.
-    order_qt_agg_after_first_incremental """SELECT k1, cnt, sum_v1 FROM test_ivm_agg_mtmv_mv"""
+    order_qt_agg_after_first_update_incremental """SELECT k1, cnt, sum_v1 FROM test_ivm_agg_mtmv_mv"""
 
     // 9. Update another row: k1=2 gets new value
     sql """
@@ -105,7 +100,7 @@ suite("test_ivm_agg_1") {
     sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_mv")
 
-    order_qt_agg_after_second_incremental """SELECT k1, cnt, sum_v1 FROM test_ivm_agg_mtmv_mv"""
+    order_qt_agg_after_second_update_incremental """SELECT k1, cnt, sum_v1 FROM test_ivm_agg_mtmv_mv"""
 
     // 11. COMPLETE refresh — produces correct results (full recomputation)
     sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_mv COMPLETE"""
@@ -160,24 +155,22 @@ suite("test_ivm_agg_1") {
     def scalarDescResult = sql """desc test_ivm_agg_mtmv_scalar_mv all"""
     assertTrue(scalarDescResult.toString().contains("UNIQUE_KEYS"))
 
-    // First COMPLETE refresh: 3 rows, total_cnt=3, total_sum=60, avg=20, cnt_v1=3
-    sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_scalar_mv COMPLETE"""
+    // Initial INCREMENTAL refresh: 3 rows, total_cnt=3, total_sum=60, avg=20, cnt_v1=3
+    sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_scalar_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_scalar_mv")
 
-    order_qt_scalar_after_first_complete """
+    order_qt_scalar_after_initial_incremental """
         SELECT total_cnt, total_sum, avg_v1, cnt_v1 FROM test_ivm_agg_mtmv_scalar_mv
     """
 
     // Upsert k1=1 (v1: 10 → 15)
     sql """INSERT INTO test_ivm_agg_mtmv_scalar_base VALUES (1, 15);"""
 
-    // INCREMENTAL refresh — only asserts SUCCESS (no crash / type-mismatch),
-    // since mock IVM reads the full base table so scalar agg values may not be correct.
+    // INCREMENTAL refresh consumes the update after the initial stream offset.
     sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_scalar_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_scalar_mv")
 
-    // Output after first INCREMENTAL: mock delta inflates counts, values not semantically correct.
-    order_qt_scalar_after_first_incremental """
+    order_qt_scalar_after_first_update_incremental """
         SELECT total_cnt, total_sum, avg_v1, cnt_v1 FROM test_ivm_agg_mtmv_scalar_mv
     """
 
@@ -188,7 +181,7 @@ suite("test_ivm_agg_1") {
     sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_scalar_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_scalar_mv")
 
-    order_qt_scalar_after_second_incremental """
+    order_qt_scalar_after_second_update_incremental """
         SELECT total_cnt, total_sum, avg_v1, cnt_v1 FROM test_ivm_agg_mtmv_scalar_mv
     """
 
@@ -256,11 +249,11 @@ suite("test_ivm_agg_1") {
     def minmaxDescResult = sql """desc test_ivm_agg_mtmv_minmax_mv all"""
     assertTrue(minmaxDescResult.toString().contains("UNIQUE_KEYS"))
 
-    // First COMPLETE refresh: grp=1 → min=100,max=200; grp=2 → min=50,max=80
-    sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_minmax_mv COMPLETE"""
+    // Initial INCREMENTAL refresh: grp=1 → min=100,max=200; grp=2 → min=50,max=80
+    sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_minmax_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_minmax_mv")
 
-    order_qt_minmax_after_first_complete """
+    order_qt_minmax_after_initial_incremental """
         SELECT grp, min_v1, max_v1 FROM test_ivm_agg_mtmv_minmax_mv ORDER BY grp
     """
 
@@ -345,16 +338,16 @@ suite("test_ivm_agg_1") {
     def minmaxOpMvInfos = sql """select State from mv_infos('database'='${context.dbName}') where Name = 'test_ivm_agg_mtmv_minmax_op_mv'"""
     assertTrue(minmaxOpMvInfos.toString().contains("INIT"))
 
-    // Step 1: COMPLETE refresh — min=10, max=30, cnt=3
-    sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_minmax_op_mv COMPLETE"""
+    // Step 1: Initial INCREMENTAL refresh — min=10, max=30, cnt=3
+    sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_minmax_op_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_minmax_op_mv")
 
-    order_qt_minmax_op_after_complete """
+    order_qt_minmax_op_after_initial_incremental """
         SELECT min_v1, max_v1, cnt FROM test_ivm_agg_mtmv_minmax_op_mv
     """
 
     // Step 2: Safe INCREMENTAL — insert a new row (op=0) that does NOT touch MIN boundary
-    // After this, mock delta reads all 4 rows (all op=0), dml_factor=1 for all → no deletes
+    // This writes one new insert after the initial stream offset.
     sql """INSERT INTO test_ivm_agg_mmop_base VALUES (4, 25);"""
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_minmax_op_mv INCREMENTAL"""
@@ -393,9 +386,8 @@ suite("test_ivm_agg_1") {
                     || errorMsg.contains("assert_true") || errorMsg.contains("fallback"),
             "Error should mention MIN_MAX_BOUNDARY/IVM/assert_true/fallback but got: " + errorMsg)
 
-    // Step 4: COMPLETE refresh to recover — now k1=1(op=1) is physically present,
-    // and k1=2(v1=20), k1=3(v1=30), k1=4(v1=25), k1=5(v1=35) all have op=0.
-    // COMPLETE ignores binlog_op semantics, so min=10, max=35, cnt=5
+    // Step 4: COMPLETE refresh recovers from the failed task. The snapshot excludes deleted k1=1,
+    // so min=20, max=35, cnt=4.
     sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_minmax_op_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_minmax_op_mv")
 
@@ -409,7 +401,7 @@ suite("test_ivm_agg_1") {
     sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_minmax_op_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_minmax_op_mv")
 
-    // After safe INCREMENTAL: mock delta sees all physical rows; output queryable.
+    // After safe INCREMENTAL, output remains queryable.
     order_qt_minmax_op_after_safe_incremental """
         SELECT min_v1, max_v1, cnt FROM test_ivm_agg_mtmv_minmax_op_mv
     """
@@ -469,14 +461,14 @@ suite("test_ivm_agg_1") {
            GROUP BY grp;
     """
 
-    // Step 1: COMPLETE refresh
+    // Step 1: Initial INCREMENTAL refresh
     // grp=1: sum=30, avg=15, cnt_v1=2, min=10, max=20, cnt_all=2
     // grp=2: sum=30, avg=30, cnt_v1=1, min=30, max=30, cnt_all=2
     // grp=3: sum=NULL, avg=NULL, cnt_v1=0, min=NULL, max=NULL, cnt_all=1
-    sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_null_mv COMPLETE"""
+    sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_null_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_null_mv")
 
-    order_qt_null_after_complete """
+    order_qt_null_after_initial_incremental """
         SELECT grp, sum_v1, avg_v1, cnt_v1, min_v1, max_v1, cnt_all
         FROM test_ivm_agg_mtmv_null_mv ORDER BY grp
     """
@@ -489,8 +481,8 @@ suite("test_ivm_agg_1") {
     sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_null_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_null_mv")
 
-    // After INCREMENTAL: mock delta reads all rows; output may be inflated but queryable.
-    order_qt_null_after_incremental """
+    // After INCREMENTAL, only the two rows written after the initial stream offset are applied.
+    order_qt_null_after_update_incremental """
         SELECT grp, sum_v1, avg_v1, cnt_v1, min_v1, max_v1, cnt_all
         FROM test_ivm_agg_mtmv_null_mv ORDER BY grp
     """
@@ -516,18 +508,14 @@ suite("test_ivm_agg_1") {
     sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_null_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_null_mv")
 
-    // After INCREMENTAL with NULL-row deletion: mock delta sees k1=6(grp=1,NULL,op=1)
-    // as dml_factor=-1, and k1=8(grp=2,40,op=0) as dml_factor=+1.
+    // The stream applies the deletion of k1=6 (grp=1, NULL) and insertion of k1=8 (grp=2, 40).
     order_qt_null_after_delete_incremental """
         SELECT grp, sum_v1, avg_v1, cnt_v1, min_v1, max_v1, cnt_all
         FROM test_ivm_agg_mtmv_null_mv ORDER BY grp
     """
 
-    // Step 5: COMPLETE to get ground truth after NULL-row deletion
-    // grp=1: k1=1(10),2(20),6(NULL,deleted) → effectively k1=1(10),2(20) → sum=30, avg=15, cnt_v1=2, min=10, max=20, cnt_all=2
-    //         BUT with mock delta, COMPLETE still sees all physical rows including k1=6 with op=1
-    //         COMPLETE refresh ignores so k1=6 is still counted:
-    //         k1=1(10),2(20),6(NULL) → sum=30, avg=15, cnt_v1=2, min=10, max=20, cnt_all=3
+    // Step 5: COMPLETE refresh verifies the snapshot after NULL-row deletion.
+    // grp=1 excludes deleted k1=6, so sum=30, avg=15, cnt_v1=2, min=10, max=20, cnt_all=2
     // grp=2: k1=3(NULL),4(30),8(40) → sum=70, avg=35, cnt_v1=2, min=30, max=40, cnt_all=3
     // grp=3: k1=5(NULL),7(50) → sum=50, avg=50, cnt_v1=1, min=50, max=50, cnt_all=2
     sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_null_mv COMPLETE"""
@@ -536,5 +524,62 @@ suite("test_ivm_agg_1") {
     order_qt_null_after_delete_complete """
         SELECT grp, sum_v1, avg_v1, cnt_v1, min_v1, max_v1, cnt_all
         FROM test_ivm_agg_mtmv_null_mv ORDER BY grp
+    """
+
+    // =========================================================
+    // Part 6: Decimal AVG incremental refresh
+    // =========================================================
+
+    sql """drop materialized view if exists test_ivm_agg_mtmv_decimal_mv;"""
+    sql """drop table if exists test_ivm_agg_mtmv_decimal_base;"""
+
+    sql """
+        CREATE TABLE test_ivm_agg_mtmv_decimal_base (
+            k1 INT,
+            grp INT,
+            v1 DECIMAL(18, 4)
+        )
+        UNIQUE KEY(k1)
+        DISTRIBUTED BY HASH(k1) BUCKETS 2
+        PROPERTIES (
+            "replication_num" = "1",
+            "binlog.enable" = "true",
+            "binlog.format" = "ROW", "binlog.need_historical_value" = "true",
+            "enable_unique_key_merge_on_write" = "true"
+        );
+    """
+
+    sql """
+        INSERT INTO test_ivm_agg_mtmv_decimal_base VALUES
+            (1, 1, 1.2500),
+            (2, 1, 1.7500),
+            (3, 2, NULL);
+    """
+
+    sql """
+        CREATE MATERIALIZED VIEW test_ivm_agg_mtmv_decimal_mv
+        BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL
+        DISTRIBUTED BY RANDOM BUCKETS 2
+        PROPERTIES (
+            'replication_num' = '1'
+        )
+        AS SELECT grp, AVG(v1) AS avg_v1
+           FROM test_ivm_agg_mtmv_decimal_base
+           GROUP BY grp;
+    """
+
+    sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_decimal_mv INCREMENTAL"""
+    waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_decimal_mv")
+
+    order_qt_decimal_avg_after_initial_incremental """
+        SELECT grp, avg_v1 FROM test_ivm_agg_mtmv_decimal_mv ORDER BY grp
+    """
+
+    sql """INSERT INTO test_ivm_agg_mtmv_decimal_base VALUES (4, 2, 2.5000);"""
+    sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_decimal_mv INCREMENTAL"""
+    waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_decimal_mv")
+
+    order_qt_decimal_avg_after_incremental """
+        SELECT grp, avg_v1 FROM test_ivm_agg_mtmv_decimal_mv ORDER BY grp
     """
 }

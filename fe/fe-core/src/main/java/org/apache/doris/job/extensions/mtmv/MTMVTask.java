@@ -37,6 +37,7 @@ import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccTable;
@@ -540,7 +541,7 @@ public class MTMVTask extends AbstractTask {
                     + ", detail=" + e.getMessage(), e);
         } catch (Exception e) {
             throw new JobException("IVM incremental refresh failed for mv=" + mtmv.getName()
-                    + ", detail=" + e.getMessage(), e);
+                    + ", detail=" + Util.getRootCauseMessage(e), e);
         }
         if (ivmResult.isSuccess()) {
             this.partitionSnapshots.putAll(capturedSnapshots);
