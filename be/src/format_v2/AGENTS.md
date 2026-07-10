@@ -13,6 +13,49 @@ instructions as well; this file adds format-v2-specific review expectations.
 - Verify claims against callers, implementations, and tests. Do not report a hypothetical failure
   unless a reachable input or state demonstrates it.
 
+## Architecture and Interface Contracts
+
+- Use the [FileScannerV2 design document](https://selectdb.feishu.cn/wiki/USn1wKZkLiqs15k9vqUceQl2nid)
+  as the architectural reference. Preserve the one-way responsibility chain: Scanner manages query
+  integration and Split progression, `TableReader` manages table semantics, and `FileReader`
+  interprets physical files. Layer boundaries take priority over incidental code reuse.
+- `TableReader` owns table-level projection and column order, partition/default/virtual columns,
+  table predicates and delete semantics, per-Split state, reader orchestration, and final table-block
+  materialization. It may consume file schema and file-local blocks through stable contracts, but it
+  must not depend on a concrete format reader's metadata structures, decoding implementation, or
+  physical nested layout.
+- `FileReader` owns physical schema discovery, file metadata, encoding and decoding, physical
+  pruning, lazy reads, and production of file-local blocks. It must not know query-global column
+  positions, table output order, partition/default/virtual-column construction, table-format
+  semantics, Scanner scheduling, or Split-source policy.
+- `TableColumnMapper` is the only semantic bridge between table/global and file/local column
+  domains. It translates table projection and predicates plus file schema into `FileScanRequest`,
+  mapping/finalize metadata, constants, and localized expressions. It must not open or read files,
+  advance Splits, own reader lifecycle, or depend on concrete `TableReader`/`FileReader`
+  implementations.
+- Coupling between these layers is allowed only through stable, format-neutral contracts such as
+  `ColumnDefinition`, `FileScanRequest`, mapper results, capability/status objects, and file-local
+  blocks. Flag new concrete-class includes, downcasts, reverse callbacks, shared mutable state, or
+  direct inspection of another layer's implementation details.
+- Do not bypass `TableColumnMapper`: `TableReader` must not independently reproduce file-local
+  column matching or position logic, and `FileReader` must not independently resolve table schema,
+  defaults, partitions, virtual columns, or final table types. There must be one authoritative
+  mapping for projection, predicate localization, and final materialization.
+- Keep identity namespaces explicit at every boundary. Query expressions and table output use
+  global identities; file requests and file blocks use local identities. A file-local ordinal,
+  field ID, physical child position, or format wrapper node must never leak upward as a table/global
+  identity.
+- Localized predicates and delete information may be executed by a file reader only after the
+  mapper/table layer has converted them into a file-local contract. The file reader may optimize
+  execution but must not reinterpret or invent the table-level semantics.
+- Format-specific capability or metadata needed by an upper layer should be exposed as the smallest
+  neutral capability/result contract. Do not add Parquet/ORC/JNI-specific conditionals to generic
+  table semantics when the decision belongs in a reader, factory, or capability interface.
+- When reviewing an interface change, identify the owner layer, document input/output and lifecycle
+  invariants, inspect every caller and implementation, and verify that adding another file format or
+  table format would not require changes in unrelated layers. Require boundary-focused tests that
+  exercise mapping and materialization independently from physical decoding where possible.
+
 ## Reader Lifecycle and Contracts
 
 - Preserve the reader lifecycle and state transitions across initialization, schema discovery,
