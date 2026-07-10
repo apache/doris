@@ -324,9 +324,11 @@ After all land, run a unified adversarial re-review (clean-room, per project pra
 ---
 
 ## 9. TODO (fill after Q1/Q2 sign-off)
-- [ ] C-a pom dep + Caffeine 2.9.3 (+ verify single-copy in zip)
-- [ ] C-b metastore-metadata cache (per Q1) from `meta.cache.hive.*`, unconsulted + tests
-- [ ] C-c wire metadata reads + freshness probes through it + tests
+- [x] C-a pom dep + Caffeine 2.9.3 (+ verify single-copy in zip) — `f742651990d`
+- [x] C-b metastore-metadata cache (per Q1) from `meta.cache.hive.*`, unconsulted + tests — `4fe55d88fab`
+- [x] C-c wire metadata reads + freshness probes through it + tests — `7b05df6e55e` (wrapWithCache seam in
+      HiveConnector.createClient; transparent decorator => all HiveConnectorMetadata reads + both freshness
+      probes cache-backed by the single wrap; HiveConnectorClientCacheTest 4; hive 244 green)
 - [ ] C-d file-listing cache (per Q2) + TCCL + row-count backing + tests
 - [ ] C-e `invalidateTable/invalidateAll` overrides + tests
 - [ ] C-f §2.6 fe-core last-modified branch (byte-neutral guard) + tests
