@@ -38,6 +38,7 @@ suite("query85") {
     sql "SET enable_dphyp_optimizer = true"
     sql "set max_table_count_use_cascades_join_reorder = 1"
     sql "set dphyper_limit=2600"
+    sql "set join_reorder_time_limit=10000"
 
     def ds = """select  substr(r_reason_desc,1,20)
        ,avg(ws_quantity)
