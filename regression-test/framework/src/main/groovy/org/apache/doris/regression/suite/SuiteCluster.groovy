@@ -572,7 +572,7 @@ class SuiteCluster {
     }
 
     List<Integer> addFrontend(int num, boolean followerMode=false) throws Exception {
-        def result = add(0, num, '', false, null)
+        def result = add(num, 0, '', followerMode, null)
         return result.first
     }
 
