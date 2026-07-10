@@ -23,7 +23,6 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.IdGenerator;
@@ -59,7 +58,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -282,7 +280,6 @@ public class NereidsLoadScanProvider {
             }
         }
 
-        HashMap<String, Type> colToType = new HashMap<>();
         // check default value and auto-increment column
         for (Column column : tbl.getBaseSchema()) {
             if (fileGroupInfo.getUniqueKeyUpdateMode() == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS
@@ -290,7 +287,6 @@ public class NereidsLoadScanProvider {
                 continue;
             }
             String columnName = column.getName();
-            colToType.put(columnName, column.getType());
             Expression expression = null;
             if (column.getGeneratedColumnInfo() != null) {
                 // the generated column will be handled by bindSink
@@ -373,12 +369,11 @@ public class NereidsLoadScanProvider {
                 // Use real column type for arrow/native format, other formats read as varchar first
                 if (fileFormatType == TFileFormatType.FORMAT_ARROW
                         || fileFormatType == TFileFormatType.FORMAT_NATIVE) {
-                    Type slotType = tblColumn == null ? colToType.get(realColName) : tblColumn.getType();
-                    if (slotType == null) {
+                    if (tblColumn == null) {
                         throw new AnalysisException("Unknown column " + realColName + " in table " + tbl.getName()
                                 + " for " + fileFormatType + " load");
                     }
-                    slotColumn = new Column(realColName, slotType, true);
+                    slotColumn = new Column(realColName, tblColumn.getType(), true);
                 } else {
                     if (fileGroupInfo.getUniqueKeyUpdateMode() == TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS
                             && hasSkipBitmapColumn) {
