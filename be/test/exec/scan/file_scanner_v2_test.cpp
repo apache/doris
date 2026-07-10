@@ -125,6 +125,8 @@ TEST(FileScannerV2Test, SupportedFormatMatrix) {
             {"hive", TFileFormatType::FORMAT_ARROW, std::nullopt, false},
             {"", TFileFormatType::FORMAT_ARROW, std::nullopt, false},
             {"", TFileFormatType::FORMAT_WAL, std::nullopt, false},
+            {"", TFileFormatType::FORMAT_ES_HTTP, std::nullopt, false},
+            {"", TFileFormatType::FORMAT_LANCE, std::nullopt, false},
     };
 
     for (const auto& test_case : cases) {
