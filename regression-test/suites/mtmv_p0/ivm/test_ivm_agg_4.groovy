@@ -70,11 +70,11 @@ suite("test_ivm_agg_4") {
            GROUP BY grp;
     """
 
-    // COMPLETE refresh
+    // Initial INCREMENTAL refresh establishes the stream offset.
     // grp=1: sum_add=SUM(30+70)=100, min_double=MIN(20,60)=20, max_add=MAX(30,70)=70,
-    //        cnt_add=2, avg_add=50, cnt=2
+    // cnt_add=2, avg_add=50, cnt=2
     // grp=2: sum_add=110, min_double=100, max_add=110, cnt_add=1, avg_add=110, cnt=1
-    sql """REFRESH MATERIALIZED VIEW test_ivm_agg_4_expr_mv COMPLETE"""
+    sql """REFRESH MATERIALIZED VIEW test_ivm_agg_4_expr_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("test_ivm_agg_4_expr_mv")
 
     order_qt_expr_complete """
@@ -184,9 +184,9 @@ suite("test_ivm_agg_4") {
            GROUP BY k1;
     """
 
-    // COMPLETE refresh
+    // Initial INCREMENTAL refresh establishes the stream offset.
     // k1=NULL: cnt=2, sum=30; k1=1: cnt=1, sum=30; k1=2: cnt=1, sum=40
-    sql """REFRESH MATERIALIZED VIEW test_ivm_agg_4_nullkey1_mv COMPLETE"""
+    sql """REFRESH MATERIALIZED VIEW test_ivm_agg_4_nullkey1_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("test_ivm_agg_4_nullkey1_mv")
 
     order_qt_nullkey1_complete """
@@ -291,12 +291,12 @@ suite("test_ivm_agg_4") {
            GROUP BY k1, k2;
     """
 
-    // COMPLETE refresh
+    // Initial INCREMENTAL refresh establishes the stream offset.
     // (NULL,'x'): cnt=2, sum=30
     // ('x',NULL): cnt=1, sum=30
     // (NULL,NULL): cnt=1, sum=40
     // ('a','b'): cnt=1, sum=50
-    sql """REFRESH MATERIALIZED VIEW test_ivm_agg_4_nullkey2_mv COMPLETE"""
+    sql """REFRESH MATERIALIZED VIEW test_ivm_agg_4_nullkey2_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("test_ivm_agg_4_nullkey2_mv")
 
     order_qt_nullkey2_complete """
@@ -373,8 +373,9 @@ suite("test_ivm_agg_4") {
            GROUP BY k1;
     """
 
-    // COMPLETE: NULL→cnt=1,sum=10; ''→cnt=1,sum=20; 'a'→cnt=1,sum=30
-    sql """REFRESH MATERIALIZED VIEW test_ivm_agg_4_nullempty_mv COMPLETE"""
+    // Initial INCREMENTAL establishes the stream offset.
+    // NULL→cnt=1,sum=10; ''→cnt=1,sum=20; 'a'→cnt=1,sum=30
+    sql """REFRESH MATERIALIZED VIEW test_ivm_agg_4_nullempty_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("test_ivm_agg_4_nullempty_mv")
 
     order_qt_nullempty_complete """
