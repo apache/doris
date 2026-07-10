@@ -16,6 +16,27 @@
 // under the License.
 
 suite("test_ivm_explain_refresh") {
+    def explainIvmPlanWithoutStreamId = { String tag, String sql ->
+        delegate.quickRunTest(
+                tag,
+                sql,
+                false,
+                { row ->
+                    def planIndex = row.size() - 1
+                    def plan = row[planIndex].toString()
+                            .replaceAll(/#\d+/, "#")
+                            .replaceAll(/\b([A-Za-z][A-Za-z0-9_]*)\[\d+\]/, '$1[]')
+                            .replaceAll(/selectedIndexId=[^,\s\)]+/, "selectedIndexId=<id>")
+                            .replaceAll(/__doris_ivm_stream_\d+_/, "__doris_ivm_stream_")
+                    def converted = []
+                    for (int i = 0; i < row.size(); i++) {
+                        converted.add(i == planIndex ? plan : row[i].toString())
+                    }
+                    return converted
+                }
+        )
+    }
+
     sql """drop materialized view if exists test_ivm_explain_refresh_mv;"""
     sql """drop table if exists test_ivm_explain_refresh_t1;"""
     sql """drop table if exists test_ivm_explain_refresh_t2;"""
@@ -70,11 +91,11 @@ suite("test_ivm_explain_refresh") {
     sql """INSERT INTO test_ivm_explain_refresh_t1 VALUES (1, 10), (2, 20);"""
     sql """INSERT INTO test_ivm_explain_refresh_t2 VALUES (1, 100), (3, 300);"""
 
-    explainIvmPlan("left_delta_shape_plan", """
+    explainIvmPlanWithoutStreamId("left_delta_shape_plan", """
         EXPLAIN SHAPE PLAN REFRESH MATERIALIZED VIEW test_ivm_explain_refresh_mv INCREMENTAL
     """)
 
-    explainIvmPlan("right_delta_shape_plan", """
+    explainIvmPlanWithoutStreamId("right_delta_shape_plan", """
         EXPLAIN SHAPE PLAN REFRESH MATERIALIZED VIEW test_ivm_explain_refresh_mv INCREMENTAL
     """)
 

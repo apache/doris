@@ -365,9 +365,10 @@ public class IvmDeltaRewriter {
             if (currentIndex == deltaIndex) {
                 return replaceWithDelta(scan, ctx);
             } else if (currentIndex < deltaIndex) {
-                return helper.remapScanOutput(scan, (LogicalPlan) scan.withPostSnapshot());
+                return helper.remapOlapScanToPlan(scan, scan.withPostSnapshot());
             } else {
-                return helper.remapScanOutput(scan, (LogicalPlan) scan.withPreSnapshot(Optional.of(ctx.stream)));
+                return helper.remapOlapScanToPlan(scan,
+                        scan.withPreSnapshot(Optional.of(ctx.stream)));
             }
         });
 
@@ -430,7 +431,7 @@ public class IvmDeltaRewriter {
 
     private Plan replaceWithDelta(LogicalOlapScan scan, DeltaScanContext ctx) {
         LogicalOlapTableStreamScan streamScan = createStreamScan(scan, ctx.stream);
-        return helper.remapScanOutput(scan, streamScan);
+        return helper.remapOlapScanToPlan(scan, streamScan);
     }
 
     private LogicalOlapTableStreamScan createStreamScan(LogicalOlapScan scan, OlapTableStream stream) {
