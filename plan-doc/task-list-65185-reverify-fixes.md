@@ -33,7 +33,7 @@ Legend：⬜ todo / 🔄 in progress / ✅ done / ⏸ 挂起(需决策/live)
 | 6 | **M2** | 🟠中 | hive | 翻闸 hive 丢批量/异步 split | ⬜ | ⬜ | ⬜ | ⬜ |
 | 7 | **M3** | 🟠中 | fe-core | MC batch 闸门 `!=NOT_PRUNED`→`!isPruned` | ⬜ | ⬜ | ⬜ | ⬜ |
 | 8 | **M4** | 🟠中 | maxcompute | MC 分区值缓存删除→每查询全量 listPartitions | ⬜ | ⬜ | ⬜ | ⬜ |
-| 9 | **M5** | 🟠中 | iceberg | computeRowCount 丢 equality-delete gate | ⬜ | ⬜ | ⬜ | ⬜ |
+| 9 | **M5** | 🟠中 | iceberg | computeRowCount 丢 equality-delete gate | ✅ | ✅ | ✅ | ✅ |
 | 10 | **M6** | 🟠中 | iceberg | s3tables 无显式凭证硬失败(丢默认链) | ⬜ | ⬜ | ⬜ | ⬜ |
 | 11 | **M7** | 🟠中 | iceberg | REST vended-cred region 别名收窄 | ⬜ | ⬜ | ⬜ | ⬜ |
 | 12 | **M8** | 🟠中(运营) | build/docs | 升级只换 lib 不部署 plugins→首访抛 | ⬜ | ⬜ | ⬜ | ⬜ |
@@ -139,7 +139,7 @@ Legend：⬜ todo / 🔄 in progress / ✅ done / ⏸ 挂起(需决策/live)
 - **Test intent**:连接器单测:同表两次 `listPartitions` 只一次 SDK 往返(recording fake 计数)。
 
 ### M5 — iceberg computeRowCount 丢 equality-delete gate · reverify §3 M5
-- [ ] **M5**
+- [x] **M5** · DONE `84f580c9075`（设计 `designs/FIX-M5-design.md`；recon+红队 SOUND_WITH_CHANGES）。根因=parity 目标被上游 #64648 移动（非误读）；恢复护栏对齐当前旧版（**用户 2026-07-11 签字推翻先前「不 gate」决定**）；连接器局部无 fe-core；3 处 P6.6-FIX-H4 stale 文档已批注 SUPERSEDED；`IcebergConnectorMetadataStatisticsTest` 7/7 绿（含倒置后的 gate 断言，RED-able）。e2e live-gated。
 - **现码**:`IcebergConnectorMetadata.computeRowCount:631-646`(无 gate 减法)vs COUNT(*) 下推 `IcebergScanPlanProvider.getCountFromSummary:1572-1574`(保留 gate)。legacy `IcebergUtils.getCountFromSummary:231-233` gate 到 UNKNOWN。javadoc+单测前提为假。
 - **Fix**:加 `TOTAL_EQUALITY_DELETES` 常量,`computeRowCount` 减法前 `null||!="0"→返回 -1(UNKNOWN)`;订正 javadoc `:624-629`;重写 `equalityDeletesDoNotGateTableStatistics:195-210` 断言 UNKNOWN。
 - **Files**:`fe-connector-iceberg/.../IcebergConnectorMetadata.java` + 同名测试。
@@ -236,3 +236,9 @@ Legend：⬜ todo / 🔄 in progress / ✅ done / ⏸ 挂起(需决策/live)
 - **批次 0 test-hardening** DONE `f0ee2ab06d2` — DATE 非回归测(hive+hudi)+ hive `.1` 微秒去尾零(补 H2 设计 item 6 + 复审软点)。
 - **批次 0 全量对抗复审(3 skeptic)= CLEAN**:四修正确/复合/无回归、范围完整、10 新测均可 RED。**登记残余(非本批修)**:`use_hive_sync_partition=true`+`hive_style_partitioning=false` 表 hive-sync 臂仍喂 HMS 名给 fsView→带 filter 0 split(同 H3 类、另一臂、pre-existing 与 legacy parity);D-PRUNE/相对化 location 时一并评估。见 `designs/FIX-H3-design.md` §最终对抗复审。
 - **⭐ 批次 0(H1–H4)全部 DONE。** 下一步见文首建议批次:批次 1(M5→M7→M6/M4/M2 连接器局部)。**所有 H1–H4 e2e 均 live-gated**(含转义值/DATETIME/非-hive-style/MOR-JNI 混大小写读),须真集群回归(memory `hms-iceberg-delegation-needs-e2e`)。
+
+---
+
+**⭐ 批次 1(M5→M7→M6/M4/M2 连接器局部)进行中**:recon+对抗红队一轮扫全 5 条(workflow `wf_40498e52-19f`,5 recon+5 红队),全部机制 HEAD 确认、verdict SOUND / SOUND_WITH_CHANGES(无 UNSOUND)。要点:M7 只需更正注释措辞(别名数组本身正确);M6 须把「data-plane client.region」companion 从可选升为必做 + 注意测试 UnusedImports;M4 最干净(SOUND,唯 Caffeine 2.9.3 版本一致性待 build-verify);M2 **非** trivial「照抄 MaxCompute」——hive `planScan` 非 partition-set-scoped,必须**额外** override `planScanForPartitionBatch` 否则 batch 重复 split(红队证实),另需登记 ACID→sync + 未过滤扫描→sync 两条偏差。
+
+- **M5** DONE `84f580c9075`(code) — iceberg 表级行数恢复 equality-delete 护栏,对齐当前旧版(上游 #64648 移动了 parity 目标)。**推翻先前签字的「不 gate」决定,用户 2026-07-11 签字**;3 处 P6.6-FIX-H4 文档批注 SUPERSEDED;`IcebergConnectorMetadataStatisticsTest` 7/7 绿。e2e live-gated(equality-delete 表 SHOW TABLE STATS=UNKNOWN,独立 iceberg + iceberg-on-HMS 同表同结果)。
