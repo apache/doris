@@ -134,23 +134,48 @@ keep the connector-wide flag → unchanged. e2e-owed: hudi-on-HMS NOT auto-analy
 - [x] **S1** `partition_values` plugin arm (edits A–E + `getNameToPartitionValues` SPI). ✅ commit
       `166515cdc88`. fe-core BUILD SUCCESS + 0 checkstyle + import-gate clean. Functional test (paimon/
       iceberg live rows; hive post-flip == legacy) = e2e-owed. **Additive for paimon/iceberg**, dormant hive.
-- [ ] **S4** auto-analyze per-table gate (`supportsColumnAutoAnalyze` → `hasScanCapability`; hive emits
-      per-table marker, drops connector-wide flag). ⚠ **INVESTIGATE FIRST** (hidden depth): post-flip do
-      iceberg-on-HMS / hudi-on-HMS tables resolve `SUPPORTS_COLUMN_AUTO_ANALYZE` from the HIVE connector or
-      from their delegated sibling connector? Legacy admitted `dlaType==ICEBERG` too. If iceberg-on-HMS
-      already gets it via the iceberg sibling's connector-wide flag, then hive only needs to emit the marker
-      for plain-hive (and NOT hudi), and the "exclude hudi" fix reduces to: does the hudi sibling declare
-      it? Nail this before editing. Per-table marker precedent = `HiveConnectorMetadata.java:402-414`
-      (`SUPPORTS_TOPN_LAZY_MATERIALIZE`).
-- [ ] **S2** `hudi_meta` connector-driven (neutral metadata-rows SPI + `HudiConnector` impl + rewrite
-      `hudiMetadataResult`, shed `org.apache.hudi` from fe-core). Dormant unit test for the plugin arm.
-- [ ] **S3** sample-analyze full port (capability + per-table `supportsSampleAnalyze`/`isSamplingPartition`
-      arms + sample-capable plugin task + chunk-sizes SPI + hive marker/impl).
-- [ ] (optional) soften `HiveConnector.java:206-208` comment (W6 doc-only).
-- [ ] clean-room adversarial review over all seam commits; fix confirmed findings.
-- [ ] update HANDOFF + this doc's checkboxes; record e2e-owed rows into execution-plan §4.
+- [x] **S4** auto-analyze per-table gate. ✅ commit `89c6f9454bb`. **Recon RESOLVED the hidden depth:**
+      iceberg-on-HMS resolves capability from the **HIVE** connector, NEVER the iceberg sibling (proven at
+      HEAD by the completeness critic) — so dropping the hive connector-wide flag alone would silently
+      regress iceberg-on-HMS (legacy admitted `dlaType==ICEBERG`). Fix: `supportsColumnAutoAnalyze()` →
+      `hasScanCapability`; drop the hive connector-wide flag (de-admits hudi-on-HMS); emit the per-table
+      marker for plain-hive; **and (user chose Option C, full parity) reflect the OWNING sibling's
+      connector-wide capability set onto the delegated iceberg/hudi-on-HMS schema as a per-table marker**
+      (`HiveConnectorMetadata.reflectSiblingScanCapabilities`, Trino table-redirection semantics). This
+      restores iceberg-on-HMS auto-analyze AND closes the same-root-cause Top-N / nested-column-prune loss
+      for iceberg-on-HMS in one place; hudi-on-HMS (sibling declares neither) is correctly withheld. 0
+      checkstyle, import-gate clean, 4 suites green. Parity e2e-owed.
+- [x] **S2** `hudi_meta` connector-driven. ✅ commit `d8f2d01978a`. Neutral `getMetadataTableRows` SPI
+      (`List<List<String>>` — TVF owns the schema, lighter than `ConnectorProcedureResult`) +
+      `SUPPORTS_METADATA_TABLE` + `HudiConnector` impl (full active timeline, TCCL-pinned) + dual-arm
+      `hudiMetadataResult` (HMS arm sources from the relocated `HudiExternalMetaCache.getTimelineRows`).
+      **MetadataGenerator sheds its two `org.apache.hudi` imports.** Dormant unit tests for the plugin arm.
+      Timeline-row parity e2e-owed (4 p2 suites, enableHudiTest).
+- [x] **S3** sample-analyze full port. ✅ commit `8469a033abd`. `SUPPORTS_SAMPLE_ANALYZE` (per-table,
+      plain-hive only) + additive `canSample`/`isSamplingPartition` arms + `PluginDrivenSampleAnalysisTask`
+      (verbatim `doSample`/`getSampleInfo`/`needLimit`) + `ConnectorStatisticsOps.listFileSizes` SPI +
+      `getChunkSizes` override + **(user chose full parity) distribution-column port** (`DISTRIBUTION_COLUMNS_KEY`,
+      fe-core lowercases) + `StatisticsAutoCollector` force-FULL refined to `&& !supportsSampleAnalyze()`.
+      Sampling SQL round-trip + estimator + per-partition listing are e2e-owed.
+- [x] (optional) soften `HiveConnector` W6 write-path TCCL comment (doc-only). ✅ commit `f53a71f5260`.
+- [ ] **clean-room adversarial review over all seam commits (S1–S4 + W6); fix confirmed findings.** ← NEXT
+      (deliberately NOT started this session — stop-before-review).
+- [x] update HANDOFF + this doc's checkboxes; record e2e-owed rows into execution-plan §4.
+
+## Discovered follow-ups (surfaced by recon/impl, NOT in the 3 seams — do-not-drop)
+- **Delete-step build-break (out-of-seam):** `StatisticsAutoCollector.java:36` and `StatisticsCache.java:44`
+  import `org.apache.hudi.common.util.VisibleForTesting` (annotation-only, wrong package). Harmless now
+  (hudi still on fe-core's classpath via the delete-unit), but a compile break the moment the hudi jar
+  leaves fe-core at the delete step. Swap to the guava/doris `@VisibleForTesting` then. NOT fixed here
+  (unrelated to hudi_meta; surgical scope).
+- **Partition-level FULL analyze (inherent to the plugin migration, not S3):** `ExternalAnalysisTask.doFull`
+  (which every flipped table incl. the new sample task inherits) does not do the legacy
+  `HMSAnalysisTask.doPartitionTable` partition-level analyze under `enablePartitionAnalyze`. This is a
+  property of ALL plugin tables (iceberg/paimon too), not introduced by S3; track for a full-analyze parity
+  pass if partition-level external analyze is required.
 
 ## e2e-owed (Phase 4, do-not-drop)
 partition_values over heterogeneous HMS == legacy hive rows; hudi_meta timeline rows == the 4 p2 suites;
-hive ANALYZE WITH SAMPLE FULL-vs-SAMPLE stat assertions; auto-analyze admits hive/iceberg-on-HMS but not
-hudi-on-HMS; W6 iceberg-on-HMS write no-CCE on bundled-AWS S3.
+hive ANALYZE WITH SAMPLE FULL-vs-SAMPLE stat assertions (text + orc + partitioned + bucketed); auto-analyze
+admits hive/iceberg-on-HMS but not hudi-on-HMS; iceberg-on-HMS regains Top-N lazy / nested-column prune via
+the sibling-capability reflection; W6 iceberg-on-HMS write no-CCE on bundled-AWS S3.

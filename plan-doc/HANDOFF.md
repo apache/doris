@@ -10,21 +10,22 @@
 catalog-SPI 迁移的剩余工作 = **HMS 翻闸**。权威计划 = **`tasks/hms-cutover-execution-plan-2026-07-10.md`**（4 阶段 + DONE 账本 + 已签字决策 + 硬门；**起步必读 #1，行号信 HEAD 不信文档**）。四阶段：
 
 - **Phase 0 连接器休眠补齐** ✅ **DONE**（读 SPI + iceberg/hudi 兄弟委派 + 整条 hudi 线）。
-- **Phase 1 翻闸前 fe-core 建设（进行中，真正剩余主活）** — 连接器自持缓存(D2) ✅ → 事件管道 Model B ✅ → **3 个 loud-break 耦合缝 + W6（本步，进行中）** → 剩余。
+- **Phase 1 翻闸前 fe-core 建设（进行中，真正剩余主活）** — 连接器自持缓存(D2) ✅ → 事件管道 Model B ✅ → **4 个耦合缝(S1–S4) + W6 ✅（代码落地，欠净室复审）** → 剩余(复审 → 原子翻闸前置项)。
 - **Phase 2 原子翻闸**（`SPI_READY += hms` + GSON 重映射 + 死臂/删除 + 4 守卫改接新子系统）→ **Phase 3 删除旧代码（最后做）** → **Phase 4 e2e/硬门**。
 
-**⭐ 本轮（2026-07-10 晚）= Phase 1 第三项「翻闸耦合缝」开工：HEAD 对齐侦察 + 3 处用户决策(全选逐位一致) + 第一缝落地。**
-权威设计 = **`tasks/hive-coupling-seams-step-design-2026-07-10.md`**（**起步必读**；含 4 缝 HEAD 锚点 + 修法 + 用户决策 + TODO + e2e 欠账）。侦察 = `wf_dfe1cb86-df4`（4 缝读者 + 完备性审查；完备性审查确认 4 缝之外无未护 loud break，另抓出 auto-analyze 静默扩大缝）。
+**⭐ 本轮（2026-07-10 晚）= Phase 1 第三项「翻闸耦合缝」全部落地（4 缝 + W6），停在复审前。**
+权威设计 = **`tasks/hive-coupling-seams-step-design-2026-07-10.md`**（**起步必读**；4 缝 TODO 已全勾 + 2 处发现的后续项 + e2e 欠账）。本轮侦察 = `wf_ecf9f292-892`（4 缝读者 + 完备性审查，HEAD 逐条证）。**用户本轮 2 处决策（全选 FULL PARITY）**：① iceberg-on-HMS 统计资格机制 = **做法C**（Hive 转交时反射兄弟连接器能力集，Trino 表重定向语义，顺带关 Top-N/嵌套列裁剪隐患）；② 分桶 Hive 采样 NDV 估算 = **做法2**（透传分桶列完全对齐）。
 
-- **W6 写路径 TCCL = 已核实为假警报，无需改代码**：iceberg-on-HMS 写委派穿过 iceberg 兄弟已绑定的 `TcclPinningConnectorContext`（`IcebergConnector.java:174`，线程无关）。只欠 e2e。可选：软化 `HiveConnector.java:206-208` 过度谨慎注释（纯文档）。
-- **用户 3 处决策（2026-07-10，全选 FULL PARITY）**：① 时间线函数 `hudi_meta` = **保留(改造连接器驱动)**（侦察推翻"删"倾向——4 个 p2 hudi 套件在用）；② Hive `ANALYZE … WITH SAMPLE` = **完整移植**（今天可用，不移植翻闸后会 `DdlException`）；③ 后台列自动统计 = **按表细分排除 hudi-on-HMS**（复刻旧 `HIVE||ICEBERG` 门）。
-- **✅ 已落地：S1「partition_values() 通用插件臂」** commit `166515cdc88`（3 个 fe-core 文件；镜像 `$partitions`：闸门放行 `PluginDrivenExternalCatalog`+`PLUGIN_EXTERNAL_TABLE`、加 `PluginDrivenExternalTable` 臂无 HMS 强转、`getTableColumns` 上提基类；新增 SPI `PluginDrivenExternalTable.getNameToPartitionValues`（**独立方法**、不动 live `getNameToPartitionItems` 保 paimon/iceberg 字节+成本不变）；`MetadataGenerator` 加 `PLUGIN_EXTERNAL_TABLE` 臂 + HMS/插件共用 `partitionValuesRows` 构建器保 `HIVE_DEFAULT_PARTITION`→NULL）。**对 paimon/iceberg 是加法(此前抛错的 TVF 现可用)**、对 hive 休眠至翻闸。fe-core BUILD SUCCESS + 0 checkstyle + import-gate 干净。功能校验 e2e-owed。
+- **✅ S1 partition_values** `166515cdc88`（上一轮）。
+- **✅ S4 auto-analyze 按表门 + 兄弟能力反射** `89c6f9454bb`：侦察坐实 iceberg-on-HMS 的能力从 **hive 连接器**解析(非兄弟)——单去 hive 连接器级 flag 会静默回归 iceberg-on-HMS。修法=`supportsColumnAutoAnalyze()`→`hasScanCapability`、去 hive 连接器级 flag(排除 hudi-on-HMS)、plain-hive 按表发标记、**委派分支 `reflectSiblingScanCapabilities` 把兄弟连接器能力集反射成按表标记**(做法C)。休眠。4 套件绿。
+- **✅ S2 hudi_meta 连接器驱动** `d8f2d01978a`：中立 `getMetadataTableRows` SPI(`List<List<String>>`)+`SUPPORTS_METADATA_TABLE`+`HudiConnector` 全活时间线(TCCL pin)+双臂 `hudiMetadataResult`(HMS 臂下沉到 `HudiExternalMetaCache.getTimelineRows`)。**MetadataGenerator 摆脱 `org.apache.hudi`**。休眠。
+- **✅ S3 sample-analyze 完整移植** `8469a033abd`：`SUPPORTS_SAMPLE_ANALYZE`(plain-hive 按表)+`canSample`/`isSamplingPartition` 加臂+`PluginDrivenSampleAnalysisTask`(逐字移植 doSample/getSampleInfo/needLimit)+`ConnectorStatisticsOps.listFileSizes` SPI+`getChunkSizes` override+**分桶列透传**(`DISTRIBUTION_COLUMNS_KEY`)+`StatisticsAutoCollector` force-FULL 收窄 `&& !supportsSampleAnalyze()`。休眠。
+- **✅ W6 写路径 TCCL = 核实假警报**：兄弟自带 `TcclPinningConnectorContext`，无未固定路径。软化注释 `f53a71f5260`(纯文档)。
 
-**⭐ 下一步 = 本步剩余 3 缝 + 收尾（权威=`hive-coupling-seams-step-design-2026-07-10.md` TODO）：**
-1. **S4 auto-analyze 按表门**（最小，但**先侦察**）：`PluginDrivenExternalTable.supportsColumnAutoAnalyze()` 由连接器级 `getCapabilities().contains(SUPPORTS_COLUMN_AUTO_ANALYZE)` 改为 `hasScanCapability(...)`（对 native iceberg/paimon 无变——它们仍连接器级声明）；hive 连接器从 `getCapabilities` 的 EnumSet 去掉该 flag，改在 `HiveConnectorMetadata.getTableSchema` 按表发标记（`PER_TABLE_CAPABILITIES_KEY`，precedent `:402-414` 的 TOPN 标记）。**隐藏深度须先查清**：翻闸后 iceberg-on-HMS / hudi-on-HMS 表的 `SUPPORTS_COLUMN_AUTO_ANALYZE` 是从 **hive 连接器**解析还是从**委派的兄弟连接器**解析？旧门 admit `dlaType==ICEBERG`。若 iceberg-on-HMS 已经从 iceberg 兄弟(连接器级声明)拿到，则 hive 只需对 plain-hive 发标记、对 hudi 不发，"排除 hudi"就落到"hudi 兄弟是否声明该 flag"。**动码前先在真实代码里把这个解析路径查清**（`HiveConnector` 的 3-way 路由 / 兄弟委派）。
-2. **S2 hudi_meta 连接器驱动**（保留）：加中立"元数据行"SPI（镜像 `ConnectorProcedureResult` 行返回）+ `HudiConnector` 实现（时间线数据已在连接器侧：`HudiMetaClientExecutor`/`getActiveTimeline().getInstants()`）；重写 `MetadataGenerator.hudiMetadataResult`（gate 改通用插件/能力型、去 `HMSExternalTable` 强转、fe-core 摆脱 `org.apache.hudi` timeline import `:128-129`）。休眠。委派须 pin TCCL。parity = 4 个 p2 套件行(e2e)。旧 body 无论如何删除步移除。
-3. **S3 sample-analyze 完整移植**（最大）：新 `ConnectorCapability.SUPPORTS_SAMPLE_ANALYZE`（hive **按表**发给 plain-hive 表——旧 `dlaType==HIVE`，排除 iceberg/hudi-on-HMS；native iceberg/paimon 不发保持现拒绝）+ `AnalysisManager.canSample`/`AnalyzeTableCommand.isSamplingPartition` 加 `PluginDrivenExternalTable.supportsSampleAnalyze()` 臂（走 `hasScanCapability`）+ `PluginDrivenExternalTable.createAnalysisTask` 返回可抽样任务(移植 `HMSAnalysisTask.doSample`+`getSampleInfo`+`needLimit`) + `getChunkSizes` override(经新 `Connector` chunk-sizes SPI 拿原始字节长度，type-math 留 fe-core)。非休眠单测端到端(发真抽样 SQL)→ e2e-owed。铁律：能力**按表**(连接器级会误 admit iceberg/hudi-on-HMS)。
-4. **收尾**：（可选）软化 W6 注释；**净室对抗复审**跨全部 seam commit（memory `clean-room-adversarial-review-pref`）；把 e2e 欠账登记进 execution-plan §4；勾选设计文档 TODO；更新本 HANDOFF。
+**⭐ 下一步 = 净室对抗复审（本轮按用户要求"停在复审前"，未开工）：**
+1. **净室对抗复审跨全部 seam commit（S1–S4 + W6）**：memory `clean-room-adversarial-review-pref`——多 agent 先独立判断、后交叉核对；重点核 ① S4 做法C 反射是否漏/误透能力(只应影响 `hasScanCapability` 消费者)、② S3 移植 doSample 字节等价 + `listFileSizes`/`getChunkSizes` TCCL 方向 + 分桶列大小写、③ S2 双臂无破 4 p2 套件(HMS 臂仍活)、④ 全部对 paimon/iceberg 字节+成本不变。修确认发现。
+2. **勾设计文档 TODO / 登记 e2e 欠账**：本轮已做（execution-plan §2.3/§2.5/§5 + 设计文档 TODO + 本 HANDOFF）。
+3. **2 处本轮发现的后续项（非 3 缝、勿丢，见设计文档「Discovered follow-ups」）**：① 删除步 build-break——`StatisticsAutoCollector.java:36`/`StatisticsCache.java:44` 误 import `org.apache.hudi.common.util.VisibleForTesting`(注解)，hudi 出 fe-core classpath 时会挂，删除步换 guava/doris `@VisibleForTesting`(现无害未改)；② 分区级 FULL analyze——`ExternalAnalysisTask.doFull` 不做旧 `HMSAnalysisTask.doPartitionTable` 分区级(所有插件表通性、非 S3 引入)，若要分区级外表 analyze 另起一步。
 
 **⚠ 与本步解耦、仍待用户拍板的 3 处 D2 缓存复审项**（上一步遗留，见旧 HANDOFF/review2 报告；本轮未动）：① 自发 DROP/CREATE TABLE 不清连接器缓存(HIGH)；② 分区缓存容量单位悄变(MEDIUM)；③ paimon/iceberg `latestSnapshotCache` 现网同形删建洞(线上活性 bug)。下个 session 可择机连同上面 seam 一起或单独找用户定。
 
