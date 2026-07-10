@@ -2252,12 +2252,18 @@ public class Config extends ConfigBase {
     public static boolean enable_fqdn_mode = false;
 
     /**
-     * If set to true, doris will try to parse the ddl of a hive view and try to execute the query
-     * otherwise it will throw an AnalysisException.
+     * @deprecated No-op since the hms/iceberg SPI cutover: external views (hive, iceberg) are always served.
+     *     Retained for one release so operator fe.conf that sets it still parses; will be removed later.
      */
+    @Deprecated
     @ConfField(mutable = true)
     public static boolean enable_query_hive_views = true;
 
+    /**
+     * @deprecated No-op since the iceberg SPI cutover: external views (hive, iceberg) are always served.
+     *     Retained for one release so operator fe.conf that sets it still parses; will be removed later.
+     */
+    @Deprecated
     @ConfField(mutable = true)
     public static boolean enable_query_iceberg_views = true;
 

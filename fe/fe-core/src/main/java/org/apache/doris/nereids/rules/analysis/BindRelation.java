@@ -783,25 +783,21 @@ public class BindRelation extends OneAnalysisRuleFactory {
                 case PLUGIN_EXTERNAL_TABLE:
                     if (table instanceof PluginDrivenExternalTable
                             && ((PluginDrivenExternalTable) table).isView()) {
-                        // Flipped iceberg view: reproduce the legacy ICEBERG_EXTERNAL_TABLE view arm on the
-                        // neutral plugin path (only iceberg declares SUPPORTS_VIEW, so isView() is true only
-                        // for it). Same config gate + time-travel rejection + view-body dispatch as legacy;
-                        // the config-off message is thrown before the time-travel check, matching the legacy
-                        // arm's ordering (a config-off view errors with the config message regardless of any
-                        // time/version travel). The view body is converted by the session dialect inside
-                        // parseAndAnalyzeExternalView (shared with HMS hive-view), which is fully neutral.
+                        // Plugin view (hive after the hms cutover, or iceberg): any connector that declares
+                        // SUPPORTS_VIEW serves its view here, unconditionally — the legacy
+                        // enable_query_hive_views / enable_query_iceberg_views switches are deprecated no-ops,
+                        // so a view is served regardless of them. The view body is converted by the session
+                        // dialect inside parseAndAnalyzeExternalView (shared with the legacy HMS hive-view
+                        // path), which is fully neutral.
                         PluginDrivenExternalTable pluginViewTable = (PluginDrivenExternalTable) table;
-                        if (!Config.enable_query_iceberg_views) {
-                            throw new UnsupportedOperationException(
-                                "please set enable_query_iceberg_views=true to enable query iceberg views");
-                        }
                         if (unboundRelation.getTableSnapshot().isPresent()) {
-                            // iceberg view not supported with snapshot time/version travel
+                            // A view cannot be combined with snapshot time/version travel (meaningless for a
+                            // view, for hive and iceberg alike).
                             // note that enable_fallback_to_original_planner should be set with false
                             // or else this exception will not be thrown
                             // because legacy planner will retry and thrown other exception
                             throw new UnsupportedOperationException(
-                                "iceberg view not supported with snapshot time/version travel");
+                                "view not supported with snapshot time/version travel");
                         }
                         isView = true;
                         String pluginCatalog = pluginViewTable.getCatalog().getName();
