@@ -26,6 +26,7 @@ import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.procedure.ConnectorProcedureOps;
 import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.api.write.ConnectorWritePlanProvider;
+import org.apache.doris.connector.hms.CachingHmsClient;
 import org.apache.doris.connector.hms.HmsClient;
 import org.apache.doris.connector.hms.HmsClientConfig;
 import org.apache.doris.connector.hms.ThriftHmsClient;
@@ -376,7 +377,32 @@ public class HiveConnector implements Connector {
         } else {
             authAction = context::executeAuthenticated;
         }
-        return new ThriftHmsClient(config, authAction);
+        return wrapWithCache(new ThriftHmsClient(config, authAction));
+    }
+
+    /**
+     * Wraps the raw pooled metastore client in the connector-owned {@link CachingHmsClient} so this connector
+     * keeps caching its scan-side metastore reads AFTER the hms cutover. Once a hive catalog becomes plugin-driven
+     * the fe-core engine-side {@code HiveExternalMetaCache} stops routing to it, so without this wrap every
+     * {@code getTable} / {@code listPartitionNames} / {@code getPartitions} / column-stats read would regress to a
+     * fresh Thrift RPC on every scan. This single wrap makes ALL {@code hmsClient.*} reads in
+     * {@link HiveConnectorMetadata} cache-backed transparently — including the
+     * {@link HiveConnectorMetadata#getTableFreshness}/{@link HiveConnectorMetadata#getPartitionFreshnessMillis}
+     * MTMV probes (both read {@code hmsClient.getPartitions}), so the periodic SQL-dictionary / MV freshness poll
+     * stays cheap instead of hitting the metastore every tick.
+     *
+     * <p>The decorator reads its per-entry knobs from this catalog's own {@code meta.cache.hive.*} properties; a
+     * disabled entry (or {@code ttl-second}/{@code capacity} &lt;= 0) makes it a transparent pass-through. The
+     * cache lives on the {@code HmsClient} (rebuilt on connector init / {@code ADD}/{@code MODIFY CATALOG}), never
+     * on a handle or the GSON edit log.
+     *
+     * <p>Extracted (package-private) so a unit test can verify the wrap + caching WITHOUT {@link #createClient()}
+     * building a real {@code ThriftHmsClient} (whose Hadoop stack is absent from connector unit tests) — mirrors
+     * {@link #newMetadata(HmsClient)}. Dormant: {@code "hms"} is not in {@code SPI_READY_TYPES}, so no live catalog
+     * builds a {@code HiveConnector} — this wrap only runs in unit tests until the flip.
+     */
+    HmsClient wrapWithCache(HmsClient raw) {
+        return new CachingHmsClient(raw, properties);
     }
 
     /**
