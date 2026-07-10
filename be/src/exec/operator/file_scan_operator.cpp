@@ -130,10 +130,8 @@ Status FileScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
     const bool is_load =
             state()->desc_tbl().get_tuple_descriptor(scan_params->src_tuple_id) != nullptr;
     // TODO: Use scanner v2 for all queries.
-    const bool use_file_scanner_v2 =
-            state()->query_options().__isset.enable_file_scanner_v2 &&
-            state()->query_options().enable_file_scanner_v2 && !is_load &&
-            _split_source->all_scan_ranges_match(*scan_params, FileScannerV2::is_supported);
+    const bool use_file_scanner_v2 = state()->query_options().__isset.enable_file_scanner_v2 &&
+                                     state()->query_options().enable_file_scanner_v2 && !is_load;
     _operator_profile->add_info_string("UseScannerV2", use_file_scanner_v2 ? "true" : "false");
     for (int i = 0; i < _max_scanners; ++i) {
         ScannerSPtr scanner;

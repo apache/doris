@@ -3032,9 +3032,10 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_MC_LIMIT_SPLIT_OPTIMIZATION = "enable_mc_limit_split_optimization";
     @VarAttrDef.VarAttr(
             name = ENABLE_EXTERNAL_TABLE_BATCH_MODE,
+            fuzzy = true,
             description = {"使能外表的 batch mode 功能", "Enable the batch mode function of the external table."},
             needForward = true)
-    public boolean enableExternalTableBatchMode = false;
+    public boolean enableExternalTableBatchMode = true;
 
     @VarAttrDef.VarAttr(
             name = ENABLE_MC_LIMIT_SPLIT_OPTIMIZATION,
