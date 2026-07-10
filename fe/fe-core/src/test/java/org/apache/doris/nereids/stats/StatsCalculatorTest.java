@@ -207,6 +207,21 @@ public class StatsCalculatorTest {
     }
 
     @Test
+    public void testScaleNumNullsForSelectedPartitions() {
+        ColumnStatistic tableStatistic = new ColumnStatisticBuilder(12)
+                .setNdv(1)
+                .setNumNulls(3)
+                .build();
+        ColumnStatisticBuilder selectedPartitionStatistic = new ColumnStatisticBuilder(tableStatistic, 4);
+
+        StatsCalculator.scaleNumNullsForSelectedPartitions(selectedPartitionStatistic, 4, 12);
+
+        ColumnStatistic result = selectedPartitionStatistic.build();
+        Assertions.assertEquals(4, result.count, 0.001);
+        Assertions.assertEquals(1, result.numNulls, 0.001);
+    }
+
+    @Test
     public void testLimit() {
         List<String> qualifier = ImmutableList.of("test", "t");
         SlotReference slot1 = new SlotReference(new ExprId(0), "c1", IntegerType.INSTANCE, true, qualifier,
