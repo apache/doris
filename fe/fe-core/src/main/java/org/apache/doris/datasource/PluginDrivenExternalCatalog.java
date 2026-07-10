@@ -31,6 +31,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.connector.ConnectorFactory;
 import org.apache.doris.connector.ConnectorSessionBuilder;
 import org.apache.doris.connector.DefaultConnectorContext;
@@ -315,6 +316,22 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
     public Connector getConnector() {
         makeSureInitialized();
         return connector;
+    }
+
+    /**
+     * Registers a newly-observed database into this catalog, driven by the metastore-event sync's
+     * REGISTER_DATABASE change (via {@code CatalogMgr.registerExternalDatabaseFromEvent}). Pulled up from
+     * {@code HMSExternalCatalog} so a flipped (generic) catalog no longer throws
+     * {@code NotImplementedException} on a create/rename-database event. The body is fully generic
+     * (buildDbForInit + metaCache, name-derived id) and mirrors the legacy HMS implementation.
+     */
+    @Override
+    public void registerDatabase(long dbId, String dbName) {
+        ExternalDatabase<? extends ExternalTable> db = buildDbForInit(dbName, null, dbId, logType, false);
+        if (isInitialized()) {
+            metaCache.updateCache(db.getRemoteName(), db.getFullName(), db,
+                    Util.genIdByName(name, db.getFullName()));
+        }
     }
 
     /**

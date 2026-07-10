@@ -38,8 +38,6 @@ import org.apache.doris.common.lock.MonitoredReentrantReadWriteLock;
 import org.apache.doris.common.util.DatasourcePrintableMap;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.datasource.hive.HMSExternalCatalog;
-import org.apache.doris.datasource.hive.HMSExternalDatabase;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HiveExternalMetaCache;
 import org.apache.doris.datasource.mvcc.MvccUtil;
@@ -738,9 +736,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             return;
         }
 
-        long tblId;
-        HMSExternalCatalog hmsCatalog = (HMSExternalCatalog) catalog;
-        tblId = Util.genIdByName(catalogName, dbName, tableName);
+        long tblId = Util.genIdByName(catalogName, dbName, tableName);
         // -1L means it will be dropped later, ignore
         if (tblId == ExternalMetaIdMgr.META_ID_FOR_NOT_EXISTS) {
             return;
@@ -748,8 +744,12 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
 
         db.writeLock();
         try {
-            HMSExternalTable namedTable = ((HMSExternalDatabase) db)
-                    .buildTableForInit(tableName, tableName, tblId, hmsCatalog, (HMSExternalDatabase) db, false);
+            // buildTableForInit is generic on ExternalDatabase and dispatches to the catalog's own table
+            // type (HMSExternalTable for a legacy catalog, PluginDrivenMvccExternalTable/PluginDrivenExternalTable
+            // for a flipped one), so the event path builds+registers the right table on both without an HMS cast.
+            ExternalDatabase<?> externalDb = (ExternalDatabase<?>) db;
+            ExternalTable namedTable = externalDb.buildTableForInit(tableName, tableName, tblId,
+                    (ExternalCatalog) catalog, externalDb, false);
             namedTable.setUpdateTime(updateTime);
             db.registerTable(namedTable);
         } finally {
@@ -766,7 +766,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         if (!(catalog instanceof ExternalCatalog)) {
             throw new DdlException("Only support drop ExternalCatalog databases");
         }
-        ((HMSExternalCatalog) catalog).unregisterDatabase(dbName);
+        ((ExternalCatalog) catalog).unregisterDatabase(dbName);
     }
 
     public void registerExternalDatabaseFromEvent(String dbName, String catalogName)
@@ -779,14 +779,15 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             throw new DdlException("Only support create ExternalCatalog databases");
         }
 
-        HMSExternalCatalog hmsCatalog = (HMSExternalCatalog) catalog;
         long dbId = Util.genIdByName(catalogName, dbName);
         // -1L means it will be dropped later, ignore
         if (dbId == ExternalMetaIdMgr.META_ID_FOR_NOT_EXISTS) {
             return;
         }
 
-        hmsCatalog.registerDatabase(dbId, dbName);
+        // registerDatabase is overridden by HMSExternalCatalog (legacy) and PluginDrivenExternalCatalog
+        // (flipped); the generic ExternalCatalog base throws (fail-loud for catalogs that cannot register).
+        ((ExternalCatalog) catalog).registerDatabase(dbId, dbName);
     }
 
     public void addExternalPartitions(String catalogName, String dbName, String tableName,
@@ -814,22 +815,27 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             }
             return;
         }
-        if (!(table instanceof HMSExternalTable)) {
-            LOG.warn("only support HMSTable");
-            return;
+        if (table instanceof HMSExternalTable) {
+            HMSExternalTable hmsTable = (HMSExternalTable) table;
+            List<Type> partitionColumnTypes;
+            try {
+                partitionColumnTypes = hmsTable.getPartitionColumnTypes(MvccUtil.getSnapshotFromContext(hmsTable));
+            } catch (NotSupportedException e) {
+                LOG.warn("Ignore not supported hms table, message: {} ", e.getMessage());
+                return;
+            }
+            HiveExternalMetaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr().hive(catalog.getId());
+            cache.addPartitionsCache(hmsTable.getOrBuildNameMapping(), partitionNames, partitionColumnTypes);
+            hmsTable.setUpdateTime(updateTime);
+        } else if (catalog instanceof PluginDrivenExternalCatalog) {
+            // Flipped: the connector owns the partition cache (pull-through), so invalidating by name is
+            // enough for the added partitions to show up on the next listing. Mirrors refreshTableInternal's
+            // connector hook; the fe-core hive cache above is retired for a flipped catalog.
+            ((PluginDrivenExternalCatalog) catalog).getConnector().invalidatePartition(
+                    ((ExternalDatabase<?>) db).getRemoteName(), ((ExternalTable) table).getRemoteName(),
+                    partitionNames);
+            ((ExternalTable) table).setUpdateTime(updateTime);
         }
-
-        HMSExternalTable hmsTable = (HMSExternalTable) table;
-        List<Type> partitionColumnTypes;
-        try {
-            partitionColumnTypes = hmsTable.getPartitionColumnTypes(MvccUtil.getSnapshotFromContext(hmsTable));
-        } catch (NotSupportedException e) {
-            LOG.warn("Ignore not supported hms table, message: {} ", e.getMessage());
-            return;
-        }
-        HiveExternalMetaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr().hive(catalog.getId());
-        cache.addPartitionsCache(hmsTable.getOrBuildNameMapping(), partitionNames, partitionColumnTypes);
-        hmsTable.setUpdateTime(updateTime);
     }
 
     public void dropExternalPartitions(String catalogName, String dbName, String tableName,
@@ -858,10 +864,18 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             return;
         }
 
-        HMSExternalTable hmsTable = (HMSExternalTable) table;
-        Env.getCurrentEnv().getExtMetaCacheMgr().hive(catalog.getId())
-                .dropPartitionsCache(hmsTable, partitionNames, true);
-        hmsTable.setUpdateTime(updateTime);
+        if (table instanceof HMSExternalTable) {
+            HMSExternalTable hmsTable = (HMSExternalTable) table;
+            Env.getCurrentEnv().getExtMetaCacheMgr().hive(catalog.getId())
+                    .dropPartitionsCache(hmsTable, partitionNames, true);
+            hmsTable.setUpdateTime(updateTime);
+        } else if (catalog instanceof PluginDrivenExternalCatalog) {
+            // Flipped: the connector owns the partition cache (pull-through); invalidate by name.
+            ((PluginDrivenExternalCatalog) catalog).getConnector().invalidatePartition(
+                    ((ExternalDatabase<?>) db).getRemoteName(), ((ExternalTable) table).getRemoteName(),
+                    partitionNames);
+            ((ExternalTable) table).setUpdateTime(updateTime);
+        }
     }
 
     public void registerCatalogRefreshListener(Env env) {

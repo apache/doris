@@ -290,11 +290,19 @@ public class RefreshManager {
         }
 
         ExternalTable externalTable = (ExternalTable) table;
-        HiveExternalMetaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr().hive(externalTable.getCatalog().getId());
-        for (String partitionName : partitionNames) {
-            cache.invalidatePartitionCache(externalTable, partitionName);
+        if (externalTable.getCatalog() instanceof PluginDrivenExternalCatalog) {
+            // Flipped: the connector owns the partition cache (pull-through); invalidate by name. The fe-core
+            // hive cache below is retired for a flipped catalog. Mirrors refreshTableInternal's connector hook.
+            ((PluginDrivenExternalCatalog) externalTable.getCatalog()).getConnector().invalidatePartition(
+                    ((ExternalDatabase<?>) db).getRemoteName(), externalTable.getRemoteName(), partitionNames);
+        } else {
+            HiveExternalMetaCache cache =
+                    Env.getCurrentEnv().getExtMetaCacheMgr().hive(externalTable.getCatalog().getId());
+            for (String partitionName : partitionNames) {
+                cache.invalidatePartitionCache(externalTable, partitionName);
+            }
         }
-        ((HMSExternalTable) table).setUpdateTime(updateTime);
+        externalTable.setUpdateTime(updateTime);
     }
 
     public void addToRefreshMap(long catalogId, Integer[] sec) {
