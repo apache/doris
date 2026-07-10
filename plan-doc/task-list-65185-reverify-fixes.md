@@ -27,7 +27,7 @@ Legend：⬜ todo / 🔄 in progress / ✅ done / ⏸ 挂起(需决策/live)
 |---|----|-------|------|--------|------|------|----------|------|
 | 1 | **H1** | 🔴高 | hudi**+hive** | 分区名不 unescape→丢行 | ✅ | ✅ | ✅ | ✅ |
 | 2 | **H2** | 🔴高 | hudi**+hive** | datetime 分区谓词 ISO→0 行 | ✅ | ✅ | ✅ | ✅ |
-| 3 | **H3** | 🔴高 | hudi | HMS 名当存储路径→非 hive-style 带 filter 0 split | ⬜ | ⬜ | ⬜ | ⬜ |
+| 3 | **H3** | 🔴高 | hudi | HMS 名当存储路径→非 hive-style 带 filter 0 split | ✅ | ✅ | ✅ | ✅ |
 | 4 | **H4** | 🔴高 | hudi | 混大小写 Avro→JNI 崩 | ✅ | ✅ | ✅ | ✅ |
 | 5 | **M1** | 🟠中 | fe-core | TABLESAMPLE 插件路径静默全表扫 | ⬜ | ⬜ | ⬜ | ⬜ |
 | 6 | **M2** | 🟠中 | hive | 翻闸 hive 丢批量/异步 split | ⬜ | ⬜ | ⬜ | ⬜ |
@@ -93,7 +93,7 @@ Legend：⬜ todo / 🔄 in progress / ✅ done / ⏸ 挂起(需决策/live)
 - 注:此条对抗验证 agent 未完成,但机制确定 + 与 H1/H3 同源(均 CONFIRMED),保留高危。
 
 ### H3 — hudi HMS 名当存储路径 → 非 hive-style 带 filter 0 split · reverify §2 H3
-- [ ] **H3**
+- [x] **H3**(hudi-only) · DONE `9c6fc584eb9`(设计 `designs/FIX-H3-design.md`，含最终对抗复审 CORRECT&COMPLETE + 残余登记)
 - **现码**:`HudiConnectorMetadata.applyFilter:244-267`(无条件用 hive-style HMS 名作 `prunedPartitionPaths`)→ `HudiScanPlanProvider.resolvePartitions:587-590` → `collectCowSplits:394`/`collectMorSplits:429` 喂 `fsView.getLatestBaseFilesBeforeOrOn`(期望 Hudi 相对存储路径)。`use_hive_sync` 感知只在列举路 `collectPartitions:641`,`applyFilter` 绕过。
 - **Fix**:`applyFilter` 候选分区源 `use_hive_sync_partition` 感知:`!useHiveSyncPartition`→对 `listAllPartitionPaths`(`2024/01`)剪枝;`useHiveSyncPartition`→`FSUtils.getRelativePartitionPath(basePath, location)` 相对化。
 - **Files**:`HudiConnectorMetadata.java`(applyFilter 候选源)。
@@ -232,3 +232,7 @@ Legend：⬜ todo / 🔄 in progress / ✅ done / ⏸ 挂起(需决策/live)
 - **H4** DONE `03f4c12dffa` — lowercase JNI reader 列名(hudi-only;`jniColumnNames` helper + UT)。
 - **H1** DONE `39a279e7c26` — hive+hudi 剪枝 `parsePartitionName` unescape 值(两份就地各修;widen `unescapePathName`;直接单测跨 H3 稳定 + hive e2e applyFilter 测)。
 - **H2** DONE `cf540eebc3c` — hive+hudi `extractLiteralValue` 对 `LocalDateTime` 渲 Hive-canonical 空格文本(`hiveDateTimeString` helper;设计红队 SOUND+实证 fixture `run17.hql`;H1+H2 复合 e2e 测)。
+- **H3** DONE `9c6fc584eb9` — hudi `applyFilter` 候选源 `use_hive_sync_partition` 感知(非 hive-sync 走 `listAllPartitionPaths` 相对路径+新 `prunePartitionPaths`,hive-sync 保留 HMS 名臂;`matchesPredicates` 提 static)。测迁移到 stub executor + 位置式/hive-sync/直接 helper 新测。
+- **批次 0 test-hardening** DONE `f0ee2ab06d2` — DATE 非回归测(hive+hudi)+ hive `.1` 微秒去尾零(补 H2 设计 item 6 + 复审软点)。
+- **批次 0 全量对抗复审(3 skeptic)= CLEAN**:四修正确/复合/无回归、范围完整、10 新测均可 RED。**登记残余(非本批修)**:`use_hive_sync_partition=true`+`hive_style_partitioning=false` 表 hive-sync 臂仍喂 HMS 名给 fsView→带 filter 0 split(同 H3 类、另一臂、pre-existing 与 legacy parity);D-PRUNE/相对化 location 时一并评估。见 `designs/FIX-H3-design.md` §最终对抗复审。
+- **⭐ 批次 0(H1–H4)全部 DONE。** 下一步见文首建议批次:批次 1(M5→M7→M6/M4/M2 连接器局部)。**所有 H1–H4 e2e 均 live-gated**(含转义值/DATETIME/非-hive-style/MOR-JNI 混大小写读),须真集群回归(memory `hms-iceberg-delegation-needs-e2e`)。
