@@ -276,6 +276,54 @@ public class HiveConnector implements Connector {
                 ConnectorCapability.SUPPORTS_MVCC_SNAPSHOT);
     }
 
+    /**
+     * REFRESH TABLE hook: drop this table's connector-owned scan caches. Clears BOTH cache layers for the table —
+     * the metastore-metadata entries ({@link CachingHmsClient#flush}: table meta, partition names, partition
+     * objects, column stats) AND the {@link HiveFileListingCache} directory listings — because a hive table's
+     * schema, partitions AND files are all mutable, so a REFRESH must re-read all of them (unlike iceberg, whose
+     * manifests are immutable and kept across REFRESH TABLE). fe-core already routes {@code REFRESH TABLE} to
+     * {@code connector.invalidateTable} for a plugin-driven catalog; dormant until hms enters SPI_READY_TYPES.
+     */
+    @Override
+    public void invalidateTable(String dbName, String tableName) {
+        // Read the client field WITHOUT building it (getOrCreateClient would force a real ThriftHmsClient just to
+        // flush an empty cache): a never-built client means no metastore cache exists to flush. The file cache is
+        // a final field and always present.
+        invalidateTable(hmsClient, dbName, tableName);
+    }
+
+    // Package-private seam: the metastore half needs an observable CachingHmsClient, which a unit test can build
+    // via wrapWithCache (the hmsClient field is otherwise only set by getOrCreateClient building a real client).
+    void invalidateTable(HmsClient client, String dbName, String tableName) {
+        if (client instanceof CachingHmsClient) {
+            ((CachingHmsClient) client).flush(dbName, tableName);
+        }
+        fileListingCache.invalidateTable(dbName, tableName);
+    }
+
+    /**
+     * REFRESH CATALOG hook: drop ALL of this catalog's connector-owned scan caches — every metastore-metadata
+     * entry ({@link CachingHmsClient#flushAll}) and every directory listing. Same no-force-build read of the
+     * client as {@link #invalidateTable(String, String)}. Dormant until the flip.
+     */
+    @Override
+    public void invalidateAll() {
+        invalidateAll(hmsClient);
+    }
+
+    // Package-private seam (see invalidateTable above).
+    void invalidateAll(HmsClient client) {
+        if (client instanceof CachingHmsClient) {
+            ((CachingHmsClient) client).flushAll();
+        }
+        fileListingCache.invalidateAll();
+    }
+
+    /** The connector-owned directory-listing cache, exposed for unit tests (mirrors iceberg manifestCacheForTest). */
+    HiveFileListingCache fileListingCacheForTest() {
+        return fileListingCache;
+    }
+
     private HmsClient getOrCreateClient() {
         if (hmsClient == null) {
             synchronized (this) {

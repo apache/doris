@@ -128,6 +128,13 @@ public class HiveFileListingCache {
         cache.invalidateAll();
     }
 
+    /** Current number of cached directory listings — for unit tests only (mirrors iceberg manifestCache.size()). */
+    long size() {
+        long[] count = {0L};
+        cache.forEach((key, value) -> count[0]++);
+        return count[0];
+    }
+
     /**
      * The production {@link DirectoryLister}: a real, non-recursive {@code FileSystem.listStatus}, filtering out
      * directories and {@code _}/{@code .}-prefixed hidden files (byte-parity with the pre-cache filters in
