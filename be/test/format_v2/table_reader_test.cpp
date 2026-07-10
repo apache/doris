@@ -265,6 +265,29 @@ VExprSPtr runtime_filter_wrapper_expr(VExprSPtr impl) {
     return RuntimeFilterExpr::create_shared(node, std::move(impl), 0, false, /*filter_id=*/1);
 }
 
+class NonDeterministicPartitionPredicate final : public VExpr {
+public:
+    explicit NonDeterministicPartitionPredicate(bool* executed)
+            : VExpr(std::make_shared<DataTypeUInt8>(), false), _executed(executed) {}
+
+    Status execute_column_impl(VExprContext*, const Block*, const Selector*, size_t count,
+                               ColumnPtr& result_column) const override {
+        DORIS_CHECK(_executed != nullptr);
+        *_executed = true;
+        auto result = ColumnUInt8::create();
+        result->get_data().resize_fill(count, 0);
+        result_column = std::move(result);
+        return Status::OK();
+    }
+
+    const std::string& expr_name() const override { return _expr_name; }
+    bool is_deterministic() const override { return false; }
+
+private:
+    bool* const _executed;
+    const std::string _expr_name = "NonDeterministicPartitionPredicate";
+};
+
 class NullableArrayBigintDefaultExpr final : public VExpr {
 public:
     explicit NullableArrayBigintDefaultExpr(DataTypePtr data_type)
@@ -1213,6 +1236,43 @@ TEST(TableReaderTest, PrepareSplitPrunesPartitionRuntimeFilter) {
             runtime_filter_wrapper_expr(table_int32_greater_than_expr(0, 0, 10))));
     ASSERT_TRUE(reader.prepare_split(retained_split).ok());
     EXPECT_FALSE(reader.current_split_pruned());
+}
+
+TEST(TableReaderTest, PrepareSplitDoesNotEvaluateNonDeterministicPartitionPredicate) {
+    std::vector<ColumnDefinition> projected_columns;
+    auto partition_column = make_table_column(0, "part", std::make_shared<DataTypeInt32>());
+    partition_column.is_partition_key = true;
+    projected_columns.push_back(std::move(partition_column));
+    set_name_identifiers(&projected_columns);
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    RuntimeProfile profile("scanner");
+    TableReader reader;
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .conjuncts = {},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = &profile,
+                            })
+                        .ok());
+
+    bool predicate_executed = false;
+    auto predicate = std::make_shared<NonDeterministicPartitionPredicate>(&predicate_executed);
+    predicate->add_child(table_int32_slot_ref(0, 0, "part"));
+    SplitReadOptions split;
+    split.current_range.__set_path("unused-nondeterministic-file");
+    split.partition_values.emplace("part", Field::create_field<TYPE_INT>(7));
+    split.partition_prune_conjuncts.push_back(
+            VExprContext::create_shared(runtime_filter_wrapper_expr(std::move(predicate))));
+
+    ASSERT_TRUE(reader.prepare_split(split).ok());
+    EXPECT_FALSE(predicate_executed);
+    EXPECT_FALSE(reader.current_split_pruned());
+    ASSERT_NE(profile.get_counter("RuntimeFilterPartitionPrunedRangeNum"), nullptr);
+    EXPECT_EQ(profile.get_counter("RuntimeFilterPartitionPrunedRangeNum")->value(), 0);
 }
 
 TEST(TableReaderTest, CanUseInjectedFileReaderForStandaloneUnitTest) {
