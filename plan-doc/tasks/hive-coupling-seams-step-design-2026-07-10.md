@@ -158,8 +158,31 @@ keep the connector-wide flag → unchanged. e2e-owed: hudi-on-HMS NOT auto-analy
       fe-core lowercases) + `StatisticsAutoCollector` force-FULL refined to `&& !supportsSampleAnalyze()`.
       Sampling SQL round-trip + estimator + per-partition listing are e2e-owed.
 - [x] (optional) soften `HiveConnector` W6 write-path TCCL comment (doc-only). ✅ commit `f53a71f5260`.
-- [ ] **clean-room adversarial review over all seam commits (S1–S4 + W6); fix confirmed findings.** ← NEXT
-      (deliberately NOT started this session — stop-before-review).
+- [x] **clean-room adversarial review over all seam commits (S1–S4 + W6); fix confirmed findings.** ✅
+      Multi-agent clean-room (`wf_498114c4-3e1`: 7 independent finders judging code cold vs each commit's pre-image +
+      legacy, 3-lens adversarial verify per finding, completeness critic; 27 agents). 4 findings survived (2 refuted).
+      All fixed + verified (fe-connector-hive BUILD SUCCESS, 0 checkstyle):
+      - **HIGH (S2+S4 cross-cutting)** `a5015800abd`: `reflectSiblingScanCapabilities` reflects the hudi sibling's
+        `SUPPORTS_METADATA_TABLE` onto the delegated per-table marker → post-flip `supportsMetadataTable()`==true and
+        the `hudi_meta()`/TIMELINE gate PASSES, but `HiveConnectorMetadata` had NO `getMetadataTableRows` override
+        (every other per-handle read guard-and-forwards) → a foreign `HudiTableHandle` fell through to the SPI-default
+        empty list = OK-but-EMPTY timeline vs the still-live HMS arm's real one. Fix = add the guard-and-forward
+        override (mirrors listFileSizes) + drive it in the delegation completeness-lock (`EXPECTED_METHODS` +
+        `RecordingSiblingMetadata` + row assertion). iceberg-on-HMS unaffected (no `SUPPORTS_METADATA_TABLE`).
+      - **LOW (S4 test gap)** `a5015800abd`: hudi-on-HMS auto-analyze WITHHOLDING (the headline parity claim) had no
+        representative test — fixtures used an iceberg-shape sibling (already carries auto-analyze) or an empty sibling
+        (isEmpty early-return), so a reflect-side over-add passed silently. Added
+        `foreignHandleSchemaWithholdsAutoAnalyzeFromRealHudiSibling` (real hudi shape {METADATA_TABLE}, no auto-analyze)
+        + corrected the misleading empty-sibling mutation comment.
+      - **LOW (S3 test gap)** `a63ab391171`: capabilities guard omitted `SUPPORTS_SAMPLE_ANALYZE` /
+        `SUPPORTS_METADATA_TABLE` connector-wide pins → declaring either connector-wide would silently over-admit
+        iceberg/hudi-on-HMS. Added both assertFalse pins.
+      - **LOW (S3, real error-path)** `d85c16f2cda` (**user chose fail-loud parity**): `listFileSizes` swallowed a
+        listing `RuntimeException` to empty → sample `scaleFactor` collapses to 1.0 while `TABLESAMPLE` still fires →
+        silent stat undercount with the task SUCCESS; legacy `HMSExternalTable.getChunkSizes` failed loud. Fix = drop
+        the catch (keep the finally TCCL-restore) so the error propagates like legacy; a genuinely empty table stays
+        natural-empty. Deterministic propagation unit test added (injects a throwing `HiveFileListingCache`).
+      - **S1 (`partition_values`) + W6 = CLEAN** (no surviving findings; paimon/iceberg byte+cost invariance confirmed).
 - [x] update HANDOFF + this doc's checkboxes; record e2e-owed rows into execution-plan §4.
 
 ## Discovered follow-ups (surfaced by recon/impl, NOT in the 3 seams — do-not-drop)

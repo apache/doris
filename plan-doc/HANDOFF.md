@@ -10,24 +10,21 @@
 catalog-SPI 迁移的剩余工作 = **HMS 翻闸**。权威计划 = **`tasks/hms-cutover-execution-plan-2026-07-10.md`**（4 阶段 + DONE 账本 + 已签字决策 + 硬门；**起步必读 #1，行号信 HEAD 不信文档**）。四阶段：
 
 - **Phase 0 连接器休眠补齐** ✅ **DONE**（读 SPI + iceberg/hudi 兄弟委派 + 整条 hudi 线）。
-- **Phase 1 翻闸前 fe-core 建设（进行中，真正剩余主活）** — 连接器自持缓存(D2) ✅ → 事件管道 Model B ✅ → **4 个耦合缝(S1–S4) + W6 ✅（代码落地，欠净室复审）** → 剩余(复审 → 原子翻闸前置项)。
+- **Phase 1 翻闸前 fe-core 建设（进行中，真正剩余主活）** — 连接器自持缓存(D2) ✅ → 事件管道 Model B ✅ → 4 个耦合缝(S1–S4)+W6 ✅ → **净室对抗复审 ✅（本轮，4 发现全修）** → 剩余(3 处 D2 缓存复审项待拍板 → 原子翻闸前置项)。
 - **Phase 2 原子翻闸**（`SPI_READY += hms` + GSON 重映射 + 死臂/删除 + 4 守卫改接新子系统）→ **Phase 3 删除旧代码（最后做）** → **Phase 4 e2e/硬门**。
 
-**⭐ 本轮（2026-07-10 晚）= Phase 1 第三项「翻闸耦合缝」全部落地（4 缝 + W6），停在复审前。**
-权威设计 = **`tasks/hive-coupling-seams-step-design-2026-07-10.md`**（**起步必读**；4 缝 TODO 已全勾 + 2 处发现的后续项 + e2e 欠账）。本轮侦察 = `wf_ecf9f292-892`（4 缝读者 + 完备性审查，HEAD 逐条证）。**用户本轮 2 处决策（全选 FULL PARITY）**：① iceberg-on-HMS 统计资格机制 = **做法C**（Hive 转交时反射兄弟连接器能力集，Trino 表重定向语义，顺带关 Top-N/嵌套列裁剪隐患）；② 分桶 Hive 采样 NDV 估算 = **做法2**（透传分桶列完全对齐）。
+**⭐ 本轮（2026-07-10）= 翻闸耦合缝的净室对抗复审全部完成，4 个确认发现已修复+验证（"停在复审前"的欠账已还清）。**
+复审 = `wf_498114c4-3e1`（7 独立读者冷判"每 commit 前像 + 老实现"、每发现 3 lens 对抗核实、完备性审查；27 agent，2 refuted）。权威设计 = **`tasks/hive-coupling-seams-step-design-2026-07-10.md`**（**起步必读**；TODO 全勾，含 4 发现明细 + Discovered follow-ups + e2e 欠账）。**修复 = 3 个独立 commit，fe-connector-hive 全绿 0 checkstyle：**
 
-- **✅ S1 partition_values** `166515cdc88`（上一轮）。
-- **✅ S4 auto-analyze 按表门 + 兄弟能力反射** `89c6f9454bb`：侦察坐实 iceberg-on-HMS 的能力从 **hive 连接器**解析(非兄弟)——单去 hive 连接器级 flag 会静默回归 iceberg-on-HMS。修法=`supportsColumnAutoAnalyze()`→`hasScanCapability`、去 hive 连接器级 flag(排除 hudi-on-HMS)、plain-hive 按表发标记、**委派分支 `reflectSiblingScanCapabilities` 把兄弟连接器能力集反射成按表标记**(做法C)。休眠。4 套件绿。
-- **✅ S2 hudi_meta 连接器驱动** `d8f2d01978a`：中立 `getMetadataTableRows` SPI(`List<List<String>>`)+`SUPPORTS_METADATA_TABLE`+`HudiConnector` 全活时间线(TCCL pin)+双臂 `hudiMetadataResult`(HMS 臂下沉到 `HudiExternalMetaCache.getTimelineRows`)。**MetadataGenerator 摆脱 `org.apache.hudi`**。休眠。
-- **✅ S3 sample-analyze 完整移植** `8469a033abd`：`SUPPORTS_SAMPLE_ANALYZE`(plain-hive 按表)+`canSample`/`isSamplingPartition` 加臂+`PluginDrivenSampleAnalysisTask`(逐字移植 doSample/getSampleInfo/needLimit)+`ConnectorStatisticsOps.listFileSizes` SPI+`getChunkSizes` override+**分桶列透传**(`DISTRIBUTION_COLUMNS_KEY`)+`StatisticsAutoCollector` force-FULL 收窄 `&& !supportsSampleAnalyze()`。休眠。
-- **✅ W6 写路径 TCCL = 核实假警报**：兄弟自带 `TcclPinningConnectorContext`，无未固定路径。软化注释 `f53a71f5260`(纯文档)。
+- **✅ HIGH（翻闸前必修）** `a5015800abd`：hudi_meta/TIMELINE 兄弟转发缺失——`reflectSiblingScanCapabilities` 把 hudi 兄弟的 `SUPPORTS_METADATA_TABLE` 反射进按表标记→翻闸后 gate 通过，但 `HiveConnectorMetadata` **无 `getMetadataTableRows` override**(其它逐柄读都 guard-and-forward)→ foreign `HudiTableHandle` 掉进 SPI 默认空表 = 静默空时间线(非真实)。补 guard-and-forward override(仿 `listFileSizes`)+完整性锁(`EXPECTED_METHODS`/`RecordingSiblingMetadata`/行断言)+真 hudi 形态 withholding 测试(顺带修 S4 测试盲区)。iceberg-on-HMS 不受影响。
+- **✅ LOW(测试盲区)** `a63ab391171`：能力守卫补 `SUPPORTS_SAMPLE_ANALYZE`/`SUPPORTS_METADATA_TABLE` 两 pin(误设连接器级会静默过度接纳 iceberg/hudi-on-HMS)。
+- **✅ LOW(真错，用户拍板"响亮失败"对齐老实现)** `d85c16f2cda`：`listFileSizes` 吞列文件错误到空→采样 `scaleFactor` 塌成 1.0 但 `TABLESAMPLE` 仍触发→静默低估统计、任务报成功；老实现响亮失败。去 catch(留 finally 复原 TCCL)让错误照传 + 确定性传播单测(注入抛错 cache)。
+- **S1 partition_values + W6 = CLEAN**（无存活发现；paimon/iceberg 字节+成本不变已核）。
 
-**⭐ 下一步 = 净室对抗复审（本轮按用户要求"停在复审前"，未开工）：**
-1. **净室对抗复审跨全部 seam commit（S1–S4 + W6）**：memory `clean-room-adversarial-review-pref`——多 agent 先独立判断、后交叉核对；重点核 ① S4 做法C 反射是否漏/误透能力(只应影响 `hasScanCapability` 消费者)、② S3 移植 doSample 字节等价 + `listFileSizes`/`getChunkSizes` TCCL 方向 + 分桶列大小写、③ S2 双臂无破 4 p2 套件(HMS 臂仍活)、④ 全部对 paimon/iceberg 字节+成本不变。修确认发现。
-2. **勾设计文档 TODO / 登记 e2e 欠账**：本轮已做（execution-plan §2.3/§2.5/§5 + 设计文档 TODO + 本 HANDOFF）。
-3. **2 处本轮发现的后续项（非 3 缝、勿丢，见设计文档「Discovered follow-ups」）**：① 删除步 build-break——`StatisticsAutoCollector.java:36`/`StatisticsCache.java:44` 误 import `org.apache.hudi.common.util.VisibleForTesting`(注解)，hudi 出 fe-core classpath 时会挂，删除步换 guava/doris `@VisibleForTesting`(现无害未改)；② 分区级 FULL analyze——`ExternalAnalysisTask.doFull` 不做旧 `HMSAnalysisTask.doPartitionTable` 分区级(所有插件表通性、非 S3 引入)，若要分区级外表 analyze 另起一步。
-
-**⚠ 与本步解耦、仍待用户拍板的 3 处 D2 缓存复审项**（上一步遗留，见旧 HANDOFF/review2 报告；本轮未动）：① 自发 DROP/CREATE TABLE 不清连接器缓存(HIGH)；② 分区缓存容量单位悄变(MEDIUM)；③ paimon/iceberg `latestSnapshotCache` 现网同形删建洞(线上活性 bug)。下个 session 可择机连同上面 seam 一起或单独找用户定。
+**⭐ 下一步（本轮未开工，Phase 1 剩余 = 最后一块外部输入 → 翻闸前置项）：**
+1. **3 处 D2 缓存复审项待用户拍板**（更早遗留，见 review2 报告；本轮未动）：① 自发 DROP/CREATE TABLE 不清连接器缓存(HIGH)；② 分区缓存容量单位悄变(MEDIUM)；③ paimon/iceberg `latestSnapshotCache` 现网同形删建洞(线上活性 bug)。**这是翻闸前 fe-core 建设唯一未决的外部输入**——下个 session 起步先找用户定这 3 项(中文讲清背景+选项，见 memory `ask-user-explain-in-chinese-first`)。
+2. **原子翻闸前置项**（Phase 2 集：`SPI_READY += hms`、GSON `HMSExternalTable`→`PluginDrivenMvccExternalTable` 重映射、4 守卫改接新子系统、死臂/删除排序）——见 execution-plan §2/§3；D2 三项定完即可开工。
+3. **设计文档「Discovered follow-ups」2 项欠账（勿丢）**：① 删除步把 `StatisticsAutoCollector.java`/`StatisticsCache.java` 的 `org.apache.hudi...VisibleForTesting` 换 guava/doris；② 分区级 FULL analyze 缺失(所有插件表通性、非本轮引入)。
 
 **⚠ 翻闸/e2e 欠账（非静默，勿丢）**：所有连接器休眠步(读/写-拒/schema-evolution/缓存/跨加载器委派/本步 4 缝)只在翻闸后 live，须异构 HMS docker e2e 断言（清单见 execution plan §4/§5 + `hive-coupling-seams-step-design` e2e-owed 段 + memory `hms-iceberg-delegation-needs-e2e`）。删除排序最硬约束：`datasource/hive|hudi|iceberg/` ~90 个 HMS 支撑类删不掉直到翻闸切消费者（execution plan §2.4/§3）。
 
