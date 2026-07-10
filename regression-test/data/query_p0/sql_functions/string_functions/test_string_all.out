@@ -977,6 +977,15 @@ R163	R163
 -- !levenshtein_334 --
 \N	2	1
 
+-- !levenshtein_alias_335 --
+2	3
+
+-- !damerau_levenshtein_336 --
+0	3	2	1	1	1	1	2
+
+-- !damerau_levenshtein_337 --
+\N	\N	3
+
 -- !levenshtein_tbl --
 1	3
 2	0
@@ -987,6 +996,19 @@ R163	R163
 7	3
 8	2
 9	1
+10	3
+
+-- !damerau_levenshtein_tbl --
+1	3
+2	0
+3	1
+4	\N
+5	1
+6	1
+7	3
+8	2
+9	1
+10	2
 
 -- !levenshtein_nn_vector_vector --
 1	1
@@ -1005,6 +1027,26 @@ R163	R163
 
 -- !levenshtein_nn_scalar_vector_utf8 --
 3	1
+
+-- !damerau_levenshtein_nn_vector_vector --
+1	1
+2	4
+3	1
+4	1
+
+-- !damerau_levenshtein_nn_vector_scalar_ascii --
+1	1
+2	1
+
+-- !damerau_levenshtein_nn_scalar_vector_ascii --
+1	1
+2	1
+
+-- !damerau_levenshtein_nn_vector_scalar_utf8 --
+4	1
+
+-- !damerau_levenshtein_nn_scalar_vector_utf8 --
+4	1
 
 -- !levenshtein_vector_scalar_nullable --
 2	0

@@ -22,11 +22,10 @@
 #include <gen_cpp/Types_types.h>
 
 #include <algorithm>
-#include <cstring>
+#include <memory>
 #include <ranges>
 #include <set>
 #include <sstream>
-#include <stdexcept>
 #include <utility>
 #include <vector>
 
@@ -36,18 +35,20 @@
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_struct.h"
-#include "exec/common/endian.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vslot_ref.h"
 #include "format/table/deletion_vector_reader.h"
+#include "format/table/iceberg_delete_file_reader_helper.h"
+#include "format/table/paimon_reader.h"
 #include "format_v2/column_mapper.h"
 #include "format_v2/delimited_text/csv_reader.h"
 #include "format_v2/delimited_text/text_reader.h"
 #include "format_v2/json/json_reader.h"
 #include "format_v2/native/native_reader.h"
+#include "format_v2/orc/orc_reader.h"
 #include "format_v2/parquet/parquet_reader.h"
-#include "roaring/roaring64map.hh"
 #include "storage/segment/condition_cache.h"
+#include "util/debug_points.h"
 #include "util/string_util.h"
 
 namespace doris::format {
@@ -307,20 +308,6 @@ std::string table_filter_debug_string(const TableFilter& filter) {
     return out.str();
 }
 
-std::string table_column_predicates_debug_string(const TableColumnPredicates& predicates) {
-    std::ostringstream out;
-    out << "{";
-    size_t idx = 0;
-    for (const auto& [global_index, column_predicates] : predicates) {
-        if (idx++ > 0) {
-            out << ", ";
-        }
-        out << global_index.value() << ":{predicate_count=" << column_predicates.size() << "}";
-    }
-    out << "}";
-    return out.str();
-}
-
 bool contains_runtime_filter(const VExprContextSPtrs& conjuncts) {
     return std::ranges::any_of(conjuncts, [](const auto& conjunct) {
         return conjunct != nullptr && conjunct->root() != nullptr &&
@@ -376,59 +363,13 @@ Status parse_deletion_vector(const char* buf, size_t buffer_size, DeleteFileDesc
     DORIS_CHECK(format == DeleteFileDesc::Format::PAIMON ||
                 format == DeleteFileDesc::Format::ICEBERG);
 
-    const size_t checksum_size = format == DeleteFileDesc::Format::ICEBERG ? 4 : 0;
-    if (buffer_size < 8 + checksum_size) [[unlikely]] {
-        return Status::DataQualityError("Deletion vector file size too small: {}", buffer_size);
-    }
-
-    auto total_length = BigEndian::Load32(buf);
-    if (total_length + 4 + checksum_size != buffer_size) [[unlikely]] {
-        return Status::DataQualityError("Deletion vector length mismatch, expected: {}, actual: {}",
-                                        total_length + 4 + checksum_size, buffer_size);
-    }
-
-    const char* bitmap_buf = buf + 8;
-    const size_t bitmap_size = buffer_size - 8 - checksum_size;
     if (format == DeleteFileDesc::Format::PAIMON) {
-        // Paimon BitmapDeletionVector stores:
-        //   [4-byte big-endian length][4-byte magic 0x5E43F2D0][32-bit roaring bitmap]
-        // The length covers magic + bitmap, and does not include the leading length field.
-        constexpr static char PAIMON_BITMAP_MAGIC[] = {'\x5E', '\x43', '\xF2', '\xD0'};
-        if (memcmp(buf + sizeof(total_length), PAIMON_BITMAP_MAGIC, 4) != 0) [[unlikely]] {
-            return Status::DataQualityError(
-                    "Paimon deletion vector magic number mismatch, expected: {}, actual: {}",
-                    BigEndian::Load32(PAIMON_BITMAP_MAGIC),
-                    BigEndian::Load32(buf + sizeof(total_length)));
-        }
-
-        roaring::Roaring bitmap;
-        try {
-            bitmap = roaring::Roaring::readSafe(bitmap_buf, bitmap_size);
-        } catch (const std::runtime_error& e) {
-            return Status::DataQualityError("Decode roaring bitmap failed, {}", e.what());
-        }
-
-        delete_rows->reserve(bitmap.cardinality());
-        for (auto it = bitmap.begin(); it != bitmap.end(); it++) {
-            delete_rows->push_back(*it);
-        }
+        RETURN_IF_ERROR(decode_paimon_deletion_vector_buffer(buf, buffer_size, delete_rows));
         return Status::OK();
     }
 
-    constexpr static char ICEBERG_DV_MAGIC[] = {'\xD1', '\xD3', '\x39', '\x64'};
-    if (memcmp(buf + sizeof(total_length), ICEBERG_DV_MAGIC, 4) != 0) [[unlikely]] {
-        return Status::DataQualityError(
-                "Iceberg deletion vector magic number mismatch, expected: {}, actual: {}",
-                BigEndian::Load32(ICEBERG_DV_MAGIC), BigEndian::Load32(buf + sizeof(total_length)));
-    }
-
     roaring::Roaring64Map bitmap;
-    try {
-        bitmap = roaring::Roaring64Map::readSafe(bitmap_buf, bitmap_size);
-    } catch (const std::runtime_error& e) {
-        return Status::DataQualityError("Decode roaring bitmap failed, {}", e.what());
-    }
-
+    RETURN_IF_ERROR(decode_iceberg_deletion_vector_buffer(buf, buffer_size, &bitmap));
     delete_rows->reserve(bitmap.cardinality());
     for (auto it = bitmap.begin(); it != bitmap.end(); it++) {
         delete_rows->push_back(cast_set<int64_t>(*it));
@@ -481,8 +422,6 @@ std::string TableReader::debug_string() const {
         << join_table_reader_debug_strings(
                    _table_filters,
                    [](const TableFilter& filter) { return table_filter_debug_string(filter); })
-        << ", table_column_predicates="
-        << table_column_predicates_debug_string(_table_column_predicates)
         << ", conjunct_count=" << _conjuncts.size() << ", conjuncts="
         << join_table_reader_debug_strings(_conjuncts,
                                            [](const VExprContextSPtr& conjunct) {
@@ -541,7 +480,6 @@ Status TableReader::init(TableReadOptions&& options) {
     _system_properties = create_system_properties(_scan_params);
     _mapper_options.mode = TableColumnMappingMode::BY_NAME;
     _conjuncts = std::move(options.conjuncts);
-    _table_column_predicates = std::move(options.column_predicates);
 
     if (_scanner_profile != nullptr) {
         static const char* table_profile = "TableReader";
@@ -596,8 +534,8 @@ bool TableReader::_should_enable_condition_cache(const FileScanRequest& file_req
         return false;
     }
     // Condition cache is populated by file readers after evaluating file-local row-level
-    // conjuncts. ColumnPredicate-only scans can prune row groups/pages, but they do not produce a
-    // per-row survivor bitmap that can safely populate the cache.
+    // conjuncts. Metadata pruning can skip row groups/pages, but it does not produce a per-row
+    // survivor bitmap that can safely populate the cache.
     if (file_request.conjuncts.empty()) {
         return false;
     }
@@ -689,8 +627,24 @@ Status TableReader::create_next_reader(bool* eos) {
     if (_batch_size > 0) {
         _data_reader.reader->set_batch_size(_batch_size);
     }
-    RETURN_IF_ERROR(_data_reader.reader->init(_runtime_state));
-    RETURN_IF_ERROR(open_reader());
+    Status st = _data_reader.reader->init(_runtime_state);
+    if (!st.ok()) {
+        if (_io_ctx != nullptr && _io_ctx->should_stop && st.is<ErrorCode::END_OF_FILE>()) {
+            *eos = true;
+            _data_reader.reader.reset();
+            return Status::OK();
+        }
+        return st;
+    }
+    st = open_reader();
+    if (!st.ok()) {
+        if (_io_ctx != nullptr && _io_ctx->should_stop && st.is<ErrorCode::END_OF_FILE>()) {
+            *eos = true;
+            _data_reader.reader.reset();
+            return Status::OK();
+        }
+        return st;
+    }
     if (_data_reader.reader == nullptr) {
         *eos = _current_task == nullptr;
         return Status::OK();
@@ -701,11 +655,17 @@ Status TableReader::create_next_reader(bool* eos) {
 
 Status TableReader::create_file_reader(std::unique_ptr<FileReader>* reader) {
     DORIS_CHECK(reader != nullptr);
+    const bool enable_mapping_timestamp_tz = _scan_params != nullptr &&
+                                             _scan_params->__isset.enable_mapping_timestamp_tz &&
+                                             _scan_params->enable_mapping_timestamp_tz;
     if (_format == FileFormat::PARQUET) {
-        const bool enable_mapping_timestamp_tz =
-                _scan_params != nullptr && _scan_params->__isset.enable_mapping_timestamp_tz &&
-                _scan_params->enable_mapping_timestamp_tz;
         *reader = std::make_unique<format::parquet::ParquetReader>(
+                _system_properties, _current_task->data_file, _io_ctx, _scanner_profile,
+                _global_rowid_context, enable_mapping_timestamp_tz);
+        return Status::OK();
+    }
+    if (_format == FileFormat::ORC) {
+        *reader = std::make_unique<format::orc::OrcReader>(
                 _system_properties, _current_task->data_file, _io_ctx, _scanner_profile,
                 _global_rowid_context, enable_mapping_timestamp_tz);
         return Status::OK();
@@ -814,7 +774,7 @@ Status TableReader::_parse_delete_predicates(const SplitReadOptions& options) {
         Status create_status = Status::OK();
 
         _delete_rows = options.cache->get<DeleteRows>(desc.key, [&]() -> DeleteRows* {
-            auto* delete_rows = new DeleteRows;
+            auto delete_rows = std::make_unique<DeleteRows>();
 
             DeletionVectorReader dv_reader(_runtime_state, _scanner_profile, *_scan_params, desc,
                                            _io_ctx.get());
@@ -825,6 +785,14 @@ Status TableReader::_parse_delete_predicates(const SplitReadOptions& options) {
 
             size_t bytes_read = desc.size;
             std::vector<char> buffer(bytes_read);
+            DBUG_EXECUTE_IF("TableReader.parse_deletion_vector.io_error", {
+                create_status = Status::IOError("injected format v2 deletion vector read failure");
+                return nullptr;
+            });
+            DBUG_EXECUTE_IF("TableReader.parse_deletion_vector.should_stop", {
+                create_status = Status::EndOfFile("stop read.");
+                return nullptr;
+            });
             create_status = dv_reader.read_at(desc.start_offset, {buffer.data(), bytes_read});
             if (!create_status.ok()) [[unlikely]] {
                 return nullptr;
@@ -832,12 +800,12 @@ Status TableReader::_parse_delete_predicates(const SplitReadOptions& options) {
 
             const char* buf = buffer.data();
             SCOPED_TIMER(_profile.parse_delete_file_time);
-            create_status = parse_deletion_vector(buf, bytes_read, desc.format, delete_rows);
+            create_status = parse_deletion_vector(buf, bytes_read, desc.format, delete_rows.get());
             if (!create_status.ok()) [[unlikely]] {
                 return nullptr;
             }
             COUNTER_UPDATE(_profile.num_delete_rows, delete_rows->size());
-            return delete_rows;
+            return delete_rows.release();
         });
         RETURN_IF_ERROR(create_status);
     }

@@ -63,7 +63,7 @@ suite("test_vertical_compaction_uniq_keys_ck") {
             UNIQUE KEY(`user_id`, `date`, `datev2`, `datetimev2_1`, `datetimev2_2`, `city`, `age`, `sex`)
             ORDER BY(`age`, `sex`, `user_id`)
             DISTRIBUTED BY HASH(`user_id`)
-            PROPERTIES ( "replication_num" = "1", "enable_unique_key_merge_on_write"="true" );
+            PROPERTIES ( "replication_num" = "1", "enable_unique_key_merge_on_write"="true", "disable_auto_compaction" = "true" );
         """
 
         sql """ INSERT INTO ${tableName} VALUES

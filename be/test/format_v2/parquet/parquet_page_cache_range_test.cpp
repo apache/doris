@@ -17,9 +17,11 @@
 
 #include <gtest/gtest.h>
 
+#include <limits>
 #include <vector>
 
 #include "format_v2/parquet/parquet_file_context.h"
+#include "io/fs/buffered_reader.h"
 
 namespace doris::format::parquet {
 namespace {
@@ -111,6 +113,68 @@ TEST(ParquetPageCacheRangeTest, InvalidRequestMisses) {
     EXPECT_TRUE(detail::plan_page_cache_range_read(-1, 10, cached_ranges).empty());
     EXPECT_TRUE(detail::plan_page_cache_range_read(100, 0, cached_ranges).empty());
     EXPECT_TRUE(detail::plan_page_cache_range_read(100, -1, cached_ranges).empty());
+}
+
+TEST(ParquetPageCacheRangeTest, ValidPrefetchRangesSkipInvalidAndOverflowRanges) {
+    const std::vector<ParquetPageCacheRange> ranges = {
+            {100, 50},
+            {-1, 50},
+            {200, 0},
+            {300, -1},
+            {std::numeric_limits<int64_t>::max() - 10, 20},
+            {400, 60},
+    };
+
+    const auto valid_ranges = detail::valid_prefetch_ranges(ranges);
+
+    ASSERT_EQ(valid_ranges.size(), 2);
+    EXPECT_EQ(valid_ranges[0].offset, 100);
+    EXPECT_EQ(valid_ranges[0].size, 50);
+    EXPECT_EQ(valid_ranges[1].offset, 400);
+    EXPECT_EQ(valid_ranges[1].size, 60);
+}
+
+TEST(ParquetPageCacheRangeTest, AveragePrefetchRangeSizeUsesOnlyValidRanges) {
+    const std::vector<ParquetPageCacheRange> ranges = {
+            {0, 512},
+            {512, 1536},
+            {-1, 1024},
+            {2048, 0},
+    };
+
+    EXPECT_EQ(detail::average_prefetch_range_size(ranges), 1024);
+    EXPECT_EQ(detail::average_prefetch_range_size({{-1, 1024}, {0, 0}}), 0);
+}
+
+TEST(ParquetPageCacheRangeTest, MergeRangeReaderDecisionMatchesV1SmallIoThreshold) {
+    const std::vector<ParquetPageCacheRange> ranges = {
+            {0, 512 * 1024},
+            {512 * 1024, 1024 * 1024},
+    };
+
+    // Two sub-2MB column chunks are the intended merge-reader case: Arrow may issue many page-level
+    // ReadAt calls inside these chunks, so v2 should route them through MergeRangeFileReader.
+    EXPECT_TRUE(detail::should_use_merge_range_reader(
+            ranges, detail::average_prefetch_range_size(ranges), false));
+
+    // The v1 threshold is strict: a 2MB average chunk is no longer considered "small IO".
+    EXPECT_FALSE(detail::should_use_merge_range_reader(ranges, io::MergeRangeFileReader::SMALL_IO,
+                                                       false));
+}
+
+TEST(ParquetPageCacheRangeTest, MergeRangeReaderDecisionRejectsEmptyInvalidAndInMemoryInputs) {
+    const std::vector<ParquetPageCacheRange> invalid_ranges = {
+            {-1, 128},
+            {0, 0},
+    };
+    const std::vector<ParquetPageCacheRange> valid_ranges = {
+            {0, 128 * 1024},
+    };
+
+    EXPECT_FALSE(detail::should_use_merge_range_reader({}, 0, false));
+    EXPECT_FALSE(detail::should_use_merge_range_reader(invalid_ranges, 128, false));
+    EXPECT_FALSE(detail::should_use_merge_range_reader(
+            valid_ranges, detail::average_prefetch_range_size(valid_ranges), true));
 }
 
 } // namespace

@@ -606,7 +606,8 @@ public class PipelineCoordinator {
                     if (result.getType() == DeserializeResult.Type.SCHEMA_CHANGE) {
                         // Flush pending data before DDL
                         batchStreamLoad.forceFlush();
-                        SchemaChangeManager.executeDdls(feAddr, targetDb, token, result.getDdls());
+                        SchemaChangeManager.executeChanges(
+                                feAddr, targetDb, token, result.getSchemaChanges());
                         hasExecuteDDL = true;
                         sourceReader.applySchemaChange(result.getUpdatedSchemas());
                         lastMessageIsHeartbeat = false;

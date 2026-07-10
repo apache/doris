@@ -76,6 +76,8 @@ protected:
 
 private:
     void _sync_page_cache_profile();
+    bool _should_stop() const;
+    Status _stop_status_if_requested(const Status& status) const;
 
     void _fill_column_definition(const ParquetColumnSchema& column_schema,
                                  format::ColumnDefinition* field) const;

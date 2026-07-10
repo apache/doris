@@ -429,19 +429,6 @@ static bool filter_conversion_has_local_source(FilterConversionType conversion) 
     return false;
 }
 
-static bool column_predicate_can_use_local_source(FilterConversionType conversion) {
-    switch (conversion) {
-    case FilterConversionType::COPY_DIRECTLY:
-        return true;
-    case FilterConversionType::CAST_FILTER:
-    case FilterConversionType::READER_EXPRESSION:
-    case FilterConversionType::FINALIZE_ONLY:
-    case FilterConversionType::CONSTANT:
-        return false;
-    }
-    return false;
-}
-
 static bool table_filter_has_only_local_entries(
         const TableFilter& table_filter, const std::map<GlobalIndex, FilterEntry>& filter_entries) {
     for (const auto global_index : table_filter.global_indices) {
@@ -1387,8 +1374,8 @@ static Status apply_scan_projection_to_mapping_file_type(const FileScanRequest& 
 // Example: for `SELECT s.a FROM t WHERE s.b.c > 1`, the output projection may only contain `s.a`,
 // but the file reader must also read `s.b.c` to evaluate the predicate. This function collects the
 // table-side filter path, resolves it through ColumnMapping first, and records the corresponding
-// file-side projection in filter_projections. This keeps renamed fields consistent across the scan
-// projection, row-level conjunct rewrite, and nested predicate pruning. Example:
+// file-side projection in filter_projections. This keeps renamed fields consistent between the scan
+// projection and row-level conjunct rewrite. Example:
 //   table filter path: s -> renamed_b -> c
 //   old file path:     s -> b -> c
 //   recorded path:     s -> b -> c
@@ -1629,9 +1616,6 @@ Status TableColumnMapper::_build_hidden_filter_mappings(
         }
     }
 
-    // TableColumnPredicates only carry GlobalIndex and predicate objects. They do not provide the
-    // top-level column name/type needed to build a hidden mapping, so a predicate-only column can
-    // be hidden-mapped only when the same root slot also appears in a conjunct.
     for (const auto& [global_index, table_column] : filter_columns) {
         if (_find_mapping(global_index) != nullptr) {
             // Ignore columns that are already mapped by the projected columns
@@ -1692,7 +1676,6 @@ Status TableColumnMapper::_build_filter_entries(const FileScanRequest& file_requ
 
 Status TableColumnMapper::create_scan_request(
         const std::vector<TableFilter>& table_filters,
-        const TableColumnPredicates& table_column_predicates,
         const std::vector<ColumnDefinition>& projected_columns, FileScanRequest* file_request,
         RuntimeState* runtime_state) {
     // FileReader evaluates expressions against a file-local block. This mapper owns the
@@ -1702,7 +1685,6 @@ Status TableColumnMapper::create_scan_request(
     file_request->local_positions.clear();
     file_request->conjuncts.clear();
     file_request->delete_conjuncts.clear();
-    file_request->column_predicate_filters.clear();
     _filter_entries.clear();
     // 1. Build referenced non-predicate columns
     for (size_t column_idx = 0; column_idx < projected_columns.size(); ++column_idx) {
@@ -1710,8 +1692,7 @@ Status TableColumnMapper::create_scan_request(
         auto* mapping = _find_mapping(global_index);
         if (mapping != nullptr && mapping->file_local_id.has_value()) {
             // A file column can be read lazily as a non-predicate column only when it is not used
-            // by row-level expression filters. Single-column ColumnPredicate filters are pruning
-            // hints only and must not force row-level predicate materialization.
+            // by row-level expression filters.
             bool used_by_filter = false;
             for (const auto& table_filter : table_filters) {
                 const auto& global_indices = table_filter.global_indices;
@@ -1731,8 +1712,7 @@ Status TableColumnMapper::create_scan_request(
     // 2. Build referenced predicate columns
     // Hidden filter mappings must be built before localizing filters, so that they can be localized together with visible mappings and referenced by localized filter expressions.
     RETURN_IF_ERROR(_build_hidden_filter_mappings(table_filters));
-    RETURN_IF_ERROR(
-            localize_filters(table_filters, table_column_predicates, file_request, runtime_state));
+    RETURN_IF_ERROR(localize_filters(table_filters, file_request, runtime_state));
     // 3. Rebuild output projection expressions for projected columns. localize_filters() has
     // already applied the final scan projection to mapping.file_type/projected_file_children before
     // rewriting filter expressions.
@@ -1772,7 +1752,6 @@ ColumnMapping* TableColumnMapper::_find_filter_mapping(GlobalIndex global_index)
 }
 
 Status TableColumnMapper::localize_filters(const std::vector<TableFilter>& table_filters,
-                                           const TableColumnPredicates& table_column_predicates,
                                            FileScanRequest* file_request,
                                            RuntimeState* runtime_state) {
     FilterProjectionMap filter_projections;
@@ -1819,7 +1798,7 @@ Status TableColumnMapper::localize_filters(const std::vector<TableFilter>& table
             Status clone_status;
             try {
                 clone_status = clone_table_expr_tree(table_filter.conjunct->root(), &rewrite_root);
-            } catch (const Exception& e) {
+            } catch ([[maybe_unused]] const Exception& e) {
                 // Some table filters contain complex intermediate values, for example
                 // `element_at(MAP_VALUES(m)[1], 'age') > 30`. The current file-local rewrite only
                 // understands top-level slots and struct-element paths rooted at top-level slots;
@@ -1833,7 +1812,7 @@ Status TableColumnMapper::localize_filters(const std::vector<TableFilter>& table
 #else
                 continue;
 #endif
-            } catch (const std::exception& e) {
+            } catch ([[maybe_unused]] const std::exception& e) {
 #ifndef NDEBUG
                 return Status::InternalError(
                         "Failed to clone table filter for file-local rewrite: {}, expr={}",
@@ -1861,47 +1840,6 @@ Status TableColumnMapper::localize_filters(const std::vector<TableFilter>& table
             auto localized_conjunct = VExprContext::create_shared(std::move(localized_root));
             RETURN_IF_ERROR(rewrite_context.prepare_created_exprs(localized_conjunct.get()));
             file_request->conjuncts.push_back(std::move(localized_conjunct));
-        }
-    }
-    if (enable_column_predicate_filters()) {
-        for (const auto& [global_index, predicates] : table_column_predicates) {
-            const auto* mapping = _find_filter_mapping(global_index);
-            const auto entry_it = _filter_entries.find(global_index);
-            if (mapping == nullptr || !mapping->file_local_id.has_value() || predicates.empty() ||
-                entry_it == _filter_entries.end() || !entry_it->second.is_local() ||
-                !column_predicate_can_use_local_source(mapping->filter_conversion) ||
-                mapping->file_type == nullptr) {
-                continue;
-            }
-            FileColumnPredicateFilter column_predicate_filter;
-            column_predicate_filter.file_column_id = LocalColumnId(*mapping->file_local_id);
-            column_predicate_filter.target =
-                    FileNestedPredicateTarget(column_predicate_filter.file_column_id);
-            const auto file_primitive_type =
-                    remove_nullable(mapping->file_type)->get_primitive_type();
-            for (const auto& predicate : predicates) {
-                DORIS_CHECK(predicate != nullptr);
-                if (predicate->primitive_type() == file_primitive_type) {
-                    column_predicate_filter.predicates.push_back(predicate);
-                }
-            }
-            if (column_predicate_filter.predicates.empty()) {
-                continue;
-            }
-            file_request->column_predicate_filters.push_back(std::move(column_predicate_filter));
-        }
-        for (const auto& table_filter : table_filters) {
-            if (table_filter.conjunct == nullptr ||
-                !table_filter_has_only_local_entries(table_filter, _filter_entries)) {
-                continue;
-            }
-            std::vector<FileColumnPredicateFilter> nested_column_predicate_filters;
-            collect_nested_column_predicate_filters(table_filter.conjunct->root(), filter_mappings,
-                                                    &nested_column_predicate_filters);
-            for (auto& column_predicate_filter : nested_column_predicate_filters) {
-                merge_column_predicate_filter(std::move(column_predicate_filter),
-                                              &file_request->column_predicate_filters);
-            }
         }
     }
     return Status::OK();

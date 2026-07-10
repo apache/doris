@@ -399,8 +399,7 @@ public abstract class JdbcIncrementalSourceReader extends AbstractCdcSourceReade
                     "No tableSchemas available for stream split, discovering via JDBC for job {}",
                     baseReq.getJobId());
             Map<TableId, TableChanges.TableChange> discovered = getTableSchemas(baseReq);
-            this.tableSchemas = new java.util.concurrent.ConcurrentHashMap<>(discovered);
-            this.serializer.setTableSchemas(this.tableSchemas);
+            setTableSchemas(new java.util.concurrent.ConcurrentHashMap<>(discovered));
             LOG.info(
                     "Discovered {} table schema(s) for job {}",
                     discovered.size(),
@@ -1063,6 +1062,11 @@ public abstract class JdbcIncrementalSourceReader extends AbstractCdcSourceReade
                         Offset position = createOffset(element.sourceOffset());
                         splitState.asStreamSplitState().setStartingOffset(position);
                     }
+                    nextRecord = element;
+                    return true;
+                } else if (SourceRecordUtils.isSchemaChangeEvent(element)) {
+                    // PostgresSchemaRecord is synthetic and has no source offset. Keep the current
+                    // stream offset; the following DML or heartbeat advances it.
                     nextRecord = element;
                     return true;
                 } else if (SourceRecordUtils.isDataChangeRecord(element)) {

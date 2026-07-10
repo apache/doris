@@ -92,7 +92,6 @@ import java.util.ArrayList;
 import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.regex.Pattern;
@@ -504,7 +503,7 @@ public class PaimonUtil {
             boolean enableTimestampTzMapping) {
         List<Column> resSchema = Lists.newArrayListWithCapacity(rowType.getFields().size());
         rowType.getFields().forEach(field -> {
-            resSchema.add(new Column(field.name().toLowerCase(),
+            resSchema.add(new Column(field.name(),
                     PaimonUtil.paimonTypeToDorisType(field.type(), enableVarbinaryMapping, enableTimestampTzMapping),
                     primaryKeys.contains(field.name()),
                     null,
@@ -553,7 +552,7 @@ public class PaimonUtil {
             try {
                 String partitionValue = serializePartitionValue(partitionType.getFields().get(i).type(),
                         partitionValuesArray[i], timeZone);
-                partitionInfoMap.put(partitionKeys.get(i).toLowerCase(Locale.ROOT), partitionValue);
+                partitionInfoMap.put(partitionKeys.get(i), partitionValue);
             } catch (UnsupportedOperationException e) {
                 LOG.warn("Failed to serialize table {} partition value for key {}: {}", table.name(),
                         partitionKeys.get(i), e.getMessage());

@@ -26,6 +26,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/cast_set.h"
 #include "core/assert_cast.h"
 #include "core/block/block.h"
 #include "core/data_type/data_type_array.h"
@@ -39,6 +40,7 @@
 #include "format_v2/parquet/parquet_scan.h"
 #include "format_v2/parquet/parquet_statistics.h"
 #include "format_v2/parquet/reader/column_reader.h"
+#include "io/io_common.h"
 #include "runtime/runtime_state.h"
 
 namespace doris::format::parquet {
@@ -48,6 +50,7 @@ struct ParquetReaderScanState {
     std::vector<std::unique_ptr<ParquetColumnSchema>> file_schema;
     RowGroupScanPlan scan_plan;
     ParquetScanScheduler scheduler;
+    const RuntimeState* runtime_state = nullptr;
     const cctz::time_zone* timezone = nullptr;
     bool enable_bloom_filter = false;
     bool enable_page_cache = false;
@@ -317,6 +320,9 @@ ParquetReader::ParquetReader(std::shared_ptr<io::FileSystemProperties>& system_p
 ParquetReader::~ParquetReader() = default;
 
 Status ParquetReader::init(RuntimeState* state) {
+    if (_io_ctx != nullptr && _io_ctx->should_stop) {
+        return Status::EndOfFile("stop");
+    }
     RETURN_IF_ERROR(format::FileReader::init(state));
     if (_profile != nullptr) {
         COUNTER_UPDATE(_parquet_profile.file_reader_create_time,
@@ -329,11 +335,17 @@ Status ParquetReader::init(RuntimeState* state) {
     _state->enable_page_cache =
             state != nullptr && state->query_options().enable_parquet_file_page_cache;
     if (state != nullptr) {
+        _state->runtime_state = state;
         _state->timezone = &state->timezone_obj();
         _state->enable_strict_mode = state->enable_strict_mode();
         _state->scheduler.set_timezone(&state->timezone_obj());
         _state->scheduler.set_enable_strict_mode(_state->enable_strict_mode);
     }
+    int64_t merge_read_slice_size = -1;
+    if (state != nullptr && state->query_options().__isset.merge_read_slice_size) {
+        merge_read_slice_size = state->query_options().merge_read_slice_size;
+    }
+    _state->scheduler.set_merge_read_options(_profile, merge_read_slice_size);
     _state->scheduler.set_batch_size(_batch_size);
     // Open parquet file and parse metadata to get file schema.
     RETURN_IF_ERROR(_state->file_context.open(_tracing_file_reader, _io_ctx.get(),
@@ -393,15 +405,6 @@ Status ParquetReader::open(std::shared_ptr<format::FileScanRequest> request) {
     DORIS_CHECK(request_snapshot != nullptr);
     RETURN_IF_ERROR(format::FileReader::open(std::move(request)));
 
-    const int num_fields = static_cast<int>(_state->file_schema.size());
-    for (const auto& column_filter : request_snapshot->column_predicate_filters) {
-        const auto file_column_id = column_filter.effective_file_column_id();
-        if (!file_column_id.is_valid() || file_column_id.value() >= num_fields) {
-            return Status::InvalidArgument("Invalid parquet filter top-level local id {}",
-                                           file_column_id.value());
-        }
-    }
-
     // `local_positions.empty()` means all columns are needed by table reader
     // TODO(gabriel): It will happen only for TVF `select *` query.
     if (request_snapshot->local_positions.empty()) {
@@ -415,6 +418,7 @@ Status ParquetReader::open(std::shared_ptr<format::FileScanRequest> request) {
         }
     }
 
+    const auto num_fields = static_cast<int32_t>(_state->file_schema.size());
     for (const auto& col : request_snapshot->predicate_columns) {
         DORIS_CHECK(request_snapshot->local_positions.count(col.column_id()) > 0);
         const auto local_id = col.local_id();
@@ -443,7 +447,7 @@ Status ParquetReader::open(std::shared_ptr<format::FileScanRequest> request) {
     RETURN_IF_ERROR(plan_parquet_row_groups(
             *_state->file_context.metadata, _state->file_context.file_reader.get(),
             _state->file_schema, *request_snapshot, scan_range, _state->enable_bloom_filter,
-            &row_group_plan, _state->timezone));
+            &row_group_plan, _state->timezone, _state->runtime_state));
     if (_profile != nullptr) {
         _parquet_profile.update_pruning_stats(row_group_plan.pruning_stats);
     }
@@ -467,6 +471,10 @@ Status ParquetReader::get_block(Block* file_block, size_t* rows, bool* eof) {
         return Status::Uninitialized("ParquetReader is not open");
     }
     *rows = 0;
+    if (_io_ctx != nullptr && _io_ctx->should_stop) {
+        *eof = true;
+        return Status::OK();
+    }
     if (_eof) {
         *eof = true;
         return Status::OK();
@@ -477,15 +485,38 @@ Status ParquetReader::get_block(Block* file_block, size_t* rows, bool* eof) {
     }
 
     const auto predicate_filtered_rows_before = _state->scheduler.predicate_filtered_rows();
-    RETURN_IF_ERROR(_state->scheduler.read_next_batch(_state->file_context, _state->file_schema,
-                                                      *request_snapshot, file_block, rows, eof));
+    const auto raw_rows_read_before = _state->scheduler.raw_rows_read();
+    Status st = _state->scheduler.read_next_batch(_state->file_context, _state->file_schema,
+                                                  *request_snapshot, file_block, rows, eof);
+    if (!st.ok()) {
+        if (_io_ctx != nullptr && _io_ctx->should_stop) {
+            *rows = 0;
+            *eof = true;
+            return Status::OK();
+        }
+        return st;
+    }
     _sync_page_cache_profile();
     if (_io_ctx != nullptr) {
         _io_ctx->predicate_filtered_rows +=
                 _state->scheduler.predicate_filtered_rows() - predicate_filtered_rows_before;
     }
+    const auto raw_rows_read = _state->scheduler.raw_rows_read();
+    DORIS_CHECK(raw_rows_read >= raw_rows_read_before);
+    _record_scan_rows(raw_rows_read - raw_rows_read_before);
     _eof = *eof;
     return Status::OK();
+}
+
+bool ParquetReader::_should_stop() const {
+    return _io_ctx != nullptr && _io_ctx->should_stop;
+}
+
+Status ParquetReader::_stop_status_if_requested(const Status& status) const {
+    if (!status.ok() && _should_stop()) {
+        return Status::EndOfFile("stop");
+    }
+    return status;
 }
 
 void ParquetReader::_sync_page_cache_profile() {
@@ -540,6 +571,9 @@ Status ParquetReader::get_aggregate_result(const format::FileAggregateRequest& r
         _state->file_context.schema == nullptr) {
         return Status::Uninitialized("ParquetReader is not open");
     }
+    if (_should_stop()) {
+        return Status::EndOfFile("stop");
+    }
     result->count = 0;
     result->columns.clear();
     if (request.agg_type != TPushAggOp::type::COUNT &&
@@ -570,9 +604,15 @@ Status ParquetReader::get_aggregate_result(const format::FileAggregateRequest& r
             try {
                 row_group = _state->file_context.file_reader->RowGroup(row_group_plan.row_group_id);
             } catch (const ::parquet::ParquetException& e) {
+                if (_should_stop()) {
+                    return Status::EndOfFile("stop");
+                }
                 return Status::Corruption("Failed to open parquet row group {}: {}",
                                           row_group_plan.row_group_id, e.what());
             } catch (const std::exception& e) {
+                if (_should_stop()) {
+                    return Status::EndOfFile("stop");
+                }
                 return Status::InternalError("Failed to open parquet row group {}: {}",
                                              row_group_plan.row_group_id, e.what());
             }
@@ -590,7 +630,8 @@ Status ParquetReader::get_aggregate_result(const format::FileAggregateRequest& r
             int64_t row_group_cursor = 0;
             for (const auto& selected_range : row_group_plan.selected_ranges) {
                 DORIS_CHECK(selected_range.start >= row_group_cursor);
-                RETURN_IF_ERROR(shape_reader->skip(selected_range.start - row_group_cursor));
+                RETURN_IF_ERROR(_stop_status_if_requested(
+                        shape_reader->skip(selected_range.start - row_group_cursor)));
                 row_group_cursor = selected_range.start;
 
                 int64_t range_rows_read = 0;
@@ -602,7 +643,9 @@ Status ParquetReader::get_aggregate_result(const format::FileAggregateRequest& r
                     // or values_column. MAP chooses the key leaf; ARRAY/STRUCT may choose a string
                     // leaf, but the levels-only protocol still avoids Doris-side string
                     // materialization for that leaf.
-                    RETURN_IF_ERROR(shape_reader->load_nested_levels_batch(batch_rows));
+                    RETURN_IF_ERROR(_stop_status_if_requested(
+                            shape_reader->load_nested_levels_batch(batch_rows)));
+                    _record_scan_rows(batch_rows);
                     result->count +=
                             count_loaded_non_null_values(root_schema, *shape_reader, batch_rows);
                     range_rows_read += batch_rows;

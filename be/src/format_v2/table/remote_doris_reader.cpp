@@ -231,9 +231,9 @@ Status RemoteDorisFileReader::get_block(Block* file_block, size_t* rows, bool* e
     }
 
     RETURN_IF_ERROR(_materialize_record_batch(*batch, file_block, rows));
+    _record_scan_rows(cast_set<int64_t>(*rows));
     RETURN_IF_ERROR(
             apply_materialized_reader_filters(_request.get(), _io_ctx.get(), file_block, rows));
-    _reader_statistics.read_rows += *rows;
     return Status::OK();
 }
 

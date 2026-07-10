@@ -108,7 +108,7 @@ TEST(FileScannerV2Test, SupportedFormatMatrix) {
             {"hudi", TFileFormatType::FORMAT_PARQUET, std::nullopt, true},
             {"jdbc", TFileFormatType::FORMAT_PARQUET, std::nullopt, false},
             {"", TFileFormatType::FORMAT_JNI, std::nullopt, false},
-            {"hive", TFileFormatType::FORMAT_ORC, std::nullopt, false},
+            {"hive", TFileFormatType::FORMAT_ORC, std::nullopt, true},
             {"jdbc", TFileFormatType::FORMAT_JNI, std::nullopt, true},
             {"hive", TFileFormatType::FORMAT_JNI, std::nullopt, false},
             {"", TFileFormatType::FORMAT_CSV_PLAIN, std::nullopt, true},
@@ -122,7 +122,7 @@ TEST(FileScannerV2Test, SupportedFormatMatrix) {
             {"hive", TFileFormatType::FORMAT_PROTO, std::nullopt, true},
             {"hive", TFileFormatType::FORMAT_TEXT, std::nullopt, true},
             {"hive", TFileFormatType::FORMAT_JSON, std::nullopt, true},
-            {"hive", TFileFormatType::FORMAT_PARQUET, TFileFormatType::FORMAT_ORC, false},
+            {"hive", TFileFormatType::FORMAT_PARQUET, TFileFormatType::FORMAT_ORC, true},
             {"hive", TFileFormatType::FORMAT_ORC, TFileFormatType::FORMAT_PARQUET, true},
             {"hive", TFileFormatType::FORMAT_PARQUET, TFileFormatType::FORMAT_CSV_PLAIN, true},
             {"hive", TFileFormatType::FORMAT_PARQUET, TFileFormatType::FORMAT_TEXT, true},
@@ -161,7 +161,7 @@ TEST(FileScannerV2Test, SplitSourceAllScanRangesMatchRequiresEveryRangeSupported
 
     const auto supported = range_with_format("hive", TFileFormatType::FORMAT_PARQUET);
     const auto unsupported_table = range_with_format("lakesoul", TFileFormatType::FORMAT_PARQUET);
-    const auto unsupported_format = range_with_format("hive", TFileFormatType::FORMAT_ORC);
+    const auto unsupported_format = range_with_format("hive", TFileFormatType::FORMAT_WAL);
 
     LocalSplitSourceConnector all_supported(
             {scan_range_param(supported),
@@ -207,7 +207,7 @@ TEST(FileScannerV2Test, FileFormatConversionMatrix) {
             {TFileFormatType::FORMAT_JSON, format::FileFormat::JSON},
             {TFileFormatType::FORMAT_NATIVE, format::FileFormat::NATIVE},
             {TFileFormatType::FORMAT_ARROW, format::FileFormat::ARROW},
-            {TFileFormatType::FORMAT_ORC, std::nullopt},
+            {TFileFormatType::FORMAT_ORC, format::FileFormat::ORC},
     };
 
     for (const auto& test_case : cases) {
@@ -220,6 +220,123 @@ TEST(FileScannerV2Test, FileFormatConversionMatrix) {
             EXPECT_FALSE(status.ok());
         }
     }
+}
+
+TEST(FileScannerV2Test, RealtimeCounterDeltasUseReaderBytesAsRemoteWithoutCacheStats) {
+    io::FileReaderStats file_reader_stats;
+    io::FileCacheStatistics file_cache_statistics;
+    int64_t last_read_bytes = 0;
+    int64_t last_read_rows = 0;
+    int64_t last_bytes_read_from_local = 0;
+    int64_t last_bytes_read_from_remote = 0;
+
+    file_reader_stats.read_bytes = 100;
+    file_reader_stats.read_rows = 7;
+    auto deltas = FileScannerV2::TEST_collect_realtime_counter_deltas(
+            file_reader_stats, file_cache_statistics,
+            FileScannerV2::UncachedReaderBytesStorage::REMOTE, &last_read_bytes, &last_read_rows,
+            &last_bytes_read_from_local, &last_bytes_read_from_remote);
+    EXPECT_EQ(7, deltas.scan_rows);
+    EXPECT_EQ(100, deltas.scan_bytes);
+    EXPECT_EQ(0, deltas.scan_bytes_from_local_storage);
+    EXPECT_EQ(100, deltas.scan_bytes_from_remote_storage);
+
+    deltas = FileScannerV2::TEST_collect_realtime_counter_deltas(
+            file_reader_stats, file_cache_statistics,
+            FileScannerV2::UncachedReaderBytesStorage::REMOTE, &last_read_bytes, &last_read_rows,
+            &last_bytes_read_from_local, &last_bytes_read_from_remote);
+    EXPECT_EQ(0, deltas.scan_rows);
+    EXPECT_EQ(0, deltas.scan_bytes);
+    EXPECT_EQ(0, deltas.scan_bytes_from_local_storage);
+    EXPECT_EQ(0, deltas.scan_bytes_from_remote_storage);
+
+    file_reader_stats.read_bytes = 160;
+    file_reader_stats.read_rows = 9;
+    deltas = FileScannerV2::TEST_collect_realtime_counter_deltas(
+            file_reader_stats, file_cache_statistics,
+            FileScannerV2::UncachedReaderBytesStorage::REMOTE, &last_read_bytes, &last_read_rows,
+            &last_bytes_read_from_local, &last_bytes_read_from_remote);
+    EXPECT_EQ(2, deltas.scan_rows);
+    EXPECT_EQ(60, deltas.scan_bytes);
+    EXPECT_EQ(0, deltas.scan_bytes_from_local_storage);
+    EXPECT_EQ(60, deltas.scan_bytes_from_remote_storage);
+}
+
+TEST(FileScannerV2Test, RealtimeCounterDeltasUseFileCacheDeltasWhenAvailable) {
+    io::FileReaderStats file_reader_stats;
+    io::FileCacheStatistics file_cache_statistics;
+    int64_t last_read_bytes = 0;
+    int64_t last_read_rows = 0;
+    int64_t last_bytes_read_from_local = 0;
+    int64_t last_bytes_read_from_remote = 0;
+
+    file_reader_stats.read_bytes = 100;
+    file_reader_stats.read_rows = 7;
+    file_cache_statistics.bytes_read_from_local = 30;
+    file_cache_statistics.bytes_read_from_remote = 70;
+    auto deltas = FileScannerV2::TEST_collect_realtime_counter_deltas(
+            file_reader_stats, file_cache_statistics,
+            FileScannerV2::UncachedReaderBytesStorage::REMOTE, &last_read_bytes, &last_read_rows,
+            &last_bytes_read_from_local, &last_bytes_read_from_remote);
+    EXPECT_EQ(7, deltas.scan_rows);
+    EXPECT_EQ(100, deltas.scan_bytes);
+    EXPECT_EQ(30, deltas.scan_bytes_from_local_storage);
+    EXPECT_EQ(70, deltas.scan_bytes_from_remote_storage);
+
+    file_reader_stats.read_bytes = 125;
+    file_reader_stats.read_rows = 10;
+    file_cache_statistics.bytes_read_from_local = 35;
+    file_cache_statistics.bytes_read_from_remote = 90;
+    deltas = FileScannerV2::TEST_collect_realtime_counter_deltas(
+            file_reader_stats, file_cache_statistics,
+            FileScannerV2::UncachedReaderBytesStorage::REMOTE, &last_read_bytes, &last_read_rows,
+            &last_bytes_read_from_local, &last_bytes_read_from_remote);
+    EXPECT_EQ(3, deltas.scan_rows);
+    EXPECT_EQ(25, deltas.scan_bytes);
+    EXPECT_EQ(5, deltas.scan_bytes_from_local_storage);
+    EXPECT_EQ(20, deltas.scan_bytes_from_remote_storage);
+}
+
+TEST(FileScannerV2Test, RealtimeCounterDeltasDoNotChargePeerCacheAsRemoteStorage) {
+    io::FileReaderStats file_reader_stats;
+    io::FileCacheStatistics file_cache_statistics;
+    int64_t last_read_bytes = 0;
+    int64_t last_read_rows = 0;
+    int64_t last_bytes_read_from_local = 0;
+    int64_t last_bytes_read_from_remote = 0;
+
+    file_reader_stats.read_bytes = 100;
+    file_reader_stats.read_rows = 7;
+    file_cache_statistics.num_peer_io_total = 1;
+    file_cache_statistics.bytes_read_from_peer = 100;
+    auto deltas = FileScannerV2::TEST_collect_realtime_counter_deltas(
+            file_reader_stats, file_cache_statistics,
+            FileScannerV2::UncachedReaderBytesStorage::REMOTE, &last_read_bytes, &last_read_rows,
+            &last_bytes_read_from_local, &last_bytes_read_from_remote);
+    EXPECT_EQ(7, deltas.scan_rows);
+    EXPECT_EQ(100, deltas.scan_bytes);
+    EXPECT_EQ(0, deltas.scan_bytes_from_local_storage);
+    EXPECT_EQ(0, deltas.scan_bytes_from_remote_storage);
+}
+
+TEST(FileScannerV2Test, RealtimeCounterDeltasDoNotChargeLocalFileFallbackAsRemoteStorage) {
+    io::FileReaderStats file_reader_stats;
+    io::FileCacheStatistics file_cache_statistics;
+    int64_t last_read_bytes = 0;
+    int64_t last_read_rows = 0;
+    int64_t last_bytes_read_from_local = 0;
+    int64_t last_bytes_read_from_remote = 0;
+
+    file_reader_stats.read_bytes = 100;
+    file_reader_stats.read_rows = 7;
+    auto deltas = FileScannerV2::TEST_collect_realtime_counter_deltas(
+            file_reader_stats, file_cache_statistics,
+            FileScannerV2::UncachedReaderBytesStorage::LOCAL, &last_read_bytes, &last_read_rows,
+            &last_bytes_read_from_local, &last_bytes_read_from_remote);
+    EXPECT_EQ(7, deltas.scan_rows);
+    EXPECT_EQ(100, deltas.scan_bytes);
+    EXPECT_EQ(100, deltas.scan_bytes_from_local_storage);
+    EXPECT_EQ(0, deltas.scan_bytes_from_remote_storage);
 }
 
 // Scenario: partition slots are identified from the explicit FE category when present, otherwise

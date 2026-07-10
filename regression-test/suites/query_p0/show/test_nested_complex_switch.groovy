@@ -35,19 +35,6 @@ suite("test_nested_complex_switch", "query") {
                                          "storage_format" = "V2",
                                          "disable_auto_compaction" = "false"
                                          )"""
-    def sql_m_a = """CREATE TABLE IF NOT EXISTS ${testTable_m} (
-                          `k1` INT(11) NULL,
-                          `k2` MAP<ARRAY<INT>, STRING>
-                        ) ENGINE=OLAP
-                        DUPLICATE KEY(`k1`)
-                        COMMENT 'OLAP'
-                        DISTRIBUTED BY HASH(`k1`) BUCKETS 1
-                        PROPERTIES (
-                        "replication_allocation" = "tag.location.default: 1",
-                        "in_memory" = "false",
-                        "storage_format" = "V2",
-                        "disable_auto_compaction" = "false"
-                        )"""
 
     def sql_m_m = """CREATE TABLE IF NOT EXISTS ${testTable_m} (
                           `k1` INT(11) NULL,
@@ -143,10 +130,6 @@ suite("test_nested_complex_switch", "query") {
         // map
         test {
             sql sql_m_s
-        }
-
-        test {
-            sql sql_m_a
         }
 
         test {

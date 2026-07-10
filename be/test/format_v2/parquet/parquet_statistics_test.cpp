@@ -25,42 +25,29 @@
 #include <parquet/arrow/writer.h>
 #include <parquet/bloom_filter.h>
 
+#include <cstdint>
+#include <cstring>
+#include <limits>
 #include <memory>
-#include <numeric>
 #include <optional>
+#include <set>
 #include <string>
 #include <vector>
 
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/field.h"
+#include "exprs/vexpr.h"
+#include "exprs/vexpr_context.h"
+#include "exprs/vslot_ref.h"
 #include "format_v2/file_reader.h"
 #include "format_v2/parquet/parquet_column_schema.h"
-#include "storage/predicate/accept_null_predicate.h"
-#include "storage/predicate/null_predicate.h"
-#include "storage/predicate/predicate_creator.h"
+#include "storage/index/bloom_filter/block_split_bloom_filter.h"
+#include "storage/index/zone_map/zonemap_eval_context.h"
+#include "storage/index/zone_map/zonemap_filter_result.h"
 
 namespace doris {
 namespace {
-
-format::parquet::ParquetColumnSchema primitive_bloom_schema(const DataTypePtr& type) {
-    format::parquet::ParquetColumnSchema schema;
-    schema.local_id = 0;
-    schema.name = "c0";
-    schema.type = type;
-    schema.leaf_column_id = 0;
-    schema.kind = format::parquet::ParquetColumnSchemaKind::PRIMITIVE;
-    return schema;
-}
-
-format::FileColumnPredicateFilter bloom_filter_with_predicate(
-        const std::shared_ptr<ColumnPredicate>& predicate) {
-    format::FileColumnPredicateFilter filter;
-    filter.file_column_id = format::LocalColumnId(0);
-    filter.target = format::FileNestedPredicateTarget(filter.file_column_id);
-    filter.predicates.push_back(predicate);
-    return filter;
-}
 
 std::shared_ptr<arrow::Array> finish_array(arrow::ArrayBuilder* builder) {
     std::shared_ptr<arrow::Array> array;
@@ -141,19 +128,224 @@ std::vector<std::unique_ptr<format::parquet::ParquetColumnSchema>> build_file_sc
     return file_schema;
 }
 
-format::FileScanRequest request_with_filter(format::FileColumnPredicateFilter filter) {
+class Int32ZoneMapExpr final : public VExpr {
+public:
+    enum class Op { GE, GT, IS_NULL, IS_NOT_NULL };
+
+    Int32ZoneMapExpr(int column_id, Op op, int32_t value = 0)
+            : VExpr(std::make_shared<DataTypeUInt8>(), false),
+              _column_id(column_id),
+              _op(op),
+              _value(value) {}
+
+    const std::string& expr_name() const override { return _expr_name; }
+
+    Status execute_column_impl(VExprContext*, const Block*, const Selector*, size_t,
+                               ColumnPtr&) const override {
+        return Status::InternalError("Int32ZoneMapExpr is only used by parquet statistics tests");
+    }
+
+    bool can_evaluate_zonemap_filter() const override { return true; }
+
+    void collect_slot_column_ids(std::set<int>& column_ids) const override {
+        column_ids.insert(_column_id);
+    }
+
+    ZoneMapFilterResult evaluate_zonemap_filter(const ZoneMapEvalContext& ctx) const override {
+        auto zone_map = ctx.zone_map(_column_id);
+        if (zone_map == nullptr) {
+            return unsupported_zonemap_filter(ctx);
+        }
+        if (_op == Op::IS_NULL) {
+            return zone_map->has_null ? ZoneMapFilterResult::kMayMatch
+                                      : ZoneMapFilterResult::kNoMatch;
+        }
+        if (_op == Op::IS_NOT_NULL) {
+            return zone_map->has_not_null ? ZoneMapFilterResult::kMayMatch
+                                          : ZoneMapFilterResult::kNoMatch;
+        }
+        if (!zone_map->has_not_null) {
+            return ZoneMapFilterResult::kNoMatch;
+        }
+        const auto literal = Field::create_field<TYPE_INT>(_value);
+        if (_op == Op::GE) {
+            return zone_map->max_value < literal ? ZoneMapFilterResult::kNoMatch
+                                                 : ZoneMapFilterResult::kMayMatch;
+        }
+        return zone_map->max_value <= literal ? ZoneMapFilterResult::kNoMatch
+                                              : ZoneMapFilterResult::kMayMatch;
+    }
+
+private:
+    int _column_id;
+    Op _op;
+    int32_t _value;
+    const std::string _expr_name = "Int32ZoneMapExpr";
+};
+
+class StringDictionaryInExpr final : public VExpr {
+public:
+    StringDictionaryInExpr(int column_id, std::vector<std::string> values)
+            : VExpr(std::make_shared<DataTypeUInt8>(), false),
+              _slot(VSlotRef::create_shared(0, column_id, -1, std::make_shared<DataTypeString>(),
+                                            "c0")) {
+        _values.reserve(values.size());
+        for (auto& value : values) {
+            _values.emplace_back(Field::create_field<TYPE_STRING>(std::move(value)));
+        }
+    }
+
+    const std::string& expr_name() const override { return _expr_name; }
+
+    Status execute_column_impl(VExprContext*, const Block*, const Selector*, size_t,
+                               ColumnPtr&) const override {
+        return Status::InternalError(
+                "StringDictionaryInExpr is only used by parquet statistics tests");
+    }
+
+    bool can_evaluate_dictionary_filter() const override { return true; }
+
+    ZoneMapFilterResult evaluate_dictionary_filter(
+            const DictionaryEvalContext& ctx) const override {
+        return expr_zonemap::eval_in_dictionary(ctx, _slot, false, _values);
+    }
+
+    void collect_slot_column_ids(std::set<int>& column_ids) const override {
+        _slot->collect_slot_column_ids(column_ids);
+    }
+
+private:
+    VExprSPtr _slot;
+    std::vector<Field> _values;
+    const std::string _expr_name = "StringDictionaryInExpr";
+};
+
+class BloomInExpr final : public VExpr {
+public:
+    BloomInExpr(int column_id, DataTypePtr data_type, std::vector<Field> values)
+            : VExpr(std::make_shared<DataTypeUInt8>(), false),
+              _slot(VSlotRef::create_shared(0, column_id, -1, std::move(data_type), "c0")),
+              _values(std::move(values)) {}
+
+    const std::string& expr_name() const override { return _expr_name; }
+
+    Status execute_column_impl(VExprContext*, const Block*, const Selector*, size_t,
+                               ColumnPtr&) const override {
+        return Status::InternalError("BloomInExpr is only used by parquet statistics tests");
+    }
+
+    bool can_evaluate_bloom_filter() const override { return true; }
+
+    ZoneMapFilterResult evaluate_bloom_filter(const BloomFilterEvalContext& ctx) const override {
+        return expr_zonemap::eval_in_bloom_filter(ctx, _slot, false, _values);
+    }
+
+    void collect_slot_column_ids(std::set<int>& column_ids) const override {
+        _slot->collect_slot_column_ids(column_ids);
+    }
+
+private:
+    VExprSPtr _slot;
+    std::vector<Field> _values;
+    const std::string _expr_name = "BloomInExpr";
+};
+
+format::FileScanRequest request_with_zonemap_conjunct(std::shared_ptr<VExpr> expr) {
     format::FileScanRequest request;
-    request.column_predicate_filters.push_back(std::move(filter));
+    request.local_positions.emplace(format::LocalColumnId(0), format::LocalIndex(0));
+    request.conjuncts.push_back(VExprContext::create_shared(std::move(expr)));
     return request;
 }
 
-::parquet::BlockSplitBloomFilter bloom_filter_for_int32_values(const std::vector<int32_t>& values) {
-    ::parquet::BlockSplitBloomFilter bloom_filter;
-    bloom_filter.Init(::parquet::BlockSplitBloomFilter::kMinimumBloomFilterBytes);
-    for (const auto value : values) {
-        bloom_filter.InsertHash(bloom_filter.Hash(value));
+format::FileScanRequest request_with_dictionary_conjunct(std::vector<std::string> values) {
+    format::FileScanRequest request;
+    request.local_positions.emplace(format::LocalColumnId(0), format::LocalIndex(0));
+    request.conjuncts.push_back(VExprContext::create_shared(
+            std::make_shared<StringDictionaryInExpr>(0, std::move(values))));
+    return request;
+}
+
+VExprContextSPtrs bloom_conjuncts(DataTypePtr data_type, std::vector<Field> values) {
+    return {VExprContext::create_shared(
+            std::make_shared<BloomInExpr>(0, std::move(data_type), std::move(values)))};
+}
+
+void add_bloom_field(segment_v2::BlockSplitBloomFilter* bloom_filter, const Field& value,
+                     PrimitiveType type) {
+    DORIS_CHECK(bloom_filter != nullptr);
+    switch (type) {
+    case TYPE_BOOLEAN: {
+        const bool typed_value = value.get<TYPE_BOOLEAN>();
+        bloom_filter->add_bytes(reinterpret_cast<const char*>(&typed_value), sizeof(typed_value));
+        break;
+    }
+    case TYPE_INT: {
+        const int32_t typed_value = value.get<TYPE_INT>();
+        bloom_filter->add_bytes(reinterpret_cast<const char*>(&typed_value), sizeof(typed_value));
+        break;
+    }
+    case TYPE_STRING: {
+        const auto& typed_value = value.get<TYPE_STRING>();
+        bloom_filter->add_bytes(typed_value.data(), typed_value.size());
+        break;
+    }
+    default:
+        DORIS_CHECK(false);
+    }
+}
+
+std::unique_ptr<segment_v2::BlockSplitBloomFilter> bloom_filter_for_fields(
+        const std::vector<Field>& values, PrimitiveType type) {
+    auto bloom_filter = std::make_unique<segment_v2::BlockSplitBloomFilter>();
+    EXPECT_TRUE(bloom_filter->init(segment_v2::BloomFilter::MINIMUM_BYTES).ok());
+    for (const auto& value : values) {
+        add_bloom_field(bloom_filter.get(), value, type);
     }
     return bloom_filter;
+}
+
+BloomFilterEvalContext bloom_context(const DataTypePtr& data_type,
+                                     const segment_v2::BloomFilter* bloom_filter) {
+    BloomFilterEvalContext ctx;
+    ctx.slots.emplace(0, BloomFilterEvalContext::SlotBloomFilter {.data_type = data_type,
+                                                                  .bloom_filter = bloom_filter});
+    return ctx;
+}
+
+std::unique_ptr<::parquet::BlockSplitBloomFilter> parquet_bloom_filter() {
+    auto bloom_filter = std::make_unique<::parquet::BlockSplitBloomFilter>();
+    bloom_filter->Init(::parquet::BlockSplitBloomFilter::kMinimumBloomFilterBytes);
+    return bloom_filter;
+}
+
+format::parquet::ParquetColumnSchema uint32_parquet_bloom_schema() {
+    format::parquet::ParquetColumnSchema column_schema;
+    column_schema.type = std::make_shared<DataTypeInt64>();
+    column_schema.type_descriptor.doris_type = column_schema.type;
+    column_schema.type_descriptor.physical_type = ::parquet::Type::INT32;
+    column_schema.type_descriptor.integer_bit_width = 32;
+    column_schema.type_descriptor.is_unsigned_integer = true;
+    return column_schema;
+}
+
+format::parquet::ParquetColumnSchema fixed_len_string_parquet_bloom_schema(int fixed_length) {
+    format::parquet::ParquetColumnSchema column_schema;
+    column_schema.type = std::make_shared<DataTypeString>();
+    column_schema.type_descriptor.doris_type = column_schema.type;
+    column_schema.type_descriptor.physical_type = ::parquet::Type::FIXED_LEN_BYTE_ARRAY;
+    column_schema.type_descriptor.fixed_length = fixed_length;
+    column_schema.type_descriptor.is_string_like = true;
+    return column_schema;
+}
+
+format::parquet::ParquetColumnSchema float16_parquet_bloom_schema() {
+    format::parquet::ParquetColumnSchema column_schema;
+    column_schema.type = std::make_shared<DataTypeFloat32>();
+    column_schema.type_descriptor.doris_type = column_schema.type;
+    column_schema.type_descriptor.physical_type = ::parquet::Type::FIXED_LEN_BYTE_ARRAY;
+    column_schema.type_descriptor.fixed_length = 2;
+    column_schema.type_descriptor.extra_type_info = format::parquet::ParquetExtraTypeInfo::FLOAT16;
+    return column_schema;
 }
 
 TEST(ParquetStatisticsTransformTest, ConvertsMinMaxNullCountUnsignedStringAndTimestamp) {
@@ -224,45 +416,38 @@ TEST(ParquetStatisticsTransformTest, HandlesMissingStatisticsAndAllNullChunks) {
     EXPECT_FALSE(all_null_stats.has_min_max);
 }
 
-TEST(ParquetStatisticsPruningTest, StatisticsPredicatesAndNullPredicatesPruneRowGroups) {
+TEST(ParquetStatisticsPruningTest, ExprZonemapPredicatesAndNullPredicatesPruneRowGroups) {
     auto table = arrow::Table::Make(arrow::schema({arrow::field("i", arrow::int32(), true)}),
                                     {int32_array({std::nullopt, std::nullopt, 3, 4, 5, 6})});
     auto reader = make_reader(table, 2, false, true);
     auto schema = build_file_schema(*reader);
 
-    format::FileColumnPredicateFilter ge_filter;
-    ge_filter.file_column_id = format::LocalColumnId(0);
-    ge_filter.predicates.push_back(create_comparison_predicate<PredicateType::GE>(
-            0, "i", schema[0]->type, Field::create_field<TYPE_INT>(5), false));
     std::vector<int> selected;
     format::parquet::ParquetPruningStats pruning_stats;
-    ASSERT_TRUE(format::parquet::select_row_groups_by_statistics(
-                        *reader->metadata(), reader.get(), schema, request_with_filter(ge_filter),
+    ASSERT_TRUE(format::parquet::select_row_groups_by_metadata(
+                        *reader->metadata(), reader.get(), schema,
+                        request_with_zonemap_conjunct(
+                                std::make_shared<Int32ZoneMapExpr>(0, Int32ZoneMapExpr::Op::GE, 5)),
                         nullptr, &selected, false, &pruning_stats)
                         .ok());
     EXPECT_EQ(selected, std::vector<int>({2}));
     EXPECT_EQ(pruning_stats.filtered_row_groups_by_statistics, 2);
 
-    format::FileColumnPredicateFilter is_not_null_filter;
-    is_not_null_filter.file_column_id = format::LocalColumnId(0);
-    is_not_null_filter.predicates.push_back(
-            std::make_shared<NullPredicate>(0, "i", false, TYPE_INT));
     selected.clear();
-    ASSERT_TRUE(format::parquet::select_row_groups_by_statistics(
+    ASSERT_TRUE(format::parquet::select_row_groups_by_metadata(
                         *reader->metadata(), reader.get(), schema,
-                        request_with_filter(is_not_null_filter), nullptr, &selected, false,
-                        &pruning_stats)
+                        request_with_zonemap_conjunct(std::make_shared<Int32ZoneMapExpr>(
+                                0, Int32ZoneMapExpr::Op::IS_NOT_NULL)),
+                        nullptr, &selected, false, &pruning_stats)
                         .ok());
     EXPECT_EQ(selected, std::vector<int>({1, 2}));
 
-    format::FileColumnPredicateFilter is_null_filter;
-    is_null_filter.file_column_id = format::LocalColumnId(0);
-    is_null_filter.predicates.push_back(std::make_shared<NullPredicate>(0, "i", true, TYPE_INT));
     selected.clear();
-    ASSERT_TRUE(format::parquet::select_row_groups_by_statistics(
+    ASSERT_TRUE(format::parquet::select_row_groups_by_metadata(
                         *reader->metadata(), reader.get(), schema,
-                        request_with_filter(is_null_filter), nullptr, &selected, false,
-                        &pruning_stats)
+                        request_with_zonemap_conjunct(std::make_shared<Int32ZoneMapExpr>(
+                                0, Int32ZoneMapExpr::Op::IS_NULL)),
+                        nullptr, &selected, false, &pruning_stats)
                         .ok());
     EXPECT_EQ(selected, std::vector<int>({0}));
 }
@@ -273,29 +458,21 @@ TEST(ParquetStatisticsPruningTest, DictionaryPruningHandlesExcludeIncludeAndUnsu
     auto reader = make_reader(table, 2, true, false);
     auto schema = build_file_schema(*reader);
 
-    format::FileColumnPredicateFilter absent_filter;
-    absent_filter.file_column_id = format::LocalColumnId(0);
-    absent_filter.predicates.push_back(create_comparison_predicate<PredicateType::EQ>(
-            0, "s", schema[0]->type, Field::create_field<TYPE_STRING>("missing"), false));
     std::vector<int> selected;
     format::parquet::ParquetPruningStats pruning_stats;
-    ASSERT_TRUE(format::parquet::select_row_groups_by_statistics(
+    ASSERT_TRUE(format::parquet::select_row_groups_by_metadata(
                         *reader->metadata(), reader.get(), schema,
-                        request_with_filter(absent_filter), nullptr, &selected, false,
+                        request_with_dictionary_conjunct({"missing"}), nullptr, &selected, false,
                         &pruning_stats)
                         .ok());
     EXPECT_TRUE(selected.empty());
     EXPECT_EQ(pruning_stats.filtered_row_groups_by_dictionary, 2);
 
-    format::FileColumnPredicateFilter present_filter;
-    present_filter.file_column_id = format::LocalColumnId(0);
-    present_filter.predicates.push_back(create_comparison_predicate<PredicateType::EQ>(
-            0, "s", schema[0]->type, Field::create_field<TYPE_STRING>("gamma"), false));
     selected.clear();
     pruning_stats = {};
-    ASSERT_TRUE(format::parquet::select_row_groups_by_statistics(
+    ASSERT_TRUE(format::parquet::select_row_groups_by_metadata(
                         *reader->metadata(), reader.get(), schema,
-                        request_with_filter(present_filter), nullptr, &selected, false,
+                        request_with_dictionary_conjunct({"gamma"}), nullptr, &selected, false,
                         &pruning_stats)
                         .ok());
     EXPECT_EQ(selected, std::vector<int>({1}));
@@ -305,155 +482,181 @@ TEST(ParquetStatisticsPruningTest, DictionaryPruningHandlesExcludeIncludeAndUnsu
     auto plain_schema = build_file_schema(*plain_reader);
     selected.clear();
     pruning_stats = {};
-    ASSERT_TRUE(format::parquet::select_row_groups_by_statistics(
+    ASSERT_TRUE(format::parquet::select_row_groups_by_metadata(
                         *plain_reader->metadata(), plain_reader.get(), plain_schema,
-                        request_with_filter(absent_filter), nullptr, &selected, false,
+                        request_with_dictionary_conjunct({"missing"}), nullptr, &selected, false,
                         &pruning_stats)
                         .ok());
     EXPECT_EQ(selected, std::vector<int>({0, 1}));
     EXPECT_EQ(pruning_stats.filtered_row_groups_by_dictionary, 0);
 }
 
-TEST(ParquetStatisticsPruningTest, StatisticsRunsBeforeDictionaryAndMissingBloomKeepsRows) {
+TEST(ParquetStatisticsPruningTest, VExprUsesDictionaryAndMissingBloomKeepsRows) {
     auto table = arrow::Table::Make(arrow::schema({arrow::field("s", arrow::utf8(), false)}),
                                     {string_array({"alpha", "beta", "gamma", "omega"})});
     auto reader = make_reader(table, 2, true, true);
     auto schema = build_file_schema(*reader);
 
-    format::FileColumnPredicateFilter beyond_max_filter;
-    beyond_max_filter.file_column_id = format::LocalColumnId(0);
-    beyond_max_filter.predicates.push_back(create_comparison_predicate<PredicateType::GT>(
-            0, "s", schema[0]->type, Field::create_field<TYPE_STRING>("zzzz"), false));
     std::vector<int> selected;
     format::parquet::ParquetPruningStats pruning_stats;
-    ASSERT_TRUE(format::parquet::select_row_groups_by_statistics(
+    ASSERT_TRUE(format::parquet::select_row_groups_by_metadata(
                         *reader->metadata(), reader.get(), schema,
-                        request_with_filter(beyond_max_filter), nullptr, &selected, true,
+                        request_with_dictionary_conjunct({"absent"}), nullptr, &selected, true,
                         &pruning_stats)
                         .ok());
     EXPECT_TRUE(selected.empty());
-    EXPECT_EQ(pruning_stats.filtered_row_groups_by_statistics, 2);
-    EXPECT_EQ(pruning_stats.filtered_row_groups_by_dictionary, 0);
+    EXPECT_EQ(pruning_stats.filtered_row_groups_by_statistics, 0);
+    EXPECT_EQ(pruning_stats.filtered_row_groups_by_dictionary, 2);
     EXPECT_EQ(pruning_stats.filtered_row_groups_by_bloom_filter, 0);
 
     auto no_stats_reader = make_reader(table, 2, false, false);
     auto no_stats_schema = build_file_schema(*no_stats_reader);
-    format::FileColumnPredicateFilter missing_bloom_filter;
-    missing_bloom_filter.file_column_id = format::LocalColumnId(0);
-    missing_bloom_filter.predicates.push_back(create_comparison_predicate<PredicateType::EQ>(
-            0, "s", no_stats_schema[0]->type, Field::create_field<TYPE_STRING>("absent"), false));
     selected.clear();
     pruning_stats = {};
-    ASSERT_TRUE(format::parquet::select_row_groups_by_statistics(
+    ASSERT_TRUE(format::parquet::select_row_groups_by_metadata(
                         *no_stats_reader->metadata(), no_stats_reader.get(), no_stats_schema,
-                        request_with_filter(missing_bloom_filter), nullptr, &selected, true,
+                        request_with_dictionary_conjunct({"absent"}), nullptr, &selected, true,
                         &pruning_stats)
                         .ok());
     EXPECT_EQ(selected, std::vector<int>({0, 1}));
     EXPECT_EQ(pruning_stats.filtered_row_groups_by_bloom_filter, 0);
 }
 
-::parquet::BlockSplitBloomFilter bloom_filter_for_string_values(
-        const std::vector<std::string>& values) {
-    ::parquet::BlockSplitBloomFilter bloom_filter;
-    bloom_filter.Init(::parquet::BlockSplitBloomFilter::kMinimumBloomFilterBytes);
-    for (const auto& value : values) {
-        ::parquet::ByteArray byte_array(static_cast<uint32_t>(value.size()),
-                                        reinterpret_cast<const uint8_t*>(value.data()));
-        bloom_filter.InsertHash(bloom_filter.Hash(&byte_array));
-    }
-    return bloom_filter;
+TEST(ParquetBloomFilterPruningTest, VExprEqPrunesAbsentIntValue) {
+    auto data_type = std::make_shared<DataTypeInt32>();
+    auto bloom_filter = bloom_filter_for_fields(
+            {Field::create_field<TYPE_INT>(1), Field::create_field<TYPE_INT>(3)}, TYPE_INT);
+    auto ctx = bloom_context(data_type, bloom_filter.get());
+
+    EXPECT_EQ(VExprContext::evaluate_bloom_filter(
+                      bloom_conjuncts(data_type, {Field::create_field<TYPE_INT>(2)}), ctx),
+              ZoneMapFilterResult::kNoMatch);
+    EXPECT_EQ(VExprContext::evaluate_bloom_filter(
+                      bloom_conjuncts(data_type, {Field::create_field<TYPE_INT>(3)}), ctx),
+              ZoneMapFilterResult::kMayMatch);
 }
 
-TEST(ParquetBloomFilterPruningTest, EqPredicateUsesArrowHashAndPrunesAbsentIntValue) {
-    auto schema = primitive_bloom_schema(std::make_shared<DataTypeInt32>());
-    auto bloom_filter = bloom_filter_for_int32_values({1, 3});
-    auto absent_filter = bloom_filter_with_predicate(create_comparison_predicate<PredicateType::EQ>(
-            0, "c0", schema.type, Field::create_field<TYPE_INT>(2), false));
-    auto present_filter =
-            bloom_filter_with_predicate(create_comparison_predicate<PredicateType::EQ>(
-                    0, "c0", schema.type, Field::create_field<TYPE_INT>(3), false));
+TEST(ParquetBloomFilterPruningTest, VExprInPrunesOnlyWhenAllValuesAreAbsent) {
+    auto data_type = std::make_shared<DataTypeInt32>();
+    auto bloom_filter = bloom_filter_for_fields(
+            {Field::create_field<TYPE_INT>(1), Field::create_field<TYPE_INT>(3)}, TYPE_INT);
+    auto ctx = bloom_context(data_type, bloom_filter.get());
 
-    EXPECT_TRUE(format::parquet::ParquetStatisticsUtils::BloomFilterExcludes(schema, absent_filter,
-                                                                             bloom_filter));
-    EXPECT_FALSE(format::parquet::ParquetStatisticsUtils::BloomFilterExcludes(
-            schema, present_filter, bloom_filter));
+    EXPECT_EQ(VExprContext::evaluate_bloom_filter(
+                      bloom_conjuncts(data_type, {Field::create_field<TYPE_INT>(2),
+                                                  Field::create_field<TYPE_INT>(4)}),
+                      ctx),
+              ZoneMapFilterResult::kNoMatch);
+    EXPECT_EQ(VExprContext::evaluate_bloom_filter(
+                      bloom_conjuncts(data_type, {Field::create_field<TYPE_INT>(2),
+                                                  Field::create_field<TYPE_INT>(3)}),
+                      ctx),
+              ZoneMapFilterResult::kMayMatch);
 }
 
-TEST(ParquetBloomFilterPruningTest, InPredicatePrunesOnlyWhenAllValuesAreAbsent) {
-    auto schema = primitive_bloom_schema(std::make_shared<DataTypeInt32>());
-    auto bloom_filter = bloom_filter_for_int32_values({1, 3});
+TEST(ParquetBloomFilterPruningTest, VExprBoolAndStringUseSlotBloomFilter) {
+    auto bool_type = std::make_shared<DataTypeBool>();
+    auto bool_filter =
+            bloom_filter_for_fields({Field::create_field<TYPE_BOOLEAN>(true)}, TYPE_BOOLEAN);
+    auto bool_ctx = bloom_context(bool_type, bool_filter.get());
+    EXPECT_EQ(VExprContext::evaluate_bloom_filter(
+                      bloom_conjuncts(bool_type, {Field::create_field<TYPE_BOOLEAN>(false)}),
+                      bool_ctx),
+              ZoneMapFilterResult::kNoMatch);
+    EXPECT_EQ(VExprContext::evaluate_bloom_filter(
+                      bloom_conjuncts(bool_type, {Field::create_field<TYPE_BOOLEAN>(true)}),
+                      bool_ctx),
+              ZoneMapFilterResult::kMayMatch);
 
-    auto absent_set = build_set<TYPE_INT>();
-    int32_t absent_first = 2;
-    int32_t absent_second = 4;
-    absent_set->insert(&absent_first);
-    absent_set->insert(&absent_second);
-    auto absent_filter =
-            bloom_filter_with_predicate(create_in_list_predicate<PredicateType::IN_LIST>(
-                    0, "c0", schema.type, absent_set, false));
-
-    auto present_set = build_set<TYPE_INT>();
-    int32_t present_first = 2;
-    int32_t present_second = 3;
-    present_set->insert(&present_first);
-    present_set->insert(&present_second);
-    auto present_filter =
-            bloom_filter_with_predicate(create_in_list_predicate<PredicateType::IN_LIST>(
-                    0, "c0", schema.type, present_set, false));
-
-    EXPECT_TRUE(format::parquet::ParquetStatisticsUtils::BloomFilterExcludes(schema, absent_filter,
-                                                                             bloom_filter));
-    EXPECT_FALSE(format::parquet::ParquetStatisticsUtils::BloomFilterExcludes(
-            schema, present_filter, bloom_filter));
+    auto string_type = std::make_shared<DataTypeString>();
+    auto string_filter = bloom_filter_for_fields(
+            {Field::create_field<TYPE_STRING>("alpha"), Field::create_field<TYPE_STRING>("omega")},
+            TYPE_STRING);
+    auto string_ctx = bloom_context(string_type, string_filter.get());
+    EXPECT_EQ(VExprContext::evaluate_bloom_filter(
+                      bloom_conjuncts(string_type, {Field::create_field<TYPE_STRING>("beta")}),
+                      string_ctx),
+              ZoneMapFilterResult::kNoMatch);
+    EXPECT_EQ(VExprContext::evaluate_bloom_filter(
+                      bloom_conjuncts(string_type, {Field::create_field<TYPE_STRING>("alpha")}),
+                      string_ctx),
+              ZoneMapFilterResult::kMayMatch);
 }
 
-TEST(ParquetBloomFilterPruningTest, BooleanPredicateHashesAsParquetInt32) {
-    auto schema = primitive_bloom_schema(std::make_shared<DataTypeBool>());
-    auto bloom_filter = bloom_filter_for_int32_values({1});
-    auto false_filter = bloom_filter_with_predicate(create_comparison_predicate<PredicateType::EQ>(
-            0, "c0", schema.type, Field::create_field<TYPE_BOOLEAN>(false), false));
-    auto true_filter = bloom_filter_with_predicate(create_comparison_predicate<PredicateType::EQ>(
-            0, "c0", schema.type, Field::create_field<TYPE_BOOLEAN>(true), false));
+TEST(ParquetBloomFilterPruningTest, MissingOrUnsupportedBloomContextKeepsRowGroup) {
+    auto int_type = std::make_shared<DataTypeInt32>();
+    BloomFilterEvalContext missing_ctx;
+    EXPECT_EQ(VExprContext::evaluate_bloom_filter(
+                      bloom_conjuncts(int_type, {Field::create_field<TYPE_INT>(2)}), missing_ctx),
+              ZoneMapFilterResult::kMayMatch);
 
-    EXPECT_TRUE(format::parquet::ParquetStatisticsUtils::BloomFilterExcludes(schema, false_filter,
-                                                                             bloom_filter));
-    EXPECT_FALSE(format::parquet::ParquetStatisticsUtils::BloomFilterExcludes(schema, true_filter,
-                                                                              bloom_filter));
+    auto smallint_type = std::make_shared<DataTypeInt16>();
+    auto bloom_filter = bloom_filter_for_fields({Field::create_field<TYPE_INT>(1)}, TYPE_INT);
+    auto unsupported_ctx = bloom_context(smallint_type, bloom_filter.get());
+    EXPECT_EQ(VExprContext::evaluate_bloom_filter(
+                      bloom_conjuncts(smallint_type, {Field::create_field<TYPE_SMALLINT>(2)}),
+                      unsupported_ctx),
+              ZoneMapFilterResult::kMayMatch);
 }
 
-TEST(ParquetBloomFilterPruningTest, StringPredicateUsesArrowByteArrayHash) {
-    auto schema = primitive_bloom_schema(std::make_shared<DataTypeString>());
-    auto bloom_filter = bloom_filter_for_string_values({"alpha", "omega"});
-    auto absent_filter = bloom_filter_with_predicate(create_comparison_predicate<PredicateType::EQ>(
-            0, "c0", schema.type, Field::create_field<TYPE_STRING>("beta"), false));
-    auto present_filter =
-            bloom_filter_with_predicate(create_comparison_predicate<PredicateType::EQ>(
-                    0, "c0", schema.type, Field::create_field<TYPE_STRING>("alpha"), false));
+TEST(ParquetBloomFilterPruningTest, ParquetUint32BloomUsesPhysicalInt32Hash) {
+    const auto column_schema = uint32_parquet_bloom_schema();
+    auto bloom_filter = parquet_bloom_filter();
 
-    EXPECT_TRUE(format::parquet::ParquetStatisticsUtils::BloomFilterExcludes(schema, absent_filter,
-                                                                             bloom_filter));
+    const uint32_t present_value = 4000000000U;
+    int32_t physical_value;
+    memcpy(&physical_value, &present_value, sizeof(physical_value));
+    bloom_filter->InsertHash(bloom_filter->Hash(physical_value));
+
+    // UINT32 is exposed to VExpr as Doris BIGINT, but Parquet stores and hashes it as a physical
+    // INT32 carrier. A present value above INT32_MAX must therefore be narrowed to the physical
+    // bit pattern before probing the file bloom filter.
     EXPECT_FALSE(format::parquet::ParquetStatisticsUtils::BloomFilterExcludes(
-            schema, present_filter, bloom_filter));
+            column_schema, 0,
+            bloom_conjuncts(column_schema.type, {Field::create_field<TYPE_BIGINT>(
+                                                        static_cast<int64_t>(present_value))}),
+            *bloom_filter));
+
+    EXPECT_TRUE(format::parquet::ParquetStatisticsUtils::BloomFilterExcludes(
+            column_schema, 0,
+            bloom_conjuncts(column_schema.type, {Field::create_field<TYPE_BIGINT>(-1)}),
+            *bloom_filter));
+    EXPECT_TRUE(format::parquet::ParquetStatisticsUtils::BloomFilterExcludes(
+            column_schema, 0,
+            bloom_conjuncts(
+                    column_schema.type,
+                    {Field::create_field<TYPE_BIGINT>(
+                            static_cast<int64_t>(std::numeric_limits<uint32_t>::max()) + 1)}),
+            *bloom_filter));
 }
 
-TEST(ParquetBloomFilterPruningTest, NullableAcceptingAndUnsupportedPredicatesKeepRowGroup) {
-    auto schema = primitive_bloom_schema(std::make_shared<DataTypeInt32>());
-    auto bloom_filter = bloom_filter_for_int32_values({1});
-    auto nested_predicate = create_comparison_predicate<PredicateType::EQ>(
-            0, "c0", schema.type, Field::create_field<TYPE_INT>(2), false);
-    auto accept_null_filter =
-            bloom_filter_with_predicate(std::make_shared<AcceptNullPredicate>(nested_predicate));
-    EXPECT_FALSE(format::parquet::ParquetStatisticsUtils::BloomFilterExcludes(
-            schema, accept_null_filter, bloom_filter));
+TEST(ParquetBloomFilterPruningTest, ParquetFixedLenByteArrayBloomUsesFlbaHash) {
+    const auto column_schema = fixed_len_string_parquet_bloom_schema(4);
+    auto bloom_filter = parquet_bloom_filter();
 
-    auto unsupported_schema = primitive_bloom_schema(std::make_shared<DataTypeInt16>());
-    auto unsupported_filter =
-            bloom_filter_with_predicate(create_comparison_predicate<PredicateType::EQ>(
-                    0, "c0", unsupported_schema.type, Field::create_field<TYPE_SMALLINT>(2),
-                    false));
+    const std::string present_value = "abcd";
+    ::parquet::FLBA physical_value(reinterpret_cast<const uint8_t*>(present_value.data()));
+    bloom_filter->InsertHash(
+            bloom_filter->Hash(&physical_value, column_schema.type_descriptor.fixed_length));
+
     EXPECT_FALSE(format::parquet::ParquetStatisticsUtils::BloomFilterExcludes(
-            unsupported_schema, unsupported_filter, bloom_filter));
+            column_schema, 0,
+            bloom_conjuncts(column_schema.type, {Field::create_field<TYPE_STRING>(present_value)}),
+            *bloom_filter));
+    EXPECT_TRUE(format::parquet::ParquetStatisticsUtils::BloomFilterExcludes(
+            column_schema, 0,
+            bloom_conjuncts(column_schema.type, {Field::create_field<TYPE_STRING>("abc")}),
+            *bloom_filter));
+}
+
+TEST(ParquetBloomFilterPruningTest, ParquetFloat16BloomDoesNotUseFloatHash) {
+    const auto column_schema = float16_parquet_bloom_schema();
+    auto bloom_filter = parquet_bloom_filter();
+
+    EXPECT_FALSE(format::parquet::ParquetStatisticsUtils::BloomFilterExcludes(
+            column_schema, 0,
+            bloom_conjuncts(column_schema.type, {Field::create_field<TYPE_FLOAT>(1.0F)}),
+            *bloom_filter));
 }
 
 } // namespace

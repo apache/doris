@@ -26,9 +26,16 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * A tiny in-process stand-in for the Doris BE stream-load endpoint and the FE commit-offset
@@ -48,7 +55,14 @@ final class MockDorisServer implements AutoCloseable {
     private final HttpServer server;
     private final List<String> loadedRecords = Collections.synchronizedList(new ArrayList<>());
     private final List<String> executedDdls = Collections.synchronizedList(new ArrayList<>());
+    private final Set<String> schemaColumns = Collections.synchronizedSet(new LinkedHashSet<>());
+    private final AtomicInteger ddlRequestCount = new AtomicInteger();
+    private final AtomicInteger schemaRequestCount = new AtomicInteger();
+    private final AtomicBoolean blockNextDdlResponse = new AtomicBoolean();
     private volatile String committedOffset;
+    private volatile boolean partialDdlRetryScenario;
+    private volatile CountDownLatch ddlRequestArrived;
+    private volatile CountDownLatch releaseDdlResponse;
 
     MockDorisServer() throws IOException {
         this.server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
@@ -76,11 +90,48 @@ final class MockDorisServer implements AutoCloseable {
         } else if (path.endsWith("/commit_offset")) {
             this.committedOffset = new String(body, StandardCharsets.UTF_8);
             response = "{\"code\":0,\"msg\":\"ok\"}";
+        } else if (path.endsWith("/_schema")) {
+            schemaRequestCount.incrementAndGet();
+            List<String> properties = new ArrayList<>();
+            synchronized (schemaColumns) {
+                for (String column : schemaColumns) {
+                    properties.add("{\"name\":\"" + column + "\"}");
+                }
+            }
+            response =
+                    "{\"code\":0,\"data\":{\"status\":200,\"properties\":["
+                            + String.join(",", properties)
+                            + "]}}";
         } else if (path.contains("/api/query/")) {
             // FE schema-change endpoint: body is {"stmt":"<DDL>"}
             JsonNode node = MAPPER.readTree(body);
             executedDdls.add(node.path("stmt").asText(""));
-            response = "{\"code\":0,\"msg\":\"ok\"}";
+            if (blockNextDdlResponse.compareAndSet(true, false)) {
+                ddlRequestArrived.countDown();
+                try {
+                    if (!releaseDdlResponse.await(30, TimeUnit.SECONDS)) {
+                        throw new IOException("Timed out waiting to release blocked DDL response");
+                    }
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new IOException("Interrupted while waiting to release DDL response", e);
+                }
+            }
+            int requestNumber = ddlRequestCount.incrementAndGet();
+            if (partialDdlRetryScenario && requestNumber == 1) {
+                schemaColumns.add("age");
+                response = "{\"code\":0,\"msg\":\"ok\"}";
+            } else if (partialDdlRetryScenario && requestNumber == 2) {
+                response = "{\"code\":1,\"msg\":\"injected second DDL failure\"}";
+            } else if (partialDdlRetryScenario && requestNumber == 3) {
+                response =
+                        "{\"code\":1,\"msg\":\"Can not add column which already exists\"}";
+            } else if (partialDdlRetryScenario && requestNumber == 4) {
+                schemaColumns.add("city");
+                response = "{\"code\":1,\"msg\":\"unrecognized DDL response\"}";
+            } else {
+                response = "{\"code\":0,\"msg\":\"ok\"}";
+            }
         } else {
             response = "{\"code\":-1,\"msg\":\"unknown path " + path + "\"}";
         }
@@ -113,6 +164,33 @@ final class MockDorisServer implements AutoCloseable {
     /** All DDL statements executed via the FE query endpoint, in arrival order. */
     List<String> executedDdls() {
         return new ArrayList<>(executedDdls);
+    }
+
+    int schemaRequestCount() {
+        return schemaRequestCount.get();
+    }
+
+    /** Exercise retry idempotency through both known error text and schema verification. */
+    void enablePartialDdlRetryScenario() {
+        partialDdlRetryScenario = true;
+        ddlRequestCount.set(0);
+        schemaRequestCount.set(0);
+        schemaColumns.clear();
+    }
+
+    /** Block the next DDL response until the test explicitly releases it. */
+    void blockNextDdlResponse() {
+        ddlRequestArrived = new CountDownLatch(1);
+        releaseDdlResponse = new CountDownLatch(1);
+        blockNextDdlResponse.set(true);
+    }
+
+    boolean awaitBlockedDdlRequest(Duration timeout) throws InterruptedException {
+        return ddlRequestArrived.await(timeout.toMillis(), TimeUnit.MILLISECONDS);
+    }
+
+    void releaseBlockedDdlResponse() {
+        releaseDdlResponse.countDown();
     }
 
     @Override

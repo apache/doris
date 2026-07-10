@@ -55,11 +55,13 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.SchemaCacheValue;
+import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.iceberg.source.IcebergTableQueryInfo;
 import org.apache.doris.datasource.metacache.CacheSpec;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.datasource.property.metastore.HMSBaseProperties;
+import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.nereids.trees.expressions.literal.Result;
 import org.apache.doris.nereids.types.VarBinaryType;
@@ -137,7 +139,6 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -585,37 +586,43 @@ public class IcebergUtils {
         PartitionSpec.Builder builder = PartitionSpec.builderFor(schema);
         for (Expr expr : partitionExprs) {
             if (expr instanceof SlotRef) {
-                builder.identity(((SlotRef) expr).getColumnName());
+                builder.identity(getIcebergColumnName(schema, ((SlotRef) expr).getColumnName()));
             } else if (expr instanceof FunctionCallExpr) {
                 String exprName = expr.accept(ExprToExprNameVisitor.INSTANCE, null);
                 List<Expr> params = ((FunctionCallExpr) expr).getParams().exprs();
                 switch (exprName.toLowerCase()) {
                     case "bucket":
                         builder.bucket(
-                                params.get(1).accept(ExprToExprNameVisitor.INSTANCE, null),
+                                getIcebergColumnName(schema,
+                                        params.get(1).accept(ExprToExprNameVisitor.INSTANCE, null)),
                                 Integer.parseInt(params.get(0).getStringValue()));
                         break;
                     case "year":
                     case "years":
-                        builder.year(params.get(0).accept(ExprToExprNameVisitor.INSTANCE, null));
+                        builder.year(getIcebergColumnName(schema,
+                                params.get(0).accept(ExprToExprNameVisitor.INSTANCE, null)));
                         break;
                     case "month":
                     case "months":
-                        builder.month(params.get(0).accept(ExprToExprNameVisitor.INSTANCE, null));
+                        builder.month(getIcebergColumnName(schema,
+                                params.get(0).accept(ExprToExprNameVisitor.INSTANCE, null)));
                         break;
                     case "date":
                     case "day":
                     case "days":
-                        builder.day(params.get(0).accept(ExprToExprNameVisitor.INSTANCE, null));
+                        builder.day(getIcebergColumnName(schema,
+                                params.get(0).accept(ExprToExprNameVisitor.INSTANCE, null)));
                         break;
                     case "date_hour":
                     case "hour":
                     case "hours":
-                        builder.hour(params.get(0).accept(ExprToExprNameVisitor.INSTANCE, null));
+                        builder.hour(getIcebergColumnName(schema,
+                                params.get(0).accept(ExprToExprNameVisitor.INSTANCE, null)));
                         break;
                     case "truncate":
                         builder.truncate(
-                                params.get(1).accept(ExprToExprNameVisitor.INSTANCE, null),
+                                getIcebergColumnName(schema,
+                                        params.get(1).accept(ExprToExprNameVisitor.INSTANCE, null)),
                                 Integer.parseInt(params.get(0).getStringValue()));
                         break;
                     default:
@@ -624,6 +631,11 @@ public class IcebergUtils {
             }
         }
         return builder.build();
+    }
+
+    private static String getIcebergColumnName(Schema schema, String columnName) {
+        Types.NestedField field = schema.caseInsensitiveFindField(columnName);
+        return field == null ? columnName : field.name();
     }
 
     private static Type icebergPrimitiveTypeToDorisType(org.apache.iceberg.types.Type.PrimitiveType primitive,
@@ -771,7 +783,7 @@ public class IcebergUtils {
                 }
                 String columnName = table.schema().findColumnName(partitionField.sourceId());
                 if (columnName != null) {
-                    partitionColumns.add(columnName.toLowerCase(Locale.ROOT));
+                    partitionColumns.add(columnName);
                 }
             }
         }
@@ -803,8 +815,7 @@ public class IcebergUtils {
             }
             Object value = partitionData.get(i);
             try {
-                partitionInfoMap.put(columnName.toLowerCase(Locale.ROOT),
-                        serializePartitionValue(field.type(), value, timeZone));
+                partitionInfoMap.put(columnName, serializePartitionValue(field.type(), value, timeZone));
             } catch (UnsupportedOperationException e) {
                 LOG.warn("Failed to serialize Iceberg table partition value for field {}: {}", field.name(),
                         e.getMessage());
@@ -915,6 +926,9 @@ public class IcebergUtils {
     }
 
     public static Table getIcebergTable(ExternalTable dorisTable) {
+        if (useSessionCatalog(dorisTable)) {
+            return loadIcebergTableWithSession(dorisTable);
+        }
         return icebergExternalMetaCache(dorisTable).getIcebergTable(dorisTable);
     }
 
@@ -1168,7 +1182,7 @@ public class IcebergUtils {
         List<Types.NestedField> columns = schema.columns();
         List<Column> resSchema = Lists.newArrayListWithCapacity(columns.size());
         for (Types.NestedField field : columns) {
-            Column column = new Column(field.name().toLowerCase(Locale.ROOT),
+            Column column = new Column(field.name(),
                     IcebergUtils.icebergTypeToDorisType(field.type(), enableMappingVarbinary, enableMappingTimestampTz),
                     true, null,
                     true, field.doc(), true, -1);
@@ -1727,10 +1741,16 @@ public class IcebergUtils {
     }
 
     public static IcebergSchemaCacheValue getSchemaCacheValue(ExternalTable dorisTable, IcebergSnapshotCacheValue sv) {
+        if (useSessionCatalog(dorisTable)) {
+            return buildTableSchemaCacheValue(dorisTable, sv.getSnapshot().getSchemaId(), getIcebergTable(dorisTable));
+        }
         return getSchemaCacheValue(dorisTable, sv.getSnapshot().getSchemaId());
     }
 
     public static IcebergSnapshotCacheValue getLatestSnapshotCacheValue(ExternalTable dorisTable) {
+        if (useSessionCatalog(dorisTable)) {
+            return loadSnapshotCacheValue(dorisTable, getIcebergTable(dorisTable));
+        }
         return icebergExternalMetaCache(dorisTable).getSnapshotCache(dorisTable);
     }
 
@@ -1763,6 +1783,9 @@ public class IcebergUtils {
     }
 
     public static List<Column> getIcebergSchema(ExternalTable dorisTable) {
+        if (useSessionCatalog(dorisTable) && dorisTable.isView()) {
+            return loadViewSchemaCacheValue(dorisTable, NEWEST_SCHEMA_ID).get().getSchema();
+        }
         Optional<MvccSnapshot> snapshotFromContext = MvccUtil.getSnapshotFromContext(dorisTable);
         IcebergSnapshotCacheValue cacheValue = IcebergUtils.getSnapshotCacheValue(snapshotFromContext, dorisTable);
         return IcebergUtils.getSchemaCacheValue(dorisTable, cacheValue).getSchema();
@@ -1779,6 +1802,9 @@ public class IcebergUtils {
     }
 
     public static View getIcebergView(ExternalTable dorisTable) {
+        if (useSessionCatalog(dorisTable)) {
+            return loadIcebergViewWithSession(dorisTable);
+        }
         return icebergExternalMetaCache(dorisTable).getIcebergView(dorisTable);
     }
 
@@ -1796,6 +1822,11 @@ public class IcebergUtils {
 
     private static Optional<SchemaCacheValue> loadTableSchemaCacheValue(ExternalTable dorisTable, long schemaId) {
         Table icebergTable = IcebergUtils.getIcebergTable(dorisTable);
+        return Optional.of(buildTableSchemaCacheValue(dorisTable, schemaId, icebergTable));
+    }
+
+    private static IcebergSchemaCacheValue buildTableSchemaCacheValue(ExternalTable dorisTable, long schemaId,
+            Table icebergTable) {
         List<Column> schema = IcebergUtils.getSchema(dorisTable, schemaId, false, icebergTable);
         // get table partition column info
         List<Column> tmpColumns = Lists.newArrayList();
@@ -1809,9 +1840,49 @@ public class IcebergUtils {
                 }
             }
         }
-        return Optional.of(new IcebergSchemaCacheValue(schema, tmpColumns));
+        return new IcebergSchemaCacheValue(schema, tmpColumns);
     }
 
+    private static IcebergSnapshotCacheValue loadSnapshotCacheValue(ExternalTable dorisTable, Table icebergTable) {
+        if (!(dorisTable instanceof MTMVRelatedTableIf)) {
+            throw new RuntimeException(String.format("Table %s.%s is not a valid MTMV related table.",
+                    dorisTable.getDbName(), dorisTable.getName()));
+        }
+        try {
+            MTMVRelatedTableIf table = (MTMVRelatedTableIf) dorisTable;
+            IcebergSnapshot latestIcebergSnapshot = IcebergUtils.getLatestIcebergSnapshot(icebergTable);
+            IcebergPartitionInfo icebergPartitionInfo;
+            if (!table.isValidRelatedTable()) {
+                icebergPartitionInfo = IcebergPartitionInfo.empty();
+            } else {
+                icebergPartitionInfo = IcebergUtils.loadPartitionInfo(dorisTable, icebergTable,
+                        latestIcebergSnapshot.getSnapshotId(), latestIcebergSnapshot.getSchemaId());
+            }
+            return new IcebergSnapshotCacheValue(icebergPartitionInfo, latestIcebergSnapshot);
+        } catch (AnalysisException e) {
+            throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e), e);
+        }
+    }
+
+    private static Table loadIcebergTableWithSession(ExternalTable dorisTable) {
+        IcebergExternalCatalog catalog = (IcebergExternalCatalog) dorisTable.getCatalog();
+        IcebergMetadataOps ops = (IcebergMetadataOps) catalog.getMetadataOps();
+        return ops.loadTable(SessionContext.current(), dorisTable.getRemoteDbName(), dorisTable.getRemoteName());
+    }
+
+    private static View loadIcebergViewWithSession(ExternalTable dorisTable) {
+        IcebergExternalCatalog catalog = (IcebergExternalCatalog) dorisTable.getCatalog();
+        IcebergMetadataOps ops = (IcebergMetadataOps) catalog.getMetadataOps();
+        return (View) ops.loadView(SessionContext.current(), dorisTable.getRemoteDbName(), dorisTable.getRemoteName());
+    }
+
+    private static boolean useSessionCatalog(ExternalTable dorisTable) {
+        // Defer to the catalog's single session decision (IcebergUserSessionCatalog): false when dynamic
+        // identity is off, true when on and the request carries a delegated credential, and it throws when
+        // dynamic identity is on but the request has no credential (no shared identity to borrow).
+        return dorisTable.getCatalog() instanceof IcebergUserSessionCatalog
+                && ((IcebergUserSessionCatalog) dorisTable.getCatalog()).useSessionCatalog(SessionContext.current());
+    }
 
     public static boolean isIcebergRowLineageColumn(Column column) {
         return column.nameEquals(IcebergUtils.ICEBERG_ROW_ID_COL, false)

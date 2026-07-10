@@ -224,7 +224,7 @@ suite("test_kinesis_show_routine_load") {
 
             def customProperties = parseJson(showRow[13].toString())
             assertEquals("******", customProperties["aws.secret_key"].toString())
-            assertTrue(customProperties["aws.access_key"].toString().length() > 0)
+            assertEquals("******", customProperties["aws.access_key"].toString())
 
             // Verify additional SHOW ROUTINE LOAD paths.
             String dbName = context.config.getDbNameByFile(context.file)

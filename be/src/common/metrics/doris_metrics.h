@@ -237,12 +237,16 @@ public:
 
     UIntGauge* light_work_pool_queue_size = nullptr;
     UIntGauge* heavy_work_pool_queue_size = nullptr;
+    UIntGauge* peer_fetch_work_pool_queue_size = nullptr;
     UIntGauge* heavy_work_active_threads = nullptr;
+    UIntGauge* peer_fetch_work_active_threads = nullptr;
     UIntGauge* light_work_active_threads = nullptr;
 
     UIntGauge* heavy_work_pool_max_queue_size = nullptr;
+    UIntGauge* peer_fetch_work_pool_max_queue_size = nullptr;
     UIntGauge* light_work_pool_max_queue_size = nullptr;
     UIntGauge* heavy_work_max_threads = nullptr;
+    UIntGauge* peer_fetch_work_max_threads = nullptr;
     UIntGauge* light_work_max_threads = nullptr;
 
     UIntGauge* arrow_flight_work_pool_queue_size = nullptr;
@@ -254,6 +258,8 @@ public:
     IntCounter* num_io_bytes_read_from_cache = nullptr;
     IntCounter* num_io_bytes_read_from_remote = nullptr;
     IntCounter* num_io_bytes_read_from_peer = nullptr;
+    IntCounter* inverted_index_bytes_read_from_remote = nullptr;
+    IntCounter* segment_footer_index_bytes_read_from_remote = nullptr;
 
     IntCounter* udf_close_bthread_count = nullptr;
 

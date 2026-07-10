@@ -16,6 +16,7 @@
 #include "format_v2/parquet/reader/parquet_leaf_reader.h"
 
 #include <arrow/array/array_binary.h>
+#include <arrow/array/array_dict.h>
 #include <parquet/api/schema.h>
 #include <parquet/column_reader.h>
 #include <parquet/exception.h>
@@ -91,12 +92,71 @@ Status decoded_fixed_value_size(const std::string& column_name, DecodedValueKind
 Status get_binary_chunks(const std::string& column_name,
                          ::parquet::internal::RecordReader& record_reader,
                          std::vector<std::shared_ptr<::arrow::Array>>* chunks) {
+    if (auto* dictionary_reader =
+                dynamic_cast<::parquet::internal::DictionaryRecordReader*>(&record_reader);
+        dictionary_reader != nullptr) {
+        auto chunked = dictionary_reader->GetResult();
+        if (chunked == nullptr) {
+            return Status::Corruption(
+                    "Parquet dictionary record reader returned null result for column {}",
+                    column_name);
+        }
+        *chunks = chunked->chunks();
+        return Status::OK();
+    }
     auto* binary_reader = dynamic_cast<::parquet::internal::BinaryRecordReader*>(&record_reader);
     if (binary_reader == nullptr) {
         return Status::InternalError("Parquet binary record reader is not available for column {}",
                                      column_name);
     }
     *chunks = binary_reader->GetBuilderChunks();
+    return Status::OK();
+}
+
+Status append_dictionary_binary_values(const std::string& column_name,
+                                       const ::arrow::DictionaryArray& dictionary_array,
+                                       std::vector<StringRef>* values) {
+    DORIS_CHECK(values != nullptr);
+    const auto& dictionary = dictionary_array.dictionary();
+    if (dictionary == nullptr) {
+        return Status::Corruption("Parquet dictionary array has null dictionary for column {}",
+                                  column_name);
+    }
+    auto append_value = [&](int64_t dictionary_index) -> Status {
+        if (dictionary_index < 0 || dictionary_index >= dictionary->length()) {
+            return Status::Corruption("Invalid parquet dictionary index {} for column {}",
+                                      dictionary_index, column_name);
+        }
+        if (auto* binary_array = dynamic_cast<::arrow::BinaryArray*>(dictionary.get())) {
+            if (binary_array->IsNull(dictionary_index)) {
+                values->emplace_back(static_cast<const char*>(nullptr), 0);
+                return Status::OK();
+            }
+            int32_t length = 0;
+            const uint8_t* value = binary_array->GetValue(dictionary_index, &length);
+            values->emplace_back(reinterpret_cast<const char*>(value), length);
+            return Status::OK();
+        }
+        if (auto* fixed_array = dynamic_cast<::arrow::FixedSizeBinaryArray*>(dictionary.get())) {
+            if (fixed_array->IsNull(dictionary_index)) {
+                values->emplace_back(static_cast<const char*>(nullptr), 0);
+                return Status::OK();
+            }
+            values->emplace_back(
+                    reinterpret_cast<const char*>(fixed_array->GetValue(dictionary_index)),
+                    fixed_array->byte_width());
+            return Status::OK();
+        }
+        return Status::InternalError("Unexpected Arrow dictionary value array type for column {}",
+                                     column_name);
+    };
+    for (int64_t row_idx = 0; row_idx < dictionary_array.length(); ++row_idx) {
+        if (dictionary_array.IsNull(row_idx)) {
+            values->emplace_back(static_cast<const char*>(nullptr), 0);
+            continue;
+        }
+        RETURN_IF_ERROR(append_value(dictionary_array.GetValueIndex(row_idx)));
+    }
     return Status::OK();
 }
 
@@ -131,6 +191,9 @@ Status build_binary_values(const std::string& column_name,
                 values->emplace_back(reinterpret_cast<const char*>(fixed_array->GetValue(row_idx)),
                                      fixed_array->byte_width());
             }
+        } else if (auto* dictionary_array = dynamic_cast<::arrow::DictionaryArray*>(chunk.get())) {
+            RETURN_IF_ERROR(
+                    append_dictionary_binary_values(column_name, *dictionary_array, values));
         } else {
             return Status::InternalError("Unexpected Arrow binary array type for column {}",
                                          column_name);

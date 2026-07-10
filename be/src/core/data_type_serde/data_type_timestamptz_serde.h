@@ -75,6 +75,7 @@ public:
 
     Status read_column_from_decoded_values(IColumn& column,
                                            const DecodedColumnView& view) const override;
+    Status read_column_from_orc(IColumn& column, const OrcDecodedColumnView& view) const override;
 
     // Override needed: paired reader skips a scale byte; the inherited number-serde writer omits it.
     void write_one_cell_to_binary(const IColumn& src_column, ColumnString::Chars& chars,
