@@ -18,7 +18,6 @@
 package org.apache.doris.datasource;
 
 import org.apache.doris.catalog.Env;
-import org.apache.doris.datasource.hive.event.MetastoreEventsProcessor;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
@@ -114,14 +113,20 @@ public class ExternalMetaIdMgr {
             handleMetaIdMapping(mapping, ctlMetaIdMgr);
         }
         if (log.isFromHmsEvent()) {
-            // Propagate the master's synced-event-id cursor to this FE, keyed by catalogId only
-            // (the log already carries it). Never cast the live catalog to HMSExternalCatalog:
-            // once an HMS catalog is served by a generic PluginDrivenExternalCatalog, that cast
-            // would throw ClassCastException and abort edit-log replay, wedging FE startup.
+            // Propagate the master's synced-event-id cursor to this FE, keyed by catalogId only (the log
+            // already carries it). Route to the driver that actually owns this catalog's event sync: a flipped
+            // hms catalog is a generic PluginDrivenExternalCatalog driven by MetastoreEventSyncDriver, whose
+            // follower cursor map must be fed here (otherwise its masterUpperBound stays -1 and followers stop
+            // receiving incremental updates); a not-yet-flipped legacy HMS catalog is still driven by the legacy
+            // MetastoreEventsProcessor. Both branches key by catalogId only — never cast to HMSExternalCatalog
+            // (that cast would ClassCastException for a PluginDrivenExternalCatalog and abort replay).
             CatalogIf<?> catalogIf = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogId);
-            if (catalogIf != null) {
-                MetastoreEventsProcessor metastoreEventsProcessor = Env.getCurrentEnv().getMetastoreEventsProcessor();
-                metastoreEventsProcessor.updateMasterLastSyncedEventId(catalogId, log.getLastSyncedEventId());
+            if (catalogIf instanceof PluginDrivenExternalCatalog) {
+                Env.getCurrentEnv().getMetastoreEventSyncDriver()
+                        .updateMasterLastSyncedEventId(catalogId, log.getLastSyncedEventId());
+            } else if (catalogIf != null) {
+                Env.getCurrentEnv().getMetastoreEventsProcessor()
+                        .updateMasterLastSyncedEventId(catalogId, log.getLastSyncedEventId());
             }
         }
     }
