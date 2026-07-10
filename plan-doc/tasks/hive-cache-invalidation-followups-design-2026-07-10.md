@@ -214,3 +214,13 @@ paimon/iceberg — per practice + memory `plugindriven-mvcc-table-is-live-not-do
   no REFRESH — for paimon + iceberg NOW (live), and for hive post-flip.
 - `DROP DATABASE d; CREATE DATABASE d; ...` likewise sees no stale table entries.
 - paimon time-travel after drop+recreate reusing a schemaId returns the new schema (schema-memo cleared).
+
+## 6. Status (landed 2026-07-10)
+- [x] **F1** fe-core generic DDL invalidation hook — `3b66982fedf` (`PluginDrivenExternalCatalogDdlRoutingTest`
+      56 pass, checkstyle 0). Live for paimon/iceberg; arms hive post-flip.
+- [x] **F1b** paimon `PaimonSchemaAtMemo` invalidate + wiring — `7b8fed012be` (`PaimonSchemaAtMemoTest` 5 pass).
+- [x] **F2** `CachingHmsClient` per-partition value keying — `982db925659` (`CachingHmsClientTest` 15 pass).
+      Dormant (hive not flipped).
+- [ ] **Unified clean-room adversarial re-review** of F1/F1b (live paths) — running (`wf_fe6ddef4-777`).
+- [ ] **e2e** (§5) — owed at the flip / heterogeneous-HMS docker (paimon/iceberg drop+recreate is testable
+      NOW as a live regression).
