@@ -106,11 +106,12 @@ public class QueryStatsRecorder {
                     }
                 }
             }
-        } catch (Exception e) {
+        } catch (Throwable t) {
+            // Best-effort telemetry: catch Errors too (e.g. StackOverflowError), never break the query.
             ConnectContext cc = stmtContext.getConnectContext();
             String queryId = (cc != null && cc.queryId() != null)
                     ? cc.queryId().toString() : "unknown";
-            LOG.warn("Failed to build query stats deltas for query={}", queryId, e);
+            LOG.warn("Failed to build query stats deltas for query={}", queryId, t);
         }
     }
 
@@ -271,7 +272,10 @@ public class QueryStatsRecorder {
             // HAVING: link each non-scan-backed aggregate output to its own inputs, however
             // computed those already are (e.g. HAVING SUM(x) where x is itself computed).
             for (NamedExpression ne : agg.getOutputExpressions()) {
-                if (exprIdToScan.containsKey(ne.getExprId())) {
+                if (exprIdToScan.containsKey(ne.getExprId()) || ne instanceof Slot) {
+                    // Bare pass-through output (e.g. two-phase DISTINCT's merge phase reusing the
+                    // local phase's slot) — already linked there; getInputSlots() on a bare Slot
+                    // includes itself, which would self-loop here.
                     continue;
                 }
                 Set<Slot> inputSlots = ne.getInputSlots();
@@ -405,8 +409,19 @@ public class QueryStatsRecorder {
     private static Set<ExprId> resolveBaseScanExprIds(ExprId exprId,
             Map<ExprId, PhysicalOlapScan> exprIdToScan,
             Map<ExprId, Set<Slot>> derivedSlotInputs) {
+        return resolveBaseScanExprIds(exprId, exprIdToScan, derivedSlotInputs, new HashSet<>());
+    }
+
+    // visiting guards against a cyclic derivedSlotInputs entry causing unbounded recursion.
+    private static Set<ExprId> resolveBaseScanExprIds(ExprId exprId,
+            Map<ExprId, PhysicalOlapScan> exprIdToScan,
+            Map<ExprId, Set<Slot>> derivedSlotInputs,
+            Set<ExprId> visiting) {
         if (exprIdToScan.containsKey(exprId)) {
             return ImmutableSet.of(exprId);
+        }
+        if (!visiting.add(exprId)) {
+            return ImmutableSet.of();
         }
         Set<Slot> inputSlots = derivedSlotInputs.get(exprId);
         if (inputSlots == null) {
@@ -415,7 +430,7 @@ public class QueryStatsRecorder {
         ImmutableSet.Builder<ExprId> result = ImmutableSet.builder();
         for (Slot slot : inputSlots) {
             if (slot instanceof SlotReference) {
-                result.addAll(resolveBaseScanExprIds(slot.getExprId(), exprIdToScan, derivedSlotInputs));
+                result.addAll(resolveBaseScanExprIds(slot.getExprId(), exprIdToScan, derivedSlotInputs, visiting));
             }
         }
         return result.build();
@@ -477,7 +492,10 @@ public class QueryStatsRecorder {
                     continue;
                 }
                 Slot outputSlot = setOpOutput.get(i);
-                if (outputSlot instanceof SlotReference && !exprIdToScan.containsKey(outputSlot.getExprId())) {
+                if (outputSlot instanceof SlotReference && !exprIdToScan.containsKey(outputSlot.getExprId())
+                        && !outputSlot.getExprId().equals(branchSlot.getExprId())) {
+                    // Skip self-reuse (output slot IS the branch slot) — would self-loop; the
+                    // branch's queryHit is already recorded above regardless.
                     derivedSlotInputs.computeIfAbsent(outputSlot.getExprId(), k -> new HashSet<>())
                             .add(branchSlot);
                 }

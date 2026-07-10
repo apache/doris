@@ -573,8 +573,9 @@ public class QueryStatsRecorderTest {
         StatsDelta delta = deltas.get("1_1_1_1");
         Assertions.assertNotNull(delta);
         Assertions.assertTrue(delta.getColumnStats().get("k2").queryHit, "k2: ORDER BY");
-        Assertions.assertNotNull(delta.getColumnStats().get("x"), "x slot resolves via alias propagation");
-        Assertions.assertTrue(delta.getColumnStats().get("x").queryHit, "x: SELECT output via alias");
+        Assertions.assertNotNull(delta.getColumnStats().get("k1"),
+                "k1 resolves via alias propagation under intermediate Sort");
+        Assertions.assertTrue(delta.getColumnStats().get("k1").queryHit, "k1: SELECT output via alias");
     }
 
     /**
@@ -608,6 +609,63 @@ public class QueryStatsRecorderTest {
         Assertions.assertNotNull(delta);
         Assertions.assertTrue(delta.getColumnStats().get("k1").queryHit, "k1: GROUP BY key");
         Assertions.assertTrue(delta.getColumnStats().get("k2").queryHit, "k2: aggregate input");
+    }
+
+    /**
+     * SELECT DISTINCT UPPER(k6) ... ORDER BY UPPER(k6): the merge phase of two-phase aggregation
+     * outputs a bare pass-through SlotReference reusing the local phase's ExprId. Regression test
+     * for a StackOverflowError this used to cause (getInputSlots() on a bare Slot includes itself).
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    public void testTwoPhaseAggregateBarePassthroughOutputDoesNotSelfReference() {
+        ExprId id6 = new ExprId(1);
+        ExprId mergeOutputId = new ExprId(2);
+        SlotReference k6Slot = mockSlot(id6, "k6");
+        PhysicalOlapScan scan = mockScan(1L, 1L, 1L, 1L, ImmutableList.of(k6Slot));
+
+        // Local (partial) phase: real Alias(Upper(k6), Y) — links Y -> k6.
+        NamedExpression localOutput = Mockito.mock(NamedExpression.class);
+        Mockito.when(localOutput.getExprId()).thenReturn(mergeOutputId);
+        Mockito.when(localOutput.getInputSlots()).thenReturn(ImmutableSet.of(k6Slot));
+
+        Aggregate<?> localAgg = Mockito.mock(Aggregate.class);
+        Mockito.when(localAgg.children()).thenReturn(ImmutableList.of(scan));
+        Mockito.when(localAgg.getGroupByExpressions()).thenReturn(ImmutableList.of());
+        Mockito.when(localAgg.getOutputExpressions())
+                .thenReturn((List<NamedExpression>) (List<?>) ImmutableList.of(localOutput));
+        Mockito.when(localAgg.getOutput()).thenReturn(ImmutableList.of());
+
+        // Merge (final) phase: bare pass-through SlotReference reusing the SAME ExprId Y.
+        // getInputSlots() includes itself, matching real Expression.getInputSlots() for a leaf Slot.
+        SlotReference mergeOutputSlot = mockSlot(mergeOutputId, "upper_k6");
+        Mockito.when(mergeOutputSlot.getInputSlots()).thenReturn(ImmutableSet.of(mergeOutputSlot));
+
+        Aggregate<?> mergeAgg = Mockito.mock(Aggregate.class);
+        Mockito.when(mergeAgg.children()).thenReturn(ImmutableList.of(localAgg));
+        Mockito.when(mergeAgg.getGroupByExpressions()).thenReturn(ImmutableList.of());
+        Mockito.when(mergeAgg.getOutputExpressions())
+                .thenReturn((List<NamedExpression>) (List<?>) ImmutableList.of(mergeOutputSlot));
+        Mockito.when(mergeAgg.getOutput()).thenReturn(ImmutableList.of(mergeOutputSlot));
+
+        // ORDER BY the merge phase's own output slot directly (same identity, no recomputation).
+        Expression orderInner = Mockito.mock(Expression.class);
+        Mockito.when(orderInner.getInputSlots()).thenReturn(ImmutableSet.of(mergeOutputSlot));
+        org.apache.doris.nereids.properties.OrderKey orderKey =
+                Mockito.mock(org.apache.doris.nereids.properties.OrderKey.class);
+        Mockito.when(orderKey.getExpr()).thenReturn(orderInner);
+
+        org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalSort<?> sort =
+                Mockito.mock(org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalSort.class);
+        Mockito.when(sort.children()).thenReturn(ImmutableList.of(mergeAgg));
+        Mockito.when(sort.getOrderKeys()).thenReturn(ImmutableList.of(orderKey));
+        Mockito.when(sort.getOutput()).thenReturn(ImmutableList.of(mergeOutputSlot));
+
+        Map<String, StatsDelta> deltas = QueryStatsRecorder.collectDeltas((PhysicalPlan) sort);
+
+        StatsDelta delta = deltas.get("1_1_1_1");
+        Assertions.assertNotNull(delta);
+        Assertions.assertTrue(delta.getColumnStats().get("k6").queryHit, "k6: resolves via the local phase's link");
     }
 
     /**
