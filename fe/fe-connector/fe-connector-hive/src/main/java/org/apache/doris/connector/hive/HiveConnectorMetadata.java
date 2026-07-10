@@ -812,9 +812,13 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
      * are listed (iceberg/hudi-on-HMS are served by their own connectors via the sibling divert; a view has no
      * data files) — anything else returns empty. Lists EVERY partition (no {@link #STATS_PARTITION_SAMPLE_SIZE}
      * sampling, unlike {@link #estimateDataSizeByListingFiles}) because the fe-core sampler needs the individual
-     * file sizes to seed-shuffle and cumulate. Best-effort: any listing error degrades to empty, never throwing
-     * (statistics must not fail a query). Pins the TCCL to the plugin classloader for the {@code FileSystem}
-     * reflection, exactly like estimateDataSizeByListingFiles (the statistics thread is not pinned by fe-core).
+     * file sizes to seed-shuffle and cumulate. A listing error PROPAGATES here (unlike
+     * {@link #estimateDataSizeByListingFiles}'s best-effort {@code -1}): this backs an explicit
+     * {@code ANALYZE ... WITH SAMPLE}, and legacy {@code HMSExternalTable.getChunkSizes} failed the command loud
+     * rather than let the sampler collapse the scale factor to {@code 1.0} while {@code TABLESAMPLE} still fires
+     * (a silent stat undercount); a genuinely empty table still yields an empty list naturally. Pins the TCCL to
+     * the plugin classloader for the {@code FileSystem} reflection (the statistics thread is not pinned by
+     * fe-core), restored on the throw path by the finally.
      */
     @Override
     public List<Long> listFileSizes(ConnectorSession session, ConnectorTableHandle handle) {
@@ -837,10 +841,6 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
                 }
             }
             return sizes;
-        } catch (RuntimeException e) {
-            LOG.warn("Failed to list hive file sizes for {}.{} for sample analyze",
-                    hiveHandle.getDbName(), hiveHandle.getTableName(), e);
-            return Collections.emptyList();
         } finally {
             Thread.currentThread().setContextClassLoader(previous);
         }

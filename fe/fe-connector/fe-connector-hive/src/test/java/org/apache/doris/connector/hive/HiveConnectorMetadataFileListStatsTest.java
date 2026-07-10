@@ -22,6 +22,7 @@ import org.apache.doris.connector.hms.HmsDatabaseInfo;
 import org.apache.doris.connector.hms.HmsPartitionInfo;
 import org.apache.doris.connector.hms.HmsTableInfo;
 
+import org.apache.hadoop.conf.Configuration;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -153,6 +154,32 @@ public class HiveConnectorMetadataFileListStatsTest {
     }
 
     @Test
+    public void listFileSizesPropagatesListingErrorAndRestoresClassLoader() {
+        // ANALYZE ... WITH SAMPLE reads raw per-file sizes here. UNLIKE estimateDataSizeByListingFiles (best-effort
+        // -1 for query planning), a listing failure must PROPAGATE: legacy HMSExternalTable.getChunkSizes failed the
+        // sampled ANALYZE loud rather than let the sampler collapse the scale factor to 1.0 while TABLESAMPLE still
+        // fires (a silent stat undercount). The TCCL pin must still be restored on the throw path (try/finally).
+        // MUTATION: re-adding a catch -> Collections.emptyList swallows the error -> assertThrows red.
+        HiveConnectorMetadata metadata = new HiveConnectorMetadata(
+                new PartitionFakeHmsClient(Collections.emptyList()), Collections.emptyMap(), new FakeConnectorContext(),
+                () -> null, () -> null, handle -> null, new ThrowingFileListingCache());
+        HiveTableHandle handle = unpartitioned("s3://wh/t");
+
+        ClassLoader marker = new URLClassLoader(new URL[0],
+                HiveConnectorMetadataFileListStatsTest.class.getClassLoader());
+        ClassLoader original = Thread.currentThread().getContextClassLoader();
+        Thread.currentThread().setContextClassLoader(marker);
+        try {
+            Assertions.assertThrows(RuntimeException.class, () -> metadata.listFileSizes(null, handle),
+                    "a listing failure during sample analyze must fail loud, not degrade to empty");
+            Assertions.assertSame(marker, Thread.currentThread().getContextClassLoader(),
+                    "the TCCL pin must be restored on the throw path (try/finally)");
+        } finally {
+            Thread.currentThread().setContextClassLoader(original);
+        }
+    }
+
+    @Test
     public void nonHiveTableTypeIsNotEstimated() {
         // A hudi/iceberg-on-HMS table is served by its own connector; the hive gateway must return -1 BEFORE
         // any filesystem I/O (the public entry point's tableType guard). MUTATION: dropping the guard would
@@ -162,6 +189,19 @@ public class HiveConnectorMetadataFileListStatsTest {
         Assertions.assertEquals(-1L,
                 metadata(new PartitionFakeHmsClient(Collections.emptyList()))
                         .estimateDataSizeByListingFiles(null, hudiHandle));
+    }
+
+    /** A {@link HiveFileListingCache} whose listing always fails, to prove listFileSizes propagates (not swallows). */
+    private static final class ThrowingFileListingCache extends HiveFileListingCache {
+        ThrowingFileListingCache() {
+            super(Collections.emptyMap());
+        }
+
+        @Override
+        public List<HiveFileStatus> listDataFiles(String dbName, String tableName, String location,
+                Configuration conf) {
+            throw new RuntimeException("simulated listing failure");
+        }
     }
 
     /**
