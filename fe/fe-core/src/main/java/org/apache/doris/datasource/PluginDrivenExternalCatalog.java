@@ -646,6 +646,14 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         } catch (DorisConnectorException e) {
             throw new DdlException(e.getMessage(), e);
         }
+        // R4: drop the connector's OWN caches for BOTH the source and target names so an atomic swap
+        // (RENAME t->t_arch; RENAME t_new->t) doesn't serve the pre-rename pinned snapshot under either name —
+        // afterExternalRename only fixes the FE name cache. Same drop+recreate class the dropTable hook covers.
+        // Connector-agnostic (no-op SPI default); the source is keyed by its resolved REMOTE names, the target
+        // by the new name in the same remote db (parity with createTable: a rename target has no prior
+        // local->remote mapping). Followers propagate this via RefreshManager.replayRefreshTable's rename branch.
+        connector.invalidateTable(dorisTable.getRemoteDbName(), dorisTable.getRemoteName());
+        connector.invalidateTable(dorisTable.getRemoteDbName(), newTableName);
         afterExternalRename(dbName, oldTableName, newTableName);
     }
 

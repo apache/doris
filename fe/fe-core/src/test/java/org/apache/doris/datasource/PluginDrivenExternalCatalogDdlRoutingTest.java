@@ -580,6 +580,13 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
         Assertions.assertEquals("db1", logCap.getValue().getDbName());
         Assertions.assertEquals("t1", logCap.getValue().getTableName());
         Assertions.assertEquals("t2", logCap.getValue().getNewTableName());
+        // WHY (Rule 9 / R4): the connector's own caches for BOTH the source (REMOTE DB1.TBL1) and the target
+        // (DB1.t2, new name NOT remote-resolved) must be dropped so an atomic swap (RENAME t->t_arch;
+        // RENAME t_new->t) doesn't serve the pre-rename pinned snapshot under either name. Before R4
+        // afterExternalRename fixed only the FE name cache. MUTATION: dropping either call — or passing the
+        // LOCAL names — turns this red.
+        Mockito.verify(connector).invalidateTable("DB1", "TBL1");
+        Mockito.verify(connector).invalidateTable("DB1", "t2");
     }
 
     @Test
@@ -619,6 +626,9 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
         // so the FE cache + constraints stay consistent with the unchanged remote.
         Mockito.verify(mockEditLog, Mockito.never()).logRefreshExternalTable(Mockito.any());
         Mockito.verifyNoInteractions(mockConstraintManager);
+        // WHY (R4): the connector-cache invalidation sits AFTER the successful renameTable, so a remote
+        // failure must NOT drop the connector cache — it stays consistent with the unchanged remote.
+        Mockito.verify(connector, Mockito.never()).invalidateTable(Mockito.any(), Mockito.any());
     }
 
     // ==================== CREATE TABLE ====================

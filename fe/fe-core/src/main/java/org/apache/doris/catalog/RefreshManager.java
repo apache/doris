@@ -21,6 +21,7 @@ import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.UserException;
+import org.apache.doris.connector.api.Connector;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.CatalogLog;
 import org.apache.doris.datasource.ExternalCatalog;
@@ -191,6 +192,19 @@ public class RefreshManager {
         }
         if (!Strings.isNullOrEmpty(log.getNewTableName())) {
             // this is a rename table op
+            // R4: propagate the coordinator renameTable's connector-cache invalidation (source + target) to
+            // followers/observers — the base replay below only fixes the FE name cache, so a follower kept the
+            // source name's snapshot pin (and paimon's schema memo) to the TTL after an atomic table swap.
+            // Resolve the source's REMOTE names from the still-cached table BEFORE unregister; the target keeps
+            // the new name (parity with the coordinator). getConnector() does not force-init here: this branch
+            // is reached only for an already-initialized catalog (db + table were resolved from the replay
+            // cache above), mirroring the else branch's refreshTableInternal -> getConnector() hook.
+            if (catalog instanceof PluginDrivenExternalCatalog) {
+                Connector connector = ((PluginDrivenExternalCatalog) catalog).getConnector();
+                String remoteDb = db.get().getRemoteName();
+                connector.invalidateTable(remoteDb, table.get().getRemoteName());
+                connector.invalidateTable(remoteDb, log.getNewTableName());
+            }
             db.get().unregisterTable(log.getTableName());
             db.get().resetMetaCacheNames();
             Env.getCurrentEnv().getConstraintManager().renameTable(
