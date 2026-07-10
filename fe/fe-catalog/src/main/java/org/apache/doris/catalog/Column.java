@@ -101,6 +101,11 @@ public class Column implements GsonPostProcessable {
         Column afterValueColumn = new Column(column);
         afterValueColumn.setComment("after value (" + column.getName() + ")");
         afterValueColumn.setAggregationType(AggregateType.NONE, true);
+        afterValueColumn.setIsAllowNull(true);
+        // clear default value
+        afterValueColumn.defaultValue = null;
+        afterValueColumn.defaultValueExprDef = null;
+        afterValueColumn.realDefaultValue = null;
         return afterValueColumn;
     }
 

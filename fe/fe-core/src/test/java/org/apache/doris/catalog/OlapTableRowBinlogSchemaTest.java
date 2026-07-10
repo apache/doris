@@ -33,7 +33,7 @@ public class OlapTableRowBinlogSchemaTest {
         long baseIndexId = 1L;
         Column key = new Column("k1", PrimitiveType.INT);
         key.setIsKey(true);
-        Column value = new Column("v1", PrimitiveType.INT);
+        Column value = new Column("v1", Type.INT, false, null, false, "7", "");
         value.setIsKey(false);
         List<Column> baseSchema = Lists.newArrayList(key, value);
 
@@ -62,6 +62,8 @@ public class OlapTableRowBinlogSchemaTest {
     public void testRowBinlogSchemaOnEnable() {
         OlapTable tableWithoutBefore = newTestTable(BinlogTestUtils.newTestRowBinlogConfig(true, false));
         Assertions.assertTrue(tableWithoutBefore.needRowBinlog());
+        Assertions.assertFalse(tableWithoutBefore.getBaseSchema(true).get(1).isAllowNull());
+        Assertions.assertEquals("7", tableWithoutBefore.getBaseSchema(true).get(1).getDefaultValue());
         List<String> tableWithoutBeforeColumns =
                 tableWithoutBefore.getRowBinlogMeta().getSchema(true).stream().map(Column::getName)
                         .collect(Collectors.toList());
@@ -70,17 +72,39 @@ public class OlapTableRowBinlogSchemaTest {
         Assertions.assertEquals(tableWithoutBeforeColumns.indexOf(Column.BINLOG_OPERATION_COL), 3);
         Assertions.assertEquals(tableWithoutBeforeColumns.indexOf(Column.BINLOG_TIMESTAMP_COL), 4);
         Assertions.assertEquals(tableWithoutBeforeColumns.size(), 5);
+        Column afterColumnWithoutBefore = tableWithoutBefore.getRowBinlogMeta().getSchema(true).stream()
+                .filter(column -> column.getName().equals("v1"))
+                .findFirst()
+                .orElseThrow();
+        Assertions.assertTrue(afterColumnWithoutBefore.isAllowNull());
+        Assertions.assertNull(afterColumnWithoutBefore.getDefaultValue());
+        Assertions.assertNull(afterColumnWithoutBefore.getDefaultValueExprDef());
+        Assertions.assertNull(afterColumnWithoutBefore.getRealDefaultValue());
 
         OlapTable tableWithBefore = newTestTable(BinlogTestUtils.newTestRowBinlogConfig(true, true));
         Assertions.assertTrue(tableWithBefore.needRowBinlog());
+        List<Column> rowBinlogSchemaWithBefore = tableWithBefore.getRowBinlogMeta().getSchema(true);
         List<String> tableWithBeforeColumns =
-                tableWithBefore.getRowBinlogMeta().getSchema(true).stream().map(Column::getName)
-                        .collect(Collectors.toList());
+                rowBinlogSchemaWithBefore.stream().map(Column::getName).collect(Collectors.toList());
         Assertions.assertTrue(tableWithBeforeColumns.contains(Column.generateBeforeColName("v1")));
         Assertions.assertEquals(tableWithBeforeColumns.indexOf(Column.BINLOG_LSN_COL), 3);
         Assertions.assertEquals(tableWithBeforeColumns.indexOf(Column.BINLOG_OPERATION_COL), 4);
         Assertions.assertEquals(tableWithBeforeColumns.indexOf(Column.BINLOG_TIMESTAMP_COL), 5);
         Assertions.assertEquals(tableWithBeforeColumns.size(), 6);
+        Column afterColumnWithBefore = rowBinlogSchemaWithBefore.stream()
+                .filter(column -> column.getName().equals("v1"))
+                .findFirst()
+                .orElseThrow();
+        Assertions.assertTrue(afterColumnWithBefore.isAllowNull());
+        Assertions.assertNull(afterColumnWithBefore.getDefaultValue());
+        Column beforeColumn = rowBinlogSchemaWithBefore.stream()
+                .filter(column -> column.getName().equals(Column.generateBeforeColName("v1")))
+                .findFirst()
+                .orElseThrow();
+        Assertions.assertTrue(beforeColumn.isAllowNull());
+        Assertions.assertNull(beforeColumn.getDefaultValue());
+        Assertions.assertNull(beforeColumn.getDefaultValueExprDef());
+        Assertions.assertNull(beforeColumn.getRealDefaultValue());
     }
 
     @Test
