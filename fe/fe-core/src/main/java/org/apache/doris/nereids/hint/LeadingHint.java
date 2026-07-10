@@ -65,7 +65,7 @@ public class LeadingHint extends Hint {
 
     private final List<Pair<Long, Expression>> filters = new ArrayList<>();
 
-    private final Map<Expression, JoinType> conditionJoinType = Maps.newLinkedHashMap();
+    private final Map<Expression, Set<JoinType>> conditionJoinType = Maps.newLinkedHashMap();
 
     private final List<JoinConstraint> joinConstraintList = new ArrayList<>();
 
@@ -283,8 +283,24 @@ public class LeadingHint extends Hint {
         return filters;
     }
 
+    /**
+     * Record the original join type for a filter expression. The same expression
+     * may appear as a condition in multiple joins with different types (e.g.,
+     * both a LEFT SEMI JOIN and a later INNER JOIN). Using a Set preserves all
+     * types so that isConditionJoinTypeMatched can correctly validate each join.
+     *
+     * Example:
+     *   SELECT ... FROM a1 JOIN a2 ON a2.c1 = a2.c1
+     *   LEFT SEMI JOIN a3 ON a2.c2 = a2.c1
+     *   JOIN a5 ON a2.c2 = a2.c1;
+     * The expression "a2.c2 = a2.c1" is the ON condition for both the
+     * LEFT SEMI JOIN (a3) and the INNER JOIN (a5). When CollectJoinConstraint
+     * processes them bottom-up, it first records LEFT_SEMI_JOIN, then
+     * INNER_JOIN. A plain HashMap.put() would overwrite LEFT_SEMI_JOIN,
+     * disabling the safety check in isConditionJoinTypeMatched.
+     */
     public void putConditionJoinType(Expression filter, JoinType joinType) {
-        conditionJoinType.put(filter, joinType);
+        conditionJoinType.computeIfAbsent(filter, k -> new HashSet<>()).add(joinType);
     }
 
     /**
@@ -295,14 +311,23 @@ public class LeadingHint extends Hint {
      */
     public boolean isConditionJoinTypeMatched(List<Expression> conditions, JoinType joinType) {
         for (Expression condition : conditions) {
-            JoinType originalJoinType = conditionJoinType.get(condition);
-            if (originalJoinType.equals(joinType)
-                    || originalJoinType.isOneSideOuterJoin() && joinType.isOneSideOuterJoin()
-                    || originalJoinType.isSemiJoin() && joinType.isSemiJoin()
-                    || originalJoinType.isAntiJoin() && joinType.isAntiJoin()) {
+            Set<JoinType> originalJoinTypes = conditionJoinType.get(condition);
+            if (originalJoinTypes == null) {
                 continue;
             }
-            return false;
+            boolean matched = false;
+            for (JoinType originalJoinType : originalJoinTypes) {
+                if (originalJoinType.equals(joinType)
+                        || originalJoinType.isOneSideOuterJoin() && joinType.isOneSideOuterJoin()
+                        || originalJoinType.isSemiJoin() && joinType.isSemiJoin()
+                        || originalJoinType.isAntiJoin() && joinType.isAntiJoin()) {
+                    matched = true;
+                    break;
+                }
+            }
+            if (!matched) {
+                return false;
+            }
         }
         return true;
     }
@@ -416,6 +441,36 @@ public class LeadingHint extends Hint {
                 continue;
             }
 
+            // Semi/anti join constraints require the constrained side (the right
+            // table for left semi/anti, or the left table for right semi/anti)
+            // to remain intact on one child — it cannot be split across children
+            // or mixed with extra tables. The first guard (isSubset
+            // minLeftHand/minRightHand) ensures the constraint is only evaluated
+            // when all required tables are present in the current join. Once
+            // present, if the constrained side is violated, the leading hint can
+            // never satisfy this constraint (tables only merge, never split), so
+            // we must return failure immediately.
+            //
+            // Example 1 — LEFT SEMI JOIN where the constrained side gets mixed:
+            //   SELECT /*+ leading(a2 a5 { a3 a1 }) */ ...
+            //   FROM a1 JOIN a2 ON ...
+            //   LEFT SEMI JOIN a3 ON a2.c2 = a2.c1
+            //   JOIN a5 ON a2.c2 = a2.c1;
+            // Original tree: ((a1 JOIN a2) LEFT SEMI JOIN a3) JOIN a5
+            // Leading asks:  ((a2 JOIN a5) JOIN (a3 JOIN a1))
+            // At the top join: left={a2,a5}, right={a1,a3}
+            // Constrained side (right table a3 for LEFT SEMI) is mixed with
+            // a1 on the right child → violated, leading must be UNUSED.
+            //
+            // Example 2 — RIGHT ANTI JOIN where constrained side gets mixed:
+            //   SELECT /*+ leading(a3 a1 a2) */ ...
+            //   FROM a1 RIGHT ANTI JOIN a2 ON a1.c4 = a1.c
+            //   JOIN a3 ON a2.c = a3.c3;
+            // Original tree: (a1 RIGHT ANTI JOIN a2) JOIN a3
+            // Leading asks:  ((a3 JOIN a1) JOIN a2)
+            // At the top join: left={a1,a3}, right={a2}
+            // Constrained side (left table a1 for RIGHT ANTI) is mixed with
+            // a3 → violated, leading must be UNUSED.
             if (joinConstraint.getJoinType().isSemiOrAntiJoin()) {
                 if (!LongBitmap.isSubset(joinConstraint.getMinLeftHand(), joinTableBitmap)
                         || !LongBitmap.isSubset(joinConstraint.getMinRightHand(), joinTableBitmap)) {
@@ -426,11 +481,11 @@ public class LeadingHint extends Hint {
                         ? joinConstraint.getLeftHand() : joinConstraint.getRightHand();
                 if (LongBitmap.isOverlap(constrainedSide, leftTableBitmap)
                         && !constrainedSide.equals(leftTableBitmap)) {
-                    continue;
+                    return Pair.of(null, false);
                 }
                 if (LongBitmap.isOverlap(constrainedSide, rightTableBitmap)
                         && !constrainedSide.equals(rightTableBitmap)) {
-                    continue;
+                    return Pair.of(null, false);
                 }
             }
 
