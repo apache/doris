@@ -201,10 +201,8 @@ Suite.metaClass.trigger_and_wait_compaction = { String table_name, String compac
                 }
                 def success_time_unchanged = (oldStatus["last ${compaction_type} success time"] == tabletStatus["last ${compaction_type} success time"])
                 def failure_time_unchanged = (oldStatus["last ${compaction_type} failure time"] == tabletStatus["last ${compaction_type} failure time"])
-                def status_unchanged = (oldStatus["last ${compaction_type} status"] == tabletStatus["last ${compaction_type} status"])
                 def compactionFailureNonFatal = !failure_time_unchanged &&
-                        ((!status_unchanged &&
-                                isNoopCompactionStatus(compaction_type, tabletStatus["last ${compaction_type} status"])) ||
+                        (isNoopCompactionStatus(compaction_type, tabletStatus["last ${compaction_type} status"]) ||
                                 isIgnoredCompactionStatus(tabletStatus["last ${compaction_type} status"]))
                 def baseFailureTimeChanged = handedOffToBaseCompactionAfterDeleteVersion &&
                         oldStatus["last base failure time"] != tabletStatus["last base failure time"]
@@ -263,8 +261,7 @@ Suite.metaClass.trigger_and_wait_compaction = { String table_name, String compac
                 def failure_time_unchanged = (oldStatus["last ${compaction_type} failure time"] == tabletStatus["last ${compaction_type} failure time"])
                 def status_unchanged = (oldStatus["last ${compaction_type} status"] == tabletStatus["last ${compaction_type} status"])
                 def compactionFailureNonFatal = !failure_time_unchanged &&
-                        ((!status_unchanged &&
-                                isNoopCompactionStatus(compaction_type, tabletStatus["last ${compaction_type} status"])) ||
+                        (isNoopCompactionStatus(compaction_type, tabletStatus["last ${compaction_type} status"]) ||
                                 isIgnoredCompactionStatus(tabletStatus["last ${compaction_type} status"]))
                 def baseFailureTimeChanged = handedOffToBaseCompactionAfterDeleteVersion &&
                         oldStatus["last base failure time"] != tabletStatus["last base failure time"]
