@@ -230,14 +230,12 @@ bool GcpAdcTokenProvider::fetch_from_service_account_file(const std::string& cre
             Aws::Http::CreateHttpRequest(Aws::String(token_uri), Aws::Http::HttpMethod::HTTP_POST,
                                          Aws::Utils::Stream::DefaultResponseStreamFactoryMethod);
     // The assertion is base64url, no form-encoding needed.
-    auto body = std::make_shared<std::stringstream>(
+    std::string body_str =
             "grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Ajwt-bearer&assertion=" +
-            assertion);
-    body->seekg(0, std::ios::end);
-    auto body_size = body->tellg();
-    body->seekg(0, std::ios::beg);
+            assertion;
+    auto body = std::make_shared<std::stringstream>(body_str);
     request->AddContentBody(body);
-    request->SetContentLength(std::to_string(body_size));
+    request->SetContentLength(std::to_string(body_str.size()));
     request->SetContentType("application/x-www-form-urlencoded");
     return fetch_oauth2_token(request, "the OAuth2 token endpoint", token, expires_in);
 }
