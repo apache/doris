@@ -79,6 +79,39 @@ class PullUpJoinFromUnionAllTest {
     }
 
     @Test
+    void ruleSkipsJoinChildrenWithDifferentCommonSideOutputs() {
+        LogicalOlapScan commonSmallScan = newScan(10, "common_small");
+        LogicalOlapScan commonLargeScan = newScan(10, "common_large");
+        LogicalProject<LogicalOlapScan> commonSmall = project(selectSlots(commonSmallScan.getOutput(), 0),
+                commonSmallScan);
+        LogicalProject<LogicalOlapScan> commonLarge = project(selectSlots(commonLargeScan.getOutput(), 0, 1),
+                commonLargeScan);
+        LogicalOlapScan otherLeft = newScan(20, "other_left");
+        LogicalOlapScan otherRight = newScan(30, "other_right");
+
+        LogicalProject<Plan> unionChild1 = outputProject(
+                join(commonSmall, otherLeft),
+                "x", commonSmall.getOutput().get(0),
+                "y", otherLeft.getOutput().get(1));
+        LogicalProject<Plan> unionChild2 = outputProject(
+                join(commonLarge, otherRight),
+                "x", commonLarge.getOutput().get(0),
+                "y", otherRight.getOutput().get(1));
+
+        LogicalUnion union = union(unionChild1, unionChild2);
+
+        Plan rewritten = PlanChecker.from(MemoTestUtils.createConnectContext(), union)
+                .applyTopDown(new PullUpJoinFromUnionAll())
+                .getPlan();
+
+        Assertions.assertInstanceOf(LogicalUnion.class, rewritten);
+        LogicalUnion rewrittenUnion = (LogicalUnion) rewritten;
+        Assertions.assertEquals(2, rewrittenUnion.children().size());
+        Assertions.assertInstanceOf(LogicalProject.class, rewrittenUnion.child(0));
+        Assertions.assertInstanceOf(LogicalProject.class, rewrittenUnion.child(1));
+    }
+
+    @Test
     void comparatorRejectsDifferentFilterChildOutputSizes() {
         LogicalFilter<LogicalOlapScan> smallFilter = filter(newCachedOutputScan(1, "common_filter", 0));
         LogicalFilter<LogicalOlapScan> largeFilter = filter(newCachedOutputScan(1, "common_filter", 0, 1));
