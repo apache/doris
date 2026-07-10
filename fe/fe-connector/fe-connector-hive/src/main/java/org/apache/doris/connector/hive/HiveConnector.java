@@ -302,6 +302,26 @@ public class HiveConnector implements Connector {
     }
 
     /**
+     * REFRESH DATABASE hook: drop the connector-owned scan caches for EVERY table in this database — both cache
+     * layers ({@link CachingHmsClient#flushDb} metastore-metadata + {@link HiveFileListingCache#invalidateDb}
+     * directory listings). Same no-force-build read of the client as {@link #invalidateTable(String, String)}.
+     * fe-core routes {@code REFRESH DATABASE} to {@code connector.invalidateDb} for a plugin-driven catalog;
+     * dormant until hms enters SPI_READY_TYPES.
+     */
+    @Override
+    public void invalidateDb(String dbName) {
+        invalidateDb(hmsClient, dbName);
+    }
+
+    // Package-private seam (see invalidateTable above).
+    void invalidateDb(HmsClient client, String dbName) {
+        if (client instanceof CachingHmsClient) {
+            ((CachingHmsClient) client).flushDb(dbName);
+        }
+        fileListingCache.invalidateDb(dbName);
+    }
+
+    /**
      * REFRESH CATALOG hook: drop ALL of this catalog's connector-owned scan caches — every metastore-metadata
      * entry ({@link CachingHmsClient#flushAll}) and every directory listing. Same no-force-build read of the
      * client as {@link #invalidateTable(String, String)}. Dormant until the flip.

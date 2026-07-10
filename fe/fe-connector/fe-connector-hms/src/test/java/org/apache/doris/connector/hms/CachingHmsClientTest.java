@@ -243,6 +243,43 @@ public class CachingHmsClientTest {
         Assertions.assertEquals(3, delegate.getColumnStatsCalls);
     }
 
+    // ---- flushDb() ----
+
+    @Test
+    public void flushDbDropsOnlyThatDatabasesEntries() {
+        RecordingHmsClient delegate = new RecordingHmsClient();
+        CachingHmsClient cache = new CachingHmsClient(delegate, Collections.emptyMap());
+
+        // Populate all four caches for db1.t1, plus db1.t2 (a SECOND table in the same db) and db2.t1 (a table in
+        // ANOTHER db). flushDb("db1") must drop EVERY db1 table (t1 AND t2) across all four caches, while db2 lives.
+        cache.getTable("db1", "t1");
+        cache.listPartitionNames("db1", "t1", -1);
+        cache.getPartitions("db1", "t1", Arrays.asList("p=1"));
+        cache.getTableColumnStatistics("db1", "t1", Arrays.asList("c1"));
+        cache.getTable("db1", "t2");
+        cache.getTable("db2", "t1");
+        Assertions.assertEquals(3, delegate.getTableCalls);
+
+        cache.flushDb("db1");
+
+        // WHY: every db1 table reloads across all four caches — this pins the matchesDb() db scoping (not the
+        // per-table matches()): t2 reloading proves the whole database was dropped, not just one table.
+        cache.getTable("db1", "t1");
+        cache.listPartitionNames("db1", "t1", -1);
+        cache.getPartitions("db1", "t1", Arrays.asList("p=1"));
+        cache.getTableColumnStatistics("db1", "t1", Arrays.asList("c1"));
+        cache.getTable("db1", "t2");
+        Assertions.assertEquals(5, delegate.getTableCalls, "flushDb must drop EVERY table in the database (t1 and t2)");
+        Assertions.assertEquals(2, delegate.listPartitionNamesCalls);
+        Assertions.assertEquals(2, delegate.getPartitionsCalls);
+        Assertions.assertEquals(2, delegate.getColumnStatsCalls);
+
+        // WHY: flushDb is scoped to ONE database — db2's entry must survive (no reload). An over-broad flushDb that
+        // wiped every db would reload db2 here -> red.
+        cache.getTable("db2", "t1");
+        Assertions.assertEquals(5, delegate.getTableCalls, "flushDb must NOT drop another database's entries");
+    }
+
     // ---- flushAll() ----
 
     @Test

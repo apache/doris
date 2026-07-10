@@ -92,6 +92,41 @@ public class HiveConnectorInvalidateTest {
     }
 
     @Test
+    public void invalidateDbFlushesBothCachesForThatDbOnly(@TempDir java.nio.file.Path dirA,
+            @TempDir java.nio.file.Path dirB) throws Exception {
+        HiveConnector connector = new HiveConnector(props(), new FakeConnectorContext());
+        RecordingHmsClient raw = new RecordingHmsClient();
+        CachingHmsClient cachingClient = (CachingHmsClient) connector.wrapWithCache(raw);
+
+        // Metastore cache: TWO tables in db1 (t1, t2) and one in db2. REFRESH DATABASE db1 must drop every db1
+        // table, not just one, while db2 survives.
+        cachingClient.getTable("db1", "t1");
+        cachingClient.getTable("db1", "t2");
+        cachingClient.getTable("db2", "t1");
+        Assertions.assertEquals(3, raw.getTableCalls);
+
+        // Directory-listing cache: db1.t1 (dirA) and db2.t1 (dirB) from real local dirs.
+        HiveFileListingCache fileCache = connector.fileListingCacheForTest();
+        Files.write(dirA.resolve("f"), new byte[10]);
+        Files.write(dirB.resolve("f"), new byte[10]);
+        fileCache.listDataFiles("db1", "t1", dirA.toUri().toString(), CONF);
+        fileCache.listDataFiles("db2", "t1", dirB.toUri().toString(), CONF);
+        Assertions.assertEquals(2, fileCache.size());
+
+        connector.invalidateDb(cachingClient, "db1");
+
+        // Metastore cache: every db1 table re-fetches (t1 AND t2); db2 (another database) is still cached.
+        cachingClient.getTable("db1", "t1");
+        cachingClient.getTable("db1", "t2");
+        Assertions.assertEquals(5, raw.getTableCalls, "REFRESH DATABASE must drop every db1 table's metastore entry");
+        cachingClient.getTable("db2", "t1");
+        Assertions.assertEquals(5, raw.getTableCalls, "REFRESH DATABASE must NOT drop another database's entries");
+
+        // File cache: db1's listing dropped, db2's survives (invalidateDb is scoped by db).
+        Assertions.assertEquals(1, fileCache.size(), "REFRESH DATABASE must drop only that db's directory listings");
+    }
+
+    @Test
     public void invalidateAllFlushesBothCachesEntirely(@TempDir java.nio.file.Path dir) throws Exception {
         HiveConnector connector = new HiveConnector(props(), new FakeConnectorContext());
         RecordingHmsClient raw = new RecordingHmsClient();
@@ -126,6 +161,11 @@ public class HiveConnectorInvalidateTest {
         Assertions.assertEquals(1, fileCache.size());
         Assertions.assertDoesNotThrow(() -> connector.invalidateTable("db", "t"));
         Assertions.assertEquals(0, fileCache.size(), "REFRESH TABLE clears the file cache even with no client built");
+
+        fileCache.listDataFiles("db", "t", dir.toUri().toString(), CONF);
+        Assertions.assertEquals(1, fileCache.size());
+        Assertions.assertDoesNotThrow(() -> connector.invalidateDb("db"));
+        Assertions.assertEquals(0, fileCache.size(), "REFRESH DATABASE clears the file cache with no client built");
 
         fileCache.listDataFiles("db", "t", dir.toUri().toString(), CONF);
         Assertions.assertEquals(1, fileCache.size());

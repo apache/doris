@@ -63,7 +63,8 @@ import java.util.function.Function;
  *
  * <p><b>Pass-through.</b> Every other read, plus every write / DDL / ACID method, is passed straight
  * through to the delegate. A later invalidation step arms {@link #flush(String, String)} /
- * {@link #flushAll()} onto {@code REFRESH TABLE} / {@code REFRESH CATALOG}. This decorator does NOT
+ * {@link #flushDb(String)} / {@link #flushAll()} onto {@code REFRESH TABLE} / {@code REFRESH DATABASE} /
+ * {@code REFRESH CATALOG}. This decorator does NOT
  * self-invalidate around writes — coarse REFRESH + TTL bound staleness.</p>
  *
  * <p><b>Cache-value safety.</b> {@code HmsTableInfo} / {@code HmsPartitionInfo} / {@code HmsColumnStatistics}
@@ -165,6 +166,14 @@ public class CachingHmsClient implements HmsClient {
         partitionNamesCache.invalidateIf(key -> key.matches(dbName, tableName));
         partitionsCache.invalidateIf(key -> key.matches(dbName, tableName));
         columnStatsCache.invalidateIf(key -> key.matches(dbName, tableName));
+    }
+
+    /** Drop every cached entry for one database (all its tables). Backs {@code REFRESH DATABASE}. */
+    public void flushDb(String dbName) {
+        tableCache.invalidateIf(key -> key.matchesDb(dbName));
+        partitionNamesCache.invalidateIf(key -> key.matchesDb(dbName));
+        partitionsCache.invalidateIf(key -> key.matchesDb(dbName));
+        columnStatsCache.invalidateIf(key -> key.matchesDb(dbName));
     }
 
     /** Drop the whole cache. Backs {@code REFRESH CATALOG}. */
@@ -298,6 +307,10 @@ public class CachingHmsClient implements HmsClient {
             this.tableName = tableName;
         }
 
+        boolean matchesDb(String db) {
+            return Objects.equals(dbName, db);
+        }
+
         @Override
         public boolean equals(Object o) {
             if (this == o) {
@@ -329,6 +342,10 @@ public class CachingHmsClient implements HmsClient {
 
         boolean matches(String db, String table) {
             return Objects.equals(dbName, db) && Objects.equals(tableName, table);
+        }
+
+        boolean matchesDb(String db) {
+            return Objects.equals(dbName, db);
         }
 
         @Override
@@ -370,6 +387,10 @@ public class CachingHmsClient implements HmsClient {
             return Objects.equals(dbName, db) && Objects.equals(tableName, table);
         }
 
+        boolean matchesDb(String db) {
+            return Objects.equals(dbName, db);
+        }
+
         @Override
         public boolean equals(Object o) {
             if (this == o) {
@@ -407,6 +428,10 @@ public class CachingHmsClient implements HmsClient {
 
         boolean matches(String db, String table) {
             return Objects.equals(dbName, db) && Objects.equals(tableName, table);
+        }
+
+        boolean matchesDb(String db) {
+            return Objects.equals(dbName, db);
         }
 
         @Override

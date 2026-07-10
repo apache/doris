@@ -316,6 +316,14 @@ public interface Connector extends Closeable {
     }
 
     /**
+     * Invalidates the connector-side caches for every table in one database. Called by the engine on
+     * {@code REFRESH DATABASE}. The name is the REMOTE db name (as seen by the connector). Default no-op for
+     * connectors that cache nothing.
+     */
+    default void invalidateDb(String dbName) {
+    }
+
+    /**
      * Optional per-connector override of the catalog's schema-cache TTL (in seconds), consulted generically by
      * the engine when sizing the schema meta-cache. Semantics match {@code schema.cache.ttl-second}:
      * {@code 0} disables schema caching (always read fresh), {@code -1} = no expiration, {@code > 0} = TTL.

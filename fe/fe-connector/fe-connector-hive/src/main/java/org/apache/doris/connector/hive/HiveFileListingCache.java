@@ -128,6 +128,11 @@ public class HiveFileListingCache {
         cache.invalidateIf(key -> key.matches(dbName, tableName));
     }
 
+    /** Drops every cached listing for one database (all its tables). Backs {@code REFRESH DATABASE}. */
+    public void invalidateDb(String dbName) {
+        cache.invalidateIf(key -> key.matchesDb(dbName));
+    }
+
     /** Drops the whole file-listing cache. Backs {@code REFRESH CATALOG}. */
     public void invalidateAll() {
         cache.invalidateAll();
@@ -185,7 +190,10 @@ public class HiveFileListingCache {
         }
     }
 
-    /** Cache key: (db, table, location). db+table let {@link #invalidateTable} select one table's entries. */
+    /**
+     * Cache key: (db, table, location). db+table let {@link #invalidateTable} select one table's entries;
+     * db alone lets {@link #invalidateDb} select one database's entries.
+     */
     static final class FileListingKey {
         private final String dbName;
         private final String tableName;
@@ -199,6 +207,10 @@ public class HiveFileListingCache {
 
         boolean matches(String db, String table) {
             return Objects.equals(dbName, db) && Objects.equals(tableName, table);
+        }
+
+        boolean matchesDb(String db) {
+            return Objects.equals(dbName, db);
         }
 
         @Override

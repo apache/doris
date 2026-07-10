@@ -118,6 +118,13 @@ public class RefreshManager {
 
     private void refreshDbInternal(ExternalDatabase db) {
         db.resetMetaToUninitialized();
+        // Also drop any connector-side caches for every table in this db (e.g. hive's metastore + directory-listing
+        // caches) so a subsequent read reflects the latest external state — otherwise REFRESH DATABASE would reset
+        // only the engine-side meta and leave the connector serving stale partition/file listings up to its TTL.
+        // Connector-agnostic (generic SPI no-op default); keyed by the REMOTE db name. Mirrors refreshTableInternal.
+        if (db.getCatalog() instanceof PluginDrivenExternalCatalog) {
+            ((PluginDrivenExternalCatalog) db.getCatalog()).getConnector().invalidateDb(db.getRemoteName());
+        }
         LOG.info("refresh database {} in catalog {}", db.getFullName(), db.getCatalog().getName());
     }
 
