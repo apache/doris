@@ -69,8 +69,9 @@ suite("test_ivm_agg_6") {
            FROM ivm_agg_mm_zero_base;
     """
 
-    // Step 1: COMPLETE — min=10, max=20, cnt=2, sum=30
-    sql """REFRESH MATERIALIZED VIEW ivm_agg_mm_zero_mv COMPLETE"""
+    // Step 1: Initial INCREMENTAL refresh establishes the stream offset.
+    // min=10, max=20, cnt=2, sum=30
+    sql """REFRESH MATERIALIZED VIEW ivm_agg_mm_zero_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("ivm_agg_mm_zero_mv")
 
     order_qt_minmax_zero_after_complete """
@@ -131,9 +132,10 @@ suite("test_ivm_agg_6") {
            FROM ivm_agg_mm_nullkeep_base;
     """
 
-    // Step 1: COMPLETE — min=10, max=10, cnt=2, sum=10
+    // Step 1: Initial INCREMENTAL refresh establishes the stream offset.
+    // min=10, max=10, cnt=2, sum=10
     // Only k1=1 contributes to MIN/MAX/SUM (k1=2 has NULL v1)
-    sql """REFRESH MATERIALIZED VIEW ivm_agg_mm_nullkeep_mv COMPLETE"""
+    sql """REFRESH MATERIALIZED VIEW ivm_agg_mm_nullkeep_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("ivm_agg_mm_nullkeep_mv")
 
     order_qt_nullkeep_after_complete """
