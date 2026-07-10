@@ -41,6 +41,31 @@
 -- !percentile_double --
 2.718281828
 
+-- !percentile_const_expr_materialized --
+2.718281828
+
+-- !percentile_const_nullable_null_v1 --
+\N
+
+-- !percentile_const_nullable_null_v2 --
+\N
+
+-- !percentile_nullable_input_v1 --
+1.5
+
+-- !percentile_window_nullable_v1 --
+1	\N
+2	1
+3	1.5
+
+-- !percentile_nullable_input_v2 --
+1.5
+
+-- !percentile_window_nullable_v2 --
+1	\N
+2	1
+3	1.5
+
 -- !percentile_double_nan --
 1.5
 
@@ -61,4 +86,3 @@ NaN
 
 -- !percentile_approx_all_nan --
 NaN
-
