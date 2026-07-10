@@ -18,9 +18,21 @@
 
 **验证**：`mvn -pl fe-core -am test-compile` BUILD SUCCESS + 0 checkstyle；靶向 `mvn test` 17 跑 0 败 0 错 1 skip（HmsGson 3/3、Iceberg/PaimonGson 各 3/3、ExternalMetaCacheRouteResolver 7/7、HmsCatalog skip）。净室对抗复核（`wf_728cad25-62a`，4 独立审查 + 逐条对抗验证）= **CLEAN**（1 发现 0 确认缺陷；唯一 minor=翻闸 hive 表失去 Nereids SQL 结果缓存资格 @ `BindRelation:729`，经验证 by-design：fail-safe、`enable_hive_sql_cache` 默认关、与 paimon/iceberg-native 一致、被禁用的 `HmsQueryCacheTest` 已明记该遗留缓存 dead-for-hms）。
 
+---
+
+# 🔧 复核修复系列（#65185 reverify，2026-07-11 起）——跟踪表 `plan-doc/task-list-65185-reverify-fixes.md`
+
+翻闸后第三方复核（`reviews/catalog-spi-review-65185-reverify-2026-07-11.md`）判定的真实/活跃需修条目，按批次做（H1–H4 高 / M1–M8 中 / L1–L20 低 / D-系列设计债）。**处理纪律**：每条 = 设计(`tasks/designs/FIX-<id>-design.md`) → 设计红队 → 实现 → build+靶向 UT → 独立 commit → 勾表 → 更新 HANDOFF。path-whitelist `git add`。
+
+**⭐ 批次 0（H1–H4 hudi 高危）全部 DONE（2026-07-11）**：
+- **关键发现+范围决策**：H1（分区名不 unescape 丢行）、H2（datetime 谓词 ISO 化剪到 0 行）**不是 hudi 独有**——`HiveConnectorMetadata` 逐字节相同剪枝块同样静默丢行（对抗 agent 证实）。**用户签字「两份就地各修」**（不抽共享 helper；D-PRUNE 延后）。H3（HMS 名当存储路径）、H4（JNI 列名原样大小写）hudi-only。
+- commits：`03f4c12dffa`(H4 lowercase JNI 列名) · `39a279e7c26`(H1 hive+hudi unescape) · `cf540eebc3c`(H2 hive+hudi datetime 渲染) · `9c6fc584eb9`(H3 hudi use_hive_sync 感知源) · `f0ee2ab06d2`(test-hardening) · 各配 doc commit。
+- **全量对抗复审(3 skeptic)= CLEAN**：四修正确/复合/无回归、范围完整（其它连接器免疫）、10 新测均可 RED。**登记残余（非本批修，pre-existing legacy parity）**：`use_hive_sync_partition=true`+非-hive-style 表 → hive-sync 臂 0 split；D-PRUNE/相对化时评估（见 `designs/FIX-H3-design.md`）。
+
 **⭐ 下一步（下个 session）：**
-1. **e2e 回归（用户自跑，勿丢，非静默）**：异构 `type=hms` 目录跑 hive/iceberg-on-HMS/hudi-on-HMS 读/写/DDL/procedure/MTMV/time-travel/@incr；**从库事件同步陈旧**（新跟随者游标喂路从未在任何目录跑过，hms 是第一个事件消费者）；Kerberos-HMS 冒烟；升级镜像 GSON replay；耦合缝行（partition_values/hudi_meta/sample-analyze/auto-analyze）；hive 视图（现无条件服务）。完整矩阵：`hms-cutover-execution-plan-2026-07-10.md` §4/§5 + `hms-spi-cutover-flip-2026-07-10.md` §5。
-2. **Phase 3 删除旧代码（最后做）**：~90 类循环单元（`datasource/hive|hudi|iceberg`）+ 死 Nereids 臂（PhysicalPlanTranslator HMS/hudi 臂、INC-5 stale throws、CheckPolicy hudi 臂、遗留 BindRelation HMS_EXTERNAL_TABLE 臂）+ 删除解锁抽取（HiveUtil/HiveSplit/IcebergUtils）+ 那 3 个 @Disabled 测试。拓扑顺序+清单：execution plan §2.4/§3/§4。
+1. **复核修复续批**（跟踪表）：批次 1（M5→M7→M6 iceberg / M4 mc / M2 hive，连接器局部）→ 批次 2（M3/M1 fe-core 通用节点）→ ...。⏸ 决策类（L2/L10/L12/L20）先问用户。
+2. **e2e 回归（用户自跑，勿丢，非静默）**：**批次 0 全部 e2e 均 live-gated**（含转义值/DATETIME/非-hive-style 带 filter/MOR-JNI 混大小写读），须真集群回归（memory `hms-iceberg-delegation-needs-e2e`）；连同翻闸原有欠账：异构 `type=hms` 目录读/写/DDL/procedure/MTMV/time-travel/@incr；从库事件同步陈旧；Kerberos-HMS 冒烟；升级 GSON replay；耦合缝行；hive 视图。完整矩阵：`hms-cutover-execution-plan-2026-07-10.md` §4/§5 + `hms-spi-cutover-flip-2026-07-10.md` §5。
+3. **Phase 3 删除旧代码（最后做）**：~90 类循环单元（`datasource/hive|hudi|iceberg`）+ 死 Nereids 臂 + 删除解锁抽取（HiveUtil/HiveSplit/IcebergUtils）+ 那 3 个 @Disabled 测试。拓扑顺序+清单：execution plan §2.4/§3/§4。
 
 **⚠ 关键纠正（execution plan §3 已过时，本轮已核实纠正，见 `hms-spi-cutover-flip-2026-07-10.md` §2）**：§3.7「rewire 4 个 gate」**错**——两个 instanceof gate（MetastoreEventsProcessor:116、ExternalMetaCacheRouteResolver:66）须**保留**（自动排除翻闸目录、对未翻闸旧目录仍正确；删则破坏旧目录同步/失效）；缓存路自动接管（连接器 CachingHmsClient），事件路靠上面 A/B 两个 ADD-feed（非删 gate）。死 Nereids 臂**翻闸不删**（对齐 iceberg 翻闸留死臂的先例，Phase 3 统删）。
 
