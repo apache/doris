@@ -4044,4 +4044,15 @@ public class Config extends ConfigBase {
                     + "by default"
     })
     public static boolean calc_delete_bitmap_get_versions_waiting_for_pending_txns = true;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "Whether to enable adaptive random bucket load. When enabled, each BE computes its own local "
+                    + "bucket set (buckets whose primary replica it hosts) from the tablet location info "
+                    + "sent by FE, and rotates across those buckets once per-tablet write volume exceeds "
+                    + "the threshold (default 200 MB). This reduces import memory pressure and improves "
+                    + "throughput for random-distribution tables. Covers all load types uniformly.",
+            "是否启用自适应随机桶导入。开启后每个 BE 根据 FE 下发的 tablet 位置信息自行计算本地桶集合"
+                    + "（持有主副本的桶），并在单个 tablet 写入量超过阈值（默认 200 MB）后在本地桶之间轮转。"
+                    + "可降低导入内存压力并提升随机分桶表的吞吐量，覆盖所有导入类型。"})
+    public static boolean enable_adaptive_random_bucket_load = true;
 }

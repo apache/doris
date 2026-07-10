@@ -103,6 +103,11 @@ message PTabletWithPartition {
     required int64 tablet_id = 2;
 }
 
+message PRandomBucketPartitionParam {
+    required int64 partition_id = 1;
+    repeated int64 ordered_tablet_ids = 2;
+}
+
 message PTabletLoadRowsetInfo {
     required int32 current_rowset_nums = 1;
     required int32 max_config_rowset_nums = 2;
@@ -148,6 +153,8 @@ message PTabletWriterOpenRequest {
     optional string storage_vault_id = 18;
     optional int32 sender_id = 19;
     optional int64 workload_group_id = 20;
+    optional bool is_adaptive_random_bucket = 21 [default = false];
+    repeated PRandomBucketPartitionParam random_bucket_partitions = 22;
 };
 
 message PTabletWriterOpenResult {
@@ -205,6 +212,7 @@ message PTabletWriterAddBlockRequest {
     optional bool is_single_tablet_block = 14 [default = false];
     // for auto-partition first stage close, we should hang.
     optional bool hang_wait = 15 [default = false];
+    optional bool is_adaptive_random_bucket = 16 [default = false];
 };
 
 message PSlaveTabletNodes {
