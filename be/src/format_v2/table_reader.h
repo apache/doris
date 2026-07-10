@@ -54,6 +54,7 @@
 #include "exprs/vexpr_context.h"
 #include "exprs/vexpr_fwd.h"
 #include "exprs/vslot_ref.h"
+#include "format/table/deletion_vector.h"
 #include "format_v2/column_data.h"
 #include "format_v2/column_mapper.h"
 #include "format_v2/expr/cast.h"
@@ -101,6 +102,11 @@ struct ReadProfile {
     RuntimeProfile::Counter* num_delete_files = nullptr;
     RuntimeProfile::Counter* num_delete_rows = nullptr;
     RuntimeProfile::Counter* parse_delete_file_time = nullptr;
+    RuntimeProfile::Counter* decoded_dv_cache_hit_count = nullptr;
+    RuntimeProfile::Counter* decoded_dv_cache_miss_count = nullptr;
+    RuntimeProfile::Counter* dv_file_cache_hit_count = nullptr;
+    RuntimeProfile::Counter* dv_file_cache_miss_count = nullptr;
+    RuntimeProfile::Counter* dv_file_cache_peer_read_count = nullptr;
     RuntimeProfile::Counter* exec_timer = nullptr;
     RuntimeProfile::Counter* prepare_split_timer = nullptr;
     RuntimeProfile::Counter* finalize_timer = nullptr;
@@ -568,20 +574,28 @@ protected:
     // Append DeletePredicate to file scan request if there are deletes. The predicate will be evaluated in file reader level and filter out deleted rows before returning data to table reader.
     Status _append_delete_predicate(FileScanRequest* request) {
         DORIS_CHECK(request != nullptr);
-        if (_delete_rows == nullptr || _delete_rows->empty()) {
+        if ((_delete_rows == nullptr || _delete_rows->empty()) &&
+            (_deletion_vector == nullptr || _deletion_vector->isEmpty())) {
             return Status::OK();
         }
         const auto row_position_column_id = LocalColumnId(ROW_POSITION_COLUMN_ID);
         _append_file_scan_column(request, row_position_column_id, &request->predicate_columns);
 
-        auto delete_predicate = std::make_shared<DeletePredicate>(*_delete_rows);
         const auto block_position = request->local_positions.at(row_position_column_id);
-        delete_predicate->add_child(VSlotRef::create_shared(
-                cast_set<int>(block_position.value()), cast_set<int>(block_position.value()), -1,
-                std::make_shared<DataTypeInt64>(), ROW_POSITION_COLUMN_NAME));
-
-        request->delete_conjuncts.push_back(
-                VExprContext::create_shared(std::move(delete_predicate)));
+        auto append_predicate = [&](auto& deleted_rows) {
+            auto delete_predicate = std::make_shared<DeletePredicate>(deleted_rows);
+            delete_predicate->add_child(VSlotRef::create_shared(
+                    cast_set<int>(block_position.value()), cast_set<int>(block_position.value()),
+                    -1, std::make_shared<DataTypeInt64>(), ROW_POSITION_COLUMN_NAME));
+            request->delete_conjuncts.push_back(
+                    VExprContext::create_shared(std::move(delete_predicate)));
+        };
+        if (_delete_rows != nullptr && !_delete_rows->empty()) {
+            append_predicate(*_delete_rows);
+        }
+        if (_deletion_vector != nullptr && !_deletion_vector->isEmpty()) {
+            append_predicate(*_deletion_vector);
+        }
         return Status::OK();
     }
 
@@ -889,7 +903,8 @@ protected:
         // Only support aggregate pushdown when there is no delete or filter, so
         // the reduced rows consumed by the upper aggregate remain semantically equivalent to a
         // normal scan.
-        if (_delete_rows != nullptr && !_delete_rows->empty()) {
+        if ((_delete_rows != nullptr && !_delete_rows->empty()) ||
+            (_deletion_vector != nullptr && !_deletion_vector->isEmpty())) {
             return false;
         }
         if (!_table_filters.empty()) {
@@ -1505,6 +1520,7 @@ protected:
     ReadProfile _profile;
     // Parsed from row-position based delete files, including position delete and deletion vector.
     DeleteRows* _delete_rows = nullptr;
+    DeletionVector* _deletion_vector = nullptr;
     TFileScanRangeParams* _scan_params;
     std::shared_ptr<io::IOContext> _io_ctx;
     RuntimeState* _runtime_state;
@@ -1602,7 +1618,7 @@ private:
         return Status::OK();
     }
 
-    // Parse row-position deletes from table format specific parameters, and fill in _delete_rows.
+    // Parse a DV into its compressed bitmap. Position delete files continue to use _delete_rows.
     Status _parse_delete_predicates(const SplitReadOptions& options);
 };
 

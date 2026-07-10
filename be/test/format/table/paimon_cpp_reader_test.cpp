@@ -150,23 +150,27 @@ TEST_F(PaimonCppReaderTest, InitReaderFailsWithoutPaimonSplit) {
 }
 
 TEST(PaimonDeletionVectorTest, DecodeValidBuffer) {
-    // Scenario: a valid Paimon DV buffer should decode to sorted row positions that readers pass
-    // into the common position-delete filter.
+    // Scenario: a valid Paimon DV stays compressed after decoding instead of becoming one int64_t
+    // per deleted row in the query cache.
     const auto buffer = build_paimon_deletion_vector_buffer({0, 3, 5});
-    std::vector<int64_t> delete_rows;
+    DeletionVector deletion_vector;
     const auto status =
-            decode_paimon_deletion_vector_buffer(buffer.data(), buffer.size(), &delete_rows);
+            decode_paimon_deletion_vector_buffer(buffer.data(), buffer.size(), &deletion_vector);
 
     ASSERT_TRUE(status.ok()) << status;
-    EXPECT_EQ(delete_rows, std::vector<int64_t>({0, 3, 5}));
+    EXPECT_EQ(deletion_vector.cardinality(), 3);
+    EXPECT_TRUE(deletion_vector.contains(uint64_t {0}));
+    EXPECT_TRUE(deletion_vector.contains(uint64_t {3}));
+    EXPECT_TRUE(deletion_vector.contains(uint64_t {5}));
+    EXPECT_FALSE(deletion_vector.contains(uint64_t {4}));
 }
 
 TEST(PaimonDeletionVectorTest, RejectShortBuffer) {
     // Scenario: malformed DV content must fail before reading the length and magic fields.
     const std::vector<char> buffer(7, '\0');
-    std::vector<int64_t> delete_rows;
+    DeletionVector deletion_vector;
     const auto status =
-            decode_paimon_deletion_vector_buffer(buffer.data(), buffer.size(), &delete_rows);
+            decode_paimon_deletion_vector_buffer(buffer.data(), buffer.size(), &deletion_vector);
 
     ASSERT_FALSE(status.ok());
     EXPECT_NE(status.to_string().find("file size too small"), std::string::npos);
@@ -177,9 +181,9 @@ TEST(PaimonDeletionVectorTest, RejectLengthMismatch) {
     // slice from a shared deletion-vector file.
     auto buffer = build_paimon_deletion_vector_buffer({1});
     BigEndian::Store32(buffer.data(), static_cast<uint32_t>(buffer.size()));
-    std::vector<int64_t> delete_rows;
+    DeletionVector deletion_vector;
     const auto status =
-            decode_paimon_deletion_vector_buffer(buffer.data(), buffer.size(), &delete_rows);
+            decode_paimon_deletion_vector_buffer(buffer.data(), buffer.size(), &deletion_vector);
 
     ASSERT_FALSE(status.ok());
     EXPECT_NE(status.to_string().find("length not match"), std::string::npos);
@@ -190,9 +194,9 @@ TEST(PaimonDeletionVectorTest, RejectMagicMismatch) {
     // to unrelated bytes must be rejected.
     auto buffer = build_paimon_deletion_vector_buffer({1});
     buffer[4] = '\0';
-    std::vector<int64_t> delete_rows;
+    DeletionVector deletion_vector;
     const auto status =
-            decode_paimon_deletion_vector_buffer(buffer.data(), buffer.size(), &delete_rows);
+            decode_paimon_deletion_vector_buffer(buffer.data(), buffer.size(), &deletion_vector);
 
     ASSERT_FALSE(status.ok());
     EXPECT_NE(status.to_string().find("invalid magic number"), std::string::npos);
@@ -204,9 +208,9 @@ TEST(PaimonDeletionVectorTest, RejectCorruptRoaringBitmap) {
     auto buffer = build_paimon_deletion_vector_buffer({1, 2});
     buffer.resize(10);
     BigEndian::Store32(buffer.data(), static_cast<uint32_t>(buffer.size() - 4));
-    std::vector<int64_t> delete_rows;
+    DeletionVector deletion_vector;
     const auto status =
-            decode_paimon_deletion_vector_buffer(buffer.data(), buffer.size(), &delete_rows);
+            decode_paimon_deletion_vector_buffer(buffer.data(), buffer.size(), &deletion_vector);
 
     ASSERT_FALSE(status.ok());
     EXPECT_NE(status.to_string().find("failed to deserialize roaring bitmap"), std::string::npos);
@@ -229,6 +233,30 @@ TEST(PaimonDeletionVectorTest, CacheKeyIncludesOffsetAndLength) {
     const auto first_key = build_paimon_deletion_vector_cache_key(first_deletion_file);
     EXPECT_NE(first_key, build_paimon_deletion_vector_cache_key(different_offset));
     EXPECT_NE(first_key, build_paimon_deletion_vector_cache_key(different_length));
+}
+
+TEST(PaimonDeletionVectorTest, DecodedCacheReportsHitSeparatelyFromFileCache) {
+    // The decoded cache lookup result is reported by ShardedKVCache itself. The creator represents
+    // the lower File Cache/read/decode path and must only run for the miss.
+    ShardedKVCache cache(1);
+    int create_count = 0;
+    bool cache_hit = true;
+    auto create = [&]() {
+        ++create_count;
+        auto* deletion_vector = new DeletionVector();
+        deletion_vector->add(uint64_t {7});
+        return deletion_vector;
+    };
+
+    const auto* first = cache.get<DeletionVector>("dv", create, &cache_hit);
+    EXPECT_FALSE(cache_hit);
+    ASSERT_NE(first, nullptr);
+    EXPECT_TRUE(first->contains(uint64_t {7}));
+
+    const auto* second = cache.get<DeletionVector>("dv", create, &cache_hit);
+    EXPECT_TRUE(cache_hit);
+    EXPECT_EQ(first, second);
+    EXPECT_EQ(create_count, 1);
 }
 
 TEST(PaimonDeletionVectorTest, V1ParquetReaderReadErrorReleasesCacheEntry) {

@@ -357,24 +357,18 @@ Status build_table_filters_from_conjunct(const VExprContextSPtr& conjunct, Runti
 }
 
 Status parse_deletion_vector(const char* buf, size_t buffer_size, DeleteFileDesc::Format format,
-                             DeleteRows* delete_rows) {
+                             DeletionVector* deletion_vector) {
     DORIS_CHECK(buf != nullptr);
-    DORIS_CHECK(delete_rows != nullptr);
+    DORIS_CHECK(deletion_vector != nullptr);
     DORIS_CHECK(format == DeleteFileDesc::Format::PAIMON ||
                 format == DeleteFileDesc::Format::ICEBERG);
 
     if (format == DeleteFileDesc::Format::PAIMON) {
-        RETURN_IF_ERROR(decode_paimon_deletion_vector_buffer(buf, buffer_size, delete_rows));
+        RETURN_IF_ERROR(decode_paimon_deletion_vector_buffer(buf, buffer_size, deletion_vector));
         return Status::OK();
     }
 
-    roaring::Roaring64Map bitmap;
-    RETURN_IF_ERROR(decode_iceberg_deletion_vector_buffer(buf, buffer_size, &bitmap));
-    delete_rows->reserve(bitmap.cardinality());
-    for (auto it = bitmap.begin(); it != bitmap.end(); it++) {
-        delete_rows->push_back(cast_set<int64_t>(*it));
-    }
-    return Status::OK();
+    return decode_iceberg_deletion_vector_buffer(buf, buffer_size, deletion_vector);
 }
 
 } // namespace
@@ -406,6 +400,9 @@ std::string TableReader::debug_string() const {
         << ", current_file=" << current_file_debug_string(_current_task)
         << ", has_delete_rows=" << (_delete_rows != nullptr)
         << ", delete_row_count=" << (_delete_rows == nullptr ? 0 : _delete_rows->size())
+        << ", has_deletion_vector=" << (_deletion_vector != nullptr)
+        << ", deletion_vector_cardinality="
+        << (_deletion_vector == nullptr ? 0 : _deletion_vector->cardinality())
         << ", has_system_properties=" << (_system_properties != nullptr) << ", system_type="
         << (_system_properties == nullptr ? static_cast<int>(TFileType::FILE_LOCAL)
                                           : static_cast<int>(_system_properties->system_type))
@@ -490,6 +487,20 @@ Status TableReader::init(TableReadOptions&& options) {
                                                                 TUnit::UNIT, table_profile, 1);
         _profile.parse_delete_file_time = ADD_CHILD_TIMER_WITH_LEVEL(
                 _scanner_profile, "ParseDeleteFileTime", table_profile, 1);
+        _profile.decoded_dv_cache_hit_count =
+                ADD_CHILD_COUNTER_WITH_LEVEL(_scanner_profile, "DeletionVectorDecodedCacheHitCount",
+                                             TUnit::UNIT, table_profile, 1);
+        _profile.decoded_dv_cache_miss_count = ADD_CHILD_COUNTER_WITH_LEVEL(
+                _scanner_profile, "DeletionVectorDecodedCacheMissCount", TUnit::UNIT, table_profile,
+                1);
+        _profile.dv_file_cache_hit_count = ADD_CHILD_COUNTER_WITH_LEVEL(
+                _scanner_profile, "DeletionVectorFileCacheHitCount", TUnit::UNIT, table_profile, 1);
+        _profile.dv_file_cache_miss_count =
+                ADD_CHILD_COUNTER_WITH_LEVEL(_scanner_profile, "DeletionVectorFileCacheMissCount",
+                                             TUnit::UNIT, table_profile, 1);
+        _profile.dv_file_cache_peer_read_count = ADD_CHILD_COUNTER_WITH_LEVEL(
+                _scanner_profile, "DeletionVectorFileCachePeerReadCount", TUnit::UNIT,
+                table_profile, 1);
         _profile.exec_timer =
                 ADD_CHILD_TIMER_WITH_LEVEL(_scanner_profile, "GetBlockTime", table_profile, 1);
         _profile.prepare_split_timer =
@@ -546,7 +557,8 @@ bool TableReader::_should_enable_condition_cache(const FileScanRequest& file_req
     // Delete files/deletion vectors are table-format state. They may change independently of the
     // data file path/mtime/size used by the external cache key, so caching their result can become
     // stale. Keep delete filtering enabled, but do not read or write condition cache.
-    if (_delete_rows != nullptr || !file_request.delete_conjuncts.empty()) {
+    if (_delete_rows != nullptr || _deletion_vector != nullptr ||
+        !file_request.delete_conjuncts.empty()) {
         return false;
     }
     // Runtime filters can arrive late and their payload is not guaranteed to be represented by the
@@ -752,6 +764,7 @@ Status TableReader::prepare_split(const SplitReadOptions& options) {
                                      : std::nullopt;
     _global_rowid_context = options.global_rowid_context;
     _delete_rows = nullptr;
+    _deletion_vector = nullptr;
     _aggregate_pushdown_tried = false;
     _remaining_table_level_count = -1;
     _current_reader_reached_eof = false;
@@ -850,41 +863,58 @@ Status TableReader::_parse_delete_predicates(const SplitReadOptions& options) {
         DORIS_CHECK(options.cache != nullptr);
         Status create_status = Status::OK();
 
-        _delete_rows = options.cache->get<DeleteRows>(desc.key, [&]() -> DeleteRows* {
-            auto delete_rows = std::make_unique<DeleteRows>();
+        bool decoded_cache_hit = false;
+        _deletion_vector = options.cache->get<DeletionVector>(
+                desc.key,
+                [&]() -> DeletionVector* {
+                    auto deletion_vector = std::make_unique<DeletionVector>();
 
-            DeletionVectorReader dv_reader(_runtime_state, _scanner_profile, *_scan_params, desc,
-                                           _io_ctx.get());
-            create_status = dv_reader.open();
-            if (!create_status.ok()) [[unlikely]] {
-                return nullptr;
-            }
+                    DeletionVectorReader dv_reader(_runtime_state, _scanner_profile, *_scan_params,
+                                                   desc, _io_ctx.get());
+                    create_status = dv_reader.open();
+                    if (!create_status.ok()) [[unlikely]] {
+                        return nullptr;
+                    }
 
-            size_t bytes_read = desc.size;
-            std::vector<char> buffer(bytes_read);
-            DBUG_EXECUTE_IF("TableReader.parse_deletion_vector.io_error", {
-                create_status = Status::IOError("injected format v2 deletion vector read failure");
-                return nullptr;
-            });
-            DBUG_EXECUTE_IF("TableReader.parse_deletion_vector.should_stop", {
-                create_status = Status::EndOfFile("stop read.");
-                return nullptr;
-            });
-            create_status = dv_reader.read_at(desc.start_offset, {buffer.data(), bytes_read});
-            if (!create_status.ok()) [[unlikely]] {
-                return nullptr;
-            }
+                    size_t bytes_read = desc.size;
+                    std::vector<char> buffer(bytes_read);
+                    DBUG_EXECUTE_IF("TableReader.parse_deletion_vector.io_error", {
+                        create_status =
+                                Status::IOError("injected format v2 deletion vector read failure");
+                        return nullptr;
+                    });
+                    DBUG_EXECUTE_IF("TableReader.parse_deletion_vector.should_stop", {
+                        create_status = Status::EndOfFile("stop read.");
+                        return nullptr;
+                    });
+                    create_status =
+                            dv_reader.read_at(desc.start_offset, {buffer.data(), bytes_read});
+                    const auto& file_cache_stats = dv_reader.file_cache_statistics();
+                    COUNTER_UPDATE(_profile.dv_file_cache_hit_count,
+                                   file_cache_stats.num_local_io_total);
+                    COUNTER_UPDATE(_profile.dv_file_cache_miss_count,
+                                   file_cache_stats.num_remote_io_total);
+                    COUNTER_UPDATE(_profile.dv_file_cache_peer_read_count,
+                                   file_cache_stats.num_peer_io_total);
+                    if (!create_status.ok()) [[unlikely]] {
+                        return nullptr;
+                    }
 
-            const char* buf = buffer.data();
-            SCOPED_TIMER(_profile.parse_delete_file_time);
-            create_status = parse_deletion_vector(buf, bytes_read, desc.format, delete_rows.get());
-            if (!create_status.ok()) [[unlikely]] {
-                return nullptr;
-            }
-            COUNTER_UPDATE(_profile.num_delete_rows, delete_rows->size());
-            return delete_rows.release();
-        });
+                    const char* buf = buffer.data();
+                    SCOPED_TIMER(_profile.parse_delete_file_time);
+                    create_status = parse_deletion_vector(buf, bytes_read, desc.format,
+                                                          deletion_vector.get());
+                    if (!create_status.ok()) [[unlikely]] {
+                        return nullptr;
+                    }
+                    COUNTER_UPDATE(_profile.num_delete_rows, deletion_vector->cardinality());
+                    return deletion_vector.release();
+                },
+                &decoded_cache_hit);
         RETURN_IF_ERROR(create_status);
+        COUNTER_UPDATE(decoded_cache_hit ? _profile.decoded_dv_cache_hit_count
+                                         : _profile.decoded_dv_cache_miss_count,
+                       1);
     }
 
     return Status::OK();

@@ -210,6 +210,25 @@ public:
         parquet_reader->set_delete_rows(_iceberg_delete_rows);
     }
 
+    void set_deletion_vector() final {
+        ParquetReader::set_deletion_vector(_iceberg_deletion_vector);
+    }
+
+protected:
+    // Parquet-specific schema matching via on_before_init_reader hook
+    Status on_before_init_reader(ReaderInitContext* ctx) override;
+
+    std::unique_ptr<GenericReader> _create_equality_reader(
+            const TFileRangeDesc& delete_desc) final {
+        return ParquetReader::create_unique(this->get_profile(), this->get_scan_params(),
+                                            delete_desc, READ_DELETE_FILE_BATCH_SIZE,
+                                            &this->get_state()->timezone_obj(), this->get_io_ctx(),
+                                            this->get_state(), this->_meta_cache);
+    }
+
+    static ColumnIdResult _create_column_ids(const FieldDescriptor* field_desc,
+                                             const TupleDescriptor* tuple_descriptor);
+
 private:
     static ColumnIdResult _create_column_ids(const FieldDescriptor* field_desc,
                                              const TupleDescriptor* tuple_descriptor);
@@ -233,14 +252,11 @@ public:
         orc_reader->set_position_delete_rowids(_iceberg_delete_rows);
     }
 
-    Status init_reader(
-            const std::vector<std::string>& file_col_names,
-            std::unordered_map<std::string, uint32_t>* col_name_to_block_idx,
-            const VExprContextSPtrs& conjuncts, const TupleDescriptor* tuple_descriptor,
-            const RowDescriptor* row_descriptor,
-            const std::unordered_map<std::string, int>* colname_to_slot_id,
-            const VExprContextSPtrs* not_single_slot_filter_conjuncts,
-            const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts);
+    void set_deletion_vector() final { OrcReader::set_deletion_vector(_iceberg_deletion_vector); }
+
+protected:
+    // ORC-specific schema matching via on_before_init_reader hook
+    Status on_before_init_reader(ReaderInitContext* ctx) override;
 
 private:
     Status _process_equality_delete(const std::vector<TIcebergDeleteFileDesc>& delete_files) final;
