@@ -232,10 +232,24 @@ Suite.metaClass.trigger_and_wait_compaction = { String table_name, String compac
                 }
             } else {
                 // time series compaction sometimes doesn't update compaction success time
-                // so we solely check run_status for it
+                // so we use run_status as the success signal, but still surface recorded failures.
                 if (running) {
                     logger.info("compaction is still running, be host: ${be_host}, tablet id: ${tablet.TabletId}")
                     return false
+                }
+                (exit_code, stdout, stderr) = be_show_tablet_status(be_host, be_port, tablet.TabletId)
+                assert exit_code == 0: "get tablet status failed, exit code: ${exit_code}, stdout: ${stdout}, stderr: ${stderr}"
+                def tabletStatus = parseJson(stdout.trim())
+                def oldStatus = be_tablet_compaction_status.get("${be_host}-${tablet.TabletId}")
+                def failure_time_unchanged = (oldStatus["last ${compaction_type} failure time"] == tabletStatus["last ${compaction_type} failure time"])
+                def status_unchanged = (oldStatus["last ${compaction_type} status"] == tabletStatus["last ${compaction_type} status"])
+                def compactionFailureNonFatal = !failure_time_unchanged &&
+                        ((!status_unchanged &&
+                                isNoopCompactionStatus(compaction_type, tabletStatus["last ${compaction_type} status"])) ||
+                                isIgnoredCompactionStatus(tabletStatus["last ${compaction_type} status"]))
+                if (!failure_time_unchanged && !compactionFailureNonFatal) {
+                    throw new Exception("compaction failed, be host: ${be_host}, tablet id: ${tablet.TabletId}, " +
+                            "run status: ${compactionStatus.run_status}, old status: ${oldStatus}, new status: ${tabletStatus}")
                 }
             }
         }
