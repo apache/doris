@@ -819,30 +819,30 @@ Status OlapScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
             }
             const auto& scan_range = _scan_ranges[scan_range_idx];
             auto scanner = OlapScanner::create_shared(
-                    this, OlapScanner::Params {
-                                  .state = state(),
-                                  .profile = _scanner_profile.get(),
-                                  .key_ranges = scanner_ranges,
-                                  .tablet = _tablets[scan_range_idx].tablet,
-                                  .version = version,
-                                  .read_source = _read_sources[scan_range_idx],
-                                  .initial_file_cache_stats = {},
-                                  .limit = p._limit,
-                                  .aggregation = p._olap_scan_node.is_preaggregation,
-                                  .read_row_binlog = read_row_binlog,
-                                  .binlog_scan_type = resolve_binlog_scan_type(palo_scan_range),
-                                  .start_tso = palo_scan_range.__isset.start_tso
-                                          ? std::make_optional(palo_scan_range.start_tso)
-                                          : std::nullopt,
-                                  .end_tso = palo_scan_range.__isset.end_tso
-                                          ? std::make_optional(palo_scan_range.end_tso)
-                                          : std::nullopt,
-                                  .table_name = scan_range->__isset.table_name
-                                          ? scan_range->table_name
-                                          : "",
-                                  .partition_name = scan_range->__isset.partition_name
-                                          ? scan_range->partition_name
-                                          : "",
+                    this,
+                    OlapScanner::Params {
+                            .state = state(),
+                            .profile = _scanner_profile.get(),
+                            .key_ranges = scanner_ranges,
+                            .tablet = _tablets[scan_range_idx].tablet,
+                            .version = version,
+                            .read_source = _read_sources[scan_range_idx],
+                            .initial_file_cache_stats = {},
+                            .limit = p._limit,
+                            .aggregation = p._olap_scan_node.is_preaggregation,
+                            .read_row_binlog = read_row_binlog,
+                            .binlog_scan_type = resolve_binlog_scan_type(palo_scan_range),
+                            .start_tso = palo_scan_range.__isset.start_tso
+                                                 ? std::make_optional(palo_scan_range.start_tso)
+                                                 : std::nullopt,
+                            .end_tso = palo_scan_range.__isset.end_tso
+                                               ? std::make_optional(palo_scan_range.end_tso)
+                                               : std::nullopt,
+                            .table_name =
+                                    scan_range->__isset.table_name ? scan_range->table_name : "",
+                            .partition_name = scan_range->__isset.partition_name
+                                                      ? scan_range->partition_name
+                                                      : "",
                     });
             RETURN_IF_ERROR(scanner->init(state(), _conjuncts));
             scanners->push_back(std::move(scanner));

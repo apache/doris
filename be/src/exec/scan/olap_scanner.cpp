@@ -173,6 +173,8 @@ io::IOContext build_score_runtime_collection_io_context(RuntimeState* state, Rea
             .query_id = &state->query_id(),
             .file_cache_stats = file_cache_stats,
             .is_inverted_index = true,
+            .table_name = "",
+            .partition_name = "",
     };
     if (auto* query_ctx = state->get_query_ctx(); query_ctx != nullptr) {
         io_ctx.remote_scan_cache_write_limiter = query_ctx->remote_scan_cache_write_limiter();

@@ -548,7 +548,9 @@ Status trigger_peer_server_fill(io::FileBlockSPtr& fb, int64_t fill_tablet_id,
                     // re-enters peer race, the original block can remain DOWNLOADING for the
                     // duration of nested peer retries and timeouts.
                     .is_warmup = false,
-                    .bypass_peer_read = true},
+                    .bypass_peer_read = true,
+                    .table_name = "",
+                    .partition_name = ""},
             .download_done =
                     [fill_done, fill_status](Status st) {
                         *fill_status = std::move(st);
