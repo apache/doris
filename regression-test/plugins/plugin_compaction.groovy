@@ -260,7 +260,6 @@ Suite.metaClass.trigger_and_wait_compaction = { String table_name, String compac
                 }
                 def success_time_unchanged = (oldStatus["last ${compaction_type} success time"] == tabletStatus["last ${compaction_type} success time"])
                 def failure_time_unchanged = (oldStatus["last ${compaction_type} failure time"] == tabletStatus["last ${compaction_type} failure time"])
-                def status_unchanged = (oldStatus["last ${compaction_type} status"] == tabletStatus["last ${compaction_type} status"])
                 def compactionFailureNonFatal = !failure_time_unchanged &&
                         (isNoopCompactionStatus(compaction_type, tabletStatus["last ${compaction_type} status"]) ||
                                 isIgnoredCompactionStatus(tabletStatus["last ${compaction_type} status"]))
@@ -279,12 +278,11 @@ Suite.metaClass.trigger_and_wait_compaction = { String table_name, String compac
                             "tablet id: ${tablet.TabletId}, run status: ${compactionStatus.run_status}, " +
                             "old status: ${oldStatus}, new status: ${tabletStatus}")
                 }
-                def statusChangedToOk = !status_unchanged &&
-                        "${tabletStatus["last ${compaction_type} status"]}".toLowerCase().contains("[ok]")
+                def statusOk = "${tabletStatus["last ${compaction_type} status"]}".toLowerCase().contains("[ok]")
                 def compactionFinished = completedByBaseCompactionAfterDeleteVersion ||
                         compactionFailureNonFatal || baseFailureIgnored ||
                         (!handedOffToBaseCompactionAfterDeleteVersion &&
-                                (!success_time_unchanged || statusChangedToOk || cumulativePointChanged))
+                                (!success_time_unchanged || statusOk || cumulativePointChanged))
                 running = !compactionFinished
                 if (running) {
                     logger.info("compaction is still running, be host: ${be_host}, tablet id: ${tablet.TabletId}, run status: ${compactionStatus.run_status}, old status: ${oldStatus}, new status: ${tabletStatus}")
