@@ -329,8 +329,15 @@ After all land, run a unified adversarial re-review (clean-room, per project pra
 - [x] C-c wire metadata reads + freshness probes through it + tests — `7b05df6e55e` (wrapWithCache seam in
       HiveConnector.createClient; transparent decorator => all HiveConnectorMetadata reads + both freshness
       probes cache-backed by the single wrap; HiveConnectorClientCacheTest 4; hive 244 green)
-- [ ] C-d file-listing cache (per Q2) + TCCL + row-count backing + tests
-- [ ] C-e `invalidateTable/invalidateAll` overrides + tests
-- [ ] C-f §2.6 fe-core last-modified branch (byte-neutral guard) + tests
-- [ ] unified adversarial re-review before the flip
-- [ ] update HANDOFF.md per step (per-phase discipline)
+- [x] C-d file-listing cache (per Q2) + TCCL + row-count backing + tests — `7c0ee1ffb2a` (HiveFileListingCache,
+      connector-owned + shared by scan provider AND estimate; (db,table,location) key; contextual+manual-miss
+      loader on the TCCL-pinned caller thread; dir/hidden filter parity; failure-not-cached; splitFile refactored
+      to primitives; HiveConnectorMetadata 7-arg production ctor; HiveFileListingCacheTest 9; hive 253 green)
+- [x] C-e `invalidateTable/invalidateAll` overrides + tests — `7bf90a7fe3c` (drop BOTH layers per table / all;
+      no force-build of the client; package-private client-overloads + fileListingCacheForTest()/size() seams;
+      HiveConnectorInvalidateTest 3; hive 256 green)
+- [x] C-f §2.6 fe-core last-modified branch (byte-neutral guard) + tests — `12e0c9177c2` (isLastModifiedFreshness
+      pin gate mirrors getTableSnapshot; snapshot-id connectors byte/cost-neutral; PluginDrivenMvccExternalTableTest
+      +3 = 56 green + checkstyle 0)
+- [ ] unified adversarial re-review before the flip  ← NEXT (all 6 dormant commits C-a…C-f landed)
+- [x] update HANDOFF.md per step (per-phase discipline)
