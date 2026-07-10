@@ -373,9 +373,6 @@ public:
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena& arena) const override {
-        if (this->check_always_const_col_has_null(columns)) {
-            return;
-        }
         const auto* column =
                 assert_cast<const ColumnNullable*, TypeCheckOnRelease::DISABLE>(columns[0]);
         if (!column->is_null_at(row_num)) {
@@ -415,9 +412,6 @@ public:
 
     void add_batch(size_t batch_size, AggregateDataPtr* __restrict places, size_t place_offset,
                    const IColumn** columns, Arena& arena, bool agg_many) const override {
-        if (this->check_always_const_col_has_null(columns)) {
-            return;
-        }
         const auto* column =
                 assert_cast<const ColumnNullable*, TypeCheckOnRelease::DISABLE>(columns[0]);
         const IColumn* nested_column = &column->get_nested_column();
@@ -446,9 +440,6 @@ public:
 
     void add_batch_single_place(size_t batch_size, AggregateDataPtr place, const IColumn** columns,
                                 Arena& arena) const override {
-        if (this->check_always_const_col_has_null(columns)) {
-            return;
-        }
         const auto* column =
                 assert_cast<const ColumnNullable*, TypeCheckOnRelease::DISABLE>(columns[0]);
         bool has_null = column->has_null();
@@ -467,9 +458,6 @@ public:
 
     void add_batch_range(size_t batch_begin, size_t batch_end, AggregateDataPtr place,
                          const IColumn** columns, Arena& arena, bool has_null) override {
-        if (this->check_always_const_col_has_null(columns)) {
-            return;
-        }
         const auto* column =
                 assert_cast<const ColumnNullable*, TypeCheckOnRelease::DISABLE>(columns[0]);
 

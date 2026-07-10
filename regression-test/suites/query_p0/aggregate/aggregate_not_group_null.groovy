@@ -39,5 +39,16 @@ suite("aggregate_no_group_null") {
        select min(dgs_jkrq) from t1_int;
     """
 
+    sql """set enable_aggregate_function_null_v2=false;"""
+    qt_count_nullable_null_v1 """
+       select count(dgs_jkrq) from t1_int;
+    """
+
+    sql """set enable_aggregate_function_null_v2=true;"""
+    qt_count_nullable_null_v2 """
+       select count(dgs_jkrq) from t1_int;
+    """
+    sql """set enable_aggregate_function_null_v2=false;"""
+
     sql "DROP TABLE t1_int"
 }

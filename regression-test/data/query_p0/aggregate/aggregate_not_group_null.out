@@ -2,3 +2,8 @@
 -- !sql --
 1
 
+-- !count_nullable_null_v1 --
+4
+
+-- !count_nullable_null_v2 --
+4
