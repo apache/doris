@@ -91,13 +91,22 @@ Suite.metaClass.trigger_and_wait_compaction = { String table_name, String compac
         def status_lower = "${status}".toLowerCase()
         return ignored_errors.any { error -> status_lower.contains(error.toLowerCase()) }
     }
-    def isNoopCompactionStatus = { status ->
+    def isNoopCompactionStatus = { type, status ->
         def status_lower = "${status}".toLowerCase()
-        return status_lower.contains("no suitable version") ||
-                status_lower.contains("e-808") ||
-                status_lower.contains("e-2000") ||
-                status_lower.contains("e-2008") ||
-                status_lower.contains("e-2012")
+        switch (type) {
+            case "full":
+                return status_lower.contains("no suitable version") ||
+                        status_lower.contains("e-808") ||
+                        status_lower.contains("e-2008")
+            case "cumulative":
+                return status_lower.contains("e-2000")
+            case "binlog":
+                return status_lower.contains("e-2012")
+            case "base":
+                return false
+            default:
+                return false
+        }
     }
     // 2. trigger compaction
     def triggered_tablets = []
@@ -129,7 +138,7 @@ Suite.metaClass.trigger_and_wait_compaction = { String table_name, String compac
             } else if (status_lower.contains("e-2010")) {
                 // cumulative compaction handed delete-version rowsets to base compaction, so still wait below.
                 triggered_tablets.add(tablet)
-            } else if (isNoopCompactionStatus(trigger_status.status)) {
+            } else if (isNoopCompactionStatus(compaction_type, trigger_status.status)) {
                 // ignore this tablet compaction.
             } else if (isIgnoredCompactionStatus(trigger_status.status)) {
                 // ignore this tablet compaction if the error is in the ignored_errors list
@@ -194,7 +203,8 @@ Suite.metaClass.trigger_and_wait_compaction = { String table_name, String compac
                 def failure_time_unchanged = (oldStatus["last ${compaction_type} failure time"] == tabletStatus["last ${compaction_type} failure time"])
                 def status_unchanged = (oldStatus["last ${compaction_type} status"] == tabletStatus["last ${compaction_type} status"])
                 def compactionFailureNonFatal = !failure_time_unchanged &&
-                        ((!status_unchanged && isNoopCompactionStatus(tabletStatus["last ${compaction_type} status"])) ||
+                        ((!status_unchanged &&
+                                isNoopCompactionStatus(compaction_type, tabletStatus["last ${compaction_type} status"])) ||
                                 isIgnoredCompactionStatus(tabletStatus["last ${compaction_type} status"]))
                 def baseFailureTimeChanged = handedOffToBaseCompactionAfterDeleteVersion &&
                         oldStatus["last base failure time"] != tabletStatus["last base failure time"]
