@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector;
 
+import org.apache.doris.connector.api.ConnectorDelegatedCredential;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.handle.ConnectorTransaction;
 
@@ -218,6 +219,58 @@ public class ConnectorSessionImplTest {
 
         Assertions.assertEquals(Optional.empty(), session.getCurrentTransaction(),
                 "binding null must clear the transaction back to empty (Optional.ofNullable semantics)");
+    }
+
+    // ──────────── delegated-credential injection (SUPPORTS_USER_SESSION gate, #63068) ────────────
+
+    @Test
+    public void capableConnectorReceivesDelegatedCredentialAndSessionId() {
+        // A SUPPORTS_USER_SESSION connector: the offered credential + stable session id are carried onto the
+        // session so the connector can project the user's identity onto the remote metadata source.
+        ConnectorDelegatedCredential cred =
+                new ConnectorDelegatedCredential(ConnectorDelegatedCredential.Type.ACCESS_TOKEN, "user-token");
+        ConnectorSession session = ConnectorSessionBuilder.create()
+                .withQueryId("q1")
+                .withUserSessionCapability(true)
+                .withSessionId("stable-session-1")
+                .withDelegatedCredential(cred)
+                .build();
+
+        Assertions.assertTrue(session.getDelegatedCredential().isPresent(),
+                "a capable connector receives the delegated credential");
+        Assertions.assertSame(cred, session.getDelegatedCredential().get());
+        Assertions.assertEquals("stable-session-1", session.getSessionId(),
+                "the stable session id (AuthSession key) is carried, not the queryId");
+    }
+
+    @Test
+    public void nonCapableConnectorSkipsDelegatedCredential() {
+        // Least-privilege: without withUserSessionCapability(true) (the default), the offered credential is NOT
+        // carried — a connector that would never consume the OIDC token never receives it. The session id then
+        // falls back to the queryId.
+        ConnectorSession session = ConnectorSessionBuilder.create()
+                .withQueryId("q1")
+                .withSessionId("stable-session-1")
+                .withDelegatedCredential(
+                        new ConnectorDelegatedCredential(ConnectorDelegatedCredential.Type.ACCESS_TOKEN, "tok"))
+                .build();
+
+        Assertions.assertFalse(session.getDelegatedCredential().isPresent(),
+                "a non-capable connector must never receive the delegated credential (least-privilege)");
+        Assertions.assertEquals("q1", session.getSessionId(),
+                "with no credential carried, the session id falls back to the queryId");
+    }
+
+    @Test
+    public void capableConnectorWithNoOfferedCredentialCarriesNone() {
+        // The capability gate alone does not manufacture a credential: a capable session with none offered still
+        // exposes an empty credential (the connector then fails closed on the actual metadata read).
+        ConnectorSession session = ConnectorSessionBuilder.create()
+                .withQueryId("q1")
+                .withUserSessionCapability(true)
+                .build();
+
+        Assertions.assertFalse(session.getDelegatedCredential().isPresent());
     }
 
     /** Minimal hand-written {@link ConnectorTransaction}; only identity matters for this test. */

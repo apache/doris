@@ -375,6 +375,22 @@ public abstract class ExternalCatalog
     }
 
     /**
+     * Returns whether the shared database-name cache should be skipped for the current session (the db-level
+     * analog of {@link #shouldBypassTableNameCache}).
+     *
+     * <p>Catalogs whose remote {@code listDatabaseNames} result depends on session credentials (Iceberg REST
+     * {@code session=user}) must bypass the shared (catalog-wide, NOT user-keyed) db-name cache, so one user's
+     * visible database set is never served to another. Default {@code false} — every other catalog keeps the
+     * cache.</p>
+     *
+     * @param ctx session context for the current request
+     * @return true if database names must be fetched live from the remote source for this session
+     */
+    protected boolean shouldBypassDbNameCache(SessionContext ctx) {
+        return false;
+    }
+
+    /**
      * check if the specified table exist.
      *
      * @param dbName
@@ -569,6 +585,17 @@ public abstract class ExternalCatalog
      */
     @NotNull
     private List<Pair<String, String>> getFilteredDatabaseNames() {
+        return getFilteredDatabaseNames(true);
+    }
+
+    /**
+     * @param updateDbNameLookup when {@code false}, the shared {@code lowerCaseToDatabaseName} lookup is NOT
+     *     mutated. The db-name cache-bypass path ({@link #shouldBypassDbNameCache}) passes {@code false} so a
+     *     per-user database listing never overwrites the shared (catalog-wide) case-insensitive lookup with one
+     *     user's visible set — mirrors {@code ExternalDatabase.loadTableNamePairs}'s {@code updateTableNameLookup}.
+     */
+    @NotNull
+    private List<Pair<String, String>> getFilteredDatabaseNames(boolean updateDbNameLookup) {
         List<String> allDatabases = Lists.newArrayList(listDatabaseNames());
         allDatabases.remove(InfoSchemaDb.DATABASE_NAME);
         allDatabases.add(InfoSchemaDb.DATABASE_NAME);
@@ -578,7 +605,9 @@ public abstract class ExternalCatalog
         Map<String, Boolean> includeDatabaseMap = getIncludeDatabaseMap();
         Map<String, Boolean> excludeDatabaseMap = getExcludeDatabaseMap();
 
-        lowerCaseToDatabaseName.clear();
+        if (updateDbNameLookup) {
+            lowerCaseToDatabaseName.clear();
+        }
         List<Pair<String, String>> remoteToLocalPairs = Lists.newArrayList();
 
         allDatabases = allDatabases.stream().filter(dbName -> {
@@ -597,7 +626,9 @@ public abstract class ExternalCatalog
         for (String remoteDbName : allDatabases) {
             String localDbName = fromRemoteDatabaseName(remoteDbName);
             // Populate lowercase mapping for case-insensitive lookups
-            lowerCaseToDatabaseName.put(remoteDbName.toLowerCase(), remoteDbName);
+            if (updateDbNameLookup) {
+                lowerCaseToDatabaseName.put(remoteDbName.toLowerCase(), remoteDbName);
+            }
             // Apply lower_case_database_names mode to local name
             int dbNameMode = getLowerCaseDatabaseNames();
             if (dbNameMode == 1) {
@@ -741,6 +772,14 @@ public abstract class ExternalCatalog
     @Override
     public List<String> getDbNames() {
         makeSureInitialized();
+        SessionContext sessionContext = SessionContext.current();
+        if (shouldBypassDbNameCache(sessionContext)) {
+            // Per-user listing: read live (the loader's listDatabaseNames already runs under the current
+            // session) and DO NOT touch the shared lowerCaseToDatabaseName lookup (updateDbNameLookup=false).
+            return getFilteredDatabaseNames(false).stream()
+                    .map(Pair::value)
+                    .collect(Collectors.toList());
+        }
         return metaCache.listNames();
     }
 
@@ -777,6 +816,11 @@ public abstract class ExternalCatalog
             return null;
         }
 
+        SessionContext sessionContext = SessionContext.current();
+        if (shouldBypassDbNameCache(sessionContext)) {
+            return getDbNullableWithoutCache(dbName);
+        }
+
         // information_schema db name is case-insensitive.
         // So, we first convert it to standard database name.
         if (dbName.equalsIgnoreCase(InfoSchemaDb.DATABASE_NAME)) {
@@ -794,6 +838,50 @@ public abstract class ExternalCatalog
         // must use full qualified name to generate id.
         // otherwise, if 2 catalogs have the same db name, the id will be the same.
         return metaCache.getMetaObj(dbName, Util.genIdByName(name, dbName)).orElse(null);
+    }
+
+    /**
+     * Live (no-cache) counterpart of {@link #getDbNullable(String)} for the db-name cache-bypass path
+     * ({@link #shouldBypassDbNameCache}). Resolves the requested db against the per-user live listing (never
+     * populating the shared caches) and builds the {@link ExternalDatabase} object directly. Mirrors
+     * {@code ExternalDatabase.getTableNullableWithoutCache} one level up.
+     */
+    private ExternalDatabase<? extends ExternalTable> getDbNullableWithoutCache(String dbName) {
+        // Normalize the case-insensitive system db names, mirroring the cached getDbNullable path.
+        String requestedDbName = dbName;
+        if (dbName.equalsIgnoreCase(InfoSchemaDb.DATABASE_NAME)) {
+            requestedDbName = InfoSchemaDb.DATABASE_NAME;
+        } else if (dbName.equalsIgnoreCase(MysqlDb.DATABASE_NAME)) {
+            requestedDbName = MysqlDb.DATABASE_NAME;
+        }
+        final String target = requestedDbName;
+        Optional<Pair<String, String>> dbNamePair = getFilteredDatabaseNames(false).stream()
+                .filter(pair -> matchesLocalDbName(pair.value(), target))
+                .findFirst();
+        if (!dbNamePair.isPresent()) {
+            return null;
+        }
+        String remoteDbName = dbNamePair.get().key();
+        String localDbName = dbNamePair.get().value();
+        // checkExists=false: the pair came from the live listing, so re-listing (getDbNames) is both
+        // unnecessary and would recurse back through this bypass — build the db object directly.
+        return buildDbForInit(remoteDbName, localDbName, Util.genIdByName(name, localDbName), logType, false);
+    }
+
+    /** Matches a live listing's LOCAL db name against a requested name, honoring the db-name case modes. */
+    private boolean matchesLocalDbName(String localDbName, String dbName) {
+        // System dbs (already normalized to canonical form by the caller) match case-insensitively.
+        if (dbName.equals(InfoSchemaDb.DATABASE_NAME) || dbName.equals(MysqlDb.DATABASE_NAME)) {
+            return localDbName.equalsIgnoreCase(dbName);
+        }
+        int mode = getLowerCaseDatabaseNames();
+        if (mode == 1) {
+            return localDbName.equals(dbName.toLowerCase());
+        }
+        if (mode == 2 || Boolean.parseBoolean(getLowerCaseMetaNames())) {
+            return localDbName.equalsIgnoreCase(dbName);
+        }
+        return localDbName.equals(dbName);
     }
 
     @Nullable
