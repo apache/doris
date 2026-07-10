@@ -157,6 +157,10 @@ suite("fold_constant_string_arithmatic") {
     testFoldConst("select field('=', '+', '==', '==', 'こ')")
     testFoldConst("select field(cast('nan' as float), cast('nan' as float)), "
             + "field(cast('nan' as double), cast('nan' as double))")
+    testFoldConst("select field(cast(0.0 as float), cast(-0.0 as float)), "
+            + "field(cast(-0.0 as float), cast(0.0 as float)), "
+            + "field(cast(0.0 as double), cast(-0.0 as double)), "
+            + "field(cast(-0.0 as double), cast(0.0 as double))")
 
     // cast decimalv3 to string
     testFoldConst("select cast(cast('1E+3' as decimalv3(10, 2)) as string)")

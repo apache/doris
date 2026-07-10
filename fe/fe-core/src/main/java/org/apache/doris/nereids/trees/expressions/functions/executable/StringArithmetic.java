@@ -563,7 +563,7 @@ public class StringArithmetic {
         float firstValue = first.getValue();
         for (int i = 0; i < second.length; i++) {
             float secondValue = second[i].getValue();
-            if (Float.compare(firstValue, secondValue) == 0) {
+            if (secondValue == firstValue || Float.isNaN(secondValue) && Float.isNaN(firstValue)) {
                 return i + 1;
             }
         }
@@ -574,7 +574,7 @@ public class StringArithmetic {
         double firstValue = first.getValue();
         for (int i = 0; i < second.length; i++) {
             double secondValue = second[i].getValue();
-            if (Double.compare(secondValue, firstValue) == 0) {
+            if (secondValue == firstValue || Double.isNaN(secondValue) && Double.isNaN(firstValue)) {
                 return i + 1;
             }
         }

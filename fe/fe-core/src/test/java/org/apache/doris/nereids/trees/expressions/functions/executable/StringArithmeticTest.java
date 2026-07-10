@@ -41,4 +41,26 @@ class StringArithmeticTest {
 
         Assertions.assertEquals(1, result.getValue());
     }
+
+    @Test
+    void testFieldMatchesFloatSignedZero() {
+        IntegerLiteral positiveZero = (IntegerLiteral) StringArithmetic.fieldFloat(new FloatLiteral(0.0f),
+                new FloatLiteral(-0.0f));
+        IntegerLiteral negativeZero = (IntegerLiteral) StringArithmetic.fieldFloat(new FloatLiteral(-0.0f),
+                new FloatLiteral(0.0f));
+
+        Assertions.assertEquals(1, positiveZero.getValue());
+        Assertions.assertEquals(1, negativeZero.getValue());
+    }
+
+    @Test
+    void testFieldMatchesDoubleSignedZero() {
+        IntegerLiteral positiveZero = (IntegerLiteral) StringArithmetic.fieldDouble(new DoubleLiteral(0.0),
+                new DoubleLiteral(-0.0));
+        IntegerLiteral negativeZero = (IntegerLiteral) StringArithmetic.fieldDouble(new DoubleLiteral(-0.0),
+                new DoubleLiteral(0.0));
+
+        Assertions.assertEquals(1, positiveZero.getValue());
+        Assertions.assertEquals(1, negativeZero.getValue());
+    }
 }

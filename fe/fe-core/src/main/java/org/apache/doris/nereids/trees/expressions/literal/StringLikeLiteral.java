@@ -360,12 +360,7 @@ public abstract class StringLikeLiteral extends Literal implements ComparableLit
                 throw new CastException("Time zone offset couldn't be larger than 14:00");
             }
         }
-        String format;
-        if (targetType.isDateType() || targetType.isDateV2Type()) {
-            format = String.format("%s-%s-%sT00:00:00%s", year4, month, date, tz);
-        } else {
-            format = String.format("%s-%s-%sT%s:%s:%s%s%s", year4, month, date, hour, minute, second, fraction, tz);
-        }
+        String format = String.format("%s-%s-%sT%s:%s:%s%s%s", year4, month, date, hour, minute, second, fraction, tz);
         if (targetType.isDateType()) {
             try {
                 return new DateLiteral(format);

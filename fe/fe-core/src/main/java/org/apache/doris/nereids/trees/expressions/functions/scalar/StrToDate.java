@@ -128,7 +128,6 @@ public class StrToDate extends ScalarFunction
         return null;
     }
 
-
     /**
      * withChildren.
      */
