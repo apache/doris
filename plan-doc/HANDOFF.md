@@ -17,7 +17,14 @@ catalog-SPI 迁移的剩余工作 = **HMS 翻闸**。权威计划 = **`tasks/hms
 D2 = `f742651990d` C-a(pom+Caffeine) → `4fe55d88fab` C-b(`CachingHmsClient` 装饰器) → `7b05df6e55e` C-c(接线进 client) → `7c0ee1ffb2a` C-d(`HiveFileListingCache`) → `7bf90a7fe3c` C-e(`invalidateTable/invalidateAll`) → `12e0c9177c2` C-f(fe-core `getNewestUpdateVersionOrTime` last-modified 分支)。设计 = **`tasks/hive-connector-cache-step-design-2026-07-10.md`**。全休眠（hms 未进 `SPI_READY_TYPES`；paimon/iceberg/jdbc/hudi 字节不变；对齐 Trino 双层）。
 **净室对抗复审**（9 维独立盲评 → 逐条对抗验证 → 交叉核对历史结论）= 7 疑点 2 坐实、5 误报/干净；报告 = **`plan-doc/reviews/hive-connector-cache-cleanroom-review-2026-07-10.md`**。两处坐实（用户拍板即修，均已落地）：`fda344e6022`（恢复 `FileSystem.get` 系统性失败大声报错、仅单目录失败 skip——修静默空结果回归）+ `cdc837563a7`（新增通用 `Connector.invalidateDb` SPI + 接 `RefreshManager.refreshDbInternal`，让 REFRESH DATABASE 清连接器两层缓存）。复审确认干净项：§2.6 单调性=与旧实现平价（删最新分区致 max 下降在新旧都抛，非新回归）、无空指针面、装饰器 pass-through 完整、TCCL 只在调用线程、Caffeine 单版本。**未做的低危建议**：`fe-connector-hms/pom.xml` 把 `fe-connector-cache` 标 `optional`（免那个空 Caffeine jar 流进 hudi 包，现无害但去掉未来隐患）——待用户点头。
 
-**⭐ 下一步 = Phase 1 第二项「事件管道 Model B」**（薄 fe-core 角色驱动 + 插件 `pollOnce` SPI，翻闸后重新武装 `MetastoreEventsProcessor` 的增量失效，权威 = `tasks/hms-event-pipeline-findings-2026-07-07.md`）。它**依赖** D2 缓存（在其之上加 `Connector.invalidatePartitions(db,table,names)`）。起步先读 findings + 对照 HEAD。
+**⚠ 第二次独立净室复审**（另一 session 同日同法复跑，14 疑点 12 坐实；差量报告 = **`plan-doc/reviews/hive-connector-cache-cleanroom-review2-2026-07-10.md`**，与首审一致处不重复）**多抓 3 个坐实缺陷 + 1 个线上活性 bug**：
+- ✅ 已修 `30ecd930319`：REFRESH 三钩子不转发给已构建的 iceberg/hudi 兄弟连接器（iceberg 快照 pin 是 access 过期、持续查询下永不失效 → REFRESH 是唯一逃生口却够不着 → staleness 无界）。修法镜像 `close()`。
+- ❌ **未修-待拍板 #1**（review2 §2.2，HIGH）：Doris 自发 `DROP TABLE`/`CREATE TABLE`/`DROP DATABASE` 不清连接器缓存 → 同名删建后按旧表 schema/location 出错误结果最长 24h（Trino 装饰器写后自失效；旧实现 unregisterTable 即清）。修法选项：插件侧自失效（休眠、推荐）vs fe-core DDL 路径接 `connector.invalidateTable/Db`（顺带修下条 live bug）vs 两者都做。
+- ❌ **未修-待拍板 #2**（review2 §2.3，MEDIUM）：分区缓存容量 100000 的**单位悄变**——旧=分区对象数，新=请求列表条数（无 weigher，重叠请求重复驻留）→ 高分区表+滑动谓词可致堆增长远超旧界。修法选项：共享 `fe-connector-cache` 框架加可选 weigher（Trino 同款，但破坏本系列「paimon/iceberg 字节不变」声明）vs 缩小默认值 vs 只记档。
+- ❌ **未修-待拍板 #3**（review2 §3，**线上活性 bug 非休眠**）：paimon/iceberg `latestSnapshotCache`（+`PaimonSchemaAtMemo` 窄化变体）今天就有同形状的删建重名洞（fe-core DDL 路径从不 invalidate、key=纯表名）。修=独立线（动 live 行为，须自带复审+回归），或记档延后。
+- 测试加固欠账（LOW，代码正确仅测试盲区）：`createClient` 真包裹无 pin、公开 invalidate 钩子未用已构建 client 驱动（review2 §2.4）。
+
+**⭐ 下一步 = 先让用户拍板上面 3 项 → 落对应修复 → 再进 Phase 1 第二项「事件管道 Model B」**（薄 fe-core 角色驱动 + 插件 `pollOnce` SPI，翻闸后重新武装 `MetastoreEventsProcessor` 的增量失效，权威 = `tasks/hms-event-pipeline-findings-2026-07-07.md`）。它**依赖** D2 缓存（在其之上加 `Connector.invalidatePartitions(db,table,names)`）。起步先读 findings + 对照 HEAD。**⚠ 并行 session 风险**：本轮曾有两个 session 同时在此工作树工作（一个 amend 卷入另一个的未提交测试）；起步先查 `git log`/`git status`/运行中 maven/近 90s mtime 再动手。
 
 **⚠ 翻闸/e2e 欠账（非静默，勿丢）**：所有连接器休眠步（读 / 写-拒 / schema-evolution / 缓存 / 跨加载器委派）只在翻闸后 live，须异构 HMS docker e2e 断言（清单见 execution plan §4/§5 + memory `hms-iceberg-delegation-needs-e2e`）。**删除排序最硬约束**：`datasource/hive|hudi|iceberg/` 的 ~90 个 HMS 支撑类删不掉，直到翻闸把消费者切到连接器路径（详见 execution plan §2.4/§3 + `tasks/iceberg-on-hms-delegation-findings-2026-07-07.md`）。
 
