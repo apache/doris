@@ -2395,7 +2395,7 @@ public class SessionVariable implements Serializable, Writable {
     private Map<String, Action> forceEagerAggHintMap = ImmutableMap.of();
 
     @VarAttrDef.VarAttr(name = "eager_agg_broadcast_row_count", needForward = true)
-    public int eagerAggBroadcastRowCount = 25_000;
+    public int eagerAggBroadcastRowCount = 25_0000;
 
     @VarAttrDef.VarAttr(name = "eager_aggregation_on_broadcast_join", needForward = true)
     public boolean eagerAggregationOnBroadcastJoin = true;
