@@ -994,8 +994,12 @@ protected:
         }
 
         DataTypePtr input_type = file_type;
+        // Cast wrappers unwrap nullable inputs according to the declared input type, so keep the
+        // root nullability of the declared type aligned with the actual column shape.
         if ((*column)->is_nullable() && !input_type->is_nullable()) {
             input_type = make_nullable(input_type);
+        } else if (!(*column)->is_nullable() && input_type->is_nullable()) {
+            input_type = remove_nullable(input_type);
         }
         Block cast_block;
         cast_block.insert({*column, input_type, column_name});

@@ -19,6 +19,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -106,6 +107,16 @@ public:
     void set_create_row_id_column_iterator_func(
             std::function<std::shared_ptr<segment_v2::RowIdColumnIteratorV2>()> create_func) {
         _create_topn_row_id_column_iterator = create_func;
+    }
+
+    Status TEST_read_deletion_vector(const std::string& data_file_path,
+                                     const TIcebergDeleteFileDesc& delete_file_desc) {
+        return read_deletion_vector(data_file_path, delete_file_desc);
+    }
+
+    Status TEST_position_delete_base(const std::string& data_file_path,
+                                     const std::vector<TIcebergDeleteFileDesc>& delete_files) {
+        return _position_delete_base(data_file_path, delete_files);
     }
 
 protected:
@@ -236,8 +247,9 @@ protected:
     PositionDeleteRange _get_range(const ColumnString& file_path_column);
     static void _sort_delete_rows(const std::vector<std::vector<int64_t>*>& delete_rows_array,
                                   int64_t num_delete_rows, std::vector<int64_t>& result);
-    void _gen_position_delete_file_range(Block& block, DeleteFile* position_delete,
-                                         size_t read_rows, bool file_path_column_dictionary_coded);
+    Status _gen_position_delete_file_range(Block& block, DeleteFile* position_delete,
+                                           size_t read_rows,
+                                           bool file_path_column_dictionary_coded);
     void _generate_equality_delete_block(Block* block,
                                          const std::vector<std::string>& equality_delete_col_names,
                                          const std::vector<DataTypePtr>& equality_delete_col_types);
@@ -627,18 +639,19 @@ Status IcebergReaderMixin<BaseReader>::_position_delete_base(
         Status create_status = Status::OK();
         auto* delete_file_cache = _kv_cache->template get<DeleteFile>(
                 _delet_file_cache_key(delete_file.path), [&]() -> DeleteFile* {
-                    auto* position_delete = new DeleteFile;
+                    auto position_delete = std::make_unique<DeleteFile>();
                     TFileRangeDesc delete_file_range;
                     delete_file_range.__set_fs_name(this->get_scan_range().fs_name);
                     delete_file_range.path = delete_file.path;
                     delete_file_range.start_offset = 0;
                     delete_file_range.size = -1;
                     delete_file_range.file_size = -1;
-                    create_status = _read_position_delete_file(&delete_file_range, position_delete);
+                    create_status =
+                            _read_position_delete_file(&delete_file_range, position_delete.get());
                     if (!create_status) {
                         return nullptr;
                     }
-                    return position_delete;
+                    return position_delete.release();
                 });
         if (create_status.is<ErrorCode::END_OF_FILE>()) {
             continue;
@@ -660,10 +673,10 @@ Status IcebergReaderMixin<BaseReader>::_position_delete_base(
         SCOPED_TIMER(_iceberg_profile.delete_rows_sort_time);
         _iceberg_delete_rows =
                 _kv_cache->template get<DeleteRows>(data_file_path, [&]() -> DeleteRows* {
-                    auto* data_file_position_delete = new DeleteRows;
+                    auto data_file_position_delete = std::make_unique<DeleteRows>();
                     _sort_delete_rows(delete_rows_array, num_delete_rows,
                                       *data_file_position_delete);
-                    return data_file_position_delete;
+                    return data_file_position_delete.release();
                 });
         set_delete_rows();
         COUNTER_UPDATE(_iceberg_profile.num_delete_rows, num_delete_rows);
@@ -764,7 +777,7 @@ void IcebergReaderMixin<BaseReader>::_sort_delete_rows(
 }
 
 template <typename BaseReader>
-void IcebergReaderMixin<BaseReader>::_gen_position_delete_file_range(
+Status IcebergReaderMixin<BaseReader>::_gen_position_delete_file_range(
         Block& block, DeleteFile* position_delete, size_t read_rows,
         bool file_path_column_dictionary_coded) {
     SCOPED_TIMER(_iceberg_profile.parse_delete_file_time);
@@ -772,6 +785,21 @@ void IcebergReaderMixin<BaseReader>::_gen_position_delete_file_range(
     ColumnPtr path_column = block.get_by_position(name_to_pos_map[ICEBERG_FILE_PATH]).column;
     DCHECK_EQ(path_column->size(), read_rows);
     ColumnPtr pos_column = block.get_by_position(name_to_pos_map[ICEBERG_ROW_POS]).column;
+    if (const auto* nullable_col = check_and_get_column<ColumnNullable>(*path_column);
+        nullable_col != nullptr) {
+        if (nullable_col->has_null(0, read_rows)) {
+            return Status::Corruption(
+                    "Iceberg position delete column file_path contains null values");
+        }
+        path_column = remove_nullable(path_column);
+    }
+    if (const auto* nullable_col = check_and_get_column<ColumnNullable>(*pos_column);
+        nullable_col != nullptr) {
+        if (nullable_col->has_null(0, read_rows)) {
+            return Status::Corruption("Iceberg position delete column pos contains null values");
+        }
+        pos_column = remove_nullable(pos_column);
+    }
     using ColumnType = typename PrimitiveTypeTraits<TYPE_BIGINT>::ColumnType;
     const int64_t* src_data = assert_cast<const ColumnType&>(*pos_column).get_data().data();
     PositionDeleteRange range;
@@ -798,6 +826,7 @@ void IcebergReaderMixin<BaseReader>::_gen_position_delete_file_range(
         int64_t* dest_position = &(*delete_rows)[origin_size];
         memcpy(dest_position, cpy_start, cpy_count * sizeof(int64_t));
     }
+    return Status::OK();
 }
 
 template <typename BaseReader>
@@ -808,7 +837,7 @@ Status IcebergReaderMixin<BaseReader>::read_deletion_vector(
     _iceberg_delete_rows = _kv_cache->template get<DeleteRows>(
             build_iceberg_deletion_vector_cache_key(data_file_path, delete_file_desc),
             [&]() -> DeleteRows* {
-                auto* delete_rows = new DeleteRows;
+                auto delete_rows = std::make_unique<DeleteRows>();
 
                 roaring::Roaring64Map bitmap;
                 IcebergDeleteFileReaderOptions options;
@@ -828,7 +857,7 @@ Status IcebergReaderMixin<BaseReader>::read_deletion_vector(
                     delete_rows->push_back(*it);
                 }
                 COUNTER_UPDATE(_iceberg_profile.num_delete_rows, delete_rows->size());
-                return delete_rows;
+                return delete_rows.release();
             });
 
     RETURN_IF_ERROR(create_status);

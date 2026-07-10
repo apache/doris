@@ -64,6 +64,8 @@ public:
     }
     ~PaimonOrcReader() final = default;
 
+    Status TEST_init_deletion_vector() { return _init_deletion_vector(); }
+
 protected:
     Status on_before_init_reader(ReaderInitContext* ctx) override;
 
@@ -108,6 +110,8 @@ public:
         _init_paimon_profile();
     }
     ~PaimonParquetReader() final = default;
+
+    Status TEST_init_deletion_vector() { return _init_deletion_vector(); }
 
 protected:
     Status on_before_init_reader(ReaderInitContext* ctx) override;

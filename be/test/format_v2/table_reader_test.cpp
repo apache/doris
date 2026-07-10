@@ -896,6 +896,11 @@ public:
     using TableReader::_truncate_char_or_varchar_column;
 };
 
+class TableReaderCastTestHelper final : public TableReader {
+public:
+    using TableReader::_cast_column_to_type;
+};
+
 TEST(TableReaderTest, TruncateCharOrVarcharPredicateOnlyAppliesToParquetStringWidthMismatch) {
     ColumnMapping mapping;
     mapping.table_type = std::make_shared<DataTypeString>(3, TYPE_VARCHAR);
@@ -1514,6 +1519,41 @@ TEST(TableReaderTest, ComplexRematerializeCastsScalarChildToTableType) {
     EXPECT_EQ(country_values.get_data_at(1).to_string(), "UK");
     EXPECT_EQ(city_values.get_data_at(0).to_string(), "New York");
     EXPECT_EQ(city_values.get_data_at(1).to_string(), "London");
+}
+
+TEST(TableReaderTest, ComplexRematerializeCastsNonNullableScalarChildWithNullableFileType) {
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    const auto bigint_type = std::make_shared<DataTypeInt64>();
+    const auto nullable_int_type = make_nullable(int_type);
+    const auto nullable_bigint_type = make_nullable(bigint_type);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    TableReaderCastTestHelper reader;
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = {},
+                                    .conjuncts = {},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                            })
+                        .ok());
+
+    auto column = ColumnInt32::create();
+    column->insert_value(10);
+    column->insert_value(20);
+    ColumnPtr result_column = std::move(column);
+    const auto status = reader._cast_column_to_type(&result_column, nullable_int_type,
+                                                    nullable_bigint_type, "struct_column.a");
+    ASSERT_TRUE(status.ok()) << status.to_string();
+
+    const auto& result_nullable = assert_cast<const ColumnNullable&>(*result_column);
+    const auto& child_values = assert_cast<const ColumnInt64&>(result_nullable.get_nested_column());
+    ASSERT_EQ(result_nullable.size(), 2);
+    EXPECT_FALSE(result_nullable.is_null_at(0));
+    EXPECT_FALSE(result_nullable.is_null_at(1));
+    EXPECT_EQ(child_values.get_element(0), 10);
+    EXPECT_EQ(child_values.get_element(1), 20);
 }
 
 TEST(TableReaderTest, ReopenSplitAfterClose) {

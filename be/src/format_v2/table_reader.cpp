@@ -22,6 +22,7 @@
 #include <gen_cpp/Types_types.h>
 
 #include <algorithm>
+#include <memory>
 #include <ranges>
 #include <set>
 #include <sstream>
@@ -44,8 +45,10 @@
 #include "format_v2/delimited_text/text_reader.h"
 #include "format_v2/json/json_reader.h"
 #include "format_v2/native/native_reader.h"
+#include "format_v2/orc/orc_reader.h"
 #include "format_v2/parquet/parquet_reader.h"
 #include "storage/segment/condition_cache.h"
+#include "util/debug_points.h"
 #include "util/string_util.h"
 
 namespace doris::format {
@@ -652,11 +655,17 @@ Status TableReader::create_next_reader(bool* eos) {
 
 Status TableReader::create_file_reader(std::unique_ptr<FileReader>* reader) {
     DORIS_CHECK(reader != nullptr);
+    const bool enable_mapping_timestamp_tz = _scan_params != nullptr &&
+                                             _scan_params->__isset.enable_mapping_timestamp_tz &&
+                                             _scan_params->enable_mapping_timestamp_tz;
     if (_format == FileFormat::PARQUET) {
-        const bool enable_mapping_timestamp_tz =
-                _scan_params != nullptr && _scan_params->__isset.enable_mapping_timestamp_tz &&
-                _scan_params->enable_mapping_timestamp_tz;
         *reader = std::make_unique<format::parquet::ParquetReader>(
+                _system_properties, _current_task->data_file, _io_ctx, _scanner_profile,
+                _global_rowid_context, enable_mapping_timestamp_tz);
+        return Status::OK();
+    }
+    if (_format == FileFormat::ORC) {
+        *reader = std::make_unique<format::orc::OrcReader>(
                 _system_properties, _current_task->data_file, _io_ctx, _scanner_profile,
                 _global_rowid_context, enable_mapping_timestamp_tz);
         return Status::OK();
@@ -765,7 +774,7 @@ Status TableReader::_parse_delete_predicates(const SplitReadOptions& options) {
         Status create_status = Status::OK();
 
         _delete_rows = options.cache->get<DeleteRows>(desc.key, [&]() -> DeleteRows* {
-            auto* delete_rows = new DeleteRows;
+            auto delete_rows = std::make_unique<DeleteRows>();
 
             DeletionVectorReader dv_reader(_runtime_state, _scanner_profile, *_scan_params, desc,
                                            _io_ctx.get());
@@ -776,6 +785,14 @@ Status TableReader::_parse_delete_predicates(const SplitReadOptions& options) {
 
             size_t bytes_read = desc.size;
             std::vector<char> buffer(bytes_read);
+            DBUG_EXECUTE_IF("TableReader.parse_deletion_vector.io_error", {
+                create_status = Status::IOError("injected format v2 deletion vector read failure");
+                return nullptr;
+            });
+            DBUG_EXECUTE_IF("TableReader.parse_deletion_vector.should_stop", {
+                create_status = Status::EndOfFile("stop read.");
+                return nullptr;
+            });
             create_status = dv_reader.read_at(desc.start_offset, {buffer.data(), bytes_read});
             if (!create_status.ok()) [[unlikely]] {
                 return nullptr;
@@ -783,12 +800,12 @@ Status TableReader::_parse_delete_predicates(const SplitReadOptions& options) {
 
             const char* buf = buffer.data();
             SCOPED_TIMER(_profile.parse_delete_file_time);
-            create_status = parse_deletion_vector(buf, bytes_read, desc.format, delete_rows);
+            create_status = parse_deletion_vector(buf, bytes_read, desc.format, delete_rows.get());
             if (!create_status.ok()) [[unlikely]] {
                 return nullptr;
             }
             COUNTER_UPDATE(_profile.num_delete_rows, delete_rows->size());
-            return delete_rows;
+            return delete_rows.release();
         });
         RETURN_IF_ERROR(create_status);
     }

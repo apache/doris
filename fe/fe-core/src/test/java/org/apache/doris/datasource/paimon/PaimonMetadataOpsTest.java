@@ -53,6 +53,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 public class PaimonMetadataOpsTest {
     public static String warehouse;
@@ -194,6 +195,30 @@ public class PaimonMetadataOpsTest {
         Assert.assertEquals(1, table.partitionKeys().size());
         Assert.assertTrue(table.primaryKeys().contains("c0"));
         Assert.assertEquals(1, table.primaryKeys().size());
+    }
+
+    @Test
+    public void testPartitionPreservesNonLowercaseColumnNames() throws Exception {
+        String tableName = getTableName();
+        Identifier identifier = new Identifier(dbName, tableName);
+        String sql = "create table " + dbName + "." + tableName + " ("
+                + "data int, "
+                + "`PART` int, "
+                + "`mIxEd_COL` int"
+                + ") engine = paimon "
+                + "partition by (`PART`) ()";
+        createTable(sql);
+        Catalog catalog = ops.getCatalog();
+        Table table = catalog.getTable(identifier);
+
+        List<String> columnNames = table.rowType().getFields().stream()
+                .map(DataField::name)
+                .collect(Collectors.toList());
+
+        Assert.assertEquals("PART", columnNames.get(1));
+        Assert.assertEquals("mIxEd_COL", columnNames.get(2));
+        Assert.assertEquals(1, table.partitionKeys().size());
+        Assert.assertEquals("PART", table.partitionKeys().get(0));
     }
 
     @Test
