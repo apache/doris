@@ -132,6 +132,7 @@ Status FileScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
     // TODO: Use scanner v2 for all queries.
     const bool use_file_scanner_v2 = state()->query_options().__isset.enable_file_scanner_v2 &&
                                      state()->query_options().enable_file_scanner_v2 && !is_load &&
+                                     scan_params->format_type != TFileFormatType::FORMAT_WAL &&
                                      scan_params->format_type != TFileFormatType::FORMAT_ES_HTTP &&
                                      scan_params->format_type != TFileFormatType::FORMAT_LANCE;
     _operator_profile->add_info_string("UseScannerV2", use_file_scanner_v2 ? "true" : "false");
