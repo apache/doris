@@ -137,6 +137,18 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
     }
 
     @Test
+    public void testCreateDbDoesNotInvalidateConnectorCache() throws Exception {
+        catalog.createDb("db1", false, new HashMap<>());
+
+        // WHY (Rule 9): createDb is DELIBERATELY not hooked to connector.invalidate* — a brand-new database
+        // has no table-keyed connector cache entries to clear that a prior dropDb did not already clear (the
+        // db-name-list is refreshed via resetMetaCacheNames, asserted above). This pins that scoping choice:
+        // a mutation that adds connector.invalidateDb/invalidateTable to createDb turns this red.
+        Mockito.verify(connector, Mockito.never()).invalidateDb(Mockito.any());
+        Mockito.verify(connector, Mockito.never()).invalidateTable(Mockito.any(), Mockito.any());
+    }
+
+    @Test
     public void testCreateDbIfNotExistsShortCircuitsWhenDbExists() throws Exception {
         catalog.dbNullableResult = Mockito.mock(ExternalDatabase.class);
 
@@ -311,6 +323,10 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
                 "edit-log DropDbInfo must carry the LOCAL db name for follower replay");
         Assertions.assertEquals("db1", catalog.unregisteredDb,
                 "cache invalidation must use the LOCAL db name");
+        // WHY (Rule 9): the connector's own caches for every table in this db must be dropped on DROP
+        // DATABASE with the REMOTE db name (mirrors RefreshManager.refreshDbInternal). A mutation dropping
+        // the call — or passing the LOCAL "db1" — makes this red.
+        Mockito.verify(connector).invalidateDb("REMOTE_DB1");
     }
 
     // ==================== DROP TABLE ====================
@@ -357,6 +373,12 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
                 "cache invalidation must look up the LOCAL db name");
         Mockito.verify(replayDb).unregisterTable("t1");
         Mockito.verify(db, Mockito.never()).unregisterTable(Mockito.anyString());
+        // WHY (Rule 9): the connector's OWN caches (paimon/iceberg latest-snapshot pin, hive metastore +
+        // file-listing) must be dropped on DROP TABLE with the REMOTE names, so a subsequent same-name
+        // CREATE + read go live instead of serving the dropped table up to the connector TTL (the LIVE
+        // paimon/iceberg drop+recreate stale-pin fix). A mutation dropping the call — or passing the LOCAL
+        // "db1"/"t1" — makes this verify red.
+        Mockito.verify(connector).invalidateTable("DB1", "TBL1");
     }
 
     @Test
@@ -446,6 +468,10 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
         DdlException ex = Assertions.assertThrows(DdlException.class,
                 () -> catalog.dropTable("db1", "t1", false, false, false, false, false, false));
         Assertions.assertTrue(ex.getMessage().contains("boom"));
+        // WHY (Rule 9 / Rule 12): a remote drop failure must abort BEFORE the cache is invalidated — the
+        // invalidate sits AFTER the successful metadata.dropTable, so the connector cache stays consistent
+        // with the (unchanged) remote. A mutation moving invalidateTable ahead of the mutation goes red.
+        Mockito.verify(connector, Mockito.never()).invalidateTable(Mockito.any(), Mockito.any());
     }
 
     // B2: DROP on a flipped iceberg VIEW must route to metadata.dropView (mirroring legacy
@@ -487,6 +513,8 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
         Assertions.assertEquals("db1", catalog.lastGetDbForReplayArg,
                 "cache invalidation must look up the LOCAL db name");
         Mockito.verify(replayDb).unregisterTable("v1");
+        // The view branch drops the connector caches too (uniform with the table branch), keyed by REMOTE names.
+        Mockito.verify(connector).invalidateTable("DB1", "V1");
     }
 
     @Test
@@ -672,6 +700,11 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
             Assertions.assertEquals("db1", catalog.lastGetDbForReplayArg,
                     "cache invalidation must look up the LOCAL db name");
             Mockito.verify(replayDb).resetMetaCacheNames();
+            // WHY (Rule 9): CREATE TABLE also drops any stale connector cache entry for the new name
+            // (belt-and-suspenders with the DROP path). Keyed by the REMOTE db name "DB1" but the
+            // (non-remote-resolved) table name "t1" — a mutation flipping the table name to remote, or
+            // dropping the call, makes this red.
+            Mockito.verify(connector).invalidateTable("DB1", "t1");
         }
     }
 

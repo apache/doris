@@ -425,6 +425,12 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         } catch (DorisConnectorException e) {
             throw new DdlException(e.getMessage(), e);
         }
+        // Drop any stale connector-owned cache entry for this name before the new table goes live
+        // (belt-and-suspenders with the DROP path, which is the load-bearing invalidation for drop+recreate).
+        // Connector-agnostic: invalidateTable is a no-op SPI default; hive/iceberg/paimon drop their own
+        // per-table caches (metastore/file-listing, latest-snapshot pin). The table name is intentionally NOT
+        // remote-resolved (a new table has no local->remote mapping — parity with the create request + editlog).
+        connector.invalidateTable(db.getRemoteName(), createTableInfo.getTableName());
         org.apache.doris.persist.CreateTableInfo persistInfo =
                 new org.apache.doris.persist.CreateTableInfo(
                         getName(),
@@ -517,6 +523,12 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         } catch (DorisConnectorException e) {
             throw new DdlException(e.getMessage(), e);
         }
+        // Drop the connector's own caches for every table in this db so a subsequent same-name CREATE
+        // DATABASE and the next reads go live rather than serving dropped tables up to the connector TTL.
+        // Connector-agnostic (no-op SPI default); keyed by the REMOTE db name, mirroring
+        // RefreshManager.refreshDbInternal. (createDb is intentionally NOT hooked: a brand-new db has no
+        // table-keyed connector entries that this dropDb did not already clear.)
+        connector.invalidateDb(db.getRemoteName());
         // Edit log + cache invalidation intentionally use the LOCAL name: followers replay the
         // persisted DropDbInfo and the on-FE cache is keyed by local name (follower-replay parity).
         Env.getCurrentEnv().getEditLog().logDropDb(new DropDbInfo(getName(), dbName));
@@ -568,6 +580,9 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
             } catch (DorisConnectorException e) {
                 throw new DdlException(e.getMessage(), e);
             }
+            // Uniform with the table branch: drop the connector's own caches for this name (harmless no-op
+            // for a view, which carries no snapshot pin). Keyed by the REMOTE names.
+            connector.invalidateTable(dorisTable.getRemoteDbName(), dorisTable.getRemoteName());
             Env.getCurrentEnv().getEditLog().logDropTable(new DropInfo(getName(), dbName, tableName));
             getDbForReplay(dbName).ifPresent(d -> d.unregisterTable(tableName));
             LOG.info("finished to drop view {}.{}.{}", getName(), dbName, tableName);
@@ -588,6 +603,12 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         } catch (DorisConnectorException e) {
             throw new DdlException(e.getMessage(), e);
         }
+        // Drop the connector's own caches for this table (paimon/iceberg latest-snapshot pin, hive
+        // metastore + file-listing) so a subsequent same-name CREATE and the next read go live rather than
+        // serving the dropped table up to the connector TTL — the load-bearing fix for drop+recreate.
+        // Connector-agnostic (no-op SPI default); keyed by the REMOTE db/table names the connector caches
+        // under, mirroring RefreshManager.refreshTableInternal.
+        connector.invalidateTable(dorisTable.getRemoteDbName(), dorisTable.getRemoteName());
         // Edit log and cache invalidation deliberately use the LOCAL db/table names for
         // follower-replay consistency; only the connector-bound names are remote-resolved.
         Env.getCurrentEnv().getEditLog().logDropTable(new DropInfo(getName(), dbName, tableName));
