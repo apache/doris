@@ -206,6 +206,7 @@ public:
 
     Status read_column_from_decoded_values(IColumn& column,
                                            const DecodedColumnView& view) const override;
+    Status read_column_from_orc(IColumn& column, const OrcDecodedColumnView& view) const override;
 
     Status write_column_to_mysql_binary(const IColumn& column, MysqlRowBinaryBuffer& result,
                                         int64_t row_idx, bool col_const,
