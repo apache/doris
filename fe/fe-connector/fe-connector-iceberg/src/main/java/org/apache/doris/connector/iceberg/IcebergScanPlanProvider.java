@@ -91,6 +91,7 @@ import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Function;
 
 /**
  * {@link ConnectorScanPlanProvider} for Iceberg tables, mirroring the paimon connector's
@@ -190,7 +191,12 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     private static final long DEFAULT_MANIFEST_CACHE_CAPACITY = 1024L;
 
     private final Map<String, String> properties;
-    private final IcebergCatalogOps catalogOps;
+    // Per-request catalog-ops resolver: applied with the current ConnectorSession to obtain the IcebergCatalogOps
+    // for that request. For a iceberg.rest.session=user catalog the connector passes this::newCatalogBackedOps so
+    // scan planning loads tables through the querying user's per-request delegated REST catalog (fail-closed — a
+    // tokenless request is rejected, #63068 parity). Every other catalog (and the offline-test ctors) resolves the
+    // single shared ops regardless of session (constant s -> catalogOps).
+    private final Function<ConnectorSession, IcebergCatalogOps> catalogOpsResolver;
     // Engine seam: executeAuthenticated (Kerberos UGI), storage properties, vended credentials. Nullable —
     // null in offline unit tests via the 2-arg ctor, in which case resolveTable resolves directly.
     private final ConnectorContext context;
@@ -222,8 +228,23 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     public IcebergScanPlanProvider(Map<String, String> properties, IcebergCatalogOps catalogOps,
             ConnectorContext context, IcebergManifestCache manifestCache,
             IcebergRewritableDeleteStash rewritableDeleteStash) {
+        // Constant resolver: these ctors (offline tests + the pre-session connector paths) bind a single ops that
+        // ignores the session, so existing behaviour/tests are byte-identical.
+        this(properties, session -> catalogOps, context, manifestCache, rewritableDeleteStash);
+    }
+
+    /**
+     * Session-aware ctor used by {@link IcebergConnector#getScanPlanProvider()}: {@code catalogOpsResolver} is
+     * applied per request with the current {@link ConnectorSession} so a {@code iceberg.rest.session=user} catalog
+     * resolves the querying user's per-request delegated catalog (the connector passes
+     * {@code this::newCatalogBackedOps}); every other catalog resolves the single shared ops.
+     */
+    public IcebergScanPlanProvider(Map<String, String> properties,
+            Function<ConnectorSession, IcebergCatalogOps> catalogOpsResolver,
+            ConnectorContext context, IcebergManifestCache manifestCache,
+            IcebergRewritableDeleteStash rewritableDeleteStash) {
         this.properties = properties;
-        this.catalogOps = catalogOps;
+        this.catalogOpsResolver = catalogOpsResolver;
         this.context = context;
         this.manifestCache = manifestCache;
         this.rewritableDeleteStash = rewritableDeleteStash;
@@ -320,7 +341,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         if (iceHandle.isSystemTable() || !sessionBool(session, ENABLE_EXTERNAL_TABLE_BATCH_MODE, true)) {
             return -1;
         }
-        Table table = resolveTable(iceHandle);
+        Table table = resolveTable(session, iceHandle);
         TableScan scan = buildScan(table, iceHandle, filter, session);
         Snapshot snapshot = scan.snapshot();
         if (snapshot == null) {
@@ -362,7 +383,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     public ConnectorSplitSource streamSplits(ConnectorSession session, ConnectorTableHandle handle,
             List<ConnectorColumnHandle> columns, Optional<ConnectorExpression> filter, long limit) {
         IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
-        Table table = resolveTable(iceHandle);
+        Table table = resolveTable(session, iceHandle);
         TableScan scan = buildScan(table, iceHandle, filter, session);
         int formatVersion = getFormatVersion(table);
         List<String> orderedPartitionKeys = IcebergPartitionUtils.getIdentityPartitionColumns(table);
@@ -472,7 +493,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             // isSystemTable. Dormant until P6.6 (the table is still IcebergExternalTable pre-flip).
             return planSystemTableScan(iceHandle, filter, session);
         }
-        Table table = resolveTable(iceHandle);
+        Table table = resolveTable(session, iceHandle);
         TableScan scan = buildScan(table, iceHandle, filter, session);
 
         int formatVersion = getFormatVersion(table);
@@ -643,7 +664,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
 
     private List<ConnectorScanRange> doPlanSystemTableScan(IcebergTableHandle handle,
             Optional<ConnectorExpression> filter, ConnectorSession session) {
-        Table metadataTable = resolveSysTable(handle);
+        Table metadataTable = resolveSysTable(session, handle);
         TableScan scan = buildScan(metadataTable, handle, filter, session);
         List<ConnectorScanRange> ranges = new ArrayList<>();
         try (CloseableIterable<FileScanTask> tasks = scan.planFiles()) {
@@ -1007,7 +1028,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             List<ConnectorColumnHandle> columns,
             Optional<ConnectorExpression> filter) {
         IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
-        Table table = resolveTable(iceHandle);
+        Table table = resolveTable(session, iceHandle);
         Map<String, String> props = new LinkedHashMap<>();
         props.put("file_format_type", "jni");
         // [D-065] System (metadata) tables ($snapshots/$files/...) read via the JNI serialized-split path
@@ -1586,13 +1607,15 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      * {@code IcebergConnectorMetadata} and paimon's {@code PaimonScanPlanProvider.resolveTable}). A
      * {@code null} context (offline unit tests / simple-auth) resolves directly.
      */
-    private Table resolveTable(IcebergTableHandle handle) {
+    private Table resolveTable(ConnectorSession session, IcebergTableHandle handle) {
+        // Resolve the per-request ops before the auth scope so a session=user fail-closed surfaces verbatim.
+        IcebergCatalogOps ops = catalogOpsResolver.apply(session);
         if (context == null) {
-            return catalogOps.loadTable(handle.getDbName(), handle.getTableName());
+            return ops.loadTable(handle.getDbName(), handle.getTableName());
         }
         try {
             return wrapTableForScan(context.executeAuthenticated(
-                    () -> catalogOps.loadTable(handle.getDbName(), handle.getTableName())));
+                    () -> ops.loadTable(handle.getDbName(), handle.getTableName())));
         } catch (Exception e) {
             throw new RuntimeException("Failed to load table for scan, error message is:" + e.getMessage(), e);
         }
@@ -1643,9 +1666,9 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      * thread-level {@code executeAuthenticated} spans the whole sys planning (this load + {@code planFiles} +
      * task serialization) in ONE scope — no nested wrap here.
      */
-    private Table resolveSysTable(IcebergTableHandle handle) {
+    private Table resolveSysTable(ConnectorSession session, IcebergTableHandle handle) {
         return MetadataTableUtils.createMetadataTableInstance(
-                catalogOps.loadTable(handle.getDbName(), handle.getTableName()),
+                catalogOpsResolver.apply(session).loadTable(handle.getDbName(), handle.getTableName()),
                 MetadataTableType.from(handle.getSysTableName()));
     }
 }

@@ -44,9 +44,12 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.CatalogUtil;
 import org.apache.iceberg.catalog.Catalog;
+import org.apache.iceberg.catalog.SessionCatalog;
 import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.catalog.ViewCatalog;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.rest.RESTCatalog;
+import org.apache.iceberg.rest.RESTSessionCatalog;
 import org.apache.iceberg.util.ThreadPools;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -141,6 +144,11 @@ public class IcebergConnector implements Connector {
     private final Map<String, String> properties;
     private final ConnectorContext context;
     private volatile Catalog icebergCatalog;
+    // Session-aware REST catalog + adapter, built ONLY for a REST catalog configured iceberg.rest.session=user
+    // (#63068). The RESTSessionCatalog is a SINGLE shared instance; per-request asCatalog(ctx)/asViewCatalog(ctx)
+    // (through the adapter) attach the querying user's delegated credential. Both null for every other catalog.
+    private volatile RESTSessionCatalog restSessionCatalog;
+    private volatile IcebergSessionCatalogAdapter sessionCatalogAdapter;
     // T08 connector-internal caches (D6, 0 SPI). Final per-catalog fields: a REFRESH CATALOG rebuilds the
     // connector (PluginDrivenExternalCatalog.onClose nulls + recreates it) and thus drops both caches. The
     // manifest cache is path-keyed, no-TTL, capacity-bounded; it is consumed only when
@@ -198,7 +206,7 @@ public class IcebergConnector implements Connector {
     @Override
     public ConnectorMetadata getMetadata(ConnectorSession session) {
         return new IcebergConnectorMetadata(
-                newCatalogBackedOps(), properties, context, latestSnapshotCache);
+                newCatalogBackedOps(session), properties, context, latestSnapshotCache);
     }
 
     /**
@@ -390,6 +398,33 @@ public class IcebergConnector implements Connector {
     }
 
     /**
+     * Session-aware variant used by {@link #getMetadata}: for a {@code iceberg.rest.session=user} catalog it
+     * routes through the per-request delegated catalog + view catalog (FAIL-CLOSED — a session that carries no
+     * delegated credential is rejected by {@code IcebergSessionCatalogAdapter.delegatedCatalog}, never served a
+     * shared identity), so metadata reads are authorized as the querying user. For every other catalog it is
+     * identical to {@link #newCatalogBackedOps()} (the shared catalog). getMetadata is invoked per operation with
+     * the current session, so resolving the per-user catalog here covers each metadata call (#63068 parity).
+     */
+    private IcebergCatalogOps newCatalogBackedOps(ConnectorSession session) {
+        if (!isUserSessionEnabled()) {
+            return newCatalogBackedOps();
+        }
+        getOrCreateCatalog();  // ensure the shared RESTSessionCatalog + adapter are built
+        IcebergSessionCatalogAdapter adapter = sessionCatalogAdapter;
+        Catalog perUserCatalog = adapter.delegatedCatalog(session);
+        ViewCatalog perUserViewCatalog = adapter.delegatedViewCatalog(session);
+        boolean nestedNamespaceEnabled = Boolean.parseBoolean(properties.getOrDefault(
+                IcebergConnectorProperties.REST_NESTED_NAMESPACE_ENABLED, "false"));
+        boolean viewEnabled = Boolean.parseBoolean(properties.getOrDefault(
+                IcebergConnectorProperties.REST_VIEW_ENABLED, "true"));
+        Optional<String> externalCatalogName =
+                Optional.ofNullable(properties.get(IcebergConnectorProperties.EXTERNAL_CATALOG_NAME));
+        // restFlavor is unconditionally true here (isUserSessionEnabled() ⇒ a REST catalog).
+        return new IcebergCatalogOps.CatalogBackedIcebergCatalogOps(perUserCatalog, perUserViewCatalog,
+                true, nestedNamespaceEnabled, viewEnabled, externalCatalogName);
+    }
+
+    /**
      * REFRESH TABLE hook: drop the cached latest snapshot for one table so the next query re-pins live
      * (mirrors PaimonConnector). The names are the REMOTE db/table (RefreshManager passes remote names, the
      * same form {@link IcebergConnectorMetadata#beginQuerySnapshot} keys on). The manifest cache is path-keyed
@@ -448,7 +483,7 @@ public class IcebergConnector implements Connector {
         // (newCatalogBackedOps) — the listing-only flags (nested-namespace / view) are inert on this path but
         // threaded for parity with the legacy single per-catalog IcebergMetadataOps.
         return new IcebergScanPlanProvider(properties,
-                newCatalogBackedOps(), context, manifestCache,
+                this::newCatalogBackedOps, context, manifestCache,
                 rewritableDeleteStash);
     }
 
@@ -459,7 +494,7 @@ public class IcebergConnector implements Connector {
         // IcebergConnectorTransaction. It resolves the target via catalogOps.loadTable, so it shares the
         // fully-threaded ops (newCatalogBackedOps) — external_catalog.name must apply to INSERT/DELETE/MERGE.
         return new IcebergWritePlanProvider(properties,
-                newCatalogBackedOps(), context,
+                this::newCatalogBackedOps, context,
                 rewritableDeleteStash);
     }
 
@@ -470,7 +505,7 @@ public class IcebergConnector implements Connector {
         // via catalogOps.loadTable, so it shares the fully-threaded ops (newCatalogBackedOps) —
         // external_catalog.name must apply to ALTER TABLE ... EXECUTE on REST 3-level catalogs.
         return new IcebergProcedureOps(properties,
-                newCatalogBackedOps(), context);
+                this::newCatalogBackedOps, context);
     }
 
     /**
@@ -510,13 +545,33 @@ public class IcebergConnector implements Connector {
         // path reproduces this ONLY under this capability (PluginDrivenExternalTable.supportsExternalMetadataPreload),
         // so post-cutover iceberg keeps async pre-load instead of degrading to synchronous bind-time load. Pure
         // lock-latency optimization, opt-in via enable_preload_external_metadata. Inert pre-cutover (P6.6).
-        return EnumSet.of(ConnectorCapability.SUPPORTS_MVCC_SNAPSHOT,
+        EnumSet<ConnectorCapability> capabilities = EnumSet.of(ConnectorCapability.SUPPORTS_MVCC_SNAPSHOT,
                 ConnectorCapability.SUPPORTS_COLUMN_AUTO_ANALYZE,
                 ConnectorCapability.SUPPORTS_TOPN_LAZY_MATERIALIZE,
                 ConnectorCapability.SUPPORTS_SHOW_CREATE_DDL,
                 ConnectorCapability.SUPPORTS_VIEW,
                 ConnectorCapability.SUPPORTS_NESTED_COLUMN_PRUNE,
                 ConnectorCapability.SUPPORTS_METADATA_PRELOAD);
+        // SUPPORTS_USER_SESSION: only a REST catalog configured iceberg.rest.session=user projects the querying
+        // user's delegated credential onto a per-request Iceberg REST SessionCatalog (#63068 re-migration). This
+        // gates FE credential injection + shared-cache bypass; every other flavor/config authenticates with a
+        // single static catalog identity and must NOT declare it (least-privilege).
+        if (isUserSessionEnabled()) {
+            capabilities.add(ConnectorCapability.SUPPORTS_USER_SESSION);
+        }
+        return capabilities;
+    }
+
+    /**
+     * Whether this catalog is a REST catalog configured {@code iceberg.rest.session=user} — the single gate for
+     * the per-user session machinery (capability declaration, the shared {@code RESTSessionCatalog} build, and
+     * the session-aware catalog routing). {@code IcebergRestMetaStoreProperties.validate} has already enforced
+     * that {@code session=user} implies {@code security.type=oauth2}.
+     */
+    boolean isUserSessionEnabled() {
+        return IcebergConnectorProperties.SESSION_USER.equalsIgnoreCase(
+                        properties.get(IcebergConnectorProperties.REST_SESSION))
+                && IcebergConnectorProperties.TYPE_REST.equals(IcebergCatalogFactory.resolveFlavor(properties));
     }
 
     private Catalog getOrCreateCatalog() {
@@ -589,10 +644,54 @@ public class IcebergConnector implements Connector {
                 break;
         }
 
+        // REST + iceberg.rest.session=user: build a session-aware RESTSessionCatalog (not the all-in-one
+        // RESTCatalog) so per-request asCatalog(ctx)/asViewCatalog(ctx) can attach the querying user's delegated
+        // credential (#63068). The default (non-delegated) catalog is asCatalog(empty), identical to what a
+        // RESTCatalog exposes; the shared session catalog + adapter are memoized for the per-user routing.
+        if (isUserSessionEnabled()) {
+            return buildRestSessionCatalogDefault(catalogName, catalogProps, conf);
+        }
+
         LOG.info("Creating Iceberg catalog '{}' flavor='{}' impl='{}'",
                 catalogName, flavor, catalogProps.get(CatalogProperties.CATALOG_IMPL));
         return buildCatalogAuthenticated(flavor,
                 () -> CatalogUtil.buildIcebergCatalog(catalogName, catalogProps, conf));
+    }
+
+    /**
+     * Builds the default catalog for a {@code iceberg.rest.session=user} REST catalog: a SINGLE shared
+     * {@link RESTSessionCatalog} (built directly — NOT via {@code CatalogUtil.buildIcebergCatalog}, which returns
+     * the all-in-one {@code RESTCatalog} and hides the session catalog behind a private field). Its
+     * {@code asCatalog(empty)} is the default (non-delegated) catalog; its {@code asCatalog(ctx)} /
+     * {@code asViewCatalog(ctx)} are used per request by {@link #sessionCatalogAdapter}. Memoizes
+     * {@link #restSessionCatalog} + {@link #sessionCatalogAdapter} as a side effect. The optional
+     * {@code iceberg.rest.session-timeout} maps to the iceberg AuthSession timeout.
+     */
+    private Catalog buildRestSessionCatalogDefault(String catalogName, Map<String, String> catalogProps,
+            Configuration conf) {
+        Map<String, String> sessionProps = new HashMap<>(catalogProps);
+        // Built directly via new RESTSessionCatalog(), so the CatalogUtil catalog-impl key is neither needed nor
+        // valid here; drop it.
+        sessionProps.remove(CatalogProperties.CATALOG_IMPL);
+        String sessionTimeout = properties.get(IcebergConnectorProperties.REST_SESSION_TIMEOUT);
+        if (StringUtils.isNotBlank(sessionTimeout)) {
+            sessionProps.put(CatalogProperties.AUTH_SESSION_TIMEOUT_MS, sessionTimeout);
+        }
+        IcebergSessionCatalogAdapter.DelegatedTokenMode tokenMode =
+                IcebergSessionCatalogAdapter.DelegatedTokenMode.fromString(properties.getOrDefault(
+                        IcebergConnectorProperties.REST_DELEGATED_TOKEN_MODE,
+                        IcebergConnectorProperties.DELEGATED_TOKEN_MODE_ACCESS_TOKEN));
+        LOG.info("Creating Iceberg REST user-session catalog '{}' (delegated-token-mode={})", catalogName, tokenMode);
+        return buildCatalogAuthenticated(IcebergConnectorProperties.TYPE_REST, () -> {
+            RESTSessionCatalog sessionCatalog = new RESTSessionCatalog();
+            CatalogUtil.configureHadoopConf(sessionCatalog, conf);
+            sessionCatalog.initialize(catalogName, sessionProps);
+            Catalog defaultCatalog = sessionCatalog.asCatalog(SessionCatalog.SessionContext.createEmpty());
+            this.restSessionCatalog = sessionCatalog;
+            this.sessionCatalogAdapter =
+                    new IcebergSessionCatalogAdapter(defaultCatalog, sessionCatalog, tokenMode);
+            return defaultCatalog;
+        });
     }
 
     /**
@@ -1068,6 +1167,14 @@ public class IcebergConnector implements Connector {
                 ((java.io.Closeable) c).close();
             }
             icebergCatalog = null;
+        }
+        // The session=user default catalog (asCatalog(empty)) is a lightweight view and NOT Closeable, so close
+        // the shared underlying RESTSessionCatalog (its REST client + OAuth2 auth resources) explicitly here.
+        RESTSessionCatalog sc = restSessionCatalog;
+        if (sc != null) {
+            sc.close();
+            restSessionCatalog = null;
+            sessionCatalogAdapter = null;
         }
     }
 }
