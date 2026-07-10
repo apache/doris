@@ -26,6 +26,8 @@ import org.apache.doris.connector.hms.HmsClientException;
 import org.apache.doris.connector.hms.HmsNotificationEvent;
 
 import org.apache.hadoop.hive.metastore.HiveMetaStoreClient;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -42,6 +44,7 @@ import java.util.List;
  * {@code REPL_EVENTS_MISSING_IN_METASTORE} sentinel) yields a full-refresh signal instead of events.</p>
  */
 public class HmsEventSource implements ConnectorEventSource {
+    private static final Logger LOG = LogManager.getLogger(HmsEventSource.class);
 
     private final HmsClient client;
     private final int batchSize;
@@ -80,7 +83,11 @@ public class HmsEventSource implements ConnectorEventSource {
                 // the metastore trimmed its log past our cursor; jump to now and full-refresh
                 return EventPollResult.ofFullRefresh(currentEventId);
             }
-            throw e;
+            // transient fetch error (metastore blip): retry the same cursor next cycle without resetting or
+            // invalidating. A deterministic PARSE error is a RuntimeException, not an HmsClientException, so it
+            // propagates to the engine's self-heal instead of being swallowed here.
+            LOG.warn("Failed to fetch HMS notifications from event id {}; will retry", lastSyncedEventId, e);
+            return EventPollResult.ofNothing(lastSyncedEventId);
         }
     }
 
@@ -102,7 +109,9 @@ public class HmsEventSource implements ConnectorEventSource {
             if (isEventsMissing(e)) {
                 return EventPollResult.ofFullRefresh(masterUpperBound);
             }
-            throw e;
+            // transient fetch error: retry the same cursor next cycle (see pollForMaster).
+            LOG.warn("Failed to fetch HMS notifications from event id {}; will retry", lastSyncedEventId, e);
+            return EventPollResult.ofNothing(lastSyncedEventId);
         }
     }
 

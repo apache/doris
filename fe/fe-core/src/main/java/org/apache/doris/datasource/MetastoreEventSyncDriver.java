@@ -101,9 +101,13 @@ public class MetastoreEventSyncDriver extends MasterDaemon {
                 continue;
             }
             PluginDrivenExternalCatalog pluginCatalog = (PluginDrivenExternalCatalog) catalog;
-            // Only probe already-initialized catalogs — do not force-init an idle catalog just to ask
-            // whether it has an event source (the legacy poller never touched non-HMS catalogs; an idle
-            // catalog has no warm cache to keep fresh and re-reads on its first access anyway).
+            // Probe only already-initialized catalogs: calling getConnector() force-initializes, and we must
+            // NOT force-init the idle paimon/iceberg/jdbc/hudi PluginDriven catalogs that already exist (they
+            // stay byte-inert pre-flip). LIMITATION vs the legacy poller (which force-initialized every HMS
+            // catalog on the master via getHmsProperties): a flipped HMS catalog that is NEVER accessed on the
+            // master but IS queried on a follower never seeds its cursor, so that follower stops receiving
+            // incremental updates. Closing this without force-initing non-event catalogs needs a flip-time
+            // hook that initializes flipped event-source catalogs on the master (owed at the flip).
             if (!pluginCatalog.isInitialized()) {
                 continue;
             }
@@ -120,7 +124,15 @@ public class MetastoreEventSyncDriver extends MasterDaemon {
             try {
                 syncCatalog(pluginCatalog, eventSource);
             } catch (Exception e) {
-                LOG.warn("Failed to sync metastore events for catalog [{}]", pluginCatalog.getName(), e);
+                // Self-heal (mirrors the legacy poller's onRefreshCache(true) + reset-to-(-1)): reset the
+                // cursor so the next cycle first-pulls -> full refresh, jumping past a deterministically-failing
+                // (poison) event/descriptor instead of retrying it forever and wedging the catalog's sync (and,
+                // on the master, freezing every follower that waits on the replicated cursor). Transient FETCH
+                // errors do not reach here — HmsEventSource retries them in place (ofNothing) — so this reset
+                // fires only on a deterministic parse/apply failure.
+                lastSyncedEventIdMap.put(catalogId, -1L);
+                LOG.warn("Failed to sync metastore events for catalog [{}]; reset cursor for a full re-sync",
+                        pluginCatalog.getName(), e);
             }
         }
     }
@@ -156,9 +168,9 @@ public class MetastoreEventSyncDriver extends MasterDaemon {
             return;
         }
 
-        // Apply in order; on failure the cursor is rolled back to just before the failing descriptor and the
-        // exception propagates (caught + logged in realRun), so the next cycle re-fetches from there and the
-        // edit-log cursor below is NOT written (followers do not jump past a failed apply).
+        // Apply in order; on failure the exception propagates and realRun's catch resets the cursor to -1
+        // (self-heal), so the edit-log cursor below is NOT written (followers do not jump past a failed apply)
+        // and the next cycle first-pulls a clean full refresh instead of retrying the poison descriptor.
         applyDescriptors(catalog, descriptors);
         commitCursor(catalogId, result.getNewCursor(), isMaster);
     }
@@ -177,7 +189,6 @@ public class MetastoreEventSyncDriver extends MasterDaemon {
             try {
                 applyOne(catalog, descriptor);
             } catch (Exception e) {
-                lastSyncedEventIdMap.put(catalog.getId(), descriptor.getEventId() - 1);
                 throw new RuntimeException(
                         "Failed to apply metastore change " + descriptor + " on catalog "
                                 + catalog.getName(), e);
