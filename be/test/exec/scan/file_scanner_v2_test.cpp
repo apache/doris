@@ -365,6 +365,15 @@ TEST(FileScannerV2Test, FileCacheStatisticsArePublishedToScannerProfile) {
     EXPECT_EQ(*profile.get_info_string("PeerCacheNodes"), "peer-a, peer-b");
 }
 
+TEST(FileScannerV2Test, NotFoundIsSkippedOnlyWhenConfigured) {
+    const auto not_found = Status::NotFound("missing external file");
+    EXPECT_TRUE(FileScannerV2::TEST_should_skip_not_found(not_found, true));
+    EXPECT_FALSE(FileScannerV2::TEST_should_skip_not_found(not_found, false));
+    EXPECT_FALSE(
+            FileScannerV2::TEST_should_skip_not_found(Status::InternalError("read failed"), true));
+    EXPECT_FALSE(FileScannerV2::TEST_should_skip_not_found(Status::OK(), true));
+}
+
 // Scenario: partition slots are identified from the explicit FE category when present, otherwise
 // from the legacy is_file_slot flag. Scanner-generated rowid columns must never be treated as
 // partition columns even if FE marks them as non-file slots.

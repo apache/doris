@@ -82,6 +82,7 @@ public:
             int64_t* last_bytes_read_from_remote);
     static void TEST_report_file_cache_profile(
             RuntimeProfile* profile, const io::FileCacheStatistics& file_cache_statistics);
+    static bool TEST_should_skip_not_found(const Status& status, bool ignore_not_found);
 #endif
 
     FileScannerV2(RuntimeState* state, FileScanLocalState* parent, int64_t limit,
@@ -110,7 +111,9 @@ private:
     Status _init_table_reader(const TFileRangeDesc& range);
     Status _create_table_reader_for_format(const TFileRangeDesc& range,
                                            std::unique_ptr<format::TableReader>* reader) const;
-    Status _prepare_table_reader_split(const TFileRangeDesc& range);
+    Status _prepare_table_reader_split(const TFileRangeDesc& range,
+                                       std::map<std::string, Field> partition_values);
+    static bool _should_skip_not_found(const Status& status, bool ignore_not_found);
     bool _should_enable_file_meta_cache() const;
     std::optional<format::GlobalRowIdContext> _create_global_rowid_context(
             const TFileRangeDesc& range) const;
@@ -171,6 +174,7 @@ private:
     ShardedKVCache* _kv_cache = nullptr;
 
     RuntimeProfile::Counter* _get_block_timer = nullptr;
+    RuntimeProfile::Counter* _not_found_file_counter = nullptr;
     RuntimeProfile::Counter* _file_counter = nullptr;
     RuntimeProfile::Counter* _file_read_bytes_counter = nullptr;
     RuntimeProfile::Counter* _file_read_calls_counter = nullptr;

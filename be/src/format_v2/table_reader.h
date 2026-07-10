@@ -107,6 +107,8 @@ struct ReadProfile {
     RuntimeProfile::Counter* create_reader_timer = nullptr;
     RuntimeProfile::Counter* pushdown_agg_timer = nullptr;
     RuntimeProfile::Counter* open_reader_timer = nullptr;
+    RuntimeProfile::Counter* runtime_filter_partition_prune_timer = nullptr;
+    RuntimeProfile::Counter* runtime_filter_partition_pruned_range_counter = nullptr;
 };
 
 struct TableReadOptions {
@@ -134,6 +136,9 @@ struct TableReadOptions {
 struct SplitReadOptions {
     // Split-level information for reader initialization, which may include file path, partition values, delete file info, etc. The content is table format specific and opaque to table reader base class; it's the responsibility of the concrete table reader implementation to parse necessary information for reader initialization and filter pushdown.
     std::map<std::string, Field> partition_values;
+    // Latest scanner conjuncts rewritten to table/global column indices. Runtime filters can
+    // arrive after TableReader::init(), so split preparation must receive a fresh snapshot.
+    VExprContextSPtrs partition_prune_conjuncts;
     ShardedKVCache* cache;
     TFileRangeDesc current_range;
     FileFormat current_split_format = FileFormat::PARQUET;
@@ -167,6 +172,24 @@ public:
     // 1. Pass a new split/task to reader, which will be used in subsequent open_reader() to initialize the underlying file reader.
     // 2. Parse delete predicates from split/task information, which will be used for later dynamic filtering and delete handling.
     virtual Status prepare_split(const SplitReadOptions& options);
+
+    virtual bool current_split_pruned() const { return _current_split_pruned; }
+
+    // Discard the active split after the caller decides an error is ignorable, for example a
+    // stale external-table file listing that returns NOT_FOUND. The next prepare_split() must start
+    // with no concrete reader or split-local state left from the failed split.
+    virtual Status abort_split() {
+        if (_data_reader.reader != nullptr) {
+            RETURN_IF_ERROR(close_current_reader());
+        } else {
+            _current_task.reset();
+            _current_file_description.reset();
+        }
+        _delete_rows = nullptr;
+        _remaining_table_level_count = -1;
+        _current_split_pruned = false;
+        return Status::OK();
+    }
 
     // Public entry point for reading a table-schema block. The base class opens the current reader,
     // advances across EOF, and closes exhausted readers. Subclasses provide protected hooks for
@@ -382,6 +405,9 @@ protected:
     }
 
     Status _build_table_filters_from_conjuncts();
+    Status _evaluate_partition_prune_conjuncts(const VExprContextSPtrs& conjuncts,
+                                               bool* can_filter_all);
+    Status _build_partition_prune_block(Block* block) const;
     Status _open_local_filter_exprs(const FileScanRequest& file_request);
     Status _init_reader_condition_cache(const FileScanRequest& file_request);
     void _finalize_reader_condition_cache();
@@ -1496,6 +1522,7 @@ protected:
     int64_t _remaining_table_level_count = -1;
     std::optional<GlobalRowIdContext> _global_rowid_context;
     bool _aggregate_pushdown_tried = false;
+    bool _current_split_pruned = false;
     TableColumnMapperOptions _mapper_options;
 
 private:
