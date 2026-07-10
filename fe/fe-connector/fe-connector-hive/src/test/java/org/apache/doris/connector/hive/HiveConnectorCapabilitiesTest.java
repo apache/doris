@@ -86,5 +86,15 @@ public class HiveConnectorCapabilitiesTest {
         // re-admits hudi-on-HMS -> red here.
         Assertions.assertFalse(caps.contains(ConnectorCapability.SUPPORTS_COLUMN_AUTO_ANALYZE),
                 "auto-analyze is a per-table marker (excludes hudi-on-HMS), not connector-wide");
+        // SUPPORTS_SAMPLE_ANALYZE is likewise per-table (getTableSchema emits it for plain-hive tables only,
+        // any format). A connector-wide flag would over-admit iceberg/hudi-on-HMS to sampled ANALYZE, which
+        // legacy gated on dlaType==HIVE. MUTATION: declaring it connector-wide -> red here.
+        Assertions.assertFalse(caps.contains(ConnectorCapability.SUPPORTS_SAMPLE_ANALYZE),
+                "sample-analyze is a per-table marker (plain-hive only), not connector-wide");
+        // SUPPORTS_METADATA_TABLE reaches a hudi-on-HMS table ONLY via reflectSiblingScanCapabilities (the hudi
+        // sibling declares it connector-wide); hive must NEVER declare it, or every hms table (incl. plain-hive and
+        // iceberg-on-HMS) would wrongly pass the hudi_meta()/TIMELINE gate. MUTATION: declaring it -> red here.
+        Assertions.assertFalse(caps.contains(ConnectorCapability.SUPPORTS_METADATA_TABLE),
+                "metadata-table reaches hudi-on-HMS via sibling reflection, never hive connector-wide");
     }
 }
