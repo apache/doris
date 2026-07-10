@@ -242,6 +242,22 @@ public class PaimonConnector implements Connector {
         schemaAtMemo.invalidate(dbName, tableName);
     }
 
+    /**
+     * REFRESH DATABASE hook (also reached by a Doris-issued {@code DROP DATABASE} via the generic
+     * {@code PluginDrivenExternalCatalog} dropDb hook, and by the hive gateway's
+     * {@code forEachBuiltSibling} for a paimon sibling): drop BOTH connector-owned caches for EVERY table
+     * in one database — the latest-snapshot pin and the time-travel schema memo — so the next query
+     * re-reads live. Db-scoped analogue of {@link #invalidateTable}; the name is the REMOTE db name.
+     * Without this override paimon inherited the SPI no-op default, so REFRESH DATABASE and DROP DATABASE
+     * (incl. its FORCE table cascade, which bypasses per-table invalidateTable) left both caches stale up
+     * to the TTL.
+     */
+    @Override
+    public void invalidateDb(String dbName) {
+        latestSnapshotCache.invalidateDb(dbName);
+        schemaAtMemo.invalidateDb(dbName);
+    }
+
     @Override
     public void invalidateAll() {
         latestSnapshotCache.invalidateAll();

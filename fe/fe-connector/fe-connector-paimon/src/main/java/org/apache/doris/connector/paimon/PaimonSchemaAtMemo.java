@@ -101,6 +101,17 @@ final class PaimonSchemaAtMemo {
         cache.keySet().removeIf(key -> key.matches(databaseName, tableName));
     }
 
+    /**
+     * Drop every memoized schema for database {@code databaseName} across all its tables / schemaIds /
+     * sys-tables / branches. Wired onto {@code REFRESH DATABASE} and — via the generic
+     * {@code PluginDrivenExternalCatalog} dropDb hook — onto a Doris-issued {@code DROP DATABASE} of the
+     * same name (incl. its FORCE table cascade), so a drop+recreate of a table in that db that reuses a
+     * schemaId does not serve a stale time-travel schema. Db-scoped analogue of {@link #invalidate}.
+     */
+    void invalidateDb(String databaseName) {
+        cache.keySet().removeIf(key -> key.matchesDb(databaseName));
+    }
+
     /** Drop the whole memo. Wired onto {@code REFRESH CATALOG} (alongside the connector rebuild). */
     void invalidateAll() {
         cache.clear();
@@ -133,6 +144,11 @@ final class PaimonSchemaAtMemo {
         /** True if this key belongs to {@code (db, table)} (any schemaId / sys-table / branch). */
         boolean matches(String db, String table) {
             return databaseName.equals(db) && tableName.equals(table);
+        }
+
+        /** True if this key belongs to database {@code db} (any table / schemaId / sys-table / branch). */
+        boolean matchesDb(String db) {
+            return databaseName.equals(db);
         }
 
         @Override

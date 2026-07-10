@@ -70,4 +70,17 @@ public class PaimonConnectorCacheTest {
         // A malformed value must not break catalog schema caching; fall back to no override (engine default).
         Assertions.assertEquals(OptionalLong.empty(), connector(props("not-a-number")).schemaCacheTtlSecondOverride());
     }
+
+    @Test
+    public void invalidateHooksAreNoThrowOnFreshConnector() {
+        // Smoke: the REFRESH TABLE / REFRESH DATABASE / REFRESH CATALOG hooks must be safe on a fresh connector
+        // (they only touch the connector-internal latest-snapshot cache + schema memo; the actual db-scoped
+        // invalidate semantics are in PaimonLatestSnapshotCacheTest / PaimonSchemaAtMemoTest). invalidateDb
+        // wires BOTH caches — a mutation dropping the schemaAtMemo half still passes this smoke but fails those.
+        // MUTATION: an NPE on an empty cache -> red.
+        PaimonConnector connector = connector(Collections.emptyMap());
+        Assertions.assertDoesNotThrow(() -> connector.invalidateTable("db1", "t1"));
+        Assertions.assertDoesNotThrow(() -> connector.invalidateDb("db1"));
+        Assertions.assertDoesNotThrow(connector::invalidateAll);
+    }
 }

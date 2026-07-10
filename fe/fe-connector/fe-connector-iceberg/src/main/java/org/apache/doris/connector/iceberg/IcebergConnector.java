@@ -449,6 +449,22 @@ public class IcebergConnector implements Connector {
     }
 
     /**
+     * REFRESH DATABASE hook (also reached by a Doris-issued {@code DROP DATABASE} via the generic
+     * {@code PluginDrivenExternalCatalog} dropDb hook, and by the hive gateway's
+     * {@code forEachBuiltSibling} for an iceberg-on-HMS sibling): drop the cached latest snapshot for
+     * EVERY table in one database so the next query re-pins live. Db-scoped analogue of
+     * {@link #invalidateTable}; the name is the REMOTE db name (RefreshManager / the dropDb hook pass
+     * remote names). Without this override iceberg inherited the SPI no-op default, so REFRESH DATABASE
+     * and DROP DATABASE (incl. its FORCE table cascade, which bypasses per-table invalidateTable) left
+     * the snapshot pins stale up to the TTL. The path-keyed manifest cache is intentionally NOT cleared
+     * (legacy parity — only REFRESH CATALOG drops manifests).
+     */
+    @Override
+    public void invalidateDb(String dbName) {
+        latestSnapshotCache.invalidateDb(dbName);
+    }
+
+    /**
      * REFRESH CATALOG hook: drop ALL of this catalog's connector-owned caches. Clears both the latest-snapshot
      * cache and the (path-keyed) manifest cache — mirroring legacy {@code IcebergExternalMetaCache}'s
      * catalog-wide {@code group.invalidateAll()}, which dropped table (latest-snapshot projection) AND manifest
