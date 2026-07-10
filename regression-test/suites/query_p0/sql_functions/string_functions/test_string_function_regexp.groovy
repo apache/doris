@@ -141,7 +141,7 @@ suite("test_string_function_regexp") {
     qt_regexp_extract_all_array_7 "select regexp_extract_all_array('abcdfesscca', '(ab|c|)');"
     qt_regexp_extract_all_array_8 "SELECT regexp_extract_all_array(k, '(\\\\w+)') from test_string_function_regexp ORDER BY k;"
     qt_regexp_extract_all_array_9 "SELECT regexp_extract_all_array(k, '([a-z]+)') from test_string_function_regexp ORDER BY k;"
-    qt_regexp_extract_all_array_10 "SELECT k, v, regexp_extract_all_array(k, '(\\\\w+)') from test_string_function_regexp ORDER BY k;"
+    qt_regexp_extract_all_array_10 "SELECT k, v, regexp_extract_all_array(k, '(\\\\w+)') from test_string_function_regexp ORDER BY k, v;"
     qt_regexp_extract_all_array_11 "SELECT regexp_extract_all_array(k, concat('^', k)) from test_string_function_regexp WHERE k IS NOT NULL ORDER BY k;"
 
     qt_sql "SELECT regexp_replace('a b c', \" \", \"-\");"
