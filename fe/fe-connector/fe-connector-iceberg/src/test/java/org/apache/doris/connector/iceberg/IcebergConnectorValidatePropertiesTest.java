@@ -139,4 +139,47 @@ public class IcebergConnectorValidatePropertiesTest {
                 "meta.cache.iceberg.manifest.ttl-second", "0",
                 "meta.cache.iceberg.manifest.capacity", "1024"));
     }
+
+    // ───────────────────────── per-user session (iceberg.rest.session=user, #63068) ─────────────────────────
+
+    @Test
+    public void userSessionRequiresOauth2SecurityType() {
+        // A user-session catalog projects each user's own OAuth2 token, so it must declare security.type=oauth2;
+        // a session=user catalog on the default (none) security is rejected up front.
+        Assertions.assertEquals("iceberg.rest.session=user requires iceberg.rest.security.type=oauth2",
+                rejectMessage(props("iceberg.catalog.type", "rest", "iceberg.rest.uri", "http://r",
+                        "iceberg.rest.session", "user")));
+    }
+
+    @Test
+    public void userSessionAcceptedWithOauth2AndNoStaticCredential() {
+        // #63068 parity: session=user relaxes the "oauth2 requires credential or token" rule — the per-request
+        // user token supplies identity, so NO static bootstrap credential is required (and none must leak in).
+        PROVIDER.validateProperties(props("iceberg.catalog.type", "rest", "iceberg.rest.uri", "http://r",
+                "iceberg.rest.security.type", "oauth2", "iceberg.rest.session", "user"));
+    }
+
+    @Test
+    public void nonUserOauth2StillRequiresCredentialOrToken() {
+        // The relaxation is scoped to session=user: a plain oauth2 catalog with neither credential nor token is
+        // still rejected (guards against the relaxation widening to shared catalogs).
+        Assertions.assertEquals("OAuth2 requires either credential or token",
+                rejectMessage(props("iceberg.catalog.type", "rest", "iceberg.rest.uri", "http://r",
+                        "iceberg.rest.security.type", "oauth2")));
+    }
+
+    @Test
+    public void invalidSessionModeRejected() {
+        Assertions.assertEquals("Invalid iceberg.rest.session: bogus. Supported values are: none, user",
+                rejectMessage(props("iceberg.catalog.type", "rest", "iceberg.rest.uri", "http://r",
+                        "iceberg.rest.session", "bogus")));
+    }
+
+    @Test
+    public void invalidDelegatedTokenModeRejected() {
+        Assertions.assertEquals("Invalid iceberg.rest.oauth2.delegated-token-mode: bogus. "
+                        + "Supported values are: access_token, token_exchange",
+                rejectMessage(props("iceberg.catalog.type", "rest", "iceberg.rest.uri", "http://r",
+                        "iceberg.rest.oauth2.delegated-token-mode", "bogus")));
+    }
 }

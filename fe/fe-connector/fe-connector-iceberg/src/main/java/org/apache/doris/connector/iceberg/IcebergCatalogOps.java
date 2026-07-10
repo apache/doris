@@ -197,6 +197,11 @@ public interface IcebergCatalogOps {
         private static final String NAMESPACE_LOCATION_PROP = "location";
 
         private final Catalog catalog;
+        // Explicit view catalog for the session-aware (iceberg.rest.session=user) path: a per-request
+        // RESTSessionCatalog.asCatalog(ctx) is a Catalog + SupportsNamespaces but NOT a ViewCatalog, so its view
+        // facet (asViewCatalog(ctx)) is injected here separately. null on the shared path, where the catalog
+        // itself is cast to ViewCatalog when it implements it (RESTCatalog does).
+        private final ViewCatalog viewCatalog;
         // Listing-parity gating mirrored from legacy IcebergMetadataOps (threaded from IcebergConnector):
         private final boolean restFlavor;
         private final boolean nestedNamespaceEnabled;
@@ -209,7 +214,13 @@ public interface IcebergCatalogOps {
 
         public CatalogBackedIcebergCatalogOps(Catalog catalog, boolean restFlavor,
                 boolean nestedNamespaceEnabled, boolean viewEnabled, Optional<String> externalCatalogName) {
+            this(catalog, null, restFlavor, nestedNamespaceEnabled, viewEnabled, externalCatalogName);
+        }
+
+        public CatalogBackedIcebergCatalogOps(Catalog catalog, ViewCatalog viewCatalog, boolean restFlavor,
+                boolean nestedNamespaceEnabled, boolean viewEnabled, Optional<String> externalCatalogName) {
             this.catalog = catalog;
+            this.viewCatalog = viewCatalog;
             this.restFlavor = restFlavor;
             this.nestedNamespaceEnabled = nestedNamespaceEnabled;
             this.viewEnabled = viewEnabled;
@@ -264,7 +275,7 @@ public interface IcebergCatalogOps {
             if (!isViewCatalogEnabled()) {
                 return tableNames;
             }
-            List<String> views = ((ViewCatalog) catalog).listViews(ns).stream()
+            List<String> views = resolveViewCatalog().listViews(ns).stream()
                     .map(TableIdentifier::name)
                     .collect(Collectors.toList());
             if (views.isEmpty()) {
@@ -283,7 +294,7 @@ public interface IcebergCatalogOps {
             if (!isViewCatalogEnabled()) {
                 return Collections.emptyList();
             }
-            return ((ViewCatalog) catalog).listViews(toNamespace(dbName)).stream()
+            return resolveViewCatalog().listViews(toNamespace(dbName)).stream()
                     .map(TableIdentifier::name)
                     .collect(Collectors.toList());
         }
@@ -300,7 +311,7 @@ public interface IcebergCatalogOps {
             if (!isViewCatalogEnabled()) {
                 return false;
             }
-            return ((ViewCatalog) catalog).viewExists(toTableIdentifier(dbName, viewName));
+            return resolveViewCatalog().viewExists(toTableIdentifier(dbName, viewName));
         }
 
         @Override
@@ -312,7 +323,7 @@ public interface IcebergCatalogOps {
             if (!isViewCatalogEnabled()) {
                 throw new DorisConnectorException("View is not supported with not view catalog.");
             }
-            return ((ViewCatalog) catalog).loadView(toTableIdentifier(dbName, viewName));
+            return resolveViewCatalog().loadView(toTableIdentifier(dbName, viewName));
         }
 
         @Override
@@ -322,7 +333,7 @@ public interface IcebergCatalogOps {
             if (!isViewCatalogEnabled()) {
                 throw new DorisConnectorException("Drop Iceberg view is not supported with not view catalog.");
             }
-            ((ViewCatalog) catalog).dropView(toTableIdentifier(dbName, viewName));
+            resolveViewCatalog().dropView(toTableIdentifier(dbName, viewName));
         }
 
         @Override
@@ -674,12 +685,24 @@ public interface IcebergCatalogOps {
             return (SupportsNamespaces) catalog;
         }
 
-        /** View filtering is on iff the catalog is a {@link ViewCatalog} and (for REST) views are enabled. */
+        /** View filtering is on iff a view catalog is resolvable and (for REST) views are enabled. */
         private boolean isViewCatalogEnabled() {
-            if (!(catalog instanceof ViewCatalog)) {
+            if (resolveViewCatalog() == null) {
                 return false;
             }
             return !restFlavor || viewEnabled;
+        }
+
+        /**
+         * The view catalog to route view ops through: the explicitly-injected one (the session=user per-request
+         * {@code asViewCatalog(ctx)}), else the backing catalog itself when it implements {@link ViewCatalog}
+         * (the shared RESTCatalog path). {@code null} when the catalog has no view facet.
+         */
+        private ViewCatalog resolveViewCatalog() {
+            if (viewCatalog != null) {
+                return viewCatalog;
+            }
+            return catalog instanceof ViewCatalog ? (ViewCatalog) catalog : null;
         }
 
         /** The root namespace to start database listing from: the external-catalog level, else empty. */

@@ -51,6 +51,14 @@ public final class IcebergRestMetaStoreProperties extends AbstractMetaStorePrope
     private static final String ICEBERG_REST_ROLE_ARN = "iceberg.rest.role_arn";
     private static final String ICEBERG_REST_EXTERNAL_ID = "iceberg.rest.external-id";
 
+    // Per-user session (#63068 re-migration). Local literal copies (this metastore module does not depend on
+    // fe-connector-iceberg, so IcebergConnectorProperties' constants are not importable — same rationale as the
+    // "none"/"oauth2" security-type literals already inlined below).
+    private static final String SESSION_NONE = "none";
+    private static final String SESSION_USER = "user";
+    private static final String TOKEN_MODE_ACCESS_TOKEN = "access_token";
+    private static final String TOKEN_MODE_TOKEN_EXCHANGE = "token_exchange";
+
     @ConnectorProperty(names = {"iceberg.rest.security.type"}, required = false,
             description = "The security type of the iceberg rest catalog service, optional: (none, oauth2).")
     private String securityType = "none";
@@ -91,6 +99,16 @@ public final class IcebergRestMetaStoreProperties extends AbstractMetaStorePrope
             description = "The secret access key for the iceberg rest catalog service.")
     private String secretAccessKey = "";
 
+    @ConnectorProperty(names = {"iceberg.rest.session"}, required = false,
+            description = "Per-user session mode of the iceberg rest catalog, optional: (none, user). "
+                    + "user requires iceberg.rest.security.type=oauth2.")
+    private String session = "none";
+
+    @ConnectorProperty(names = {"iceberg.rest.oauth2.delegated-token-mode"}, required = false,
+            description = "How the user's delegated credential is attached in session=user mode, optional: "
+                    + "(access_token, token_exchange).")
+    private String delegatedTokenMode = "access_token";
+
     private IcebergRestMetaStoreProperties(Map<String, String> raw) {
         super(raw);
     }
@@ -115,6 +133,8 @@ public final class IcebergRestMetaStoreProperties extends AbstractMetaStorePrope
         }
         // 2. AWS credentials-provider mode (legacy AwsCredentialsProviderMode.fromString).
         validateCredentialsProviderMode();
+        // 2b. Per-user session (#63068): session enum, delegated-token-mode enum, and session=user⇒oauth2.
+        validateUserSession();
         // 3-10. Legacy buildRules() structure: eager throws interleaved with ParamRules registration, then
         // validate() runs the registered rules in registration order. Statement order is preserved verbatim
         // so the observable fire order matches §4.
@@ -126,11 +146,13 @@ public final class IcebergRestMetaStoreProperties extends AbstractMetaStorePrope
         if (StringUtils.isNotBlank(oauth2Token) && StringUtils.isNotBlank(oauth2Scope)) {
             throw new IllegalArgumentException("OAuth2 scope is only applicable when using credential, not token");
         }
-        // If OAuth2 is enabled, require either credential or token (eager).
+        // If OAuth2 is enabled, require either credential or token (eager) — EXCEPT for a user-session catalog,
+        // which has no static bootstrap credential (the per-request user token supplies identity), so the
+        // requirement is relaxed for session=user (#63068 parity).
         if ("oauth2".equalsIgnoreCase(securityType)) {
             boolean hasCredential = StringUtils.isNotBlank(oauth2Credential);
             boolean hasToken = StringUtils.isNotBlank(oauth2Token);
-            if (!hasCredential && !hasToken) {
+            if (!hasCredential && !hasToken && !isUserSession()) {
                 throw new IllegalArgumentException("OAuth2 requires either credential or token");
             }
         }
@@ -173,6 +195,32 @@ public final class IcebergRestMetaStoreProperties extends AbstractMetaStorePrope
                 throw new IllegalArgumentException(
                         "Unsupported AWS credentials provider mode: " + credentialsProviderType);
         }
+    }
+
+    /**
+     * Validates the per-user session config (#63068): the {@code iceberg.rest.session} enum (none/user), the
+     * {@code iceberg.rest.oauth2.delegated-token-mode} enum (access_token/token_exchange), and that a
+     * {@code session=user} catalog uses {@code security.type=oauth2} (user-session requires OAuth2 — it has no
+     * bootstrap identity of its own). Case-insensitive to match the security-type check above.
+     */
+    private void validateUserSession() {
+        if (!SESSION_NONE.equalsIgnoreCase(session) && !SESSION_USER.equalsIgnoreCase(session)) {
+            throw new IllegalArgumentException("Invalid iceberg.rest.session: " + session
+                    + ". Supported values are: none, user");
+        }
+        if (!TOKEN_MODE_ACCESS_TOKEN.equalsIgnoreCase(delegatedTokenMode)
+                && !TOKEN_MODE_TOKEN_EXCHANGE.equalsIgnoreCase(delegatedTokenMode)) {
+            throw new IllegalArgumentException("Invalid iceberg.rest.oauth2.delegated-token-mode: "
+                    + delegatedTokenMode + ". Supported values are: access_token, token_exchange");
+        }
+        if (isUserSession() && !"oauth2".equalsIgnoreCase(securityType)) {
+            throw new IllegalArgumentException(
+                    "iceberg.rest.session=user requires iceberg.rest.security.type=oauth2");
+        }
+    }
+
+    private boolean isUserSession() {
+        return SESSION_USER.equalsIgnoreCase(session);
     }
 
     private void rejectUnsupportedAwsAssumeRoleProperty(String propertyName) {

@@ -66,8 +66,9 @@ public class IcebergProcedureOpsTest {
 
     private static IcebergProcedureOps newOps() {
         // getSupportedProcedures + the unknown-name rejection never touch the catalog/context, so they may
-        // be null here; the catalog-backed path is exercised below with an InMemoryCatalog.
-        return new IcebergProcedureOps(Collections.emptyMap(), null, null);
+        // be null here; the catalog-backed path is exercised below with an InMemoryCatalog. The (IcebergCatalogOps)
+        // cast selects the ops constructor over the session-aware resolver overload (a bare null matches both).
+        return new IcebergProcedureOps(Collections.emptyMap(), (IcebergCatalogOps) null, null);
     }
 
     @Test

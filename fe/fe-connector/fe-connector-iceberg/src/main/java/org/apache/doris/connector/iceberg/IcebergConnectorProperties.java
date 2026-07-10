@@ -53,6 +53,20 @@ public final class IcebergConnectorProperties {
     public static final String REST_NESTED_NAMESPACE_ENABLED = "iceberg.rest.nested-namespace-enabled";
     public static final String REST_VIEW_ENABLED = "iceberg.rest.view-enabled";
 
+    // -- REST per-user session (OIDC delegated credential; #63068 re-migration) --
+    // iceberg.rest.session = none (default, one shared catalog identity) | user (project the querying user's
+    // delegated credential onto a per-request Iceberg REST SessionCatalog; requires security.type=oauth2 and
+    // gates the SUPPORTS_USER_SESSION capability). delegated-token-mode picks how the token is attached:
+    // access_token = verbatim OAuth2 bearer; token_exchange = typed token key so the REST server exchanges it.
+    public static final String REST_SESSION = "iceberg.rest.session";
+    public static final String SESSION_NONE = "none";
+    public static final String SESSION_USER = "user";
+    public static final String REST_DELEGATED_TOKEN_MODE = "iceberg.rest.oauth2.delegated-token-mode";
+    public static final String DELEGATED_TOKEN_MODE_ACCESS_TOKEN = "access_token";
+    public static final String DELEGATED_TOKEN_MODE_TOKEN_EXCHANGE = "token_exchange";
+    // Optional per-session OAuth2 AuthSession timeout (maps to CatalogProperties.AUTH_SESSION_TIMEOUT_MS).
+    public static final String REST_SESSION_TIMEOUT = "iceberg.rest.session-timeout";
+
     // -- Namespace hierarchy (REST 3-level <catalog>.<db>.<table>) --
     // Mirrors legacy IcebergExternalCatalog.EXTERNAL_CATALOG_NAME: when present, this catalog level is
     // appended to every namespace and roots database listing.
