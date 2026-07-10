@@ -437,9 +437,11 @@ public class IvmDeltaRewriteHelper {
 
     /**
      * When a hidden column from the old plan is missing in the new plan's output,
-     * choose a suitable default literal instead of NULL.  For delete_sign and
-     * version columns a literal {@code 0} keeps upstream filters ({@code
-     * delete_sign = 0}) harmless; other hidden columns still fall back to NULL.
+     * choose a suitable default literal instead of NULL. For MOW tables, the
+     * bound OLAP scan is naturally guarded by {@code delete_sign = 0}; using
+     * NULL for the stream scan's missing delete_sign column would make that
+     * filter always false. Version also uses its valid default value 0 when
+     * absent from the stream scan. Other hidden columns still fall back to NULL.
      */
     private Literal hiddenColumnFallbackLiteral(NamedExpression oldExpr) {
         String name = oldExpr.getName();
@@ -453,9 +455,9 @@ public class IvmDeltaRewriteHelper {
     }
 
     /**
-     * Remap a new plan's output back to the old scan's output ExprIds and names.
+     * Add a project that remaps a replacement plan's output to the original OLAP scan's ExprIds and names.
      */
-    LogicalPlan remapScanOutput(LogicalOlapScan oldScan, LogicalPlan newPlan) {
+    LogicalPlan remapOlapScanToPlan(LogicalOlapScan oldScan, LogicalPlan newPlan) {
         Map<String, Slot> newSlotByName = new LinkedHashMap<>();
         for (Slot slot : newPlan.getOutput()) {
             newSlotByName.put(slot.getName(), slot);
@@ -486,11 +488,13 @@ public class IvmDeltaRewriteHelper {
     }
 
     /**
-     * Rebuild a delta-wrapper project so its aliases point to a new child plan's output.
+     * Rebuild the project above an incremental stream scan after replacing that child with another plan
+     * such as a pre/post snapshot scan. The remapped project preserves the original ExprIds/names while
+     * rebinding placeholder hidden columns back to real snapshot outputs when they exist.
      */
-    LogicalProject<?> remapProjectChildToNewPlan(LogicalProject<?> oldProject, LogicalPlan newChild) {
+    LogicalProject<?> remapStreamScanToPlan(LogicalProject<?> oldProject, LogicalPlan newPlan) {
         Map<String, Slot> newSlotByName = new LinkedHashMap<>();
-        for (Slot slot : newChild.getOutput()) {
+        for (Slot slot : newPlan.getOutput()) {
             newSlotByName.put(slot.getName(), slot);
         }
         ImmutableList.Builder<NamedExpression> newProjects =
@@ -501,7 +505,8 @@ public class IvmDeltaRewriteHelper {
                 Expression childExpr = alias.child();
                 if (childExpr instanceof Slot) {
                     newProjects.add(remapAliasToNewChild(alias, (Slot) childExpr, newSlotByName));
-                } else if (childExpr instanceof NullLiteral) {
+                } else if (childExpr instanceof Literal
+                        && childExpr.equals(hiddenColumnFallbackLiteral(alias))) {
                     Slot newSlot = newSlotByName.get(alias.getName());
                     if (newSlot == null) {
                         newProjects.add(new Alias(alias.getExprId(),
@@ -532,7 +537,7 @@ public class IvmDeltaRewriteHelper {
                         "IVM: unsupported project output in snapshot remap: " + expr);
             }
         }
-        return new LogicalProject<>(newProjects.build(), newChild);
+        return new LogicalProject<>(newProjects.build(), newPlan);
     }
 
     private Alias remapAliasToNewChild(Alias alias, Slot oldChildSlot, Map<String, Slot> newSlotByName) {
