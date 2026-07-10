@@ -126,7 +126,10 @@ Suite.metaClass.trigger_and_wait_compaction = { String table_name, String compac
                 triggered_tablets.add(tablet) // compaction already in queue, treat it as successfully triggered
             } else if (!auto_compaction_disabled) {
                 // ignore the error if auto compaction enabled
-            } else if (isNoopCompactionStatus(trigger_status.status) || status_lower.contains("e-2010")) {
+            } else if (status_lower.contains("e-2010")) {
+                // cumulative compaction handed delete-version rowsets to base compaction, so still wait below.
+                triggered_tablets.add(tablet)
+            } else if (isNoopCompactionStatus(trigger_status.status)) {
                 // ignore this tablet compaction.
             } else if (isIgnoredCompactionStatus(trigger_status.status)) {
                 // ignore this tablet compaction if the error is in the ignored_errors list
@@ -194,9 +197,7 @@ Suite.metaClass.trigger_and_wait_compaction = { String table_name, String compac
                                 isIgnoredCompactionStatus(tabletStatus["last ${compaction_type} status"]))
                 def baseFailureTimeChanged = handedOffToBaseCompactionAfterDeleteVersion &&
                         oldStatus["last base failure time"] != tabletStatus["last base failure time"]
-                def baseFailureNonFatal = baseFailureTimeChanged &&
-                        (isNoopCompactionStatus(tabletStatus["last base status"]) ||
-                                isIgnoredCompactionStatus(tabletStatus["last base status"]))
+                def baseFailureIgnored = baseFailureTimeChanged && isIgnoredCompactionStatus(tabletStatus["last base status"])
                 if (!running && !handedOffToBaseCompactionAfterDeleteVersion &&
                         !completedByBaseCompactionAfterDeleteVersion &&
                         success_time_unchanged && !failure_time_unchanged && !compactionFailureNonFatal) {
@@ -205,13 +206,13 @@ Suite.metaClass.trigger_and_wait_compaction = { String table_name, String compac
                 }
                 if (!running && handedOffToBaseCompactionAfterDeleteVersion &&
                         !completedByBaseCompactionAfterDeleteVersion &&
-                        baseFailureTimeChanged && !baseFailureNonFatal) {
+                        baseFailureTimeChanged && !baseFailureIgnored) {
                     throw new Exception("base compaction failed after cumulative E-2010 handoff, be host: ${be_host}, " +
                             "tablet id: ${tablet.TabletId}, run status: ${compactionStatus.run_status}, " +
                             "old status: ${oldStatus}, new status: ${tabletStatus}")
                 }
                 def compactionFinished = completedByBaseCompactionAfterDeleteVersion ||
-                        compactionFailureNonFatal || baseFailureNonFatal ||
+                        compactionFailureNonFatal || baseFailureIgnored ||
                         (!handedOffToBaseCompactionAfterDeleteVersion && !success_time_unchanged)
                 running = running || !compactionFinished
                 if (running) {
