@@ -38,6 +38,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
@@ -65,13 +66,30 @@ public class IcebergProcedureOps implements ConnectorProcedureOps {
     // per-procedure arguments arrive through execute()'s own {@code properties} parameter (the EXECUTE
     // properties), so this field is not read here.
     private final Map<String, String> properties;
-    private final IcebergCatalogOps catalogOps;
+    // Per-request catalog-ops resolver: applied with the current ConnectorSession to obtain the IcebergCatalogOps
+    // for that request. For a iceberg.rest.session=user catalog the connector passes this::newCatalogBackedOps so
+    // ALTER TABLE ... EXECUTE loads the target table through the querying user's per-request delegated REST catalog
+    // (fail-closed); every other catalog (and the offline-test ctor) resolves the single shared ops (s -> catalogOps).
+    private final Function<ConnectorSession, IcebergCatalogOps> catalogOpsResolver;
     private final ConnectorContext context;
 
     public IcebergProcedureOps(Map<String, String> properties, IcebergCatalogOps catalogOps,
             ConnectorContext context) {
+        // Constant resolver: this ctor (offline tests + the pre-session connector path) binds a single ops that
+        // ignores the session, so existing behaviour/tests are byte-identical.
+        this(properties, session -> catalogOps, context);
+    }
+
+    /**
+     * Session-aware ctor used by {@link IcebergConnector#getProcedureOps()}: {@code catalogOpsResolver} is applied
+     * per request with the current {@link ConnectorSession} so a {@code iceberg.rest.session=user} catalog resolves
+     * the querying user's per-request delegated catalog (the connector passes {@code this::newCatalogBackedOps});
+     * every other catalog resolves the single shared ops.
+     */
+    public IcebergProcedureOps(Map<String, String> properties,
+            Function<ConnectorSession, IcebergCatalogOps> catalogOpsResolver, ConnectorContext context) {
         this.properties = properties;
-        this.catalogOps = catalogOps;
+        this.catalogOpsResolver = catalogOpsResolver;
         this.context = context;
     }
 
@@ -149,13 +167,16 @@ public class IcebergProcedureOps implements ConnectorProcedureOps {
      */
     private ConnectorProcedureResult runInAuthScope(IcebergTableHandle handle, BaseIcebergAction action,
             ConnectorSession session) {
+        // Resolve the per-request ops before the auth scope so a session=user fail-closed surfaces the
+        // DorisConnectorException verbatim (not wrapped by executeAuthenticated's catch).
+        IcebergCatalogOps ops = catalogOpsResolver.apply(session);
         ConnectorProcedureResult result;
         if (context == null) {
-            result = action.execute(catalogOps.loadTable(handle.getDbName(), handle.getTableName()), session);
+            result = action.execute(ops.loadTable(handle.getDbName(), handle.getTableName()), session);
         } else {
             try {
                 result = context.executeAuthenticated(() ->
-                        action.execute(catalogOps.loadTable(handle.getDbName(), handle.getTableName()), session));
+                        action.execute(ops.loadTable(handle.getDbName(), handle.getTableName()), session));
             } catch (DorisConnectorException e) {
                 throw e;
             } catch (Exception e) {
@@ -176,14 +197,17 @@ public class IcebergProcedureOps implements ConnectorProcedureOps {
             IcebergRewriteDataFilesAction action, ConnectorSession session) {
         ZoneId sessionZone = IcebergTimeUtils.resolveSessionZone(session);
         RewriteDataFilePlanner planner = new RewriteDataFilePlanner(action.buildRewriteParameters(), sessionZone);
+        // Resolve the per-request ops before the auth scope (see runInAuthScope): a session=user fail-closed
+        // surfaces verbatim.
+        IcebergCatalogOps ops = catalogOpsResolver.apply(session);
         List<RewriteDataGroup> groups;
         if (context == null) {
             groups = planner.planAndOrganizeTasks(
-                    catalogOps.loadTable(handle.getDbName(), handle.getTableName()));
+                    ops.loadTable(handle.getDbName(), handle.getTableName()));
         } else {
             try {
                 groups = context.executeAuthenticated(() -> planner.planAndOrganizeTasks(
-                        catalogOps.loadTable(handle.getDbName(), handle.getTableName())));
+                        ops.loadTable(handle.getDbName(), handle.getTableName())));
             } catch (DorisConnectorException e) {
                 throw e;
             } catch (Exception e) {
