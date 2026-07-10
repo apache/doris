@@ -4002,6 +4002,13 @@ public class SessionVariable implements Serializable, Writable {
         this.hiveTextCompression = Util.getRandomString(
                 "gzip", "defalte", "bzip2", "zstd", "lz4", "lzo", "snappy", "plain");
 
+        // batch mode
+        this.enableExternalTableBatchMode = random.nextBoolean();
+        if (this.enableExternalTableBatchMode) {
+            this.numPartitionsInBatchMode = Util.getRandomInt(0, 1024, Integer.MAX_VALUE);
+            this.numFilesInBatchMode = Util.getRandomInt(0, 1024, Integer.MAX_VALUE);
+        }
+
         // common
         this.enableCountPushDownForExternalTable = random.nextBoolean();
     }
