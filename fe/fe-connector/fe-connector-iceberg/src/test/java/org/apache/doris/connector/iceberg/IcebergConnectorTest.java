@@ -19,6 +19,7 @@ package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.connector.api.ConnectorCapability;
 import org.apache.doris.connector.api.ConnectorContractValidator;
+import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.handle.WriteOperation;
 import org.apache.doris.filesystem.properties.StorageProperties;
@@ -38,6 +39,7 @@ import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Function;
 
 /**
  * Connector-level tests for {@link IcebergConnector} that can run offline (no live catalog / no AWS call). The
@@ -227,11 +229,19 @@ public class IcebergConnectorTest {
         return connector;
     }
 
-    /** Reflect out the private {@code catalogOps} the connector built each provider with. */
+    /**
+     * Reflect out the per-request ops the connector built each provider with. Since P6.6-C6 each provider holds a
+     * {@code Function<ConnectorSession, IcebergCatalogOps>} resolver (not a bare ops); these catalogs are NOT
+     * {@code iceberg.rest.session=user}, so the resolver ignores the session and yields the shared session-less
+     * ops (the same object the pre-resolver provider held) — apply it with a null session to obtain it.
+     */
     private static IcebergCatalogOps catalogOpsOf(Object provider) throws Exception {
-        Field f = provider.getClass().getDeclaredField("catalogOps");
+        Field f = provider.getClass().getDeclaredField("catalogOpsResolver");
         f.setAccessible(true);
-        return (IcebergCatalogOps) f.get(provider);
+        @SuppressWarnings("unchecked")
+        Function<ConnectorSession, IcebergCatalogOps> resolver =
+                (Function<ConnectorSession, IcebergCatalogOps>) f.get(provider);
+        return resolver.apply(null);
     }
 
     @Test

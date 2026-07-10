@@ -74,6 +74,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Function;
 
 /**
  * Write plan provider for iceberg INSERT / INSERT OVERWRITE.
@@ -127,7 +128,14 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
     }
 
     private final Map<String, String> properties;
-    private final IcebergCatalogOps catalogOps;
+    // Per-request catalog-ops resolver: applied with the current ConnectorSession to obtain the IcebergCatalogOps
+    // for that request. For a iceberg.rest.session=user catalog the connector passes this::newCatalogBackedOps so
+    // the write-side read helpers (explain sort clause / write sort columns / write partitioning) resolve the
+    // table through the querying user's per-request delegated REST catalog (fail-closed). The actual INSERT/DELETE/
+    // MERGE commit is already per-user: it loads through IcebergConnectorTransaction, opened by
+    // IcebergConnectorMetadata.beginTransaction over the session-aware metadata ops. Offline-test ctors resolve the
+    // single shared ops regardless of session (constant s -> catalogOps).
+    private final Function<ConnectorSession, IcebergCatalogOps> catalogOpsResolver;
     private final ConnectorContext context;
     // commit-bridge supply (S4 part 2): the per-catalog stash the scan provider filled with each touched data
     // file's non-equality delete supply. planWrite retrieves (and evicts) it by queryId to fill the v3
@@ -142,8 +150,22 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
 
     public IcebergWritePlanProvider(Map<String, String> properties, IcebergCatalogOps catalogOps,
             ConnectorContext context, IcebergRewritableDeleteStash rewritableDeleteStash) {
+        // Constant resolver: these ctors (offline tests) bind a single ops that ignores the session, so existing
+        // behaviour/tests are byte-identical.
+        this(properties, session -> catalogOps, context, rewritableDeleteStash);
+    }
+
+    /**
+     * Session-aware ctor used by {@link IcebergConnector#getWritePlanProvider()}: {@code catalogOpsResolver} is
+     * applied per request with the current {@link ConnectorSession} so a {@code iceberg.rest.session=user} catalog
+     * resolves the querying user's per-request delegated catalog for the write-side read helpers (the connector
+     * passes {@code this::newCatalogBackedOps}); every other catalog resolves the single shared ops.
+     */
+    public IcebergWritePlanProvider(Map<String, String> properties,
+            Function<ConnectorSession, IcebergCatalogOps> catalogOpsResolver,
+            ConnectorContext context, IcebergRewritableDeleteStash rewritableDeleteStash) {
         this.properties = properties;
-        this.catalogOps = catalogOps;
+        this.catalogOpsResolver = catalogOpsResolver;
         this.context = context;
         this.rewritableDeleteStash = rewritableDeleteStash;
     }
@@ -216,7 +238,7 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
         // Legacy IcebergTableSink also rendered the table's write sort order (getSortOrderSql) when sorted;
         // reuse the SHOW CREATE TABLE renderer so EXPLAIN INSERT surfaces the same "ORDER BY (...)" the BE
         // write applies (getWriteSortColumns), keeping EXPLAIN and SHOW CREATE TABLE consistent.
-        String sortClause = IcebergConnectorMetadata.buildShowSortClause(resolveTable(tableHandle));
+        String sortClause = IcebergConnectorMetadata.buildShowSortClause(resolveTable(session, tableHandle));
         if (!sortClause.isEmpty()) {
             output.append(prefix).append("  ").append(sortClause).append("\n");
         }
@@ -232,7 +254,7 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
     @Override
     public List<ConnectorWriteSortColumn> getWriteSortColumns(ConnectorSession session,
             ConnectorTableHandle tableHandle) {
-        Table table = resolveTable((IcebergTableHandle) tableHandle);
+        Table table = resolveTable(session, (IcebergTableHandle) tableHandle);
         SortOrder sortOrder = table.sortOrder();
         if (!sortOrder.isSorted()) {
             // null == "no write sort order" (legacy gates setSortInfo on isSorted()). A sorted table
@@ -261,7 +283,7 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
     @Override
     public ConnectorWritePartitionSpec getWritePartitioning(ConnectorSession session,
             ConnectorTableHandle tableHandle) {
-        Table table = resolveTable((IcebergTableHandle) tableHandle);
+        Table table = resolveTable(session, (IcebergTableHandle) tableHandle);
         PartitionSpec spec = table.spec();
         if (spec == null || !spec.isPartitioned()) {
             // null == "unpartitioned" (legacy PhysicalIcebergMergeSink.buildInsertPartitionFields gates on
@@ -664,13 +686,15 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
         return (IcebergConnectorTransaction) transaction.get();
     }
 
-    private Table resolveTable(IcebergTableHandle handle) {
+    private Table resolveTable(ConnectorSession session, IcebergTableHandle handle) {
+        // Resolve the per-request ops before the auth scope so a session=user fail-closed surfaces verbatim.
+        IcebergCatalogOps ops = catalogOpsResolver.apply(session);
         if (context == null) {
-            return catalogOps.loadTable(handle.getDbName(), handle.getTableName());
+            return ops.loadTable(handle.getDbName(), handle.getTableName());
         }
         try {
             return context.executeAuthenticated(
-                    () -> catalogOps.loadTable(handle.getDbName(), handle.getTableName()));
+                    () -> ops.loadTable(handle.getDbName(), handle.getTableName()));
         } catch (Exception e) {
             throw new DorisConnectorException("Failed to load iceberg table "
                     + handle.getDbName() + "." + handle.getTableName() + ": " + e.getMessage(), e);
