@@ -57,6 +57,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.Function;
@@ -177,8 +178,12 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
             // InternalSchema at the instant, D3) keeps the latest schema — byte-identical.
             Schema jniSchema = HudiSchemaUtils.resolveJniColumnSchema(
                     schemaResolver, metaClient, avroSchema, hudiHandle.getQueryInstant());
-            columnNames = jniSchema.getFields().stream()
-                    .map(Schema.Field::name).collect(Collectors.toList());
+            // JNI reader column names MUST be lower-cased: BE HadoopHudiJniScanner.initRequiredColumnsAndTypes
+            // keys hudiColNameToType by these names, then looks each requiredField up as an EXACT lower-case key
+            // (mixed-case "Id" would miss lower-case "id" -> throw, crashing every MOR/JNI split). Matches the
+            // Doris-column path (avroSchemaToColumns:905) and the native history_schema_info dict
+            // (HudiSchemaUtils.buildField:137); legacy HudiScanNode:223 also emits lower-case names.
+            columnNames = jniColumnNames(jniSchema);
             columnTypes = jniSchema.getFields().stream()
                     .map(f -> HudiTypeMapping.toHiveTypeString(f.schema()))
                     .collect(Collectors.toList());
@@ -825,6 +830,22 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
             sb.append(c);
         }
         return sb.toString();
+    }
+
+    /**
+     * The JNI (MOR-realtime) reader's required-column names, LOWER-CASED. BE
+     * {@code HadoopHudiJniScanner.initRequiredColumnsAndTypes} builds {@code hudiColNameToType} keyed by these
+     * names and resolves each requiredField with an EXACT lower-case {@code containsKey}, so a mixed-case Avro
+     * name ({@code "Id"}) would miss the lower-case slot ({@code "id"}) and throw, crashing every MOR/JNI split.
+     * Byte-consistent with the Doris-column casing ({@code HudiConnectorMetadata.avroSchemaToColumns} /
+     * {@code HudiSchemaUtils.buildField}) and legacy {@code HudiScanNode} (which emits lower-case Column names).
+     * Column ORDER is preserved so the parallel {@code columnTypes} list stays positionally aligned. Package-
+     * private static for offline unit testing (planScan itself needs a live metaClient).
+     */
+    static List<String> jniColumnNames(Schema jniSchema) {
+        return jniSchema.getFields().stream()
+                .map(f -> f.name().toLowerCase(Locale.ROOT))
+                .collect(Collectors.toList());
     }
 
     /**

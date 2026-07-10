@@ -149,6 +149,18 @@ public class HudiSchemaParityTest {
     }
 
     @Test
+    public void jniColumnNamesAreLowerCased() {
+        // H4: HudiScanPlanProvider.planScan feeds these names into THudiFileDesc.column_names, which BE
+        // (HadoopHudiJniScanner.initRequiredColumnsAndTypes) keys a map by and then resolves each requiredField
+        // as an EXACT lower-case containsKey. A mixed-case Avro name ("Id") missing the lower-case slot ("id")
+        // throws and crashes every MOR/JNI split, so the JNI column-name list MUST be lower-cased — consistent
+        // with avroSchemaToColumns and legacy HudiScanNode. RED before the fix: raw-case "Id"/"Name"/"Addr".
+        Assertions.assertEquals(
+                Arrays.asList("id", "name", "price", "event_date", "created_at", "tags", "props", "addr"),
+                HudiScanPlanProvider.jniColumnNames(schema()));
+    }
+
+    @Test
     public void testTopLevelNameLoweredButNestedStructNamePreserved() {
         List<ConnectorColumn> columns = HudiConnectorMetadata.avroSchemaToColumns(schema());
         ConnectorColumn addr = columns.get(7);
