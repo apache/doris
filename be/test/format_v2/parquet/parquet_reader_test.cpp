@@ -1200,13 +1200,13 @@ protected:
             std::shared_ptr<io::IOContext> io_ctx = nullptr,
             std::optional<format::GlobalRowIdContext> global_rowid_context = std::nullopt,
             bool is_immutable = false, FileMetaCache* file_meta_cache = nullptr,
-            bool enable_file_meta_memory_cache = true) const {
+            bool enable_file_meta_memory_cache = true, int64_t mtime = 123) const {
         auto system_properties = std::make_shared<io::FileSystemProperties>();
         system_properties->system_type = TFileType::FILE_LOCAL;
         auto file_description = std::make_unique<io::FileDescription>();
         file_description->path = _file_path;
         file_description->file_size = static_cast<int64_t>(std::filesystem::file_size(_file_path));
-        file_description->mtime = 123;
+        file_description->mtime = mtime;
         file_description->range_start_offset = range_start_offset;
         file_description->range_size = range_size;
         file_description->is_immutable = is_immutable;
@@ -1785,7 +1785,9 @@ TEST_F(NewParquetReaderTest, UnknownMtimeUsesPageCacheForImmutableFile) {
 
     RuntimeProfile first_profile("new_parquet_reader_first_unknown_mtime");
     {
-        auto reader = create_reader(0, -1, &first_profile, false, nullptr, std::nullopt, true);
+        auto reader =
+                create_reader(0, -1, &first_profile, false, nullptr, std::nullopt, true, nullptr,
+                              true, 0);
         TQueryOptions query_options;
         query_options.__set_enable_parquet_file_page_cache(true);
         RuntimeState state {query_options, TQueryGlobals()};
@@ -1811,7 +1813,8 @@ TEST_F(NewParquetReaderTest, UnknownMtimeUsesPageCacheForImmutableFile) {
     EXPECT_GT(first_profile.get_counter("PageCacheWriteCount")->value(), 0);
 
     RuntimeProfile second_profile("new_parquet_reader_second_unknown_mtime");
-    auto reader = create_reader(0, -1, &second_profile, false, nullptr, std::nullopt, true);
+    auto reader = create_reader(0, -1, &second_profile, false, nullptr, std::nullopt, true,
+                                nullptr, true, 0);
     TQueryOptions query_options;
     query_options.__set_enable_parquet_file_page_cache(true);
     RuntimeState state {query_options, TQueryGlobals()};
