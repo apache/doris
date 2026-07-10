@@ -84,6 +84,12 @@ public class HiveConnector implements Connector {
     // Plugin-owned and dormant until the read cutover wires its query-finish commit (see the manager).
     private final HiveReadTransactionManager readTxnManager = new HiveReadTransactionManager();
 
+    // Connector-owned directory-listing cache, shared by the (per-call) scan provider and metadata. One per
+    // connector (like readTxnManager above) — the scan provider / metadata are rebuilt per query, so the cache
+    // must live on the long-lived connector to survive across scans. Built from catalog props; dormant until hms
+    // enters SPI_READY_TYPES. Its metastore-metadata sibling is the CachingHmsClient wrapping the HmsClient.
+    private final HiveFileListingCache fileListingCache;
+
     // Embedded iceberg SIBLING connector: a flipped hms gateway delegates its iceberg-on-HMS tables to it. Built
     // once per gateway connector (lazily) in the iceberg plugin's OWN child-first classloader via
     // context.createSiblingConnector — never co-packaged into the hive zip (a second AWS SDK would poison S3
@@ -103,6 +109,7 @@ public class HiveConnector implements Connector {
     public HiveConnector(Map<String, String> properties, ConnectorContext context) {
         this.properties = Collections.unmodifiableMap(properties);
         this.context = context;
+        this.fileListingCache = new HiveFileListingCache(this.properties);
     }
 
     @Override
@@ -126,7 +133,8 @@ public class HiveConnector implements Connector {
      */
     HiveConnectorMetadata newMetadata(HmsClient client) {
         return new HiveConnectorMetadata(client, properties, context,
-                this::getOrCreateIcebergSibling, this::getOrCreateHudiSibling, this::resolveSiblingOwner);
+                this::getOrCreateIcebergSibling, this::getOrCreateHudiSibling, this::resolveSiblingOwner,
+                fileListingCache);
     }
 
     /**
@@ -158,7 +166,7 @@ public class HiveConnector implements Connector {
 
     @Override
     public ConnectorScanPlanProvider getScanPlanProvider() {
-        return new HiveScanPlanProvider(getOrCreateClient(), properties, readTxnManager);
+        return new HiveScanPlanProvider(getOrCreateClient(), properties, readTxnManager, fileListingCache);
     }
 
     /**

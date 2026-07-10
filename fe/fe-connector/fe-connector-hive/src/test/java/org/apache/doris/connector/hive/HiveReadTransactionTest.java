@@ -106,7 +106,8 @@ public class HiveReadTransactionTest {
         // register and the provider's release MUST share the same per-connector manager (HiveConnector injects
         // one instance into every provider), so the release finds and commits the txn register opened.
         HiveReadTransactionManager mgr = new HiveReadTransactionManager();
-        HiveScanPlanProvider provider = new HiveScanPlanProvider(client, new HashMap<>(), mgr);
+        HiveScanPlanProvider provider = new HiveScanPlanProvider(client, new HashMap<>(), mgr,
+                new HiveFileListingCache(new HashMap<>()));
 
         // A transactional-hive scan opened a read txn (as planAcidScan does via mgr.register), taking the shared
         // read lock.

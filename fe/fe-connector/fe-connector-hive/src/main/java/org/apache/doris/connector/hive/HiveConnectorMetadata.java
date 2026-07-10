@@ -70,13 +70,9 @@ import org.apache.doris.thrift.TTableType;
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.fs.FileStatus;
-import org.apache.hadoop.fs.FileSystem;
-import org.apache.hadoop.fs.Path;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Base64;
@@ -211,6 +207,11 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
     // over the ALREADY-BUILT iceberg / hudi siblings). Used ONLY through the parent-first Connector /
     // ConnectorMetadata interfaces — the owning sibling's concrete types are never cast here (cross-loader CCE).
     private final Function<ConnectorTableHandle, Connector> siblingOwnerResolver;
+    // Connector-owned directory-listing cache, shared with the scan provider so estimateDataSizeByListingFiles
+    // (the periodic ExternalRowCountCache refresh source) reuses listings a scan warmed and vice versa. Injected
+    // by HiveConnector.newMetadata as the SAME instance; the convenience constructors below build a private
+    // default (harmless for the direct-construction tests, which inject their file sizes and never list).
+    private final HiveFileListingCache fileListingCache;
 
     public HiveConnectorMetadata(HmsClient hmsClient, Map<String, String> properties, ConnectorContext context) {
         this(hmsClient, properties, context, NO_ICEBERG_SIBLING, NO_HUDI_SIBLING, NO_SIBLING_OWNER);
@@ -220,6 +221,15 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
             Supplier<Connector> icebergSiblingSupplier,
             Supplier<Connector> hudiSiblingSupplier,
             Function<ConnectorTableHandle, Connector> siblingOwnerResolver) {
+        this(hmsClient, properties, context, icebergSiblingSupplier, hudiSiblingSupplier, siblingOwnerResolver,
+                new HiveFileListingCache(properties));
+    }
+
+    public HiveConnectorMetadata(HmsClient hmsClient, Map<String, String> properties, ConnectorContext context,
+            Supplier<Connector> icebergSiblingSupplier,
+            Supplier<Connector> hudiSiblingSupplier,
+            Function<ConnectorTableHandle, Connector> siblingOwnerResolver,
+            HiveFileListingCache fileListingCache) {
         this.hmsClient = hmsClient;
         this.properties = properties;
         this.context = context;
@@ -227,6 +237,7 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
         this.icebergSiblingSupplier = icebergSiblingSupplier;
         this.hudiSiblingSupplier = hudiSiblingSupplier;
         this.siblingOwnerResolver = siblingOwnerResolver;
+        this.fileListingCache = fileListingCache;
     }
 
     /**
@@ -721,7 +732,7 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
             Thread.currentThread().setContextClassLoader(getClass().getClassLoader());
             Configuration conf = buildHadoopConf();
             return estimateDataSize(hiveHandle, STATS_PARTITION_SAMPLE_SIZE,
-                    location -> sumFileSizesUnder(location, conf));
+                    location -> sumCachedFileSizes(hiveHandle, location, conf));
         } finally {
             Thread.currentThread().setContextClassLoader(previous);
         }
@@ -806,31 +817,20 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
     }
 
     /**
-     * Sums the sizes of the data files directly under {@code location} (non-recursive, skipping directories
-     * and {@code _}/{@code .}-prefixed hidden files — the same filter as {@link HiveScanPlanProvider}). A
-     * listing failure is surfaced as a {@link RuntimeException} so {@link #estimateDataSize} degrades the
-     * whole estimate to -1 (legacy's file-list estimate was all-or-nothing best-effort).
+     * Sums the sizes of the data files directly under {@code location}, served from the connector's shared
+     * {@link HiveFileListingCache} (which does the non-recursive {@code listStatus} and filters directories and
+     * {@code _}/{@code .}-prefixed hidden files — the same filter, and the same listing, the scan path uses). A
+     * listing failure propagates as a {@link DorisConnectorException} so {@link #estimateDataSize} degrades the
+     * whole estimate to -1 (legacy's file-list estimate was all-or-nothing best-effort). Routing through the
+     * cache keeps the periodic row-count refresh from re-listing directories a scan already cached.
      */
-    private static long sumFileSizesUnder(String location, Configuration conf) {
-        try {
-            Path path = new Path(location);
-            FileSystem fs = FileSystem.get(path.toUri(), conf);
-            FileStatus[] statuses = fs.listStatus(path);
-            long sum = 0;
-            for (FileStatus status : statuses) {
-                if (status.isDirectory()) {
-                    continue;
-                }
-                String fileName = status.getPath().getName();
-                if (fileName.startsWith("_") || fileName.startsWith(".")) {
-                    continue;
-                }
-                sum += status.getLen();
-            }
-            return sum;
-        } catch (IOException e) {
-            throw new DorisConnectorException("Failed to list files under " + location, e);
+    private long sumCachedFileSizes(HiveTableHandle handle, String location, Configuration conf) {
+        long sum = 0;
+        for (HiveFileStatus file : fileListingCache.listDataFiles(
+                handle.getDbName(), handle.getTableName(), location, conf)) {
+            sum += file.getLength();
         }
+        return sum;
     }
 
     /**

@@ -84,12 +84,17 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
     private final HmsClient hmsClient;
     private final Map<String, String> catalogProperties;
     private final HiveReadTransactionManager readTxnManager;
+    // Connector-owned directory-listing cache (the SAME instance HiveConnector shares with HiveConnectorMetadata),
+    // so a repeated scan of the same partition directory is served from the cache instead of re-listing. Only the
+    // plain (non-ACID) path uses it; the ACID path lists via HiveAcidUtil and is uncached (legacy parity).
+    private final HiveFileListingCache fileListingCache;
 
     public HiveScanPlanProvider(HmsClient hmsClient, Map<String, String> catalogProperties,
-            HiveReadTransactionManager readTxnManager) {
+            HiveReadTransactionManager readTxnManager, HiveFileListingCache fileListingCache) {
         this.hmsClient = hmsClient;
         this.catalogProperties = catalogProperties;
         this.readTxnManager = readTxnManager;
+        this.fileListingCache = fileListingCache;
     }
 
     @Override
@@ -130,13 +135,8 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
             for (PartitionScanInfo partition : partitions) {
                 HiveFileFormat partFormat = partition.fileFormat != null
                         ? partition.fileFormat : fileFormat;
-                try {
-                    listAndSplitFiles(hadoopConf, partition, partFormat,
-                            splittable, targetSplitSize, ranges);
-                } catch (IOException e) {
-                    throw new DorisConnectorException(
-                            "Failed to list files for partition: " + partition.location, e);
-                }
+                listAndSplitFiles(dbName, tableName, partition, partFormat,
+                        splittable, targetSplitSize, hadoopConf, ranges);
             }
         }
 
@@ -198,8 +198,9 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
                 List<String> encodedDeltas = isFullAcid
                         ? encodeDeleteDeltas(state.getDeleteDeltas()) : null;
                 for (FileStatus dataFile : state.getDataFiles()) {
-                    splitFile(dataFile, partition, partFormat, splittable, targetSplitSize,
-                            acidLocation, encodedDeltas, ranges);
+                    splitFile(dataFile.getPath().toString(), dataFile.getLen(),
+                            dataFile.getModificationTime(), partition, partFormat, splittable,
+                            targetSplitSize, acidLocation, encodedDeltas, ranges);
                 }
             } catch (IOException e) {
                 throw new DorisConnectorException(
@@ -348,33 +349,27 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
     }
 
     /**
-     * Lists files in a partition directory and splits them into scan ranges.
+     * Lists the data files of a partition directory (through the connector's shared {@link HiveFileListingCache},
+     * which filters directories and {@code _}/{@code .}-prefixed hidden files) and splits them into scan ranges.
+     * A listing failure is tolerated — the partition is skipped with a warning, the same resilience the pre-cache
+     * code gave a missing/unreadable partition directory (and it consolidates the earlier {@code FileSystem.get}
+     * failure into the same skip path; a bad storage config surfaces via the row-count estimate's fail-loud and
+     * the docker e2e). Failures are never cached (the cache loader throws).
      */
-    private void listAndSplitFiles(Configuration conf,
+    private void listAndSplitFiles(String dbName, String tableName,
             PartitionScanInfo partition, HiveFileFormat fileFormat,
-            boolean splittable, long targetSplitSize,
-            List<ConnectorScanRange> ranges) throws IOException {
-        Path partPath = new Path(partition.location);
-        FileSystem fs = FileSystem.get(partPath.toUri(), conf);
-        FileStatus[] statuses;
+            boolean splittable, long targetSplitSize, Configuration conf,
+            List<ConnectorScanRange> ranges) {
+        List<HiveFileStatus> files;
         try {
-            statuses = fs.listStatus(partPath);
-        } catch (IOException e) {
+            files = fileListingCache.listDataFiles(dbName, tableName, partition.location, conf);
+        } catch (DorisConnectorException e) {
             LOG.warn("Cannot list files in partition: {}", partition.location, e);
             return;
         }
-
-        for (FileStatus status : statuses) {
-            if (status.isDirectory()) {
-                // Skip directories (could be _temporary, etc.)
-                continue;
-            }
-            String fileName = status.getPath().getName();
-            if (shouldSkipFile(fileName)) {
-                continue;
-            }
-            splitFile(status, partition, fileFormat, splittable,
-                    targetSplitSize, null, null, ranges);
+        for (HiveFileStatus file : files) {
+            splitFile(file.getPath(), file.getLength(), file.getModificationTime(),
+                    partition, fileFormat, splittable, targetSplitSize, null, null, ranges);
         }
     }
 
@@ -384,14 +379,10 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
      * <p>When {@code acidPartitionLocation} is non-null the ranges carry ACID delete-delta info
      * (marking them {@code transactional_hive}); otherwise they are plain Hive ranges.</p>
      */
-    private void splitFile(FileStatus fileStatus, PartitionScanInfo partition,
+    private void splitFile(String filePath, long fileSize, long modTime, PartitionScanInfo partition,
             HiveFileFormat fileFormat, boolean splittable, long targetSplitSize,
             String acidPartitionLocation, List<String> acidDeltas,
             List<ConnectorScanRange> ranges) {
-        long fileSize = fileStatus.getLen();
-        String filePath = fileStatus.getPath().toString();
-        long modTime = fileStatus.getModificationTime();
-
         if (fileSize == 0) {
             return;
         }
@@ -430,10 +421,6 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
             builder.acidInfo(acidPartitionLocation, acidDeltas);
         }
         return builder;
-    }
-
-    private boolean shouldSkipFile(String fileName) {
-        return fileName.startsWith("_") || fileName.startsWith(".");
     }
 
     private long getTargetSplitSize(ConnectorSession session) {
