@@ -16,7 +16,6 @@
 // under the License.
 
 #include "core/column/column_array.h"
-#include "core/column/column_nullable.h"
 #include "core/data_type/data_type_array.h"
 #include "exprs/function/cast/cast_base.h"
 
@@ -42,11 +41,8 @@ WrapperType create_array_wrapper(FunctionContext* context, const DataTypePtr& fr
 
     DataTypePtr from_nested_type = from_type->get_nested_type();
 
-    /// In query SELECT CAST([] AS Array(Array(String))) from type is Array(Nothing)
-    bool from_empty_array = from_nested_type->get_primitive_type() == INVALID_TYPE;
-
     if (from_type->get_number_of_dimensions() != to_type.get_number_of_dimensions() &&
-        !from_empty_array) {
+        !from_nested_type->is_null_literal()) {
         return CastWrapper::create_unsupport_wrapper(
                 "CAST AS Array can only be performed between same-dimensional array types");
     }

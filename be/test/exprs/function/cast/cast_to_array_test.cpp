@@ -21,6 +21,7 @@
 #include <vector>
 
 #include "core/column/column_array.h"
+#include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
@@ -194,6 +195,65 @@ TEST_F(FunctionCastTest, test_from_string_to_array_bool) {
     check_cast(ColumnWithTypeAndName(ColumnHelper::create_column<DataTypeString>(from_str),
                                      std::make_shared<DataTypeString>(), "from"),
                builder.build(), false);
+}
+
+TEST_F(FunctionCastTest, test_from_null_literal_array_to_nested_array) {
+    auto null_literal_type = std::make_shared<DataTypeBool>();
+    null_literal_type->set_null_literal(true);
+    auto from_nested_type = std::make_shared<DataTypeNullable>(null_literal_type);
+    auto from_type = std::make_shared<DataTypeArray>(from_nested_type);
+
+    auto from_nested_column =
+            ColumnHelper::create_nullable_column<DataTypeBool>({0, 0, 0}, {true, true, true});
+    auto from_offsets = ColumnHelper::create_column_offsets<TYPE_UINT64>({0, 1, 3});
+    auto from_column = ColumnArray::create(std::move(from_nested_column), std::move(from_offsets));
+
+    auto to_type = std::make_shared<DataTypeArray>(
+            std::make_shared<DataTypeArray>(std::make_shared<DataTypeInt32>()));
+
+    auto ctx = create_context(false);
+    auto fn = get_cast_wrapper(ctx.get(), from_type, to_type);
+    ASSERT_TRUE(fn != nullptr);
+
+    Block block = {
+            {std::move(from_column), from_type, "from"},
+            {nullptr, to_type, "to"},
+    };
+    ASSERT_TRUE(fn(ctx.get(), block, {0}, 1, block.rows(), nullptr));
+
+    const auto* result_array =
+            check_and_get_column<ColumnArray>(block.get_by_position(1).column.get());
+    ASSERT_NE(result_array, nullptr);
+    EXPECT_EQ(result_array->get_offsets(), ColumnArray::Offsets64({0, 1, 3}));
+
+    const auto* result_nested_nullable =
+            check_and_get_column<ColumnNullable>(&result_array->get_data());
+    ASSERT_NE(result_nested_nullable, nullptr);
+    EXPECT_EQ(result_nested_nullable->get_null_map_data(), NullMap({1, 1, 1}));
+
+    const auto* result_nested_array =
+            check_and_get_column<ColumnArray>(&result_nested_nullable->get_nested_column());
+    ASSERT_NE(result_nested_array, nullptr);
+    EXPECT_EQ(result_nested_array->size(), 3);
+    EXPECT_EQ(result_nested_array->get_offsets(), ColumnArray::Offsets64({0, 0, 0}));
+}
+
+TEST_F(FunctionCastTest, test_from_non_null_array_to_nested_array_is_rejected) {
+    ColumnArrayBuilder<DataTypeInt32> builder;
+    builder.add({1});
+    auto from = builder.build();
+    auto to_type = std::make_shared<DataTypeArray>(
+            std::make_shared<DataTypeArray>(std::make_shared<DataTypeInt32>()));
+
+    auto ctx = create_context(false);
+    auto fn = get_cast_wrapper(ctx.get(), from.type, to_type);
+    ASSERT_TRUE(fn != nullptr);
+
+    Block block = {
+            from,
+            {nullptr, to_type, "to"},
+    };
+    EXPECT_FALSE(fn(ctx.get(), block, {0}, 1, block.rows(), nullptr));
 }
 
 } // namespace doris
