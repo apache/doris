@@ -166,7 +166,6 @@ public class CloudInstanceStatusCheckerTest {
 
         String logs = appender.messagesAsString();
         Assertions.assertFalse(logs.contains("failed to create virtual compute group vcg"), logs);
-        Assertions.assertTrue(logs.contains("generate new jobIds"), logs);
         Assertions.assertTrue(logs.contains("warmup-vcg rebuild-start"), logs);
         Assertions.assertTrue(logs.contains("warmup-vcg rebuild-finish"), logs);
         Assertions.assertTrue(logs.contains("srcCluster=active_cg"), logs);

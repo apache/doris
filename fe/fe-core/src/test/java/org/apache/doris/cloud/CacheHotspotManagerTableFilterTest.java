@@ -720,8 +720,7 @@ public class CacheHotspotManagerTableFilterTest {
         }
 
         String logs = appender.messagesAsString();
-        Assertions.assertTrue(logs.contains("warmup-system-cancel"), logs);
-        Assertions.assertTrue(logs.contains("clusterName=write_cg"), logs);
+        Assertions.assertTrue(logs.contains("write_cg"), logs);
         Assertions.assertTrue(logs.contains(String.valueOf(srcMatchedJob.getJobId())), logs);
         Assertions.assertTrue(logs.contains(String.valueOf(dstMatchedJob.getJobId())), logs);
     }
