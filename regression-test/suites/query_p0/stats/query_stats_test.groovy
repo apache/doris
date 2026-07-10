@@ -249,8 +249,10 @@ suite("query_stats_test") {
 
     // Table-function join ON predicate: PhysicalGenerate.getConjuncts() is sent straight to
     // TableFunctionNode and actually filters at execution — must record filterHit too.
+    // The predicate must reference a real column (k7), not just the generator's own
+    // synthetic output (val) — filtering on val alone has no scan column to attribute to.
     sql "clean all query stats"
-    sql """select s.val from ${tbName} left join lateral unnest(split(k7, ',')) s(val) on s.val = 'x'"""
+    sql """select s.val from ${tbName} left join lateral unnest(split(k7, ',')) s(val) on k7 != ''"""
     def genStats = sql "show query stats from ${tbName}"
     def genK7 = genStats.find { it[0] == "k7" }
     assertNotNull(genK7)
