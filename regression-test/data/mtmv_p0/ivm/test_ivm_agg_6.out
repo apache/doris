@@ -3,11 +3,11 @@
 10	20	2	30
 
 -- !minmax_zero_after_delete --
-10	20	2	30
+\N	\N	0	\N
 
 -- !nullkeep_after_complete --
 10	10	2	10
 
 -- !nullkeep_after_delete --
-10	10	2	10
+\N	\N	1	\N
 

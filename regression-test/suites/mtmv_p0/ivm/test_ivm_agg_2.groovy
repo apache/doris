@@ -66,8 +66,9 @@ suite("test_ivm_agg_2") {
            FROM ivm_agg_allnull_base;
     """
 
-    // COMPLETE: all NULLs → sum=NULL, avg=NULL, cnt_v1=0, min=NULL, max=NULL, cnt_all=2
-    sql """REFRESH MATERIALIZED VIEW ivm_agg_allnull_mv COMPLETE"""
+    // Initial INCREMENTAL establishes the stream offset.
+    // all NULLs → sum=NULL, avg=NULL, cnt_v1=0, min=NULL, max=NULL, cnt_all=2
+    sql """REFRESH MATERIALIZED VIEW ivm_agg_allnull_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("ivm_agg_allnull_mv")
 
     order_qt_allnull_after_complete """
@@ -164,9 +165,9 @@ suite("test_ivm_agg_2") {
            GROUP BY grp;
     """
 
-    // Step 1: COMPLETE refresh
+    // Step 1: Initial INCREMENTAL refresh establishes the stream offset.
     // grp=1: cnt=2, sum=30; grp=2: cnt=1, sum=30
-    sql """REFRESH MATERIALIZED VIEW ivm_agg_grpdel_mv COMPLETE"""
+    sql """REFRESH MATERIALIZED VIEW ivm_agg_grpdel_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("ivm_agg_grpdel_mv")
 
     order_qt_grpdel_after_complete """
@@ -263,8 +264,9 @@ suite("test_ivm_agg_2") {
            FROM ivm_agg_scalardel_base;
     """
 
-    // Step 1: COMPLETE refresh — cnt=2, sum=30, min=10, max=20
-    sql """REFRESH MATERIALIZED VIEW ivm_agg_scalardel_mv COMPLETE"""
+    // Step 1: Initial INCREMENTAL refresh establishes the stream offset.
+    // cnt=2, sum=30, min=10, max=20
+    sql """REFRESH MATERIALIZED VIEW ivm_agg_scalardel_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("ivm_agg_scalardel_mv")
 
     order_qt_scalardel_after_complete """
@@ -294,8 +296,8 @@ suite("test_ivm_agg_2") {
            FROM ivm_agg_scalardel_base;
     """
 
-    // Re-COMPLETE with the new MV (COUNT+SUM only, no MIN/MAX)
-    sql """REFRESH MATERIALIZED VIEW ivm_agg_scalardel_mv COMPLETE"""
+    // Re-establish the stream offset with the new MV (COUNT+SUM only, no MIN/MAX)
+    sql """REFRESH MATERIALIZED VIEW ivm_agg_scalardel_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("ivm_agg_scalardel_mv")
 
     order_qt_scalardel_countsum_after_complete """
@@ -415,8 +417,9 @@ suite("test_ivm_agg_2") {
            FROM ivm_agg_maxdel_base;
     """
 
-    // Step 1: COMPLETE refresh — min=10, max=30, cnt=3
-    sql """REFRESH MATERIALIZED VIEW ivm_agg_maxdel_mv COMPLETE"""
+    // Step 1: Initial INCREMENTAL refresh establishes the stream offset.
+    // min=10, max=30, cnt=3
+    sql """REFRESH MATERIALIZED VIEW ivm_agg_maxdel_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("ivm_agg_maxdel_mv")
 
     order_qt_maxdel_after_complete """

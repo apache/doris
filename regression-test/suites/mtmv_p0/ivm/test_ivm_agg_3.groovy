@@ -67,9 +67,9 @@ suite("test_ivm_agg_3") {
            GROUP BY k1, k2;
     """
 
-    // Step 1: COMPLETE refresh
+    // Step 1: Initial INCREMENTAL refresh establishes the stream offset.
     // (1,'a'): cnt=2, sum=30; (1,'b'): cnt=1, sum=30; (2,'a'): cnt=1, sum=40
-    sql """REFRESH MATERIALIZED VIEW ivm_agg_multikey_mv COMPLETE"""
+    sql """REFRESH MATERIALIZED VIEW ivm_agg_multikey_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("ivm_agg_multikey_mv")
 
     order_qt_multikey_after_complete """
@@ -169,9 +169,10 @@ suite("test_ivm_agg_3") {
            GROUP BY grp;
     """
 
-    // COMPLETE: grp=1: sum_v1=30, sum_v2=300, min_v1=10, max_v2=200, cnt=2
-    //           grp=2: sum_v1=30, sum_v2=300, min_v1=30, max_v2=300, cnt=1
-    sql """REFRESH MATERIALIZED VIEW ivm_agg_multiagg_mv COMPLETE"""
+    // Initial INCREMENTAL establishes the stream offset.
+    // grp=1: sum_v1=30, sum_v2=300, min_v1=10, max_v2=200, cnt=2
+    // grp=2: sum_v1=30, sum_v2=300, min_v1=30, max_v2=300, cnt=1
+    sql """REFRESH MATERIALIZED VIEW ivm_agg_multiagg_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("ivm_agg_multiagg_mv")
 
     order_qt_multiagg_after_complete """
@@ -243,8 +244,9 @@ suite("test_ivm_agg_3") {
            FROM ivm_agg_negval_base;
     """
 
-    // COMPLETE: cnt=2, sum=20
-    sql """REFRESH MATERIALIZED VIEW ivm_agg_negval_mv COMPLETE"""
+    // Initial INCREMENTAL establishes the stream offset.
+    // cnt=2, sum=20
+    sql """REFRESH MATERIALIZED VIEW ivm_agg_negval_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("ivm_agg_negval_mv")
 
     order_qt_negval_after_complete """
@@ -324,7 +326,7 @@ suite("test_ivm_agg_3") {
            FROM ivm_agg_emptydelta_base;
     """
 
-    sql """REFRESH MATERIALIZED VIEW ivm_agg_emptydelta_mv COMPLETE"""
+    sql """REFRESH MATERIALIZED VIEW ivm_agg_emptydelta_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("ivm_agg_emptydelta_mv")
 
     // INCREMENTAL without any new data — should get SUCCESS (NOT_REFRESH)
@@ -382,9 +384,10 @@ suite("test_ivm_agg_3") {
            FROM ivm_agg_types_base;
     """
 
-    // COMPLETE: sum_tiny=25, avg_tiny≈8.33, sum_dec=250.50, avg_dec≈83.50,
-    //           sum_dbl=7.5, avg_dbl=2.5, min_tiny=-5, max_dec=100.75, cnt=3
-    sql """REFRESH MATERIALIZED VIEW ivm_agg_types_mv COMPLETE"""
+    // Initial INCREMENTAL establishes the stream offset.
+    // sum_tiny=25, avg_tiny≈8.33, sum_dec=250.50, avg_dec≈83.50,
+    // sum_dbl=7.5, avg_dbl=2.5, min_tiny=-5, max_dec=100.75, cnt=3
+    sql """REFRESH MATERIALIZED VIEW ivm_agg_types_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("ivm_agg_types_mv")
 
     order_qt_types_after_complete """
