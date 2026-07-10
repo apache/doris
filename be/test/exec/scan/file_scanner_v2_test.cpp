@@ -339,6 +339,41 @@ TEST(FileScannerV2Test, RealtimeCounterDeltasDoNotChargeLocalFileFallbackAsRemot
     EXPECT_EQ(0, deltas.scan_bytes_from_remote_storage);
 }
 
+TEST(FileScannerV2Test, FileCacheStatisticsArePublishedToScannerProfile) {
+    RuntimeProfile profile("file_scanner_v2");
+    io::FileCacheStatistics file_cache_statistics;
+    file_cache_statistics.num_local_io_total = 3;
+    file_cache_statistics.num_remote_io_total = 5;
+    file_cache_statistics.num_peer_io_total = 7;
+    file_cache_statistics.bytes_read_from_local = 11;
+    file_cache_statistics.bytes_read_from_remote = 13;
+    file_cache_statistics.bytes_read_from_peer = 17;
+    file_cache_statistics.bytes_write_into_cache = 19;
+    file_cache_statistics.peer_hosts = {"peer-a", "peer-b"};
+
+    FileScannerV2::TEST_report_file_cache_profile(&profile, file_cache_statistics);
+
+    ASSERT_NE(profile.get_counter("FileCache"), nullptr);
+    EXPECT_EQ(profile.get_counter("NumLocalIOTotal")->value(), 3);
+    EXPECT_EQ(profile.get_counter("NumRemoteIOTotal")->value(), 5);
+    EXPECT_EQ(profile.get_counter("NumPeerIOTotal")->value(), 7);
+    EXPECT_EQ(profile.get_counter("BytesScannedFromCache")->value(), 11);
+    EXPECT_EQ(profile.get_counter("BytesScannedFromRemote")->value(), 13);
+    EXPECT_EQ(profile.get_counter("BytesScannedFromPeer")->value(), 17);
+    EXPECT_EQ(profile.get_counter("BytesWriteIntoCache")->value(), 19);
+    ASSERT_NE(profile.get_info_string("PeerCacheNodes"), nullptr);
+    EXPECT_EQ(*profile.get_info_string("PeerCacheNodes"), "peer-a, peer-b");
+}
+
+TEST(FileScannerV2Test, NotFoundIsSkippedOnlyWhenConfigured) {
+    const auto not_found = Status::NotFound("missing external file");
+    EXPECT_TRUE(FileScannerV2::TEST_should_skip_not_found(not_found, true));
+    EXPECT_FALSE(FileScannerV2::TEST_should_skip_not_found(not_found, false));
+    EXPECT_FALSE(
+            FileScannerV2::TEST_should_skip_not_found(Status::InternalError("read failed"), true));
+    EXPECT_FALSE(FileScannerV2::TEST_should_skip_not_found(Status::OK(), true));
+}
+
 // Scenario: partition slots are identified from the explicit FE category when present, otherwise
 // from the legacy is_file_slot flag. Scanner-generated rowid columns must never be treated as
 // partition columns even if FE marks them as non-file slots.

@@ -66,6 +66,16 @@ Status HudiHybridReader::get_block(Block* block, bool* eos) {
     return _current_split_reader->get_block(block, eos);
 }
 
+bool HudiHybridReader::current_split_pruned() const {
+    DORIS_CHECK(_current_split_reader != nullptr);
+    return _current_split_reader->current_split_pruned();
+}
+
+Status HudiHybridReader::abort_split() {
+    DORIS_CHECK(_current_split_reader != nullptr);
+    return _current_split_reader->abort_split();
+}
+
 Status HudiHybridReader::close() {
     Status close_status = Status::OK();
     if (_native_reader != nullptr) {
