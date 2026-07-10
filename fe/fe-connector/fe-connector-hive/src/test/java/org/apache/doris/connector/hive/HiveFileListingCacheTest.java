@@ -28,6 +28,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.io.IOException;
 import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -193,6 +194,122 @@ public class HiveFileListingCacheTest {
         }
     }
 
+    // ==================== failure split: systemic (FileSystem.get) is loud, local (listStatus) is skippable ======
+
+    @Test
+    public void listFromFileSystemFailsLoudWhenFilesystemCannotBeResolved() {
+        // An unknown scheme makes FileSystem.get fail (no FileSystem for scheme) — a SYSTEMIC storage-config error
+        // that affects every partition of the table. It must throw a plain DorisConnectorException (which the scan
+        // path does NOT skip), and NOT the skippable HiveDirectoryListingException.
+        // WHY (Rule 9): if this were the skippable subtype, a misconfigured storage would silently return an empty
+        // scan instead of failing the query loud — the exact regression this fix prevents.
+        DorisConnectorException e = Assertions.assertThrows(DorisConnectorException.class,
+                () -> HiveFileListingCache.listFromFileSystem("nosuchscheme://host/path", CONF));
+        Assertions.assertFalse(e instanceof HiveDirectoryListingException,
+                "a filesystem-resolution failure must be loud (plain DorisConnectorException), not skippable");
+    }
+
+    @Test
+    public void listFromFileSystemIsSkippableWhenDirectoryMissing(@TempDir java.nio.file.Path dir) {
+        // A resolvable filesystem (file://) but a non-existent directory makes listStatus fail — a LOCAL failure of
+        // one partition directory. It must throw the skippable HiveDirectoryListingException so the scan skips just
+        // that partition (pre-cache tolerance of a missing/unreadable partition dir).
+        String missing = dir.resolve("does-not-exist").toUri().toString();
+        Assertions.assertThrows(HiveDirectoryListingException.class,
+                () -> HiveFileListingCache.listFromFileSystem(missing, CONF));
+    }
+
+    @Test
+    public void getFailureThroughCacheFailsLoudAndIsNotCached() {
+        // Drives the REAL production lister THROUGH the cache lookup with an unresolvable scheme, so
+        // FileSystem.get genuinely fails. WHY (Rule 9): pins that (1) a systemic storage-config failure propagates
+        // from listDataFiles as the loud plain DorisConnectorException — MetaCacheEntry's manual-miss load rethrows
+        // RuntimeException unwrapped, so the type survives the cache boundary — and NOT the skippable subtype; and
+        // (2) the failure leaves NO cache entry. (2) kills the mutation "catch -> return emptyList" in the loader,
+        // which would cache a poisoned empty listing and silently turn every later scan into 0 rows for the TTL.
+        HiveFileListingCache cache = new HiveFileListingCache(Collections.emptyMap());
+
+        DorisConnectorException e = Assertions.assertThrows(DorisConnectorException.class,
+                () -> cache.listDataFiles("db", "t", "nosuchfs://host/path", CONF));
+        Assertions.assertFalse(e instanceof HiveDirectoryListingException,
+                "a filesystem-resolution failure through the cache must be the loud type, not the skippable one");
+        Assertions.assertEquals(0L, cache.size(), "a failed load must never leave a cache entry");
+    }
+
+    @Test
+    public void listStatusFailureThroughCacheIsSkippableAndNotCached(@TempDir java.nio.file.Path dir) {
+        // Drives the REAL production lister THROUGH the cache with a resolvable filesystem (file://) but a missing
+        // directory, so listStatus genuinely fails. WHY (Rule 9): pins that the LOCAL per-directory failure keeps
+        // its distinct skippable type (HiveDirectoryListingException, exactly what the scan's per-partition skip
+        // catches) across the cache boundary, and leaves no cache entry either.
+        HiveFileListingCache cache = new HiveFileListingCache(Collections.emptyMap());
+        String missing = dir.resolve("does-not-exist").toUri().toString();
+
+        Assertions.assertThrows(HiveDirectoryListingException.class,
+                () -> cache.listDataFiles("db", "t", missing, CONF));
+        Assertions.assertEquals(0L, cache.size(), "a failed load must never leave a cache entry");
+    }
+
+    @Test
+    public void scanSkipsOnlyTheFailedPartitionAndPlansTheRest() {
+        // A LOCAL per-directory listing failure (HiveDirectoryListingException) on ONE partition among several
+        // must be tolerated PER PARTITION: the failed one is skipped with a warning, every other partition still
+        // plans its splits — the pre-cache resilience. WHY (Rule 9): if the scan aborted on the subtype, or the
+        // skip were scan-wide instead of per-partition, one bad directory would lose the whole table.
+        CountingLister lister = new CountingLister();
+        lister.error = new HiveDirectoryListingException("dir gone", new IOException("boom"));
+        lister.errorLocation = "loc/dt=1";
+        HiveScanPlanProvider provider = new HiveScanPlanProvider(null, Collections.emptyMap(),
+                new HiveReadTransactionManager(), new HiveFileListingCache(Collections.emptyMap(), lister));
+
+        List<ConnectorScanRange> ranges = provider.planScan(
+                new FakeSession(), twoPartitionHandle(), Collections.<ConnectorColumnHandle>emptyList(),
+                Optional.empty());
+
+        // Both partitions were attempted; only the healthy one produced its (one-file, one-range) split.
+        Assertions.assertEquals(1, (int) lister.callsPerLocation.get("loc/dt=1"));
+        Assertions.assertEquals(1, (int) lister.callsPerLocation.get("loc/dt=2"));
+        Assertions.assertEquals(1, ranges.size(),
+                "the failed partition is skipped, the healthy partition must still plan its split");
+    }
+
+    @Test
+    public void scanFailsLoudOnSystemicFilesystemFailure() {
+        // A SYSTEMIC filesystem-resolution failure (plain DorisConnectorException, affects every partition) must
+        // fail the query loud, NOT be swallowed into a silent empty scan.
+        // MUTATION: if listAndSplitFiles caught the base DorisConnectorException (the pre-fix behavior) this would
+        // return an empty range list instead of throwing -> red.
+        CountingLister lister = new CountingLister();
+        lister.error = new DorisConnectorException("bad storage config");
+        HiveScanPlanProvider provider = new HiveScanPlanProvider(null, Collections.emptyMap(),
+                new HiveReadTransactionManager(), new HiveFileListingCache(Collections.emptyMap(), lister));
+
+        Assertions.assertThrows(DorisConnectorException.class, () -> provider.planScan(
+                new FakeSession(), singlePartitionHandle(), Collections.<ConnectorColumnHandle>emptyList(),
+                Optional.empty()));
+    }
+
+    private static HiveTableHandle singlePartitionHandle() {
+        return new HiveTableHandle.Builder("db", "t", HiveTableType.HIVE)
+                .inputFormat("org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat")
+                .serializationLib("org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe")
+                .partitionKeyNames(Collections.singletonList("dt"))
+                .prunedPartitions(Collections.singletonList(
+                        new HmsPartitionInfo(Collections.singletonList("1"), "loc/dt=1", null, null, null, null)))
+                .build();
+    }
+
+    private static HiveTableHandle twoPartitionHandle() {
+        return new HiveTableHandle.Builder("db", "t", HiveTableType.HIVE)
+                .inputFormat("org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat")
+                .serializationLib("org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe")
+                .partitionKeyNames(Collections.singletonList("dt"))
+                .prunedPartitions(Arrays.asList(
+                        new HmsPartitionInfo(Collections.singletonList("1"), "loc/dt=1", null, null, null, null),
+                        new HmsPartitionInfo(Collections.singletonList("2"), "loc/dt=2", null, null, null, null)))
+                .build();
+    }
+
     // ==================== integration: the scan provider is cache-backed ====================
 
     @Test
@@ -262,12 +379,14 @@ public class HiveFileListingCacheTest {
         final Map<String, Integer> callsPerLocation = new HashMap<>();
         int totalCalls;
         RuntimeException error;
+        // When set, error is thrown only for this location (a single bad partition among healthy ones).
+        String errorLocation;
 
         @Override
         public List<HiveFileStatus> list(String location, Configuration conf) {
             totalCalls++;
             callsPerLocation.merge(location, 1, Integer::sum);
-            if (error != null) {
+            if (error != null && (errorLocation == null || errorLocation.equals(location))) {
                 throw error;
             }
             return new ArrayList<>(Collections.singletonList(new HiveFileStatus(location + "/000000_0", 10L, 1L)));

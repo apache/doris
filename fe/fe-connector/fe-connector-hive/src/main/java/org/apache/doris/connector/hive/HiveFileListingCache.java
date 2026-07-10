@@ -57,10 +57,15 @@ import java.util.concurrent.ForkJoinPool;
  * itself). A background refresh thread would NOT inherit that pin and Hadoop's {@code FileSystem} reflection would
  * fail to resolve its impl.</p>
  *
- * <p><b>Failures are not cached.</b> The loader throws {@link DorisConnectorException} on any I/O error (never
- * caching a transient failure, matching {@code MetaCacheEntry}'s null-is-a-miss / exception-propagates contract).
- * The scan path catches it and skips the partition with a warning (the pre-cache tolerance of a missing/unreadable
- * partition directory); the estimate path lets it propagate and degrades to {@code -1}.</p>
+ * <p><b>Failures are not cached, and are split by blast radius.</b> The loader never caches a failed load (matching
+ * {@code MetaCacheEntry}'s null-is-a-miss / exception-propagates contract). A SYSTEMIC filesystem-resolution failure
+ * ({@code FileSystem.get}: unknown scheme, bad credentials/endpoint — it fails for every partition of the table) is
+ * thrown as a plain {@link DorisConnectorException} and the scan path lets it propagate to fail the query loud. A
+ * LOCAL per-directory failure ({@code listStatus}: this partition missing/unreadable) is thrown as
+ * {@link HiveDirectoryListingException} and the scan path skips just that partition with a warning (the pre-cache
+ * tolerance). The estimate path degrades to {@code -1} on either. This keeps a broken storage config from silently
+ * returning an empty scan (legacy failed {@code FileSystem.get} loud) while preserving one-bad-partition
+ * resilience.</p>
  *
  * <p><b>Dormant.</b> {@code "hms"} is not in {@code SPI_READY_TYPES}, so no live catalog builds a
  * {@link HiveConnector}, so this cache is never instantiated for a live catalog until the flip. Byte-neutral for
@@ -140,14 +145,24 @@ public class HiveFileListingCache {
      * directories and {@code _}/{@code .}-prefixed hidden files (byte-parity with the pre-cache filters in
      * {@code HiveScanPlanProvider.listAndSplitFiles} and {@code HiveConnectorMetadata.sumFileSizesUnder}). A zero
      * -length data file is kept (the scan splitter skips it; the size estimate adds 0) so both consumers keep
-     * their exact prior behaviour. Any {@link IOException} (unresolvable filesystem or unreadable directory) is
-     * wrapped in a {@link DorisConnectorException} so the entry is never cached and the caller decides how to
-     * degrade.
+     * their exact prior behaviour. A {@code FileSystem.get} failure (unresolvable filesystem — unknown scheme, bad
+     * credentials/endpoint) is SYSTEMIC and wrapped in a plain {@link DorisConnectorException} so the scan fails
+     * loud; a {@code listStatus} failure (this partition directory missing/unreadable) is LOCAL and wrapped in
+     * {@link HiveDirectoryListingException} so the scan skips just that partition. Neither is ever cached.
      */
     static List<HiveFileStatus> listFromFileSystem(String location, Configuration conf) {
+        Path path = new Path(location);
+        FileSystem fs;
         try {
-            Path path = new Path(location);
-            FileSystem fs = FileSystem.get(path.toUri(), conf);
+            fs = FileSystem.get(path.toUri(), conf);
+        } catch (IOException e) {
+            // Filesystem resolution/initialization failed (unknown scheme, bad credentials/endpoint): a SYSTEMIC
+            // storage-config error affecting every partition of the table. Fail loud with a plain
+            // DorisConnectorException (the scan path does NOT skip this), matching the pre-cache behavior where a
+            // FileSystem.get failure aborted the query instead of silently returning an empty scan.
+            throw new DorisConnectorException("Failed to resolve filesystem for " + location, e);
+        }
+        try {
             FileStatus[] statuses = fs.listStatus(path);
             List<HiveFileStatus> files = new ArrayList<>(statuses.length);
             for (FileStatus status : statuses) {
@@ -163,7 +178,10 @@ public class HiveFileListingCache {
             }
             return files;
         } catch (IOException e) {
-            throw new DorisConnectorException("Failed to list files under " + location, e);
+            // Listing THIS partition directory failed (missing / unreadable / transient): a LOCAL failure the scan
+            // path tolerates by skipping the partition with a warning (pre-cache parity). Distinct exception type so
+            // only this is skipped, while the systemic FileSystem.get failure above stays loud.
+            throw new HiveDirectoryListingException("Failed to list files under " + location, e);
         }
     }
 

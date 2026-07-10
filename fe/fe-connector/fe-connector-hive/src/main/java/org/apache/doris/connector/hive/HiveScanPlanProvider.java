@@ -351,10 +351,12 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
     /**
      * Lists the data files of a partition directory (through the connector's shared {@link HiveFileListingCache},
      * which filters directories and {@code _}/{@code .}-prefixed hidden files) and splits them into scan ranges.
-     * A listing failure is tolerated — the partition is skipped with a warning, the same resilience the pre-cache
-     * code gave a missing/unreadable partition directory (and it consolidates the earlier {@code FileSystem.get}
-     * failure into the same skip path; a bad storage config surfaces via the row-count estimate's fail-loud and
-     * the docker e2e). Failures are never cached (the cache loader throws).
+     * A LOCAL per-directory listing failure ({@link HiveDirectoryListingException}) is tolerated — the partition is
+     * skipped with a warning, the same resilience the pre-cache code gave a missing/unreadable partition directory.
+     * A SYSTEMIC filesystem-resolution failure (a plain {@link DorisConnectorException} from {@code FileSystem.get},
+     * which affects every partition) is NOT caught here: it propagates to fail the query loud, matching the pre-cache
+     * behavior where a {@code FileSystem.get} failure aborted the query instead of silently returning an empty scan.
+     * Failures are never cached (the cache loader throws).
      */
     private void listAndSplitFiles(String dbName, String tableName,
             PartitionScanInfo partition, HiveFileFormat fileFormat,
@@ -363,7 +365,7 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
         List<HiveFileStatus> files;
         try {
             files = fileListingCache.listDataFiles(dbName, tableName, partition.location, conf);
-        } catch (DorisConnectorException e) {
+        } catch (HiveDirectoryListingException e) {
             LOG.warn("Cannot list files in partition: {}", partition.location, e);
             return;
         }
