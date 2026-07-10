@@ -640,7 +640,7 @@ class EagerAggRewriterTest extends TestWithFeService implements MemoPatternMatch
         CascadesContext cascadesContext = PlanChecker.from(connectContext).analyze("select * from t1")
                 .getCascadesContext();
         PushDownAggContext context = new PushDownAggContext(Collections.emptyList(), Collections.emptyList(),
-                Collections.emptyMap(), cascadesContext, true, false, false, new BilateralState(), true);
+                Collections.emptyMap(), cascadesContext, true, false, false, new BilateralState(), true, false);
         SlotReference leftCountSlot = new SlotReference("leftCnt", BigIntType.INSTANCE, false);
         SlotReference rightCountSlot = new SlotReference("rightCnt", BigIntType.INSTANCE, false);
 

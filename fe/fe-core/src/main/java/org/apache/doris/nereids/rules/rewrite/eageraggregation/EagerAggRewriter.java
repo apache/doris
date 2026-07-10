@@ -109,9 +109,12 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
             }
         }
         ConnectContext connectContext = context.getCascadesContext().getConnectContext();
-        if (connectContext.getSessionVariable().eagerAggregationOnBroadcastJoin
+        if (context.isPassThroughJoinOrUnion() && connectContext.getSessionVariable().eagerAggregationOnBroadcastJoin
                 && isSmallBroadcastJoin(join, connectContext) && isBottomJoin(join)) {
-            return genAggregate(join, context);
+            Plan aggOnJoin = genAggregate(join, context);
+            if (aggOnJoin != join) {
+                return aggOnJoin;
+            }
         }
 
         // construct left and right group by keys
@@ -423,7 +426,7 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
         PushDownAggContext newContext = new PushDownAggContext(aggFunctions, groupKeys, aliasMap,
                 context.getCascadesContext(), context.isPassThroughBigJoin(),
                 context.hasDecomposedAggIf, newHasCaseWhen,
-                context.getBilateralState(), context.needOutputCount());
+                context.getBilateralState(), context.needOutputCount(), context.isPassThroughJoinOrUnion());
         return newContext;
     }
 
@@ -554,7 +557,7 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
             PushDownAggContext contextForChild = new PushDownAggContext(aggFunctionsForChild, groupKeysForChild,
                     aliasMapForChild, context.getCascadesContext(),
                     context.isPassThroughBigJoin(), context.hasDecomposedAggIf, context.hasCaseWhen,
-                    context.getBilateralState(), context.needOutputCount());
+                    context.getBilateralState(), context.needOutputCount(), true);
             inheritHintActionsToUnionChild(context, contextForChild, aggFunctionsForChild);
             Plan newChild = child.accept(this, contextForChild);
             if (newChild != child) {
