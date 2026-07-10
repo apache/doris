@@ -781,7 +781,7 @@ class IvmJoinDeltaHandler {
                     LogicalPlan snapshotScan = postSnapshot
                             ? streamScan.withPostSnapshot()
                             : streamScan.withPreSnapshot(Optional.empty());
-                    return helper.remapProjectChildToNewPlan(project, snapshotScan);
+                    return helper.remapStreamScanToPlan(project, snapshotScan);
                 }
             }
             return node;
