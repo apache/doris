@@ -35,7 +35,8 @@ public class CheckMultiDistinct extends OneRewriteRuleFactory {
 
     private LogicalAggregate checkDistinct(LogicalAggregate<? extends Plan> aggregate) {
         if (AggregateUtils.distinctArgumentGroupCountUpToTwo(aggregate) > 1) {
-            throw new AnalysisException("Multiple distinct argument groups remain after aggregate rewrite");
+            throw new AnalysisException(
+                    "Multiple DISTINCT aggregate functions with different argument lists are not supported.");
         }
         return aggregate;
     }
