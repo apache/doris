@@ -451,6 +451,7 @@ class RequestPropertyDeriverTest {
         List<List<PhysicalProperties>> actual
                 = requestPropertyDeriver.getRequestChildrenPropertyList(groupExpression);
 
+        // When child stats are missing, the parent subset should not be used.
         List<List<PhysicalProperties>> expected = Lists.newArrayList();
         expected.add(Lists.newArrayList(PhysicalProperties.createHash(
                 Lists.newArrayList(key1.getExprId(), key2.getExprId()), ShuffleType.REQUIRE)));
