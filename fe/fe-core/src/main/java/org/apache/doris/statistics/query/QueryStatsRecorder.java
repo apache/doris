@@ -400,11 +400,15 @@ public class QueryStatsRecorder {
                     ((PhysicalRecursiveUnion<?, ?>) plan).getRegularChildrenOutputs(),
                     exprIdToScan, exprIdToColName, deltas);
         }
-        // LATERAL VIEW / EXPLODE: record queryHit for the generator input columns (e.g. the
-        // array column passed to EXPLODE). Generated output slots are synthetic and skipped.
+        // LATERAL VIEW / EXPLODE: queryHit for generator inputs; filterHit for the generator's
+        // own ON predicate (e.g. table-function join), sent straight to TableFunctionNode.
         if (plan instanceof PhysicalGenerate) {
-            for (Function generator : ((PhysicalGenerate<?>) plan).getGenerators()) {
+            PhysicalGenerate<?> generate = (PhysicalGenerate<?>) plan;
+            for (Function generator : generate.getGenerators()) {
                 recordInputSlotsAsQueryHit(generator, exprIdToScan, exprIdToColName, deltas);
+            }
+            for (Expression conjunct : generate.getConjuncts()) {
+                recordInputSlotsAsFilterHit(conjunct, exprIdToScan, exprIdToColName, deltas, aggOutputToInputSlots);
             }
         }
         // Propagate alias ExprIds for intermediate PhysicalProject nodes so that parent

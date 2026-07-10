@@ -223,8 +223,12 @@ suite("query_stats_test") {
     assertTrue((hvK2[2] as int) >= 1, "k2: HAVING SUM(k2) filterHit")
 
     // CTE: consumer query records queryHit on k2 and filterHit on k1.
+    // Force materialization so the plan keeps PhysicalCTEProducer/Consumer instead of
+    // CTEInline collapsing the single-reference CTE into a plain scan+filter.
     sql "clean all query stats"
+    sql "set inline_cte_referenced_threshold = 0"
     sql """with cte as (select k2 from ${tbName} where k1 = 1) select k2 from cte"""
+    sql "set inline_cte_referenced_threshold = 1"
     def cteStats = sql "show query stats from ${tbName}"
     def cteK2 = cteStats.find { it[0] == "k2" }
     def cteK1 = cteStats.find { it[0] == "k1" }
@@ -242,6 +246,15 @@ suite("query_stats_test") {
     def lvK7 = lateralStats.find { it[0] == "k7" }
     assertNotNull(lvK7, "k7 must appear after LATERAL VIEW EXPLODE_SPLIT")
     assertTrue((lvK7[1] as int) >= 1, "k7: LATERAL VIEW input column queryHit")
+
+    // Table-function join ON predicate: PhysicalGenerate.getConjuncts() is sent straight to
+    // TableFunctionNode and actually filters at execution — must record filterHit too.
+    sql "clean all query stats"
+    sql """select s.val from ${tbName} left join lateral unnest(split(k7, ',')) s(val) on s.val = 'x'"""
+    def genStats = sql "show query stats from ${tbName}"
+    def genK7 = genStats.find { it[0] == "k7" }
+    assertNotNull(genK7)
+    assertTrue((genK7[2] as int) >= 1, "k7: table-function join ON predicate filterHit")
 
     // Computed SELECT: SELECT k1+k2 — both input columns get queryHit even though
     // the output expression is not a plain slot reference.
