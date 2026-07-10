@@ -99,7 +99,8 @@ Suite.metaClass.trigger_and_wait_compaction = { String table_name, String compac
                         status_lower.contains("e-808") ||
                         status_lower.contains("e-2008")
             case "cumulative":
-                return status_lower.contains("e-2000")
+                return status_lower.contains("e-2000") &&
+                        !status_lower.contains("job tablet busy")
             case "binlog":
                 return status_lower.contains("e-2012")
             case "base":
