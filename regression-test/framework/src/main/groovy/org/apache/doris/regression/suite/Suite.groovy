@@ -2050,12 +2050,13 @@ class Suite implements GroovyInterceptable {
         sql "analyze table ${toCheckTaskRow.get(3)}.${mvName} with sync;"
     }
 
-    def waitingMTMVTaskFinishedByMvNameAllowCancel = {mvName, dbName = context.dbName ->
-        // Wait for the newly submitted MTMV task to become visible in tasks().
+    def waitingMTMVTaskFinishedByMvNameAllowCancel = {mvName, triggerMode, dbName = context.dbName ->
+        // Wait for the newly submitted MTMV task with the expected trigger mode to become visible in tasks().
         Thread.sleep(2000);
         String showTasks = """
-                select TaskId, Status, MvName, MvDatabaseName, ErrorMsg from tasks('type'='mv')
+                select TaskId, Status, MvName, MvDatabaseName, ErrorMsg, TaskContext from tasks('type'='mv')
                 where MvDatabaseName = '${dbName}' and MvName = '${mvName}'
+                and get_json_string(TaskContext, '\$.triggerMode') = '${triggerMode}'
                 order by CreateTime DESC limit 1
                 """
 
@@ -2077,7 +2078,8 @@ class Suite implements GroovyInterceptable {
             toCheckTaskRow = result[0]
             status = toCheckTaskRow.get(1).toString()
             if (lastLoggedStatus != status) {
-                logger.info("The state of ${showTasks} is ${status}, taskId is ${toCheckTaskRow.get(0)}")
+                logger.info("The state of ${showTasks} is ${status}, taskId is ${toCheckTaskRow.get(0)}, "
+                        + "taskContext is ${toCheckTaskRow.get(5)}")
                 lastLoggedStatus = status
             }
             if (status == 'PENDING' || status == 'RUNNING' || status == 'NULL' || status == 'CANCELED') {
