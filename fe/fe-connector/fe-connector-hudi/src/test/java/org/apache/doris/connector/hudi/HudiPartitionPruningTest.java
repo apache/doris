@@ -35,6 +35,7 @@ import org.apache.doris.connector.hms.HmsTableInfo;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -200,6 +201,25 @@ public class HudiPartitionPruningTest {
                         Arrays.asList("2024/01", "2024/02", "2023/12"),
                         PART_KEYS,
                         Collections.singletonMap("year", Collections.singletonList("2024"))));
+    }
+
+    @Test
+    public void testDatePartitionPredicatePrunesUnchanged() {
+        // H2 non-regression: a DATE predicate literal is a LocalDate (not LocalDateTime), so it is NOT diverted to
+        // hiveDateTimeString -- String.valueOf(LocalDate) = "2024-01-01" already matches the stored DATE value.
+        HudiConnectorMetadata metadata = new HudiConnectorMetadata(
+                new FakeHmsClient(PARTITIONS), Collections.emptyMap(),
+                new StubMetaClientExecutor(Arrays.asList("2024-01-01", "2024-01-02")));
+        HudiTableHandle handle = new HudiTableHandle.Builder("db", "t", "s3://b/t", "COPY_ON_WRITE")
+                .partitionKeyNames(Collections.singletonList("dt"))
+                .build();
+        ConnectorComparison dateEq = new ConnectorComparison(ConnectorComparison.Operator.EQ,
+                new ConnectorColumnRef("dt", ConnectorType.of("DATEV2")),
+                new ConnectorLiteral(ConnectorType.of("DATEV2"), LocalDate.of(2024, 1, 1)));
+        Optional<FilterApplicationResult<ConnectorTableHandle>> result =
+                metadata.applyFilter(null, handle, new ConnectorFilterConstraint(dateEq));
+        Assertions.assertTrue(result.isPresent());
+        Assertions.assertEquals(Collections.singletonList("2024-01-01"), prunedPaths(result));
     }
 
     // ========== helpers ==========

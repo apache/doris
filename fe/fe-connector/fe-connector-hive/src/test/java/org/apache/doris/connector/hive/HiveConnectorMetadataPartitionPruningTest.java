@@ -35,6 +35,7 @@ import org.apache.doris.connector.hms.HmsTableInfo;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -176,6 +177,28 @@ public class HiveConnectorMetadataPartitionPruningTest {
                 HiveConnectorMetadata.hiveDateTimeString(LocalDateTime.of(2024, 1, 1, 10, 0, 30)));
         Assertions.assertEquals("2024-01-01 10:00:00.123456",
                 HiveConnectorMetadata.hiveDateTimeString(LocalDateTime.of(2024, 1, 1, 10, 0, 0, 123456 * 1000)));
+        Assertions.assertEquals("2024-01-01 10:00:00.1",
+                HiveConnectorMetadata.hiveDateTimeString(LocalDateTime.of(2024, 1, 1, 10, 0, 0, 100000 * 1000)));
+    }
+
+    @Test
+    public void testDatePartitionPredicatePrunesUnchanged() {
+        // H2 non-regression: a DATE predicate literal arrives as a LocalDate (not LocalDateTime), so it is NOT
+        // diverted to hiveDateTimeString -- String.valueOf(LocalDate) = "2024-01-01" already matches the stored
+        // Hive DATE partition value. Guards against the datetime branch accidentally catching DATE columns.
+        List<String> parts = Arrays.asList("dt=2024-01-01", "dt=2024-01-02");
+        HiveConnectorMetadata metadata = new HiveConnectorMetadata(
+                new FakeHmsClient(parts), Collections.emptyMap(), new FakeConnectorContext());
+        HiveTableHandle handle = new HiveTableHandle.Builder("db", "t", HiveTableType.HIVE)
+                .partitionKeyNames(Collections.singletonList("dt"))
+                .build();
+        ConnectorComparison dateEq = new ConnectorComparison(ConnectorComparison.Operator.EQ,
+                new ConnectorColumnRef("dt", ConnectorType.of("DATEV2")),
+                new ConnectorLiteral(ConnectorType.of("DATEV2"), LocalDate.of(2024, 1, 1)));
+        Optional<FilterApplicationResult<ConnectorTableHandle>> result =
+                metadata.applyFilter(null, handle, new ConnectorFilterConstraint(dateEq));
+        Assertions.assertTrue(result.isPresent());
+        Assertions.assertEquals(Collections.singletonList("dt=2024-01-01"), prunedLocations(result));
     }
 
     @Test
