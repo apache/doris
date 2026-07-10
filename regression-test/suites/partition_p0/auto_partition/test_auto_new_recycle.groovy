@@ -111,8 +111,6 @@ suite("test_auto_new_recycle", "nonConcurrent") {
         );
     """
 
-    waitUntilSafeExecutionTime("NOT_CROSS_DAY_BOUNDARY", 20)
-
     sql """
     insert into auto_recycle select date_add('2020-01-01 00:00:00', interval number day) from numbers("number" = "100");
     """
@@ -172,12 +170,15 @@ suite("test_auto_new_recycle", "nonConcurrent") {
     sql """ admin set frontend config ('dynamic_partition_check_interval_seconds' = '600') """
     sleep(8000)
     sql """
-        insert into auto_recycle select date_add(now(), interval number-5 day) from numbers("number" = "8");
+        insert into auto_recycle
+        select date_add('1900-01-01 00:00:00', interval number day) from numbers("number" = "5")
+        union all
+        select date_add('2900-01-01 00:00:00', interval number day) from numbers("number" = "3");
     """
     sql """ admin set frontend config ('dynamic_partition_check_interval_seconds' = '1') """
     sleep(8000)
     res = sql "show partitions from auto_recycle"
-    assertEquals(res.size(), 6) // [-5, -1] -> [-3, -1], [0, 2] -> [0, 2]
+    assertEquals(res.size(), 6) // latest 3 historical partitions and all 3 future partitions
     res = sql "select * from auto_recycle order by k0"
     assertEquals(res.size(), 6)
 
