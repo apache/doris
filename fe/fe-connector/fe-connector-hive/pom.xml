@@ -125,11 +125,22 @@ under the License.
             <scope>test</scope>
         </dependency>
 
-        <!-- TEST ONLY: HiveAcidUtilTest exercises the ACID descent against a real Hadoop LocalFileSystem;
-             Hadoop's Configuration/LocalFileSystem reference commons-lang 2.x
-             (org.apache.commons.lang.StringUtils), which is present only transitively in the runtime
-             plugin closure, not on the unit-test classpath. Test-scope only — NOT bundled. Mirrors
-             fe-connector-hms. Version from dependencyManagement. -->
+        <!-- TEST ONLY: real Doris LocalFileSystem (org.apache.doris.filesystem.local.LocalFileSystem, "for unit
+             testing only") backing HiveAcidUtilTest's ACID directory descent over a temp tree — the Doris
+             equivalent of the old Hadoop LocalFileSystem, now that HiveAcidUtil lists via the injected Doris
+             FileSystem. Test-scope only — NOT bundled. Depends only on fe-filesystem-spi (already provided). -->
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-filesystem-local</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- TEST ONLY: HiveAcidUtilTest builds its write-id snapshot with the hive-common Valid* transaction
+             classes (ValidReaderWriteIdList.writeToString()), which reference commons-lang 2.x
+             (org.apache.commons.lang.StringUtils); it is present only transitively in the runtime plugin
+             closure, not on the unit-test classpath. Test-scope only — NOT bundled. Version from
+             dependencyManagement. -->
         <dependency>
             <groupId>commons-lang</groupId>
             <artifactId>commons-lang</artifactId>

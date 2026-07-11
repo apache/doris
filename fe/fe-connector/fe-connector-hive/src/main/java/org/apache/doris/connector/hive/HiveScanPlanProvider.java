@@ -28,11 +28,9 @@ import org.apache.doris.connector.api.scan.ConnectorScanRangeType;
 import org.apache.doris.connector.hms.HmsClient;
 import org.apache.doris.connector.hms.HmsPartitionInfo;
 import org.apache.doris.connector.spi.ConnectorContext;
+import org.apache.doris.filesystem.FileEntry;
 import org.apache.doris.filesystem.FileSystem;
 
-import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.fs.FileStatus;
-import org.apache.hadoop.fs.Path;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -133,9 +131,10 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
         List<ConnectorScanRange> ranges = new ArrayList<>();
 
         if (hiveHandle.isTransactional()) {
-            // Transactional (ACID) table: descend into base/delta directories under the query's
-            // write-id snapshot and emit ACID-annotated ranges. (Dormant — see planAcidScan.)
-            planAcidScan(session, hiveHandle, partitions, buildHadoopConf(), fileFormat,
+            // Transactional (ACID) table: descend into base/delta directories under the query's write-id
+            // snapshot and emit ACID-annotated ranges. Borrows the engine's per-catalog Doris FileSystem to
+            // list (same source as the non-ACID branch below; the engine owns its lifecycle — never closed here).
+            planAcidScan(session, hiveHandle, partitions, context.getFileSystem(session), fileFormat,
                     splittable, targetSplitSize, ranges);
         } else {
             // Borrow the engine's per-catalog Doris FileSystem to list partition directories (see field javadoc).
@@ -245,15 +244,15 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
      * surviving base/delta data files and delete-delta directories, and emits one ACID-annotated
      * {@link HiveScanRange} per data-file split. The BE subtracts the delete deltas on read.</p>
      *
-     * <p><b>Dormant:</b> hive is not yet in {@code SPI_READY_TYPES}, so this path is never reached on a
-     * live query — transactional reads still flow through fe-core {@code HiveScanNode}. It opens a real
-     * metastore transaction/lock; the matching commit (lock release) is driven by
-     * {@link HiveReadTransactionManager#deregister} at query finish, wired only at the read cutover
-     * (P7.4/P7.5) together with routing hive through the plugin. Do not flip one without the other, or a
-     * shared read lock would leak.</p>
+     * <p><b>Live path.</b> Post-cutover {@code hms} is in {@code SPI_READY_TYPES}, so an hms-catalog
+     * transactional table is a {@code PluginDrivenExternalTable} routed through {@code PluginDrivenScanNode}
+     * straight into this method on a live query (the only read gate is the full-ACID ORC-format check below).
+     * It opens a real metastore transaction/lock; the matching commit (lock release) is driven by
+     * {@link HiveReadTransactionManager#deregister} at query finish (via {@link #releaseReadTransaction}),
+     * without which the shared read lock would leak for the metastore's lifetime.</p>
      */
     private void planAcidScan(ConnectorSession session, HiveTableHandle handle,
-            List<PartitionScanInfo> partitions, Configuration hadoopConf, HiveFileFormat fileFormat,
+            List<PartitionScanInfo> partitions, FileSystem fs, HiveFileFormat fileFormat,
             boolean splittable, long targetSplitSize, List<ConnectorScanRange> ranges) {
         boolean isFullAcid = handle.isFullAcid();
         if (isFullAcid && !ORC_ACID_INPUT_FORMAT.equals(handle.getInputFormat())) {
@@ -278,11 +277,9 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
             HiveFileFormat partFormat = partition.fileFormat != null
                     ? partition.fileFormat : fileFormat;
             try {
-                Path partPath = new Path(partition.location);
-                // ACID path still uses bare Hadoop FileSystem (HIVEFS-5 will migrate HiveAcidUtil); fully-qualified
-                // here because the unqualified FileSystem now refers to the injected Doris filesystem.
-                org.apache.hadoop.fs.FileSystem fs =
-                        org.apache.hadoop.fs.FileSystem.get(partPath.toUri(), hadoopConf);
+                // Descend the ACID directory tree through the engine-injected Doris FileSystem. The hive plugin
+                // bundles no HDFS impl, so a bare Hadoop FileSystem.get here would throw "No FileSystem for
+                // scheme hdfs" (FIX-HIVEFS); the engine owns this FileSystem's lifecycle — never closed here.
                 HiveAcidUtil.AcidState state = HiveAcidUtil.getAcidState(
                         fs, partition.location, txnValidIds, isFullAcid);
                 // Only full-ACID reads are marked transactional_hive (delete deltas applied by the BE
@@ -292,9 +289,9 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
                 String acidLocation = isFullAcid ? partition.location : null;
                 List<String> encodedDeltas = isFullAcid
                         ? encodeDeleteDeltas(state.getDeleteDeltas()) : null;
-                for (FileStatus dataFile : state.getDataFiles()) {
-                    splitFile(dataFile.getPath().toString(), dataFile.getLen(),
-                            dataFile.getModificationTime(), partition, partFormat, splittable,
+                for (FileEntry dataFile : state.getDataFiles()) {
+                    splitFile(dataFile.location().uri(), dataFile.length(),
+                            dataFile.modificationTime(), partition, partFormat, splittable,
                             targetSplitSize, acidLocation, encodedDeltas, ranges);
                 }
             } catch (IOException e) {
@@ -534,22 +531,6 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
             }
         }
         return DEFAULT_TARGET_SPLIT_SIZE;
-    }
-
-    private Configuration buildHadoopConf() {
-        Configuration conf = new Configuration();
-        for (Map.Entry<String, String> entry : catalogProperties.entrySet()) {
-            conf.set(entry.getKey(), entry.getValue());
-        }
-        // Set default FS from location properties if present
-        String defaultFs = catalogProperties.get("fs.defaultFS");
-        if (defaultFs == null) {
-            defaultFs = catalogProperties.get("hadoop.fs.defaultFS");
-        }
-        if (defaultFs != null) {
-            conf.set("fs.defaultFS", defaultFs);
-        }
-        return conf;
     }
 
     private boolean isLocationProperty(String key) {

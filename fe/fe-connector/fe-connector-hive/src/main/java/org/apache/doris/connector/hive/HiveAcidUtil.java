@@ -18,10 +18,11 @@
 package org.apache.doris.connector.hive;
 
 import org.apache.doris.connector.hms.HmsAcidConstants;
+import org.apache.doris.filesystem.FileEntry;
+import org.apache.doris.filesystem.FileIterator;
+import org.apache.doris.filesystem.FileSystem;
+import org.apache.doris.filesystem.Location;
 
-import org.apache.hadoop.fs.FileStatus;
-import org.apache.hadoop.fs.FileSystem;
-import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hive.common.ValidReadTxnList;
 import org.apache.hadoop.hive.common.ValidReaderWriteIdList;
 import org.apache.hadoop.hive.common.ValidTxnList;
@@ -45,9 +46,9 @@ import java.util.Map;
  * delete deltas.</p>
  *
  * <p>The fe-core version drags in {@code FileCacheValue}/{@code LocationPath}/{@code AcidInfo}/
- * {@code HivePartition}; those all drop out at the plugin boundary because the plugin lists files with a
- * raw Hadoop {@link FileSystem} and emits {@link HiveScanRange} directly. Only the pure name-parsing plus
- * the {@code hive-common} {@code Valid*} algorithm ports.</p>
+ * {@code HivePartition}; those all drop out at the plugin boundary because the plugin lists files with the
+ * engine-injected Doris {@link FileSystem} and emits {@link HiveScanRange} directly. Only the pure name-parsing
+ * plus the {@code hive-common} {@code Valid*} algorithm ports.</p>
  *
  * <p>Ref: hive/ql/src/java/org/apache/hadoop/hive/ql/io/AcidUtils.java#getAcidState (the fe-core copy
  * exists because hive3 cannot read hive4 transaction tables and using hive4 directly is problematic).</p>
@@ -63,16 +64,16 @@ public final class HiveAcidUtil {
 
     /** Resolved ACID state for one partition: surviving data files + delete-delta descriptors. */
     public static final class AcidState {
-        private final List<FileStatus> dataFiles;
+        private final List<FileEntry> dataFiles;
         private final List<DeleteDelta> deleteDeltas;
 
-        AcidState(List<FileStatus> dataFiles, List<DeleteDelta> deleteDeltas) {
+        AcidState(List<FileEntry> dataFiles, List<DeleteDelta> deleteDeltas) {
             this.dataFiles = dataFiles;
             this.deleteDeltas = deleteDeltas;
         }
 
         /** Base + non-delete delta bucket files that survive the snapshot; each becomes a scan split. */
-        public List<FileStatus> getDataFiles() {
+        public List<FileEntry> getDataFiles() {
             return dataFiles;
         }
 
@@ -167,7 +168,7 @@ public final class HiveAcidUtil {
             throws IOException {
         String fileLocation = baseDir + "_metadata_acid";
         try {
-            return fileSystem.exists(new Path(fileLocation));
+            return fileSystem.exists(Location.of(fileLocation));
         } catch (IOException e) {
             return false;
         }
@@ -245,18 +246,38 @@ public final class HiveAcidUtil {
     }
 
     /**
+     * Lists the immediate children (files <b>and</b> directories) of {@code dir}, non-recursively, via the
+     * engine-injected Doris {@link FileSystem#list} — the literal listing that mirrors the old
+     * {@code FileSystem.listStatus}.
+     *
+     * <p><b>Literal, not glob:</b> uses {@code fs.list(loc)}, never {@code fs.listFiles(loc)}. The per-scheme
+     * filesystems ({@code DFSFileSystem}, {@code S3CompatibleFileSystem}) override {@code listFiles} with a
+     * glob-aware branch that would treat a location containing {@code [}/{@code *}/{@code ?} as a pattern; a hive
+     * partition/delta location can legitimately contain those characters, and the old {@code listStatus} never
+     * glob-expanded. Mirrors {@code HiveFileListingCache.listFromFileSystem}.</p>
+     */
+    private static List<FileEntry> listEntries(FileSystem fs, String dir) throws IOException {
+        List<FileEntry> entries = new ArrayList<>();
+        try (FileIterator it = fs.list(Location.of(dir))) {
+            while (it.hasNext()) {
+                entries.add(it.next());
+            }
+        }
+        return entries;
+    }
+
+    /**
      * Lists the immediate <b>file</b> children of {@code dir} (directories excluded).
      *
      * <p>Mirrors fe-core {@code globList(fs, dir, false)} on a bare directory path: with no wildcard the
-     * glob has a {@code null} pattern, so it returns files only and skips any nested directory. A raw
-     * {@link FileSystem#listStatus} returns both, so the directory entries are filtered out here.</p>
+     * glob has a {@code null} pattern, so it returns files only and skips any nested directory. The literal
+     * {@link #listEntries} returns both, so the directory entries are filtered out here.</p>
      */
-    private static List<FileStatus> listFiles(FileSystem fs, String dir) throws IOException {
-        FileStatus[] statuses = fs.listStatus(new Path(dir));
-        List<FileStatus> files = new ArrayList<>(statuses.length);
-        for (FileStatus status : statuses) {
-            if (!status.isDirectory()) {
-                files.add(status);
+    private static List<FileEntry> listFiles(FileSystem fs, String dir) throws IOException {
+        List<FileEntry> files = new ArrayList<>();
+        for (FileEntry entry : listEntries(fs, dir)) {
+            if (!entry.isDirectory()) {
+                files.add(entry);
             }
         }
         return files;
@@ -265,7 +286,7 @@ public final class HiveAcidUtil {
     /**
      * Resolves the ACID state of one partition directory under the given snapshot.
      *
-     * @param fs            raw Hadoop file system for the partition location
+     * @param fs            engine-injected Doris file system for the partition location
      * @param partitionPath the partition directory (e.g. {@code hdfs://.../data_id=200103})
      * @param txnValidIds   the two serialized {@code Valid*} lists keyed by {@link HmsAcidConstants}
      * @param isFullAcid    full-ACID (bucket_ filter + delete deltas) vs insert-only (accept-all)
@@ -295,7 +316,7 @@ public final class HiveAcidUtil {
 
         //hdfs://xxxxx/user/hive/warehouse/username/data_id=200103
         // List all files and folders, without recursion.
-        FileStatus[] partitionEntries = fs.listStatus(new Path(partitionPath));
+        List<FileEntry> partitionEntries = listEntries(fs, partitionPath);
 
         String oldestBase = null;
         long oldestBaseWriteId = Long.MAX_VALUE;
@@ -304,9 +325,9 @@ public final class HiveAcidUtil {
         boolean haveOriginalFiles = false;
         List<ParsedDelta> workingDeltas = new ArrayList<>();
 
-        for (FileStatus entry : partitionEntries) {
+        for (FileEntry entry : partitionEntries) {
             if (entry.isDirectory()) {
-                String dirName = entry.getPath().getName(); //dirName: base_xxx,delta_xxx,...
+                String dirName = entry.name(); //dirName: base_xxx,delta_xxx,...
                 String dirPath = partitionPath + "/" + dirName;
 
                 if (dirName.startsWith("base_")) {
@@ -420,7 +441,7 @@ public final class HiveAcidUtil {
             }
         }
 
-        List<FileStatus> dataFiles = new ArrayList<>();
+        List<FileEntry> dataFiles = new ArrayList<>();
         List<DeleteDelta> deleteDeltas = new ArrayList<>();
 
         FileFilter fileFilter = isFullAcid ? new FullAcidFileFilter() : new InsertOnlyFileFilter();
@@ -428,11 +449,11 @@ public final class HiveAcidUtil {
         // delta directories
         for (ParsedDelta delta : deltas) {
             String location = delta.path;
-            List<FileStatus> entries = listFiles(fs, location);
+            List<FileEntry> entries = listFiles(fs, location);
             if (delta.deleteDelta) {
                 List<String> deleteDeltaFileNames = new ArrayList<>();
-                for (FileStatus entry : entries) {
-                    String name = entry.getPath().getName();
+                for (FileEntry entry : entries) {
+                    String name = entry.name();
                     if (fileFilter.accept(name)) {
                         deleteDeltaFileNames.add(name);
                     }
@@ -440,8 +461,8 @@ public final class HiveAcidUtil {
                 deleteDeltas.add(new DeleteDelta(location, deleteDeltaFileNames));
                 continue;
             }
-            for (FileStatus entry : entries) {
-                if (fileFilter.accept(entry.getPath().getName())) {
+            for (FileEntry entry : entries) {
+                if (fileFilter.accept(entry.name())) {
                     dataFiles.add(entry);
                 }
             }
@@ -449,9 +470,9 @@ public final class HiveAcidUtil {
 
         // base
         if (bestBasePath != null) {
-            List<FileStatus> entries = listFiles(fs, bestBasePath);
-            for (FileStatus entry : entries) {
-                if (fileFilter.accept(entry.getPath().getName())) {
+            List<FileEntry> entries = listFiles(fs, bestBasePath);
+            for (FileEntry entry : entries) {
+                if (fileFilter.accept(entry.name())) {
                     dataFiles.add(entry);
                 }
             }

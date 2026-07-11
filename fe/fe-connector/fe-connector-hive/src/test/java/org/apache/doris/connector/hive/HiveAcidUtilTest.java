@@ -18,10 +18,11 @@
 package org.apache.doris.connector.hive;
 
 import org.apache.doris.connector.hms.HmsAcidConstants;
+import org.apache.doris.filesystem.FileEntry;
+import org.apache.doris.filesystem.FileSystem;
+import org.apache.doris.filesystem.Location;
+import org.apache.doris.filesystem.local.LocalFileSystem;
 
-import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.fs.FileStatus;
-import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.hive.common.ValidReadTxnList;
 import org.apache.hadoop.hive.common.ValidReaderWriteIdList;
 import org.apache.hadoop.hive.common.ValidTxnList;
@@ -33,27 +34,33 @@ import org.junit.jupiter.api.io.TempDir;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.util.BitSet;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
 /**
- * Tests the pure ACID directory descent {@link HiveAcidUtil#getAcidState} against a real Hadoop
- * {@link FileSystem} over a local temp tree.
+ * Tests the pure ACID directory descent {@link HiveAcidUtil#getAcidState} against a real Doris
+ * {@link FileSystem} (the test-only {@link LocalFileSystem}) over a local temp tree — the Doris equivalent of the
+ * old Hadoop {@code LocalFileSystem}, now that {@link HiveAcidUtil} lists via the engine-injected Doris filesystem.
  *
  * <p>WHY: for a transactional Hive table the reader must reconstruct the correct snapshot from the
  * base/delta/delete-delta directory layout — pick the best valid base, layer on the deltas whose
  * write-id range is still valid, drop obsolete/out-of-snapshot directories, and hand the BE the
  * delete-delta file names so it can subtract deleted rows. A wrong base or a dropped delta silently
  * returns stale or over-/under-deleted data. These tests pin that selection algorithm.</p>
+ *
+ * <p>The filesystem is a {@link LiteralListingLocalFileSystem}: it forbids the glob-aware
+ * {@link FileSystem#listFiles}, so every test here also pins that {@link HiveAcidUtil} lists via the literal
+ * {@link FileSystem#list} (matching the old {@code FileSystem.listStatus}).</p>
  */
 public class HiveAcidUtilTest {
 
     @TempDir
     java.nio.file.Path tempDir;
 
-    private FileSystem localFs() throws IOException {
-        return FileSystem.getLocal(new Configuration());
+    private FileSystem localFs() {
+        return new LiteralListingLocalFileSystem();
     }
 
     /** Creates {@code <partition>/<dir>/<file>} with 1 byte of content. */
@@ -91,13 +98,13 @@ public class HiveAcidUtilTest {
         HiveAcidUtil.AcidState state = HiveAcidUtil.getAcidState(
                 localFs(), tempDir.toString(), snapshot(6L), true);
 
-        List<FileStatus> dataFiles = state.getDataFiles();
+        List<FileEntry> dataFiles = state.getDataFiles();
         Assertions.assertEquals(2, dataFiles.size(),
                 "surviving data files must be exactly base_5 + delta_6 bucket files");
         boolean hasBase5 = false;
         boolean hasDelta6 = false;
-        for (FileStatus f : dataFiles) {
-            String p = f.getPath().toString();
+        for (FileEntry f : dataFiles) {
+            String p = f.location().uri();
             Assertions.assertFalse(p.contains("base_0000002"), "superseded base must be dropped: " + p);
             Assertions.assertFalse(p.contains("delta_0000009"), "out-of-snapshot delta dropped: " + p);
             Assertions.assertFalse(p.endsWith("_flush_length"), "side file excluded: " + p);
@@ -179,7 +186,7 @@ public class HiveAcidUtilTest {
         HiveAcidUtil.AcidState state = HiveAcidUtil.getAcidState(
                 localFs(), tempDir.toString(), ids, true);
         Assertions.assertEquals(1, state.getDataFiles().size());
-        Assertions.assertTrue(state.getDataFiles().get(0).getPath().toString().contains("/base_0000003/"),
+        Assertions.assertTrue(state.getDataFiles().get(0).location().uri().contains("/base_0000003/"),
                 "a base whose visibility txn is uncommitted must be skipped for the committed base");
     }
 
@@ -197,7 +204,7 @@ public class HiveAcidUtilTest {
 
         Assertions.assertEquals(1, state.getDataFiles().size(),
                 "only the best VALID base (base_4) survives; the higher but invalid base_8 is rejected");
-        String p = state.getDataFiles().get(0).getPath().toString();
+        String p = state.getDataFiles().get(0).location().uri();
         Assertions.assertTrue(p.contains("/base_0000004/"), p);
         Assertions.assertFalse(p.contains("base_0000008"), "base above the write-id watermark is invalid");
     }
@@ -222,5 +229,35 @@ public class HiveAcidUtilTest {
         RuntimeException ex = Assertions.assertThrows(RuntimeException.class,
                 () -> HiveAcidUtil.getAcidState(localFs(), tempDir.toString(), ids, true));
         Assertions.assertTrue(ex.getMessage().contains("ValidTxnList"), ex.getMessage());
+    }
+
+    /**
+     * A Doris {@link LocalFileSystem} that FORBIDS the glob-aware {@link FileSystem#listFiles} /
+     * {@link FileSystem#listFilesRecursive}. Every test lists through this, so any regression in
+     * {@link HiveAcidUtil} from the literal {@link FileSystem#list} to {@code listFiles()} fails loud here.
+     *
+     * <p>The production per-scheme filesystems ({@code DFSFileSystem}, {@code S3CompatibleFileSystem}) override
+     * {@code listFiles} to treat a location containing {@code [}/{@code *}/{@code ?} as a glob pattern; a real hive
+     * delta/partition location can contain those, and the old {@code FileSystem.listStatus} never glob-expanded.
+     * Plain {@link LocalFileSystem#listFiles} is the (literal) interface default, so it alone cannot catch a
+     * {@code list()->listFiles()} regression — hence this guard. Mirrors {@code FakeFileSystem.listFiles} throwing
+     * in the non-ACID listing tests.
+     */
+    private static final class LiteralListingLocalFileSystem extends LocalFileSystem {
+        LiteralListingLocalFileSystem() {
+            super(Collections.emptyMap());
+        }
+
+        @Override
+        public List<FileEntry> listFiles(Location dir) {
+            throw new AssertionError(
+                    "HiveAcidUtil must list via the literal list(), never the glob-aware listFiles()");
+        }
+
+        @Override
+        public List<FileEntry> listFilesRecursive(Location dir) {
+            throw new AssertionError(
+                    "HiveAcidUtil must list via the literal list(), never the glob-aware listFilesRecursive()");
+        }
     }
 }
