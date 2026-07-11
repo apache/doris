@@ -5,7 +5,41 @@
 
 ---
 
-# 🆕 下一个 session 起步 = FIX-HIVEFS 收尾（下一步 = 全量 build + e2e 交接 HIVEFS-8）
+# 🆕 下一个 session 起步 = 修复 hive e2e 剩余 regression（HIVEFS-8 e2e 已首跑）
+
+> **本轮**：`external_table_p0/hive` 全量回归首跑 = **37/111 失败**。已逐个定位根因；**本轮修复约 20 个 suite（4 commit，下）**；**剩余 ~12 个真实 connector/fe-core regression 待修**（均**非**测试/环境问题，**勿 rebless `.out`**）。
+> **起步必读**：本段 + `git log`（4 fix commit 详尽）。失败日志（勿 commit，非本线程产物）：`nohup.out`（Jul 11）、FE `output/fe/log`、BE `output/be/log`。**BE 走 `format_v2` 扫描器**。**行号信 HEAD 不信文档。**
+> **⚠ e2e 欠账**：本轮 4 修均 unit/build 绿（fe-connector-hive+hms 920 测试、0 checkstyle），**真值靠重部署+重跑断言**（尤其 ① drop-nonexistent 新文案 `"Failed to get database"` 是读代码推断非日志实证；② text 读回、binary hex 渲染）。**用户将先自跑一轮验证再开新 session 续修剩余。**
+
+**✅ 本轮 DONE（4 commit，均编译+全套测试绿）**：
+- `cd4eecac5e6` **[fix] 文本读取根因（~12 suite）**：`HiveTextProperties`（fe-connector-hive）未做 `getByte` 数值→字节解码。Hive 默认分隔符存 `serialization.format="1"`=**字节 0x01**(Ctrl-A)，新代码当字符 `'1'`(0x31) 发 BE → `format_v2` TextReader 按 '1' 切 → 整行挤第一列 → null/粘连。移植 getByte + 老默认 + Hive2 拼写 key `colelction.delim` + table-params 优先；MultiDelimitSerDe 多字符保持 raw；null_format 不解码。新单测 `HiveTextPropertiesTest` 9/9。覆盖 to_date/prepare_data/basic_type/other/serde_prop/truncate/get_schema/meta_cache/query_cache + text_complex_type/to_array/text_garbled_file(靠 colelction.delim)。
+- `5672d7c0209` **[fix] binary/timestamp 映射 key**：连接器读走样下划线 key `enable_mapping_binary_as_string`/`enable_mapping_timestamp_tz`（全树从不写入），正确点号 `enable.mapping.varbinary`/`enable.mapping.timestamp_tz`（`CatalogProperty`/iceberg/paimon）→ BINARY 恒退 STRING、timestamp 恒不 TIMESTAMPTZ。修 `test_hive_orc`/`test_hive_varbinary_type`。
+- `d8c6eb002a1` **[fix] desc Key=true**：`ThriftHmsClient.convertFieldSchemas`（fe-connector-hms）用 5 参 `ConnectorColumn`(isKey 默认 false)→改 6 参 isKey=true（外表语义，对齐 iceberg）。修 `test_hive_struct_add_column`/`test_hive_view`。
+- `b036c604651` **[test] DDL/事务文案对齐**：create-db-conflict→`"Failed to create Hive database…already exists"`、drop-db-nonexistent→`"Failed to get database:'X'"`(读代码推断)、事务 insert→`"Cannot write to a transactional Hive table"`；create-table-conflict(fe-core 层)未变、未动。
+
+**⭐ 下一步 = 修剩余 ~12 真实 regression**（每条：设计→(红队)→实现→靶向验证→独立 commit；勿 rebless `.out`）：
+
+| # | 缺陷 | 影响 suite | 修复位置指针 | 规模 |
+|---|---|---|---|---|
+| R1 | SHOW CREATE DATABASE 丢 LOCATION：`HiveConnectorMetadata` 无 `getDatabase` override | `test_hive_ddl`, `test_hms_event_notification`(+`_multi_catalog`) | 加 `getDatabase` 返 HMS db location 于 `ConnectorDatabaseMetadata.LOCATION_PROPERTY`，镜像 `IcebergConnectorMetadata.getDatabase:187` | 中 |
+| R2 | SHOW CREATE TABLE 出通用 DDL：`ShowCreateTableCommand:155-159` 门控 `getType()==HMS_EXTERNAL_TABLE`，插件表是 PLUGIN_EXTERNAL_TABLE | `test_hive_show_create_table`, `test_hive_ddl_text_format`(次) | fe-core 路由 plugin-hive→hive DDL 渲染器（守 connector-agnostic 铁律；参 view 臂 :161-169） | 中 |
+| R3 | `$partitions` 系统表未支持（"Unknown sys table"） | `test_hive_partition_values_tvf` | 连接器/`PluginDrivenExternalTable` sys-table dispatch | 大 |
+| R4 | explain `partition=N/M`=0/0 | `test_hive_default_partition` | `PluginDrivenScanNode` explain 分区计数 + hive `appendExplainInfo` | 大 |
+| R5 | 统计行数未接 cardinality（=1 非 66） | `test_hive_statistics_p0` | 连接器 stats 取数 + PluginDrivenScanNode cardinality 接线 | 大 |
+| R6 | DECIMAL 分区谓词裁剪→0 行 | `test_hive_partitions`(q03+) | 连接器分区值归一/比较 | 中 |
+| R7 | `use_meta_cache` 下 show partitions 空 | `test_hive_use_meta_cache_true`(sql09) | `fe-connector-hms` CachingHmsClient 分区列表 | 中 |
+| R8 | `hive.recursive_directories` 未生效（只读顶层）| `hive_config_test`(qt_2) | 连接器文件列举递归 | 中 |
+| R9 | LZO 文本 + `.lzo.index` sidecar 排除 | `test_hive_lzo_text_format` | 连接器 LZO input-format 分类+压缩解码+排 .index | 大 |
+| R10 | openx JSON serde 接线缺失（ignore.malformed.json / read_hive_json_in_one_column）| `test_hive_openx_json` | `HiveTextProperties.extractJsonSerDeProps`(现仅收 serDeLib) + PluginDrivenScanNode json 属性 | 大 |
+| R11 | 特殊字符分区值路径编解码 | `test_hive_special_char_partition` | 连接器分区值 escape/unescape + 写 | 中 |
+| R12 | OpenCSV 另有原因（FE 路径老新等价，待定位）| `test_open_csv_serde`(csv_complex_type) | 待查（enclose/escape/复杂类型）| 待查 |
+
+**环境结论**：**无真幂等问题**；日志 `already exists`/`is not empty`/`does not exist` = 新连接器 DDL 文案包装 + 故意负测。**卫生**：个别 F suite `DROP DATABASE` 无 CASCADE，中断会留残库 → 整轮间重置外部 hive docker。
+**净室复审底稿**：本轮全 triage 由 7-agent 对抗 workflow 打底（根因 CONFIRMED、逐 suite 归因），结论可复用。
+
+---
+
+# ✅ HIVEFS 背景（HIVEFS-0..9 全 DONE；本轮已跑 e2e，以下为历史参考）
 
 > 本地 hive 回归 `test_string_dict_filter` q01 `No FileSystem for scheme "hdfs"` 引出的**架构性改造**（非环境/文案）。**起步必读：设计 `plan-doc/tasks/designs/FIX-HIVEFS-design.md` + 任务清单 `plan-doc/tasks/task-list-HIVEFS.md`（行号信 HEAD 不信文档）。连接器读+ACID+写三条裸 Hadoop 路径已全部转引擎注入 FileSystem（HIVEFS-4/5/6 DONE），去 jar 已核实达成（HIVEFS-7 DONE，无需改 pom）；HIVEFS-8 e2e 首跑引出引擎 conf 的 classloader 阻断已修（**HIVEFS-9 DONE** `37911f2b3fe`，`test_string_dict_filter` q01 的 `ProtobufRpcEngine2 cannot be cast to RpcEngine`）；只剩全量 build + 重部署 + e2e 自跑。**
 
