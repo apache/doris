@@ -71,6 +71,24 @@ public interface ConnectorTableOps {
         return Optional.empty();
     }
 
+    /**
+     * Whether the named system table of {@code baseTableHandle} is served by the generic
+     * {@code partition_values} table-valued function (fe-core's {@code PartitionsSysTable}) rather
+     * than by a native connector scan. Default {@code false} (native, the {@link #getSysTableHandle}
+     * path).
+     *
+     * <p>A connector whose partitioned tables expose their partition rows through the generic
+     * partition-values TVF (e.g. hive) overrides this to return {@code true} for that sys-table name;
+     * such a name need NOT return a handle from {@link #getSysTableHandle} (the TVF path never consults
+     * it). fe-core needs the kind at discovery time (before any handle is fetched), so it cannot be
+     * inferred from an empty {@code getSysTableHandle}. {@code sysName} is the bare name (no
+     * {@code "$"}).</p>
+     */
+    default boolean isPartitionValuesSysTable(ConnectorSession session,
+            ConnectorTableHandle baseTableHandle, String sysName) {
+        return false;
+    }
+
     /** Returns the schema (columns, format, etc.) for the given table. */
     default ConnectorTableSchema getTableSchema(
             ConnectorSession session, ConnectorTableHandle handle) {

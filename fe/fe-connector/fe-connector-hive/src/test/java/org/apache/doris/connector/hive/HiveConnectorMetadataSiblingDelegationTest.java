@@ -140,6 +140,9 @@ public class HiveConnectorMetadataSiblingDelegationTest {
         ConnectorTableHandle afterTopn = md.applyTopnLazyMaterialization(null, foreignHandle);
         List<String> sysTables = md.listSupportedSysTables(null, foreignHandle);
         Optional<ConnectorTableHandle> sysHandle = md.getSysTableHandle(null, foreignHandle, "snapshots");
+        // "snapshots" (not "partitions"): hive's own logic returns false for it, so a true answer proves the
+        // reply came from the sibling, not hive.
+        boolean sysIsTvf = md.isPartitionValuesSysTable(null, foreignHandle, "snapshots");
 
         // Every per-handle method reached the sibling (proves the divert covers the whole surface).
         Assertions.assertEquals(RecordingSiblingMetadata.EXPECTED_METHODS, siblingMetadata.calls,
@@ -153,7 +156,10 @@ public class HiveConnectorMetadataSiblingDelegationTest {
         Assertions.assertEquals(Collections.singletonList("sibling-part"), partNames,
                 "listPartitionNames must return the sibling's names");
         Assertions.assertEquals(Collections.singletonList("snapshots"), sysTables,
-                "iceberg-on-HMS system tables must resolve through the sibling (hive exposes none)");
+                "iceberg-on-HMS system tables must resolve through the sibling (hive exposes only partitions)");
+        Assertions.assertTrue(sysIsTvf,
+                "isPartitionValuesSysTable must return the sibling's answer for a foreign handle, not hive's — "
+                        + "dropping this delegation would misroute an iceberg-on-HMS t$partitions into the hive TVF");
         Assertions.assertSame(RecordingSiblingMetadata.SIBLING_TIMELINE_ROWS, timelineRows,
                 "getMetadataTableRows must return the sibling's timeline rows, not hive's empty default — a "
                         + "hudi-on-HMS hudi_meta()/TIMELINE read gets its rows from the hudi sibling post-flip");
@@ -189,9 +195,14 @@ public class HiveConnectorMetadataSiblingDelegationTest {
                 "hive applyRewriteFileScope returns the handle");
         Assertions.assertSame(hive, md.applyTopnLazyMaterialization(null, hive),
                 "hive applyTopnLazyMaterialization returns the handle");
-        Assertions.assertTrue(md.listSupportedSysTables(null, hive).isEmpty(), "hive exposes no system tables");
+        Assertions.assertEquals(Collections.singletonList("partitions"), md.listSupportedSysTables(null, hive),
+                "hive exposes the partitions sys table (t$partitions), served by the partition_values TVF");
+        Assertions.assertTrue(md.isPartitionValuesSysTable(null, hive, "partitions"),
+                "hive's partitions sys table is TVF-backed");
+        Assertions.assertFalse(md.isPartitionValuesSysTable(null, hive, "snapshots"),
+                "hive exposes no sys table other than partitions");
         Assertions.assertFalse(md.getSysTableHandle(null, hive, "snapshots").isPresent(),
-                "hive exposes no system tables");
+                "hive's TVF-backed sys table has no native handle");
         ConnectorMvccSnapshot pin = md.beginQuerySnapshot(null, hive).orElse(null);
         Assertions.assertNotNull(pin);
         Assertions.assertEquals(-1L, pin.getSnapshotId(), "hive's pin is the empty (-1) last-modified pin");
@@ -466,7 +477,8 @@ public class HiveConnectorMetadataSiblingDelegationTest {
                 "beginQuerySnapshot", "getTableFreshness", "getPartitionFreshnessMillis", "dropTable",
                 "truncateTable", "getTableSchemaAtSnapshot", "getMvccPartitionView", "resolveTimeTravel",
                 "applySnapshot", "getSyntheticScanPredicates", "applyRewriteFileScope",
-                "applyTopnLazyMaterialization", "listSupportedSysTables", "getSysTableHandle"));
+                "applyTopnLazyMaterialization", "listSupportedSysTables", "getSysTableHandle",
+                "isPartitionValuesSysTable"));
 
         // The exact set + order of ALTER-DDL / validate methods the foreign-handle write test drives (Rule-9
         // completeness lock for §4.4 W1: dropping a guard, or adding one that should not forward, fails the test).
@@ -637,6 +649,14 @@ public class HiveConnectorMetadataSiblingDelegationTest {
                 ConnectorTableHandle baseTableHandle, String sysName) {
             calls.add("getSysTableHandle");
             return Optional.of(SIBLING_HANDLE);
+        }
+
+        @Override
+        public boolean isPartitionValuesSysTable(ConnectorSession session,
+                ConnectorTableHandle baseTableHandle, String sysName) {
+            calls.add("isPartitionValuesSysTable");
+            // A distinctive true (hive's own logic would say false for "snapshots") proves the divert.
+            return true;
         }
 
         // ---- §4.4 W1: ALTER-DDL mutators + write validators (the write-delegation surface) ----

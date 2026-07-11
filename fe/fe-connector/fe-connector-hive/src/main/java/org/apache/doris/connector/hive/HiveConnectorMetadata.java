@@ -1349,8 +1349,11 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
         if (!(baseTableHandle instanceof HiveTableHandle)) {
             return siblingMetadata(session, baseTableHandle).listSupportedSysTables(session, baseTableHandle);
         }
-        // Hive exposes no system tables (SPI default empty).
-        return Collections.emptyList();
+        // Hive exposes the "partitions" system table (t$partitions), served by the generic partition_values
+        // TVF (see isPartitionValuesSysTable). Exposed UNCONDITIONALLY (partitioned or not), mirroring legacy
+        // HMSExternalTable.getSupportedSysTables for dlaType==HIVE: a $partitions query on a NON-partitioned
+        // table must reach the TVF and throw "… is not a partitioned table", not "Unknown sys table".
+        return List.of("partitions");
     }
 
     @Override
@@ -1360,8 +1363,22 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
             // Return the sibling's sys-table handle UNMODIFIED (a rewrap would poison a downstream scan cast).
             return siblingMetadata(session, baseTableHandle).getSysTableHandle(session, baseTableHandle, sysName);
         }
-        // Hive exposes no system tables (SPI default empty).
+        // Hive's "partitions" sys table is TVF-backed (isPartitionValuesSysTable), so the native handle path
+        // never consults this — no hive sys-table handle to return.
         return Optional.empty();
+    }
+
+    @Override
+    public boolean isPartitionValuesSysTable(ConnectorSession session, ConnectorTableHandle baseTableHandle,
+            String sysName) {
+        if (!(baseTableHandle instanceof HiveTableHandle)) {
+            // A foreign (iceberg/hudi-on-HMS) handle's sys tables are NATIVE — delegate so fe-core wraps them
+            // native. Dropping this guard would misroute an iceberg-on-HMS t$partitions into the hive TVF.
+            return siblingMetadata(session, baseTableHandle).isPartitionValuesSysTable(session, baseTableHandle,
+                    sysName);
+        }
+        // Plain hive's only sys table, "partitions", is served by the generic partition_values TVF.
+        return "partitions".equals(sysName);
     }
 
     /**

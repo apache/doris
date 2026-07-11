@@ -41,6 +41,7 @@ import org.apache.doris.connector.api.mvcc.ConnectorMvccSnapshot;
 import org.apache.doris.connector.api.pushdown.ConnectorExpression;
 import org.apache.doris.connector.api.write.ConnectorWritePlanProvider;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
+import org.apache.doris.datasource.systable.PartitionsSysTable;
 import org.apache.doris.datasource.systable.PluginDrivenSysTable;
 import org.apache.doris.datasource.systable.SysTable;
 import org.apache.doris.qe.ConnectContext;
@@ -966,7 +967,15 @@ public class PluginDrivenExternalTable extends ExternalTable {
         // case-sensitive findSysTable exact-match works, mirroring legacy PaimonSysTable keys.
         Map<String, SysTable> result = Maps.newHashMapWithExpectedSize(names.size());
         for (String sysName : names) {
-            result.put(sysName, new PluginDrivenSysTable(sysName));
+            if (metadata.isPartitionValuesSysTable(session, handleOpt.get(), sysName)) {
+                // Connector declares this name is served by the generic partition_values TVF (e.g. hive
+                // t$partitions), not a native scan. Key on the singleton's OWN name (== "partitions"):
+                // PartitionsSysTable strips its hard-wired "$partitions" suffix in createFunction, so a
+                // differing key would crash there; identical to sysName for hive today, strictly safer.
+                result.put(PartitionsSysTable.INSTANCE.getSysTableName(), PartitionsSysTable.INSTANCE);
+            } else {
+                result.put(sysName, new PluginDrivenSysTable(sysName));
+            }
         }
         return Collections.unmodifiableMap(result);
     }
