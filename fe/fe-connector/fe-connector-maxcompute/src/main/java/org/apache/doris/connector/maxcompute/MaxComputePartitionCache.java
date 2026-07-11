@@ -64,10 +64,14 @@ public class MaxComputePartitionCache {
     /** {@code meta.cache.max_compute.partition.*} — cached partition listings. */
     static final String ENTRY_PARTITION = "partition";
 
-    // Legacy fe-core Config values, mirrored locally (the connector never touches fe-core Config):
-    //   TTL      = Config.external_cache_expire_time_seconds_after_access (86400s = 24h)
-    //   capacity = Config.max_external_file_cache_num                     (10000)
-    static final long DEFAULT_TTL_SECOND = 86400L;
+    // Legacy MaxCompute partition-cache Config values, mirrored locally (the connector never touches fe-core
+    // Config). These are the knobs the DELETED MaxComputeExternalMetaCache.partitionValuesEntry actually used —
+    //   TTL      = Config.external_cache_refresh_time_minutes * 60 (default 10 min * 60 = 600s)
+    //   capacity = Config.max_hive_partition_table_cache_num       (default 10000)
+    // NOT the hive file-listing cache's knobs (external_cache_expire_time_seconds_after_access = 24h /
+    // max_external_file_cache_num): a MaxCompute table's partition set must re-list ~10 min after last access,
+    // matching legacy, so a partition added directly in ODPS becomes visible without an explicit REFRESH.
+    static final long DEFAULT_TTL_SECOND = 600L;
     static final long DEFAULT_PARTITION_CAPACITY = 10000L;
 
     /**
