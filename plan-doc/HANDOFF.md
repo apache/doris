@@ -5,7 +5,7 @@
 
 ---
 
-# 🆕 下一个 session 起步 = FIX-HIVEFS 续（下一步 = 引擎实现 HIVEFS-3）
+# 🆕 下一个 session 起步 = FIX-HIVEFS 续（下一步 = 读扫描 HIVEFS-4）
 
 > 本地 hive 回归 `test_string_dict_filter` q01 `No FileSystem for scheme "hdfs"` 引出的**架构性改造**（非环境/文案）。**起步必读：设计 `plan-doc/tasks/designs/FIX-HIVEFS-design.md` + 任务清单 `plan-doc/tasks/task-list-HIVEFS.md`（行号信 HEAD 不信文档）。**
 
@@ -13,23 +13,24 @@
 
 **已签字决策（2026-07-11）**：① 走**正解 B**——引擎经 `ConnectorContext.getFileSystem(ConnectorSession)` 下发 Doris `FileSystem`（实为 `SpiSwitchingFileSystem`），连接器改调 `listFiles/exists/rename/delete/forLocation`、**删 `hadoop-hdfs-client`**；**对齐 Trino**（`TrinoFileSystemFactory.create(session)`→`TrinoFileSystem`，连接器不 bundle Hadoop、Hadoop 可选仅 HDFS）。② **一步到位**（读+ACID+写全转）。③ SPI 照 Trino 形状留 `session`（identity 经 `getUser()` **预留 per-user**，当前 catalog 级）。④ scope=**hive-only**（paimon/iceberg 经各自 `FileIO`，不动）。
 
-**✅ 本轮完成 = 基础 SPI 缝 HIVEFS-0/1/2（均构建+靶向 UT 验证、0 checkstyle、已 commit）**：
+**✅ 本轮完成 = 基础 SPI 缝 + 引擎实现 HIVEFS-0/1/2/3（均构建+靶向 UT 验证、0 checkstyle、已 commit）**：
 - **HIVEFS-0**：撤销上会话未提交的 `hadoop-hdfs-client` 创可贴（pom 回 HEAD，无 commit）。
 - **HIVEFS-1** `0c4e0595f8f`：`FileSystem` 接口加 `default FileSystem forLocation(Location){return this}`（非切换 FS 即自身，`SpiSwitchingFileSystem` override 返回 per-scheme 委派）。UT `FileSystemDefaultMethodsTest` 9/9。用途：写路径 MPU 按 location 取具体 `ObjFileSystem`（HIVEFS-6）。
 - **HIVEFS-2** `3b4f7477d34`：`ConnectorContext` 加 `default FileSystem getFileSystem(ConnectorSession){return null}`+javadoc（**引擎所有/连接器借用/连接器不得 close**；session 对齐 Trino、identity 经 `getUser()` 预留 per-user；默认 null 对齐 `getBackendStorageProperties`）。
+- **HIVEFS-3** `a8ed72f2650`：`DefaultConnectorContext.getFileSystem` 懒建+字段缓存一个 per-catalog `SpiSwitchingFileSystem`（空 storage→null），`implements Closeable`；**close 挂点已定**——context 由 catalog **单一持有**（sibling 经 `createSiblingConnector(this)` 共享同一 context），故 catalog 在 `onClose`/换连接器两处关（**连接器只借不关**）。UT 4/4 + 既有 context/catalog 24/24。**对现有行为惰性**（非 hive catalog 不调 getFileSystem→close no-op；须 HIVEFS-4 接线才活）。
 
-**⭐ 下一步 = HIVEFS-3（fe-core 引擎实现）**：`DefaultConnectorContext.getFileSystem(session)` 懒建 + 字段缓存 `new SpiSwitchingFileSystem(storagePropertiesSupplier.get())`，随 context 拆除 close。近零新件（已 import `SpiSwitchingFileSystem`/`FileSystemFactory`、已持 `storagePropertiesSupplier`；范式 `HMSExternalCatalog:146`/`:348`）。之后：**HIVEFS-4 读扫描（+3+重部署 = 失败用例转绿）→ 5 ACID → 6 写路径（最险，落地前须多 agent 对抗红队）→ 7 删 `hadoop-hdfs-client`+grep 零裸 Hadoop → 8 全量 build+e2e**。
+**⭐ 下一步 = HIVEFS-4（连接器·读扫描列文件）**：`HiveFileListingCache`/`HiveScanPlanProvider:272` 的裸 `FileSystem.get`+`listStatus` 换 `context.getFileSystem(session).listFiles(Location.of(...))`；`FileStatus`→`FileEntry`；保留目录/`_`/`.` 过滤 + 两异常语义（systemic `DorisConnectorException` vs per-partition `HiveDirectoryListingException`）；`DirectoryLister` seam 签名 `(location, Configuration)`→`(location, FileSystem)`。**此步 + HIVEFS-3 + 重部署 = 失败用例 `test_string_dict_filter` 转绿**。之后：**5 ACID → 6 写路径（最险，落地前须多 agent 对抗红队）→ 7 删 `hadoop-hdfs-client`+grep 零裸 Hadoop → 8 全量 build+e2e**。
 
 **已探明的去风险事实（勿重查）**：
-- **引擎侧近零新件**——`DefaultConnectorContext` 已 import `SpiSwitchingFileSystem`/`FileSystemFactory`、已持 `storagePropertiesSupplier`（`SpiSwitchingFileSystem` 构造入参），`HMSExternalCatalog:146`/`:348` 已这样用；`DefaultConnectorContext` 按 catalog 长生（`CatalogFactory:110`），有 `Connector.close()` 链可挂缓存 FS 的 close。
+- **引擎侧已落地（HIVEFS-3）**——`DefaultConnectorContext.getFileSystem` 用已持的 `storagePropertiesSupplier` + `SpiSwitchingFileSystem`（范式镜像 `cleanupEmptyManagedLocation:348`）；close 由 catalog 在 `onClose`/换连接器处关（context 单一持有、sibling 共享）。
 - **TCCL 无需连接器侧处理**——`DFSFileSystem.getHadoopFs:131-144` 对 hdfs/viewfs **自钉**到自身插件 loader 再 `FileSystem.get`、finally 还原（注释即描述 “No FileSystem for scheme hdfs” 场景）。连接器去 jar 后任意 TCCL 调用皆安全。
 - 写路径 MPU 需**具体** `ObjFileSystem`（`HiveConnectorTransaction:809/1336`）→ `FileSystem.forLocation`（HIVEFS-1 已加：非切换返回 this、切换返回具体 FS）就位待 HIVEFS-6 用。
 - 连接器裸 Hadoop 面**很小**：`listStatus`×3 + `exists`×1 + `FileStatus` 字段（getPath/getLen/isDirectory/getModificationTime），全映射 `FileEntry`。
 - fe-filesystem 全 9 插件（hdfs/s3/oss/cos/obs/azure/http/local/broker）已部署 → hive 表任意后端天然支持（免 bundle hadoop-aws/huaweicloud，架构红利）。
 
-**⚠ 待下个 session 核定**（task-list Open §）：`DefaultConnectorContext` close 挂点 · `HiveScanPlanProvider.buildHadoopConf`/conf 去留 · `HiveAcidUtilTest` 真-LocalFS→fake 迁移 · 写路径 commit/abort 时 FS/identity 捕获时机（begin 捕获）。
+**⚠ 待下个 session 核定**（task-list Open §）：`HiveScanPlanProvider.buildHadoopConf`/conf 去留（HIVEFS-4）· `HiveAcidUtilTest` 真-LocalFS→fake 迁移（HIVEFS-5）· 写路径 commit/abort 时 FS/identity 捕获时机（HIVEFS-6，begin 捕获）。
 
-**⚠ 状态**：HIVEFS-0/1/2 已入库（code 2 commit `0c4e0595f8f`/`3b4f7477d34` + 本 doc 1 commit）；设计 doc/task-list 随本轮一并 commit。落地纪律：写路径（HIVEFS-6）落地前设计红队 → 每子步独立 commit + 靶向 UT（见 task-list）。
+**⚠ 状态**：HIVEFS-0/1/2/3 已入库（code 3 commit `0c4e0595f8f`/`3b4f7477d34`/`a8ed72f2650` + doc commit）。落地纪律：写路径（HIVEFS-6）落地前设计红队 → 每子步独立 commit + 靶向 UT（见 task-list）。
 
 ---
 

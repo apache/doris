@@ -26,11 +26,11 @@
   - javadoc 写明：**引擎所有 / 连接器借用 / 连接器不得 close**；`session` 对齐 Trino `create(session)`，identity 经 `session.getUser()` **预留 per-user**，当前 catalog 级（session 暂忽略）。默认 null（对齐 `getBackendStorageProperties()` 良性默认）。
   - 校验：`mvn -o -pl :fe-connector-spi -am test-compile`。
 
-- [ ] **HIVEFS-3（fe-core，引擎实现）**：`DefaultConnectorContext.getFileSystem(session)` 懒建 + 字段缓存 `new SpiSwitchingFileSystem(storagePropertiesSupplier.get())`，随 context 拆除 close。
-  - 复用现件（已 import `SpiSwitchingFileSystem`/`FileSystemFactory`、已持 `storagePropertiesSupplier`；范式见 `HMSExternalCatalog:146`/`DefaultConnectorContext:348`）。
-  - **待核**：`DefaultConnectorContext` 的 close/teardown 挂点（沿 `Connector.close()` 链，`ConnectorContext.java:133` 提到 caller 转发 close）——把缓存 FS 的 close 挂上。
-  - UT（fe-core 有 Mockito）：`getFileSystem` 非空、二次调用返回同一实例（缓存）、close 释放。
-  - 校验：`mvn -o -pl fe-core -am test-compile`。
+- [x] **HIVEFS-3（fe-core，引擎实现）** ✅ DONE `a8ed72f2650`（fe-core BUILD SUCCESS、UT 4/4 + 既有 context/catalog 24/24、0 checkstyle）：`DefaultConnectorContext.getFileSystem(session)` 懒建 + 字段缓存 `new SpiSwitchingFileSystem(storagePropertiesSupplier.get())`，空 storage→null（对齐 `getBackendStorageProperties`/`cleanupEmptyManagedLocation`）；随 context 拆除 close。
+  - 复用现件（已 import `SpiSwitchingFileSystem`/`FileSystemFactory`、已持 `storagePropertiesSupplier`；范式见 `cleanupEmptyManagedLocation:348`）。
+  - **close 挂点已定（原「待核」已解）**：context 由**引擎/catalog 单一持有**（sibling 经 `createSiblingConnector(this)` 共享同一 context → 每 catalog 一个缓存 FS），故由 **catalog 关**非连接器关（连接器只借）。`DefaultConnectorContext implements Closeable`（close 幂等、转发缓存 FS、置 null 使 teardown 后 `getFileSystem` 返 null）；`PluginDrivenExternalCatalog` 存 context 引用，在既有两处连接器拆除点关（`onClose` + `initLocalObjectsImpl` 换连接器），**在连接器释放借用引用之后**。非 hive 插件 catalog 从不调 `getFileSystem` → close 为 no-op（本步对现有行为**惰性**，须 HIVEFS-4 接线才活）。
+  - UT（fe-core 有 Mockito；实际用 recording-fake seam `buildCatalogFileSystem`）：`getFileSystem` 懒建、二次返回同一实例（缓存）、空 storage→null、close 幂等转发缓存 FS。
+  - 校验：`mvn -o -pl fe-core -am test-compile`（已过）。
 
 - [ ] **HIVEFS-4（连接器·读扫描列文件）**：
   - `HiveFileListingCache`：`DirectoryLister` seam 签名 `(String location, Configuration)` → `(String location, FileSystem)`；`listFromFileSystem` 用 `fs.listFiles(Location.of(location))` 替代 `FileSystem.get`+`listStatus`；保留目录/`_`/`.` 前缀过滤 + 两异常语义（systemic `DorisConnectorException` vs per-partition `HiveDirectoryListingException`）。`FileStatus`→`FileEntry`（getPath→location、getLen→length、isDirectory→isDirectory、getModificationTime→mtime）；`HiveFileStatus` DTO 不变。
@@ -74,11 +74,11 @@
 
 ## Open / 待下个 session 核定（勿丢）
 
-1. `DefaultConnectorContext` 缓存 FS 的 close 挂点（Connector.close 链）。
-2. `HiveScanPlanProvider.buildHadoopConf()`/`Configuration` 在去 FS.get 后的去留（格式/split/传 BE 是否仍需）。
-3. `HiveAcidUtilTest` 从真 LocalFileSystem 迁到 fake/`fe-filesystem-local` 的注入方式。
-4. 写路径 commit/abort 时 FS/identity 的捕获时机（begin 时捕获）。
-5. `forLocation` 加到接口后与现有非切换 impl 的兼容（default `return this` 覆盖）。
+1. ~~`DefaultConnectorContext` 缓存 FS 的 close 挂点~~ ✅ **已解（HIVEFS-3）**：catalog 单一持有 + `onClose`/换连接器两处关，`DefaultConnectorContext implements Closeable`（见上 HIVEFS-3）。
+2. `HiveScanPlanProvider.buildHadoopConf()`/`Configuration` 在去 FS.get 后的去留（格式/split/传 BE 是否仍需）——HIVEFS-4 定。
+3. `HiveAcidUtilTest` 从真 LocalFileSystem 迁到 fake/`fe-filesystem-local` 的注入方式——HIVEFS-5 定。
+4. 写路径 commit/abort 时 FS/identity 的捕获时机（begin 时捕获）——HIVEFS-6 定。
+5. ~~`forLocation` 加到接口后与现有非切换 impl 的兼容~~ ✅ **已解（HIVEFS-1）**：default `return this`；`SpiSwitchingFileSystem` override 返回 per-scheme 委派；`FileSystemDefaultMethodsTest` 已断言。
 
 ## Future（不属本次）
 
