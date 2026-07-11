@@ -225,10 +225,10 @@ Status IndexFileWriter::add_snii_index(const TabletIndex* index_meta, uint32_t d
     // level; compaction / schema change / ADD INDEX keep snii_prx_zstd_level
     // and compaction rewrites every segment with it, so settled segments (and
     // the cold-query path over them) are byte-for-byte unaffected.
-    input.prx_zstd_level = std::clamp(options.is_direct_load
-                                              ? config::snii_prx_zstd_level_direct_load
+    input.prx_zstd_level =
+            std::clamp(options.is_direct_load ? config::snii_prx_zstd_level_direct_load
                                               : config::snii_prx_zstd_level,
-                                      3, 19);
+                       3, 19);
     // G16-d: dict block size experiment knob; <= 0 keeps the format default.
     if (config::snii_target_dict_block_bytes > 0) {
         input.target_dict_block_bytes = static_cast<uint32_t>(config::snii_target_dict_block_bytes);

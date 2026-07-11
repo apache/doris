@@ -223,8 +223,7 @@ Status SniiIndexColumnWriter::_add_value_tokens(const Slice& value, uint32_t doc
         // Deferred-bigram segments skip the pair capture entirely (compaction
         // rebuilds the bigrams later); the unigram add above -- including its
         // term-id-returning path -- is deliberately untouched.
-        if (collect_bigrams &&
-            term_id != ::doris::snii::writer::SpimiTermBuffer::kInvalidTermId &&
+        if (collect_bigrams && term_id != ::doris::snii::writer::SpimiTermBuffer::kInvalidTermId &&
             ::doris::snii::format::is_phrase_bigram_indexable_term(term)) {
             _bigram_positioned.push_back(
                     {term_id, position_base + cast_set<uint32_t>(token_position)});
