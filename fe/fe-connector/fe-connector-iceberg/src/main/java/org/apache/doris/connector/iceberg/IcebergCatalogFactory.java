@@ -194,8 +194,18 @@ public final class IcebergCatalogFactory {
         if (chosenS3.isPresent()) {
             appendS3FileIOProperties(opts, chosenS3.get());
         } else {
-            putIfNotBlank(opts, AwsClientProperties.CLIENT_REGION, firstNonBlank(props, S3_REGION_ALIASES));
+            putIfNotBlank(opts, AwsClientProperties.CLIENT_REGION, resolveS3Region(props));
         }
+    }
+
+    /**
+     * Resolves the S3 region from the raw catalog props over {@link #S3_REGION_ALIASES} (the fe-core
+     * {@code S3Properties} {@code isRegionField} set). Single source of truth for the region-alias fallback,
+     * shared by {@link #appendS3FileIO} (the vended-cred S3FileIO branch) and the s3tables region gate
+     * ({@code IcebergConnector.resolveS3TablesRegion}). Returns null when no alias is set.
+     */
+    public static String resolveS3Region(Map<String, String> props) {
+        return firstNonBlank(props, S3_REGION_ALIASES);
     }
 
     /**
@@ -374,7 +384,15 @@ public final class IcebergCatalogFactory {
     public static Map<String, String> buildS3TablesCatalogProperties(Map<String, String> props,
             Optional<S3CompatibleFileSystemProperties> chosenS3) {
         Map<String, String> opts = buildBaseCatalogProperties(props);
-        chosenS3.ifPresent(s3 -> appendS3TablesFileIOProperties(opts, s3, props));
+        if (chosenS3.isPresent()) {
+            appendS3TablesFileIOProperties(opts, chosenS3.get(), props);
+        } else {
+            // No bound S3 storage (e.g. an EC2 instance-profile s3tables catalog: region + warehouse ARN, no
+            // static creds): still propagate client.region from the raw props so the data-plane S3FileIO honors
+            // an explicit s3.region rather than only IMDS / DefaultAwsRegionProviderChain (mirrors the vended-
+            // cred branch in appendS3FileIO). Credentials are left to the SDK default chain (none are bound).
+            putIfNotBlank(opts, AwsClientProperties.CLIENT_REGION, resolveS3Region(props));
+        }
         return opts;
     }
 

@@ -826,9 +826,10 @@ public class IcebergCatalogFactoryTest {
 
     @Test
     public void buildS3TablesCatalogPropertiesWithoutStorageOmitsS3FileIo() {
-        // WHY: with no bound S3-compatible storage the props carry only the base (warehouse + manifest-cache);
-        // no S3FileIO keys are fabricated (the connector fails loud before building the client). MUTATION:
-        // emitting any s3.* / client.region without a storage -> red.
+        // WHY: with no bound S3-compatible storage AND no region alias in the props, only the base keys are present
+        // (warehouse + manifest-cache) — no s3.* credential keys are fabricated, and client.region stays absent
+        // because there is no region to propagate. (When a region IS present it is now emitted; see
+        // buildS3TablesCatalogPropertiesPropagatesClientRegionWithoutBoundS3.) MUTATION: fabricating any s3.* -> red.
         Map<String, String> opts = IcebergCatalogFactory.buildS3TablesCatalogProperties(
                 props("iceberg.catalog.type", "s3tables", "warehouse", "arn:aws:s3tables:us-east-1:1:bucket/b"),
                 Optional.empty());
@@ -836,6 +837,21 @@ public class IcebergCatalogFactoryTest {
         Assertions.assertNull(opts.get("s3.access-key-id"));
         Assertions.assertNull(opts.get("client.region"));
         Assertions.assertNull(opts.get("catalog-impl"));
+    }
+
+    @Test
+    public void buildS3TablesCatalogPropertiesPropagatesClientRegionWithoutBoundS3() {
+        // WHY: an EC2 instance-profile s3tables catalog (no bound storage) must still propagate an explicit
+        // s3.region to the data-plane S3FileIO as client.region, or S3FileIO falls to IMDS /
+        // DefaultAwsRegionProviderChain. Parallels the REST vended-cred region test. RED at HEAD (the old
+        // ifPresent-only path emitted nothing without a storage). No s3.* credential keys (none are bound).
+        Map<String, String> opts = IcebergCatalogFactory.buildS3TablesCatalogProperties(
+                props("iceberg.catalog.type", "s3tables", "warehouse", "arn:aws:s3tables:us-east-1:1:bucket/b",
+                        "s3.region", "us-east-1"),
+                Optional.empty());
+        Assertions.assertEquals("us-east-1", opts.get("client.region"),
+                "no-storage s3tables must propagate s3.region -> client.region for the data-plane S3FileIO");
+        Assertions.assertNull(opts.get("s3.access-key-id"), "no credentials are bound");
     }
 
     // ---------------------------------------------------------------------

@@ -729,28 +729,42 @@ public class IcebergConnector implements Connector {
      * NOT to {@code CatalogUtil.buildIcebergCatalog}. The 2-arg {@code initialize(name, opts)} is intentionally
      * avoided: its {@code DefaultS3TablesAwsClientFactory} honors only a {@code client.credentials-provider} class
      * and would silently drop static {@code s3.access-key-id}/{@code s3.secret-access-key} (falling back to the
-     * SDK default chain). A bound S3-compatible storage is required to derive region + credentials; a missing one
-     * (or a blank region) fails loud here, before any AWS call.
+     * SDK default chain). A region is required (from the bound storage or the raw props); credentials come from
+     * the bound storage when present, else the SDK default chain — e.g. an EC2 instance-profile s3tables catalog
+     * with only region + warehouse ARN and no static creds. Only a missing region fails loud here, before any
+     * AWS call (legacy IcebergS3TablesMetaStoreProperties used the DefaultCredentialsProvider chain likewise).
      */
     private Catalog createS3TablesCatalog(String catalogName, Optional<S3CompatibleFileSystemProperties> chosenS3) {
-        if (!chosenS3.isPresent()) {
-            throw new DorisConnectorException(
-                    "Iceberg s3tables catalog requires S3-compatible storage properties (region + credentials)");
-        }
-        S3CompatibleFileSystemProperties s3 = chosenS3.get();
-        if (StringUtils.isBlank(s3.getRegion())) {
-            throw new DorisConnectorException(
-                    "Iceberg s3tables catalog requires a region (set s3.region or a region-bearing endpoint)");
-        }
+        String region = resolveS3TablesRegion(chosenS3, properties);
         Map<String, String> catalogProps =
                 IcebergCatalogFactory.buildS3TablesCatalogProperties(properties, chosenS3);
-        LOG.info("Creating Iceberg s3tables catalog '{}' region='{}'", catalogName, s3.getRegion());
+        LOG.info("Creating Iceberg s3tables catalog '{}' region='{}' boundStorage={}",
+                catalogName, region, chosenS3.isPresent());
         return buildCatalogAuthenticated(IcebergConnectorProperties.TYPE_S3_TABLES, () -> {
-            S3TablesClient client = buildS3TablesClient(s3);
+            S3TablesClient client = buildS3TablesClient(chosenS3, region);
             S3TablesCatalog catalog = new S3TablesCatalog();
             catalog.initialize(catalogName, catalogProps, client);
             return catalog;
         });
+    }
+
+    /**
+     * Resolves the s3tables control-plane region: the bound fe-filesystem storage's region when present, else
+     * the raw catalog props (the widened S3 region-alias set, via {@link IcebergCatalogFactory#resolveS3Region}).
+     * A region is the SOLE hard requirement for s3tables; credentials fall back to the SDK default chain when no
+     * storage is bound. Fails loud only when NEITHER storage nor props supply a region. Static / package-visible
+     * so the gate is unit-testable offline without a live {@link S3TablesClient}.
+     */
+    static String resolveS3TablesRegion(
+            Optional<S3CompatibleFileSystemProperties> chosenS3, Map<String, String> props) {
+        String region = chosenS3.map(S3CompatibleFileSystemProperties::getRegion)
+                .filter(StringUtils::isNotBlank)
+                .orElseGet(() -> IcebergCatalogFactory.resolveS3Region(props));
+        if (StringUtils.isBlank(region)) {
+            throw new DorisConnectorException(
+                    "Iceberg s3tables catalog requires a region (set s3.region or a region-bearing endpoint)");
+        }
+        return region;
     }
 
     /**
@@ -784,12 +798,17 @@ public class IcebergConnector implements Connector {
      * Hand-builds the control-plane {@link S3TablesClient}, mirroring legacy
      * {@code IcebergS3TablesMetaStoreProperties.buildS3TablesClient}: region + credentials provider + the optional
      * {@code s3tables.endpoint} override + the s3tables-SDK http-client tuning ({@link HttpClientProperties}). The
-     * credentials provider is derived from the typed fe-filesystem storage by {@link #buildAwsCredentialsProvider}.
+     * credentials provider is derived from the typed fe-filesystem storage by {@link #buildAwsCredentialsProvider}
+     * when one is bound, else the SDK default chain ({@link DefaultCredentialsProvider}); the region is the value
+     * already resolved by {@link #resolveS3TablesRegion}.
      */
-    private S3TablesClient buildS3TablesClient(S3CompatibleFileSystemProperties s3) {
+    private S3TablesClient buildS3TablesClient(Optional<S3CompatibleFileSystemProperties> chosenS3, String region) {
+        AwsCredentialsProvider credentialsProvider = chosenS3
+                .map(s3 -> buildAwsCredentialsProvider(s3, properties))
+                .orElseGet(DefaultCredentialsProvider::create);
         S3TablesClientBuilder builder = S3TablesClient.builder()
-                .region(Region.of(s3.getRegion()))
-                .credentialsProvider(buildAwsCredentialsProvider(s3, properties));
+                .region(Region.of(region))
+                .credentialsProvider(credentialsProvider);
         String endpoint = properties.get(S3TablesProperties.S3TABLES_ENDPOINT);
         if (StringUtils.isNotBlank(endpoint)) {
             builder.endpointOverride(URI.create(endpoint));

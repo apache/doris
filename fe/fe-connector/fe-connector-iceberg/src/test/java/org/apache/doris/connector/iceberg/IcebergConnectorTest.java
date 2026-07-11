@@ -23,6 +23,7 @@ import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.handle.WriteOperation;
+import org.apache.doris.filesystem.properties.S3CompatibleFileSystemProperties;
 import org.apache.doris.filesystem.properties.StorageProperties;
 
 import org.apache.iceberg.Schema;
@@ -39,6 +40,7 @@ import java.util.Collections;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
 
@@ -51,12 +53,13 @@ import java.util.function.Function;
 public class IcebergConnectorTest {
 
     @Test
-    public void s3TablesWithoutStorageFailsLoud() {
-        // WHY: legacy IcebergS3TablesMetaStoreProperties always derives from S3Properties.of(origProps); the
-        // connector needs a bound S3-compatible storage to derive the region + credentials for the control-plane
-        // S3TablesClient. Missing storage must fail loud (a clear DorisConnectorException), NOT silently route
-        // s3tables through the generic CatalogUtil path or fall back to an anonymous client. MUTATION: dropping
-        // the chosenS3 presence check -> a NullPointer / wrong-path error instead of this message -> red.
+    public void s3TablesWithoutStorageOrRegionFailsLoud() {
+        // WHY: a bound S3-compatible storage is NO LONGER required (M6): an EC2 instance-profile s3tables catalog
+        // carries only region + warehouse ARN and uses the SDK DefaultCredentialsProvider chain, mirroring legacy
+        // IcebergS3TablesMetaStoreProperties. The sole hard requirement is a REGION. With NEITHER a bound storage
+        // NOR a region alias in the props, the connector must still fail loud naming the missing region, before
+        // any AWS call. MUTATION: reinstating the chosenS3-presence throw -> the storage-worded message (which
+        // does not contain "requires a region") -> red.
         RecordingConnectorContext ctx = new RecordingConnectorContext();
         IcebergConnector connector = new IcebergConnector(
                 Map.of("iceberg.catalog.type", "s3tables",
@@ -64,8 +67,46 @@ public class IcebergConnectorTest {
                 ctx);
         DorisConnectorException ex =
                 Assertions.assertThrows(DorisConnectorException.class, () -> connector.getMetadata(null));
-        Assertions.assertTrue(ex.getMessage().contains("S3-compatible storage"),
-                "expected a fail-loud message naming the missing S3-compatible storage, got: " + ex.getMessage());
+        Assertions.assertTrue(ex.getMessage().contains("requires a region"),
+                "expected a fail-loud message naming the missing region, got: " + ex.getMessage());
+    }
+
+    @Test
+    public void s3TablesRegionResolvesFromPropsWhenNoStorageBound() {
+        // WHY: the M6 unblock — an EC2 instance-profile s3tables catalog (no bound storage) resolves its region
+        // from the raw props (s3.region here) instead of hard-failing, then uses the SDK default credential chain.
+        // MUTATION: reinstating the storage gate / removing the props fallback -> throws instead of resolving.
+        Assertions.assertEquals("us-east-1",
+                IcebergConnector.resolveS3TablesRegion(Optional.empty(), Map.of("s3.region", "us-east-1")));
+    }
+
+    @Test
+    public void s3TablesRegionResolvesFromWidenedAliasWhenNoStorageBound() {
+        // WHY: the props fallback scans the SAME widened S3 region-alias set as the vended-cred FileIO path (M7),
+        // so a region supplied only via AWS_REGION resolves. MUTATION: narrowing the alias set -> null -> throws.
+        Assertions.assertEquals("eu-west-1",
+                IcebergConnector.resolveS3TablesRegion(Optional.empty(), Map.of("AWS_REGION", "eu-west-1")));
+    }
+
+    @Test
+    public void s3TablesRegionPrefersBoundStorageRegion() {
+        // WHY: when a storage IS bound its typed region wins over a conflicting raw prop (parity with the bound-
+        // storage path). MUTATION: reading the props first -> us-east-1 instead of eu-west-1.
+        Optional<S3CompatibleFileSystemProperties> bound =
+                Optional.of(new FakeS3CompatibleStorageProperties("S3").region("eu-west-1"));
+        Assertions.assertEquals("eu-west-1",
+                IcebergConnector.resolveS3TablesRegion(bound, Map.of("s3.region", "us-east-1")));
+    }
+
+    @Test
+    public void s3TablesRegionFailsLoudWhenNeitherStorageNorRegion() {
+        // WHY: a region is the sole hard requirement; neither a bound storage nor a props alias -> fail loud
+        // naming the region (Region.of("") would otherwise blow up deep in the SDK). MUTATION: returning "" /
+        // null instead of throwing -> no exception -> red.
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                () -> IcebergConnector.resolveS3TablesRegion(Optional.empty(), Map.of()));
+        Assertions.assertTrue(ex.getMessage().contains("requires a region"),
+                "expected a fail-loud message naming the missing region, got: " + ex.getMessage());
     }
 
     @Test
