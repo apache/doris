@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <algorithm>
 #include <cstdint>
 #include <limits>
 #include <span>
@@ -65,7 +66,17 @@ public:
         if (count > static_cast<uint64_t>(docids_.max_size() - docids_.size())) {
             return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("docid_sink: range too large");
         }
-        docids_.reserve(docids_.size() + static_cast<size_t>(count));
+        // GEOMETRIC BULK reserve -- never an exact one: append_range can be
+        // called once per docid run for a query, and an exact
+        // reserve(size()+count) caps capacity at "just enough" so the next
+        // append reallocates + memcpys the whole accumulated vector --
+        // quadratic total memcpy across runs (same anti-pattern as the writer's
+        // add_nulls). Doubling on overflow keeps the O(count) amortization AND
+        // makes one large range pay at most one reallocation.
+        const size_t need = docids_.size() + static_cast<size_t>(count);
+        if (need > docids_.capacity()) {
+            docids_.reserve(std::max(need, docids_.capacity() * 2));
+        }
         for (uint64_t docid = first; docid < last_exclusive; ++docid) {
             docids_.push_back(static_cast<uint32_t>(docid));
         }

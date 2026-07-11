@@ -54,6 +54,14 @@ public:
     int64_t size() const override { return 0; }
     void close_on_error() override;
 
+#ifdef BE_TEST
+    // TEST-ONLY view of the accumulated null docids: the growth-policy
+    // regression pin asserts add_nulls keeps geometric growth (an exact
+    // reserve(size+count) per null RUN made total memcpy quadratic -- the
+    // agentlogs full-compaction pathology).
+    const std::vector<uint32_t>& null_docids_for_test() const { return _null_docids; }
+#endif
+
 private:
     Status _add_value_tokens(const Slice& value, uint32_t docid, uint32_t position_base,
                              uint32_t* max_position);
@@ -62,6 +70,9 @@ private:
     // _bigram_positioned.
     Status _add_phrase_bigram_tokens(uint32_t docid);
     Status _analyze(const Slice& value, std::vector<TermInfo>* terms);
+    // Mirrors _null_docids' capacity into _memory_reporter (delta-charged);
+    // release_all zeroes the charge (finish() handoff / close_on_error()).
+    void _report_null_docids_capacity(bool release_all = false);
 
     IndexFileWriter* _index_file_writer = nullptr;
     const TabletIndex* _index_meta = nullptr;
@@ -76,6 +87,12 @@ private:
     std::unique_ptr<::doris::snii::writer::MemoryReporter> _memory_reporter;
     std::unique_ptr<::doris::snii::writer::SpimiTermBuffer> _term_buffer;
     std::vector<uint32_t> _null_docids;
+    // Bytes of _null_docids capacity currently mirrored into _memory_reporter
+    // (and through it Doris's LOAD MemTracker). Re-charged on growth in
+    // add_nulls / add_array_nulls, released in finish() / close_on_error() --
+    // without it a large interleaved-null segment accumulates untracked RSS the
+    // G09 limiter cannot see.
+    int64_t _null_docids_charged_bytes = 0;
     // Reused across every _add_value_tokens call: clear() keeps the backing
     // capacity so the per-row phrase-bigram build stops re-allocating a fresh
     // positioned-term vector on each text row/array element. G05: carries the

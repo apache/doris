@@ -47,6 +47,8 @@
 #include "storage/index/snii/format/format_constants.h"
 #include "storage/index/snii/format/phrase_bigram.h"
 #include "storage/index/snii/format/sampled_term_index.h"
+#include "storage/index/snii/query/docid_sink.h"
+#include "storage/index/snii/snii_index_writer.h"
 #include "storage/index/snii/snii_phrase_bigram_build.h"
 
 namespace {
@@ -421,6 +423,65 @@ TEST(SniiSegmentReaderTest, DictBlockAnchorHeapBytesCountsLongAnchor) {
     const size_t vector_only = sizeof(uint32_t) + sizeof(std::string); // one anchor
     EXPECT_GT(reader.heap_bytes(), vector_only);
     EXPECT_GE(reader.heap_bytes(), vector_only + long_term.size() + 1);
+}
+
+// ==================== null-docids growth-policy regression pins ====================
+//
+// append_nullable feeds add_nulls once per NULL RUN -- millions of calls on a
+// large interleaved-null compaction segment. An exact reserve(size()+count)
+// inside add_nulls capped capacity at "just enough", so EVERY subsequent call
+// reallocated + memcpy'd the whole array: O(runs x N) total memcpy (the
+// agentlogs full-compaction pathology: ~TBs of memcpy per tablet, 8x+ slower
+// than V3). These pins count capacity changes across many small appends: with
+// geometric growth that is O(log n); with the exact-reserve bug it was one per
+// call. add_nulls touches only _null_docids/_rid, so a scaffold-free writer
+// (null collaborators, no init()) exercises the real production code path.
+
+TEST(SniiWriterNullDocids, AddNullsGrowsGeometricallyNotQuadratically) {
+    doris::segment_v2::SniiIndexColumnWriter writer(nullptr, nullptr, /*single_field=*/true);
+    constexpr uint32_t kRuns = 4096;
+    size_t capacity_changes = 0;
+    size_t last_cap = writer.null_docids_for_test().capacity();
+    for (uint32_t i = 0; i < kRuns; ++i) {
+        assert_ok(writer.add_nulls(1));
+        const size_t cap = writer.null_docids_for_test().capacity();
+        if (cap != last_cap) {
+            ++capacity_changes;
+            last_cap = cap;
+        }
+    }
+    // Geometric growth reallocates O(log n) times (libstdc++ doubling: ~13 for
+    // 4096); the exact-reserve bug reallocated on every call (4096). The bound
+    // leaves generous headroom for any sane growth policy while still failing
+    // a per-call realloc by two orders of magnitude.
+    EXPECT_LE(capacity_changes, 64U) << "add_nulls reallocates per call again";
+    // Content unchanged by the policy fix: docids 0..kRuns-1 in order.
+    const auto& nulls = writer.null_docids_for_test();
+    ASSERT_EQ(nulls.size(), kRuns);
+    EXPECT_EQ(nulls.front(), 0U);
+    EXPECT_EQ(nulls.back(), kRuns - 1);
+    EXPECT_TRUE(std::ranges::is_sorted(nulls));
+}
+
+TEST(SniiDocIdSinkGrowth, AppendRangeGrowsGeometrically) {
+    std::vector<uint32_t> docids;
+    doris::snii::query::VectorDocIdSink sink(docids);
+    constexpr uint32_t kRuns = 4096;
+    size_t capacity_changes = 0;
+    size_t last_cap = docids.capacity();
+    for (uint32_t i = 0; i < kRuns; ++i) {
+        assert_ok(sink.append_range(i, static_cast<uint64_t>(i) + 1)); // one docid per run
+        const size_t cap = docids.capacity();
+        if (cap != last_cap) {
+            ++capacity_changes;
+            last_cap = cap;
+        }
+    }
+    EXPECT_LE(capacity_changes, 64U) << "append_range reallocates per call again";
+    ASSERT_EQ(docids.size(), kRuns);
+    EXPECT_EQ(docids.front(), 0U);
+    EXPECT_EQ(docids.back(), kRuns - 1);
+    EXPECT_TRUE(std::ranges::is_sorted(docids));
 }
 
 } // namespace

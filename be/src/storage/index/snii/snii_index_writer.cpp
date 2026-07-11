@@ -249,12 +249,38 @@ Status SniiIndexColumnWriter::add_array_values(size_t field_size, const void* va
     return Status::OK();
 }
 
+void SniiIndexColumnWriter::_report_null_docids_capacity(bool release_all) {
+    if (_memory_reporter == nullptr) {
+        return;
+    }
+    const int64_t now =
+            release_all ? 0 : static_cast<int64_t>(_null_docids.capacity() * sizeof(uint32_t));
+    if (now != _null_docids_charged_bytes) {
+        _memory_reporter->report(now - _null_docids_charged_bytes);
+        _null_docids_charged_bytes = now;
+    }
+}
+
 Status SniiIndexColumnWriter::add_nulls(uint32_t count) {
-    _null_docids.reserve(_null_docids.size() + count);
+    // GEOMETRIC BULK reserve -- never an exact one: append_nullable calls
+    // add_nulls once per NULL RUN (thousands to millions of calls on a large
+    // interleaved-null segment), and an exact reserve(size()+count) caps
+    // capacity at "just enough" -- the NEXT call then reallocates and memcpys
+    // the WHOLE array, defeating geometric growth and turning total memcpy
+    // quadratic: O(runs x array_bytes). On an agentlogs full-compaction segment
+    // (12.4M rows, 22% interleaved nulls) that was TBs of memcpy per tablet --
+    // the compaction ran 8+x slower than V3 (whose add_nulls is a roaring
+    // addRange). Doubling on overflow keeps the O(count) amortization AND makes
+    // one large run pay at most one reallocation.
+    const size_t need = _null_docids.size() + count;
+    if (need > _null_docids.capacity()) {
+        _null_docids.reserve(std::max(need, _null_docids.capacity() * 2));
+    }
     for (uint32_t i = 0; i < count; ++i) {
         _null_docids.push_back(_rid + i);
     }
     _rid += count;
+    _report_null_docids_capacity();
     return Status::OK();
 }
 
@@ -269,6 +295,7 @@ Status SniiIndexColumnWriter::add_array_nulls(const uint8_t* null_map, size_t nu
             _null_docids.push_back(cast_set<uint32_t>(first_row + i));
         }
     }
+    _report_null_docids_capacity();
     return Status::OK();
 }
 
@@ -281,6 +308,10 @@ Status SniiIndexColumnWriter::finish() {
     if (!status.ok()) {
         return Status::InternalError("SNII term buffer error: {}", status.to_string());
     }
+    // Ownership of _null_docids hands off to the flush below (transient,
+    // flush-scoped); release the accumulation-phase charge so the retained
+    // reporter (and the LOAD MemTracker behind it) balances to zero.
+    _report_null_docids_capacity(/*release_all=*/true);
     RETURN_IF_ERROR(_index_file_writer->add_snii_index(_index_meta, cast_set<uint32_t>(_rid),
                                                        std::move(_null_docids), _term_buffer.get(),
                                                        _config, _memory_reporter.get()));
@@ -291,6 +322,8 @@ Status SniiIndexColumnWriter::finish() {
 
 void SniiIndexColumnWriter::close_on_error() {
     _term_buffer.reset();
+    // Balance the LOAD MemTracker mirror before dropping the reporter.
+    _report_null_docids_capacity(/*release_all=*/true);
     _memory_reporter.reset();
     _null_docids.clear();
 }
