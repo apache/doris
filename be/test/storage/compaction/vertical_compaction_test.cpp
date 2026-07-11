@@ -30,6 +30,7 @@
 
 #include <iostream>
 #include <memory>
+#include <set>
 #include <string>
 #include <tuple>
 #include <unordered_map>
@@ -162,6 +163,50 @@ protected:
         return tablet_schema;
     }
 
+    TabletSchemaSPtr create_mow_cluster_key_schema() {
+        TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
+        TabletSchemaPB tablet_schema_pb;
+        tablet_schema_pb.set_keys_type(UNIQUE_KEYS);
+        tablet_schema_pb.set_num_short_key_columns(1);
+        tablet_schema_pb.set_num_rows_per_row_block(1024);
+        tablet_schema_pb.set_compress_kind(COMPRESS_NONE);
+        tablet_schema_pb.set_next_column_unique_id(4);
+        tablet_schema_pb.add_cluster_key_uids(2);
+
+        ColumnPB* column_1 = tablet_schema_pb.add_column();
+        column_1->set_unique_id(1);
+        column_1->set_name("c1");
+        column_1->set_type("INT");
+        column_1->set_is_key(true);
+        column_1->set_length(4);
+        column_1->set_index_length(4);
+        column_1->set_is_nullable(false);
+        column_1->set_is_bf_column(false);
+
+        ColumnPB* column_2 = tablet_schema_pb.add_column();
+        column_2->set_unique_id(2);
+        column_2->set_name("c2");
+        column_2->set_type("INT");
+        column_2->set_length(4);
+        column_2->set_index_length(4);
+        column_2->set_is_key(false);
+        column_2->set_is_nullable(false);
+        column_2->set_is_bf_column(false);
+
+        ColumnPB* column_3 = tablet_schema_pb.add_column();
+        column_3->set_unique_id(3);
+        column_3->set_name(DELETE_SIGN);
+        column_3->set_type("TINYINT");
+        column_3->set_length(1);
+        column_3->set_index_length(1);
+        column_3->set_is_key(false);
+        column_3->set_is_nullable(false);
+        column_3->set_is_bf_column(false);
+
+        tablet_schema->init_from_pb(tablet_schema_pb);
+        return tablet_schema;
+    }
+
     TabletSchemaSPtr create_agg_schema() {
         TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
         TabletSchemaPB tablet_schema_pb;
@@ -213,6 +258,9 @@ protected:
         rowset_writer_context.version = version;
         rowset_writer_context.segments_overlap = overlap;
         rowset_writer_context.max_rows_per_segment = max_rows_per_segment;
+        rowset_writer_context.enable_unique_key_merge_on_write =
+                tablet_schema->keys_type() == UNIQUE_KEYS &&
+                !tablet_schema->cluster_key_uids().empty();
         inc_id++;
         return rowset_writer_context;
     }
@@ -328,6 +376,9 @@ protected:
             t_tablet_schema.__set_keys_type(TKeysType::DUP_KEYS);
         } else if (tablet_schema.keys_type() == AGG_KEYS) {
             t_tablet_schema.__set_keys_type(TKeysType::AGG_KEYS);
+        }
+        for (auto uid : tablet_schema.cluster_key_uids()) {
+            t_tablet_schema.cluster_key_uids.push_back(uid);
         }
         t_tablet_schema.__set_storage_type(TStorageType::COLUMN);
         t_tablet_schema.__set_columns(cols);
@@ -834,6 +885,86 @@ TEST_F(VerticalCompactionTest, TestUniqueKeyVerticalMerge) {
             EXPECT_EQ(std::get<1>(input_data[0][s_id][row_id]), std::get<1>(output_data[dst_id]));
             dst_id++;
         }
+    }
+}
+
+TEST_F(VerticalCompactionTest, ClusterKeyMowCompactionNeedsOutputRowsetInternalDedup) {
+    TabletSchemaSPtr tablet_schema = create_mow_cluster_key_schema();
+    TabletSharedPtr tablet = create_tablet(*tablet_schema, true);
+
+    std::vector<RowsetSharedPtr> input_rowsets;
+    input_rowsets.push_back(create_rowset(tablet_schema, NONOVERLAPPING, {{{1, 30}}}, 2));
+    input_rowsets.push_back(create_rowset(tablet_schema, NONOVERLAPPING, {{{2, 10}, {1, 20}}}, 3));
+
+    std::vector<RowsetReaderSharedPtr> input_rs_readers;
+    for (auto& rowset : input_rowsets) {
+        RowsetReaderSharedPtr rs_reader;
+        ASSERT_TRUE(rowset->create_reader(&rs_reader).ok());
+        input_rs_readers.push_back(std::move(rs_reader));
+    }
+
+    auto writer_context = create_rowset_writer_context(tablet_schema, NONOVERLAPPING, 1024, {2, 3});
+    auto res = RowsetFactory::create_rowset_writer(*engine_ref, writer_context, true);
+    ASSERT_TRUE(res.has_value()) << res.error();
+    auto output_rs_writer = std::move(res).value();
+
+    Merger::Statistics stats;
+    RowIdConversion rowid_conversion;
+    stats.rowid_conversion = &rowid_conversion;
+    auto st = Merger::vertical_merge_rowsets(tablet, ReaderType::READER_CUMULATIVE_COMPACTION,
+                                             *tablet_schema, input_rs_readers,
+                                             output_rs_writer.get(), 1024, 1, &stats);
+    ASSERT_TRUE(st.ok()) << st;
+
+    RowsetSharedPtr output_rowset;
+    ASSERT_EQ(Status::OK(), output_rs_writer->build(output_rowset));
+    ASSERT_NE(output_rowset, nullptr);
+    ASSERT_EQ(1, output_rowset->num_segments());
+    ASSERT_EQ(3, output_rowset->num_rows());
+    ASSERT_EQ(0, stats.merged_rows);
+
+    RowsetReaderContext reader_context;
+    reader_context.tablet_schema = tablet_schema;
+    reader_context.need_ordered_result = false;
+    std::vector<uint32_t> return_columns = {0, 1};
+    reader_context.return_columns = &return_columns;
+    RowsetReaderSharedPtr output_rs_reader;
+    create_and_init_rowset_reader(output_rowset.get(), reader_context, &output_rs_reader);
+
+    std::vector<std::tuple<int64_t, int64_t>> output_data;
+    do {
+        Block output_block = tablet_schema->create_block();
+        st = output_rs_reader->next_batch(&output_block);
+        auto columns = output_block.get_columns_with_type_and_name();
+        ASSERT_GE(columns.size(), 2);
+        for (auto i = 0; i < output_block.rows(); i++) {
+            output_data.emplace_back(columns[0].column->get_int(i), columns[1].column->get_int(i));
+        }
+    } while (st.ok());
+    ASSERT_TRUE(st.is<END_OF_FILE>()) << st;
+
+    ASSERT_EQ(3, output_data.size());
+    EXPECT_EQ(output_data[0], std::make_tuple(int64_t {2}, int64_t {10}));
+    EXPECT_EQ(output_data[1], std::make_tuple(int64_t {1}, int64_t {20}));
+    EXPECT_EQ(output_data[2], std::make_tuple(int64_t {1}, int64_t {30}));
+
+    DeleteBitmap input_delete_bitmap(tablet->tablet_id());
+    DeleteBitmap output_delete_bitmap(tablet->tablet_id());
+    tablet->calc_compaction_output_rowset_delete_bitmap(input_rowsets, rowid_conversion, 0,
+                                                        UINT64_MAX, nullptr, nullptr,
+                                                        input_delete_bitmap, &output_delete_bitmap);
+    st = tablet->calc_compaction_output_rowset_internal_delete_bitmap(
+            input_rowsets, output_rowset, rowid_conversion, &output_delete_bitmap);
+    ASSERT_TRUE(st.ok()) << st;
+
+    std::set<int64_t> visible_keys;
+    auto deleted_rows = output_delete_bitmap.get_agg({output_rowset->rowset_id(), 0, UINT64_MAX});
+    for (uint32_t row_id = 0; row_id < output_data.size(); ++row_id) {
+        if (deleted_rows->contains(row_id)) {
+            continue;
+        }
+        ASSERT_TRUE(visible_keys.insert(std::get<0>(output_data[row_id])).second)
+                << "unique key should not be duplicated after cluster-key MOW compaction";
     }
 }
 

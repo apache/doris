@@ -19,9 +19,14 @@
 #include <gen_cpp/olap_file.pb.h>
 #include <gtest/gtest.h>
 
+#include <atomic>
+#include <chrono>
+#include <filesystem>
+#include <functional>
 #include <memory>
 #include <sstream>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "common/config.h"
@@ -40,6 +45,7 @@
 #include "storage/tablet/tablet_meta.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/utils.h"
+#include "util/debug_points.h"
 #include "util/slice.h"
 
 namespace doris {
@@ -94,6 +100,8 @@ public:
     }
 
     void TearDown() {
+        DebugPoints::instance()->clear();
+        config::enable_debug_points = false;
         config::enable_segcompaction = false;
         ExecEnv* exec_env = doris::ExecEnv::GetInstance();
         s_engine = nullptr;
@@ -136,6 +144,35 @@ protected:
             }
         }
         return true;
+    }
+
+    bool wait_until(const std::function<bool()>& pred, int timeout_ms = 10000) {
+        auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
+        while (std::chrono::steady_clock::now() < deadline) {
+            if (pred()) {
+                return true;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        return pred();
+    }
+
+    Block create_int_block(TabletSchemaSPtr tablet_schema, uint32_t segment_id,
+                           uint32_t rows_per_segment) {
+        Block block = tablet_schema->create_block();
+        auto columns = block.mutate_columns();
+        for (uint32_t rid = 0; rid < rows_per_segment; ++rid) {
+            uint32_t k1 = rid * 100 + segment_id;
+            uint32_t k2 = segment_id;
+            uint32_t k3 = rid;
+            uint32_t seq = 0;
+            columns[0]->insert_data(reinterpret_cast<const char*>(&k1), sizeof(k1));
+            columns[1]->insert_data(reinterpret_cast<const char*>(&k2), sizeof(k2));
+            columns[2]->insert_data(reinterpret_cast<const char*>(&k3), sizeof(k3));
+            columns[3]->insert_data(reinterpret_cast<const char*>(&seq), sizeof(seq));
+        }
+        block.set_columns(std::move(columns));
+        return block;
     }
 
     // (k1 int, k2 varchar(20), k3 int) keys (k1, k2)
@@ -829,6 +866,85 @@ TEST_F(SegCompactionMoWTest, SegCompactionInterleaveWithBig_OoOoO) {
 
     EXPECT_TRUE(check_data_read_with_delete_bitmap(tablet_schema, delete_bitmap, rowset,
                                                    total_written_rows, rows_mark_deleted));
+}
+
+TEST_F(SegCompactionMoWTest, AsyncDeleteBitmapMustNotReadSegmentsDeletedBySegcompaction) {
+    config::enable_segcompaction = true;
+    config::enable_debug_points = true;
+    config::segcompaction_batch_size = 5;
+    config::segcompaction_candidate_max_rows = 1000;
+    config::segcompaction_candidate_max_bytes = 1 << 20;
+
+    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
+    create_tablet_schema(tablet_schema);
+
+    RowsetWriterContext writer_context;
+    const int raw_rsid = 20052;
+    create_rowset_writer_context(raw_rsid, tablet_schema, &writer_context);
+
+    DeleteBitmapPtr delete_bitmap = std::make_shared<DeleteBitmap>(TABLET_ID);
+    std::shared_ptr<RowsetIdUnorderedSet> rsids {std::make_shared<RowsetIdUnorderedSet>()};
+    std::vector<RowsetSharedPtr> rowset_ptrs;
+    writer_context.mow_context =
+            std::make_shared<MowContext>(1, 1, rsids, rowset_ptrs, delete_bitmap);
+
+    auto res = RowsetFactory::create_rowset_writer(*s_engine, writer_context, false);
+    ASSERT_TRUE(res.has_value()) << res.error();
+    auto rowset_writer = std::move(res).value();
+
+    constexpr int32_t target_segment_id = 3;
+    std::atomic<bool> target_delete_bitmap_task_blocked {false};
+    std::atomic<bool> release_target_delete_bitmap_task {false};
+    DebugPoints::instance()->add_with_callback(
+            "BaseBetaRowsetWriter::_generate_delete_bitmap.block_before_load_segments",
+            std::function<void(int32_t)>([&](int32_t segment_id) {
+                if (segment_id != target_segment_id) {
+                    return;
+                }
+                target_delete_bitmap_task_blocked.store(true);
+                while (!release_target_delete_bitmap_task.load()) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                }
+            }));
+
+    auto target_segment_path = fmt::format("{}/{}_{}.dat", lTestDir, raw_rsid, target_segment_id);
+    bool blocked = false;
+    bool source_segment_deleted_before_release = false;
+    std::thread release_thread([&] {
+        blocked = wait_until([&] { return target_delete_bitmap_task_blocked.load(); });
+        if (blocked) {
+            source_segment_deleted_before_release =
+                    wait_until([&] { return !std::filesystem::exists(target_segment_path); }, 1000);
+        }
+        release_target_delete_bitmap_task.store(true);
+        DebugPoints::instance()->remove(
+                "BaseBetaRowsetWriter::_generate_delete_bitmap.block_before_load_segments");
+    });
+
+    Status write_status = Status::OK();
+    const uint32_t rows_per_segment = 128;
+    for (int32_t segment_id = 0; segment_id < 5; ++segment_id) {
+        auto block = create_int_block(tablet_schema, segment_id, rows_per_segment);
+        write_status = rowset_writer->add_block(&block);
+        if (!write_status.ok()) {
+            break;
+        }
+        write_status = rowset_writer->flush();
+        if (!write_status.ok()) {
+            break;
+        }
+    }
+    release_thread.join();
+
+    RowsetSharedPtr rowset;
+    auto build_status = write_status.ok() ? rowset_writer->build(rowset) : write_status;
+
+    ASSERT_TRUE(blocked) << "delete bitmap task did not reach the injected wait point";
+    EXPECT_FALSE(source_segment_deleted_before_release)
+            << "segcompaction deleted source segment before delete bitmap finished: "
+            << target_segment_path;
+    EXPECT_TRUE(write_status.ok()) << write_status;
+    EXPECT_TRUE(build_status.ok()) << build_status;
 }
 
 TEST_F(SegCompactionMoWTest, SegCompactionNotTrigger) {
