@@ -517,8 +517,9 @@ public class HiveConnector implements Connector {
         // For a Kerberos catalog run the metastore RPC under the PLUGIN's UGI doAs (buildPluginAuthenticator),
         // NOT the FE-injected context: after the catalog flip that context resolves to NOOP (SIMPLE) auth, which
         // would silently downgrade a Kerberos HMS. AuthAction.execute is a generic method (<T> T execute(...)),
-        // so it cannot be a lambda — use an anonymous class. ThriftHmsClient.doAs already pins the RPC's TCCL to
-        // the system classloader; the plugin's HadoopAuthenticator only wraps it in a UGI doAs (no TCCL change).
+        // so it cannot be a lambda — use an anonymous class. ThriftHmsClient.doAs pins the RPC's TCCL to the
+        // plugin (child-first) classloader (so SecurityUtil.<clinit> resolves hadoop from the plugin copy, not a
+        // split-brain against fe-core's copy); the plugin's HadoopAuthenticator only wraps it in a UGI doAs.
         HadoopAuthenticator auth = pluginAuthenticator();
         ThriftHmsClient.AuthAction authAction;
         if (auth != null) {
@@ -596,20 +597,35 @@ public class HiveConnector implements Connector {
      * Package-visible + static for KDC-free unit testing.
      */
     static HadoopAuthenticator buildPluginAuthenticator(Map<String, String> properties) {
-        if ("kerberos".equalsIgnoreCase(properties.get(HADOOP_SECURITY_AUTHENTICATION))) {
-            return HadoopAuthenticator.getHadoopAuthenticator(buildHadoopConf(properties));
+        // Pin the TCCL to the plugin (child-first) classloader for the whole resolution. A catalog that declares
+        // hadoop.security.authentication=kerberos WITHOUT a principal/keytab falls back to a
+        // HadoopSimpleAuthenticator whose ctor EAGERLY calls UserGroupInformation.createRemoteUser ->
+        // SecurityUtil.<clinit>, whose internal `new Configuration()` captures the current TCCL. This runs on the
+        // (unpinned) createClient thread, so without the pin it would resolve hadoop's DNSDomainNameResolver from
+        // fe-core's system-loader copy and split-brain-poison SecurityUtil against the plugin copy (the same
+        // failure ThriftHmsClient.doAs guards). buildHadoopConf pins only the OUTER conf's loader, not the TCCL
+        // that SecurityUtil's own Configuration reads — so the thread pin is required here too.
+        // (HadoopKerberosAuthenticator's keytab login is lazy in getUGI, already under doAs's pin.)
+        ClassLoader previous = Thread.currentThread().getContextClassLoader();
+        try {
+            Thread.currentThread().setContextClassLoader(HiveConnector.class.getClassLoader());
+            if ("kerberos".equalsIgnoreCase(properties.get(HADOOP_SECURITY_AUTHENTICATION))) {
+                return HadoopAuthenticator.getHadoopAuthenticator(buildHadoopConf(properties));
+            }
+            HmsMetaStoreProperties hms = (HmsMetaStoreProperties) MetaStoreProviders.bindForType(
+                    HmsClientConfig.METASTORE_TYPE_HMS, properties, Collections.emptyMap());
+            Optional<KerberosAuthSpec> spec = hms.kerberos();
+            if (spec.isPresent() && spec.get().hasCredentials()) {
+                Configuration conf = buildHadoopConf(properties);
+                conf.set("hadoop.security.authentication", "kerberos");
+                conf.set("hive.metastore.sasl.enabled", "true");
+                return HadoopAuthenticator.getHadoopAuthenticator(
+                        new KerberosAuthenticationConfig(spec.get().getPrincipal(), spec.get().getKeytab(), conf));
+            }
+            return null;
+        } finally {
+            Thread.currentThread().setContextClassLoader(previous);
         }
-        HmsMetaStoreProperties hms = (HmsMetaStoreProperties) MetaStoreProviders.bindForType(
-                HmsClientConfig.METASTORE_TYPE_HMS, properties, Collections.emptyMap());
-        Optional<KerberosAuthSpec> spec = hms.kerberos();
-        if (spec.isPresent() && spec.get().hasCredentials()) {
-            Configuration conf = buildHadoopConf(properties);
-            conf.set("hadoop.security.authentication", "kerberos");
-            conf.set("hive.metastore.sasl.enabled", "true");
-            return HadoopAuthenticator.getHadoopAuthenticator(
-                    new KerberosAuthenticationConfig(spec.get().getPrincipal(), spec.get().getKeytab(), conf));
-        }
-        return null;
     }
 
     /**
