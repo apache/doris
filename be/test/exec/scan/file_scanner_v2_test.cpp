@@ -29,9 +29,13 @@
 
 #include "common/consts.h"
 #include "core/assert_cast.h"
+#include "core/block/block.h"
+#include "core/column/column_vector.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "exec/operator/file_scan_operator.h"
+#include "exec/scan/file_scanner.h"
+#include "exec/scan/split_source_connector.h"
 #include "exprs/runtime_filter_expr.h"
 #include "exprs/vdirect_in_predicate.h"
 #include "exprs/vslot_ref.h"
@@ -61,6 +65,33 @@ TFileRangeDesc hudi_range_with_delta_logs() {
 
 VExprSPtr slot_ref(int slot_id, int column_id, DataTypePtr type, const std::string& name) {
     return VSlotRef::create_shared(slot_id, column_id, -1, std::move(type), name);
+}
+
+TExprNode bool_in_pred_node();
+
+class UnsafePartitionPredicate final : public VExpr {
+public:
+    UnsafePartitionPredicate() : VExpr(std::make_shared<DataTypeUInt8>(), false) {}
+
+    Status execute_column_impl(VExprContext*, const Block*, const Selector*, size_t count,
+                               ColumnPtr& result_column) const override {
+        auto result = ColumnUInt8::create();
+        result->get_data().resize_fill(count, 1);
+        result_column = std::move(result);
+        return Status::OK();
+    }
+
+    const std::string& expr_name() const override { return _expr_name; }
+    bool is_safe_to_execute_on_selected_rows() const override { return false; }
+
+private:
+    const std::string _expr_name = "UnsafePartitionPredicate";
+};
+
+VExprContextSPtr runtime_filter_context(VExprSPtr impl, int filter_id) {
+    const auto node = bool_in_pred_node();
+    return VExprContext::create_shared(
+            RuntimeFilterExpr::create_shared(node, std::move(impl), 0.4, false, filter_id));
 }
 
 TExprNode bool_in_pred_node() {
@@ -510,6 +541,26 @@ TEST(FileScannerV2Test, RewriteSlotRefsToGlobalIndexMatrix) {
         EXPECT_EQ(rewritten_child->column_id(), 2);
         EXPECT_EQ(rewritten_child->column_name(), "rf_value");
     }
+}
+
+TEST(FileScannerTest, PartitionPruningStopsAtUnsafePredicate) {
+    const auto bool_type = std::make_shared<DataTypeUInt8>();
+    auto unsafe_predicate = std::make_shared<UnsafePartitionPredicate>();
+    unsafe_predicate->add_child(slot_ref(1, 0, bool_type, "part"));
+    VExprContextSPtrs conjuncts {
+            runtime_filter_context(slot_ref(1, 0, bool_type, "part"), 1),
+            runtime_filter_context(std::move(unsafe_predicate), 2),
+            runtime_filter_context(slot_ref(1, 0, bool_type, "part"), 3),
+    };
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    RuntimeProfile profile("file_scanner");
+    FileScanner scanner(&state, &profile, nullptr, nullptr, nullptr);
+    scanner.TEST_init_runtime_filter_partition_prune_ctxs(conjuncts, {{1, 0}});
+
+    const auto& partition_conjuncts = scanner.TEST_runtime_filter_partition_prune_ctxs();
+    ASSERT_EQ(partition_conjuncts.size(), 1);
+    EXPECT_EQ(partition_conjuncts[0], conjuncts[0]);
 }
 
 } // namespace doris

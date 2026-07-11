@@ -283,6 +283,12 @@ public:
     const std::string& expr_name() const override { return _expr_name; }
     bool is_deterministic() const override { return false; }
 
+    Status clone_node(VExprSPtr* cloned_expr) const override {
+        DORIS_CHECK(cloned_expr != nullptr);
+        *cloned_expr = std::make_shared<NonDeterministicPartitionPredicate>(_executed);
+        return Status::OK();
+    }
+
 private:
     bool* const _executed;
     const std::string _expr_name = "NonDeterministicPartitionPredicate";
@@ -1267,12 +1273,59 @@ TEST(TableReaderTest, PrepareSplitDoesNotEvaluateNonDeterministicPartitionPredic
     split.partition_values.emplace("part", Field::create_field<TYPE_INT>(7));
     split.partition_prune_conjuncts.push_back(
             VExprContext::create_shared(runtime_filter_wrapper_expr(std::move(predicate))));
+    split.partition_prune_conjuncts.push_back(VExprContext::create_shared(
+            runtime_filter_wrapper_expr(table_int32_greater_than_expr(0, 0, 10))));
 
     ASSERT_TRUE(reader.prepare_split(split).ok());
     EXPECT_FALSE(predicate_executed);
     EXPECT_FALSE(reader.current_split_pruned());
     ASSERT_NE(profile.get_counter("RuntimeFilterPartitionPrunedRangeNum"), nullptr);
     EXPECT_EQ(profile.get_counter("RuntimeFilterPartitionPrunedRangeNum")->value(), 0);
+}
+
+TEST(TableReaderTest, ConstantPruningStopsAtUnsafePredicate) {
+    std::vector<ColumnDefinition> projected_columns;
+    auto partition_column = make_table_column(0, "part", std::make_shared<DataTypeInt32>());
+    partition_column.is_partition_key = true;
+    projected_columns.push_back(std::move(partition_column));
+    set_name_identifiers(&projected_columns);
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    bool predicate_executed = false;
+    auto unsafe_predicate =
+            std::make_shared<NonDeterministicPartitionPredicate>(&predicate_executed);
+    unsafe_predicate->add_child(table_int32_slot_ref(0, 0, "part"));
+    auto fake_state = std::make_shared<FakeFileReaderState>();
+    FakeTableReader reader({}, fake_state);
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .conjuncts =
+                                            {
+                                                    prepared_conjunct(&state, unsafe_predicate),
+                                                    prepared_conjunct(&state,
+                                                                      table_int32_greater_than_expr(
+                                                                              0, 0, 10)),
+                                            },
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                            })
+                        .ok());
+
+    SplitReadOptions split;
+    split.current_range.__set_path("fake-table-reader-input");
+    split.partition_values.emplace("part", Field::create_field<TYPE_INT>(7));
+    ASSERT_TRUE(reader.prepare_split(split).ok());
+
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    EXPECT_FALSE(predicate_executed);
+    EXPECT_FALSE(eos);
+    EXPECT_EQ(fake_state->open_count, 1);
+    ASSERT_TRUE(reader.close().ok());
 }
 
 TEST(TableReaderTest, CanUseInjectedFileReaderForStandaloneUnitTest) {
