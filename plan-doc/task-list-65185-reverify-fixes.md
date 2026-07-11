@@ -35,7 +35,7 @@ Legend：⬜ todo / 🔄 in progress / ✅ done / ⏸ 挂起(需决策/live)
 | 8 | **M4** | 🟠中 | maxcompute | MC 分区值缓存删除→每查询全量 listPartitions | ⬜ | ⬜ | ⬜ | ⬜ |
 | 9 | **M5** | 🟠中 | iceberg | computeRowCount 丢 equality-delete gate | ✅ | ✅ | ✅ | ✅ |
 | 10 | **M6** | 🟠中 | iceberg | s3tables 无显式凭证硬失败(丢默认链) | ⬜ | ⬜ | ⬜ | ⬜ |
-| 11 | **M7** | 🟠中 | iceberg | REST vended-cred region 别名收窄 | ⬜ | ⬜ | ⬜ | ⬜ |
+| 11 | **M7** | 🟠中 | iceberg | REST vended-cred region 别名收窄 | ✅ | ✅ | ✅ | ✅ |
 | 12 | **M8** | 🟠中(运营) | build/docs | 升级只换 lib 不部署 plugins→首访抛 | ⬜ | ⬜ | ⬜ | ⬜ |
 | 13 | **L1** | 🟡低 | tools | import-gate 三洞 | ⬜ | ⬜ | ⬜ | ⬜ |
 | 14 | **L2** | 🟡低 | fe-core | 翻闸 hive 丢 SQL 缓存资格 + COUNTER 停增 | ⬜ | ⬜ | ⬜ | ⏸ 需决策 |
@@ -153,7 +153,7 @@ Legend：⬜ todo / 🔄 in progress / ✅ done / ⏸ 挂起(需决策/live)
 - **Test intent**:region+warehouse-only s3tables props 建 catalog 不抛(RED:抛)。live S3 e2e gated。
 
 ### M7 — iceberg REST vended-cred region 别名收窄 · reverify §3 M7
-- [ ] **M7**
+- [x] **M7** · DONE `f6de950e5bd`（设计 `designs/FIX-M7-design.md`）。`S3_REGION_ALIASES` 4→10 逐字节对齐 fe-core `S3Properties` isRegionField 集（同声明序）；注释按红队更正为「S3 子集、OSS/COS/OBS/Minio 刻意排除」（不再过度声称 getRegionFromProperties 精确镜像）；新测覆盖 `AWS_REGION`/`iceberg.rest.signing-region`（RED-able）。`IcebergCatalogFactoryTest` 62/62 绿。e2e live-gated。
 - **现码**:`IcebergCatalogFactory.java:83` `S3_REGION_ALIASES` 仅 4 个 → `appendS3FileIO:187-194` 唯一 region 源。丢 `AWS_REGION`/`iceberg.rest.signing-region`/`rest.signing-region` 等。
 - **Fix**:拓宽别名对齐 legacy `getRegionFromProperties`(至少加上述 3 个 + `REGION`/`glue.region`/`aws.glue.region`);连接器侧复制列表(不 import fe-core);订正 `:78-83` 注释。
 - **Files**:`fe-connector-iceberg/.../IcebergCatalogFactory.java`。
@@ -242,3 +242,4 @@ Legend：⬜ todo / 🔄 in progress / ✅ done / ⏸ 挂起(需决策/live)
 **⭐ 批次 1(M5→M7→M6/M4/M2 连接器局部)进行中**:recon+对抗红队一轮扫全 5 条(workflow `wf_40498e52-19f`,5 recon+5 红队),全部机制 HEAD 确认、verdict SOUND / SOUND_WITH_CHANGES(无 UNSOUND)。要点:M7 只需更正注释措辞(别名数组本身正确);M6 须把「data-plane client.region」companion 从可选升为必做 + 注意测试 UnusedImports;M4 最干净(SOUND,唯 Caffeine 2.9.3 版本一致性待 build-verify);M2 **非** trivial「照抄 MaxCompute」——hive `planScan` 非 partition-set-scoped,必须**额外** override `planScanForPartitionBatch` 否则 batch 重复 split(红队证实),另需登记 ACID→sync + 未过滤扫描→sync 两条偏差。
 
 - **M5** DONE `84f580c9075`(code) — iceberg 表级行数恢复 equality-delete 护栏,对齐当前旧版(上游 #64648 移动了 parity 目标)。**推翻先前签字的「不 gate」决定,用户 2026-07-11 签字**;3 处 P6.6-FIX-H4 文档批注 SUPERSEDED;`IcebergConnectorMetadataStatisticsTest` 7/7 绿。e2e live-gated(equality-delete 表 SHOW TABLE STATS=UNKNOWN,独立 iceberg + iceberg-on-HMS 同表同结果)。
+- **M7** DONE `f6de950e5bd`(code) — iceberg REST vended-cred `client.region` 别名 4→10 拓宽,逐字节对齐 fe-core `S3Properties` isRegionField 集;注释按红队更正为「S3 子集」。`IcebergCatalogFactoryTest` 62/62 绿。e2e live-gated(region 经 `AWS_REGION` 写提交不报 Unable to load region)。
