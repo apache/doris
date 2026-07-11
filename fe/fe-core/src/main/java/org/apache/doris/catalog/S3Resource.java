@@ -229,7 +229,7 @@ public class S3Resource extends Resource {
         }
         // compatible with old version, Need convert if modified properties map uses old properties.
         S3Properties.convertToStdProperties(properties);
-        if (properties.containsKey(S3Properties.ENDPOINT)) {
+        if (!Strings.isNullOrEmpty(properties.get(S3Properties.ENDPOINT))) {
             String endpoint = S3Util.buildEndpointUrl(properties.get(S3Properties.ENDPOINT));
             properties.put(S3Properties.ENDPOINT, endpoint);
             properties.put(S3Properties.Env.ENDPOINT, endpoint);

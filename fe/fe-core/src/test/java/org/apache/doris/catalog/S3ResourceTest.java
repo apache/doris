@@ -242,6 +242,18 @@ public class S3ResourceTest {
         s3Resource.modifyProperties(modify);
         Assert.assertEquals("http://other-endpoint", s3Resource.getProperty(S3Properties.ENDPOINT));
         Assert.assertEquals("http://other-endpoint", s3Resource.getProperty(S3Properties.Env.ENDPOINT));
+
+        modify.clear();
+        modify.put(S3Properties.ENDPOINT, "");
+        s3Resource.modifyProperties(modify);
+        Assert.assertEquals("http://other-endpoint", s3Resource.getProperty(S3Properties.ENDPOINT));
+        Assert.assertEquals("http://other-endpoint", s3Resource.getProperty(S3Properties.Env.ENDPOINT));
+
+        modify.clear();
+        modify.put(S3Properties.Env.ENDPOINT, "");
+        s3Resource.modifyProperties(modify);
+        Assert.assertEquals("http://other-endpoint", s3Resource.getProperty(S3Properties.ENDPOINT));
+        Assert.assertEquals("http://other-endpoint", s3Resource.getProperty(S3Properties.Env.ENDPOINT));
     }
 
     @Test
