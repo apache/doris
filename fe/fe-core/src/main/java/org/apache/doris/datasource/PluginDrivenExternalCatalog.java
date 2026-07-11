@@ -89,6 +89,12 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
     // via makeSureInitialized() → initLocalObjectsImpl(), or resetToUninitialized() → onClose().
     private transient volatile Connector connector;
 
+    // The engine-owned context shared by the connector (and any sibling it builds via createSiblingConnector).
+    // Held so the catalog can close the context's cached engine FileSystem (DefaultConnectorContext.getFileSystem)
+    // on teardown -- connectors only borrow that FS and must not close it. Null until the real connector is built
+    // (the lightweight CatalogFactory context is not tracked here; its FS is never built).
+    private transient volatile DefaultConnectorContext connectorContext;
+
     /** No-arg constructor for GSON deserialization. */
     public PluginDrivenExternalCatalog() {
     }
@@ -117,6 +123,9 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         // The connector created by CatalogFactory used a lightweight context
         // without auth (the catalog didn't exist yet); we replace it now.
         Connector oldConnector = connector;
+        // Capture the old context before createConnectorFromProperties() overwrites connectorContext, so we can
+        // close its cached FileSystem when the connector is actually replaced.
+        DefaultConnectorContext oldContext = connectorContext;
         Connector newConnector = createConnectorFromProperties();
         if (newConnector != null) {
             connector = newConnector;
@@ -128,6 +137,10 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
                 } catch (IOException e) {
                     LOG.warn("Failed to close old connector during re-initialization "
                             + "for catalog {}", name, e);
+                }
+                // ...and close the replaced context's cached engine FileSystem (never the live one).
+                if (oldContext != null && oldContext != connectorContext) {
+                    closeConnectorContextQuietly(oldContext);
                 }
             }
         }
@@ -166,11 +179,14 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         // This handles image deserialization of old resource-backed catalogs whose
         // properties never contained "type" (it was derived from the Resource object).
         String catalogType = getType();
-        return ConnectorFactory.createConnector(catalogType,
-                catalogProperty.getProperties(),
-                new DefaultConnectorContext(name, id, this::getExecutionAuthenticator,
-                        () -> catalogProperty.getStoragePropertiesMap(),
-                        catalogProperty::getEffectiveRawStorageProperties));
+        // Build the context up front and stash it so the catalog can close its cached engine FileSystem on
+        // teardown (onClose / connector replacement). The connector — and any sibling it builds — shares this
+        // one context instance, so there is a single cached FS per catalog.
+        DefaultConnectorContext context = new DefaultConnectorContext(name, id, this::getExecutionAuthenticator,
+                () -> catalogProperty.getStoragePropertiesMap(),
+                catalogProperty::getEffectiveRawStorageProperties);
+        this.connectorContext = context;
+        return ConnectorFactory.createConnector(catalogType, catalogProperty.getProperties(), context);
     }
 
     @Override
@@ -1188,6 +1204,17 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         }
     }
 
+    private void closeConnectorContextQuietly(DefaultConnectorContext context) {
+        if (context == null) {
+            return;
+        }
+        try {
+            context.close();
+        } catch (IOException e) {
+            LOG.warn("Failed to close connector context filesystem for catalog {}", name, e);
+        }
+    }
+
     @Override
     public void onClose() {
         super.onClose();
@@ -1199,5 +1226,11 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
             }
             connector = null;
         }
+        // Close the shared context's cached engine FileSystem AFTER the connector(s) release their borrowed
+        // reference to it. No-op when no FS was ever built (e.g. non-hive plugin catalogs never call
+        // getFileSystem()).
+        DefaultConnectorContext contextToClose = connectorContext;
+        connectorContext = null;
+        closeConnectorContextQuietly(contextToClose);
     }
 }

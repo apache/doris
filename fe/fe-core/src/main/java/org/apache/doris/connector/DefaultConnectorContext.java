@@ -27,6 +27,7 @@ import org.apache.doris.common.Version;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.connector.api.Connector;
 import org.apache.doris.connector.api.ConnectorHttpSecurityHook;
+import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorBrokerAddress;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorMetaInvalidator;
@@ -48,6 +49,7 @@ import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.Closeable;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -66,7 +68,7 @@ import java.util.stream.Collectors;
  * <p>Provides the minimal catalog-level context that connector providers need
  * during creation. Additional context fields can be added here as the SPI evolves.
  */
-public class DefaultConnectorContext implements ConnectorContext {
+public class DefaultConnectorContext implements ConnectorContext, Closeable {
 
     private static final Logger LOG = LogManager.getLogger(DefaultConnectorContext.class);
 
@@ -85,6 +87,15 @@ public class DefaultConnectorContext implements ConnectorContext {
     // (design S2): no fe-core StorageProperties parse on the connector storage path. Empty for ctors that do
     // not wire it (non-plugin / 2-3-4-arg) — those yield an empty storage list, correct parity.
     private final Supplier<Map<String, String>> rawStoragePropsSupplier;
+
+    // Engine-owned, per-catalog Doris FileSystem (a scheme-routing SpiSwitchingFileSystem over the catalog's
+    // storage properties), lazily built on the first getFileSystem() and closed on catalog teardown (close()).
+    // Connectors BORROW it and must not close it (see ConnectorContext.getFileSystem javadoc); siblings built
+    // via createSiblingConnector share this same context, so there is exactly one cached FS per catalog. Guarded
+    // by fsLock; the field is dropped to null on close so a post-teardown getFileSystem() returns null.
+    private final Object fsLock = new Object();
+    private volatile FileSystem catalogFileSystem;
+    private volatile boolean closed;
 
     private final ConnectorHttpSecurityHook httpSecurityHook = new ConnectorHttpSecurityHook() {
         @Override
@@ -265,6 +276,63 @@ public class DefaultConnectorContext implements ConnectorContext {
             return Collections.emptyList();
         }
         return FileSystemFactory.bindAllStorageProperties(rawCatalogProps);
+    }
+
+    @Override
+    public FileSystem getFileSystem(ConnectorSession session) {
+        // Engine-owned, per-catalog scheme-routing FileSystem, lazily built and cached so repeated scans reuse
+        // one instance (avoids rebuilding/re-authenticating per call, mirroring the legacy per-catalog
+        // FileSystemCache). The session is accepted for the Trino-shaped SPI but not yet used to key a per-user
+        // filesystem — the current build is catalog-level. Returns null when the catalog has no storage
+        // machinery (empty storage map: non-plugin ctor / credential-less warehouse), matching the benign
+        // defaults of getBackendStorageProperties() and cleanupEmptyManagedLocation().
+        FileSystem fs = catalogFileSystem;
+        if (fs != null) {
+            return fs;
+        }
+        synchronized (fsLock) {
+            if (closed) {
+                return null;
+            }
+            if (catalogFileSystem == null) {
+                Map<StorageProperties.Type, StorageProperties> storageProps = storagePropertiesSupplier.get();
+                if (storageProps == null || storageProps.isEmpty()) {
+                    return null;
+                }
+                catalogFileSystem = buildCatalogFileSystem(storageProps);
+            }
+            return catalogFileSystem;
+        }
+    }
+
+    /**
+     * Builds the catalog's scheme-routing filesystem from its storage properties. Extracted so tests can
+     * inject a recording fake without real storage/FS wiring (mirrors the {@code @VisibleForTesting} seams
+     * used elsewhere in this class).
+     */
+    @VisibleForTesting
+    FileSystem buildCatalogFileSystem(Map<StorageProperties.Type, StorageProperties> storageProps) {
+        return new SpiSwitchingFileSystem(storageProps);
+    }
+
+    /**
+     * Closes the cached catalog filesystem, if one was built. Idempotent. Called by the engine when the
+     * catalog/context is torn down (connector replacement or catalog close); connectors must never call it.
+     */
+    @Override
+    public void close() throws IOException {
+        FileSystem fs;
+        synchronized (fsLock) {
+            if (closed) {
+                return;
+            }
+            closed = true;
+            fs = catalogFileSystem;
+            catalogFileSystem = null;
+        }
+        if (fs != null) {
+            fs.close();
+        }
     }
 
     @Override
