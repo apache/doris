@@ -720,6 +720,30 @@ public class IcebergCatalogFactoryTest {
                 "vended REST (no bound S3) must still translate s3.region -> client.region");
     }
 
+    @Test
+    public void buildCatalogPropertiesRestVendedResolvesRegionFromWidenedAliases() {
+        // WHY: the empty-chosenS3 region fallback must scan the SAME region aliases legacy getRegionFromProperties
+        // did (the fe-core S3Properties isRegionField set), not just {s3.region, aws.region, region, client.region}.
+        // A vended REST catalog whose region arrives only via AWS_REGION or iceberg.rest.signing-region would
+        // otherwise yield no client.region -> AWS SDK DefaultAwsRegionProviderChain -> "Unable to load region".
+        // RED before widening: AWS_REGION (uppercase) does not match the narrow lowercase aws.region and
+        // iceberg.rest.signing-region is absent from the narrow 4-alias set -> client.region null.
+        Map<String, String> viaAwsRegion = IcebergCatalogFactory.buildCatalogProperties(
+                props("iceberg.catalog.type", "rest", "uri", "https://rest",
+                        "iceberg.rest.vended-credentials-enabled", "true", "AWS_REGION", "us-east-1"),
+                "rest", Optional.empty());
+        Assertions.assertEquals("us-east-1", viaAwsRegion.get("client.region"),
+                "region supplied only via AWS_REGION must translate to client.region");
+
+        Map<String, String> viaSigningRegion = IcebergCatalogFactory.buildCatalogProperties(
+                props("iceberg.catalog.type", "rest", "uri", "https://rest",
+                        "iceberg.rest.vended-credentials-enabled", "true",
+                        "iceberg.rest.signing-region", "eu-west-1"),
+                "rest", Optional.empty());
+        Assertions.assertEquals("eu-west-1", viaSigningRegion.get("client.region"),
+                "region supplied only via iceberg.rest.signing-region must translate to client.region");
+    }
+
     // ---------------------------------------------------------------------
     // buildS3TablesCatalogProperties — bespoke s3tables options (NO catalog-impl, NO type removal)
     // ---------------------------------------------------------------------

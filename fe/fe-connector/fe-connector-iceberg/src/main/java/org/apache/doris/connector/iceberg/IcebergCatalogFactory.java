@@ -77,10 +77,15 @@ public final class IcebergCatalogFactory {
 
     // Region-field aliases scanned to propagate client.region when NO fe-filesystem S3 storage is bound
     // (e.g. REST vended credentials: no static AK/SK/role, so S3FileSystemProvider.supports is false and
-    // chosenS3 is empty). Mirrors the legacy AbstractIcebergProperties.toFileIOProperties chosen==null
-    // fallback (getRegionFromProperties). The raw s3.region copied by buildBaseCatalogProperties is inert
-    // because iceberg S3FileIO reads client.region, not s3.region.
-    private static final String[] S3_REGION_ALIASES = {"s3.region", "aws.region", "region", "client.region"};
+    // chosenS3 is empty). Verbatim connector-side copy (fe-connector must not import fe-core) of the fe-core
+    // S3Properties @ConnectorProperty(isRegionField=true) region aliases — the S3 subset of the alias set the
+    // legacy getRegionFromProperties scanned; declared order preserved so s3.region still wins on conflict.
+    // The OSS/COS/OBS/Minio subclass region aliases are deliberately excluded (irrelevant to an AWS-S3-backed
+    // vended REST catalog). The raw s3.region copied by buildBaseCatalogProperties is inert because iceberg
+    // S3FileIO reads client.region, not s3.region.
+    private static final String[] S3_REGION_ALIASES = {
+            "s3.region", "AWS_REGION", "region", "REGION", "aws.region", "glue.region",
+            "aws.glue.region", "iceberg.rest.signing-region", "rest.signing-region", "client.region"};
 
     private IcebergCatalogFactory() {
     }
