@@ -61,7 +61,6 @@ import java.util.Optional;
  *   <li>No ACID transaction support (non-transactional tables only)</li>
  *   <li>No file-count streaming split mode; partition-batch mode is limited to partitioned
  *       non-transactional tables (see {@link #supportsBatchScan})</li>
- *   <li>No table sampling</li>
  * </ul>
  */
 public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
@@ -165,6 +164,17 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
         HiveTableHandle hiveHandle = (HiveTableHandle) handle;
         List<String> partKeyNames = hiveHandle.getPartitionKeyNames();
         return partKeyNames != null && !partKeyNames.isEmpty() && !hiveHandle.isTransactional();
+    }
+
+    /**
+     * Hive scan ranges (base/insert files) carry positive byte lengths, so the engine can apply
+     * {@code TABLESAMPLE} by size-weighted split selection — restoring the legacy
+     * {@code HiveScanNode.selectFiles} behavior lost at the SPI cutover. Only Hive ever sampled; the
+     * other connectors keep the default {@code false} (their ranges do not carry byte-proportional lengths).
+     */
+    @Override
+    public boolean supportsTableSample() {
+        return true;
     }
 
     /**

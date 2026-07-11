@@ -818,6 +818,14 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             // Forward the pruned partitions so the connector reads only the surviving partitions
             // (mirrors the legacy MaxCompute / Hive branches below).
             pluginScanNode.setSelectedPartitions(fileScan.getSelectedPartitions());
+            // Forward TABLESAMPLE (mirrors the legacy Hive branch below). Whether it is actually applied
+            // is decided in PluginDrivenScanNode by the connector's supportsTableSample() capability: a
+            // connector whose split ranges carry byte lengths (Hive) samples; the others no-op with a
+            // warning. Without this forward the sample is silently dropped and the query scans the full table.
+            if (fileScan.getTableSample().isPresent()) {
+                pluginScanNode.setTableSample(new TableSample(fileScan.getTableSample().get().isPercent,
+                        fileScan.getTableSample().get().sampleValue, fileScan.getTableSample().get().seek));
+            }
             scanNode = pluginScanNode;
         } else if (table instanceof HMSExternalTable) {
             if (directoryLister == null) {

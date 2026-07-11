@@ -233,6 +233,24 @@ public interface ConnectorScanPlanProvider {
     }
 
     /**
+     * Whether this connector's scan ranges carry meaningful byte lengths
+     * ({@link ConnectorScanRange#getLength()}) so the engine can apply {@code TABLESAMPLE} by
+     * size-weighted split selection ({@code PluginDrivenScanNode.sampleSplits}). Returning
+     * {@code false} (the default) makes {@code TABLESAMPLE} a no-op — the full table is scanned (with a
+     * warning) — matching these connectors' behavior before the SPI migration (only the legacy Hive scan
+     * node ever sampled). A connector must NOT return {@code true} unless EVERY range it plans exposes a
+     * positive, byte-proportional length: MaxCompute's default byte-size ranges and Paimon's JNI-read
+     * ranges report {@code -1}, and MaxCompute row_offset ranges report a ROW count (not bytes), so they
+     * must stay {@code false}. Mirrors {@link #supportsBatchScan}'s opt-in shape and Trino's
+     * {@code ConnectorMetadata.applySample}.
+     *
+     * @return whether split-size TABLESAMPLE is valid for this connector (default: false)
+     */
+    default boolean supportsTableSample() {
+        return false;
+    }
+
+    /**
      * Plans the scan for a single batch of partitions (used by batch-mode scans).
      *
      * <p>Called once per partition batch when the engine drives batch-mode split generation

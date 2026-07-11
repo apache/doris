@@ -21,6 +21,7 @@ import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprToSqlVisitor;
 import org.apache.doris.analysis.SlotDescriptor;
+import org.apache.doris.analysis.TableSample;
 import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
@@ -74,6 +75,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
@@ -988,13 +990,28 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         // the rows the source returns, that would under-return. Legacy disabled limit-split whenever
         // a non-partition-equality (incl. CAST) predicate was present; this mirrors it.
         long sourceLimit = effectiveSourceLimit(limit, filteredToOriginalIndex != null);
+        // TABLESAMPLE (FIX-M1): applied (sampleSplits below) only when the connector declares its scan
+        // ranges carry byte lengths (supportsTableSample), so the size-weighted selection is valid. Only
+        // Hive sampled pre-SPI; connectors whose ranges lack byte-proportional lengths keep the default
+        // false and no-op the sample (full-table scan, as before) — surfaced with a warning rather than
+        // silently dropped. connector-agnostic: a generic capability, not a source-type branch.
+        boolean applySample = tableSample != null
+                && onPluginClassLoader(scanProvider, scanProvider::supportsTableSample);
+        if (tableSample != null && !applySample) {
+            LOG.warn("TABLESAMPLE is not supported by connector [{}]; scanning the full table",
+                    desc.getTable().getDatabase().getCatalog().getType());
+        }
         // Forward the no-grouping COUNT(*) signal to the connector (FIX-COUNT-PUSHDOWN). The op is set
         // on this node by the Nereids translator (PhysicalPlanTranslator) and shipped to BE via
         // FileScanNode.toThrift, but a connector that can serve a precomputed row count
         // (paimon DataSplit.mergedRowCount()) needs the signal here to emit it; otherwise BE
         // materializes the full post-merge row set just to count. Connectors that do not override the
         // count-pushdown overload ignore the flag (default delegates to the 6-arg planScan).
-        boolean countPushdown = getPushDownAggNoGroupingOp() == TPushAggOp.COUNT;
+        // Suppressed under TABLESAMPLE (applySample): a connector that collapses count-eligible splits
+        // into ONE range carrying the precomputed FULL-table count (paimon/iceberg) would ignore the
+        // sample and return full cardinality; with sampling active BE counts rows over the sampled splits
+        // instead (mirrors legacy HiveScanNode, whose tableSample branch precedes the count-only opt).
+        boolean countPushdown = getPushDownAggNoGroupingOp() == TPushAggOp.COUNT && !applySample;
         List<ConnectorScanRange> ranges = onPluginClassLoader(scanProvider, () -> scanProvider.planScan(
                 connectorSession, currentHandle, columns, remainingFilter, sourceLimit,
                 requiredPartitions, countPushdown));
@@ -1016,7 +1033,52 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             // line renders the (-1) sentinel — the correctness-critical no-precomputed-count case.
             setPushDownCount(pushDownRowCount);
         }
+        // TABLESAMPLE (FIX-M1): keep a size-weighted random subset of the planned splits. Only reached
+        // when the connector opted in (applySample), i.e. its ranges carry byte lengths — so operating on
+        // the generic Split.getLength() is valid. estimatedRowSize (ROWS mode) = sum of column slot sizes,
+        // mirroring legacy HiveScanNode.selectFiles.
+        if (applySample) {
+            long estimatedRowSize = 0;
+            for (Column column : desc.getTable().getFullSchema()) {
+                estimatedRowSize += column.getDataType().getSlotSize();
+            }
+            splits = sampleSplits(splits, tableSample, estimatedRowSize);
+        }
         return splits;
+    }
+
+    /**
+     * Connector-agnostic TABLESAMPLE: keeps a size-weighted random subset of splits, mirroring legacy
+     * {@code HiveScanNode.selectFiles} but operating on the generic {@link Split#getLength()}. Only called
+     * when the connector declares {@code supportsTableSample()} (its ranges carry positive byte lengths),
+     * so a negative/row-count length can never corrupt the accumulation. PERCENT targets
+     * {@code totalSize * value / 100}; ROWS targets {@code estimatedRowSize * value} (estimatedRowSize = sum
+     * of column slot sizes). The shuffle is seeded by the sample's REPEATABLE seek so a repeated query
+     * returns the same subset. Pure static so the size-accumulation + seed determinism is unit-testable
+     * without driving a full {@code planScan}.
+     */
+    static List<Split> sampleSplits(List<Split> splits, TableSample tableSample, long estimatedRowSize) {
+        long totalSize = 0;
+        for (Split split : splits) {
+            totalSize += split.getLength();
+        }
+        long sampleSize;
+        if (tableSample.isPercent()) {
+            sampleSize = totalSize * tableSample.getSampleValue() / 100;
+        } else {
+            sampleSize = estimatedRowSize * tableSample.getSampleValue();
+        }
+        Collections.shuffle(splits, new Random(tableSample.getSeek()));
+        long selectedSize = 0;
+        int index = 0;
+        for (Split split : splits) {
+            selectedSize += split.getLength();
+            index += 1;
+            if (selectedSize >= sampleSize) {
+                break;
+            }
+        }
+        return splits.subList(0, index);
     }
 
     /**
@@ -1087,6 +1149,14 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         // null-guard in getSplits() so isBatchMode (run on the dispatch + explain paths) never NPEs.
         ConnectorScanPlanProvider scanProvider = resolveScanProvider();
         if (scanProvider == null) {
+            return false;
+        }
+        // TABLESAMPLE (FIX-M1) is applied in the synchronous getSplits() path (sampleSplits); the batch
+        // path (startSplit) never samples. Force sync when the sample WILL be applied (connector opted in),
+        // so a sampled scan never silently skips sampling on the batch/streaming path. Sampling shuffles the
+        // whole split set anyway, so batch generation offers no benefit here. Gated on supportsTableSample
+        // so a non-sampling connector's TABLESAMPLE no-op does not lose its batch path.
+        if (tableSample != null && onPluginClassLoader(scanProvider, scanProvider::supportsTableSample)) {
             return false;
         }
         boolean hasSlots = !desc.getSlots().isEmpty();
