@@ -21,16 +21,19 @@ import org.apache.doris.catalog.FunctionRegistry;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.BuiltinFunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapAndNotCount;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Substring;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Year;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
+import org.apache.doris.nereids.types.BitmapType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.MemoTestUtils;
@@ -85,6 +88,24 @@ public class FunctionRegistryTest implements MemoPatternMatchSupported {
                             return true;
                         })
                 );
+    }
+
+    @Test
+    public void testBitmapAndNotCountAliasNotNullable() {
+        FunctionRegistry functionRegistry = new FunctionRegistry();
+        ImmutableList<Expression> arguments = ImmutableList.of(
+                new SlotReference("nullableBitmap1", BitmapType.INSTANCE, true),
+                new SlotReference("nullableBitmap2", BitmapType.INSTANCE, true));
+
+        FunctionBuilder aliasBuilder = functionRegistry.findFunctionBuilder("bitmap_andnot_count", arguments);
+        Expression aliasFunction = aliasBuilder.build("bitmap_andnot_count", arguments).first;
+        Assertions.assertInstanceOf(BitmapAndNotCount.class, aliasFunction);
+        Assertions.assertFalse(aliasFunction.nullable());
+
+        FunctionBuilder canonicalBuilder = functionRegistry.findFunctionBuilder("bitmap_and_not_count", arguments);
+        Expression canonicalFunction = canonicalBuilder.build("bitmap_and_not_count", arguments).first;
+        Assertions.assertInstanceOf(BitmapAndNotCount.class, canonicalFunction);
+        Assertions.assertFalse(canonicalFunction.nullable());
     }
 
     @Test

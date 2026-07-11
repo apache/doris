@@ -204,6 +204,11 @@ public:
             attr.new_version_unix_timestamp) {
             key_str += "_new";
         }
+        if (attr.new_version_bitmap_op_count &&
+            (key_str == "bitmap_and_count" || key_str == "bitmap_or_count" ||
+             key_str == "bitmap_xor_count" || key_str == "bitmap_and_not_count")) {
+            key_str += "_v2";
+        }
 
         temporary_function_update(be_version, key_str);
 

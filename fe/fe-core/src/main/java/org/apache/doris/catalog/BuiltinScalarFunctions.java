@@ -103,10 +103,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.BitShiftRight
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitTest;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapAnd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapAndCount;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapAndNot;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapAndNotAlias;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapAndNotCount;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapAndNotCountAlias;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapContains;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapCount;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapEmpty;
@@ -679,10 +676,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(BitLength.class, "bit_length"),
             scalar(BitmapAnd.class, "bitmap_and"),
             scalar(BitmapAndCount.class, "bitmap_and_count"),
-            scalar(BitmapAndNot.class, "bitmap_and_not"),
-            scalar(BitmapAndNotAlias.class, "bitmap_andnot"),
-            scalar(BitmapAndNotCount.class, "bitmap_and_not_count"),
-            scalar(BitmapAndNotCountAlias.class, "bitmap_andnot_count"),
+            scalar(BitmapAndNotCount.class, "bitmap_and_not_count", "bitmap_andnot_count"),
             scalar(BitmapContains.class, "bitmap_contains"),
             scalar(BitmapCount.class, "bitmap_count"),
             scalar(BitmapEmpty.class, "bitmap_empty"),
@@ -695,7 +689,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(BitmapHash64.class, "bitmap_hash64"),
             scalar(BitmapMax.class, "bitmap_max"),
             scalar(BitmapMin.class, "bitmap_min"),
-            scalar(BitmapNot.class, "bitmap_not"),
+            scalar(BitmapNot.class, "bitmap_not", "bitmap_and_not", "bitmap_andnot"),
             scalar(BitmapOr.class, "bitmap_or"),
             scalar(BitmapOrCount.class, "bitmap_or_count"),
             scalar(BitmapRemove.class, "bitmap_remove"),

@@ -57,6 +57,7 @@ namespace doris {
 
 struct FunctionAttr {
     bool new_version_unix_timestamp {false};
+    bool new_version_bitmap_op_count {false};
 };
 
 #define RETURN_REAL_TYPE_FOR_DATEV2_FUNCTION(TYPE)                                             \
