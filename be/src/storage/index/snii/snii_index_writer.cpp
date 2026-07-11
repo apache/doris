@@ -149,6 +149,7 @@ void SniiIndexColumnWriter::set_direct_load(bool is_direct_load) {
         return;
     }
     _direct_load_marked = true;
+    _is_direct_load = is_direct_load;
     // Bigram-defer decision, captured ONCE by the latch above (mirrors init()'s
     // G04 "Captured ONCE here" capture discipline): IndexColumnWriter::create()
     // has already run init() when the segment writer calls this, and no row has
@@ -361,9 +362,13 @@ Status SniiIndexColumnWriter::finish() {
     // flush-scoped); release the accumulation-phase charge so the retained
     // reporter (and the LOAD MemTracker behind it) balances to zero.
     _report_null_docids_capacity(/*release_all=*/true);
-    RETURN_IF_ERROR(_index_file_writer->add_snii_index(
-            _index_meta, cast_set<uint32_t>(_rid), std::move(_null_docids), _term_buffer.get(),
-            _config, /*phrase_bigrams_deferred=*/_phrase_bigrams_deferred, _memory_reporter.get()));
+    const IndexFileWriter::SniiAddIndexOptions options {
+            .phrase_bigrams_deferred = _phrase_bigrams_deferred,
+            .is_direct_load = _is_direct_load,
+    };
+    RETURN_IF_ERROR(_index_file_writer->add_snii_index(_index_meta, cast_set<uint32_t>(_rid),
+                                                       std::move(_null_docids), _term_buffer.get(),
+                                                       _config, options, _memory_reporter.get()));
     _index_file_writer->retain_snii_memory_reporter(std::move(_memory_reporter));
     _term_buffer.reset();
     return Status::OK();

@@ -87,6 +87,11 @@ private:
     // is ignored (and logged) so the pair feed can never desync from the
     // sentinel decision at finish().
     bool _direct_load_marked = false;
+    // Captured by set_direct_load() under the same latch: this writer serves a
+    // stream/broker load (DataWriteType::TYPE_DIRECT). Consumed at finish() to
+    // route the prx region to the load-tier zstd level (patch C,
+    // config::snii_prx_zstd_level_direct_load).
+    bool _is_direct_load = false;
     // Defer the hidden phrase-bigram build to compaction for single-field
     // indexes only: no pair tokens, no sentinel, and a resident per-index
     // capability flag (kPhraseBigramsDeferred) routes fresh-segment phrases

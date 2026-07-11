@@ -68,11 +68,23 @@ public:
     virtual ~IndexFileWriter() = default;
 
     MOCK_FUNCTION Result<std::shared_ptr<DorisFSDirectory>> open(const TabletIndex* index_meta);
+    // Write-path facts for one SNII index flush, captured per writer by
+    // SniiIndexColumnWriter::set_direct_load (latched before the first row).
+    struct SniiAddIndexOptions {
+        // The fresh direct-load segment deliberately omitted the hidden
+        // phrase-bigram build (pair postings + sentinel); persisted as the
+        // resident kPhraseBigramsDeferred capability flag.
+        bool phrase_bigrams_deferred = false;
+        // This flush serves a stream/broker load (DataWriteType::TYPE_DIRECT):
+        // the prx region compresses at snii_prx_zstd_level_direct_load;
+        // compaction / schema change / ADD INDEX keep snii_prx_zstd_level.
+        bool is_direct_load = false;
+    };
     Status add_snii_index(const TabletIndex* index_meta, uint32_t doc_count,
                           std::vector<uint32_t> null_docids,
                           doris::snii::writer::SpimiTermBuffer* const term_buffer,
                           doris::snii::format::IndexConfig index_config,
-                          bool phrase_bigrams_deferred,
+                          const SniiAddIndexOptions& options,
                           doris::snii::writer::MemoryReporter* const mem_reporter);
     void retain_snii_memory_reporter(
             std::unique_ptr<doris::snii::writer::MemoryReporter> mem_reporter);

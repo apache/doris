@@ -1410,9 +1410,15 @@ DECLARE_mBool(inverted_index_read_bypass_file_cache);
 // default (false) drops the layout; scoring-config indexes always keep freq.
 // Write-side only; segments are self-describing either way.
 DECLARE_mBool(snii_positions_index_write_freq);
-// G16-h: zstd levels for dict blocks / prx windows (default 3 = historical).
+// G16-h: zstd levels for SNII dict blocks / prx windows. Default 3 (the
+// all-level-3 evaluation showed level 9 buys <=6.3% index size for 17-24%
+// import CPU; see the DEFINEs in config.cpp).
 DECLARE_mInt32(snii_dict_block_zstd_level);
 DECLARE_mInt32(snii_prx_zstd_level);
+// Patch C: prx zstd level for DIRECT-LOAD segments only (default 3, cheaper
+// import); compaction rewrites at snii_prx_zstd_level so settled segments are
+// unaffected. Full contract at the DEFINE in config.cpp.
+DECLARE_mInt32(snii_prx_zstd_level_direct_load);
 // G16-d: target SNII dict block size in bytes; 0 = format default (64 KiB).
 // Bigger blocks -> better per-block zstd on the dict region, larger cold
 // fetch+decompress unit per dict-block miss. Write side only.

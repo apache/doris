@@ -180,7 +180,7 @@ Status IndexFileWriter::add_snii_index(const TabletIndex* index_meta, uint32_t d
                                        std::vector<uint32_t> null_docids,
                                        doris::snii::writer::SpimiTermBuffer* const term_buffer,
                                        doris::snii::format::IndexConfig index_config,
-                                       bool phrase_bigrams_deferred,
+                                       const SniiAddIndexOptions& options,
                                        doris::snii::writer::MemoryReporter* const mem_reporter) {
     DCHECK(_storage_format == InvertedIndexStorageFormatPB::SNII);
     DCHECK(index_meta != nullptr);
@@ -211,7 +211,7 @@ Status IndexFileWriter::add_snii_index(const TabletIndex* index_meta, uint32_t d
     input.bigram_prune_min_df = snii_effective_bigram_prune_min_df(doc_count, index_config);
     input.bigram_prune_max_df =
             snii_effective_bigram_prune_max_df(doc_count, input.bigram_prune_min_df, index_config);
-    input.phrase_bigrams_deferred = phrase_bigrams_deferred;
+    input.phrase_bigrams_deferred = options.phrase_bigrams_deferred;
     // G16-c: freq regions serve only BM25 scoring; a plain positions index
     // drops them unless the escape hatch asks for the full T2 layout.
     input.write_freq = snii_effective_write_freq(index_config);
@@ -221,7 +221,14 @@ Status IndexFileWriter::add_snii_index(const TabletIndex* index_meta, uint32_t d
     // configured level 1 would silently resolve to 3 anyway (levels 1-2 buy
     // nothing over 3 on these payloads).
     input.dict_block_zstd_level = std::clamp(config::snii_dict_block_zstd_level, 1, 19);
-    input.prx_zstd_level = std::clamp(config::snii_prx_zstd_level, 3, 19);
+    // Patch C prx tiering: a direct load compresses prx at the cheaper load
+    // level; compaction / schema change / ADD INDEX keep snii_prx_zstd_level
+    // and compaction rewrites every segment with it, so settled segments (and
+    // the cold-query path over them) are byte-for-byte unaffected.
+    input.prx_zstd_level = std::clamp(options.is_direct_load
+                                              ? config::snii_prx_zstd_level_direct_load
+                                              : config::snii_prx_zstd_level,
+                                      3, 19);
     // G16-d: dict block size experiment knob; <= 0 keeps the format default.
     if (config::snii_target_dict_block_bytes > 0) {
         input.target_dict_block_bytes = static_cast<uint32_t>(config::snii_target_dict_block_bytes);
@@ -239,7 +246,7 @@ Status IndexFileWriter::add_snii_index(const TabletIndex* index_meta, uint32_t d
     // are exempt: they fed zero pair tokens, so the armed diet is provably
     // inert (empty pair map, no evicted-incomplete pairs possible) and the
     // resident deferred flag already routes readers to positions verification.
-    if (input.bigram_prune_min_df == 0 && !phrase_bigrams_deferred &&
+    if (input.bigram_prune_min_df == 0 && !options.phrase_bigrams_deferred &&
         term_buffer->bigram_diet_configured()) {
         return Status::InternalError(
                 "SNII: snii_bigram_prune_min_df was disabled while an import with the bigram "
