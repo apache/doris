@@ -104,6 +104,7 @@ public class SpiSwitchingFileSystem implements FileSystem {
     }
 
     /** Resolves the appropriate {@link FileSystem} for the given {@link Location}. */
+    @Override
     public FileSystem forLocation(Location location) throws IOException {
         return forPath(location.uri());
     }
