@@ -58,6 +58,7 @@ import org.apache.doris.spi.Split;
 import org.apache.doris.thrift.TColumnCategory;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TFileAttributes;
+import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TFileTextScanRangeParams;
@@ -507,6 +508,24 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             return ConnectorColumnCategory.DEFAULT;
         }
         return onPluginClassLoader(scanProvider, () -> scanProvider.classifyColumn(columnName));
+    }
+
+    /**
+     * Lets the owning connector adjust the compression type this node inferred from the split's file path
+     * before it is shipped to BE, WITHOUT any source-specific code here: the base inference runs first, then
+     * the connector's {@link ConnectorScanPlanProvider#adjustFileCompressType} (identity by default) gets the
+     * final say. Hive uses it to remap {@code LZ4FRAME -> LZ4BLOCK} (hadoop writes {@code .lz4} as block codec);
+     * every other connector inherits the identity default and is byte-unchanged. A connector with no scan
+     * provider keeps the inferred type. Mirrors {@link #classifyColumnByConnector} (same resolve + TCCL pin).
+     */
+    @Override
+    protected TFileCompressType getFileCompressType(FileSplit fileSplit) throws UserException {
+        TFileCompressType inferred = super.getFileCompressType(fileSplit);
+        ConnectorScanPlanProvider scanProvider = resolveScanProvider();
+        if (scanProvider == null) {
+            return inferred;
+        }
+        return onPluginClassLoader(scanProvider, () -> scanProvider.adjustFileCompressType(inferred));
     }
 
     @Override

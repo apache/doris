@@ -18,6 +18,7 @@
 package org.apache.doris.connector.hudi;
 
 import org.apache.doris.connector.spi.ConnectorContext;
+import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
 
@@ -89,6 +90,20 @@ public class HudiBackendDescriptorTest {
         Assertions.assertFalse(result.containsKey("location.AWS_ACCESS_KEY"),
                 "no context must not synthesize canonical creds");
         Assertions.assertEquals("hadoopAK", result.get("location.fs.s3a.access.key"));
+    }
+
+    @Test
+    public void adjustFileCompressTypeRemapsLz4FrameLikeLegacyInheritance() {
+        // Legacy HudiScanNode extended HiveScanNode and INHERITED its LZ4FRAME -> LZ4BLOCK remap (hadoop writes
+        // .lz4 as the LZ4 block codec). The new HudiScanPlanProvider does not extend the hive provider, so it
+        // re-declares the remap to preserve that inherited behavior rather than assuming "hudi never emits .lz4".
+        HudiScanPlanProvider provider = new HudiScanPlanProvider(Collections.emptyMap(), null);
+        Assertions.assertEquals(TFileCompressType.LZ4BLOCK,
+                provider.adjustFileCompressType(TFileCompressType.LZ4FRAME));
+        Assertions.assertEquals(TFileCompressType.GZ,
+                provider.adjustFileCompressType(TFileCompressType.GZ));
+        Assertions.assertEquals(TFileCompressType.PLAIN,
+                provider.adjustFileCompressType(TFileCompressType.PLAIN));
     }
 
     private static ConnectorContext contextWithBackendProps(Map<String, String> backendProps) {

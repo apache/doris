@@ -25,6 +25,7 @@ import org.apache.doris.connector.hms.HmsDatabaseInfo;
 import org.apache.doris.connector.hms.HmsPartitionInfo;
 import org.apache.doris.connector.hms.HmsTableInfo;
 import org.apache.doris.filesystem.FileSystem;
+import org.apache.doris.thrift.TFileCompressType;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -141,6 +142,28 @@ public class HiveScanBatchModeTest {
     }
 
     // ===== helpers =====
+
+    @Test
+    public void testAdjustFileCompressTypeRemapsOnlyLz4Frame() {
+        // hadoop/hive write .lz4 as the LZ4 BLOCK codec, but the generic node infers LZ4FRAME from the .lz4
+        // extension; BE's text reader then fails on block bytes decoded as frame. Restore legacy
+        // HiveScanNode.getFileCompressType parity: remap ONLY LZ4FRAME -> LZ4BLOCK, pass every other codec
+        // through unchanged. MUTATION: broadening or dropping the remap would either mis-decode other codecs
+        // or reintroduce the LZ4F_getFrameInfo failure on .lz4 text tables.
+        HiveScanPlanProvider provider = provider(null, new CountingLister());
+        Assertions.assertEquals(TFileCompressType.LZ4BLOCK,
+                provider.adjustFileCompressType(TFileCompressType.LZ4FRAME));
+        Assertions.assertEquals(TFileCompressType.LZ4BLOCK,
+                provider.adjustFileCompressType(TFileCompressType.LZ4BLOCK));
+        Assertions.assertEquals(TFileCompressType.GZ,
+                provider.adjustFileCompressType(TFileCompressType.GZ));
+        Assertions.assertEquals(TFileCompressType.ZSTD,
+                provider.adjustFileCompressType(TFileCompressType.ZSTD));
+        Assertions.assertEquals(TFileCompressType.SNAPPYBLOCK,
+                provider.adjustFileCompressType(TFileCompressType.SNAPPYBLOCK));
+        Assertions.assertEquals(TFileCompressType.PLAIN,
+                provider.adjustFileCompressType(TFileCompressType.PLAIN));
+    }
 
     private static HiveScanPlanProvider provider(HmsClient hmsClient, CountingLister lister) {
         return new HiveScanPlanProvider(hmsClient, Collections.emptyMap(), new FakeConnectorContext(),

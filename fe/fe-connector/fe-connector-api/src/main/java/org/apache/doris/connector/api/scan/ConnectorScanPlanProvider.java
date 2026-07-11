@@ -21,6 +21,7 @@ import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.pushdown.ConnectorExpression;
+import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
@@ -105,6 +106,23 @@ public interface ConnectorScanPlanProvider {
      */
     default ConnectorColumnCategory classifyColumn(String columnName) {
         return ConnectorColumnCategory.DEFAULT;
+    }
+
+    /**
+     * Lets a connector adjust the file compression type the generic node inferred from the file path/extension
+     * (via {@code Util.inferFileCompressTypeByPath}) before it is shipped to BE on the scan range. The default
+     * is identity — the inferred type is used as-is.
+     *
+     * <p>Hive overrides this to remap {@code LZ4FRAME -> LZ4BLOCK}: hadoop/hive write {@code .lz4} files with
+     * the LZ4 <em>block</em> codec, not the LZ4 frame format the {@code .lz4} extension implies, so the frame
+     * inferred from the path would make BE's frame decoder fail ({@code LZ4F_getFrameInfo ERROR_frameType_unknown}).
+     * This keeps that hadoop-specific fact inside the connector; the generic node stays connector-agnostic.</p>
+     *
+     * @param inferred the compression type the generic node inferred from the file path
+     * @return the compression type to actually send to BE (identity by default)
+     */
+    default TFileCompressType adjustFileCompressType(TFileCompressType inferred) {
+        return inferred;
     }
 
     /**

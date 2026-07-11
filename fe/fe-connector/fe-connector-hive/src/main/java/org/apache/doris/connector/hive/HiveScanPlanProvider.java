@@ -30,6 +30,7 @@ import org.apache.doris.connector.hms.HmsPartitionInfo;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.filesystem.FileEntry;
 import org.apache.doris.filesystem.FileSystem;
+import org.apache.doris.thrift.TFileCompressType;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -182,6 +183,19 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
     @Override
     public boolean supportsTableSample() {
         return true;
+    }
+
+    /**
+     * Remaps {@code LZ4FRAME -> LZ4BLOCK} for hive splits, restoring legacy {@code HiveScanNode.getFileCompressType}
+     * parity lost at the SPI cutover. Hadoop/hive write {@code .lz4} files with the LZ4 <em>block</em> codec, but
+     * the generic node infers {@code LZ4FRAME} from the {@code .lz4} extension; sending frame to BE makes its
+     * text/CSV reader fail with {@code LZ4F_getFrameInfo ERROR_frameType_unknown} on block-format bytes. Only
+     * {@code LZ4FRAME} is remapped — every other codec (incl. an actual frame-format non-hive file, which hive
+     * never produces) passes through, so this is byte-identical to legacy in every reachable case.
+     */
+    @Override
+    public TFileCompressType adjustFileCompressType(TFileCompressType inferred) {
+        return inferred == TFileCompressType.LZ4FRAME ? TFileCompressType.LZ4BLOCK : inferred;
     }
 
     /**

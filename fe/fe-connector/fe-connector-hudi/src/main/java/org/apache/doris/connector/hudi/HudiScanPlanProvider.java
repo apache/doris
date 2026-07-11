@@ -25,6 +25,7 @@ import org.apache.doris.connector.api.pushdown.ConnectorExpression;
 import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.api.scan.ConnectorScanRange;
 import org.apache.doris.connector.spi.ConnectorContext;
+import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileScanRangeParams;
 
 import org.apache.avro.Schema;
@@ -118,6 +119,18 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
             return false;
         }
         return Boolean.parseBoolean(session.getSessionProperties().get(FORCE_JNI_SCANNER));
+    }
+
+    /**
+     * Remaps {@code LZ4FRAME -> LZ4BLOCK}, preserving the behavior legacy {@code HudiScanNode} inherited from its
+     * superclass {@code HiveScanNode.getFileCompressType} (hadoop writes {@code .lz4} as the LZ4 block codec, not
+     * the frame format the extension implies). The new provider does not extend the hive one, so this override
+     * restores the inherited legacy remap rather than relying on "hudi never produces a {@code .lz4} split".
+     * Only {@code LZ4FRAME} is remapped; every other codec passes through.
+     */
+    @Override
+    public TFileCompressType adjustFileCompressType(TFileCompressType inferred) {
+        return inferred == TFileCompressType.LZ4FRAME ? TFileCompressType.LZ4BLOCK : inferred;
     }
 
     @Override
