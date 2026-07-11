@@ -1839,22 +1839,23 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
         }
         // HmsTableInfo already returns ConnectorColumn with types mapped by HmsTypeMapping
         // during ThriftHmsClient.getTable(). Enrich with default values if available.
+        List<ConnectorColumn> columns = spiColumns;
         Map<String, String> defaults = getDefaultValues(tableInfo);
-        if (defaults.isEmpty()) {
-            return spiColumns;
-        }
-        List<ConnectorColumn> enriched = new ArrayList<>(spiColumns.size());
-        for (ConnectorColumn col : spiColumns) {
-            String defaultVal = defaults.get(col.getName());
-            if (defaultVal != null && col.getDefaultValue() == null) {
-                enriched.add(new ConnectorColumn(
-                        col.getName(), col.getType(), col.getComment(),
-                        col.isNullable(), defaultVal));
-            } else {
-                enriched.add(col);
+        if (!defaults.isEmpty()) {
+            List<ConnectorColumn> enriched = new ArrayList<>(spiColumns.size());
+            for (ConnectorColumn col : spiColumns) {
+                String defaultVal = defaults.get(col.getName());
+                if (defaultVal != null && col.getDefaultValue() == null) {
+                    enriched.add(new ConnectorColumn(
+                            col.getName(), col.getType(), col.getComment(),
+                            col.isNullable(), defaultVal));
+                } else {
+                    enriched.add(col);
+                }
             }
+            columns = enriched;
         }
-        return enriched;
+        return coerceOpenCsvColumnsToString(tableInfo, columns);
     }
 
     private List<ConnectorColumn> buildPartitionKeys(HmsTableInfo tableInfo) {
@@ -1892,6 +1893,39 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
             }
         }
         return coerced;
+    }
+
+    /**
+     * Flattens every DATA column of a hive {@code OpenCSVSerde} table to {@code STRING}, reproducing the
+     * schema legacy obtained through the metastore {@code get_schema} RPC. {@code OpenCSVSerde}
+     * ({@code org.apache.hadoop.hive.serde2.OpenCSVSerde}) reads a delimited file as PLAIN text: its
+     * deserializer's ObjectInspector reports every top-level column as {@code string}, so a declared
+     * {@code int}/{@code date}/{@code boolean} — and even an {@code array}/{@code map}/{@code struct} — is
+     * served verbatim as a string and never parsed. The SPI reads the RAW stored column types
+     * ({@code sd.getCols()}), which for OpenCSV disagree with what the reader actually returns; legacy's
+     * default {@code get_schema} path (server-side deserializer) collapsed them to all-string. We reproduce
+     * that RESULT connector-side, WITHOUT the extra per-table RPC, by forcing the whole column type to a flat
+     * {@code STRING} here. Partition keys are left untouched (hive appends them after the deserializer, so
+     * they keep their declared types — see {@link #coercePartitionKeyStringToVarchar}); a view is never an
+     * OpenCSV data table (guarded). Placing the rule in this hive metadata layer (not the shared hms
+     * {@code ThriftHmsClient}, which also feeds the hudi connector) keeps the serde-specific typing off the
+     * shared path and mirrors where Trino applies CSV=all-string. Non-OpenCSV tables return unchanged, so
+     * every other serde stays byte-identical to the raw {@code sd.getCols()} path.
+     */
+    private static List<ConnectorColumn> coerceOpenCsvColumnsToString(
+            HmsTableInfo tableInfo, List<ConnectorColumn> columns) {
+        if (isView(tableInfo)
+                || !HiveTextProperties.HIVE_OPEN_CSV_SERDE.equals(tableInfo.getSerializationLib())) {
+            return columns;
+        }
+        ConnectorType stringType = ConnectorType.of("STRING");
+        List<ConnectorColumn> forced = new ArrayList<>(columns.size());
+        for (ConnectorColumn col : columns) {
+            forced.add(new ConnectorColumn(col.getName(), stringType, col.getComment(),
+                    col.isNullable(), col.getDefaultValue(),
+                    col.isKey(), col.isAutoInc(), col.isAggregated()));
+        }
+        return forced;
     }
 
     private Map<String, String> getDefaultValues(HmsTableInfo tableInfo) {

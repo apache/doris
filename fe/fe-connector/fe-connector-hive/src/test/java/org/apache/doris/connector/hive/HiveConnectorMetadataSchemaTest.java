@@ -58,6 +58,8 @@ public class HiveConnectorMetadataSchemaTest {
             "org.apache.hadoop.hive.ql.io.orc.OrcInputFormat";
     private static final String TEXT_INPUT_FORMAT =
             "org.apache.hadoop.mapred.TextInputFormat";
+    private static final String OPEN_CSV_SERDE = "org.apache.hadoop.hive.serde2.OpenCSVSerde";
+    private static final String LAZY_SIMPLE_SERDE = "org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe";
 
     private ConnectorTableSchema schemaOf(HmsTableInfo tableInfo) {
         HiveConnectorMetadata metadata = new HiveConnectorMetadata(
@@ -86,6 +88,27 @@ public class HiveConnectorMetadataSchemaTest {
                 .inputFormat(inputFormat)
                 .columns(Arrays.asList(col("id", "INT"), col("name", "STRING")))
                 .partitionKeys(Collections.emptyList())
+                .parameters(Collections.emptyMap());
+    }
+
+    private static ConnectorColumn arrayCol(String name, String elementTypeName) {
+        return new ConnectorColumn(name,
+                ConnectorType.arrayOf(ConnectorType.of(elementTypeName)), null, true, null);
+    }
+
+    /**
+     * A delimited-text table with DECLARED TYPED data columns (int/datetime/boolean + a complex array) and a
+     * non-string DATE partition key, parameterized by serde lib. Under OpenCSVSerde the reader serves every data
+     * column as plain string; under any other serde the declared types stand.
+     */
+    private static HmsTableInfo.Builder csvTypedTable(String serdeLib) {
+        return HmsTableInfo.builder()
+                .dbName("db").tableName("t")
+                .inputFormat(TEXT_INPUT_FORMAT)
+                .serializationLib(serdeLib)
+                .columns(Arrays.asList(col("id", "INT"), col("ts", "DATETIMEV2"),
+                        col("active", "BOOLEAN"), arrayCol("arr_col", "INT")))
+                .partitionKeys(Collections.singletonList(col("dt", "DATEV2")))
                 .parameters(Collections.emptyMap());
     }
 
@@ -133,6 +156,48 @@ public class HiveConnectorMetadataSchemaTest {
         // Only PARTITION string columns are coerced; a plain data column of type string stays STRING.
         ConnectorTableSchema schema = schemaOf(partitionedTable().build());
         Assertions.assertEquals("STRING", columnByName(schema, "name").getType().getTypeName());
+    }
+
+    @Test
+    public void testOpenCsvSerdeFlattensEveryDataColumnToString() {
+        // WHY: OpenCSVSerde reads the file as PLAIN text — its deserializer reports every top-level column as
+        // string, so a declared int/datetime/boolean, and even a complex array/map/struct, is served verbatim as
+        // a string and never parsed. Legacy resolved this via the metastore get_schema RPC (all-string); the SPI
+        // reads raw sd.getCols() types, so the connector must reproduce the all-string RESULT. MUTATION: emitting
+        // the declared typed columns flips TRUE vs 'true', raw datetime vs ISO, empty-string vs NULL — the exact
+        // regression in test_open_csv_serde / test_hive_serde_prop.
+        ConnectorTableSchema schema = schemaOf(csvTypedTable(OPEN_CSV_SERDE).build());
+        for (String dataCol : Arrays.asList("id", "ts", "active", "arr_col")) {
+            Assertions.assertEquals("STRING", columnByName(schema, dataCol).getType().getTypeName(),
+                    "OpenCSV data column " + dataCol + " must be flattened to STRING");
+        }
+    }
+
+    @Test
+    public void testOpenCsvSerdePartitionKeyKeepsDeclaredType() {
+        // Partition keys are appended by hive AFTER the deserializer, so they keep their declared types: a DATE
+        // partition key stays a date, NOT string-forced. Guards against flattening the whole schema.
+        ConnectorTableSchema schema = schemaOf(csvTypedTable(OPEN_CSV_SERDE).build());
+        Assertions.assertEquals("DATEV2", columnByName(schema, "dt").getType().getTypeName());
+    }
+
+    @Test
+    public void testNonOpenCsvSerdeKeepsDeclaredDataTypes() {
+        // The flatten is OpenCSV-gated: an identical table under LazySimpleSerDe (plain text, typed columns) keeps
+        // its declared int/datetime types — the LazySimple half of test_hive_serde_prop, which must stay typed.
+        // MUTATION: an ungated flatten would break every typed text/parquet/orc table.
+        ConnectorTableSchema schema = schemaOf(csvTypedTable(LAZY_SIMPLE_SERDE).build());
+        Assertions.assertEquals("INT", columnByName(schema, "id").getType().getTypeName());
+        Assertions.assertEquals("DATETIMEV2", columnByName(schema, "ts").getType().getTypeName());
+    }
+
+    @Test
+    public void testOpenCsvViewColumnsAreNotFlattened() {
+        // buildColumns also serves getViewDefinition; a view's logical columns are never an OpenCSV data payload,
+        // so the isView guard keeps them at declared types even when the SD carries an OpenCSV serde lib.
+        ConnectorTableSchema schema = schemaOf(
+                csvTypedTable(OPEN_CSV_SERDE).tableType("VIRTUAL_VIEW").build());
+        Assertions.assertEquals("INT", columnByName(schema, "id").getType().getTypeName());
     }
 
     @Test
