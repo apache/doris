@@ -32,12 +32,15 @@
   - UT（fe-core 有 Mockito；实际用 recording-fake seam `buildCatalogFileSystem`）：`getFileSystem` 懒建、二次返回同一实例（缓存）、空 storage→null、close 幂等转发缓存 FS。
   - 校验：`mvn -o -pl fe-core -am test-compile`（已过）。
 
-- [ ] **HIVEFS-4（连接器·读扫描列文件）**：
-  - `HiveFileListingCache`：`DirectoryLister` seam 签名 `(String location, Configuration)` → `(String location, FileSystem)`；`listFromFileSystem` 用 `fs.listFiles(Location.of(location))` 替代 `FileSystem.get`+`listStatus`；保留目录/`_`/`.` 前缀过滤 + 两异常语义（systemic `DorisConnectorException` vs per-partition `HiveDirectoryListingException`）。`FileStatus`→`FileEntry`（getPath→location、getLen→length、isDirectory→isDirectory、getModificationTime→mtime）；`HiveFileStatus` DTO 不变。
-  - `HiveScanPlanProvider`：`:272` `FileSystem.get(partPath...)` 换；列文件调用点传 `context.getFileSystem(session)`（不再 `FileSystem.get`）。**待核**：`buildHadoopConf()`/`Configuration` 若仍被格式/split 参数或传 BE 所需则保留（本步只摘"建 FileSystem"一职）。
-  - UT（连接器无 Mockito，用 recording fake）：注入 fake `FileSystem`/`DirectoryLister`，断言过滤、两异常、缓存/失效（REFRESH）不变，RED-able。
-  - **此步 + HIVEFS-3 + 重部署 = 失败用例转绿**。
-  - 校验：`mvn -o -pl :fe-connector-hive -am test-compile -Dtest=HiveFileListingCache* -DfailIfNoTests=false`。
+- [x] **HIVEFS-4（连接器·读扫描列文件）** ✅ DONE（fe-connector-hive test-compile SUCCESS、全量 UT 通过、0 checkstyle；设计红队 `wf_f25cc498-2de` GO_WITH_FIXES 7 条全部折入；设计 `designs/FIX-HIVEFS-4-design.md` v2）：
+  - `HiveFileListingCache`：`DirectoryLister` seam `(String, Configuration)` → `(String, FileSystem)`；`listDataFiles` 同改；`listFromFileSystem` 用 `fs.forLocation(loc)`(SYSTEMIC 边界) + `resolved.list(loc)`(LOCAL 边界，**用 `list()` 非 `listFiles()` 走字面量、不 glob-展开**) 替代 `FileSystem.get`+`listStatus`；保留目录/`_`/`.` 过滤（`FileEntry.name()`）+ 零长保留；`FileEntry`→`HiveFileStatus`（location().uri()/length/modificationTime，路径逐字节等价 `Path.toString()`）。
+  - **红队折入的加固**：① 空 FS 守卫→loud（D4）；② `forLocation` catch 拓宽 `IOException | RuntimeException`（Minor-1）；③ list catch 内 `isSystemicResolutionFailure`（cause-chain 走 `UnsupportedFileSystemException`/"No FileSystem for scheme"）→ 惰性"scheme 缺实现"仍 loud（Major-2，迁移自身失败类）。
+  - `HiveScanPlanProvider`：+`ConnectorContext` ctor 参（第3位）；非-ACID 路径 `context.getFileSystem(session)` 下发；`buildHadoopConf()` 保留（仅 ACID `planAcidScan:272` 用，该处 hadoop `FileSystem` 全限定，属 HIVEFS-5）；`planScanForPartitionBatch` 去掉无用 `hadoopConf`。
+  - `HiveConnectorMetadata`：`listFileSizes`(ANALYZE，loud) 钉内下发 FS；`estimateDataSizeByListingFiles` 在 `estimateDataSize` 保护区(catch→-1)**内**（size lambda）下发 FS（Minor-3，统计不炸查询）；删 `buildHadoopConf()` + `Configuration` import（Minor-2）；`sumCachedFileSizes` 参 `Configuration`→`FileSystem`。
+  - `HiveConnector.getScanPlanProvider()` 传 `context`。
+  - UT：新增共享 `FakeFileSystem`（recording fake，`listFiles` 抛 AssertionError 钉"必须走 list()"）；`HiveFileListingCacheTest` 19 项（含新增 scheme-missing→loud、glob-字面量、null-FS→loud、path/len/mtime 逐字节）；连带修 `HiveScanBatchModeTest`/`HiveConnectorMetadataFileListStatsTest`/`HiveReadTransactionTest`/`HiveConnectorInvalidateTest`（seam/ctor 签名）。
+  - **此步 + HIVEFS-3 + 重部署 = 失败用例 `test_string_dict_filter` 转绿**（e2e 待用户自跑）。
+  - 已核：`buildHadoopConf()` fe-core-metadata 侧删除（仅两法用）；`HiveScanPlanProvider` 侧保留（ACID）。
 
 - [ ] **HIVEFS-5（连接器·ACID）**：`HiveAcidUtil:170/255/298` `fs.exists`/`fs.listStatus` → 注入 `FileSystem` 的 `exists(Location)`/`list`/`listFiles`。
   - **⚠ 测试基建待解**：`HiveAcidUtilTest` 现对**真 Hadoop LocalFileSystem** 跑（见 `fe-connector-hive/pom.xml:128-137` commons-lang test 注释）。转 Doris `FileSystem` 后须换成 fake Doris `FileSystem` 或 `fe-filesystem-local` 的 local 实现——下个 session 定夺注入方式。

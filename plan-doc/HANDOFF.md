@@ -5,7 +5,7 @@
 
 ---
 
-# 🆕 下一个 session 起步 = FIX-HIVEFS 续（下一步 = 读扫描 HIVEFS-4）
+# 🆕 下一个 session 起步 = FIX-HIVEFS 续（下一步 = ACID HIVEFS-5）
 
 > 本地 hive 回归 `test_string_dict_filter` q01 `No FileSystem for scheme "hdfs"` 引出的**架构性改造**（非环境/文案）。**起步必读：设计 `plan-doc/tasks/designs/FIX-HIVEFS-design.md` + 任务清单 `plan-doc/tasks/task-list-HIVEFS.md`（行号信 HEAD 不信文档）。**
 
@@ -19,7 +19,9 @@
 - **HIVEFS-2** `3b4f7477d34`：`ConnectorContext` 加 `default FileSystem getFileSystem(ConnectorSession){return null}`+javadoc（**引擎所有/连接器借用/连接器不得 close**；session 对齐 Trino、identity 经 `getUser()` 预留 per-user；默认 null 对齐 `getBackendStorageProperties`）。
 - **HIVEFS-3** `a8ed72f2650`：`DefaultConnectorContext.getFileSystem` 懒建+字段缓存一个 per-catalog `SpiSwitchingFileSystem`（空 storage→null），`implements Closeable`；**close 挂点已定**——context 由 catalog **单一持有**（sibling 经 `createSiblingConnector(this)` 共享同一 context），故 catalog 在 `onClose`/换连接器两处关（**连接器只借不关**）。UT 4/4 + 既有 context/catalog 24/24。**对现有行为惰性**（非 hive catalog 不调 getFileSystem→close no-op；须 HIVEFS-4 接线才活）。
 
-**⭐ 下一步 = HIVEFS-4（连接器·读扫描列文件）**：`HiveFileListingCache`/`HiveScanPlanProvider:272` 的裸 `FileSystem.get`+`listStatus` 换 `context.getFileSystem(session).listFiles(Location.of(...))`；`FileStatus`→`FileEntry`；保留目录/`_`/`.` 过滤 + 两异常语义（systemic `DorisConnectorException` vs per-partition `HiveDirectoryListingException`）；`DirectoryLister` seam 签名 `(location, Configuration)`→`(location, FileSystem)`。**此步 + HIVEFS-3 + 重部署 = 失败用例 `test_string_dict_filter` 转绿**。之后：**5 ACID → 6 写路径（最险，落地前须多 agent 对抗红队）→ 7 删 `hadoop-hdfs-client`+grep 零裸 Hadoop → 8 全量 build+e2e**。
+**✅ HIVEFS-4 DONE（code `7e06c2aa2a9`）= 连接器·读扫描列文件已转引擎 FileSystem**：`HiveFileListingCache` seam `Configuration`→`org.apache.doris.filesystem.FileSystem`；`listFromFileSystem` 用 `fs.forLocation(loc)`(SYSTEMIC 边界·loud) + `resolved.list(loc)`(LOCAL 边界·skippable，**字面量 `list()` 非 glob 的 `listFiles()`**) 替代裸 `FileSystem.get`+`listStatus`；3 调用点（scan `listAndSplitFiles`、metadata `listFileSizes`/`estimate`）经 `context.getFileSystem(session)` 下发；`HiveScanPlanProvider` +ctx ctor 参；metadata 删 `buildHadoopConf`+`Configuration` import。设计红队 `wf_f25cc498-2de`(GO_WITH_FIXES 7 条全折入：null-FS→loud、`forLocation` catch 拓宽、`isSystemicResolutionFailure` 让惰性"No FileSystem for scheme"仍 loud、literal `list()`、estimate 保护区内下发、4 连带测试文件、去 orphan import)。**fe-connector-hive 289/289、0 checkstyle**。设计 `designs/FIX-HIVEFS-4-design.md`(v2)。**此步 + HIVEFS-3 + 重部署 = `test_string_dict_filter` 应转绿（e2e 待用户自跑）。ACID `planAcidScan:272` 的裸 Hadoop 未动（HIVEFS-5）。**
+
+**⭐ 下一步 = HIVEFS-5（连接器·ACID）**：`HiveAcidUtil:170/255/298` 的 `fs.exists`/`fs.listStatus` + `HiveScanPlanProvider.planAcidScan:272`（现全限定的 `org.apache.hadoop.fs.FileSystem.get`，喂 `HiveAcidUtil.getAcidState`）换注入 `FileSystem`。**⚠ 测试基建待定**：`HiveAcidUtilTest` 现对真 Hadoop LocalFileSystem 跑，转 Doris `FileSystem` 后须换 fake（可复用本轮新增的 `FakeFileSystem`）或 `fe-filesystem-local`——下个 session 定夺注入方式。之后：**6 写路径（最险，落地前须多 agent 对抗红队）→ 7 删 `hadoop-hdfs-client`+grep 零裸 Hadoop → 8 全量 build+e2e**。
 
 **已探明的去风险事实（勿重查）**：
 - **引擎侧已落地（HIVEFS-3）**——`DefaultConnectorContext.getFileSystem` 用已持的 `storagePropertiesSupplier` + `SpiSwitchingFileSystem`（范式镜像 `cleanupEmptyManagedLocation:348`）；close 由 catalog 在 `onClose`/换连接器处关（context 单一持有、sibling 共享）。
@@ -30,7 +32,7 @@
 
 **⚠ 待下个 session 核定**（task-list Open §）：`HiveScanPlanProvider.buildHadoopConf`/conf 去留（HIVEFS-4）· `HiveAcidUtilTest` 真-LocalFS→fake 迁移（HIVEFS-5）· 写路径 commit/abort 时 FS/identity 捕获时机（HIVEFS-6，begin 捕获）。
 
-**⚠ 状态**：HIVEFS-0/1/2/3 已入库（code 3 commit `0c4e0595f8f`/`3b4f7477d34`/`a8ed72f2650` + doc commit）。落地纪律：写路径（HIVEFS-6）落地前设计红队 → 每子步独立 commit + 靶向 UT（见 task-list）。
+**⚠ 状态**：HIVEFS-0/1/2/3/4 已入库（code `0c4e0595f8f`/`3b4f7477d34`/`a8ed72f2650`/`7e06c2aa2a9` + doc commit）。落地纪律：写路径（HIVEFS-6）落地前设计红队 → 每子步独立 commit + 靶向 UT（见 task-list）。HIVEFS-4 已按此走完一轮（设计→红队→折入→实现→289 UT→commit）。
 
 ---
 
