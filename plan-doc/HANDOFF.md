@@ -5,11 +5,18 @@
 
 ---
 
-# 🆕 下一个 session 起步 = 修复 hive e2e 剩余 regression（HIVEFS-8 e2e 已首跑）
+# 🆕 下一个 session 起步 = 修复 hive e2e 剩余 regression（round-2：22 失败，triage 全定案）
 
-> **本轮**：`external_table_p0/hive` 全量回归首跑 = **37/111 失败**。已逐个定位根因；**本轮修复约 20 个 suite（4 commit，下）**；**剩余 ~12 个真实 connector/fe-core regression 待修**（均**非**测试/环境问题，**勿 rebless `.out`**）。
-> **起步必读**：本段 + `git log`（4 fix commit 详尽）。失败日志（勿 commit，非本线程产物）：`nohup.out`（Jul 11）、FE `output/fe/log`、BE `output/be/log`。**BE 走 `format_v2` 扫描器**。**行号信 HEAD 不信文档。**
-> **⚠ e2e 欠账**：本轮 4 修均 unit/build 绿（fe-connector-hive+hms 920 测试、0 checkstyle），**真值靠重部署+重跑断言**（尤其 ① drop-nonexistent 新文案 `"Failed to get database"` 是读代码推断非日志实证；② text 读回、binary hex 渲染）。**用户将先自跑一轮验证再开新 session 续修剩余。**
+> **本轮(round-2)**：用户按最新代码重跑 = **37 suite 测试、22 失败**。**全 22 已逐个 HEAD-verified 根因 + 对抗复核**（44-agent workflow `wf_c9def639-775`）。定案：**15 CODE_FIX · 1 TEST_ALIGN · 2 ENV · 4 USER_DECISION（用户已全裁决 → 均转 CODE_FIX）**。**完整三元表 + 逐 suite 修复指针 + 用户裁决** = `plan-doc/reviews/hive-e2e-r2-triage-2026-07-11.md`（**起步必读**，比下面的 round-1 R1-R12 表更新更准）。
+> **起步必读**：本段 + triage 文档 + `git log`。失败日志（勿 commit）：`nohup.out`(Jul 11 20:27)、FE `output/fe/log`、BE `output/be/log`。**BE 走 `format_v2`**。**行号信 HEAD 不信文档。**
+> **⚠ round-1 的 4 修有 2 个没接上/被证伪**：① binary 映射(5672d7c)读了 dot-key 但只写进 metadata **死字段**，真正转换用的是 client 的 DEFAULT options → 本轮已在 `HiveConnector.createClient` 修正（见 batch-1）；② `test_hive_varbinary_type` 不是 binary bug 而是 **ENV**(外部 HMS 残留致行翻倍，FE audit 证写入只一次)。
+>
+> **✅ 本轮 batch-1 已修（6 fix / 8 suite，均 fe-connector-hive test-compile+全套 UT 绿、0 checkstyle；见 git log）**：R1 `getDatabase` LOCATION(修 test_hive_ddl + test_hms_event_notification[_multi_catalog]) · orc binary client options · R6 decimal 分区裁剪 · R11 特殊字符分区 key unescape · meta_cache ttl 校验 · TEST_ALIGN test_hive_case_sensibility(truncate 块对齐已迁移的 drop 块文案)。
+> **⭐ 剩余待修（下个 session，按 triage 文档指针；每条 设计→(红队)→实现→靶向验证→独立 commit，勿 rebless data-wrong 的 .out）**：
+> - **fe-connector 中型**：R7 SHOW PARTITIONS 绕缓存(use_meta_cache_true) · R10 openx json ignore.malformed · R12/serde OpenCSV 走 serde 解析成全 STRING(test_open_csv_serde + test_hive_serde_prop **同根因**) · text_write LZ4FRAME→LZ4BLOCK 读修正。
+> - **fe-connector/fe-core 大型**：R2 SHOW CREATE TABLE 原生 DDL(show_create_table + ddl_text_format) · R3 `$partitions` 系统表 · **R5 cardinality explain**(fe-core PluginDrivenScanNode 补 FileScanNode:150-161 那行，最简，可先做)。
+> - **用户已裁决(A)的 3 个 fe-core/SPI 大改**：query_cache 移植 SQL 结果缓存到 SPI(需连接器稳定失效令牌) · default_partition 连接器传 null 标记(SPI 新字段，零 paimon 影响) · hive_config_test 恢复 `hive.recursive_directories` 递归列目录。
+> - **ENV(告知用户，非代码)**：重置外部 hive docker → test_hive_lzo_text_format(run86.hql 未应用)、test_hive_varbinary_type(残留行翻倍)、hive_config_test tag1(HDFS OUTFILE 累积) 一并解决。
 
 **✅ 本轮 DONE（4 commit，均编译+全套测试绿）**：
 - `cd4eecac5e6` **[fix] 文本读取根因（~12 suite）**：`HiveTextProperties`（fe-connector-hive）未做 `getByte` 数值→字节解码。Hive 默认分隔符存 `serialization.format="1"`=**字节 0x01**(Ctrl-A)，新代码当字符 `'1'`(0x31) 发 BE → `format_v2` TextReader 按 '1' 切 → 整行挤第一列 → null/粘连。移植 getByte + 老默认 + Hive2 拼写 key `colelction.delim` + table-params 优先；MultiDelimitSerDe 多字符保持 raw；null_format 不解码。新单测 `HiveTextPropertiesTest` 9/9。覆盖 to_date/prepare_data/basic_type/other/serde_prop/truncate/get_schema/meta_cache/query_cache + text_complex_type/to_array/text_garbled_file(靠 colelction.delim)。
@@ -17,25 +24,7 @@
 - `d8c6eb002a1` **[fix] desc Key=true**：`ThriftHmsClient.convertFieldSchemas`（fe-connector-hms）用 5 参 `ConnectorColumn`(isKey 默认 false)→改 6 参 isKey=true（外表语义，对齐 iceberg）。修 `test_hive_struct_add_column`/`test_hive_view`。
 - `b036c604651` **[test] DDL/事务文案对齐**：create-db-conflict→`"Failed to create Hive database…already exists"`、drop-db-nonexistent→`"Failed to get database:'X'"`(读代码推断)、事务 insert→`"Cannot write to a transactional Hive table"`；create-table-conflict(fe-core 层)未变、未动。
 
-**⭐ 下一步 = 修剩余 ~12 真实 regression**（每条：设计→(红队)→实现→靶向验证→独立 commit；勿 rebless `.out`）：
-
-| # | 缺陷 | 影响 suite | 修复位置指针 | 规模 |
-|---|---|---|---|---|
-| R1 | SHOW CREATE DATABASE 丢 LOCATION：`HiveConnectorMetadata` 无 `getDatabase` override | `test_hive_ddl`, `test_hms_event_notification`(+`_multi_catalog`) | 加 `getDatabase` 返 HMS db location 于 `ConnectorDatabaseMetadata.LOCATION_PROPERTY`，镜像 `IcebergConnectorMetadata.getDatabase:187` | 中 |
-| R2 | SHOW CREATE TABLE 出通用 DDL：`ShowCreateTableCommand:155-159` 门控 `getType()==HMS_EXTERNAL_TABLE`，插件表是 PLUGIN_EXTERNAL_TABLE | `test_hive_show_create_table`, `test_hive_ddl_text_format`(次) | fe-core 路由 plugin-hive→hive DDL 渲染器（守 connector-agnostic 铁律；参 view 臂 :161-169） | 中 |
-| R3 | `$partitions` 系统表未支持（"Unknown sys table"） | `test_hive_partition_values_tvf` | 连接器/`PluginDrivenExternalTable` sys-table dispatch | 大 |
-| R4 | explain `partition=N/M`=0/0 | `test_hive_default_partition` | `PluginDrivenScanNode` explain 分区计数 + hive `appendExplainInfo` | 大 |
-| R5 | 统计行数未接 cardinality（=1 非 66） | `test_hive_statistics_p0` | 连接器 stats 取数 + PluginDrivenScanNode cardinality 接线 | 大 |
-| R6 | DECIMAL 分区谓词裁剪→0 行 | `test_hive_partitions`(q03+) | 连接器分区值归一/比较 | 中 |
-| R7 | `use_meta_cache` 下 show partitions 空 | `test_hive_use_meta_cache_true`(sql09) | `fe-connector-hms` CachingHmsClient 分区列表 | 中 |
-| R8 | `hive.recursive_directories` 未生效（只读顶层）| `hive_config_test`(qt_2) | 连接器文件列举递归 | 中 |
-| R9 | LZO 文本 + `.lzo.index` sidecar 排除 | `test_hive_lzo_text_format` | 连接器 LZO input-format 分类+压缩解码+排 .index | 大 |
-| R10 | openx JSON serde 接线缺失（ignore.malformed.json / read_hive_json_in_one_column）| `test_hive_openx_json` | `HiveTextProperties.extractJsonSerDeProps`(现仅收 serDeLib) + PluginDrivenScanNode json 属性 | 大 |
-| R11 | 特殊字符分区值路径编解码 | `test_hive_special_char_partition` | 连接器分区值 escape/unescape + 写 | 中 |
-| R12 | OpenCSV 另有原因（FE 路径老新等价，待定位）| `test_open_csv_serde`(csv_complex_type) | 待查（enclose/escape/复杂类型）| 待查 |
-
-**环境结论**：**无真幂等问题**；日志 `already exists`/`is not empty`/`does not exist` = 新连接器 DDL 文案包装 + 故意负测。**卫生**：个别 F suite `DROP DATABASE` 无 CASCADE，中断会留残库 → 整轮间重置外部 hive docker。
-**净室复审底稿**：本轮全 triage 由 7-agent 对抗 workflow 打底（根因 CONFIRMED、逐 suite 归因），结论可复用。
+> **round-1 的 R1-R12 表已被 round-2 triage 文档取代**（`plan-doc/reviews/hive-e2e-r2-triage-2026-07-11.md`，含 HEAD-verified 根因 + 精确指针 + 用户裁决）。round-1 的 4 个 commit（cd4eecac5e6/5672d7c0209/d8c6eb002a1/b036c604651）见 `git log`。
 
 ---
 
