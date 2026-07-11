@@ -48,6 +48,14 @@ DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(query_scan_bytes_from_local, MetricUnit::BY
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(query_scan_bytes_from_remote, MetricUnit::BYTES);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(query_scan_rows, MetricUnit::ROWS);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(query_scan_count, MetricUnit::NOUNIT);
+DEFINE_COUNTER_METRIC_PROTOTYPE_3ARG(query_cache_stale_hit_total, MetricUnit::REQUESTS,
+                                     "Query cache decisions that reused a stale entry by "
+                                     "incremental merge.");
+DEFINE_COUNTER_METRIC_PROTOTYPE_3ARG(query_cache_incremental_fallback_total, MetricUnit::REQUESTS,
+                                     "Query cache decisions that could have merged incrementally "
+                                     "but fell back to a full recompute.");
+DEFINE_COUNTER_METRIC_PROTOTYPE_3ARG(query_cache_write_back_total, MetricUnit::REQUESTS,
+                                     "Query cache entries written back (full or merged).");
 DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(push_requests_success_total, MetricUnit::REQUESTS, "",
                                      push_requests_total, Labels({{"status", "SUCCESS"}}));
 DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(push_requests_fail_total, MetricUnit::REQUESTS, "",
@@ -291,6 +299,9 @@ DorisMetrics::DorisMetrics() : _metric_registry(_s_registry_name) {
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, query_scan_bytes_from_local);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, query_scan_bytes_from_remote);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, query_scan_rows);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, query_cache_stale_hit_total);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, query_cache_incremental_fallback_total);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, query_cache_write_back_total);
 
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, push_requests_success_total);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, push_requests_fail_total);
