@@ -1447,7 +1447,7 @@ bool SegmentIterator::_should_engage_count_emit_shortcut(const Block* block) {
     facts.has_delete_predicates = _opts.delete_condition_predicates != nullptr &&
                                   _opts.delete_condition_predicates->num_of_column_predicate() > 0;
     facts.lazy_materialization_read = _lazy_materialization_read;
-    facts.has_virtual_columns = !_virtual_column_exprs.empty() || !_vir_cid_to_idx_in_block.empty();
+    facts.has_virtual_columns = !_virtual_column_exprs.empty();
     facts.record_rowids = _opts.record_rowids || _record_rowids;
     facts.has_read_limit = _opts.read_limit > 0;
     facts.read_orderby_key_reverse = _opts.read_orderby_key_reverse;
@@ -3738,6 +3738,14 @@ bool SegmentIterator::_no_need_read_key_data_eligible(ColumnId cid) {
         return false;
     }
 
+    return true;
+}
+
+bool SegmentIterator::_no_need_read_key_data(ColumnId cid, MutableColumnPtr& column,
+                                             size_t nrows_read) {
+    if (!_no_need_read_key_data_eligible(cid)) {
+        return false;
+    }
     insert_many_not_null_defaults(column, nrows_read);
     return true;
 }
