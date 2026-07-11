@@ -170,7 +170,7 @@ public class HiveConnector implements Connector {
 
     @Override
     public ConnectorScanPlanProvider getScanPlanProvider() {
-        return new HiveScanPlanProvider(getOrCreateClient(), properties, readTxnManager, fileListingCache);
+        return new HiveScanPlanProvider(getOrCreateClient(), properties, context, readTxnManager, fileListingCache);
     }
 
     /**

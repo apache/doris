@@ -22,14 +22,14 @@ import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.api.scan.ConnectorScanRange;
 import org.apache.doris.connector.hms.HmsPartitionInfo;
+import org.apache.doris.filesystem.FileSystem;
 
-import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.UnsupportedFileSystemException;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 
+import java.io.FileNotFoundException;
 import java.io.IOException;
-import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -48,16 +48,20 @@ import java.util.Optional;
  * cache correct: (1) a directory listing is cached keyed by {@code (db, table, location)} so it loads once; the db
  * / table / location dimensions never collide; (2) {@code invalidateTable} drops exactly one table's entries and
  * {@code invalidateAll} clears all (arming REFRESH); (3) an I/O failure propagates and is NOT cached; (4) the
- * {@code meta.cache.hive.file.*} knobs turn it off; (5) the real filesystem lister filters directories and
- * {@code _}/{@code .}-hidden files. Two integration tests prove BOTH consumers — the scan provider and the
- * row-count estimate — are served from the SAME cache, so a repeated scan / refresh does not re-list.</p>
+ * {@code meta.cache.hive.file.*} knobs turn it off; (5) the production lister — now driving the engine-injected
+ * Doris {@link FileSystem} instead of bare Hadoop — filters directories and {@code _}/{@code .}-hidden files, lists
+ * literally (never glob-expands), and keeps the two failure semantics (systemic loud vs local skippable). Two
+ * integration tests prove BOTH consumers — the scan provider and the row-count estimate — are served from the SAME
+ * cache, so a repeated scan / refresh does not re-list.</p>
  *
  * <p>Dormant: {@code "hms"} is not in {@code SPI_READY_TYPES}, so no live catalog builds a connector; this
  * exercises the cache directly.</p>
  */
 public class HiveFileListingCacheTest {
 
-    private static final Configuration CONF = new Configuration();
+    // A filesystem placeholder for the CountingLister-based tests: the fake lister ignores it (it lists above the
+    // FS seam), so any non-null FileSystem suffices — mirrors the role the old Configuration CONF constant played.
+    private static final FileSystem FS = new FakeFileSystem();
 
     private static Map<String, String> props(String... kv) {
         Map<String, String> m = new HashMap<>();
@@ -74,14 +78,14 @@ public class HiveFileListingCacheTest {
         CountingLister lister = new CountingLister();
         HiveFileListingCache cache = new HiveFileListingCache(Collections.emptyMap(), lister);
 
-        List<HiveFileStatus> a = cache.listDataFiles("db", "t", "loc1", CONF);
-        List<HiveFileStatus> b = cache.listDataFiles("db", "t", "loc1", CONF);
+        List<HiveFileStatus> a = cache.listDataFiles("db", "t", "loc1", FS);
+        List<HiveFileStatus> b = cache.listDataFiles("db", "t", "loc1", FS);
         // WHY: a hit must serve the cached listing without re-listing the filesystem.
         Assertions.assertSame(a, b);
         Assertions.assertEquals(1, lister.totalCalls);
 
         // WHY: a different directory is a different key — must re-list.
-        cache.listDataFiles("db", "t", "loc2", CONF);
+        cache.listDataFiles("db", "t", "loc2", FS);
         Assertions.assertEquals(2, lister.totalCalls);
     }
 
@@ -92,9 +96,9 @@ public class HiveFileListingCacheTest {
 
         // Same location string, different db / table. WHY: (db, table) must be part of the key so invalidateTable
         // can scope one table — and so two tables that happen to share a path never serve each other's listing.
-        cache.listDataFiles("db1", "t", "loc", CONF);
-        cache.listDataFiles("db2", "t", "loc", CONF);
-        cache.listDataFiles("db1", "t2", "loc", CONF);
+        cache.listDataFiles("db1", "t", "loc", FS);
+        cache.listDataFiles("db2", "t", "loc", FS);
+        cache.listDataFiles("db1", "t2", "loc", FS);
         Assertions.assertEquals(3, lister.totalCalls);
     }
 
@@ -105,17 +109,17 @@ public class HiveFileListingCacheTest {
         CountingLister lister = new CountingLister();
         HiveFileListingCache cache = new HiveFileListingCache(Collections.emptyMap(), lister);
 
-        cache.listDataFiles("db", "t1", "locA", CONF);
-        cache.listDataFiles("db", "t2", "locB", CONF);
+        cache.listDataFiles("db", "t1", "locA", FS);
+        cache.listDataFiles("db", "t2", "locB", FS);
         Assertions.assertEquals(2, lister.totalCalls);
 
         cache.invalidateTable("db", "t1");
 
         // WHY: t1 must re-list after its invalidation...
-        cache.listDataFiles("db", "t1", "locA", CONF);
+        cache.listDataFiles("db", "t1", "locA", FS);
         Assertions.assertEquals(2, (int) lister.callsPerLocation.get("locA"));
         // ...while t2's entry (a different table) must survive — invalidateTable is scoped by (db, table).
-        cache.listDataFiles("db", "t2", "locB", CONF);
+        cache.listDataFiles("db", "t2", "locB", FS);
         Assertions.assertEquals(1, (int) lister.callsPerLocation.get("locB"));
     }
 
@@ -124,15 +128,15 @@ public class HiveFileListingCacheTest {
         CountingLister lister = new CountingLister();
         HiveFileListingCache cache = new HiveFileListingCache(Collections.emptyMap(), lister);
 
-        cache.listDataFiles("db", "t1", "locA", CONF);
-        cache.listDataFiles("db", "t2", "locB", CONF);
+        cache.listDataFiles("db", "t1", "locA", FS);
+        cache.listDataFiles("db", "t2", "locB", FS);
         Assertions.assertEquals(2, lister.totalCalls);
 
         cache.invalidateAll();
 
         // WHY: every entry must reload after invalidateAll (REFRESH CATALOG).
-        cache.listDataFiles("db", "t1", "locA", CONF);
-        cache.listDataFiles("db", "t2", "locB", CONF);
+        cache.listDataFiles("db", "t1", "locA", FS);
+        cache.listDataFiles("db", "t2", "locB", FS);
         Assertions.assertEquals(4, lister.totalCalls);
     }
 
@@ -145,14 +149,14 @@ public class HiveFileListingCacheTest {
         HiveFileListingCache cache = new HiveFileListingCache(Collections.emptyMap(), lister);
 
         DorisConnectorException e = Assertions.assertThrows(DorisConnectorException.class,
-                () -> cache.listDataFiles("db", "t", "loc", CONF));
+                () -> cache.listDataFiles("db", "t", "loc", FS));
         Assertions.assertEquals("boom", e.getMessage());
         Assertions.assertEquals(1, lister.totalCalls);
 
         // WHY: a transient listing failure must NOT be cached — after recovery the next call re-lists and succeeds
         // (otherwise a momentary storage blip would poison the listing for the whole TTL).
         lister.error = null;
-        List<HiveFileStatus> ok = cache.listDataFiles("db", "t", "loc", CONF);
+        List<HiveFileStatus> ok = cache.listDataFiles("db", "t", "loc", FS);
         Assertions.assertEquals(1, ok.size());
         Assertions.assertEquals(2, lister.totalCalls);
     }
@@ -165,23 +169,25 @@ public class HiveFileListingCacheTest {
         HiveFileListingCache cache = new HiveFileListingCache(
                 props("meta.cache.hive.file.enable", "false"), lister);
 
-        cache.listDataFiles("db", "t", "loc", CONF);
-        cache.listDataFiles("db", "t", "loc", CONF);
+        cache.listDataFiles("db", "t", "loc", FS);
+        cache.listDataFiles("db", "t", "loc", FS);
         // WHY: meta.cache.hive.file.enable=false must bypass caching entirely — every call re-lists.
         Assertions.assertEquals(2, lister.totalCalls);
     }
 
-    // ==================== the real filesystem lister: filters dirs + hidden files ====================
+    // ==================== the production lister: filters dirs + hidden files, lists literally ====================
 
     @Test
-    public void listFromFileSystemFiltersDirectoriesAndHiddenFiles(@TempDir java.nio.file.Path dir) throws Exception {
-        Files.write(dir.resolve("data1"), new byte[100]);
-        Files.write(dir.resolve("data2"), new byte[200]);
-        Files.write(dir.resolve("_SUCCESS"), new byte[3]);      // hive success marker — must be skipped
-        Files.write(dir.resolve(".hidden"), new byte[3]);       // dot-file — must be skipped
-        Files.createDirectory(dir.resolve("subdir"));           // directory — must be skipped
+    public void listFromFileSystemFiltersDirectoriesAndHiddenFiles() {
+        String dir = "file:///wh/db/t/dt=1";
+        FakeFileSystem fs = new FakeFileSystem().withEntries(
+                FakeFileSystem.file(dir + "/data1", 100L, 1L),
+                FakeFileSystem.file(dir + "/data2", 200L, 1L),
+                FakeFileSystem.file(dir + "/_SUCCESS", 3L, 1L),   // hive success marker — must be skipped
+                FakeFileSystem.file(dir + "/.hidden", 3L, 1L),    // dot-file — must be skipped
+                FakeFileSystem.dir(dir + "/subdir"));             // directory — must be skipped
 
-        List<HiveFileStatus> files = HiveFileListingCache.listFromFileSystem(dir.toUri().toString(), CONF);
+        List<HiveFileStatus> files = HiveFileListingCache.listFromFileSystem(dir, fs);
 
         // WHY: only the two real data files survive; the total size is exactly their sum. This pins the same
         // dir/_-/.-filter the pre-cache scan and estimate paths applied inline.
@@ -194,59 +200,119 @@ public class HiveFileListingCacheTest {
         }
     }
 
-    // ==================== failure split: systemic (FileSystem.get) is loud, local (listStatus) is skippable ======
+    @Test
+    public void listFromFileSystemPreservesPathLengthAndModTime() {
+        // WHY (Rule 9): the FileEntry -> HiveFileStatus mapping must be byte-parity — the path string verbatim
+        // (Location.uri(), no re-encoding of hive's %3A timestamp partitions), the byte length and the mtime the
+        // BE reads to detect a changed split. A field transposition would flip these.
+        String dir = "file:///wh/db/t/pt=2024-04-09 12%3A34%3A56";
+        FakeFileSystem fs = new FakeFileSystem().withEntries(
+                FakeFileSystem.file(dir + "/000000_0", 4096L, 1712660096000L));
+
+        List<HiveFileStatus> files = HiveFileListingCache.listFromFileSystem(dir, fs);
+
+        Assertions.assertEquals(1, files.size());
+        Assertions.assertEquals(dir + "/000000_0", files.get(0).getPath());
+        Assertions.assertEquals(4096L, files.get(0).getLength());
+        Assertions.assertEquals(1712660096000L, files.get(0).getModificationTime());
+    }
+
+    @Test
+    public void listFromFileSystemListsLiterallyForGlobCharLocation() {
+        // WHY (Rule 9): a location containing a glob metachar ('[' '*' '?') — e.g. a custom external SET LOCATION —
+        // must be listed LITERALLY (old fs.listStatus never glob-expanded). The production lister must use the
+        // literal list(), not the per-scheme glob-aware listFiles() override. FakeFileSystem.listFiles() throws
+        // AssertionError, so if the lister ever regressed to listFiles() this test would fail loudly.
+        String dir = "file:///wh/db/my[table]/dt=1";
+        FakeFileSystem fs = new FakeFileSystem().withEntries(
+                FakeFileSystem.file(dir + "/000000_0", 10L, 1L));
+
+        List<HiveFileStatus> files = HiveFileListingCache.listFromFileSystem(dir, fs);
+
+        Assertions.assertEquals(1, files.size(), "the literal directory must be listed, not glob-matched");
+        Assertions.assertEquals(dir + "/000000_0", files.get(0).getPath());
+    }
+
+    // ==================== failure split: systemic is loud, local is skippable ====================
+
+    @Test
+    public void listFromFileSystemFailsLoudWhenFsIsNull() {
+        // A null engine filesystem (catalog with no storage) is a SYSTEMIC config error affecting every partition.
+        // WHY (Rule 9): it must fail the query loud (plain DorisConnectorException), not skip / return empty.
+        DorisConnectorException e = Assertions.assertThrows(DorisConnectorException.class,
+                () -> HiveFileListingCache.listFromFileSystem("hdfs://host/path", null));
+        Assertions.assertFalse(e instanceof HiveDirectoryListingException,
+                "a missing filesystem must be loud, not skippable");
+    }
 
     @Test
     public void listFromFileSystemFailsLoudWhenFilesystemCannotBeResolved() {
-        // An unknown scheme makes FileSystem.get fail (no FileSystem for scheme) — a SYSTEMIC storage-config error
-        // that affects every partition of the table. It must throw a plain DorisConnectorException (which the scan
-        // path does NOT skip), and NOT the skippable HiveDirectoryListingException.
+        // forLocation failing (unresolvable scheme / no StorageProperties / factory error) is a SYSTEMIC
+        // storage-config error affecting every partition. It must throw a plain DorisConnectorException (which the
+        // scan path does NOT skip), and NOT the skippable HiveDirectoryListingException.
         // WHY (Rule 9): if this were the skippable subtype, a misconfigured storage would silently return an empty
         // scan instead of failing the query loud — the exact regression this fix prevents.
+        FakeFileSystem fs = new FakeFileSystem().failForLocation(new IOException("no StorageProperties for scheme"));
         DorisConnectorException e = Assertions.assertThrows(DorisConnectorException.class,
-                () -> HiveFileListingCache.listFromFileSystem("nosuchscheme://host/path", CONF));
+                () -> HiveFileListingCache.listFromFileSystem("nosuchscheme://host/path", fs));
         Assertions.assertFalse(e instanceof HiveDirectoryListingException,
                 "a filesystem-resolution failure must be loud (plain DorisConnectorException), not skippable");
     }
 
     @Test
-    public void listFromFileSystemIsSkippableWhenDirectoryMissing(@TempDir java.nio.file.Path dir) {
-        // A resolvable filesystem (file://) but a non-existent directory makes listStatus fail — a LOCAL failure of
-        // one partition directory. It must throw the skippable HiveDirectoryListingException so the scan skips just
-        // that partition (pre-cache tolerance of a missing/unreadable partition dir).
-        String missing = dir.resolve("does-not-exist").toUri().toString();
-        Assertions.assertThrows(HiveDirectoryListingException.class,
-                () -> HiveFileListingCache.listFromFileSystem(missing, CONF));
+    public void listFromFileSystemFailsLoudWhenSchemeImplMissing() {
+        // A lazily-surfaced "No FileSystem for scheme X" (the engine-side FS impl for the scheme is absent — broken
+        // packaging) is thrown from list(), not forLocation(). It is nonetheless SYSTEMIC (affects every partition).
+        // WHY (Rule 9): it must be re-classified LOUD (plain DorisConnectorException), matching the pre-migration
+        // FileSystem.get behaviour — this is the exact "No FileSystem for scheme hdfs" error class FIX-HIVEFS keeps
+        // loud. If it degraded to the skippable subtype, a broken deployment would scan EMPTY silently.
+        FakeFileSystem fs = new FakeFileSystem()
+                .failList(new UnsupportedFileSystemException("No FileSystem for scheme \"hdfs\""));
+        DorisConnectorException e = Assertions.assertThrows(DorisConnectorException.class,
+                () -> HiveFileListingCache.listFromFileSystem("hdfs://host/path", fs));
+        Assertions.assertFalse(e instanceof HiveDirectoryListingException,
+                "a scheme-not-registered failure must stay loud, not skippable");
     }
 
     @Test
-    public void getFailureThroughCacheFailsLoudAndIsNotCached() {
-        // Drives the REAL production lister THROUGH the cache lookup with an unresolvable scheme, so
-        // FileSystem.get genuinely fails. WHY (Rule 9): pins that (1) a systemic storage-config failure propagates
-        // from listDataFiles as the loud plain DorisConnectorException — MetaCacheEntry's manual-miss load rethrows
-        // RuntimeException unwrapped, so the type survives the cache boundary — and NOT the skippable subtype; and
-        // (2) the failure leaves NO cache entry. (2) kills the mutation "catch -> return emptyList" in the loader,
-        // which would cache a poisoned empty listing and silently turn every later scan into 0 rows for the TTL.
+    public void listFromFileSystemIsSkippableWhenDirectoryMissing() {
+        // A resolvable filesystem but a non-existent directory makes list() fail — a LOCAL failure of one partition
+        // directory. It must throw the skippable HiveDirectoryListingException so the scan skips just that partition
+        // (pre-cache tolerance of a missing/unreadable partition dir).
+        FakeFileSystem fs = new FakeFileSystem().failList(new FileNotFoundException("Path does not exist"));
+        Assertions.assertThrows(HiveDirectoryListingException.class,
+                () -> HiveFileListingCache.listFromFileSystem("file:///wh/db/t/does-not-exist", fs));
+    }
+
+    @Test
+    public void resolutionFailureThroughCacheFailsLoudAndIsNotCached() {
+        // Drives the REAL production lister THROUGH the cache lookup with a forLocation failure. WHY (Rule 9): pins
+        // that (1) a systemic storage-config failure propagates from listDataFiles as the loud plain
+        // DorisConnectorException — MetaCacheEntry's manual-miss load rethrows RuntimeException unwrapped, so the
+        // type survives the cache boundary — and NOT the skippable subtype; and (2) the failure leaves NO cache
+        // entry. (2) kills the mutation "catch -> return emptyList" in the loader, which would cache a poisoned
+        // empty listing and silently turn every later scan into 0 rows for the TTL.
         HiveFileListingCache cache = new HiveFileListingCache(Collections.emptyMap());
+        FakeFileSystem fs = new FakeFileSystem().failForLocation(new IOException("no StorageProperties for scheme"));
 
         DorisConnectorException e = Assertions.assertThrows(DorisConnectorException.class,
-                () -> cache.listDataFiles("db", "t", "nosuchfs://host/path", CONF));
+                () -> cache.listDataFiles("db", "t", "nosuchfs://host/path", fs));
         Assertions.assertFalse(e instanceof HiveDirectoryListingException,
                 "a filesystem-resolution failure through the cache must be the loud type, not the skippable one");
         Assertions.assertEquals(0L, cache.size(), "a failed load must never leave a cache entry");
     }
 
     @Test
-    public void listStatusFailureThroughCacheIsSkippableAndNotCached(@TempDir java.nio.file.Path dir) {
-        // Drives the REAL production lister THROUGH the cache with a resolvable filesystem (file://) but a missing
-        // directory, so listStatus genuinely fails. WHY (Rule 9): pins that the LOCAL per-directory failure keeps
-        // its distinct skippable type (HiveDirectoryListingException, exactly what the scan's per-partition skip
-        // catches) across the cache boundary, and leaves no cache entry either.
+    public void listFailureThroughCacheIsSkippableAndNotCached() {
+        // Drives the REAL production lister THROUGH the cache with a resolvable filesystem but a list() failure, so
+        // the listing genuinely fails. WHY (Rule 9): pins that the LOCAL per-directory failure keeps its distinct
+        // skippable type (HiveDirectoryListingException, exactly what the scan's per-partition skip catches) across
+        // the cache boundary, and leaves no cache entry either.
         HiveFileListingCache cache = new HiveFileListingCache(Collections.emptyMap());
-        String missing = dir.resolve("does-not-exist").toUri().toString();
+        FakeFileSystem fs = new FakeFileSystem().failList(new FileNotFoundException("Path does not exist"));
 
         Assertions.assertThrows(HiveDirectoryListingException.class,
-                () -> cache.listDataFiles("db", "t", missing, CONF));
+                () -> cache.listDataFiles("db", "t", "file:///wh/db/t/does-not-exist", fs));
         Assertions.assertEquals(0L, cache.size(), "a failed load must never leave a cache entry");
     }
 
@@ -260,7 +326,8 @@ public class HiveFileListingCacheTest {
         lister.error = new HiveDirectoryListingException("dir gone", new IOException("boom"));
         lister.errorLocation = "loc/dt=1";
         HiveScanPlanProvider provider = new HiveScanPlanProvider(null, Collections.emptyMap(),
-                new HiveReadTransactionManager(), new HiveFileListingCache(Collections.emptyMap(), lister));
+                new FakeConnectorContext(), new HiveReadTransactionManager(),
+                new HiveFileListingCache(Collections.emptyMap(), lister));
 
         List<ConnectorScanRange> ranges = provider.planScan(
                 new FakeSession(), twoPartitionHandle(), Collections.<ConnectorColumnHandle>emptyList(),
@@ -282,7 +349,8 @@ public class HiveFileListingCacheTest {
         CountingLister lister = new CountingLister();
         lister.error = new DorisConnectorException("bad storage config");
         HiveScanPlanProvider provider = new HiveScanPlanProvider(null, Collections.emptyMap(),
-                new HiveReadTransactionManager(), new HiveFileListingCache(Collections.emptyMap(), lister));
+                new FakeConnectorContext(), new HiveReadTransactionManager(),
+                new HiveFileListingCache(Collections.emptyMap(), lister));
 
         Assertions.assertThrows(DorisConnectorException.class, () -> provider.planScan(
                 new FakeSession(), singlePartitionHandle(), Collections.<ConnectorColumnHandle>emptyList(),
@@ -318,7 +386,7 @@ public class HiveFileListingCacheTest {
         HiveFileListingCache cache = new HiveFileListingCache(Collections.emptyMap(), lister);
         // hmsClient is null: with pruned partitions on the handle the scan never calls the metastore.
         HiveScanPlanProvider provider = new HiveScanPlanProvider(
-                null, Collections.emptyMap(), new HiveReadTransactionManager(), cache);
+                null, Collections.emptyMap(), new FakeConnectorContext(), new HiveReadTransactionManager(), cache);
 
         HiveTableHandle handle = new HiveTableHandle.Builder("db", "t", HiveTableType.HIVE)
                 .inputFormat("org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat")
@@ -359,8 +427,8 @@ public class HiveFileListingCacheTest {
                 .location("file:///wh/t")
                 .build();
 
-        long first = md.estimateDataSizeByListingFiles(null, handle);
-        long second = md.estimateDataSizeByListingFiles(null, handle);
+        long first = md.estimateDataSizeByListingFiles(new FakeSession(), handle);
+        long second = md.estimateDataSizeByListingFiles(new FakeSession(), handle);
 
         // WHY: the estimate returns the one 10-byte file's size, and the second (periodic ExternalRowCountCache
         // refresh) call is served from the SAME cache — one listing, not two. This proves the row-count refresh
@@ -373,7 +441,8 @@ public class HiveFileListingCacheTest {
     /**
      * A {@link HiveFileListingCache.DirectoryLister} double: counts calls (total + per location) and returns a
      * fresh single-file listing per call, so reference identity distinguishes a cache hit from a reload. Throws
-     * {@link #error} when set, to exercise the failure-not-cached path.
+     * {@link #error} when set, to exercise the failure-not-cached path. Lists above the FileSystem seam, so it
+     * ignores the injected {@link FileSystem}.
      */
     private static final class CountingLister implements HiveFileListingCache.DirectoryLister {
         final Map<String, Integer> callsPerLocation = new HashMap<>();
@@ -383,7 +452,7 @@ public class HiveFileListingCacheTest {
         String errorLocation;
 
         @Override
-        public List<HiveFileStatus> list(String location, Configuration conf) {
+        public List<HiveFileStatus> list(String location, FileSystem fs) {
             totalCalls++;
             callsPerLocation.merge(location, 1, Integer::sum);
             if (error != null && (errorLocation == null || errorLocation.equals(location))) {

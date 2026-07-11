@@ -63,13 +63,13 @@ import org.apache.doris.connector.hms.HmsPartitionInfo;
 import org.apache.doris.connector.hms.HmsTableInfo;
 import org.apache.doris.connector.hms.HmsTypeMapping;
 import org.apache.doris.connector.spi.ConnectorContext;
+import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.thrift.THiveTable;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
-import org.apache.hadoop.conf.Configuration;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -806,9 +806,12 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
         ClassLoader previous = Thread.currentThread().getContextClassLoader();
         try {
             Thread.currentThread().setContextClassLoader(getClass().getClassLoader());
-            Configuration conf = buildHadoopConf();
+            // Resolve the engine FileSystem INSIDE the size lambda so it runs within estimateDataSize's
+            // catch(RuntimeException)->-1 region: statistics collection must degrade to -1, never fail a query,
+            // if getFileSystem throws. (context.getFileSystem returns the cached per-catalog FS, so per-location
+            // calls are cheap.)
             return estimateDataSize(hiveHandle, STATS_PARTITION_SAMPLE_SIZE,
-                    location -> sumCachedFileSizes(hiveHandle, location, conf));
+                    location -> sumCachedFileSizes(hiveHandle, location, context.getFileSystem(session)));
         } finally {
             Thread.currentThread().setContextClassLoader(previous);
         }
@@ -840,11 +843,11 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
         ClassLoader previous = Thread.currentThread().getContextClassLoader();
         try {
             Thread.currentThread().setContextClassLoader(getClass().getClassLoader());
-            Configuration conf = buildHadoopConf();
+            FileSystem fs = context.getFileSystem(session);
             List<Long> sizes = new ArrayList<>();
             for (String location : resolvePartitionLocations(hiveHandle)) {
                 for (HiveFileStatus file : fileListingCache.listDataFiles(
-                        hiveHandle.getDbName(), hiveHandle.getTableName(), location, conf)) {
+                        hiveHandle.getDbName(), hiveHandle.getTableName(), location, fs)) {
                     sizes.add(file.getLength());
                 }
             }
@@ -958,33 +961,13 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
      * whole estimate to -1 (legacy's file-list estimate was all-or-nothing best-effort). Routing through the
      * cache keeps the periodic row-count refresh from re-listing directories a scan already cached.
      */
-    private long sumCachedFileSizes(HiveTableHandle handle, String location, Configuration conf) {
+    private long sumCachedFileSizes(HiveTableHandle handle, String location, FileSystem fs) {
         long sum = 0;
         for (HiveFileStatus file : fileListingCache.listDataFiles(
-                handle.getDbName(), handle.getTableName(), location, conf)) {
+                handle.getDbName(), handle.getTableName(), location, fs)) {
             sum += file.getLength();
         }
         return sum;
-    }
-
-    /**
-     * Builds a Hadoop {@link Configuration} from the catalog properties, mirroring
-     * {@code HiveScanPlanProvider.buildHadoopConf} (the connector must supply the storage credentials for the
-     * FileSystem it lists).
-     */
-    private Configuration buildHadoopConf() {
-        Configuration conf = new Configuration();
-        for (Map.Entry<String, String> entry : properties.entrySet()) {
-            conf.set(entry.getKey(), entry.getValue());
-        }
-        String defaultFs = properties.get("fs.defaultFS");
-        if (defaultFs == null) {
-            defaultFs = properties.get("hadoop.fs.defaultFS");
-        }
-        if (defaultFs != null) {
-            conf.set("fs.defaultFS", defaultFs);
-        }
-        return conf;
     }
 
     // ========== ConnectorPushdownOps: Filter Pushdown ==========

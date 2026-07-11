@@ -21,8 +21,8 @@ import org.apache.doris.connector.hms.HmsClient;
 import org.apache.doris.connector.hms.HmsDatabaseInfo;
 import org.apache.doris.connector.hms.HmsPartitionInfo;
 import org.apache.doris.connector.hms.HmsTableInfo;
+import org.apache.doris.filesystem.FileSystem;
 
-import org.apache.hadoop.conf.Configuration;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -199,7 +199,7 @@ public class HiveConnectorMetadataFileListStatsTest {
 
         @Override
         public List<HiveFileStatus> listDataFiles(String dbName, String tableName, String location,
-                Configuration conf) {
+                FileSystem fs) {
             throw new RuntimeException("simulated listing failure");
         }
     }

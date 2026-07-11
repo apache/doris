@@ -27,10 +27,11 @@ import org.apache.doris.connector.api.scan.ConnectorScanRange;
 import org.apache.doris.connector.api.scan.ConnectorScanRangeType;
 import org.apache.doris.connector.hms.HmsClient;
 import org.apache.doris.connector.hms.HmsPartitionInfo;
+import org.apache.doris.connector.spi.ConnectorContext;
+import org.apache.doris.filesystem.FileSystem;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileStatus;
-import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -83,6 +84,10 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
 
     private final HmsClient hmsClient;
     private final Map<String, String> catalogProperties;
+    // Engine-owned, per-catalog filesystem accessor. The non-ACID listing path borrows the Doris FileSystem via
+    // context.getFileSystem(session) (never closes it — the engine owns its lifecycle) to list partition
+    // directories, replacing bare Hadoop FileSystem.get (FIX-HIVEFS: the hive plugin bundles no HDFS impl).
+    private final ConnectorContext context;
     private final HiveReadTransactionManager readTxnManager;
     // Connector-owned directory-listing cache (the SAME instance HiveConnector shares with HiveConnectorMetadata),
     // so a repeated scan of the same partition directory is served from the cache instead of re-listing. Only the
@@ -90,9 +95,11 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
     private final HiveFileListingCache fileListingCache;
 
     public HiveScanPlanProvider(HmsClient hmsClient, Map<String, String> catalogProperties,
-            HiveReadTransactionManager readTxnManager, HiveFileListingCache fileListingCache) {
+            ConnectorContext context, HiveReadTransactionManager readTxnManager,
+            HiveFileListingCache fileListingCache) {
         this.hmsClient = hmsClient;
         this.catalogProperties = catalogProperties;
+        this.context = context;
         this.readTxnManager = readTxnManager;
         this.fileListingCache = fileListingCache;
     }
@@ -124,19 +131,20 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
         boolean splittable = fileFormat.isSplittable();
 
         List<ConnectorScanRange> ranges = new ArrayList<>();
-        Configuration hadoopConf = buildHadoopConf();
 
         if (hiveHandle.isTransactional()) {
             // Transactional (ACID) table: descend into base/delta directories under the query's
             // write-id snapshot and emit ACID-annotated ranges. (Dormant — see planAcidScan.)
-            planAcidScan(session, hiveHandle, partitions, hadoopConf, fileFormat,
+            planAcidScan(session, hiveHandle, partitions, buildHadoopConf(), fileFormat,
                     splittable, targetSplitSize, ranges);
         } else {
+            // Borrow the engine's per-catalog Doris FileSystem to list partition directories (see field javadoc).
+            FileSystem fs = context.getFileSystem(session);
             for (PartitionScanInfo partition : partitions) {
                 HiveFileFormat partFormat = partition.fileFormat != null
                         ? partition.fileFormat : fileFormat;
                 listAndSplitFiles(dbName, tableName, partition, partFormat,
-                        splittable, targetSplitSize, hadoopConf, ranges);
+                        splittable, targetSplitSize, fs, ranges);
             }
         }
 
@@ -215,14 +223,16 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
                 readHiveJsonInOneColumn(session), hiveHandle.isFirstColumnString());
         long targetSplitSize = getTargetSplitSize(session);
         boolean splittable = fileFormat.isSplittable();
-        Configuration hadoopConf = buildHadoopConf();
+        // Only the non-ACID path is reachable here (supportsBatchScan excludes transactional tables), so this
+        // borrows the engine's per-catalog Doris FileSystem to list — no Hadoop Configuration is needed.
+        FileSystem fs = context.getFileSystem(session);
 
         List<ConnectorScanRange> ranges = new ArrayList<>();
         for (PartitionScanInfo partition : partitions) {
             HiveFileFormat partFormat = partition.fileFormat != null
                     ? partition.fileFormat : fileFormat;
             listAndSplitFiles(dbName, tableName, partition, partFormat,
-                    splittable, targetSplitSize, hadoopConf, ranges);
+                    splittable, targetSplitSize, fs, ranges);
         }
         return ranges;
     }
@@ -269,7 +279,10 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
                     ? partition.fileFormat : fileFormat;
             try {
                 Path partPath = new Path(partition.location);
-                FileSystem fs = FileSystem.get(partPath.toUri(), hadoopConf);
+                // ACID path still uses bare Hadoop FileSystem (HIVEFS-5 will migrate HiveAcidUtil); fully-qualified
+                // here because the unqualified FileSystem now refers to the injected Doris filesystem.
+                org.apache.hadoop.fs.FileSystem fs =
+                        org.apache.hadoop.fs.FileSystem.get(partPath.toUri(), hadoopConf);
                 HiveAcidUtil.AcidState state = HiveAcidUtil.getAcidState(
                         fs, partition.location, txnValidIds, isFullAcid);
                 // Only full-ACID reads are marked transactional_hive (delete deltas applied by the BE
@@ -442,11 +455,11 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
      */
     private void listAndSplitFiles(String dbName, String tableName,
             PartitionScanInfo partition, HiveFileFormat fileFormat,
-            boolean splittable, long targetSplitSize, Configuration conf,
+            boolean splittable, long targetSplitSize, FileSystem fs,
             List<ConnectorScanRange> ranges) {
         List<HiveFileStatus> files;
         try {
-            files = fileListingCache.listDataFiles(dbName, tableName, partition.location, conf);
+            files = fileListingCache.listDataFiles(dbName, tableName, partition.location, fs);
         } catch (HiveDirectoryListingException e) {
             LOG.warn("Cannot list files in partition: {}", partition.location, e);
             return;

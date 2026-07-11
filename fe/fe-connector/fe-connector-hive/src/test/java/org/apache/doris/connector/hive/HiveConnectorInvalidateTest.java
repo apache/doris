@@ -22,13 +22,11 @@ import org.apache.doris.connector.hms.HmsClient;
 import org.apache.doris.connector.hms.HmsDatabaseInfo;
 import org.apache.doris.connector.hms.HmsPartitionInfo;
 import org.apache.doris.connector.hms.HmsTableInfo;
+import org.apache.doris.filesystem.FileSystem;
 
-import org.apache.hadoop.conf.Configuration;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 
-import java.nio.file.Files;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -51,7 +49,10 @@ import java.util.Map;
  */
 public class HiveConnectorInvalidateTest {
 
-    private static final Configuration CONF = new Configuration();
+    // The file-listing cache above the FileSystem seam: the injected FileSystem lists successfully (empty is fine —
+    // a successful load still leaves a cache entry), so these size()-based invalidation assertions don't need real
+    // files. Mirrors the role the old Configuration CONF constant played.
+    private static final FileSystem FS = new FakeFileSystem();
 
     private static Map<String, String> props() {
         Map<String, String> m = new HashMap<>();
@@ -60,8 +61,7 @@ public class HiveConnectorInvalidateTest {
     }
 
     @Test
-    public void invalidateTableFlushesBothCachesForThatTableOnly(@TempDir java.nio.file.Path dirA,
-            @TempDir java.nio.file.Path dirB) throws Exception {
+    public void invalidateTableFlushesBothCachesForThatTableOnly() {
         HiveConnector connector = new HiveConnector(props(), new FakeConnectorContext());
         RecordingHmsClient raw = new RecordingHmsClient();
         CachingHmsClient cachingClient = (CachingHmsClient) connector.wrapWithCache(raw);
@@ -71,12 +71,10 @@ public class HiveConnectorInvalidateTest {
         cachingClient.getTable("db", "t2");
         Assertions.assertEquals(2, raw.getTableCalls);
 
-        // Directory-listing cache: populate t1 (dirA) and t2 (dirB) from real local dirs.
+        // Directory-listing cache: populate t1 and t2 (each one listing, then cached).
         HiveFileListingCache fileCache = connector.fileListingCacheForTest();
-        Files.write(dirA.resolve("f"), new byte[10]);
-        Files.write(dirB.resolve("f"), new byte[10]);
-        fileCache.listDataFiles("db", "t1", dirA.toUri().toString(), CONF);
-        fileCache.listDataFiles("db", "t2", dirB.toUri().toString(), CONF);
+        fileCache.listDataFiles("db", "t1", "file:///wh/db/t1", FS);
+        fileCache.listDataFiles("db", "t2", "file:///wh/db/t2", FS);
         Assertions.assertEquals(2, fileCache.size());
 
         connector.invalidateTable(cachingClient, "db", "t1");
@@ -92,8 +90,7 @@ public class HiveConnectorInvalidateTest {
     }
 
     @Test
-    public void invalidateDbFlushesBothCachesForThatDbOnly(@TempDir java.nio.file.Path dirA,
-            @TempDir java.nio.file.Path dirB) throws Exception {
+    public void invalidateDbFlushesBothCachesForThatDbOnly() {
         HiveConnector connector = new HiveConnector(props(), new FakeConnectorContext());
         RecordingHmsClient raw = new RecordingHmsClient();
         CachingHmsClient cachingClient = (CachingHmsClient) connector.wrapWithCache(raw);
@@ -105,12 +102,10 @@ public class HiveConnectorInvalidateTest {
         cachingClient.getTable("db2", "t1");
         Assertions.assertEquals(3, raw.getTableCalls);
 
-        // Directory-listing cache: db1.t1 (dirA) and db2.t1 (dirB) from real local dirs.
+        // Directory-listing cache: db1.t1 and db2.t1 (each one listing, then cached).
         HiveFileListingCache fileCache = connector.fileListingCacheForTest();
-        Files.write(dirA.resolve("f"), new byte[10]);
-        Files.write(dirB.resolve("f"), new byte[10]);
-        fileCache.listDataFiles("db1", "t1", dirA.toUri().toString(), CONF);
-        fileCache.listDataFiles("db2", "t1", dirB.toUri().toString(), CONF);
+        fileCache.listDataFiles("db1", "t1", "file:///wh/db1/t1", FS);
+        fileCache.listDataFiles("db2", "t1", "file:///wh/db2/t1", FS);
         Assertions.assertEquals(2, fileCache.size());
 
         connector.invalidateDb(cachingClient, "db1");
@@ -127,7 +122,7 @@ public class HiveConnectorInvalidateTest {
     }
 
     @Test
-    public void invalidateAllFlushesBothCachesEntirely(@TempDir java.nio.file.Path dir) throws Exception {
+    public void invalidateAllFlushesBothCachesEntirely() {
         HiveConnector connector = new HiveConnector(props(), new FakeConnectorContext());
         RecordingHmsClient raw = new RecordingHmsClient();
         CachingHmsClient cachingClient = (CachingHmsClient) connector.wrapWithCache(raw);
@@ -135,8 +130,7 @@ public class HiveConnectorInvalidateTest {
         cachingClient.getTable("db", "t1");
         Assertions.assertEquals(1, raw.getTableCalls);
         HiveFileListingCache fileCache = connector.fileListingCacheForTest();
-        Files.write(dir.resolve("f"), new byte[10]);
-        fileCache.listDataFiles("db", "t1", dir.toUri().toString(), CONF);
+        fileCache.listDataFiles("db", "t1", "file:///wh/db/t1", FS);
         Assertions.assertEquals(1, fileCache.size());
 
         connector.invalidateAll(cachingClient);
@@ -148,26 +142,24 @@ public class HiveConnectorInvalidateTest {
     }
 
     @Test
-    public void publicHooksAreNoThrowAndClearFileCacheWithoutBuildingAClient(@TempDir java.nio.file.Path dir)
-            throws Exception {
+    public void publicHooksAreNoThrowAndClearFileCacheWithoutBuildingAClient() {
         // A fresh connector never built its metastore client (hmsClient == null). The public hooks must not
         // force-build one (a REFRESH on a never-scanned catalog is a cheap no-op on the metastore side), must not
         // throw on the null client, and must still clear the file cache.
         HiveConnector connector = new HiveConnector(props(), new FakeConnectorContext());
         HiveFileListingCache fileCache = connector.fileListingCacheForTest();
-        Files.write(dir.resolve("f"), new byte[10]);
 
-        fileCache.listDataFiles("db", "t", dir.toUri().toString(), CONF);
+        fileCache.listDataFiles("db", "t", "file:///wh/db/t", FS);
         Assertions.assertEquals(1, fileCache.size());
         Assertions.assertDoesNotThrow(() -> connector.invalidateTable("db", "t"));
         Assertions.assertEquals(0, fileCache.size(), "REFRESH TABLE clears the file cache even with no client built");
 
-        fileCache.listDataFiles("db", "t", dir.toUri().toString(), CONF);
+        fileCache.listDataFiles("db", "t", "file:///wh/db/t", FS);
         Assertions.assertEquals(1, fileCache.size());
         Assertions.assertDoesNotThrow(() -> connector.invalidateDb("db"));
         Assertions.assertEquals(0, fileCache.size(), "REFRESH DATABASE clears the file cache with no client built");
 
-        fileCache.listDataFiles("db", "t", dir.toUri().toString(), CONF);
+        fileCache.listDataFiles("db", "t", "file:///wh/db/t", FS);
         Assertions.assertEquals(1, fileCache.size());
         Assertions.assertDoesNotThrow(() -> connector.invalidateAll());
         Assertions.assertEquals(0, fileCache.size(), "REFRESH CATALOG clears the file cache even with no client built");

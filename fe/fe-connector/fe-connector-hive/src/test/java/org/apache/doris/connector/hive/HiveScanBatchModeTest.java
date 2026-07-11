@@ -24,8 +24,8 @@ import org.apache.doris.connector.hms.HmsClient;
 import org.apache.doris.connector.hms.HmsDatabaseInfo;
 import org.apache.doris.connector.hms.HmsPartitionInfo;
 import org.apache.doris.connector.hms.HmsTableInfo;
+import org.apache.doris.filesystem.FileSystem;
 
-import org.apache.hadoop.conf.Configuration;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -143,7 +143,7 @@ public class HiveScanBatchModeTest {
     // ===== helpers =====
 
     private static HiveScanPlanProvider provider(HmsClient hmsClient, CountingLister lister) {
-        return new HiveScanPlanProvider(hmsClient, Collections.emptyMap(),
+        return new HiveScanPlanProvider(hmsClient, Collections.emptyMap(), new FakeConnectorContext(),
                 new HiveReadTransactionManager(), new HiveFileListingCache(Collections.emptyMap(), lister));
     }
 
@@ -160,7 +160,7 @@ public class HiveScanBatchModeTest {
         int totalCalls;
 
         @Override
-        public List<HiveFileStatus> list(String location, Configuration conf) {
+        public List<HiveFileStatus> list(String location, FileSystem fs) {
             totalCalls++;
             callsPerLocation.merge(location, 1, Integer::sum);
             return new ArrayList<>(Collections.singletonList(new HiveFileStatus(location + "/000000_0", 10L, 1L)));

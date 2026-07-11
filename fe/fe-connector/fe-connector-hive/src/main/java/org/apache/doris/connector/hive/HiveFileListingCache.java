@@ -20,11 +20,12 @@ package org.apache.doris.connector.hive;
 import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.cache.CacheSpec;
 import org.apache.doris.connector.cache.MetaCacheEntry;
+import org.apache.doris.filesystem.FileEntry;
+import org.apache.doris.filesystem.FileIterator;
+import org.apache.doris.filesystem.FileSystem;
+import org.apache.doris.filesystem.Location;
 
-import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.fs.FileStatus;
-import org.apache.hadoop.fs.FileSystem;
-import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.fs.UnsupportedFileSystemException;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -59,13 +60,13 @@ import java.util.concurrent.ForkJoinPool;
  *
  * <p><b>Failures are not cached, and are split by blast radius.</b> The loader never caches a failed load (matching
  * {@code MetaCacheEntry}'s null-is-a-miss / exception-propagates contract). A SYSTEMIC filesystem-resolution failure
- * ({@code FileSystem.get}: unknown scheme, bad credentials/endpoint — it fails for every partition of the table) is
- * thrown as a plain {@link DorisConnectorException} and the scan path lets it propagate to fail the query loud. A
- * LOCAL per-directory failure ({@code listStatus}: this partition missing/unreadable) is thrown as
- * {@link HiveDirectoryListingException} and the scan path skips just that partition with a warning (the pre-cache
- * tolerance). The estimate path degrades to {@code -1} on either. This keeps a broken storage config from silently
- * returning an empty scan (legacy failed {@code FileSystem.get} loud) while preserving one-bad-partition
- * resilience.</p>
+ * ({@link FileSystem#forLocation} unresolvable scheme/storage, or a lazily-surfaced {@code "No FileSystem for
+ * scheme"} — it fails for every partition of the table) is thrown as a plain {@link DorisConnectorException} and the
+ * scan path lets it propagate to fail the query loud. A LOCAL per-directory failure ({@link FileSystem#list}: this
+ * partition missing/unreadable) is thrown as {@link HiveDirectoryListingException} and the scan path skips just that
+ * partition with a warning (the pre-cache tolerance). The estimate path degrades to {@code -1} on either. This keeps
+ * a broken storage config from silently returning an empty scan (legacy failed {@code FileSystem.get} loud) while
+ * preserving one-bad-partition resilience.</p>
  *
  * <p><b>Dormant.</b> {@code "hms"} is not in {@code SPI_READY_TYPES}, so no live catalog builds a
  * {@link HiveConnector}, so this cache is never instantiated for a live catalog until the flip. Byte-neutral for
@@ -85,13 +86,15 @@ public class HiveFileListingCache {
     static final long DEFAULT_FILE_CAPACITY = 10000L;
 
     /**
-     * The raw directory lister: the real Hadoop filesystem in production ({@link #listFromFileSystem}), a fake in
-     * unit tests. Injected so the cache's hit/miss/invalidation behaviour is testable without a live filesystem
-     * (mirrors {@code HiveConnectorMetadata.estimateDataSize} injecting its {@code ToLongFunction} size source).
+     * The raw directory lister: the engine-injected Doris {@link FileSystem} in production
+     * ({@link #listFromFileSystem}), a fake in unit tests. Injected so the cache's hit/miss/invalidation behaviour
+     * is testable without a live filesystem (mirrors {@code HiveConnectorMetadata.estimateDataSize} injecting its
+     * {@code ToLongFunction} size source). The {@code fs} is borrowed from {@code ConnectorContext.getFileSystem}
+     * (engine-owned, per-catalog, must NOT be closed by the connector).
      */
     @FunctionalInterface
     interface DirectoryLister {
-        List<HiveFileStatus> list(String location, Configuration conf);
+        List<HiveFileStatus> list(String location, FileSystem fs);
     }
 
     private final MetaCacheEntry<FileListingKey, List<HiveFileStatus>> cache;
@@ -118,9 +121,9 @@ public class HiveFileListingCache {
      * failure throws {@link DorisConnectorException} (and is NOT cached). The returned list is shared by reference
      * (immutable elements) — callers must treat it as read-only, the codebase-wide metadata-cache convention.
      */
-    public List<HiveFileStatus> listDataFiles(String dbName, String tableName, String location, Configuration conf) {
+    public List<HiveFileStatus> listDataFiles(String dbName, String tableName, String location, FileSystem fs) {
         return cache.get(new FileListingKey(dbName, tableName, location),
-                key -> lister.list(key.location, conf));
+                key -> lister.list(key.location, fs));
     }
 
     /** Drops every cached listing for one table. Backs {@code REFRESH TABLE}. */
@@ -146,48 +149,96 @@ public class HiveFileListingCache {
     }
 
     /**
-     * The production {@link DirectoryLister}: a real, non-recursive {@code FileSystem.listStatus}, filtering out
-     * directories and {@code _}/{@code .}-prefixed hidden files (byte-parity with the pre-cache filters in
-     * {@code HiveScanPlanProvider.listAndSplitFiles} and {@code HiveConnectorMetadata.sumFileSizesUnder}). A zero
-     * -length data file is kept (the scan splitter skips it; the size estimate adds 0) so both consumers keep
-     * their exact prior behaviour. A {@code FileSystem.get} failure (unresolvable filesystem — unknown scheme, bad
-     * credentials/endpoint) is SYSTEMIC and wrapped in a plain {@link DorisConnectorException} so the scan fails
-     * loud; a {@code listStatus} failure (this partition directory missing/unreadable) is LOCAL and wrapped in
-     * {@link HiveDirectoryListingException} so the scan skips just that partition. Neither is ever cached.
+     * The production {@link DirectoryLister}: a non-recursive, LITERAL listing through the engine-injected Doris
+     * {@link FileSystem} (a per-catalog {@code SpiSwitchingFileSystem}), filtering out directories and
+     * {@code _}/{@code .}-prefixed hidden files (byte-parity with the pre-cache filters in
+     * {@code HiveScanPlanProvider.listAndSplitFiles} and {@code HiveConnectorMetadata.sumCachedFileSizes}). A zero
+     * -length data file is kept (the scan splitter skips it; the size estimate adds 0) so both consumers keep their
+     * exact prior behaviour.
+     *
+     * <p><b>Two-boundary failure split (byte-parity with the pre-cache {@code FileSystem.get}/{@code listStatus}
+     * split):</b> {@link FileSystem#forLocation} does the scheme/storage resolution + concrete-FS construction (no
+     * I/O) — a failure here (unresolvable scheme, no {@code StorageProperties}, factory error) is SYSTEMIC, wrapped
+     * loud in a plain {@link DorisConnectorException}. {@link FileSystem#list} then does the actual directory
+     * listing — a failure here is LOCAL (this partition missing/unreadable), wrapped in the skippable
+     * {@link HiveDirectoryListingException}, EXCEPT a lazily-surfaced {@code "No FileSystem for scheme"}
+     * ({@link UnsupportedFileSystemException}, the migration's own failure class — a missing engine-side FS impl,
+     * affecting every partition) which is re-classified SYSTEMIC/loud by {@link #isSystemicResolutionFailure} so a
+     * broken deployment fails the query instead of silently returning an empty scan. Neither is ever cached.
+     *
+     * <p><b>Literal listing:</b> {@code fs.list(loc)} (not {@code listFiles(loc)}) is used deliberately — the
+     * per-scheme filesystems ({@code DFSFileSystem}, {@code S3CompatibleFileSystem}) override {@code listFiles} with
+     * a glob-aware branch that would treat a location containing {@code [}/{@code *}/{@code ?} as a pattern; the old
+     * {@code listStatus} never glob-expanded, and a hive location can legitimately contain those characters.
      */
-    static List<HiveFileStatus> listFromFileSystem(String location, Configuration conf) {
-        Path path = new Path(location);
-        FileSystem fs;
+    static List<HiveFileStatus> listFromFileSystem(String location, FileSystem fs) {
+        if (fs == null) {
+            // No engine filesystem for this catalog (empty storage): a SYSTEMIC config error affecting every
+            // partition. Fail loud (the scan path does NOT skip this), never a silent empty scan.
+            throw new DorisConnectorException("No filesystem configured for " + location);
+        }
+        Location loc = Location.of(location);
+        FileSystem resolved;
         try {
-            fs = FileSystem.get(path.toUri(), conf);
-        } catch (IOException e) {
-            // Filesystem resolution/initialization failed (unknown scheme, bad credentials/endpoint): a SYSTEMIC
-            // storage-config error affecting every partition of the table. Fail loud with a plain
-            // DorisConnectorException (the scan path does NOT skip this), matching the pre-cache behavior where a
-            // FileSystem.get failure aborted the query instead of silently returning an empty scan.
+            resolved = fs.forLocation(loc);
+        } catch (IOException | RuntimeException e) {
+            // Scheme/storage resolution or concrete-FS construction failed: a SYSTEMIC storage-config error
+            // affecting every partition of the table. (RuntimeException is also caught: the FileSystem factory may
+            // report a misconfiguration as an unchecked exception, which must still wrap uniformly as the loud
+            // systemic type rather than escape untyped.)
             throw new DorisConnectorException("Failed to resolve filesystem for " + location, e);
         }
         try {
-            FileStatus[] statuses = fs.listStatus(path);
-            List<HiveFileStatus> files = new ArrayList<>(statuses.length);
-            for (FileStatus status : statuses) {
-                if (status.isDirectory()) {
-                    continue;
+            List<HiveFileStatus> files = new ArrayList<>();
+            try (FileIterator it = resolved.list(loc)) {
+                while (it.hasNext()) {
+                    FileEntry entry = it.next();
+                    if (entry.isDirectory()) {
+                        continue;
+                    }
+                    String fileName = entry.name();
+                    if (fileName.startsWith("_") || fileName.startsWith(".")) {
+                        continue;
+                    }
+                    files.add(new HiveFileStatus(entry.location().uri(), entry.length(),
+                            entry.modificationTime()));
                 }
-                String fileName = status.getPath().getName();
-                if (fileName.startsWith("_") || fileName.startsWith(".")) {
-                    continue;
-                }
-                files.add(new HiveFileStatus(status.getPath().toString(), status.getLen(),
-                        status.getModificationTime()));
             }
             return files;
         } catch (IOException e) {
+            if (isSystemicResolutionFailure(e)) {
+                // A lazily-surfaced "No FileSystem for scheme X": the engine-side FS impl for this scheme is missing
+                // (broken packaging) — SYSTEMIC, affecting every partition. Fail loud, matching the pre-cache
+                // FileSystem.get behavior (this is the exact error class FIX-HIVEFS exists to keep loud).
+                throw new DorisConnectorException("Failed to resolve filesystem for " + location, e);
+            }
             // Listing THIS partition directory failed (missing / unreadable / transient): a LOCAL failure the scan
             // path tolerates by skipping the partition with a warning (pre-cache parity). Distinct exception type so
-            // only this is skipped, while the systemic FileSystem.get failure above stays loud.
+            // only this is skipped, while the systemic failures above stay loud.
             throw new HiveDirectoryListingException("Failed to list files under " + location, e);
         }
+    }
+
+    /**
+     * Whether {@code t} (or any exception in its cause chain — robust to {@code authenticator.doAs} wrapping)
+     * is a scheme-not-registered failure ({@link UnsupportedFileSystemException} / {@code "No FileSystem for
+     * scheme"}). Such a failure is a deterministic, whole-table storage/packaging error and must stay LOUD, unlike
+     * a per-directory listing failure.
+     */
+    private static boolean isSystemicResolutionFailure(Throwable t) {
+        for (Throwable c = t; c != null; c = c.getCause()) {
+            if (c instanceof UnsupportedFileSystemException) {
+                return true;
+            }
+            String msg = c.getMessage();
+            if (msg != null && msg.contains("No FileSystem for scheme")) {
+                return true;
+            }
+            if (c.getCause() == c) {
+                break;
+            }
+        }
+        return false;
     }
 
     /**
