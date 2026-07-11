@@ -21,6 +21,7 @@ import org.apache.doris.connector.api.Connector;
 import org.apache.doris.connector.api.ConnectorCapability;
 import org.apache.doris.connector.api.ConnectorColumn;
 import org.apache.doris.connector.api.ConnectorColumnStatistics;
+import org.apache.doris.connector.api.ConnectorDatabaseMetadata;
 import org.apache.doris.connector.api.ConnectorMetadata;
 import org.apache.doris.connector.api.ConnectorPartitionInfo;
 import org.apache.doris.connector.api.ConnectorSession;
@@ -73,6 +74,7 @@ import com.google.gson.JsonObject;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -194,7 +196,6 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
 
     private final HmsClient hmsClient;
     private final Map<String, String> properties;
-    private final HmsTypeMapping.Options typeMappingOptions;
     // Carries the fe-core-injected environment (getEnvironment()) with the FE-global CREATE TABLE defaults
     // (hive_default_file_format / enable_create_hive_bucket_table / doris_version) that the plugin cannot
     // read from FE Config. The default getEnvironment() is an empty map, so direct-construction tests that
@@ -242,7 +243,6 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
         this.hmsClient = hmsClient;
         this.properties = properties;
         this.context = context;
-        this.typeMappingOptions = buildTypeMappingOptions(properties);
         this.icebergSiblingSupplier = icebergSiblingSupplier;
         this.hudiSiblingSupplier = hudiSiblingSupplier;
         this.siblingOwnerResolver = siblingOwnerResolver;
@@ -307,6 +307,22 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
             LOG.debug("Database '{}' not found: {}", dbName, e.getMessage());
             return false;
         }
+    }
+
+    @Override
+    public ConnectorDatabaseMetadata getDatabase(ConnectorSession session, String dbName) {
+        // Surface the HMS database base location for SHOW CREATE DATABASE under the neutral "location"
+        // property key (Trino-aligned properties-map model). Mirrors IcebergConnectorMetadata.getDatabase
+        // (and legacy HMSExternalCatalog which emitted LOCATION via db.getLocationUri()). Without this
+        // override the ConnectorSchemaOps default returns an empty property map, so SHOW CREATE DATABASE
+        // rendered no LOCATION clause. The key is omitted when blank so a location-less namespace renders
+        // no LOCATION rather than LOCATION ''. The hmsClient is already auth-wrapped (see databaseExists).
+        Map<String, String> props = new HashMap<>();
+        String location = hmsClient.getDatabase(dbName).getLocationUri();
+        if (location != null && !location.isEmpty()) {
+            props.put(ConnectorDatabaseMetadata.LOCATION_PROPERTY, location);
+        }
+        return new ConnectorDatabaseMetadata(dbName, props);
     }
 
     // ========== ConnectorTableOps ==========
@@ -1970,7 +1986,11 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
         return "STRING".equals(columns.get(0).getType().getTypeName());
     }
 
-    private static HmsTypeMapping.Options buildTypeMappingOptions(Map<String, String> props) {
+    // Package-private: HiveConnector.createClient builds the LIVE ThriftHmsClient's type-mapping options from
+    // the catalog properties (enable.mapping.varbinary / enable.mapping.timestamp_tz). The client — not this
+    // metadata — converts hive column types (ThriftHmsClient.convertFieldSchemas), so the options must be fed at
+    // client construction; a metadata-local copy would be dead (that was the 5672d7c0209 gap).
+    static HmsTypeMapping.Options buildTypeMappingOptions(Map<String, String> props) {
         boolean enableMappingVarbinary = Boolean.parseBoolean(
                 props.getOrDefault(HiveConnectorProperties.ENABLE_MAPPING_VARBINARY, "false"));
         boolean timestampTz = Boolean.parseBoolean(
@@ -2048,6 +2068,14 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
             // matchesPredicates -> the whole table prunes to 0 rows. Render Hive-canonical text instead.
             return hiveDateTimeString((LocalDateTime) val);
         }
+        if (val instanceof BigDecimal) {
+            // A DECIMAL partition literal arrives as a BigDecimal carrying the column's declared scale
+            // (e.g. decimal(8,4) -> "1.0000"), but the Hive-canonical stored partition value is trailing-zero
+            // trimmed ("1"). String.valueOf keeps the scale, so matchesPredicates' string-compare misses and
+            // the table prunes to 0 rows. Render trailing-zero-trimmed plain text to string-equal the stored
+            // value (toPlainString avoids scientific notation from stripTrailingZeros).
+            return ((BigDecimal) val).stripTrailingZeros().toPlainString();
+        }
         return String.valueOf(val);
     }
 
@@ -2101,8 +2129,11 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
                 // The predicate literal side (extractLiteralValue) is unescaped, so matchesPredicates' string
                 // compare needs the value unescaped too — otherwise an escaped partition value silently drops
                 // rows. Mirrors the sibling partition-value parse (HiveWriteUtils.toPartitionValues) and legacy
-                // FileUtils.unescapePathName. The key is a column name (never escaped), left as-is.
-                values.put(part.substring(0, eq),
+                // FileUtils.unescapePathName. The KEY must be unescaped too: Hive's makePartName escapes the
+                // column name as well (a special-char partition column such as `pt2=x!!!! **1+1/&^%3` comes
+                // back as an escaped key), and matchesPredicates looks it up by the real unescaped column name,
+                // so an escaped key would silently miss and drop every row. Unescaping a plain name is a no-op.
+                values.put(HiveWriteUtils.unescapePathName(part.substring(0, eq)),
                         HiveWriteUtils.unescapePathName(part.substring(eq + 1)));
             }
         }

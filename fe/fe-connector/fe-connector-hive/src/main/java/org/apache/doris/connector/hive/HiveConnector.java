@@ -532,7 +532,13 @@ public class HiveConnector implements Connector {
         } else {
             authAction = context::executeAuthenticated;
         }
-        return wrapWithCache(new ThriftHmsClient(config, authAction));
+        // Feed the catalog's type-mapping options (enable.mapping.varbinary / enable.mapping.timestamp_tz) to
+        // the LIVE client: ThriftHmsClient.convertFieldSchemas maps hive column types with the client's own
+        // options, so the 2-arg ctor (HmsTypeMapping.Options.DEFAULT) would ignore the catalog toggles and
+        // always map hive BINARY -> STRING / timestamp -> non-TZ. Commit 5672d7c0209 read the dot-keys but only
+        // into a dead metadata field; the fix is to build the options here where the client is constructed.
+        return wrapWithCache(new ThriftHmsClient(config, authAction,
+                HiveConnectorMetadata.buildTypeMappingOptions(properties)));
     }
 
     /**
