@@ -29,7 +29,7 @@ Legend：⬜ todo / 🔄 in progress / ✅ done / ⏸ 挂起(需决策/live)
 | 2 | **H2** | 🔴高 | hudi**+hive** | datetime 分区谓词 ISO→0 行 | ✅ | ✅ | ✅ | ✅ |
 | 3 | **H3** | 🔴高 | hudi | HMS 名当存储路径→非 hive-style 带 filter 0 split | ✅ | ✅ | ✅ | ✅ |
 | 4 | **H4** | 🔴高 | hudi | 混大小写 Avro→JNI 崩 | ✅ | ✅ | ✅ | ✅ |
-| 5 | **M1** | 🟠中 | fe-core | TABLESAMPLE 插件路径静默全表扫 | ⬜ | ⬜ | ⬜ | ⬜ |
+| 5 | **M1** | 🟠中 | fe-core+hive | TABLESAMPLE 插件路径静默全表扫 | ✅ | ✅ | ✅ | ✅ |
 | 6 | **M2** | 🟠中 | hive | 翻闸 hive 丢批量/异步 split | ✅ | ✅ | ✅ | ✅ |
 | 7 | **M3** | 🟠中 | fe-core | MC batch 闸门 `!=NOT_PRUNED`→`!isPruned` | ✅ | ✅ | ✅ | ✅ |
 | 8 | **M4** | 🟠中 | maxcompute | MC 分区值缓存删除→每查询全量 listPartitions | ✅ | ✅ | ✅ | ✅ |
@@ -111,7 +111,7 @@ Legend：⬜ todo / 🔄 in progress / ✅ done / ⏸ 挂起(需决策/live)
 ## 🟠 中危(M1–M8)
 
 ### M1 — TABLESAMPLE 插件路径静默全表扫 · reverify §3 M1
-- [ ] **M1**
+- [x] **M1** · DONE `17b432dc1e1`（设计 `designs/FIX-M1-design.md`；设计红队 `wf_32decfa0-349` 3 lens **推翻原"通用采样"方案**为 UNSOUND → 改**连接器 opt-in**，**用户 2026-07-11 签字"只修 hive"**）。**scope 更正=hive-only 回归**（只有 hive 曾采样；其它连接器 legacy 从不采样）。原方案缺陷=`Split.getLength()` 语义因连接器而异（MaxCompute 默认 byte_size/Paimon JNI range 报 -1，MaxCompute row_offset 报行数），盲目按字节采样出乱结果。修法=SPI `ConnectorScanPlanProvider.supportsTableSample()` 默认 false + `HiveScanPlanProvider` override true；translator 插件臂通用转发 tableSample；`PluginDrivenScanNode` 仅在 `applySample`(能力开)时 `sampleSplits`（legacy `selectFiles` 端口，通用 `Split#getLength()`），非支持连接器 no-op+WARN（非静默）。两 gate 门（COUNT 抑制、batch 抑制）挂 `applySample`。`PluginDrivenScanNodeTableSampleTest` 6/6 + BatchMode 12/12 + hive 285/285，0 checkstyle，import 门净。e2e live-gated（docker-hive 结果不变式已加；强基数缩减须多文件 fixture 真集群验）。
 - **现码**:`PhysicalPlanTranslator.visitPhysicalFileScan:812-821`(只 `setSelectedPartitions`,不转发 `getTableSample()`;legacy 转发臂 `:837-840` 死)+ `PluginDrivenScanNode.getSplits:998-1019`(零 tableSample)+ `ConnectorScanPlanProvider.planScan:119`(无采样参数)。
 - **Fix**:(1)translator 插件臂在 `setSelectedPartitions` 后镜像 legacy 转发 `setTableSample`;(2)`PluginDrivenScanNode.getSplits` 实现**通用 connector-agnostic** 按 split 大小采样(仿 `HiveScanNode:448-458`,操作通用 `PluginDrivenSplit` 大小,**不按源分支**)。
 - **Files**:`fe-core/.../PhysicalPlanTranslator.java`、`fe-core/.../PluginDrivenScanNode.java`。
@@ -251,7 +251,8 @@ Legend：⬜ todo / 🔄 in progress / ✅ done / ⏸ 挂起(需决策/live)
 
 ---
 
-**⭐ 批次 2(M3→M1,fe-core 通用节点)进行中**
+**⭐ 批次 2(M3→M1,fe-core 通用节点)全部 DONE**
 
 - **M3** DONE `6963de4124f`(code) — batch 闸门 `!isPruned`→`== NOT_PRUNED`:无谓词大分区表(MaxCompute + 翻闸 hive)恢复异步 batch split(legacy `MaxComputeScanNode:227` 的 `!= NOT_PRUNED` + sibling `displayPartitionCounts` 双证;git `1da88365e85^` 取证 + 全 producer 枚举证闭合)。**顺带解 M2 的 BATCH-UNPRUNED-SYNC**。设计红队 `wf_811e6242-d8b`(3 lens:BLAST-RADIUS SOUND / LEGACY-PARITY SOUND_WITH_CHANGES / COMPLETENESS SOUND_WITH_CHANGES)命中 1 blocker(docker-hive golden 未 reconcile)+ 1 major(overturn 前次签字 LP-1/D-035「等价」未登记)均已解:**反转** pinning 测试(`testUnprocessedPruningNeverBatches`→`testNoPredicatePartitionedTableBatches`,assertTrue)、**登记 supersession**(D-035/DV-019 补 SUPERSEDED 批注)、**docker-hive golden** `test_hive_partitions:200` `(approximate)inputSplitNum` `60→6`(**用户 2026-07-11 签字:SPI 统一分区数口径**,非 hive 专属 split-count 估算;对齐 MaxCompute/Trino「引擎层统一报分片」)。`PluginDrivenScanNodeBatchModeTest` **12/12** 绿、fe-core test-compile BUILD SUCCESS 0 checkstyle。**e2e live-gated**(docker-hive `(approximate)inputSplitNum=6` + MaxCompute 无谓词 ≥阈值分区表进 batch;sweep 确认全 regression 仅此 1 处 `(approximate)` 断言受影响,maxcompute p2 只断言 `partition=N/M`/结果不受影响)。**⚠ 构建坑**:本轮 UT 一度被并行 session 的 `be-java-extensions package -am -T 1C` 构建污染共享 target 报「cannot access 生成类」假失败(非本码);待其结束后干净重跑 12/12(memory `concurrent-sessions-shared-worktree-hazard`)。
-- **下一步 = M1**(TABLESAMPLE 插件路径静默全表扫;translator 转发 `setTableSample` + `PluginDrivenScanNode.getSplits` 通用按 split 大小采样,仿 legacy `HiveScanNode:448-458` 但 connector-agnostic)。
+- **M1** DONE `17b432dc1e1`(code) — TABLESAMPLE 翻闸 hive 静默全表扫修复。**红队 `wf_32decfa0-349` 推翻原"通用采样"方案(UNSOUND)**:`Split.getLength()` 对 MaxCompute 默认 byte_size / Paimon JNI range 报 -1、对 MaxCompute row_offset 报行数 → 盲目按字节采样出乱结果(全表或 1 split)。**scope 更正=hive-only 回归**(只有 hive 曾采样)。→ 改**连接器 opt-in**(`ConnectorScanPlanProvider.supportsTableSample()` 默认 false、仅 `HiveScanPlanProvider` true;**用户 2026-07-11 签字 scope=hive-only**)。translator 插件臂通用转发 + `PluginDrivenScanNode.sampleSplits`(仅 `applySample` 时,legacy `selectFiles` 端口)+ 非支持连接器 no-op+WARN(非静默)+ 两 gate 门(COUNT 抑制/batch 抑制,挂 `applySample`)。对齐 Trino `applySample` + 上一批 `supportsBatchScan` opt-in 先例。`PluginDrivenScanNodeTableSampleTest` 6/6 + BatchMode 12/12 + hive 285/285 绿、0 checkstyle、import 门净。e2e live-gated(docker-hive 结果不变式已加;强基数缩减须多文件 fixture 真集群验)。
+- **⭐ 批次 2(M3→M1)全部 DONE。** 2 条 fe-core 通用节点修复,各配 RED-able 单测 + 独立 code/doc commit + 设计红队(各 3 lens;**M1 红队捕获并推翻 UNSOUND 原方案 → 触发用户 scope 决策**)。**下一步 = 批次 3(M8 发布工具/文档 + L1 import 门禁)**;之后批次 4(低危连接器)… ⏸ 决策类(L2/L10/L12/L20)先问用户。
