@@ -91,7 +91,7 @@ struct DictEntry {
     // ttf_delta/max_freq above are then meaningless defaults, NOT real zeros.
     // Consumers that need them (stats provider / BM25) must check this flag.
     bool term_stats_present = true;
-    uint64_t max_freq = 0;  // only when tier>=T2
+    uint64_t max_freq = 0; // only when tier>=T2
 
     // pod_ref locator.
     uint64_t frq_off_delta = 0;

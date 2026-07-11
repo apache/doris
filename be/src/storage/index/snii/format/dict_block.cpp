@@ -323,8 +323,8 @@ Status DictBlockReader::decode_all(std::vector<DictEntry>* out) const {
         std::string prev; // first entry of a segment is an anchor (prev_term="")
         while (!src.eof()) {
             DictEntry e;
-            RETURN_IF_ERROR(decode_dict_entry(&src, std::string_view(prev), tier_, &e,
-                                              term_stats_));
+            RETURN_IF_ERROR(
+                    decode_dict_entry(&src, std::string_view(prev), tier_, &e, term_stats_));
             prev = e.term;
             out->push_back(std::move(e));
         }
