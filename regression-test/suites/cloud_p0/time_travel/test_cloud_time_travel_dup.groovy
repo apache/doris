@@ -90,6 +90,21 @@ suite("test_cloud_time_travel_dup", "p0,nonConcurrent") {
     }
 
     // ── error: non-TT table ────────────────────────────────────────
+    // ── error: TT query on table with retention_days=0 ───────────────
+    def zeroRetention = "test_cloud_tt_zero_retention"
+    sql "DROP TABLE IF EXISTS ${zeroRetention} FORCE"
+    sql """
+        CREATE TABLE ${zeroRetention} (id INT) DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES ("replication_num" = "1", "enable_time_travel" = "true",
+                    "time_travel_retention_days" = "0")
+    """
+    test {
+        sql "SELECT * FROM ${zeroRetention} FOR SYSTEM_TIME AS OF '${t1}'"
+        exception "time_travel_retention_days must be >= 1"
+    }
+    sql "DROP TABLE IF EXISTS ${zeroRetention} FORCE"
+
     def noTT = "test_cloud_tt_dup_nott"
     sql "DROP TABLE IF EXISTS ${noTT} FORCE"
     sql """

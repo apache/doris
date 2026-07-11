@@ -443,6 +443,98 @@ static int64_t resolve_version_at_time(Transaction* txn, const std::string& inst
     return -1; // no version at or before timestamp_ms
 }
 
+// Appends historically-alive dropped partitions to the response by scanning
+// tt_partition_lifecycle_key. Called from both batch and single-partition paths.
+static void fill_dropped_partitions(TxnKv* txn_kv, const std::string& instance_id, int64_t table_id,
+                                    int64_t timestamp_ms, GetVersionAtTimeResponse* response) {
+    std::string lc_begin, lc_end;
+    tt_partition_lifecycle_key({instance_id, table_id, 0}, &lc_begin);
+    tt_partition_lifecycle_key({instance_id, table_id, std::numeric_limits<int64_t>::max()},
+                               &lc_end);
+    lc_end.push_back('\xff');
+
+    std::unique_ptr<Transaction> lc_txn;
+    if (txn_kv->create_txn(&lc_txn) != TxnErrorCode::TXN_OK) {
+        LOG_WARNING("failed to create txn for dropped partition scan").tag("table_id", table_id);
+        return;
+    }
+
+    std::unique_ptr<RangeGetIterator> iter;
+    if (lc_txn->get(lc_begin, lc_end, &iter) != TxnErrorCode::TXN_OK || !iter) return;
+
+    while (iter->has_next()) {
+        auto [k, v] = iter->next();
+        TtPartitionLifecyclePB lc;
+        if (!lc.ParseFromArray(v.data(), v.size())) continue;
+        // Only include partitions dropped AFTER timestamp_ms (alive at T).
+        if (!lc.has_dropped_ms() || lc.dropped_ms() == 0 || lc.dropped_ms() <= timestamp_ms) {
+            continue;
+        }
+        if (k.size() < 9) continue;
+        std::string_view pid_sv = k.substr(k.size() - 9);
+        int64_t partition_id = 0;
+        if (decode_int64(&pid_sv, &partition_id) != 0 || partition_id == 0) continue;
+
+        int64_t dp_update_ms = -1;
+        int64_t dp_version = resolve_version_at_time(lc_txn.get(), instance_id, partition_id,
+                                                     timestamp_ms, &dp_update_ms);
+
+        auto* dp = response->add_dropped_partitions();
+        dp->set_partition_id(partition_id);
+        dp->set_version(dp_version);
+        dp->set_version_update_time_ms(dp_update_ms);
+
+        for (int64_t tid : lc.tablet_ids()) dp->add_tablet_ids(tid);
+
+        if (dp_version <= 0) continue;
+
+        for (int64_t tablet_id : lc.tablet_ids()) {
+            auto* row = dp->add_tablet_rowsets();
+            row->set_tablet_id(tablet_id);
+
+            std::string ck_begin, ck_end;
+            tt_compaction_key({instance_id, tablet_id, 0, 0}, &ck_begin);
+            tt_compaction_key({instance_id, tablet_id, std::numeric_limits<int64_t>::max(),
+                               std::numeric_limits<int64_t>::max()},
+                              &ck_end);
+            ck_end.push_back('\xff');
+
+            std::unique_ptr<RangeGetIterator> ck_iter;
+            if (lc_txn->get(ck_begin, ck_end, &ck_iter) != TxnErrorCode::TXN_OK || !ck_iter) {
+                continue;
+            }
+
+            int64_t best_start = std::numeric_limits<int64_t>::max();
+            std::string best_val;
+            bool found = false;
+            while (ck_iter->has_next()) {
+                auto [ck, cv] = ck_iter->next();
+                if (ck.size() < 18) continue;
+                std::string_view sv = ck.substr(ck.size() - 18, 9);
+                std::string_view ev = ck.substr(ck.size() - 9);
+                int64_t start_v = 0, end_v = 0;
+                if (decode_int64(&sv, &start_v) != 0) continue;
+                if (decode_int64(&ev, &end_v) != 0) continue;
+                if (start_v <= dp_version && dp_version <= end_v) {
+                    if (!found || start_v < best_start) {
+                        best_start = start_v;
+                        best_val = std::string(cv);
+                        found = true;
+                    }
+                }
+            }
+            if (!found) continue;
+
+            TtCompactionManifestPB checkpoint;
+            if (!checkpoint.ParseFromString(best_val)) continue;
+            for (const auto& entry : checkpoint.entries()) {
+                if (!entry.has_rowset_meta() || entry.version() > dp_version) continue;
+                *row->add_rowset_metas() = entry.rowset_meta();
+            }
+        }
+    }
+}
+
 // Resolves a wall-clock timestamp_ms to the highest committed partition version
 // whose update_time_ms <= timestamp_ms. Supports batch and single-partition modes.
 void MetaServiceImpl::get_version_at_time(::google::protobuf::RpcController* controller,
@@ -591,6 +683,12 @@ void MetaServiceImpl::get_version_at_time(::google::protobuf::RpcController* con
                 }
             }
         }
+
+        // Append dropped partitions that were alive at timestamp_ms (if requested).
+        if (request->has_table_id_for_tt() && request->table_id_for_tt() > 0) {
+            fill_dropped_partitions(txn_kv_.get(), instance_id, request->table_id_for_tt(),
+                                    timestamp_ms, response);
+        }
         return;
     }
 
@@ -622,6 +720,84 @@ void MetaServiceImpl::get_version_at_time(::google::protobuf::RpcController* con
     }
     response->set_version(version);
     response->set_version_update_time_ms(update_time_ms);
+
+    // Append dropped partitions that were alive at timestamp_ms (if requested).
+    if (request->has_table_id_for_tt() && request->table_id_for_tt() > 0) {
+        fill_dropped_partitions(txn_kv_.get(), instance_id, request->table_id_for_tt(),
+                                timestamp_ms, response);
+    }
+}
+
+void MetaServiceImpl::get_tt_schema_at_time(::google::protobuf::RpcController* controller,
+                                            const GetTtSchemaAtTimeRequest* request,
+                                            GetTtSchemaAtTimeResponse* response,
+                                            ::google::protobuf::Closure* done) {
+    RPC_PREPROCESS(get_tt_schema_at_time, get);
+
+    instance_id = get_instance_id(resource_mgr_, request->cloud_unique_id());
+    if (instance_id.empty()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "empty instance_id";
+        return;
+    }
+    if (!request->has_table_id() || request->table_id() <= 0) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "missing or invalid table_id";
+        return;
+    }
+    if (!request->has_timestamp_ms()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "missing timestamp_ms";
+        return;
+    }
+
+    int64_t table_id = request->table_id();
+    int64_t timestamp_ms = request->timestamp_ms();
+
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        code = MetaServiceCode::KV_TXN_CREATE_ERR;
+        msg = fmt::format("failed to create txn, err={}", err);
+        return;
+    }
+
+    // Scan all schema history entries for this table and find the one with
+    // the highest effective_ms that is still <= timestamp_ms.
+    std::string sh_begin, sh_end;
+    tt_schema_history_key({instance_id, table_id, 0}, &sh_begin);
+    tt_schema_history_key({instance_id, table_id, std::numeric_limits<int64_t>::max()}, &sh_end);
+    sh_end.push_back('\xff');
+
+    std::unique_ptr<RangeGetIterator> iter;
+    err = txn->get(sh_begin, sh_end, &iter);
+    if (err != TxnErrorCode::TXN_OK || !iter) {
+        // No schema history recorded — respond OK with no schema_pb.
+        // FE will use the current table schema.
+        return;
+    }
+
+    int64_t best_effective_ms = -1;
+    int64_t best_schema_version = -1;
+    std::string best_schema_pb;
+
+    while (iter->has_next()) {
+        auto [k, v] = iter->next();
+        TtSchemaHistoryPB sh;
+        if (!sh.ParseFromArray(v.data(), v.size())) continue;
+        if (!sh.has_effective_ms() || sh.effective_ms() > timestamp_ms) continue;
+        if (sh.effective_ms() > best_effective_ms) {
+            best_effective_ms = sh.effective_ms();
+            best_schema_version = sh.schema_version();
+            if (sh.has_schema_pb()) best_schema_pb = sh.schema_pb();
+        }
+    }
+
+    if (best_effective_ms >= 0 && !best_schema_pb.empty()) {
+        response->set_schema_pb(best_schema_pb);
+        response->set_effective_ms(best_effective_ms);
+        response->set_schema_version(best_schema_version);
+    }
+    // If no matching entry: OK with no schema_pb → FE uses current schema.
 }
 
 void MetaServiceImpl::disable_time_travel_table(::google::protobuf::RpcController* controller,
@@ -677,6 +853,33 @@ void MetaServiceImpl::disable_time_travel_table(::google::protobuf::RpcControlle
     }
 
     resource_mgr_->unregister_time_travel_table(instance_id, table_id);
+
+    // Eagerly clean up TT metadata keys for this table in a separate non-fatal transaction.
+    // The periodic recycler will also handle these, but eager cleanup is best-effort here.
+    std::unique_ptr<Transaction> cleanup_txn;
+    if (txn_kv_->create_txn(&cleanup_txn) == TxnErrorCode::TXN_OK) {
+        // Remove all lifecycle keys for every partition of this table.
+        std::string lc_begin, lc_end;
+        tt_partition_lifecycle_key({instance_id, table_id, 0}, &lc_begin);
+        tt_partition_lifecycle_key({instance_id, table_id, std::numeric_limits<int64_t>::max()},
+                                   &lc_end);
+        lc_end.push_back('\xff');
+        cleanup_txn->remove(lc_begin, lc_end);
+
+        // Remove all schema history keys for this table.
+        std::string sh_begin, sh_end;
+        tt_schema_history_key({instance_id, table_id, 0}, &sh_begin);
+        tt_schema_history_key({instance_id, table_id, std::numeric_limits<int64_t>::max()},
+                              &sh_end);
+        sh_end.push_back('\xff');
+        cleanup_txn->remove(sh_begin, sh_end);
+
+        if (cleanup_txn->commit() != TxnErrorCode::TXN_OK) {
+            LOG_WARNING("failed to clean up TT metadata keys on disable — recycler will retry")
+                    .tag("table_id", table_id);
+        }
+    }
+
     LOG(INFO) << "disabled time travel for table, instance=" << instance_id
               << " table_id=" << table_id;
 }

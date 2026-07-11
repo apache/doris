@@ -298,6 +298,88 @@ public class OlapScanNode extends ScanNode {
         this.ttRowsetManifests = manifests;
     }
 
+    /**
+     * Adds synthetic scan ranges for dropped partitions that were historically alive at
+     * the time travel query timestamp. Called after get_version_at_time returns
+     * TtDroppedPartitionInfo entries in the response.
+     *
+     * In cloud mode any alive backend can serve any tablet (stateless storage), so we
+     * route each dropped-partition tablet to a live backend in the current compute cluster
+     * using a simple tablet-id-based selection for load distribution.
+     */
+    public void addDroppedPartitionScanRanges(
+            List<org.apache.doris.cloud.proto.Cloud.TtDroppedPartitionInfo> droppedInfos)
+            throws UserException {
+        if (droppedInfos == null || droppedInfos.isEmpty()) {
+            return;
+        }
+
+        // Resolve alive backends in the current cluster once for all tablets.
+        String clusterId = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                .getCurrentClusterId();
+        List<Backend> clusterBEs = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                .getBackendsByClusterId(clusterId).stream()
+                .filter(Backend::isAlive)
+                .collect(java.util.stream.Collectors.toList());
+        if (clusterBEs.isEmpty()) {
+            throw new UserException(
+                    "time travel: no alive backends in cluster for dropped partition scan");
+        }
+
+        java.util.Map<Long, List<byte[]>> extraManifests =
+                ttRowsetManifests != null ? new java.util.HashMap<>(ttRowsetManifests)
+                                          : new java.util.HashMap<>();
+
+        for (org.apache.doris.cloud.proto.Cloud.TtDroppedPartitionInfo dp : droppedInfos) {
+            long version = dp.getVersion();
+            if (version <= 0) {
+                continue; // no data at the query timestamp for this dropped partition
+            }
+            for (long tabletId : dp.getTabletIdsList()) {
+                Backend backend = clusterBEs.get(
+                        (int) (Long.remainderUnsigned(tabletId, clusterBEs.size())));
+                TNetworkAddress addr = new TNetworkAddress(
+                        backend.getHost(), backend.getBePort());
+
+                TPaloScanRange paloRange = new TPaloScanRange();
+                paloRange.setDbName("");
+                paloRange.setSchemaHash("0");
+                paloRange.setVersion(String.valueOf(version));
+                paloRange.setVersionHash("");
+                paloRange.setTabletId(tabletId);
+                paloRange.addToHosts(addr);
+
+                TScanRange scanRange = new TScanRange();
+                scanRange.setPaloScanRange(paloRange);
+
+                TScanRangeLocation loc = new TScanRangeLocation(addr);
+                loc.setBackendId(backend.getId());
+
+                TScanRangeLocations locations = new TScanRangeLocations();
+                locations.setScanRange(scanRange);
+                locations.addToLocations(loc);
+
+                scanRangeLocations.add(locations);
+                scanTabletIds.add(tabletId);
+            }
+
+            // Register compaction manifests for tablets in this dropped partition.
+            for (org.apache.doris.cloud.proto.Cloud.TtTabletRowsetsPB tabletRowsets
+                    : dp.getTabletRowsetsList()) {
+                List<byte[]> bytesList = new java.util.ArrayList<>();
+                for (org.apache.doris.proto.OlapFile.RowsetMetaCloudPB meta
+                        : tabletRowsets.getRowsetMetasList()) {
+                    bytesList.add(meta.toByteArray());
+                }
+                extraManifests.put(tabletRowsets.getTabletId(), bytesList);
+            }
+        }
+
+        if (!extraManifests.isEmpty()) {
+            ttRowsetManifests = extraManifests;
+        }
+    }
+
     public Set<Integer> getExtraKeyColumnSlotIds() {
         return extraKeyColumnSlotIds;
     }

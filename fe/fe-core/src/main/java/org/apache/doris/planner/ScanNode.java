@@ -745,11 +745,21 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
                         partitionToTablets.getOrDefault(partition.getId(),
                                 java.util.Collections.emptyList());
 
+            // If all TT scan nodes target the same TT-enabled table, ask the meta service
+            // to also return dropped partitions that were alive at the query timestamp.
+            Long tableIdForTt = null;
+            if (!timeTravelScanNodes.isEmpty()) {
+                OlapTable ttTable = timeTravelScanNodes.get(0).getOlapTable();
+                if (ttTable.isEnableTimeTravel()) {
+                    tableIdForTt = ttTable.getId();
+                }
+            }
+
             org.apache.doris.cloud.catalog.CloudPartition.VersionAtTimeResult versionResult;
             try {
                 versionResult = org.apache.doris.cloud.catalog.CloudPartition
                         .getVersionsAtTime(ttPartitions, timestampMs, retentionDays,
-                                tabletIdsProvider);
+                                tabletIdsProvider, tableIdForTt);
             } catch (RpcException e) {
                 throw new UserException("time travel: get version at time failed", e);
             }
@@ -786,6 +796,13 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
                         ttNode.setTtRowsetManifests(nodeManifests);
                     }
                 }
+            }
+
+            // Add scan ranges for historically-alive dropped partitions returned by the
+            // meta service when table_id_for_tt was set in the request.
+            if (!versionResult.droppedPartitions.isEmpty() && !timeTravelScanNodes.isEmpty()) {
+                OlapScanNode ttNode = timeTravelScanNodes.get(0);
+                ttNode.addDroppedPartitionScanRanges(versionResult.droppedPartitions);
             }
         }
 

@@ -790,6 +790,7 @@ void doris_tablet_meta_to_cloud(TabletMetaCloudPB* out, const TabletMetaPB& in) 
     out->set_is_persistent(in.is_persistent());
     out->set_table_name(in.table_name());
     out->set_ttl_seconds(in.ttl_seconds());
+    out->set_time_travel_retention_days(in.time_travel_retention_days());
     if (in.has_schema_version()) {
         out->set_schema_version(in.schema_version());
     }
@@ -884,6 +885,7 @@ void doris_tablet_meta_to_cloud(TabletMetaCloudPB* out, TabletMetaPB&& in) {
     out->set_is_persistent(in.is_persistent());
     out->set_table_name(in.table_name());
     out->set_ttl_seconds(in.ttl_seconds());
+    out->set_time_travel_retention_days(in.time_travel_retention_days());
     if (in.has_schema_version()) {
         out->set_schema_version(in.schema_version());
     }
@@ -982,6 +984,7 @@ void cloud_tablet_meta_to_doris(TabletMetaPB* out, const TabletMetaCloudPB& in) 
     out->set_is_persistent(in.is_persistent());
     out->set_table_name(in.table_name());
     out->set_ttl_seconds(in.ttl_seconds());
+    out->set_time_travel_retention_days(in.time_travel_retention_days());
     if (in.has_schema_version()) {
         out->set_schema_version(in.schema_version());
     }
@@ -1076,6 +1079,7 @@ void cloud_tablet_meta_to_doris(TabletMetaPB* out, TabletMetaCloudPB&& in) {
     out->set_is_persistent(in.is_persistent());
     out->set_table_name(in.table_name());
     out->set_ttl_seconds(in.ttl_seconds());
+    out->set_time_travel_retention_days(in.time_travel_retention_days());
     if (in.has_schema_version()) {
         out->set_schema_version(in.schema_version());
     }

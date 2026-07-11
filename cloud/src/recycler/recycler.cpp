@@ -813,6 +813,8 @@ int InstanceRecycler::do_recycle() {
                 .add(task_wrapper(
                         [this]() -> int { return InstanceRecycler::recycle_tt_compaction(); }))
                 .add(task_wrapper(
+                        [this]() -> int { return InstanceRecycler::recycle_tt_metadata_keys(); }))
+                .add(task_wrapper(
                         [this]() -> int { return InstanceRecycler::recycle_packed_files(); }))
                 .add(task_wrapper(
                         [this]() { return InstanceRecycler::abort_timeout_txn(); },
@@ -2360,6 +2362,21 @@ int InstanceRecycler::recycle_indexes() {
                 return -1;
             }
         }
+        // Defer tablet recycling when REPLACE TABLE swap=false dropped this index on a TT table.
+        // Same guard as recycle_partition — prevents S3 data deletion during retention window.
+        if (index_pb.has_dropped_ms() && index_pb.dropped_ms() > 0) {
+            int64_t retention_sec = get_tt_retention_seconds_for_table(index_pb.table_id());
+            if (retention_sec > 0) {
+                int64_t dropped_sec = index_pb.dropped_ms() / 1000;
+                int64_t now_sec = ::time(nullptr);
+                if (now_sec < dropped_sec + retention_sec) {
+                    LOG_INFO("deferring index tablet recycle for TT retention")
+                            .tag("index_id", index_id)
+                            .tag("table_id", index_pb.table_id());
+                    return 0;
+                }
+            }
+        }
         if (recycle_tablets(index_pb.table_id(), index_id, metrics_context) != 0) {
             LOG_WARNING("failed to recycle tablets under index")
                     .tag("table_id", index_pb.table_id())
@@ -2383,6 +2400,17 @@ int InstanceRecycler::recycle_indexes() {
             versioned_remove_all(txn.get(), meta_key);
             txn->remove(index_key);
             txn->remove(index_inverted_key);
+
+            // Delete all schema history keys for this table.
+            // Safe to range-delete here because all tablets of the index are already recycled.
+            std::string sh_begin, sh_end;
+            tt_schema_history_key({instance_id_, index_pb.table_id(), 0}, &sh_begin);
+            tt_schema_history_key(
+                    {instance_id_, index_pb.table_id(), std::numeric_limits<int64_t>::max()},
+                    &sh_end);
+            sh_end.push_back('\xff');
+            txn->remove(sh_begin, sh_end);
+
             err = txn->commit();
             if (err != TxnErrorCode::TXN_OK) {
                 LOG_WARNING("failed to commit txn").tag("err", err);
@@ -2597,6 +2625,25 @@ int InstanceRecycler::recycle_partitions() {
         }
 
         int ret = 0;
+        // For TT-enabled tables, defer tablet recycling until the retention window expires.
+        // This preserves rowset FDB keys and S3 files so historical TT queries can read them.
+        if (part_pb.has_dropped_ms() && part_pb.dropped_ms() > 0) {
+            int64_t table_id = part_pb.table_id();
+            int64_t retention_sec = get_tt_retention_seconds_for_table(table_id);
+            if (retention_sec > 0) {
+                int64_t dropped_sec = part_pb.dropped_ms() / 1000;
+                int64_t now_sec = ::time(nullptr);
+                if (now_sec < dropped_sec + retention_sec) {
+                    LOG_INFO("deferring partition tablet recycle for TT retention")
+                            .tag("partition_id", partition_id)
+                            .tag("table_id", table_id)
+                            .tag("dropped_sec", dropped_sec)
+                            .tag("retention_sec", retention_sec)
+                            .tag("remaining_sec", (dropped_sec + retention_sec) - now_sec);
+                    return 0;
+                }
+            }
+        }
         for (int64_t index_id : part_pb.index_id()) {
             if (recycle_tablets(part_pb.table_id(), index_id, metrics_context, partition_id) != 0) {
                 LOG_WARNING("failed to recycle tablets under partition")
@@ -2625,6 +2672,12 @@ int InstanceRecycler::recycle_partitions() {
             txn->remove(index_key);
             txn->remove(inverted_index_key);
             versioned_remove_all(txn.get(), partition_version_key);
+
+            // Delete lifecycle key for this partition (written at DROP PARTITION / TRUNCATE).
+            std::string lc_key =
+                    tt_partition_lifecycle_key({instance_id_, part_pb.table_id(), partition_id});
+            txn->remove(lc_key);
+
             err = txn->commit();
             if (err != TxnErrorCode::TXN_OK) {
                 LOG_WARNING("failed to commit txn").tag("err", err);
@@ -4278,6 +4331,24 @@ int InstanceRecycler::scan_tablet_and_statistics(int64_t tablet_id,
     return ret;
 }
 
+int64_t InstanceRecycler::get_tt_retention_seconds_for_table(int64_t table_id) {
+    if (table_id <= 0) return 0;
+    std::unique_ptr<Transaction> txn;
+    if (txn_kv_->create_txn(&txn) != TxnErrorCode::TXN_OK) return 0;
+    std::string tk_begin, tk_end;
+    meta_tablet_key({instance_id_, table_id, 0, 0, 0}, &tk_begin);
+    meta_tablet_key({instance_id_, table_id + 1, 0, 0, 0}, &tk_end);
+    std::unique_ptr<RangeGetIterator> iter;
+    if (txn->get(tk_begin, tk_end, &iter, false, 1) != TxnErrorCode::TXN_OK || !iter ||
+        !iter->has_next()) {
+        return 0;
+    }
+    auto [k, v] = iter->next();
+    doris::TabletMetaCloudPB meta;
+    if (!meta.ParseFromArray(v.data(), v.size())) return 0;
+    return time_travel_retention_seconds(meta.time_travel_retention_days());
+}
+
 int InstanceRecycler::recycle_tablet(int64_t tablet_id, RecyclerMetricsContext& metrics_context) {
     LOG_INFO("begin to recycle rowsets in a dropped tablet")
             .tag("instance_id", instance_id_)
@@ -5649,6 +5720,108 @@ int InstanceRecycler::recycle_restore_jobs() {
 
     return scan_and_recycle(restore_job_key0, restore_job_key1, std::move(recycle_func),
                             std::move(loop_done));
+}
+
+int InstanceRecycler::recycle_tt_metadata_keys() {
+    // Expire tt_partition_lifecycle_key and tt_schema_history_key entries when
+    // dropped_ms/effective_ms + retention_seconds < now, or immediately if TT is disabled.
+
+    int64_t now_sec = ::time(nullptr);
+    // Cache table_id → retention_seconds to avoid one FDB txn per key in the scan.
+    std::unordered_map<int64_t, int64_t> retention_cache;
+    auto cached_retention = [&](int64_t table_id) -> int64_t {
+        auto it = retention_cache.find(table_id);
+        if (it != retention_cache.end()) return it->second;
+        int64_t sec = get_tt_retention_seconds_for_table(table_id);
+        retention_cache[table_id] = sec;
+        return sec;
+    };
+
+    // --- lifecycle keys ---
+    std::string lc_begin, lc_end;
+    tt_partition_lifecycle_key({instance_id_, 0, 0}, &lc_begin);
+    tt_partition_lifecycle_key({instance_id_, std::numeric_limits<int64_t>::max(),
+                                std::numeric_limits<int64_t>::max()},
+                               &lc_end);
+    lc_end.push_back('\xff');
+
+    std::vector<std::string> expired_lc_keys;
+    auto lc_func = [&](std::string_view k, std::string_view v) -> int {
+        TtPartitionLifecyclePB lc;
+        if (!lc.ParseFromArray(v.data(), v.size())) return 0;
+        if (!lc.has_dropped_ms() || lc.dropped_ms() == 0) return 0; // still live
+
+        // Key trailing layout: table_id(9) + partition_id(9) = 18 bytes.
+        if (k.size() < 18) return 0;
+        std::string_view tid_sv = k.substr(k.size() - 18, 9);
+        int64_t table_id = 0;
+        if (decode_int64(&tid_sv, &table_id) != 0 || table_id == 0) return 0;
+
+        int64_t retention_sec = cached_retention(table_id);
+        if (retention_sec <= 0) {
+            expired_lc_keys.emplace_back(k); // TT disabled — orphaned key
+            return 0;
+        }
+
+        int64_t dropped_sec = lc.dropped_ms() / 1000;
+        if (now_sec >= dropped_sec + retention_sec) {
+            expired_lc_keys.emplace_back(k);
+        }
+        return 0;
+    };
+
+    int ret = scan_and_recycle(lc_begin, lc_end, std::move(lc_func), [&]() -> int {
+        if (expired_lc_keys.empty()) return 0;
+        std::unique_ptr<Transaction> txn;
+        if (txn_kv_->create_txn(&txn) != TxnErrorCode::TXN_OK) return -1;
+        for (auto& key : expired_lc_keys) txn->remove(key);
+        expired_lc_keys.clear();
+        return txn->commit() == TxnErrorCode::TXN_OK ? 0 : -1;
+    });
+
+    // --- schema history keys ---
+    std::string sh_begin, sh_end;
+    tt_schema_history_key({instance_id_, 0, 0}, &sh_begin);
+    tt_schema_history_key({instance_id_, std::numeric_limits<int64_t>::max(),
+                           std::numeric_limits<int64_t>::max()},
+                          &sh_end);
+    sh_end.push_back('\xff');
+
+    std::vector<std::string> expired_sh_keys;
+    auto sh_func = [&](std::string_view k, std::string_view v) -> int {
+        TtSchemaHistoryPB sh;
+        if (!sh.ParseFromArray(v.data(), v.size())) return 0;
+        if (!sh.has_effective_ms() || sh.effective_ms() == 0) return 0;
+
+        // Key trailing layout: table_id(9) + schema_version(9) = 18 bytes.
+        if (k.size() < 18) return 0;
+        std::string_view tid_sv = k.substr(k.size() - 18, 9);
+        int64_t table_id = 0;
+        if (decode_int64(&tid_sv, &table_id) != 0 || table_id == 0) return 0;
+
+        int64_t retention_sec = cached_retention(table_id);
+        if (retention_sec <= 0) {
+            expired_sh_keys.emplace_back(k); // TT disabled — orphaned key
+            return 0;
+        }
+
+        int64_t effective_sec = sh.effective_ms() / 1000;
+        if (now_sec >= effective_sec + retention_sec) {
+            expired_sh_keys.emplace_back(k);
+        }
+        return 0;
+    };
+
+    int ret2 = scan_and_recycle(sh_begin, sh_end, std::move(sh_func), [&]() -> int {
+        if (expired_sh_keys.empty()) return 0;
+        std::unique_ptr<Transaction> txn;
+        if (txn_kv_->create_txn(&txn) != TxnErrorCode::TXN_OK) return -1;
+        for (auto& key : expired_sh_keys) txn->remove(key);
+        expired_sh_keys.clear();
+        return txn->commit() == TxnErrorCode::TXN_OK ? 0 : -1;
+    });
+
+    return (ret != 0 || ret2 != 0) ? -1 : 0;
 }
 
 int InstanceRecycler::recycle_tt_compaction() {

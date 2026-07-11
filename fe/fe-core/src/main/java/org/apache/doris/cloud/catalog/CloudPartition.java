@@ -295,17 +295,35 @@ public class CloudPartition extends Partition {
         public final List<Long> versions;
         /** tablet_id → list of serialised RowsetMetaCloudPB bytes, one per compacted version. */
         public final java.util.Map<Long, List<byte[]>> tabletManifests;
+        /** Dropped partitions that were alive at the queried timestamp (non-null, may be empty). */
+        public final List<Cloud.TtDroppedPartitionInfo> droppedPartitions;
 
         public VersionAtTimeResult(List<Long> versions,
                 java.util.Map<Long, List<byte[]>> tabletManifests) {
+            this(versions, tabletManifests, java.util.Collections.emptyList());
+        }
+
+        public VersionAtTimeResult(List<Long> versions,
+                java.util.Map<Long, List<byte[]>> tabletManifests,
+                List<Cloud.TtDroppedPartitionInfo> droppedPartitions) {
             this.versions = versions;
             this.tabletManifests = tabletManifests;
+            this.droppedPartitions = droppedPartitions != null
+                    ? droppedPartitions : java.util.Collections.emptyList();
         }
     }
 
     public static VersionAtTimeResult getVersionsAtTime(List<CloudPartition> partitions,
             long timestampMs, int retentionDays,
             java.util.function.Function<CloudPartition, List<Long>> tabletIdsProvider)
+            throws RpcException {
+        return getVersionsAtTime(partitions, timestampMs, retentionDays, tabletIdsProvider, null);
+    }
+
+    public static VersionAtTimeResult getVersionsAtTime(List<CloudPartition> partitions,
+            long timestampMs, int retentionDays,
+            java.util.function.Function<CloudPartition, List<Long>> tabletIdsProvider,
+            Long tableIdForTt)
             throws RpcException {
         if (partitions.isEmpty()) {
             return new VersionAtTimeResult(new ArrayList<>(), java.util.Collections.emptyMap());
@@ -317,6 +335,10 @@ public class CloudPartition extends Partition {
                 .setTimestampMs(timestampMs)
                 .setRetentionDays(retentionDays)
                 .setBatchMode(true);
+
+        if (tableIdForTt != null) {
+            req.setTableIdForTt(tableIdForTt);
+        }
 
         for (CloudPartition p : partitions) {
             req.addDbIds(p.getDbId());
@@ -369,7 +391,8 @@ public class CloudPartition extends Partition {
             manifests.put(entry.getTabletId(), bytesList);
         }
 
-        return new VersionAtTimeResult(result, manifests);
+        return new VersionAtTimeResult(result, manifests,
+                resp.getDroppedPartitionsList());
     }
 
     // Overload without manifest support; retained for existing callers.

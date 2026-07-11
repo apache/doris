@@ -183,6 +183,13 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
      */
     protected long timeTravelTimestampMs;
 
+    /**
+     * Historical column list for time travel queries where a schema change occurred after T.
+     * Null means use the current table schema (common case — no schema change before T).
+     * Set by BindRelation.validateAndStoreTimeTravelSnapshot when historical schema is fetched.
+     */
+    protected List<Column> historicalSchema;
+
     public LogicalOlapScan(RelationId id, OlapTable table) {
         this(id, table, ImmutableList.of());
     }
@@ -460,6 +467,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
                 scoreOrderKeys, scoreLimit, scoreRangeInfo, annOrderKeys, annLimit, tableAlias,
                 partitionPrunablePredicates, scanParams));
         ttCopy.timeTravelTimestampMs = this.timeTravelTimestampMs;
+        ttCopy.historicalSchema = this.historicalSchema;
         return ttCopy;
     }
 
@@ -533,7 +541,8 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
                 && Objects.equals(annLimit, that.annLimit)
                 && Objects.equals(partitionPrunablePredicates, that.partitionPrunablePredicates)
                 && Objects.equals(scanParams, that.scanParams)
-                && Objects.equals(timeTravelTimestampMs, that.timeTravelTimestampMs);
+                && Objects.equals(timeTravelTimestampMs, that.timeTravelTimestampMs)
+                && Objects.equals(historicalSchema, that.historicalSchema);
     }
 
     @Override
@@ -553,6 +562,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
                 scoreOrderKeys, scoreLimit, scoreRangeInfo, annOrderKeys, annLimit, tableAlias,
                 partitionPrunablePredicates, scanParams));
         ttCopy.timeTravelTimestampMs = this.timeTravelTimestampMs;
+        ttCopy.historicalSchema = this.historicalSchema;
         return ttCopy;
     }
 
@@ -568,6 +578,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
                 scoreOrderKeys, scoreLimit, scoreRangeInfo, annOrderKeys, annLimit, tableAlias,
                 partitionPrunablePredicates, scanParams));
         result.timeTravelTimestampMs = this.timeTravelTimestampMs;
+        result.historicalSchema = this.historicalSchema;
         return result;
     }
 
@@ -593,6 +604,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
                 scoreOrderKeys, scoreLimit, scoreRangeInfo, annOrderKeys, annLimit, tableAlias,
                 partitionPrunablePredicates, scanParams));
         ttCopy.timeTravelTimestampMs = this.timeTravelTimestampMs;
+        ttCopy.historicalSchema = this.historicalSchema;
         return ttCopy;
     }
 
@@ -611,6 +623,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
                 operativeSlots, virtualColumns, scoreOrderKeys, scoreLimit, scoreRangeInfo,
                 annOrderKeys, annLimit, tableAlias, partitionPrunablePredicates, scanParams));
         ttCopy.timeTravelTimestampMs = this.timeTravelTimestampMs;
+        ttCopy.historicalSchema = this.historicalSchema;
         return ttCopy;
     }
 
@@ -628,6 +641,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
                 scoreLimit, scoreRangeInfo, annOrderKeys, annLimit, tableAlias, partitionPrunablePredicates,
                 scanParams));
         ttCopy.timeTravelTimestampMs = this.timeTravelTimestampMs;
+        ttCopy.historicalSchema = this.historicalSchema;
         return ttCopy;
     }
 
@@ -645,6 +659,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
                 scoreOrderKeys, scoreLimit, scoreRangeInfo, annOrderKeys, annLimit, tableAlias,
                 partitionPrunablePredicates, scanParams));
         copy.timeTravelTimestampMs = this.timeTravelTimestampMs;
+        copy.historicalSchema = this.historicalSchema;
         return copy;
     }
 
@@ -662,6 +677,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
                 scoreOrderKeys, scoreLimit, scoreRangeInfo, annOrderKeys, annLimit, tableAlias,
                 partitionPrunablePredicates, scanParams));
         ttCopy.timeTravelTimestampMs = this.timeTravelTimestampMs;
+        ttCopy.historicalSchema = this.historicalSchema;
         return ttCopy;
     }
 
@@ -679,6 +695,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
                 scoreOrderKeys, scoreLimit, scoreRangeInfo, annOrderKeys, annLimit, tableAlias,
                 partitionPrunablePredicates, scanParams));
         ttCopy.timeTravelTimestampMs = this.timeTravelTimestampMs;
+        ttCopy.historicalSchema = this.historicalSchema;
         return ttCopy;
     }
 
@@ -695,6 +712,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
                 scoreLimit, scoreRangeInfo, annOrderKeys, annLimit, tableAlias, partitionPrunablePredicates,
                 scanParams));
         ttCopy.timeTravelTimestampMs = this.timeTravelTimestampMs;
+        ttCopy.historicalSchema = this.historicalSchema;
         return ttCopy;
     }
 
@@ -710,6 +728,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
                 scoreOrderKeys, scoreLimit, scoreRangeInfo, annOrderKeys, annLimit, tableAlias,
                 partitionPrunablePredicates, scanParams));
         ttCopy.timeTravelTimestampMs = this.timeTravelTimestampMs;
+        ttCopy.historicalSchema = this.historicalSchema;
         return ttCopy;
     }
 
@@ -733,6 +752,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
                 manuallySpecifiedTabletIds, operativeSlots, virtualColumns, scoreOrderKeys, scoreLimit,
                 scoreRangeInfo, annOrderKeys, annLimit, tableAlias, partitionPrunablePredicates, scanParams));
         ttCopy.timeTravelTimestampMs = this.timeTravelTimestampMs;
+        ttCopy.historicalSchema = this.historicalSchema;
         return ttCopy;
     }
 
@@ -758,6 +778,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
                 manuallySpecifiedTabletIds, operativeSlots, mergedVirtualColumns, scoreOrderKeys, scoreLimit,
                 scoreRangeInfo, annOrderKeys, annLimit, tableAlias, partitionPrunablePredicates, scanParams);
         ttCopy.timeTravelTimestampMs = this.timeTravelTimestampMs;
+        ttCopy.historicalSchema = this.historicalSchema;
         return ttCopy;
     }
 
@@ -789,6 +810,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
                 manuallySpecifiedTabletIds, operativeSlots, mergedVirtualColumns, scoreOrderKeys, scoreLimit,
                 scoreRangeInfo, annOrderKeys, annLimit, tableAlias, partitionPrunablePredicates, scanParams);
         ttCopy.timeTravelTimestampMs = this.timeTravelTimestampMs;
+        ttCopy.historicalSchema = this.historicalSchema;
         return ttCopy;
     }
 
@@ -841,7 +863,11 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
         if (selectedIndexId != ((OlapTable) table).getBaseIndexId()) {
             return getOutputByIndex(selectedIndexId);
         }
-        List<Column> baseSchema = table.getBaseSchema(true);
+        // Use the historical schema when a schema change occurred after the TT timestamp.
+        // This allows SELECT on columns that were dropped after the query timestamp.
+        List<Column> baseSchema = (historicalSchema != null && !historicalSchema.isEmpty())
+                ? historicalSchema
+                : table.getBaseSchema(true);
         boolean skipBinlogBeforeColumn = scanParams.isPresent() && scanParams.get().incrementalRead();
         List<SlotReference> slotFromColumn = createSlotsVectorized(baseSchema, skipBinlogBeforeColumn);
 
@@ -1149,6 +1175,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
                 manuallySpecifiedTabletIds, operativeSlots, virtualColumns, scoreOrderKeys, scoreLimit,
                 scoreRangeInfo, annOrderKeys, annLimit, tableAlias, partitionPrunablePredicates, scanParams));
         ttCopy.timeTravelTimestampMs = this.timeTravelTimestampMs;
+        ttCopy.historicalSchema = this.historicalSchema;
         return ttCopy;
     }
 
@@ -1233,6 +1260,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
                 manuallySpecifiedTabletIds, operativeSlots, virtualColumns, scoreOrderKeys, scoreLimit,
                 scoreRangeInfo, annOrderKeys, annLimit, tableAlias, partitionPrunablePredicates, scanParams));
         ttCopy.timeTravelTimestampMs = this.timeTravelTimestampMs;
+        ttCopy.historicalSchema = this.historicalSchema;
         return ttCopy;
     }
 
@@ -1248,6 +1276,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
                         scoreRangeInfo, annOrderKeys, annLimit, tableAlias, partitionPrunablePredicates,
                         Optional.of(scanParams)));
         ttCopy.timeTravelTimestampMs = this.timeTravelTimestampMs;
+        ttCopy.historicalSchema = this.historicalSchema;
         return ttCopy;
     }
 
@@ -1274,6 +1303,22 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
                         scoreRangeInfo, annOrderKeys, annLimit, tableAlias, partitionPrunablePredicates,
                         scanParams));
         copy.timeTravelTimestampMs = version;
+        copy.historicalSchema = this.historicalSchema;
+        return copy;
+    }
+
+    public List<Column> getHistoricalSchema() {
+        return historicalSchema;
+    }
+
+    /**
+     * Returns a copy of this scan with the historical schema set.
+     * Called by BindRelation when a schema change was recorded after the TT timestamp,
+     * so FE uses the historical column list for slot resolution instead of the current schema.
+     */
+    public LogicalOlapScan withHistoricalSchema(List<Column> schema) {
+        LogicalOlapScan copy = withTimeTravelTimestampMs(this.timeTravelTimestampMs);
+        copy.historicalSchema = schema;
         return copy;
     }
 

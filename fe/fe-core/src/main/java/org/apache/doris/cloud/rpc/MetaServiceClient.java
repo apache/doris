@@ -168,6 +168,20 @@ public class MetaServiceClient {
                 TimeUnit.MILLISECONDS).disableTimeTravelTable(request);
     }
 
+    public Cloud.GetTtSchemaAtTimeResponse getTtSchemaAtTime(
+            Cloud.GetTtSchemaAtTimeRequest request) {
+        if (!request.hasCloudUniqueId()) {
+            Cloud.GetTtSchemaAtTimeRequest.Builder builder =
+                    Cloud.GetTtSchemaAtTimeRequest.newBuilder();
+            builder.mergeFrom(request);
+            return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms,
+                    TimeUnit.MILLISECONDS)
+                    .getTtSchemaAtTime(builder.setCloudUniqueId(Config.cloud_unique_id).build());
+        }
+        return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms,
+                TimeUnit.MILLISECONDS).getTtSchemaAtTime(request);
+    }
+
     public Cloud.CreateTabletsResponse createTablets(Cloud.CreateTabletsRequest request) {
         if (!request.hasCloudUniqueId()) {
             Cloud.CreateTabletsRequest.Builder builder = Cloud.CreateTabletsRequest.newBuilder();

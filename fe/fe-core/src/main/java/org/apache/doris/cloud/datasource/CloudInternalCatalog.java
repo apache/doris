@@ -940,6 +940,72 @@ public class CloudInternalCatalog extends InternalCatalog {
         }
     }
 
+    /**
+     * Override truncateTable to write TT partition lifecycle keys for TT-enabled tables.
+     * The base class calls dropPartitionForTruncate → dropPartitionCommon which goes to the
+     * FE recycle bin and never calls the drop_partition meta-service RPC. That means
+     * dropped_ms is never set and the recycler never defers tablet deletion. By calling
+     * dropCloudPartition here (after the base class completes) we trigger the same write path
+     * as a normal DROP PARTITION: lifecycle key written, RecyclePartitionPB.dropped_ms set.
+     */
+    @Override
+    public void truncateTable(String dbName, String tableName,
+            org.apache.doris.catalog.info.PartitionNamesInfo partitionNamesInfo,
+            boolean forceDrop, String rawTruncateSql) throws DdlException {
+        // Collect the old partition info before truncation.
+        Database db = getDbOrDdlException(dbName);
+        OlapTable olapTable = db.getOlapTableOrDdlException(tableName);
+        boolean isTtTable = false;
+        long tableId = -1;
+        long dbId = -1;
+        List<Long> oldPartitionIds = new ArrayList<>();
+        Set<Long> allIndexIds = new HashSet<>();
+
+        olapTable.readLock();
+        try {
+            isTtTable = olapTable.isEnableTimeTravel();
+            if (isTtTable) {
+                tableId = olapTable.getId();
+                dbId = db.getId();
+                if (partitionNamesInfo == null || partitionNamesInfo.getPartitionNames().isEmpty()) {
+                    olapTable.getPartitions().forEach(p -> {
+                        oldPartitionIds.add(p.getId());
+                        p.getMaterializedIndices(MaterializedIndex.IndexExtState.ALL)
+                                .forEach(idx -> allIndexIds.add(idx.getId()));
+                    });
+                } else {
+                    for (String partName : partitionNamesInfo.getPartitionNames()) {
+                        Partition p = olapTable.getPartition(partName);
+                        if (p != null) {
+                            oldPartitionIds.add(p.getId());
+                            p.getMaterializedIndices(MaterializedIndex.IndexExtState.ALL)
+                                    .forEach(idx -> allIndexIds.add(idx.getId()));
+                        }
+                    }
+                }
+            }
+        } finally {
+            olapTable.readUnlock();
+        }
+
+        // Execute the base class truncation (creates new partitions, replaces old ones).
+        super.truncateTable(dbName, tableName, partitionNamesInfo, forceDrop, rawTruncateSql);
+
+        // For TT-enabled tables, notify the meta service about the dropped old partitions
+        // so that: (a) RecyclePartitionPB.dropped_ms is set, (b) lifecycle keys are written,
+        // and (c) the recycler defers tablet deletion until the retention window expires.
+        if (isTtTable && !oldPartitionIds.isEmpty()) {
+            try {
+                dropCloudPartition(dbId, tableId, oldPartitionIds,
+                        new ArrayList<>(allIndexIds), /*needUpdateTableVersion=*/false);
+            } catch (Exception e) {
+                LOG.warn("failed to write TT lifecycle keys for truncated table {} — "
+                        + "time travel across this truncation will not be queryable: {}",
+                        tableName, e.getMessage());
+            }
+        }
+    }
+
     public void dropCloudPartition(long dbId, long tableId, List<Long> partitionIds, List<Long> indexIds,
                                     boolean needUpdateTableVersion) throws DdlException {
         if (Config.enable_check_compatibility_mode) {

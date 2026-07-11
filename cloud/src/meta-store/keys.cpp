@@ -57,8 +57,10 @@ static const char* META_KEY_INFIX_DELETE_BITMAP_PENDING = "delete_bitmap_pending
 static const char* META_KEY_INFIX_MOW_TABLET_JOB        = "mow_tablet_job";
 static const char* META_KEY_INFIX_SCHEMA_DICTIONARY     = "tablet_schema_pb_dict";
 static const char* META_KEY_INFIX_PACKED_FILE          = "packed_file";
-static const char* META_KEY_INFIX_TIME_TRAVEL_TABLE    = "time_travel_table";
-static const char* META_KEY_INFIX_TT_COMPACTION        = "tt_compaction";
+static const char* META_KEY_INFIX_TIME_TRAVEL_TABLE         = "time_travel_table";
+static const char* META_KEY_INFIX_TT_COMPACTION             = "tt_compaction";
+static const char* META_KEY_INFIX_TT_PARTITION_LIFECYCLE    = "tt_partition_lifecycle";
+static const char* META_KEY_INFIX_TT_SCHEMA_HISTORY         = "tt_schema_history";
 
 static const char* RECYCLE_KEY_INFIX_INDEX              = "index";
 static const char* RECYCLE_KEY_INFIX_PART               = "partition";
@@ -155,7 +157,7 @@ static void encode_prefix(const T& t, std::string* key) {
         RLJobProgressKeyInfo, StreamingJobKeyInfo,
         CopyJobKeyInfo, CopyFileKeyInfo,  StorageVaultKeyInfo, MetaSchemaPBDictionaryInfo,
         MowTabletJobInfo, PackedFileKeyInfo, TimeTravelTableKeyInfo,
-        TtCompactionKeyInfo>);
+        TtCompactionKeyInfo, TtPartitionLifecycleKeyInfo, TtSchemaHistoryKeyInfo>);
 
     key->push_back(CLOUD_USER_KEY_SPACE01);
     // Prefixes for key families
@@ -178,7 +180,9 @@ static void encode_prefix(const T& t, std::string* key) {
                       || std::is_same_v<T, MowTabletJobInfo>
                       || std::is_same_v<T, PackedFileKeyInfo>
                       || std::is_same_v<T, TimeTravelTableKeyInfo>
-                      || std::is_same_v<T, TtCompactionKeyInfo>) {
+                      || std::is_same_v<T, TtCompactionKeyInfo>
+                      || std::is_same_v<T, TtPartitionLifecycleKeyInfo>
+                      || std::is_same_v<T, TtSchemaHistoryKeyInfo>) {
         encode_bytes(META_KEY_PREFIX, key);
     } else if constexpr (std::is_same_v<T, PartitionVersionKeyInfo>
                       || std::is_same_v<T, TableVersionKeyInfo>) {
@@ -374,6 +378,20 @@ void tt_compaction_key(const TtCompactionKeyInfo& in, std::string* out) {
     encode_int64(std::get<1>(in), out);              // tablet_id
     encode_int64(std::get<2>(in), out);              // start_version
     encode_int64(std::get<3>(in), out);              // end_version
+}
+
+void tt_partition_lifecycle_key(const TtPartitionLifecycleKeyInfo& in, std::string* out) {
+    encode_prefix(in, out);                                   // 0x01 "meta" ${instance_id}
+    encode_bytes(META_KEY_INFIX_TT_PARTITION_LIFECYCLE, out); // "tt_partition_lifecycle"
+    encode_int64(std::get<1>(in), out);                       // table_id
+    encode_int64(std::get<2>(in), out);                       // partition_id
+}
+
+void tt_schema_history_key(const TtSchemaHistoryKeyInfo& in, std::string* out) {
+    encode_prefix(in, out);                              // 0x01 "meta" ${instance_id}
+    encode_bytes(META_KEY_INFIX_TT_SCHEMA_HISTORY, out); // "tt_schema_history"
+    encode_int64(std::get<1>(in), out);                  // table_id
+    encode_int64(std::get<2>(in), out);                  // schema_version
 }
 
 void meta_pending_delete_bitmap_key(const MetaPendingDeleteBitmapInfo& in, std::string* out) {

@@ -171,6 +171,11 @@ public:
                                    DisableTimeTravelTableResponse* response,
                                    ::google::protobuf::Closure* done) override;
 
+    void get_tt_schema_at_time(::google::protobuf::RpcController* controller,
+                               const GetTtSchemaAtTimeRequest* request,
+                               GetTtSchemaAtTimeResponse* response,
+                               ::google::protobuf::Closure* done) override;
+
     void batch_get_version(::google::protobuf::RpcController* controller,
                            const GetVersionRequest* request, GetVersionResponse* response,
                            ::google::protobuf::Closure* done);
@@ -656,6 +661,13 @@ public:
                                    ::google::protobuf::Closure* done) override {
         call_impl(&cloud::MetaService::disable_time_travel_table, controller, request, response,
                   done);
+    }
+
+    void get_tt_schema_at_time(::google::protobuf::RpcController* controller,
+                               const GetTtSchemaAtTimeRequest* request,
+                               GetTtSchemaAtTimeResponse* response,
+                               ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::get_tt_schema_at_time, controller, request, response, done);
     }
 
     void create_tablets(::google::protobuf::RpcController* controller,

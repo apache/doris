@@ -2089,6 +2089,30 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
     INSTANCE_LOG(INFO) << "remove schema_change job tablet_id=" << tablet_id
                        << " key=" << hex(job_key);
 
+    // Write schema history key for TT-enabled tables (non-fatal).
+    // Enables FE to resolve historical column definitions at time T.
+    if (resource_mgr->is_table_time_travel_enabled(instance_id, new_table_id)) {
+        using namespace std::chrono;
+        int64_t now_ms =
+                duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+        std::unique_ptr<Transaction> sh_txn;
+        if (txn_kv->create_txn(&sh_txn) == TxnErrorCode::TXN_OK) {
+            TtSchemaHistoryPB sh;
+            sh.set_schema_version(new_tablet_meta.schema_hash());
+            sh.set_effective_ms(now_ms);
+            sh.set_schema_pb(new_tablet_val); // full tablet meta for FE schema resolution
+            std::string sh_key =
+                    tt_schema_history_key({instance_id, new_table_id,
+                                           static_cast<int64_t>(new_tablet_meta.schema_hash())});
+            sh_txn->put(sh_key, sh.SerializeAsString());
+            if (sh_txn->commit() != TxnErrorCode::TXN_OK) {
+                LOG_WARNING("failed to write TT schema history key")
+                        .tag("table_id", new_table_id)
+                        .tag("schema_hash", new_tablet_meta.schema_hash());
+            }
+        }
+    }
+
     need_commit = true;
 
     if (is_versioned_write) {

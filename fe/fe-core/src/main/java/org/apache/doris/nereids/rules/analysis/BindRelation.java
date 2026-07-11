@@ -40,9 +40,12 @@ import org.apache.doris.catalog.stream.BaseTableStream.StreamScanType;
 import org.apache.doris.catalog.stream.OlapTableStream;
 import org.apache.doris.catalog.stream.OlapTableStreamWrapper;
 import org.apache.doris.catalog.stream.StreamReadMode;
+import org.apache.doris.cloud.proto.Cloud;
+import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.util.FetchRemoteTabletSchemaUtil;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.ExternalView;
@@ -117,8 +120,10 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalWorkTableReference;
 import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.planner.OlapScanNode;
+import org.apache.doris.proto.OlapFile;
 import org.apache.doris.qe.AutoCloseSessionVariable;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.tso.TSOTimestamp;
 
 import com.google.common.base.Preconditions;
@@ -354,7 +359,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
     }
 
     /**
-     * Validates a FOR TIME AS OF clause and stamps the parsed timestamp (ms) onto the scan.
+     * Validates a FOR SYSTEM_TIME AS OF clause and stamps the parsed timestamp (ms) onto the scan.
      * Version resolution happens at the BE per partition during scan execution, not here,
      * so multi-partition tables work correctly.
      *
@@ -397,28 +402,79 @@ public class BindRelation extends OneAnalysisRuleFactory {
             timestampMs = ldt.atZone(sessionZone).toInstant().toEpochMilli();
         } catch (Exception e) {
             throw new AnalysisException(
-                    "Invalid timestamp for FOR TIME AS OF: '" + snapshot.getValue()
+                    "Invalid timestamp for FOR SYSTEM_TIME AS OF: '" + snapshot.getValue()
                             + "'. Expected format: 'yyyy-MM-dd HH:mm:ss'. Cause: " + e.getMessage());
         }
 
         // Validate timestamp is not in the future or beyond the retention window.
         long nowMs = System.currentTimeMillis();
+        int retentionDays = olapTable.getTimeTravelRetentionDays();
+        if (retentionDays <= 0) {
+            throw new AnalysisException(
+                    "FOR SYSTEM_TIME AS OF is not available on table '" + olapTable.getName()
+                            + "': time_travel_retention_days must be >= 1. "
+                            + "Set it with ALTER TABLE ... SET (\"time_travel_retention_days\"=\"7\").");
+        }
         if (timestampMs > nowMs) {
             throw new AnalysisException(
-                    "FOR TIME AS OF timestamp '" + snapshot.getValue() + "' is in the future.");
+                    "FOR SYSTEM_TIME AS OF timestamp '" + snapshot.getValue() + "' is in the future.");
         }
-        long retentionMs = (long) olapTable.getTimeTravelRetentionDays() * 86400L * 1000L;
+        long retentionMs = (long) retentionDays * 86400L * 1000L;
         if (timestampMs < nowMs - retentionMs) {
             throw new AnalysisException(
-                    "FOR TIME AS OF timestamp '" + snapshot.getValue()
+                    "FOR SYSTEM_TIME AS OF timestamp '" + snapshot.getValue()
                             + "' is beyond the retention window of "
-                            + olapTable.getTimeTravelRetentionDays() + " days for table '"
+                            + retentionDays + " days for table '"
                             + olapTable.getName() + "'.");
         }
 
         // Store timestamp_ms on the scan. The BE resolves it to the correct version
         // per partition during scan execution via get_version_at_time RPC.
-        return scan.withTimeTravelTimestampMs(timestampMs);
+        LogicalOlapScan result = scan.withTimeTravelTimestampMs(timestampMs);
+
+        // Fetch the historical schema if a schema change was recorded after T.
+        // This allows FE column resolution to succeed for columns that were dropped after T.
+        List<Column> historicalColumns = fetchHistoricalSchemaIfNeeded(olapTable, timestampMs);
+        if (historicalColumns != null && !historicalColumns.isEmpty()) {
+            result = result.withHistoricalSchema(historicalColumns);
+        }
+        return result;
+    }
+
+    private List<Column> fetchHistoricalSchemaIfNeeded(OlapTable olapTable, long timestampMs) {
+        if (!Config.isCloudMode()) {
+            return null;
+        }
+        try {
+            Cloud.GetTtSchemaAtTimeRequest req =
+                    Cloud.GetTtSchemaAtTimeRequest.newBuilder()
+                            .setCloudUniqueId(Config.cloud_unique_id)
+                            .setRequestIp(FrontendOptions.getLocalHostAddressCached())
+                            .setTableId(olapTable.getId())
+                            .setTimestampMs(timestampMs)
+                            .build();
+            Cloud.GetTtSchemaAtTimeResponse resp =
+                    MetaServiceProxy.getInstance().getTtSchemaAtTime(req);
+            if (resp.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
+                LOG.warn("getTtSchemaAtTime failed for table {}: {}",
+                        olapTable.getId(), resp.getStatus().getMsg());
+                return null;
+            }
+            if (!resp.hasSchemaPb()) {
+                return null;
+            }
+            OlapFile.TabletMetaCloudPB tabletMeta =
+                    OlapFile.TabletMetaCloudPB.parseFrom(resp.getSchemaPb().toByteArray());
+            List<Column> cols = new ArrayList<>();
+            for (OlapFile.ColumnPB colPB : tabletMeta.getSchema().getColumnList()) {
+                cols.add(FetchRemoteTabletSchemaUtil.initColumnFromPB(colPB));
+            }
+            return cols;
+        } catch (Exception e) {
+            LOG.warn("failed to fetch historical schema for table {}: {}",
+                    olapTable.getId(), e.getMessage());
+            return null;
+        }
     }
 
     private LogicalOlapTableStreamScan makeOlapTableStreamScan(OlapTableStream olapTableStream,

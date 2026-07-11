@@ -560,11 +560,14 @@ message RecycleIndexPB {
         DROPPED = 2;
         RECYCLING = 3;
     }
-    optional int64 table_id = 1;
+    optional int64 table_id     = 1;
     optional int64 creation_time = 2;
-    optional int64 expiration = 3; // expiration timestamp
-    optional State state = 4;
-    optional int64 db_id = 5;
+    optional int64 expiration    = 3;
+    optional State state         = 4;
+    optional int64 db_id         = 5;
+    // Set when the index belongs to a TT-enabled table being dropped (REPLACE TABLE swap=false).
+    // Recycler defers tablet deletion until dropped_ms + retention > now.
+    optional int64 dropped_ms    = 6;
 }
 
 message RecyclePartitionPB {
@@ -574,12 +577,15 @@ message RecyclePartitionPB {
         DROPPED = 2;
         RECYCLING = 3;
     }
-    optional int64 table_id = 1;
-    repeated int64 index_id = 2;
+    optional int64 table_id  = 1;
+    repeated int64 index_id  = 2;
     optional int64 creation_time = 3;
-    optional int64 expiration = 4; // expiration timestamp
-    optional State state = 5;
-    optional int64 db_id = 6; // For version recycling
+    optional int64 expiration    = 4; // expiration timestamp
+    optional State state         = 5;
+    optional int64 db_id         = 6; // For version recycling
+    // Set when the partition is dropped on a TT-enabled table.
+    // Recycler defers tablet/rowset deletion until dropped_ms + retention > now.
+    optional int64 dropped_ms    = 7;
 }
 
 message RecycleRowsetPB {
@@ -1257,6 +1263,9 @@ message GetVersionAtTimeRequest {
     // Per-partition tablet_ids (parallel to partition_ids). When set, the RPC also
     // fetches compaction checkpoints in the same FDB transaction (no extra round trip).
     repeated TtPartitionTabletsInfo tablet_infos = 11;
+    // When set, the server scans tt_partition_lifecycle_key for this table and returns
+    // dropped partitions that were alive at timestamp_ms in dropped_partitions.
+    optional int64 table_id_for_tt = 12;
 };
 
 message GetVersionAtTimeResponse {
@@ -1271,6 +1280,9 @@ message GetVersionAtTimeResponse {
     // Per-tablet compaction manifests; populated when request.tablet_infos is set.
     // An empty entry (no rowset_metas) means the version is still in the active rowset chain.
     repeated TtTabletRowsetsPB tablet_rowsets  = 6;
+    // Dropped partitions alive at timestamp_ms; populated when table_id_for_tt is set.
+    // Each entry has the resolved version and tablet rowset manifests.
+    repeated TtDroppedPartitionInfo dropped_partitions = 7;
 };
 
 // Rowsets for a single tablet returned alongside the resolved version.
@@ -1298,6 +1310,52 @@ message TtVersionEntry {
 message TtCompactionManifestPB {
     repeated TtVersionEntry entries    = 1;
     optional int64          created_ms = 2;
+};
+
+// Lifecycle record for a partition in a TT-enabled table.
+// Key: tt_partition_lifecycle_key(instance_id, table_id, partition_id)
+// Written at DROP PARTITION; dropped_ms=0 means still live.
+message TtPartitionLifecyclePB {
+    optional int64 dropped_ms  = 1;  // epoch millis when partition was dropped; 0 = live
+    optional int64 created_ms  = 2;  // epoch millis when partition was created (best-effort)
+    repeated int64 tablet_ids  = 3;  // tablet IDs in this partition at drop time
+};
+
+// Schema version history for a TT-enabled table.
+// Key: tt_schema_history_key(instance_id, table_id, schema_version)
+// Written when ALTER TABLE schema change completes.
+message TtSchemaHistoryPB {
+    optional int64 schema_version = 1;
+    optional int64 effective_ms   = 2; // when this schema became active
+    optional bytes schema_pb      = 3; // serialized TabletSchemaPB (FE column resolution)
+};
+
+// Returns the tablet schema active at timestamp_ms for a TT-enabled table.
+// Empty schema_pb in the response means no schema change before T; FE uses current schema.
+message GetTtSchemaAtTimeRequest {
+    optional string cloud_unique_id = 1;
+    optional int64  table_id        = 2;
+    optional int64  timestamp_ms    = 3;
+    optional string request_ip      = 4;
+};
+
+message GetTtSchemaAtTimeResponse {
+    optional MetaServiceResponseStatus status         = 1;
+    // Serialized TabletMetaCloudPB bytes at the historical schema version.
+    // Absent if no schema change was recorded before timestamp_ms.
+    optional bytes schema_pb                          = 2;
+    optional int64 effective_ms                       = 3;
+    optional int64 schema_version                     = 4;
+};
+
+// Info about a dropped partition that was historically alive at the queried timestamp.
+// Returned by get_version_at_time when table_id_for_tt is set in the request.
+message TtDroppedPartitionInfo {
+    optional int64 partition_id       = 1;
+    optional int64 version            = 2;  // -1 if no data at query timestamp
+    optional int64 version_update_time_ms = 3;
+    repeated int64 tablet_ids         = 4;
+    repeated TtTabletRowsetsPB tablet_rowsets = 5;
 };
 
 // Disables time travel on a table: removes the persistent FDB marker key so that the
@@ -2388,6 +2446,7 @@ service MetaService {
     rpc get_version(GetVersionRequest) returns (GetVersionResponse);
     rpc get_version_at_time(GetVersionAtTimeRequest) returns (GetVersionAtTimeResponse);
     rpc disable_time_travel_table(DisableTimeTravelTableRequest) returns (DisableTimeTravelTableResponse);
+    rpc get_tt_schema_at_time(GetTtSchemaAtTimeRequest) returns (GetTtSchemaAtTimeResponse);
     rpc create_tablets(CreateTabletsRequest) returns (CreateTabletsResponse);
     rpc update_tablet(UpdateTabletRequest) returns (UpdateTabletResponse);
 

@@ -381,6 +381,12 @@ public class MetaServiceProxy {
                 (client) -> client.disableTimeTravelTable(request));
     }
 
+    public Cloud.GetTtSchemaAtTimeResponse getTtSchemaAtTime(
+            Cloud.GetTtSchemaAtTimeRequest request) throws RpcException {
+        return executeWithMetrics("getTtSchemaAtTime",
+                (client) -> client.getTtSchemaAtTime(request));
+    }
+
     public Cloud.CreateTabletsResponse createTablets(Cloud.CreateTabletsRequest request) throws RpcException {
         return executeWithMetrics("createTablets", (client) -> client.createTablets(request),
                 Cloud.CreateTabletsResponse::getStatus);
