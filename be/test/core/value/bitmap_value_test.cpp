@@ -26,6 +26,7 @@
 
 #include "gtest/gtest.h"
 #include "gtest/gtest_pred_impl.h"
+#include "util/bitmap_intersect.h"
 #include "util/coding.h"
 
 namespace doris {
@@ -529,7 +530,7 @@ TEST(BitmapValueTest, write_read) {
     std::unique_ptr<char[]> buffer(new char[size]);
 
     bitmap_empty.write_to(buffer.get());
-    BitmapValue deserialized(buffer.get());
+    BitmapValue deserialized(buffer.get(), size);
 
     check_bitmap_equal(deserialized, bitmap_empty);
 
@@ -538,7 +539,7 @@ TEST(BitmapValueTest, write_read) {
 
     bitmap_single.write_to(buffer.get());
     deserialized.reset();
-    deserialized.deserialize(buffer.get());
+    deserialized.deserialize(buffer.get(), size);
 
     check_bitmap_equal(deserialized, bitmap_single);
 
@@ -547,7 +548,7 @@ TEST(BitmapValueTest, write_read) {
 
     bitmap_set.write_to(buffer.get());
     deserialized.reset();
-    deserialized.deserialize(buffer.get());
+    deserialized.deserialize(buffer.get(), size);
 
     check_bitmap_equal(deserialized, bitmap_set);
 
@@ -556,7 +557,7 @@ TEST(BitmapValueTest, write_read) {
 
     bitmap.write_to(buffer.get());
     deserialized.reset();
-    deserialized.deserialize(buffer.get());
+    deserialized.deserialize(buffer.get(), size);
 
     check_bitmap_equal(deserialized, bitmap);
 
@@ -973,7 +974,7 @@ TEST(BitmapValueTest, bitmap_serde) {
         std::string expect_buffer(1, BitmapTypeCode::EMPTY);
         EXPECT_EQ(expect_buffer, buffer);
 
-        BitmapValue out(buffer.data());
+        BitmapValue out(buffer.data(), buffer.size());
         EXPECT_EQ(0, out.cardinality());
     }
     { // SINGLE32
@@ -984,7 +985,7 @@ TEST(BitmapValueTest, bitmap_serde) {
         put_fixed32_le(&expect_buffer, i);
         EXPECT_EQ(expect_buffer, buffer);
 
-        BitmapValue out(buffer.data());
+        BitmapValue out(buffer.data(), buffer.size());
         EXPECT_EQ(1, out.cardinality());
         EXPECT_TRUE(out.contains(i));
     }
@@ -992,7 +993,7 @@ TEST(BitmapValueTest, bitmap_serde) {
         BitmapValue bitmap32({0, UINT32_MAX});
         std::string buffer = convert_bitmap_to_string(bitmap32);
 
-        BitmapValue out(buffer.data());
+        BitmapValue out(buffer.data(), buffer.size());
         EXPECT_EQ(2, out.cardinality());
         EXPECT_TRUE(out.contains(0));
         EXPECT_TRUE(out.contains(UINT32_MAX));
@@ -1005,7 +1006,7 @@ TEST(BitmapValueTest, bitmap_serde) {
         put_fixed64_le(&expect_buffer, i);
         EXPECT_EQ(expect_buffer, buffer);
 
-        BitmapValue out(buffer.data());
+        BitmapValue out(buffer.data(), buffer.size());
         EXPECT_EQ(1, out.cardinality());
         EXPECT_TRUE(out.contains(i));
     }
@@ -1013,7 +1014,7 @@ TEST(BitmapValueTest, bitmap_serde) {
         BitmapValue bitmap64({0, static_cast<uint64_t>(UINT32_MAX) + 1});
         std::string buffer = convert_bitmap_to_string(bitmap64);
 
-        BitmapValue out(buffer.data());
+        BitmapValue out(buffer.data(), buffer.size());
         EXPECT_EQ(2, out.cardinality());
         EXPECT_TRUE(out.contains(0));
         EXPECT_TRUE(out.contains(static_cast<uint64_t>(UINT32_MAX) + 1));
@@ -1192,6 +1193,67 @@ TEST(BitmapValueTest, bitmap_value_iterator_test) {
 TEST(BitmapValueTest, invalid_data) {
     BitmapValue bitmap;
     char data[] = {0x02, static_cast<char>(0xff), 0x03};
-    EXPECT_FALSE(bitmap.deserialize(data));
+    EXPECT_FALSE(bitmap.deserialize(data, sizeof(data)));
+}
+
+TEST(BitmapValueTest, invalid_set_v2_data) {
+    std::string data;
+    data.push_back(static_cast<char>(BitmapTypeCode::SET_V2));
+
+    char count[sizeof(uint32_t)];
+    encode_fixed32_le(reinterpret_cast<uint8_t*>(count), 2);
+    data.append(count, sizeof(count));
+
+    char value[sizeof(uint64_t)];
+    encode_fixed64_le(reinterpret_cast<uint8_t*>(value), 1);
+    data.append(value, sizeof(value));
+
+    BitmapValue bitmap;
+    EXPECT_FALSE(bitmap.deserialize(data.data(), data.size()));
+}
+
+TEST(BitmapValueTest, deserialize_consumed_size) {
+    BitmapValue bitmap(123);
+    std::string data(bitmap.getSizeInBytes(), '\0');
+    bitmap.write_to(data.data());
+    data.push_back(0);
+
+    BitmapValue parsed;
+    size_t consumed = 0;
+    EXPECT_TRUE(parsed.deserialize(data.data(), data.size(), &consumed));
+    EXPECT_EQ(consumed, data.size() - 1);
+}
+
+TEST(BitmapValueTest, invalid_data_resets_target) {
+    BitmapValue bitmap(123);
+    char data[] = {static_cast<char>(BitmapTypeCode::SET_V2)};
+    EXPECT_FALSE(bitmap.deserialize(data, sizeof(data)));
+    EXPECT_TRUE(bitmap.empty());
+}
+
+TEST(BitmapIntersectTest, reject_truncated_bitmap_payload) {
+    BitmapIntersect<int64_t> source;
+    source.add_key(1);
+    source.update(1, BitmapValue(123));
+    std::string data(source.size(), '\0');
+    source.serialize(data.data());
+
+    BitmapIntersect<int64_t> parsed;
+    EXPECT_TRUE(parsed.deserialize(data.data(), data.size()));
+    EXPECT_EQ(parsed.intersect_count(), 1);
+    EXPECT_FALSE(parsed.deserialize(data.data(), data.size() - 1));
+    EXPECT_EQ(parsed.intersect_count(), 1);
+}
+
+TEST(BitmapIntersectTest, reject_trailing_garbage) {
+    BitmapIntersect<std::string_view> source;
+    source.add_key("key");
+    source.update("key", BitmapValue(123));
+    std::string data(source.size(), '\0');
+    source.serialize(data.data());
+    data.push_back(0);
+
+    BitmapIntersect<std::string_view> parsed;
+    EXPECT_FALSE(parsed.deserialize(data.data(), data.size()));
 }
 } // namespace doris

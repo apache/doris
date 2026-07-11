@@ -22,6 +22,7 @@
 
 #include <string>
 
+#include "common/exception.h"
 #include "core/arena.h"
 #include "core/assert_cast.h"
 #include "core/column/column_complex.h"
@@ -70,7 +71,8 @@ Status DataTypeBitMapSerDe::deserialize_one_cell_from_json(IColumn& column, Slic
     auto& data = data_column.get_data();
 
     BitmapValue value;
-    if (!value.deserialize(slice.data)) {
+    size_t consumed = 0;
+    if (!value.deserialize(slice, &consumed) || consumed != slice.size) {
         return Status::InternalError("deserialize BITMAP from string fail!");
     }
     data.push_back(std::move(value));
@@ -98,7 +100,13 @@ Status DataTypeBitMapSerDe::write_column_to_pb(const IColumn& column, PValues& r
 Status DataTypeBitMapSerDe::read_column_from_pb(IColumn& column, const PValues& arg) const {
     auto& col = reinterpret_cast<ColumnBitmap&>(column);
     for (int i = 0; i < arg.bytes_value_size(); ++i) {
-        BitmapValue value(arg.bytes_value(i).data());
+        BitmapValue value;
+        size_t consumed = 0;
+        if (!value.deserialize(Slice(arg.bytes_value(i).data(), arg.bytes_value(i).size()),
+                               &consumed) ||
+            consumed != arg.bytes_value(i).size()) {
+            return Status::InternalError("deserialize BITMAP from pb fail!");
+        }
         col.insert_value(value);
     }
     return Status::OK();
@@ -143,7 +151,12 @@ Status DataTypeBitMapSerDe::write_column_to_arrow(const IColumn& column, const N
 void DataTypeBitMapSerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const {
     auto& col = reinterpret_cast<ColumnBitmap&>(column);
     auto* blob = arg->unpack<JsonbBinaryVal>();
-    BitmapValue bitmap_value(blob->getBlob());
+    BitmapValue bitmap_value;
+    size_t consumed = 0;
+    if (!bitmap_value.deserialize(blob->getBlob(), blob->getBlobLen(), &consumed) ||
+        consumed != blob->getBlobLen()) {
+        throw Exception(ErrorCode::INTERNAL_ERROR, "deserialize BITMAP from jsonb fail!");
+    }
     col.insert_value(bitmap_value);
 }
 
@@ -223,7 +236,8 @@ Status DataTypeBitMapSerDe::from_string(StringRef& str, IColumn& column,
 Status DataTypeBitMapSerDe::from_olap_string(const std::string& str, Field& field,
                                              const FormatOptions& options) const {
     BitmapValue value;
-    if (!value.deserialize(str.data())) {
+    size_t consumed = 0;
+    if (!value.deserialize(str.data(), str.size(), &consumed) || consumed != str.size()) {
         return Status::InternalError("deserialize BITMAP from string fail!");
     }
     field = Field::create_field<TYPE_BITMAP>(std::move(value));
