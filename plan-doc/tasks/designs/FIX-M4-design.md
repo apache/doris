@@ -28,7 +28,9 @@ metadata——正是 `HiveConnector` 持 `HiveFileListingCache` 交给 metadata 
    与 `HiveFileListingCache` 字节一致）→ 慢 loader 在调用线程同步跑（striped-lock dedup），TCCL/classloading 与
    今日裸调用字节一致。loader 经 `PartitionLister` 注入（无 Mockito 可测），生产 loader
    `(db,t)->structureHelper.getPartitions(odps,db,t)`。config `meta.cache.max_compute.partition.{enable,ttl-second,
-   capacity}`，默认对齐旧版（ttl 86400s、capacity 10000）。
+   capacity}`，默认对齐**旧版 MaxCompute 分区缓存**（ttl=`external_cache_refresh_time_minutes*60`=**600s**、
+   capacity=`max_hive_partition_table_cache_num`=10000）。**⚠ 最终复核纠正**：初版误抄 hive 文件缓存的 knob
+   （`external_cache_expire_time_seconds_after_access`=86400s）→ 144x 过陈；已改 600s（commit `fca288424fc`）。
 2. `MaxComputeDorisConnector` 持 `final` 缓存（ctor 建，loader lambda 捕获 this、查询时惰读 structureHelper/odps，
    均 post-init），`getMetadata` 注入；override 4 个 `Connector` REFRESH 钩子（`invalidateTable/Db/All/Partition`）
    路由到缓存（`invalidatePartition` 降级为整表刷，正确安全——miss 重列）。镜像 `HiveConnector`。
