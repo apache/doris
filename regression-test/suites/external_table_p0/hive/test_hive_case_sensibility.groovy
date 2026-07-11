@@ -238,16 +238,16 @@ suite("test_hive_case_sensibility", "p0,external") {
                 /// full qualified
                 test {
                     sql """truncate table CASE_DB2.CASE_TBL22"""
-                    exception "Unknown database 'CASE_DB2'"
+                    exception "Failed to get database: 'CASE_DB2' in catalog"
                 }
                 test {
                     sql """truncate table CASE_DB2.case_tbl22"""
-                    exception "Unknown database 'CASE_DB2'"
+                    exception "Failed to get database: 'CASE_DB2'"
                 }
                 if (case_type.equals("0")) {
                     test {
                         sql """truncate table case_db2.CASE_TBL22"""
-                        exception "Unknown table 'CASE_TBL22'"
+                        exception "Failed to get table: 'CASE_TBL22'"
                     }
                 } else {
                     sql """truncate table case_db2.CASE_TBL22"""
@@ -259,7 +259,7 @@ suite("test_hive_case_sensibility", "p0,external") {
                 if (case_type.equals("0")) {
                     test {
                         sql """truncate table CASE_TBL12;"""
-                        exception "Unknown table 'CASE_TBL12'"
+                        exception "Failed to get table: 'CASE_TBL12' in database: case_db1"
                     }
                 } else {
                     sql """truncate table CASE_TBL12;"""
