@@ -76,19 +76,22 @@ public class MaxComputeConnectorMetadata implements ConnectorMetadata {
     private final String endpoint;
     private final String quota;
     private final Map<String, String> properties;
+    private final MaxComputePartitionCache partitionCache;
 
     public MaxComputeConnectorMetadata(Odps odps,
             McStructureHelper structureHelper,
             String defaultProject,
             String endpoint,
             String quota,
-            Map<String, String> properties) {
+            Map<String, String> properties,
+            MaxComputePartitionCache partitionCache) {
         this.odps = odps;
         this.structureHelper = structureHelper;
         this.defaultProject = defaultProject;
         this.endpoint = endpoint;
         this.quota = quota;
         this.properties = properties;
+        this.partitionCache = partitionCache;
     }
 
     @Override
@@ -237,8 +240,8 @@ public class MaxComputeConnectorMetadata implements ConnectorMetadata {
     public List<String> listPartitionNames(ConnectorSession session,
             ConnectorTableHandle handle) {
         MaxComputeTableHandle mcHandle = (MaxComputeTableHandle) handle;
-        List<Partition> partitions = structureHelper.getPartitions(
-                odps, mcHandle.getDbName(), mcHandle.getTableName());
+        List<Partition> partitions = partitionCache.getPartitions(
+                mcHandle.getDbName(), mcHandle.getTableName());
         List<String> names = new ArrayList<>(partitions.size());
         for (Partition partition : partitions) {
             names.add(partition.getPartitionSpec().toString(false, true));
@@ -251,14 +254,16 @@ public class MaxComputeConnectorMetadata implements ConnectorMetadata {
      * legacy SHOW PARTITIONS path ({@code MaxComputeExternalCatalog
      * #listPartitionNames}) returns the full partition set without pushing
      * predicates into ODPS, and this preserves that behavior. Partitions are
-     * read directly from ODPS with no connector-side cache (P4-T02 / OQ-4).
+     * served through the connector-owned {@link MaxComputePartitionCache}
+     * (keyed by db+table), so repeated / cross-method partition listings of the
+     * same table share one ODPS round trip.
      */
     @Override
     public List<ConnectorPartitionInfo> listPartitions(ConnectorSession session,
             ConnectorTableHandle handle, Optional<ConnectorExpression> filter) {
         MaxComputeTableHandle mcHandle = (MaxComputeTableHandle) handle;
-        List<Partition> partitions = structureHelper.getPartitions(
-                odps, mcHandle.getDbName(), mcHandle.getTableName());
+        List<Partition> partitions = partitionCache.getPartitions(
+                mcHandle.getDbName(), mcHandle.getTableName());
         List<ConnectorPartitionInfo> result = new ArrayList<>(partitions.size());
         for (Partition partition : partitions) {
             PartitionSpec spec = partition.getPartitionSpec();
@@ -276,8 +281,8 @@ public class MaxComputeConnectorMetadata implements ConnectorMetadata {
     public List<List<String>> listPartitionValues(ConnectorSession session,
             ConnectorTableHandle handle, List<String> partitionColumns) {
         MaxComputeTableHandle mcHandle = (MaxComputeTableHandle) handle;
-        List<Partition> partitions = structureHelper.getPartitions(
-                odps, mcHandle.getDbName(), mcHandle.getTableName());
+        List<Partition> partitions = partitionCache.getPartitions(
+                mcHandle.getDbName(), mcHandle.getTableName());
         List<List<String>> result = new ArrayList<>(partitions.size());
         for (Partition partition : partitions) {
             PartitionSpec spec = partition.getPartitionSpec();

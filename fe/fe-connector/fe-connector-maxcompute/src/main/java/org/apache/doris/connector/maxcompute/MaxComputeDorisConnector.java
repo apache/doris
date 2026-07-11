@@ -35,6 +35,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -53,6 +54,12 @@ public class MaxComputeDorisConnector implements Connector {
     private final Map<String, String> properties;
     private final ConnectorContext context;
 
+    // Connector-owned partition-listing cache, shared by the (per-call) metadata's three partition-listing
+    // methods. One per connector — the metadata is rebuilt per query, so the cache must live on the long-lived
+    // connector to survive across queries. Its loader captures this connector and reads structureHelper/odps
+    // lazily at query time (always post-init, since getMetadata calls ensureInitialized before use).
+    private final MaxComputePartitionCache partitionCache;
+
     private Odps odps;
     private String endpoint;
     private String defaultProject;
@@ -69,6 +76,8 @@ public class MaxComputeDorisConnector implements Connector {
             ConnectorContext context) {
         this.properties = properties;
         this.context = context;
+        this.partitionCache = new MaxComputePartitionCache(properties,
+                (db, t) -> structureHelper.getPartitions(odps, db, t));
     }
 
     private void ensureInitialized() {
@@ -168,7 +177,42 @@ public class MaxComputeDorisConnector implements Connector {
     public ConnectorMetadata getMetadata(ConnectorSession session) {
         ensureInitialized();
         return new MaxComputeConnectorMetadata(
-                odps, structureHelper, defaultProject, endpoint, quota, properties);
+                odps, structureHelper, defaultProject, endpoint, quota, properties, partitionCache);
+    }
+
+    /**
+     * REFRESH TABLE hook: drops this table's connector-owned partition listing. fe-core routes
+     * {@code REFRESH TABLE} to {@code connector.invalidateTable} for a plugin-driven catalog. Mirrors
+     * {@code HiveConnector.invalidateTable}.
+     */
+    @Override
+    public void invalidateTable(String dbName, String tableName) {
+        partitionCache.invalidateTable(dbName, tableName);
+    }
+
+    /**
+     * REFRESH DATABASE hook: drops the connector-owned partition listings for every table in one database.
+     * Mirrors {@code HiveConnector.invalidateDb}.
+     */
+    @Override
+    public void invalidateDb(String dbName) {
+        partitionCache.invalidateDb(dbName);
+    }
+
+    /** REFRESH CATALOG hook: drops the whole connector-owned partition cache. Mirrors {@code HiveConnector}. */
+    @Override
+    public void invalidateAll() {
+        partitionCache.invalidateAll();
+    }
+
+    /**
+     * Invalidates a table's partition cache on a partition add/drop/alter. The cache is keyed by {@code (db,
+     * table)} and cannot target a single partition name, so this degrades to a whole-table flush (correctness
+     * -safe: the cache re-lists on the next miss). Mirrors {@code HiveConnector.invalidatePartition}.
+     */
+    @Override
+    public void invalidatePartition(String dbName, String tableName, List<String> partitionNames) {
+        partitionCache.invalidateTable(dbName, tableName);
     }
 
     @Override
