@@ -23,6 +23,9 @@
 4	["x","y","z"]	{"x1":"y1","x2":"y2"}	{"name":"Zack","age":35}
 5	["one","two"]	{"first":"1st","second":"2nd"}	{"name":"Nina","age":27}
 
+-- !csv_physical_line_count --
+4
+
 -- !csv_escape_quote_in_enclose --
 1001	{"code": "100", "message": "query success", "data": {"status": "1"}}
 1002	{"code": "100", "message": "query success", "data": {"status": "20"}}
@@ -46,4 +49,7 @@
 3	[]	{}	{"name":"Empty","age":0}
 4	["x","y","z"]	{"x1":"y1","x2":"y2"}	{"name":"Zack","age":35}
 5	["one","two"]	{"first":"1st","second":"2nd"}	{"name":"Nina","age":27}
+
+-- !csv_physical_line_count --
+4
 
