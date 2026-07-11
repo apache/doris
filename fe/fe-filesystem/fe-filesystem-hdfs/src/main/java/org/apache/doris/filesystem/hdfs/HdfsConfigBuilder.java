@@ -41,6 +41,17 @@ public class HdfsConfigBuilder {
      */
     public static Configuration build(Map<String, String> properties) {
         Configuration conf = new HdfsConfiguration();
+        // Pin the conf classloader to this plugin's loader, mirroring HmsConfHelper.createHiveConf and the
+        // connector conf builders (Paimon/Iceberg/Hive/Hudi). new HdfsConfiguration() captures the LIVE
+        // thread-context classloader into the conf's OWN classLoader field. DFSFileSystem is built lazily on
+        // first HDFS access, which runs under a connector's plugin loader (PluginDrivenScanNode.onPluginClassLoader
+        // pins the TCCL there for the scan), so the captured CL would be that connector loader. Hadoop then
+        // resolves impl classes via Configuration.getClass using this field, NOT the live TCCL: e.g.
+        // RPC.getProtocolEngine loads ProtobufRpcEngine2 through it. Left unpinned that yields the connector's
+        // hadoop-common copy of ProtobufRpcEngine2 while RPC/RpcEngine come from the engine copy, giving
+        // "class ProtobufRpcEngine2 cannot be cast to class RpcEngine". DFSFileSystem.getHadoopFs pins the live
+        // TCCL for FileSystem.get (ServiceLoader discovery) but cannot fix this conf-cached CL.
+        conf.setClassLoader(HdfsConfigBuilder.class.getClassLoader());
         conf.setBoolean("fs.hdfs.impl.disable.cache", true);
         conf.setBoolean("fs.AbstractFileSystem.hdfs.impl.disable.cache", true);
         for (String scheme : HdfsFileSystemProvider.SUPPORTED_SCHEMES) {
