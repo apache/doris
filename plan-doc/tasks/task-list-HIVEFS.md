@@ -42,9 +42,11 @@
   - **此步 + HIVEFS-3 + 重部署 = 失败用例 `test_string_dict_filter` 转绿**（e2e 待用户自跑）。
   - 已核：`buildHadoopConf()` fe-core-metadata 侧删除（仅两法用）；`HiveScanPlanProvider` 侧保留（ACID）。
 
-- [ ] **HIVEFS-5（连接器·ACID）**：`HiveAcidUtil:170/255/298` `fs.exists`/`fs.listStatus` → 注入 `FileSystem` 的 `exists(Location)`/`list`/`listFiles`。
-  - **⚠ 测试基建待解**：`HiveAcidUtilTest` 现对**真 Hadoop LocalFileSystem** 跑（见 `fe-connector-hive/pom.xml:128-137` commons-lang test 注释）。转 Doris `FileSystem` 后须换成 fake Doris `FileSystem` 或 `fe-filesystem-local` 的 local 实现——下个 session 定夺注入方式。
-  - 校验：`-Dtest=HiveAcidUtil* -DfailIfNoTests=false`。
+- [x] **HIVEFS-5（连接器·ACID）** ✅ DONE（设计 `designs/FIX-HIVEFS-5-design.md`；设计红队 `wf_792d1900-cc7`：5 lens 中 byte-parity/failure-semantics/routing-literal-list/test-fidelity 全判**迁移码 SOUND**，唯一 REAL(major) 是"planAcidScan 非休眠而是 live-broken"——已实测确认并折入注释订正；build+9/9 UT+0 checkstyle）：
+  - `HiveAcidUtil`：`getAcidState(FileSystem, …)` 换 Doris `FileSystem`；`fs.exists(new Path)`→`fs.exists(Location.of)`；分区列 `fs.listStatus`→`listEntries`(迭代 `fs.list(Location.of)` 收全部)；私有 `listFiles` 助手→`fs.list`+过滤目录（**字面量 `list()` 非 glob 的 `listFiles()`**，镜像 HIVEFS-4）；`FileStatus`→`FileEntry`（`getPath().getName()`→`name()`、`getPath().toString()`→`location().uri()`、`getLen()`→`length()`、`getModificationTime()`→`modificationTime()`）；`AcidState.dataFiles` 类型换 `List<FileEntry>`；删 hadoop.fs import（保留 hive-common `Valid*`）。
+  - `HiveScanPlanProvider.planAcidScan`：签名 `Configuration`→`FileSystem`；调用点传 `context.getFileSystem(session)`；删 `Path`+`FileSystem.get`；数据文件循环 `FileEntry`；删孤儿 `buildHadoopConf()`+`Configuration/FileStatus/Path` import；**订正 `:137`/`:248-253` 陈旧"Dormant/never reached on a live query"注释→ live 事实**（翻闸后 `type=hms` 事务表读经 `PluginDrivenScanNode` 直达）。
+  - **测试注入方式已决=`fe-filesystem-local` 真 `LocalFileSystem`**（+ 抛-`listFiles` 子类 `LiteralListingLocalFileSystem` 钉字面量列），非 in-memory fake（保真、改动最小）。`HiveAcidUtilTest` 9 用例全迁、全绿。pom 加 `fe-filesystem-local` test 依赖；`commons-lang` test 依赖**实测证实仍需**（hive-common `Valid*.writeToString` 引用，非 Hadoop），保留+订正注释。
+  - 校验：`-pl :fe-connector-hive -am -Dtest=HiveAcidUtilTest -DfailIfNoTests=false test` = BUILD SUCCESS + 9/9 + 0 checkstyle。
 
 - [ ] **HIVEFS-6（连接器·写路径，最险）**：`HiveConnectorTransaction`：
   - `resolveObjectStoreFileSystem`（坏 ServiceLoader stub，:784-793）→ `context.getFileSystem(session).forLocation(loc)`；MPU `instanceof ObjFileSystem`（:809/1336）落到 `forLocation` 返回的具体 FS；`objFs.completeMultipartUpload`/`getObjStorage().abortMultipartUpload` 不变。
@@ -66,6 +68,7 @@
 ## 设计红队（落地前）
 
 - [ ] 按 `clean-room-adversarial-review-pref`：实现前对设计做多 agent 对抗红队（重点：写路径 MPU/rename/delete 语义等价、生命周期误 close、`forLocation` 与 SpiSwitchingFileSystem 缓存交互、session-ignore 的 catalog 级正确性）。
+  - [x] HIVEFS-5 已做（`wf_792d1900-cc7`，5 lens + 逐条对抗验证）：迁移码 4 lens SOUND；唯一 REAL(major)=planAcidScan live 非休眠，已折入注释/文档订正。**HIVEFS-6 写路径红队仍待做（落地前）。**
 
 ## e2e（用户自跑，勿丢——新能力必配 e2e，memory `hms-iceberg-delegation-needs-e2e`）
 
@@ -79,7 +82,7 @@
 
 1. ~~`DefaultConnectorContext` 缓存 FS 的 close 挂点~~ ✅ **已解（HIVEFS-3）**：catalog 单一持有 + `onClose`/换连接器两处关，`DefaultConnectorContext implements Closeable`（见上 HIVEFS-3）。
 2. `HiveScanPlanProvider.buildHadoopConf()`/`Configuration` 在去 FS.get 后的去留（格式/split/传 BE 是否仍需）——HIVEFS-4 定。
-3. `HiveAcidUtilTest` 从真 LocalFileSystem 迁到 fake/`fe-filesystem-local` 的注入方式——HIVEFS-5 定。
+3. ~~`HiveAcidUtilTest` 从真 LocalFileSystem 迁到 fake/`fe-filesystem-local` 的注入方式~~ ✅ **已解（HIVEFS-5）**：用 `fe-filesystem-local` 真 `LocalFileSystem`（+ 抛-`listFiles` 子类守卫），非 in-memory fake。`commons-lang` test 依赖实测证实仍需（hive-common `Valid*`）。
 4. 写路径 commit/abort 时 FS/identity 的捕获时机（begin 时捕获）——HIVEFS-6 定。
 5. ~~`forLocation` 加到接口后与现有非切换 impl 的兼容~~ ✅ **已解（HIVEFS-1）**：default `return this`；`SpiSwitchingFileSystem` override 返回 per-scheme 委派；`FileSystemDefaultMethodsTest` 已断言。
 
