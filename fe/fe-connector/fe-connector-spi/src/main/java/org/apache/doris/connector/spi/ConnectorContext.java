@@ -19,6 +19,8 @@ package org.apache.doris.connector.spi;
 
 import org.apache.doris.connector.api.Connector;
 import org.apache.doris.connector.api.ConnectorHttpSecurityHook;
+import org.apache.doris.connector.api.ConnectorSession;
+import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.filesystem.properties.StorageProperties;
 
 import java.util.Collections;
@@ -330,6 +332,34 @@ public interface ConnectorContext {
      */
     default List<StorageProperties> getStorageProperties() {
         return Collections.emptyList();
+    }
+
+    /**
+     * Returns the engine's {@link FileSystem} for this catalog — a scheme-routing handle backed by the
+     * catalog's parsed {@link #getStorageProperties() storage properties} and the registered fe-filesystem
+     * providers (hdfs/s3/oss/cos/obs/azure/http/local/broker). A connector uses it to list, read, and write
+     * table data without bundling any Hadoop {@code FileSystem} implementation itself; the engine owns scheme
+     * routing and per-scheme classloader pinning, exactly as Trino's {@code TrinoFileSystemFactory.create(session)}
+     * hands the connector a {@code TrinoFileSystem}.
+     *
+     * <p><b>Ownership.</b> The returned filesystem is <em>engine-owned and connector-borrowed</em>: the engine
+     * builds and caches it per catalog and closes it when the catalog/context is torn down. A connector MUST NOT
+     * call {@link FileSystem#close()} on it.
+     *
+     * <p><b>Identity.</b> The {@code session} parameter mirrors Trino's {@code create(ConnectorSession)} shape and
+     * reserves per-user identity via {@link ConnectorSession#getUser()}. The current implementation resolves the
+     * filesystem at catalog granularity (the session is not yet used to key a per-user filesystem); when per-user
+     * identity lands, the engine will key the cache by identity.
+     *
+     * <p>The default returns {@code null} (no engine-managed filesystem), so connectors that do not use it — and
+     * the no-op default context — are unaffected, matching the benign default of
+     * {@link #getBackendStorageProperties()}.
+     *
+     * @param session the query/connector session (reserved for per-user identity; may be null for catalog-level use)
+     * @return the catalog's engine-owned {@link FileSystem}, or {@code null} when the engine manages no storage
+     */
+    default FileSystem getFileSystem(ConnectorSession session) {
+        return null;
     }
 
     /**
