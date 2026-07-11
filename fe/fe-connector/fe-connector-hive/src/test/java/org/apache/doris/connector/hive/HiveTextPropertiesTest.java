@@ -1,0 +1,114 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.connector.hive;
+
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
+
+import java.util.HashMap;
+import java.util.Map;
+
+/**
+ * Tests {@link HiveTextProperties} delimiter extraction, pinned to legacy fe-core parity
+ * ({@code HiveProperties} + {@code HiveMetaStoreClientHelper.getByte}).
+ *
+ * <p>WHY these assertions matter: Hive stores text delimiters as NUMERIC BYTE-VALUE STRINGS
+ * in SerDe params. The canonical case is a default {@code LazySimpleSerDe} table, whose field
+ * delimiter is stored as {@code serialization.format=1} — meaning byte {@code 0x01} (Ctrl-A),
+ * NOT the character {@code '1'} (0x31). Legacy applies {@code getByte()} to decode the numeric
+ * string into the real delimiter byte; the connector must reproduce this exactly, or BE splits
+ * text rows on the wrong character and every column collapses to null/merged.</p>
+ */
+public class HiveTextPropertiesTest {
+
+    private static final String TEXT_SERDE = "org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe";
+    private static final String MULTI_DELIMIT_SERDE = "org.apache.hadoop.hive.serde2.MultiDelimitSerDe";
+    private static final String PREFIX = "hive.text.";
+
+    private static String colSep(String serde, Map<String, String> sd) {
+        return HiveTextProperties.extract(serde, sd, new HashMap<>()).get(PREFIX + "column_separator");
+    }
+
+    private static Map<String, String> sd(String... kv) {
+        Map<String, String> m = new HashMap<>();
+        for (int i = 0; i < kv.length; i += 2) {
+            m.put(kv[i], kv[i + 1]);
+        }
+        return m;
+    }
+
+    @Test
+    public void testDefaultSerializationFormatDecodesToCtrlA() {
+        // Default LazySimpleSerDe: Hive stores serialization.format="1" == byte 0x01, no field.delim.
+        Assertions.assertEquals("\001", colSep(TEXT_SERDE, sd("serialization.format", "1")));
+    }
+
+    @Test
+    public void testNoDelimiterFallsBackToDefaultCtrlA() {
+        Assertions.assertEquals("\001", colSep(TEXT_SERDE, sd()));
+    }
+
+    @Test
+    public void testLiteralFieldDelimiterPreserved() {
+        // Explicit "FIELDS TERMINATED BY ','": Hive stores the literal comma; getByte keeps it.
+        Assertions.assertEquals(",", colSep(TEXT_SERDE, sd("field.delim", ",")));
+    }
+
+    @Test
+    public void testNumericFieldDelimiterDecodesToByte() {
+        // field.delim="9" means byte 0x09 (tab), not the character '9'.
+        Assertions.assertEquals("\t", colSep(TEXT_SERDE, sd("field.delim", "9")));
+    }
+
+    @Test
+    public void testFieldDelimTakesPrecedenceOverSerializationFormat() {
+        Assertions.assertEquals(",", colSep(TEXT_SERDE, sd("field.delim", ",", "serialization.format", "1")));
+    }
+
+    @Test
+    public void testMultiDelimitSerDeKeepsRawMultiCharDelimiter() {
+        // MultiDelimitSerDe supports multi-character delimiters; they must NOT be byte-decoded/truncated.
+        Assertions.assertEquals("||", colSep(MULTI_DELIMIT_SERDE, sd("field.delim", "||")));
+    }
+
+    @Test
+    public void testCollectionDelimiterDefaultAndHive2Typo() {
+        Map<String, String> r = HiveTextProperties.extract(TEXT_SERDE, sd(), new HashMap<>());
+        Assertions.assertEquals("\002", r.get(PREFIX + "collection_delimiter"));
+        // Hive2 uses the famously misspelled key "colelction.delim"; "2" decodes to byte 0x02.
+        Map<String, String> r2 = HiveTextProperties.extract(TEXT_SERDE, sd("colelction.delim", "2"), new HashMap<>());
+        Assertions.assertEquals("\002", r2.get(PREFIX + "collection_delimiter"));
+    }
+
+    @Test
+    public void testMapkvAndLineDefaults() {
+        Map<String, String> r = HiveTextProperties.extract(TEXT_SERDE, sd(), new HashMap<>());
+        Assertions.assertEquals("\003", r.get(PREFIX + "mapkv_delimiter"));
+        Assertions.assertEquals("\n", r.get(PREFIX + "line_delimiter"));
+    }
+
+    @Test
+    public void testTableParamsTakePrecedenceOverSerdeParams() {
+        // Legacy getSerdeProperty checks table params first, then serde params.
+        Map<String, String> sdParams = sd("serialization.format", "1");
+        Map<String, String> tblParams = new HashMap<>();
+        tblParams.put("field.delim", ",");
+        String sep = HiveTextProperties.extract(TEXT_SERDE, sdParams, tblParams).get(PREFIX + "column_separator");
+        Assertions.assertEquals(",", sep);
+    }
+}

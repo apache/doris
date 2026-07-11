@@ -57,10 +57,22 @@ public final class HiveTextProperties {
     private static final String SERIALIZATION_FORMAT = "serialization.format";
     private static final String LINE_DELIM = "line.delim";
     private static final String MAPKEY_DELIM = "mapkey.delim";
+    // Hive3 uses "collection.delim"; Hive2 uses the historically misspelled "colelction.delim". Legacy
+    // fe-core checks both, so parity requires recognizing both.
     private static final String COLLECTION_DELIM = "collection.delim";
+    private static final String COLLECTION_DELIM_HIVE2 = "colelction.delim";
     private static final String ESCAPE_DELIM = "escape.delim";
     private static final String SERIALIZATION_NULL_FORMAT = "serialization.null.format";
     private static final String SKIP_HEADER_LINE_COUNT = "skip.header.line.count";
+
+    // Default delimiters, mirroring legacy HiveProperties. These are byte values (Ctrl-A etc.), not the
+    // literal digit characters Hive stores them as in serialization.format / *.delim SerDe params.
+    private static final String DEFAULT_FIELD_DELIM = "\001";
+    private static final String DEFAULT_LINE_DELIM = "\n";
+    private static final String DEFAULT_MAPKV_DELIM = "\003";
+    private static final String DEFAULT_COLLECTION_DELIM = "\002";
+    private static final String DEFAULT_ESCAPE_DELIM = "\\";
+    private static final String DEFAULT_NULL_FORMAT = "\\N";
 
     // CSV SerDe property keys
     private static final String SEPARATOR_CHAR = "separatorChar";
@@ -91,7 +103,7 @@ public final class HiveTextProperties {
         boolean multiDelimit = HIVE_MULTI_DELIMIT_SERDE.equals(serDeLib)
                 || HIVE_MULTI_DELIMIT_SERDE_SERDE2.equals(serDeLib);
         if (HIVE_TEXT_SERDE.equals(serDeLib) || multiDelimit) {
-            extractTextSerDeProps(sdParams, result, multiDelimit);
+            extractTextSerDeProps(sdParams, tableParams, result, multiDelimit);
         } else if (HIVE_OPEN_CSV_SERDE.equals(serDeLib)) {
             extractCsvSerDeProps(sdParams, result);
         } else if (HIVE_JSON_SERDE.equals(serDeLib) || LEGACY_HIVE_JSON_SERDE.equals(serDeLib)
@@ -108,25 +120,31 @@ public final class HiveTextProperties {
         return result;
     }
 
-    private static void extractTextSerDeProps(Map<String, String> params,
-            Map<String, String> result, boolean supportMultiChar) {
-        // Column separator
-        String fieldDelim = getFieldDelimiter(params, supportMultiChar);
-        result.put(PROP_PREFIX + "column_separator", fieldDelim);
+    private static void extractTextSerDeProps(Map<String, String> sdParams,
+            Map<String, String> tableParams, Map<String, String> result, boolean supportMultiChar) {
+        // Column separator. Hive stores single-char delimiters as their numeric byte value (the default
+        // LazySimpleSerDe field delimiter is serialization.format="1" == byte 0x01, NOT the character
+        // '1'), so they must be decoded via getByte(). MultiDelimitSerDe keeps its raw multi-char value.
+        result.put(PROP_PREFIX + "column_separator",
+                getFieldDelimiter(sdParams, tableParams, supportMultiChar));
         // Line delimiter
-        result.put(PROP_PREFIX + "line_delimiter", getLineDelimiter(params));
+        result.put(PROP_PREFIX + "line_delimiter",
+                getByte(serdeVal(sdParams, tableParams, LINE_DELIM), DEFAULT_LINE_DELIM));
         // MapKV delimiter
-        result.put(PROP_PREFIX + "mapkv_delimiter", getMapKvDelimiter(params));
-        // Collection delimiter
-        result.put(PROP_PREFIX + "collection_delimiter", getCollectionDelimiter(params));
-        // Escape delimiter
-        String escape = getParamOrDefault(params, ESCAPE_DELIM, null);
-        if (escape != null && !escape.isEmpty()) {
-            result.put(PROP_PREFIX + "escape", escape);
+        result.put(PROP_PREFIX + "mapkv_delimiter",
+                getByte(serdeVal(sdParams, tableParams, MAPKEY_DELIM), DEFAULT_MAPKV_DELIM));
+        // Collection delimiter (Hive2 "colelction.delim" typo first, then Hive3 "collection.delim")
+        result.put(PROP_PREFIX + "collection_delimiter",
+                getByte(serdeVal(sdParams, tableParams, COLLECTION_DELIM_HIVE2, COLLECTION_DELIM),
+                        DEFAULT_COLLECTION_DELIM));
+        // Escape delimiter: emitted only when the SerDe sets it, decoded via getByte
+        String escape = serdeVal(sdParams, tableParams, ESCAPE_DELIM);
+        if (escape != null) {
+            result.put(PROP_PREFIX + "escape", getByte(escape, DEFAULT_ESCAPE_DELIM));
         }
-        // Null format
-        result.put(PROP_PREFIX + "null_format",
-                getParamOrDefault(params, SERIALIZATION_NULL_FORMAT, "\\N"));
+        // Null format (raw string; NOT byte-decoded)
+        String nullFormat = serdeVal(sdParams, tableParams, SERIALIZATION_NULL_FORMAT);
+        result.put(PROP_PREFIX + "null_format", nullFormat != null ? nullFormat : DEFAULT_NULL_FORMAT);
     }
 
     private static void extractCsvSerDeProps(Map<String, String> params,
@@ -149,31 +167,53 @@ public final class HiveTextProperties {
         result.put(PROP_PREFIX + "json_serde_lib", serDeLib);
     }
 
-    private static String getFieldDelimiter(Map<String, String> params,
-            boolean supportMultiChar) {
-        String delim = getParamOrDefault(params, FIELD_DELIM, null);
-        if (delim == null || delim.isEmpty()) {
-            delim = getParamOrDefault(params, SERIALIZATION_FORMAT, null);
+    private static String getFieldDelimiter(Map<String, String> sdParams,
+            Map<String, String> tableParams, boolean supportMultiChar) {
+        String delim = serdeVal(sdParams, tableParams, FIELD_DELIM, SERIALIZATION_FORMAT);
+        if (delim == null) {
+            delim = "";
         }
-        if (delim == null || delim.isEmpty()) {
-            return "\001"; // Default Hive field delimiter (Ctrl-A)
-        }
-        if (!supportMultiChar && delim.length() == 1) {
-            return delim;
-        }
-        return delim;
+        // MultiDelimitSerDe delimiters may be multiple characters; keep them raw (no byte decode).
+        return supportMultiChar ? delim : getByte(delim, DEFAULT_FIELD_DELIM);
     }
 
     private static String getLineDelimiter(Map<String, String> params) {
         return getParamOrDefault(params, LINE_DELIM, "\n");
     }
 
-    private static String getMapKvDelimiter(Map<String, String> params) {
-        return getParamOrDefault(params, MAPKEY_DELIM, "\003");
+    /**
+     * Looks up a SerDe property mirroring legacy {@code HiveMetaStoreClientHelper.getSerdeProperty}:
+     * table parameters take precedence over StorageDescriptor/SerDeInfo parameters, and the keys are
+     * tried in order. An empty string counts as present. Returns {@code null} if no key is set.
+     */
+    private static String serdeVal(Map<String, String> sdParams, Map<String, String> tableParams,
+            String... keys) {
+        for (String key : keys) {
+            if (tableParams != null && tableParams.get(key) != null) {
+                return tableParams.get(key);
+            }
+            if (sdParams != null && sdParams.get(key) != null) {
+                return sdParams.get(key);
+            }
+        }
+        return null;
     }
 
-    private static String getCollectionDelimiter(Map<String, String> params) {
-        return getParamOrDefault(params, COLLECTION_DELIM, "\002");
+    /**
+     * Decodes a Hive delimiter. Hive stores single-char delimiters as their numeric byte value
+     * ("1" == 0x01, "9" == 0x09); a non-numeric value is taken literally and truncated to its first
+     * character; an empty/absent value falls back to {@code defValue}. Mirrors legacy
+     * {@code HiveMetaStoreClientHelper.getByte}.
+     */
+    private static String getByte(String altValue, String defValue) {
+        if (altValue != null && !altValue.isEmpty()) {
+            try {
+                return Character.toString((char) ((Byte.parseByte(altValue) + 256) % 256));
+            } catch (NumberFormatException e) {
+                return altValue.substring(0, 1);
+            }
+        }
+        return defValue;
     }
 
     private static int getSkipHeaderCount(Map<String, String> tableParams) {
