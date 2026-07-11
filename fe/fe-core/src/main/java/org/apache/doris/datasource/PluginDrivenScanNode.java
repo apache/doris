@@ -648,6 +648,12 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         if ("true".equals(isJson)) {
             attrs.setReadJsonByLine(true);
             attrs.setReadByColumnDef(true);
+            // OpenX JSON "ignore.malformed.json": skip malformed rows instead of erroring. The connector emits
+            // this only for the OpenX serde (absent otherwise); mirrors legacy HiveScanNode's openx branch.
+            String ignoreMalformed = props.get(PROP_HIVE_TEXT_PREFIX + "openx_ignore_malformed");
+            if (ignoreMalformed != null) {
+                attrs.setOpenxJsonIgnoreMalformed(Boolean.parseBoolean(ignoreMalformed));
+            }
         }
 
         return attrs;

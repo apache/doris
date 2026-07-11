@@ -38,6 +38,8 @@ public class HiveTextPropertiesTest {
 
     private static final String TEXT_SERDE = "org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe";
     private static final String MULTI_DELIMIT_SERDE = "org.apache.hadoop.hive.serde2.MultiDelimitSerDe";
+    private static final String OPENX_JSON_SERDE = "org.openx.data.jsonserde.JsonSerDe";
+    private static final String HCATALOG_JSON_SERDE = "org.apache.hive.hcatalog.data.JsonSerDe";
     private static final String PREFIX = "hive.text.";
 
     private static String colSep(String serde, Map<String, String> sd) {
@@ -110,5 +112,41 @@ public class HiveTextPropertiesTest {
         tblParams.put("field.delim", ",");
         String sep = HiveTextProperties.extract(TEXT_SERDE, sdParams, tblParams).get(PREFIX + "column_separator");
         Assertions.assertEquals(",", sep);
+    }
+
+    // ---- OpenX JSON ignore.malformed.json (legacy HiveScanNode OPENX_JSON_SERDE branch parity) ----
+
+    @Test
+    public void testOpenxJsonIgnoreMalformedTrueEmitted() {
+        // OpenX table with SERDEPROPERTIES ignore.malformed.json=true -> BE must skip malformed rows.
+        Map<String, String> r = HiveTextProperties.extract(
+                OPENX_JSON_SERDE, sd("ignore.malformed.json", "true"), new HashMap<>());
+        Assertions.assertEquals("true", r.get(PREFIX + "openx_ignore_malformed"));
+        Assertions.assertEquals("true", r.get(PREFIX + "is_json"));
+    }
+
+    @Test
+    public void testOpenxJsonIgnoreMalformedDefaultsFalse() {
+        // No property -> "false" (== Thrift default): malformed rows still error, matching legacy default.
+        Map<String, String> r = HiveTextProperties.extract(OPENX_JSON_SERDE, sd(), new HashMap<>());
+        Assertions.assertEquals("false", r.get(PREFIX + "openx_ignore_malformed"));
+    }
+
+    @Test
+    public void testOpenxJsonIgnoreMalformedTableParamPrecedence() {
+        // Table param (true) beats serde param (false), mirroring legacy getSerdeProperty precedence.
+        Map<String, String> tblParams = new HashMap<>();
+        tblParams.put("ignore.malformed.json", "true");
+        Map<String, String> r = HiveTextProperties.extract(
+                OPENX_JSON_SERDE, sd("ignore.malformed.json", "false"), tblParams);
+        Assertions.assertEquals("true", r.get(PREFIX + "openx_ignore_malformed"));
+    }
+
+    @Test
+    public void testHcatalogJsonSerdeOmitsOpenxKey() {
+        // Non-OpenX JSON serde never carried this flag: the key must be absent (legacy set it only for OpenX).
+        Map<String, String> r = HiveTextProperties.extract(HCATALOG_JSON_SERDE, sd(), new HashMap<>());
+        Assertions.assertFalse(r.containsKey(PREFIX + "openx_ignore_malformed"));
+        Assertions.assertEquals("true", r.get(PREFIX + "is_json"));
     }
 }

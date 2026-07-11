@@ -64,6 +64,10 @@ public final class HiveTextProperties {
     private static final String ESCAPE_DELIM = "escape.delim";
     private static final String SERIALIZATION_NULL_FORMAT = "serialization.null.format";
     private static final String SKIP_HEADER_LINE_COUNT = "skip.header.line.count";
+    // OpenX JSON serde: skip malformed rows instead of erroring. Mirrors legacy
+    // HiveProperties.PROP_OPENX_IGNORE_MALFORMED_JSON / DEFAULT_OPENX_IGNORE_MALFORMED_JSON.
+    private static final String IGNORE_MALFORMED_JSON = "ignore.malformed.json";
+    private static final String DEFAULT_IGNORE_MALFORMED_JSON = "false";
 
     // Default delimiters, mirroring legacy HiveProperties. These are byte values (Ctrl-A etc.), not the
     // literal digit characters Hive stores them as in serialization.format / *.delim SerDe params.
@@ -108,7 +112,7 @@ public final class HiveTextProperties {
             extractCsvSerDeProps(sdParams, result);
         } else if (HIVE_JSON_SERDE.equals(serDeLib) || LEGACY_HIVE_JSON_SERDE.equals(serDeLib)
                 || OPENX_JSON_SERDE.equals(serDeLib)) {
-            extractJsonSerDeProps(serDeLib, result);
+            extractJsonSerDeProps(serDeLib, sdParams, tableParams, result);
         } else {
             return result;
         }
@@ -159,12 +163,20 @@ public final class HiveTextProperties {
         result.put(PROP_PREFIX + "null_format", "");
     }
 
-    private static void extractJsonSerDeProps(String serDeLib,
-            Map<String, String> result) {
+    private static void extractJsonSerDeProps(String serDeLib, Map<String, String> sdParams,
+            Map<String, String> tableParams, Map<String, String> result) {
         result.put(PROP_PREFIX + "column_separator", "\t");
         result.put(PROP_PREFIX + "line_delimiter", "\n");
         result.put(PROP_PREFIX + "is_json", "true");
         result.put(PROP_PREFIX + "json_serde_lib", serDeLib);
+        // OpenX-only: skip malformed rows when the serde/table sets ignore.malformed.json (table-param over
+        // sd-param, default false). Mirrors legacy HiveScanNode's OPENX_JSON_SERDE branch — the hcatalog/hive2
+        // JSON serdes never carried this flag, so scope it to OpenX to keep exact legacy branch parity.
+        if (OPENX_JSON_SERDE.equals(serDeLib)) {
+            String ignoreMalformed = serdeVal(sdParams, tableParams, IGNORE_MALFORMED_JSON);
+            result.put(PROP_PREFIX + "openx_ignore_malformed",
+                    ignoreMalformed != null ? ignoreMalformed : DEFAULT_IGNORE_MALFORMED_JSON);
+        }
     }
 
     private static String getFieldDelimiter(Map<String, String> sdParams,
