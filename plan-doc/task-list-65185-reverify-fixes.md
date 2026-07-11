@@ -34,7 +34,7 @@ Legend：⬜ todo / 🔄 in progress / ✅ done / ⏸ 挂起(需决策/live)
 | 7 | **M3** | 🟠中 | fe-core | MC batch 闸门 `!=NOT_PRUNED`→`!isPruned` | ⬜ | ⬜ | ⬜ | ⬜ |
 | 8 | **M4** | 🟠中 | maxcompute | MC 分区值缓存删除→每查询全量 listPartitions | ⬜ | ⬜ | ⬜ | ⬜ |
 | 9 | **M5** | 🟠中 | iceberg | computeRowCount 丢 equality-delete gate | ✅ | ✅ | ✅ | ✅ |
-| 10 | **M6** | 🟠中 | iceberg | s3tables 无显式凭证硬失败(丢默认链) | ⬜ | ⬜ | ⬜ | ⬜ |
+| 10 | **M6** | 🟠中 | iceberg | s3tables 无显式凭证硬失败(丢默认链) | ✅ | ✅ | ✅ | ✅ |
 | 11 | **M7** | 🟠中 | iceberg | REST vended-cred region 别名收窄 | ✅ | ✅ | ✅ | ✅ |
 | 12 | **M8** | 🟠中(运营) | build/docs | 升级只换 lib 不部署 plugins→首访抛 | ⬜ | ⬜ | ⬜ | ⬜ |
 | 13 | **L1** | 🟡低 | tools | import-gate 三洞 | ⬜ | ⬜ | ⬜ | ⬜ |
@@ -146,7 +146,7 @@ Legend：⬜ todo / 🔄 in progress / ✅ done / ⏸ 挂起(需决策/live)
 - **Test intent**:100 records + 5 equality-delete → rowCount UNKNOWN(RED:当前锁死 100)。
 
 ### M6 — iceberg s3tables 无显式凭证硬失败 · reverify §3 M6
-- [ ] **M6**
+- [x] **M6** · DONE `03bd4f58187`（设计 `designs/FIX-M6-design.md`）。反转硬性要求=region 唯一必需（存储或 props）、无存储凭证回退 `DefaultCredentialsProvider`；新 `resolveS3Region`(factory)+`resolveS3TablesRegion`(connector 静态门)；`buildS3TablesClient(Optional,region)` 重签名；**companion 升为必做**=无存储臂发 data-plane `client.region`。测试 reframe 1 + gate 4 + companion 1（RED-able），`IcebergConnectorTest` 19/19 + `IcebergCatalogFactoryTest` 63/63 绿。依赖 M7 拓宽别名。e2e live-gated。
 - **现码**:`IcebergConnector.createS3TablesCatalog:735-739`(`chosenS3` 空即 throw)← `S3FileSystemProvider.supports:64-74`(要 `hasCredential`)。legacy 用 `DefaultCredentialsProvider` 默认链。
 - **Fix**:`chosenS3` 空但能从原始 props 解析 region 时(复用 M7 拓宽别名),用 `DefaultCredentialsProvider`+`Region.of(...)` 建 client 而非抛;仅无 storage 且无 region 才 fail-loud。
 - **Files**:`fe-connector-iceberg/.../IcebergConnector.java`。
@@ -243,3 +243,4 @@ Legend：⬜ todo / 🔄 in progress / ✅ done / ⏸ 挂起(需决策/live)
 
 - **M5** DONE `84f580c9075`(code) — iceberg 表级行数恢复 equality-delete 护栏,对齐当前旧版(上游 #64648 移动了 parity 目标)。**推翻先前签字的「不 gate」决定,用户 2026-07-11 签字**;3 处 P6.6-FIX-H4 文档批注 SUPERSEDED;`IcebergConnectorMetadataStatisticsTest` 7/7 绿。e2e live-gated(equality-delete 表 SHOW TABLE STATS=UNKNOWN,独立 iceberg + iceberg-on-HMS 同表同结果)。
 - **M7** DONE `f6de950e5bd`(code) — iceberg REST vended-cred `client.region` 别名 4→10 拓宽,逐字节对齐 fe-core `S3Properties` isRegionField 集;注释按红队更正为「S3 子集」。`IcebergCatalogFactoryTest` 62/62 绿。e2e live-gated(region 经 `AWS_REGION` 写提交不报 Unable to load region)。
+- **M6** DONE `03bd4f58187`(code) — iceberg s3tables 无绑定存储不再硬失败:region 唯一必需(存储或 props),凭证回退 `DefaultCredentialsProvider` 默认链;companion 无存储臂发 data-plane `client.region`。`IcebergConnectorTest` 19/19 + `IcebergCatalogFactoryTest` 63/63 绿。**iceberg 子组(M5/M7/M6)全 DONE**。e2e live-gated(EC2 instance-profile s3tables 目录 CREATE+list 不抛)。
