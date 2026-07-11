@@ -1389,13 +1389,14 @@ DECLARE_mDouble(snii_bigram_prune_max_df_ratio);
 // still build the full bigram inside the load window -- the deferral saving
 // applies only to segments that are not segcompacted; cloud mode has no
 // segcompaction, so the saving is complete there.
-// PERF-CLIFF DISCLOSURE: compaction is the ONLY mechanism that rebuilds a
-// deferred segment's bigrams, and nothing guarantees it ever runs -- a
-// load-once-then-cold tablet (single rowset under the cumulative thresholds,
-// compaction disabled, or policies that skip a lone rowset) keeps its phrase
-// queries on the positions-verification path indefinitely (results identical,
-// slower), and BUILD INDEX cannot rebuild an already-existing index. Verify
-// the deployment's compaction policy covers lone-load rowsets before enabling.
+// PERF-CLIFF DISCLOSURE (default is ON): compaction is the ONLY mechanism
+// that rebuilds a deferred segment's bigrams, and nothing guarantees it ever
+// runs -- a load-once-then-cold tablet (single rowset under the cumulative
+// thresholds, compaction disabled, or policies that skip a lone rowset) keeps
+// its phrase queries on the positions-verification path indefinitely (results
+// identical, slower), and BUILD INDEX cannot rebuild an already-existing
+// index. DISABLE this on deployments whose compaction policy cannot cover
+// lone-load rowsets (until the deferred-rowset compaction backstop lands).
 DECLARE_mBool(snii_bigram_defer_build_to_compaction);
 // DIAGNOSTIC: force SNII inverted-index reads to bypass the 1MiB FILE_BLOCK_CACHE
 // and issue precise S3 range GETs (NO_CACHE) instead. Applies ONLY to the SNII

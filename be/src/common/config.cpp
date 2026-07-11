@@ -1311,11 +1311,14 @@ DEFINE_mInt32(snii_bigram_prune_min_df, "-1");
 // states" sits at 21.2% df in wikipedia; pruning it costs a 2.7x cold-phrase
 // cliff, keeping the whole band costs +0.85% table size on textbench).
 DEFINE_mDouble(snii_bigram_prune_max_df_ratio, "0.25");
-// Defer the SNII hidden phrase-bigram build to compaction (default off).
+// Defer the SNII hidden phrase-bigram build to compaction (default ON since
+// the 4-corpus write-parity campaign: import index CPU -3.5%..-35% at zero
+// compaction overhead; fresh segments answer phrases through the identical-
+// results positions fallback until compaction rebuilds the bigrams).
 // Full behavioral contract documented at the DECLARE in config.h (single
 // source of truth: deferral scope, capture-once semantics, segcompaction
 // caveat, and the never-compacted perf-cliff disclosure).
-DEFINE_mBool(snii_bigram_defer_build_to_compaction, "false");
+DEFINE_mBool(snii_bigram_defer_build_to_compaction, "true");
 // DIAGNOSTIC (default off): force SNII inverted-index reads onto NO_CACHE
 // (precise S3 range GETs) instead of the 1MiB FILE_BLOCK_CACHE. Per-open on the
 // SNII reader only -- does NOT touch global enable_file_cache, so cloud mode
