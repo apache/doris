@@ -631,8 +631,17 @@ public class ThriftHmsClient implements HmsClient {
     private <T> T doAs(Callable<T> callable) throws Exception {
         ClassLoader original = Thread.currentThread().getContextClassLoader();
         try {
-            Thread.currentThread().setContextClassLoader(
-                    ClassLoader.getSystemClassLoader());
+            // Pin the TCCL to the plugin (child-first) classloader that loaded THIS client — NOT the system
+            // classloader. Metastore client creation runs Hadoop's SecurityUtil.<clinit>, whose internal
+            // `new Configuration()` captures the current TCCL and uses it to reflectively load
+            // DNSDomainNameResolver. The system classloader holds fe-core's own hadoop copy, while
+            // SecurityUtil/DomainNameResolver here resolve from the plugin's child-first copy — so a
+            // system-loader TCCL loads the two from different loaders ("class DNSDomainNameResolver not
+            // DomainNameResolver") and permanently poisons SecurityUtil JVM-wide. Pinning the plugin loader
+            // (a strict superset of the system loader) keeps every reflective load on the plugin side. Mirrors
+            // iceberg/paimon TcclPinningConnectorContext and HiveConnectorMetadata's stats pins; covers both the
+            // non-Kerberos (context.executeAuthenticated) and Kerberos (ugi.doAs) authAction paths.
+            Thread.currentThread().setContextClassLoader(getClass().getClassLoader());
             return authAction.execute(callable);
         } finally {
             Thread.currentThread().setContextClassLoader(original);
