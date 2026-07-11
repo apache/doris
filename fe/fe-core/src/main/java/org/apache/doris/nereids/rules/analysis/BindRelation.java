@@ -28,7 +28,6 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionRegistry;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.OlapTableWrapper;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.RowBinlogTableWrapper;
 import org.apache.doris.catalog.SchemaTable;
@@ -242,9 +241,8 @@ public class BindRelation extends OneAnalysisRuleFactory {
         LogicalOlapScan scan;
         List<Long> partIds = getPartitionIds(table, unboundRelation, qualifier);
         List<Long> tabletIds = unboundRelation.getTabletIds();
-        boolean isChangeRead = unboundRelation.getScanParams() != null
-                && unboundRelation.getScanParams().incrementalRead();
-        if (isChangeRead) {
+        StreamScanType changeScanType = checkChangeScanCondition((OlapTable) table, unboundRelation.getScanParams());
+        if (changeScanType != null) {
             table = new RowBinlogTableWrapper((OlapTable) table);
         } else if (unboundRelation.getScanParams() != null) {
             unboundRelation.getScanParams().validateOlapTable();
@@ -265,7 +263,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
                     throw new AnalysisException("Table " + olapTable.getName()
                         + " doesn't have materialized view " + indexName.get());
                 }
-                if (isChangeRead && olapTable.getBaseIndexId() != indexId) {
+                if (changeScanType != null && olapTable.getBaseIndexId() != indexId) {
                     throw new AnalysisException("Change read is not supported on non-base index " + indexName.get());
                 }
                 if (unboundRelation.getTableSnapshot().isPresent() && olapTable.getBaseIndexId() != indexId) {
@@ -291,15 +289,13 @@ public class BindRelation extends OneAnalysisRuleFactory {
             // This tabletIds is set manually, so need to set specifiedTabletIds
             scan = scan.withManuallySpecifiedTabletIds(tabletIds);
         }
-        if (isChangeRead) {
+        if (changeScanType != null) {
             if (cascadesContext.getStatementContext().isHintForcePreAggOn()) {
                 throw new AnalysisException(
                         "PREAGGOPEN hint is not supported on @incr (change-read) scans.");
             }
-            StreamScanType scanType = checkChangeScanCondition(((OlapTableWrapper) table).getOriginTable(),
-                    unboundRelation.getScanParams());
-            return checkAndAddChangeScanFilter(scan, scanType, parseTimestampRange(unboundRelation.getScanParams()),
-                    false);
+            return checkAndAddChangeScanFilter(scan, changeScanType,
+                    parseTimestampRange(unboundRelation.getScanParams()), false);
         }
         // Time-travel (FOR VERSION/TIME AS OF): wrap the scan with a __DORIS_COMMIT_TSO_COL__
         // predicate (dup) or a base/binlog union (mow).
@@ -647,10 +643,11 @@ public class BindRelation extends OneAnalysisRuleFactory {
 
     private StreamScanType checkChangeScanCondition(OlapTable olapTable, TableScanParams scanParams)
             throws AnalysisException {
+        if (scanParams == null || !scanParams.incrementalRead()) {
+            return null;
+        }
         if (!olapTable.needRowBinlog()) {
-            throw new AnalysisException("INCR query requires ROW binlog enabled on base table "
-                    + "(PROPERTIES('binlog.enable'='true','binlog.format'='ROW')). "
-                    + "Table " + olapTable.getQualifiedName() + " doesn't enable row binlog.");
+            throw new AnalysisException("INCR query requires ROW binlog enabled on base table.");
         }
         HashSet<String> keys = new HashSet(scanParams.getMapParams().keySet());
         keys.remove(OlapScanNode.OLAP_INCREMENT_TYPE);
