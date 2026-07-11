@@ -30,7 +30,7 @@ Legend：⬜ todo / 🔄 in progress / ✅ done / ⏸ 挂起(需决策/live)
 | 3 | **H3** | 🔴高 | hudi | HMS 名当存储路径→非 hive-style 带 filter 0 split | ✅ | ✅ | ✅ | ✅ |
 | 4 | **H4** | 🔴高 | hudi | 混大小写 Avro→JNI 崩 | ✅ | ✅ | ✅ | ✅ |
 | 5 | **M1** | 🟠中 | fe-core | TABLESAMPLE 插件路径静默全表扫 | ⬜ | ⬜ | ⬜ | ⬜ |
-| 6 | **M2** | 🟠中 | hive | 翻闸 hive 丢批量/异步 split | ⬜ | ⬜ | ⬜ | ⬜ |
+| 6 | **M2** | 🟠中 | hive | 翻闸 hive 丢批量/异步 split | ✅ | ✅ | ✅ | ✅ |
 | 7 | **M3** | 🟠中 | fe-core | MC batch 闸门 `!=NOT_PRUNED`→`!isPruned` | ⬜ | ⬜ | ⬜ | ⬜ |
 | 8 | **M4** | 🟠中 | maxcompute | MC 分区值缓存删除→每查询全量 listPartitions | ✅ | ✅ | ✅ | ✅ |
 | 9 | **M5** | 🟠中 | iceberg | computeRowCount 丢 equality-delete gate | ✅ | ✅ | ✅ | ✅ |
@@ -118,7 +118,7 @@ Legend：⬜ todo / 🔄 in progress / ✅ done / ⏸ 挂起(需决策/live)
 - **Test intent**:强化 `test_hive_tablesample_p0.groovy` 断言采样后基数(非仅 EXPLAIN 子串)。
 
 ### M2 — 翻闸 hive 丢批量/异步 split · reverify §3 M2
-- [ ] **M2**
+- [x] **M2** · DONE `702153885ab`（设计 `designs/FIX-M2-design.md`；实现经 impl-subagent + 独立 diff 复核 + 全模块 test）。**两** override（非照抄 MaxCompute）：`supportsBatchScan`(分区∧非事务)+`planScanForPartitionBatch`(scope 到 batch 防重复 split)；ACID 刻意排除(同 `isTransactional()` accessor)。**登记两偏差**：BATCH-ACID-SYNC(永久)、BATCH-UNPRUNED-SYNC(由 M3 解)。`HiveScanBatchModeTest` 4/4 + hive 模块 284/284 绿。e2e live-gated。
 - **现码**:`HiveScanPlanProvider.java:62`(自称 No batch;不 override `supportsBatchScan`/`streamingSplitEstimate`)→ `PluginDrivenScanNode.computeBatchMode:1085-1113` 恒非 batch。legacy `HiveScanNode.isBatchMode:283-294` 按 `prunedPartitions.size()>=1024` 异步。
 - **Fix**:override `HiveScanPlanProvider.supportsBatchScan`(分区表 true)+ `planScanForPartitionBatch`,仿 `MaxComputeScanPlanProvider`;无需改 fe-core。若决定接受回归,须登记 + 大分区 e2e 真值门。
 - **Files**:`fe-connector-hive/.../HiveScanPlanProvider.java`。
@@ -245,3 +245,5 @@ Legend：⬜ todo / 🔄 in progress / ✅ done / ⏸ 挂起(需决策/live)
 - **M7** DONE `f6de950e5bd`(code) — iceberg REST vended-cred `client.region` 别名 4→10 拓宽,逐字节对齐 fe-core `S3Properties` isRegionField 集;注释按红队更正为「S3 子集」。`IcebergCatalogFactoryTest` 62/62 绿。e2e live-gated(region 经 `AWS_REGION` 写提交不报 Unable to load region)。
 - **M6** DONE `03bd4f58187`(code) — iceberg s3tables 无绑定存储不再硬失败:region 唯一必需(存储或 props),凭证回退 `DefaultCredentialsProvider` 默认链;companion 无存储臂发 data-plane `client.region`。`IcebergConnectorTest` 19/19 + `IcebergCatalogFactoryTest` 63/63 绿。**iceberg 子组(M5/M7/M6)全 DONE**。e2e live-gated(EC2 instance-profile s3tables 目录 CREATE+list 不抛)。
 - **M4** DONE `c553c3c7696`(code) — maxcompute 连接器内 `MaxComputePartitionCache`(HiveFileListingCache 结构副本)恢复被删的分区值缓存,消除每规划一次全量 ODPS listPartitions;4 REFRESH 钩子刷;pom+Caffeine 2.9.3。9/9+模块 113/113 绿,插件 zip 单 caffeine 版本。e2e live-gated。
+- **M2** DONE `702153885ab`(code) — hive 补 batch 通路:`supportsBatchScan`(分区∧非事务)+`planScanForPartitionBatch`(scope 到 batch,防重复 split——hive `planScan` 非 partition-scoped 故须额外 override)。**登记 BATCH-ACID-SYNC(永久)+BATCH-UNPRUNED-SYNC(M3 解)**。4/4+hive 模块 284/284 绿。e2e live-gated。
+- **⭐ 批次 1(M5/M7/M6/M4/M2)全部 DONE。** 5 连接器局部修全绿(iceberg 3 + mc 1 + hive 1),各配 RED-able 单测 + 独立 code/doc commit。**e2e 全 live-gated**(equality-delete 统计/vended-region/s3tables 默认链/mc 分区缓存往返/hive 大分区异步),须真集群回归(memory `hms-iceberg-delegation-needs-e2e`)。**下一步=批次 2(M3→M1,fe-core 通用节点,blast radius 较大)**;M3 顺带解 M2 的 BATCH-UNPRUNED-SYNC 残余。
