@@ -1119,21 +1119,28 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
      * {@link FileQueryScanNode} (the async/wiring half is covered by live e2e — see DV-019).
      *
      * <ul>
-     *   <li>not partitioned / not pruned ({@code selectedPartitions} null or {@code !isPruned}) &rarr; false;</li>
+     *   <li>null or the {@link SelectedPartitions#NOT_PRUNED} sentinel (non-partitioned, or Nereids
+     *       pruning not applicable) &rarr; false;</li>
      *   <li>no required slots &rarr; false;</li>
      *   <li>connector does not support batch scan (incl. no scan provider) &rarr; false;</li>
-     *   <li>otherwise batch iff {@code numPartitionsInBatchMode > 0} and the pruned partition count
+     *   <li>otherwise batch iff {@code numPartitionsInBatchMode > 0} and the selected partition count
      *       reaches that threshold.</li>
      * </ul>
      *
-     * <p>The {@code !isPruned} check subsumes BOTH legacy gates ({@code getPartitionColumns().isEmpty()}
-     * and the reference check {@code != NOT_PRUNED}): a non-partitioned external table always carries
-     * {@code NOT_PRUNED} (which has {@code isPruned=false}), so collapsing them is not a dropped gate —
-     * it is in fact marginally stronger than legacy's reference identity check.</p>
+     * <p>The gate is {@code == NOT_PRUNED}, deliberately <b>not</b> {@code !isPruned} — mirroring legacy
+     * {@code MaxComputeScanNode.isBatchMode}'s {@code != NOT_PRUNED} and the sibling
+     * {@link #displayPartitionCounts}. The two are <b>not</b> equivalent: a partitioned table with no
+     * partition predicate is initialized by {@link ExternalTable#initSelectedPartitions} to a full,
+     * non-{@code NOT_PRUNED} map with {@code isPruned=false} ({@code PruneFileScanPartition} only runs
+     * under a {@code LogicalFilter}). Legacy batches that case — a large full scan is exactly what most
+     * needs async/streaming split generation — whereas an {@code !isPruned} gate wrongly forces it
+     * synchronous (the split-materialization regression this restores). The {@code == NOT_PRUNED} sentinel
+     * check still folds in the non-partitioned gate ({@code getPartitionColumns().isEmpty()}), which
+     * always carries the {@code NOT_PRUNED} singleton, so no gate is dropped.</p>
      */
     static boolean shouldUseBatchMode(SelectedPartitions selectedPartitions, boolean hasSlots,
             boolean supportsBatchScan, int numPartitionsInBatchMode) {
-        if (selectedPartitions == null || !selectedPartitions.isPruned) {
+        if (selectedPartitions == null || selectedPartitions == SelectedPartitions.NOT_PRUNED) {
             return false;
         }
         if (!hasSlots) {
