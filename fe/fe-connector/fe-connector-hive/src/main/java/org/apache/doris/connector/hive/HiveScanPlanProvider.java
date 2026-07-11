@@ -59,7 +59,8 @@ import java.util.Optional;
  * <ul>
  *   <li>No file listing cache (lists files directly each time)</li>
  *   <li>No ACID transaction support (non-transactional tables only)</li>
- *   <li>No batch/lazy split mode</li>
+ *   <li>No file-count streaming split mode; partition-batch mode is limited to partitioned
+ *       non-transactional tables (see {@link #supportsBatchScan})</li>
  *   <li>No table sampling</li>
  * </ul>
  */
@@ -142,6 +143,77 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
 
         LOG.info("Hive scan plan: table={}.{}, partitions={}, splits={}",
                 dbName, tableName, partitions.size(), ranges.size());
+        return ranges;
+    }
+
+    /**
+     * Whether this hive table supports batched split generation (see
+     * {@link ConnectorScanPlanProvider#supportsBatchScan}): {@code true} iff the table is PARTITIONED (has
+     * partition keys) and NOT transactional. A large partitioned scan then streams its splits per partition
+     * batch via {@link #planScanForPartitionBatch} on a background pool instead of materializing every
+     * partition's files synchronously (legacy {@code HiveScanNode} went async at
+     * {@code num_partitions_in_batch_mode}).
+     *
+     * <p>Transactional/ACID tables are excluded DELIBERATELY: their scan opens one metastore read transaction
+     * (see {@link #planAcidScan}); running the per-batch resolution on background threads would open — and leak
+     * — a read transaction per batch. ACID partitioned tables keep the synchronous {@link #planScan} path
+     * (correct, just not streamed). The transactional test uses the SAME {@code isTransactional()} accessor
+     * {@link #planScan} branches on.</p>
+     */
+    @Override
+    public boolean supportsBatchScan(ConnectorSession session, ConnectorTableHandle handle) {
+        HiveTableHandle hiveHandle = (HiveTableHandle) handle;
+        List<String> partKeyNames = hiveHandle.getPartitionKeyNames();
+        return partKeyNames != null && !partKeyNames.isEmpty() && !hiveHandle.isTransactional();
+    }
+
+    /**
+     * Plans the scan for a SINGLE partition batch (see
+     * {@link ConnectorScanPlanProvider#planScanForPartitionBatch}). Unlike {@link #planScan} — which resolves
+     * partitions from {@code handle.getPrunedPartitions()} and IGNORES the passed partition set — this MUST scope
+     * resolution to {@code partitionBatch}: {@code PluginDrivenScanNode} slices the pruned partition NAMES into
+     * batches and calls this once per batch, so inheriting the SPI default (which re-runs the whole-pruned-set
+     * {@link #planScan} per batch) would emit every partition's files once per batch — duplicate rows. The batch
+     * strings are the metastore-rendered {@code key=value/...} partition names (the keys of the Nereids
+     * selected-partition map), exactly the form {@code hmsClient.getPartitions} accepts, so batch-scoped
+     * resolution is a clean {@code getPartitions(batch)} round-trip. Only the non-ACID path is reachable here
+     * ({@link #supportsBatchScan} excludes transactional tables). Reuses the SAME helpers as {@link #planScan}:
+     * format detect, split size, hadoop conf, {@link #convertPartitions}, {@link #listAndSplitFiles}.
+     */
+    @Override
+    public List<ConnectorScanRange> planScanForPartitionBatch(
+            ConnectorSession session,
+            ConnectorTableHandle handle,
+            List<ConnectorColumnHandle> columns,
+            Optional<ConnectorExpression> filter,
+            long limit,
+            List<String> partitionBatch) {
+        HiveTableHandle hiveHandle = (HiveTableHandle) handle;
+        String dbName = hiveHandle.getDbName();
+        String tableName = hiveHandle.getTableName();
+
+        // Resolve ONLY this batch's partitions (scoped to partitionBatch), NOT handle.getPrunedPartitions().
+        List<HmsPartitionInfo> hmsPartitions = hmsClient.getPartitions(dbName, tableName, partitionBatch);
+        List<PartitionScanInfo> partitions = convertPartitions(
+                hmsPartitions, hiveHandle.getPartitionKeyNames());
+        if (partitions.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        HiveFileFormat fileFormat = HiveFileFormat.detect(
+                hiveHandle.getInputFormat(), hiveHandle.getSerializationLib(),
+                readHiveJsonInOneColumn(session), hiveHandle.isFirstColumnString());
+        long targetSplitSize = getTargetSplitSize(session);
+        boolean splittable = fileFormat.isSplittable();
+        Configuration hadoopConf = buildHadoopConf();
+
+        List<ConnectorScanRange> ranges = new ArrayList<>();
+        for (PartitionScanInfo partition : partitions) {
+            HiveFileFormat partFormat = partition.fileFormat != null
+                    ? partition.fileFormat : fileFormat;
+            listAndSplitFiles(dbName, tableName, partition, partFormat,
+                    splittable, targetSplitSize, hadoopConf, ranges);
+        }
         return ranges;
     }
 
