@@ -20,6 +20,7 @@
 #include <CLucene.h>
 
 #include <algorithm>
+#include <string_view>
 
 #include "common/cast_set.h"
 #include "common/config.h"
@@ -166,29 +167,6 @@ void SniiIndexColumnWriter::set_direct_load(bool is_direct_load) {
                                config::snii_bigram_defer_build_to_compaction && _has_positions;
 }
 
-Status SniiIndexColumnWriter::_analyze(const Slice& value, std::vector<TermInfo>* terms) {
-    terms->clear();
-    if (!_should_analyzer) {
-        TermInfo term;
-        term.term = std::string(value.data, value.size);
-        term.position = 0;
-        terms->emplace_back(std::move(term));
-        return Status::OK();
-    }
-    try {
-        _char_string_reader->init(value.data, cast_set<int32_t>(value.size), false);
-        *terms = inverted_index::InvertedIndexAnalyzer::get_analyse_result(_char_string_reader,
-                                                                           _analyzer.get());
-    } catch (const CLuceneError& e) {
-        return Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
-                "SNII analyze value failed: {}", e.what());
-    } catch (const Exception& e) {
-        return Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
-                "SNII analyze value failed: {}", e.what());
-    }
-    return Status::OK();
-}
-
 Status SniiIndexColumnWriter::_add_phrase_bigram_tokens(uint32_t docid) {
     if (_bigram_positioned.size() < 2) {
         return Status::OK();
@@ -221,17 +199,20 @@ Status SniiIndexColumnWriter::_add_value_tokens(const Slice& value, uint32_t doc
         return Status::OK();
     }
 
-    std::vector<TermInfo> terms;
-    RETURN_IF_ERROR(_analyze(value, &terms));
     // clear() keeps the backing capacity across rows so the per-row bigram build
     // stops allocating a fresh positioned-term vector every text value / array
     // element.
     _bigram_positioned.clear();
-    for (const auto& term_info : terms) {
-        DCHECK(term_info.is_single_term());
-        const auto& term = term_info.get_single_term();
+    // T1a: tokens STREAM from the analyzer straight into the SPIMI buffer as
+    // string_views (the buffer interns the bytes into its own storage) -- no
+    // per-row vector<TermInfo> and no per-token std::string materialization
+    // (the old get_analyse_result lane; profile: 3.4-4.7% of import CPU burned
+    // in token realloc). Golden-byte pins (snii_writer_golden_bytes_test.cpp)
+    // hold this path byte-identical to the materializing one it replaced.
+    const bool collect_bigrams = _has_positions && !_phrase_bigrams_deferred;
+    auto consume_token = [&](std::string_view term, int32_t token_position) {
         const uint32_t position =
-                _has_positions ? position_base + cast_set<uint32_t>(term_info.position) : 0;
+                _has_positions ? position_base + cast_set<uint32_t>(token_position) : 0;
         // G05: capture the unigram's SPIMI term-id as it is interned; the
         // bigram-indexable ones seed the id-keyed pair adds below. Unigram ids
         // are stable for the buffer's lifetime (only hidden bigram terms are
@@ -242,11 +223,43 @@ Status SniiIndexColumnWriter::_add_value_tokens(const Slice& value, uint32_t doc
         // Deferred-bigram segments skip the pair capture entirely (compaction
         // rebuilds the bigrams later); the unigram add above -- including its
         // term-id-returning path -- is deliberately untouched.
-        if (_has_positions && !_phrase_bigrams_deferred &&
+        if (collect_bigrams &&
             term_id != ::doris::snii::writer::SpimiTermBuffer::kInvalidTermId &&
             ::doris::snii::format::is_phrase_bigram_indexable_term(term)) {
             _bigram_positioned.push_back(
-                    {term_id, position_base + cast_set<uint32_t>(term_info.position)});
+                    {term_id, position_base + cast_set<uint32_t>(token_position)});
+        }
+    };
+
+    if (!_should_analyzer) {
+        // Keyword lane: the whole value is one exact-match token at position 0
+        // (an EMPTY value is a valid keyword token, mirrored from the old lane).
+        consume_token(std::string_view(value.data, value.size), 0);
+    } else {
+        try {
+            _char_string_reader->init(value.data, cast_set<int32_t>(value.size), false);
+            std::unique_ptr<lucene::analysis::TokenStream> token_stream(
+                    _analyzer->tokenStream(L"", _char_string_reader));
+            // EXACT InvertedIndexAnalyzer::get_analyse_result semantics,
+            // including the subtle one: an empty token's position increment is
+            // dropped WITH the token (not accumulated into the next).
+            lucene::analysis::Token token;
+            int32_t position = 0;
+            while (token_stream->next(&token)) {
+                if (token.termLength<char>() != 0) {
+                    position += token.getPositionIncrement();
+                    consume_token(
+                            std::string_view(token.termBuffer<char>(), token.termLength<char>()),
+                            position);
+                }
+            }
+            token_stream->close();
+        } catch (const CLuceneError& e) {
+            return Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
+                    "SNII analyze value failed: {}", e.what());
+        } catch (const Exception& e) {
+            return Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
+                    "SNII analyze value failed: {}", e.what());
         }
     }
     if (!_phrase_bigrams_deferred) {

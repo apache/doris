@@ -70,7 +70,6 @@ private:
     // unigrams (as SPIMI term-ids + positions) _add_value_tokens collected into
     // _bigram_positioned.
     Status _add_phrase_bigram_tokens(uint32_t docid);
-    Status _analyze(const Slice& value, std::vector<TermInfo>* terms);
     // Mirrors _null_docids' capacity into _memory_reporter (delta-charged);
     // release_all zeroes the charge (finish() handoff / close_on_error()).
     void _report_null_docids_capacity(bool release_all = false);
