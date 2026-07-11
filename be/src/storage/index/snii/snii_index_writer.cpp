@@ -23,6 +23,7 @@
 
 #include "common/cast_set.h"
 #include "common/config.h"
+#include "common/logging.h"
 #include "storage/index/index_file_writer.h"
 #include "storage/index/inverted/analyzer/analyzer.h"
 #include "storage/index/inverted/query/query_info.h"
@@ -33,8 +34,10 @@
 namespace doris::segment_v2 {
 
 SniiIndexColumnWriter::SniiIndexColumnWriter(IndexFileWriter* index_file_writer,
-                                             const TabletIndex* index_meta, bool /*single_field*/)
-        : _index_file_writer(index_file_writer), _index_meta(index_meta) {}
+                                             const TabletIndex* index_meta, bool single_field)
+        : _index_file_writer(index_file_writer),
+          _index_meta(index_meta),
+          _single_field(single_field) {}
 
 Status SniiIndexColumnWriter::init() {
     _should_analyzer =
@@ -127,6 +130,41 @@ Status SniiIndexColumnWriter::init() {
     return Status::OK();
 }
 
+void SniiIndexColumnWriter::set_direct_load(bool is_direct_load) {
+    // Feed/sentinel coherence rests on this running before the first row: a
+    // post-feed flip could emit pair postings and then drop the sentinel that
+    // vouches for them (or vice versa) within one segment. Latched by an
+    // explicit marker (in release too): the FIRST call wins, a repeat or late
+    // call keeps the first-captured decision instead of desyncing the pair
+    // feed from the sentinel decision at finish(). The late-call drop is
+    // logged: silently losing the hint would hide a wiring regression as a
+    // mere perf cliff (segment full-builds despite the config).
+    DCHECK(!_direct_load_marked && _rid == 0);
+    if (_direct_load_marked || _rid != 0) {
+        LOG_EVERY_N(WARNING, 100) << "SNII set_direct_load(" << is_direct_load
+                                  << ") ignored (already_marked=" << _direct_load_marked
+                                  << ", rows_fed=" << _rid << ") for index "
+                                  << (_index_meta != nullptr ? _index_meta->index_id() : -1)
+                                  << "; keeping the first-captured defer decision";
+        return;
+    }
+    _direct_load_marked = true;
+    // Bigram-defer decision, captured ONCE by the latch above (mirrors init()'s
+    // G04 "Captured ONCE here" capture discipline): IndexColumnWriter::create()
+    // has already run init() when the segment writer calls this, and no row has
+    // been fed yet, so _has_positions is final and the decision precedes every
+    // token. The bigram diet that init() may have armed on the term buffer
+    // stays armed but INERT: with zero pair feeds the pair map is never
+    // populated (the per-new-unigram pos_suppressed probe is the same two loads
+    // as the non-defer path) and prepare_pair_terms_for_drain early-returns on
+    // the empty map. finish() persists this same decision as resident per-index
+    // metadata; new readers skip impossible pair probes and enter positions
+    // verification directly, while the omitted sentinel keeps older readers on
+    // their existing fallback contract.
+    _phrase_bigrams_deferred = _single_field && is_direct_load &&
+                               config::snii_bigram_defer_build_to_compaction && _has_positions;
+}
+
 Status SniiIndexColumnWriter::_analyze(const Slice& value, std::vector<TermInfo>* terms) {
     terms->clear();
     if (!_should_analyzer) {
@@ -200,13 +238,19 @@ Status SniiIndexColumnWriter::_add_value_tokens(const Slice& value, uint32_t doc
         // stay resolvable until flush materialization.
         const uint32_t term_id = _term_buffer->add_token_returning_id(term, docid, position);
         *max_position = std::max(*max_position, position);
-        if (_has_positions && term_id != ::doris::snii::writer::SpimiTermBuffer::kInvalidTermId &&
+        // Deferred-bigram segments skip the pair capture entirely (compaction
+        // rebuilds the bigrams later); the unigram add above -- including its
+        // term-id-returning path -- is deliberately untouched.
+        if (_has_positions && !_phrase_bigrams_deferred &&
+            term_id != ::doris::snii::writer::SpimiTermBuffer::kInvalidTermId &&
             ::doris::snii::format::is_phrase_bigram_indexable_term(term)) {
             _bigram_positioned.push_back(
                     {term_id, position_base + cast_set<uint32_t>(term_info.position)});
         }
     }
-    RETURN_IF_ERROR(_add_phrase_bigram_tokens(docid));
+    if (!_phrase_bigrams_deferred) {
+        RETURN_IF_ERROR(_add_phrase_bigram_tokens(docid));
+    }
     return Status::OK();
 }
 
@@ -301,7 +345,12 @@ Status SniiIndexColumnWriter::add_array_nulls(const uint8_t* null_map, size_t nu
 
 Status SniiIndexColumnWriter::finish() {
     DCHECK(_term_buffer != nullptr);
-    if (_has_positions && _rid > 0) {
+    // The same captured decision is persisted with the index below. New readers
+    // use it to skip impossible hidden-pair probes and enter positions
+    // verification; the omitted sentinel preserves the existing fallback for
+    // older readers. _phrase_bigrams_deferred gates both pair feed and
+    // sentinel, so they can never disagree within one segment.
+    if (_has_positions && _rid > 0 && !_phrase_bigrams_deferred) {
         _term_buffer->add_token(::doris::snii::format::make_phrase_bigram_sentinel_term(), 0, 0);
     }
     auto status = _term_buffer->status();
@@ -312,9 +361,9 @@ Status SniiIndexColumnWriter::finish() {
     // flush-scoped); release the accumulation-phase charge so the retained
     // reporter (and the LOAD MemTracker behind it) balances to zero.
     _report_null_docids_capacity(/*release_all=*/true);
-    RETURN_IF_ERROR(_index_file_writer->add_snii_index(_index_meta, cast_set<uint32_t>(_rid),
-                                                       std::move(_null_docids), _term_buffer.get(),
-                                                       _config, _memory_reporter.get()));
+    RETURN_IF_ERROR(_index_file_writer->add_snii_index(
+            _index_meta, cast_set<uint32_t>(_rid), std::move(_null_docids), _term_buffer.get(),
+            _config, /*phrase_bigrams_deferred=*/_phrase_bigrams_deferred, _memory_reporter.get()));
     _index_file_writer->retain_snii_memory_reporter(std::move(_memory_reporter));
     _term_buffer.reset();
     return Status::OK();

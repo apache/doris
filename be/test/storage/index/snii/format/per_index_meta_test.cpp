@@ -212,6 +212,37 @@ TEST(SniiPerIndexMeta, HasPositionsFlagRoundTrips) {
     EXPECT_GT(docs_reader.section_refs().posting_region.length, 0U);
 }
 
+TEST(SniiPerIndexMeta, PhraseBigramsDeferredFlagRoundTrips) {
+    PerIndexMetaBuilder builder(
+            11, "body",
+            PerIndexMetaBuilder::kHasPositions | PerIndexMetaBuilder::kPhraseBigramsDeferred);
+    builder.set_stats(SampleStats());
+    builder.set_sampled_term_index(Slice(BuildSampled({"a"})));
+    builder.set_dict_block_directory(Slice(
+            BuildDict({{.offset = 0, .length = 1, .n_entries = 1, .flags = 0, .checksum = 0}})));
+    builder.set_section_refs(SampleRefs());
+    ByteSink sink;
+    ASSERT_TRUE(builder.finish(&sink).ok());
+
+    PerIndexMetaReader reader;
+    ASSERT_TRUE(PerIndexMetaReader::open(Slice(sink.buffer()), &reader).ok());
+    EXPECT_TRUE(reader.has_positions());
+    EXPECT_TRUE(reader.phrase_bigrams_deferred());
+    EXPECT_NE(reader.flags() & PerIndexMetaBuilder::kPhraseBigramsDeferred, 0U);
+
+    PerIndexMetaBuilder legacy(12, "body", PerIndexMetaBuilder::kHasPositions);
+    legacy.set_stats(SampleStats());
+    legacy.set_sampled_term_index(Slice(BuildSampled({"a"})));
+    legacy.set_dict_block_directory(Slice(
+            BuildDict({{.offset = 0, .length = 1, .n_entries = 1, .flags = 0, .checksum = 0}})));
+    legacy.set_section_refs(SampleRefs());
+    ByteSink legacy_sink;
+    ASSERT_TRUE(legacy.finish(&legacy_sink).ok());
+    PerIndexMetaReader legacy_reader;
+    ASSERT_TRUE(PerIndexMetaReader::open(Slice(legacy_sink.buffer()), &legacy_reader).ok());
+    EXPECT_FALSE(legacy_reader.phrase_bigrams_deferred());
+}
+
 TEST(SniiPerIndexMeta, EmptySuffix) {
     auto bytes = BuildMeta(1, "", {"a"},
                            {{.offset = 0, .length = 1, .n_entries = 1, .flags = 0, .checksum = 0}});

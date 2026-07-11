@@ -35,8 +35,14 @@
 //   - bigram_fallbacks      : 2-term phrases whose bigram term MISSED the dict on
 //                             a bigram-df-PRUNED segment (meta declares a non-zero
 //                             threshold), rerouted to the generic positions-
-//                             verification path. Stays 0 on legacy (unpruned)
-//                             segments, where a miss keeps meaning "empty result".
+//                             verification path, plus fresh deferred segments
+//                             that enter the same path from resident metadata.
+//                             Stays 0 on legacy (unpruned) segments, where a
+//                             miss keeps meaning "empty result".
+//   - bigram_probe_attempts : hidden pair dictionary probes attempted by the
+//                             2-term fast path. Fresh deferred segments must
+//                             keep this at 0: their resident capability flag
+//                             makes every pair probe provably unnecessary.
 //   - count_fastpath_hits   : count-only (G02) answers produced from dict-entry
 //                             df alone -- single-term df or a 2-term phrase
 //                             bigram-dict-HIT df -- with NO posting decode
@@ -71,6 +77,7 @@ struct QueryTestCounters {
     uint64_t anchor_iterations = 0;
     uint64_t bigram_hits = 0;
     uint64_t bigram_fallbacks = 0;
+    uint64_t bigram_probe_attempts = 0;
     uint64_t count_fastpath_hits = 0;
 };
 

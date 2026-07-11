@@ -180,6 +180,7 @@ Status IndexFileWriter::add_snii_index(const TabletIndex* index_meta, uint32_t d
                                        std::vector<uint32_t> null_docids,
                                        doris::snii::writer::SpimiTermBuffer* const term_buffer,
                                        doris::snii::format::IndexConfig index_config,
+                                       bool phrase_bigrams_deferred,
                                        doris::snii::writer::MemoryReporter* const mem_reporter) {
     DCHECK(_storage_format == InvertedIndexStorageFormatPB::SNII);
     DCHECK(index_meta != nullptr);
@@ -202,9 +203,15 @@ Status IndexFileWriter::add_snii_index(const TabletIndex* index_meta, uint32_t d
     input.null_docids = std::move(null_docids);
     input.term_source = term_buffer;
     input.mem_reporter = mem_reporter;
+    // NOTE: deferred segments persist these thresholds too, although zero
+    // bigram terms were fed. On OLD readers (flag-blind) a non-zero threshold
+    // is the SECOND, redundant fallback trigger alongside the omitted sentinel
+    // -- either alone routes their pair-dict miss to positions verification --
+    // so neither mechanism may be removed independently.
     input.bigram_prune_min_df = snii_effective_bigram_prune_min_df(doc_count, index_config);
     input.bigram_prune_max_df =
             snii_effective_bigram_prune_max_df(doc_count, input.bigram_prune_min_df, index_config);
+    input.phrase_bigrams_deferred = phrase_bigrams_deferred;
     // G16-c: freq regions serve only BM25 scoring; a plain positions index
     // drops them unless the escape hatch asks for the full T2 layout.
     input.write_freq = snii_effective_write_freq(index_config);
@@ -228,8 +235,12 @@ Status IndexFileWriter::add_snii_index(const TabletIndex* index_meta, uint32_t d
     // mutable config now resolves the threshold to 0 (legacy layout). Flushing a
     // legacy layout from a dieted buffer would either fail validation (missing
     // positions) or -- worse -- materialize incomplete evicted pairs on a segment
-    // whose meta declares no fallback. Fail loudly instead.
-    if (input.bigram_prune_min_df == 0 && term_buffer->bigram_diet_configured()) {
+    // whose meta declares no fallback. Fail loudly instead. DEFERRED segments
+    // are exempt: they fed zero pair tokens, so the armed diet is provably
+    // inert (empty pair map, no evicted-incomplete pairs possible) and the
+    // resident deferred flag already routes readers to positions verification.
+    if (input.bigram_prune_min_df == 0 && !phrase_bigrams_deferred &&
+        term_buffer->bigram_diet_configured()) {
         return Status::InternalError(
                 "SNII: snii_bigram_prune_min_df was disabled while an import with the bigram "
                 "diet active was in flight for {}; keep the config stable during a load",

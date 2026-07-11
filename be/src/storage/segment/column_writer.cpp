@@ -565,6 +565,13 @@ Status ScalarColumnWriter::init() {
                 RETURN_IF_ERROR(IndexColumnWriter::create(
                         get_column(), &_inverted_index_builders[i], _opts.index_file_writer,
                         _opts.inverted_indexes[i]));
+                // After create() (which runs the writer's init()) and before any
+                // value lands: forward the write type UNCONDITIONALLY so
+                // write-type-aware index builds (SNII bigram deferral) can
+                // distinguish loads from compaction / schema change -- and the
+                // documented "forwarded to every created IndexColumnWriter"
+                // contract holds for both values.
+                _inverted_index_builders[i]->set_direct_load(_opts.is_direct_load);
             }
         } while (false);
     }
@@ -1056,6 +1063,9 @@ Status ArrayColumnWriter::init() {
             RETURN_IF_ERROR(IndexColumnWriter::create(get_column(), &_inverted_index_writer,
                                                       _opts.index_file_writer,
                                                       _opts.inverted_indexes[0]));
+            // Same unconditional forwarding as the scalar path: after
+            // create()/init(), before any array value is added.
+            _inverted_index_writer->set_direct_load(_opts.is_direct_load);
         }
     }
     if (_opts.need_ann_index) {

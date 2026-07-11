@@ -63,11 +63,18 @@ Status count_only_two_term_phrase_bigram_df(const LogicalIndexReader& idx, const
         !format::is_phrase_bigram_indexable_term(right)) {
         return Status::OK();
     }
+    // Fresh deferred segments have no hidden pair postings. Let the normal
+    // phrase execution own the positions verification without spending a probe
+    // here and another one when it falls through from the count fast path.
+    if (idx.phrase_bigrams_deferred()) {
+        return Status::OK();
+    }
 
     bool found = false;
     DictEntry entry;
     uint64_t frq_base = 0;
     uint64_t prx_base = 0;
+    SNII_QUERY_COUNT(bigram_probe_attempts);
     RETURN_IF_ERROR(idx.lookup(format::make_phrase_bigram_term(left, right), &found, &entry,
                                &frq_base, &prx_base));
     if (!found) {

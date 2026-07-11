@@ -237,6 +237,9 @@ Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletCo
         tablet_schema->skip_write_index_on_load()) {
         skip_inverted_index = true;
     }
+    // let index column writers distinguish direct load (stream/broker load)
+    // from compaction / schema change (SNII bigram deferral hint)
+    opts.is_direct_load = _opts.write_type == DataWriteType::TYPE_DIRECT;
     if (!skip_inverted_index) {
         auto inverted_indexs = tablet_schema->inverted_indexs(column);
         if (!inverted_indexs.empty()) {

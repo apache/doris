@@ -145,6 +145,10 @@ struct SniiIndexInput {
     // the mid-feed drain: a partial df above a threshold derived from the
     // still-growing doc count proves nothing about the final df/threshold pair.
     uint64_t bigram_prune_max_df = 0;
+    // Fresh direct-load segment deliberately omits every hidden phrase-bigram
+    // posting and the sentinel. Persisted as resident per-index metadata so the
+    // reader avoids probing an impossible pair before positions verification.
+    bool phrase_bigrams_deferred = false;
     // G04: EVER-DROPPED bloom over bigram terms the SPIMI vocab-cap eviction
     // dropped mid-build (SpimiTermBuffer::bigram_dropped_filter(); the caller
     // wires it). When non-null AND pruning is active (bigram_prune_min_df > 0),
@@ -308,6 +312,9 @@ private:
     // Forced to 0 for non-positional configs like the min threshold. Recorded
     // into the per-index meta by finish_meta alongside it.
     uint64_t bigram_prune_max_df_;
+    // The input's fresh-segment capability flag. Full builds and every existing
+    // segment keep this false, preserving their hidden-bigram fast path.
+    bool phrase_bigrams_deferred_;
     // G04 ever-dropped bloom (borrowed from SniiIndexInput). Non-null ONLY when
     // pruning is active (see the SniiIndexInput field contract): probed once per
     // df-surviving bigram term in process_term.

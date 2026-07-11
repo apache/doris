@@ -71,7 +71,8 @@ public:
     Status add_snii_index(const TabletIndex* index_meta, uint32_t doc_count,
                           std::vector<uint32_t> null_docids,
                           doris::snii::writer::SpimiTermBuffer* const term_buffer,
-                          doris::snii::format::IndexConfig config,
+                          doris::snii::format::IndexConfig index_config,
+                          bool phrase_bigrams_deferred,
                           doris::snii::writer::MemoryReporter* const mem_reporter);
     void retain_snii_memory_reporter(
             std::unique_ptr<doris::snii::writer::MemoryReporter> mem_reporter);

@@ -328,9 +328,8 @@ Status BuildWindowedPosting(TermPostings& tp, bool has_freq, bool has_prx,
                     pos_span = all_pos.subspan(pos_off, win_pos);
                 }
                 sc.prx_sink.clear();
-                RETURN_IF_ERROR(
-                        format::build_prx_window_flat(pos_span, freqs, -prx_zstd_level,
-                                                      &sc.prx_sink));
+                RETURN_IF_ERROR(format::build_prx_window_flat(pos_span, freqs, -prx_zstd_level,
+                                                              &sc.prx_sink));
                 m.prx_off = out->prx_total_len;
                 m.prx_len = static_cast<uint64_t>(sc.prx_sink.size());
                 RETURN_IF_ERROR(posting_out->append(sc.prx_sink.view()));
@@ -358,10 +357,9 @@ Status BuildWindowedPosting(TermPostings& tp, bool has_freq, bool has_prx,
         // Ultra-dense pair postings carry highly repetitive PFOR delta patterns
         // that raw encoding leaves ~3 bits/doc on the table; unigram dd stays
         // force-raw (measured: zstd shrinks ~30MB of PFOR input by <0.1MB).
-        RETURN_IF_ERROR(EncodeRegionsInto(&sc, docs, freqs, win_base, has_freq, &dd_meta,
-                                          &freq_meta,
-                                          window_docs_override > 0 ? kAutoZstdRegion
-                                                                   : kRawFrqRegion));
+        RETURN_IF_ERROR(
+                EncodeRegionsInto(&sc, docs, freqs, win_base, has_freq, &dd_meta, &freq_meta,
+                                  window_docs_override > 0 ? kAutoZstdRegion : kRawFrqRegion));
         LayoutWindowRegions(dd_meta, sc.dd_sink.buffer(), freq_meta, sc.freq_sink.buffer(),
                             has_freq, out, &out->windows[wi]);
         win_base = out->windows[wi].last_docid;
@@ -480,6 +478,10 @@ LogicalIndexWriter::LogicalIndexWriter(const SniiIndexInput& in)
           // index has no bigrams, and declaring pruning there would send every
           // 2-term phrase-shaped miss down a pointless fallback branch.
           bigram_prune_max_df_(format::has_positions(in.config) ? in.bigram_prune_max_df : 0),
+          // The direct-load writer only arms this for positional indexes. Keep the
+          // format invariant local to the writer as well so core callers cannot
+          // publish a no-bigram capability on a docs-only index.
+          phrase_bigrams_deferred_(format::has_positions(in.config) && in.phrase_bigrams_deferred),
           // The G04 bloom drop rides the SAME reader contract as the df prune (a
           // dict miss falls back only when the meta declares pruning), so it is
           // honored ONLY when the effective threshold is non-zero. NOTE: the
@@ -964,7 +966,12 @@ Status LogicalIndexWriter::finish_meta(const SectionRefs& abs_refs, uint64_t dic
     // Persist positions capability explicitly (the R1 fix): the reader must NOT
     // infer it from posting_region.length, which is non-zero for any docs-only
     // pod_ref index.
-    if (has_prx_) flags |= PerIndexMetaBuilder::kHasPositions;
+    if (has_prx_) {
+        flags |= PerIndexMetaBuilder::kHasPositions;
+    }
+    if (phrase_bigrams_deferred_) {
+        flags |= PerIndexMetaBuilder::kPhraseBigramsDeferred;
+    }
     PerIndexMetaBuilder builder(index_id_, index_suffix_, flags);
     builder.set_stats(stats_);
     builder.set_sampled_term_index(sti_sink.view());

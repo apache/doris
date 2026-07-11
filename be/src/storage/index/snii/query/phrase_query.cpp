@@ -162,9 +162,18 @@ Status TryTwoTermPhraseBigram(const LogicalIndexReader& idx, const std::vector<s
         !format::is_phrase_bigram_indexable_term(terms[1])) {
         return Status::OK();
     }
+    // A fresh direct-load segment persisted this capability in its resident
+    // per-index meta. It has no pair postings or sentinel by construction, so a
+    // synthetic pair lookup cannot help and can become one lookup per tail for
+    // MATCH_PHRASE_PREFIX. Go straight to the existing positions fallback.
+    if (idx.phrase_bigrams_deferred()) {
+        SNII_QUERY_COUNT(bigram_fallbacks);
+        return Status::OK();
+    }
 
     ResolvedQueryTerm resolved;
     bool found = false;
+    SNII_QUERY_COUNT(bigram_probe_attempts);
     RETURN_IF_ERROR(internal::resolve_query_term(
             idx, format::make_phrase_bigram_term(terms[0], terms[1]), &resolved, &found));
     if (found) {
@@ -1509,7 +1518,7 @@ Status phrase_prefix_query(const LogicalIndexReader& idx, const std::vector<std:
     // TryTwoTermPhraseBigram returns handled=false for exactly the misses that
     // require positions -- and reads no bigram positions (docs-only postings).
     std::vector<LogicalIndexReader::PrefixHit> verify_hits;
-    if (exact_terms.size() == 1) {
+    if (exact_terms.size() == 1 && !idx.phrase_bigrams_deferred()) {
         const std::string& lead = terms[terms.size() - 2];
         verify_hits.reserve(tail_hits.size());
         for (LogicalIndexReader::PrefixHit& hit : tail_hits) {

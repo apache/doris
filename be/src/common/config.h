@@ -1369,6 +1369,34 @@ DECLARE_mInt32(snii_bigram_prune_min_df);
 // could never prune -- recording it would only arm pointless dict-miss
 // fallbacks).
 DECLARE_mDouble(snii_bigram_prune_max_df_ratio);
+// Defer the SNII hidden phrase-bigram build to compaction. When true, a direct
+// non-ARRAY load (stream/broker load, DataWriteType::TYPE_DIRECT) skips feeding
+// the hidden adjacent-pair bigram tokens AND the bigram sentinel term entirely
+// -- measured at ~3/4 of the SNII import-index CPU gap vs V3 -- and persists a
+// resident capability flag, so phrase queries on such a fresh segment skip
+// impossible pair probes before taking the full-fidelity positions-verification
+// fallback (results are identical, only slower) until compaction rewrites the
+// segment. The omitted sentinel retains the existing fallback for older readers.
+// ARRAY indexes keep the full build to preserve existing SNII full-build phrase
+// behavior at element boundaries.
+// Compaction re-feeds every token through the same writer with a
+// non-TYPE_DIRECT write type, so it rebuilds the bigram index with zero extra
+// mechanism; schema change and ADD INDEX builds likewise keep the full build.
+// Captured once per index writer when the segment writer marks it direct-load
+// (before any row is fed); a mid-load flip does not change an in-flight
+// segment. NOTE: local-mode segcompaction (enable_segcompaction) rewrites
+// merged segments as TYPE_COMPACTION during the load itself, so those segments
+// still build the full bigram inside the load window -- the deferral saving
+// applies only to segments that are not segcompacted; cloud mode has no
+// segcompaction, so the saving is complete there.
+// PERF-CLIFF DISCLOSURE: compaction is the ONLY mechanism that rebuilds a
+// deferred segment's bigrams, and nothing guarantees it ever runs -- a
+// load-once-then-cold tablet (single rowset under the cumulative thresholds,
+// compaction disabled, or policies that skip a lone rowset) keeps its phrase
+// queries on the positions-verification path indefinitely (results identical,
+// slower), and BUILD INDEX cannot rebuild an already-existing index. Verify
+// the deployment's compaction policy covers lone-load rowsets before enabling.
+DECLARE_mBool(snii_bigram_defer_build_to_compaction);
 // DIAGNOSTIC: force SNII inverted-index reads to bypass the 1MiB FILE_BLOCK_CACHE
 // and issue precise S3 range GETs (NO_CACHE) instead. Applies ONLY to the SNII
 // index file reader (per-open cache_type), NOT the global enable_file_cache, so

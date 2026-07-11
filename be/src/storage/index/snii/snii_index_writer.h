@@ -44,6 +44,7 @@ public:
     ~SniiIndexColumnWriter() override = default;
 
     Status init() override;
+    void set_direct_load(bool is_direct_load) override;
     Status add_values(const std::string name, const void* values, size_t count) override;
     Status add_array_values(size_t field_size, const void* value_ptr,
                             const uint8_t* nested_null_map, const uint8_t* offsets_ptr,
@@ -78,6 +79,24 @@ private:
     const TabletIndex* _index_meta = nullptr;
     bool _should_analyzer = false;
     bool _has_positions = false;
+    // IndexColumnWriter::create() marks ARRAY item indexes as multi-field.
+    // They retain the hidden bigram layout to preserve existing SNII full-build
+    // phrase behavior at element boundaries.
+    bool _single_field = true;
+    // Latch: set_direct_load() ran. The first call wins; a repeat or late call
+    // is ignored (and logged) so the pair feed can never desync from the
+    // sentinel decision at finish().
+    bool _direct_load_marked = false;
+    // Defer the hidden phrase-bigram build to compaction for single-field
+    // indexes only: no pair tokens, no sentinel, and a resident per-index
+    // capability flag (kPhraseBigramsDeferred) routes fresh-segment phrases
+    // directly to positions verification. ARRAY indexes retain their full build
+    // to preserve existing SNII full-build phrase behavior at element
+    // boundaries. Captured ONCE in set_direct_load() -- create() runs init()
+    // first and the segment writer marks direct load before any row is fed --
+    // so a mid-load flip of config::snii_bigram_defer_build_to_compaction can
+    // never desync the pair feed from the sentinel decision at finish().
+    bool _phrase_bigrams_deferred = false;
     uint32_t _ignore_above = 0;
     uint32_t _rid = 0;
     ::doris::snii::format::IndexConfig _config = ::doris::snii::format::IndexConfig::kDocsOnly;

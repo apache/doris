@@ -100,6 +100,7 @@ public:
     // Header flags / feature bits.
     static constexpr uint32_t kHasPositions = 1u << 0; // index is positions-capable (tier>=T2)
     static constexpr uint32_t kHasBsbf = 1u << 1;      // block-split bloom XFilter (section ref)
+    static constexpr uint32_t kPhraseBigramsDeferred = 1u << 2; // no hidden pair postings/sentinel
 
     PerIndexMetaBuilder(uint64_t index_id, std::string index_suffix, uint32_t flags);
 
@@ -182,6 +183,14 @@ public:
     // Positions capability, read from the persisted header flag (NOT from any region
     // length). True iff the index was built as docs-positions(+scoring) (tier>=T2).
     bool has_positions() const { return (flags_ & PerIndexMetaBuilder::kHasPositions) != 0; }
+
+    // The writer deliberately skipped every hidden phrase-bigram token and the
+    // sentinel for this fresh direct-load segment. The flag is resident metadata,
+    // so phrase readers can enter positions verification without probing a pair
+    // term that cannot exist. Absent on all older segments.
+    bool phrase_bigrams_deferred() const {
+        return (flags_ & PerIndexMetaBuilder::kPhraseBigramsDeferred) != 0;
+    }
 
     // Effective phrase-bigram df-prune thresholds the writer applied (G01 min /
     // G15 max), from the OPTIONAL kBigramPruneInfo section. Both 0 == section

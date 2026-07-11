@@ -133,6 +133,7 @@ public:
     // max is 0 on every pre-G15 segment (single-varint section payload).
     uint64_t bigram_prune_min_df() const { return meta_.bigram_prune_min_df(); }
     uint64_t bigram_prune_max_df() const { return meta_.bigram_prune_max_df(); }
+    bool phrase_bigrams_deferred() const { return meta_.phrase_bigrams_deferred(); }
     io::FileReader* reader() const { return reader_; }
     size_t memory_usage() const;
 
