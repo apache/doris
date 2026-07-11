@@ -92,6 +92,24 @@ public interface ConnectorTableOps {
         return getTableSchema(session, handle);
     }
 
+    /**
+     * Renders the native {@code SHOW CREATE TABLE} DDL for a table, fetching schema FRESH from the underlying
+     * metastore at call time (bypassing any connector-side table cache) so the returned statement always
+     * reflects the latest remote schema.
+     *
+     * <p>This is a LAZY, per-call interception point used ONLY by {@code ShowCreateTableCommand}. It intentionally
+     * does NOT participate in the {@code SUPPORTS_SHOW_CREATE_DDL} capability (which gates the engine-assembled
+     * DDL in {@code Env.getDdlStmt} for every caller, including delegated sibling tables and the HTTP schema
+     * endpoint). A connector that does not natively render its own SHOW CREATE returns {@link Optional#empty()},
+     * and the command falls through to the generic {@code Env.getDdlStmt} path unchanged.</p>
+     *
+     * @return the full {@code CREATE TABLE} statement, or {@link Optional#empty()} to defer to the engine
+     */
+    default Optional<String> renderShowCreateTableDdl(
+            ConnectorSession session, ConnectorTableHandle handle) {
+        return Optional.empty();
+    }
+
     /** Returns a name-to-handle map for all columns of the table. */
     default Map<String, ConnectorColumnHandle> getColumnHandles(
             ConnectorSession session, ConnectorTableHandle handle) {

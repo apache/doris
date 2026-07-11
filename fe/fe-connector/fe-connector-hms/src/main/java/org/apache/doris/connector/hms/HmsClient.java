@@ -91,6 +91,25 @@ public interface HmsClient extends Closeable {
     HmsTableInfo getTable(String dbName, String tableName);
 
     /**
+     * Get table metadata bypassing any connector-side table cache — always a fresh metastore read. Used by
+     * SHOW CREATE TABLE, which must reflect the latest remote schema even while {@code DESC} (served from the
+     * schema cache) still shows a stale one (the {@code use_meta_cache} freshness contract).
+     *
+     * <p>Default = the cached path: a non-decorating client (e.g. the raw {@link ThriftHmsClient}) has no cache
+     * to bypass, so the two are identical for it. <b>Any caching {@code HmsClient} decorator MUST override this</b>
+     * to reach its delegate directly, or SHOW CREATE regresses to serving a stale cached table (mirrors
+     * {@link #listPartitionNamesFresh}).</p>
+     *
+     * @param dbName    database name
+     * @param tableName table name
+     * @return table info with SPI-typed columns, read fresh from the metastore
+     * @throws HmsClientException if the table is not found or operation fails
+     */
+    default HmsTableInfo getTableFresh(String dbName, String tableName) {
+        return getTable(dbName, tableName);
+    }
+
+    /**
      * Get default column values for a table.
      *
      * @param dbName    database name

@@ -589,6 +589,31 @@ public class PluginDrivenExternalTable extends ExternalTable {
         return definition.getSql();
     }
 
+    /**
+     * Renders the connector's native {@code SHOW CREATE TABLE} DDL (a fresh, cache-bypassing metastore read) for
+     * the SHOW CREATE TABLE command's connector arm. Mirrors {@link #getViewText}'s single connector round-trip
+     * (and, like it, is safe to call under the command's table read-lock — no {@code makeSureInitialized}). Returns
+     * {@link Optional#empty()} when the connector supplies no native DDL (iceberg/paimon/es/jdbc inherit the empty
+     * SPI default {@link ConnectorMetadata#renderShowCreateTableDdl}), or when the handle cannot be resolved — the
+     * command then falls through to the generic {@code Env.getDdlStmt} rendering unchanged. A native-rendering
+     * connector (hive) returns the full statement, fetched fresh so it reflects a just-applied external ALTER even
+     * while DESC serves a cached schema.
+     */
+    public Optional<String> getShowCreateTableDdl() {
+        PluginDrivenExternalCatalog pluginCatalog = (PluginDrivenExternalCatalog) catalog;
+        Connector connector = pluginCatalog.getConnector();
+        if (connector == null) {
+            return Optional.empty();
+        }
+        ConnectorSession session = pluginCatalog.buildConnectorSession();
+        ConnectorMetadata metadata = connector.getMetadata(session);
+        Optional<ConnectorTableHandle> handleOpt = resolveConnectorTableHandle(session, metadata);
+        if (!handleOpt.isPresent()) {
+            return Optional.empty();
+        }
+        return metadata.renderShowCreateTableDdl(session, handleOpt.get());
+    }
+
     @Override
     public boolean isPartitionedTable() {
         makeSureInitialized();

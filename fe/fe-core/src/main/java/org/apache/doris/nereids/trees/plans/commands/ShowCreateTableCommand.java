@@ -168,6 +168,18 @@ public class ShowCreateTableCommand extends ShowCommand {
                                 + ((PluginDrivenExternalTable) table).getViewText()));
                 return new ShowResultSet(META_DATA, rows);
             }
+            if (table instanceof PluginDrivenExternalTable) {
+                // Native connector-rendered SHOW CREATE (hive: ROW FORMAT SERDE / STORED AS ..., fetched fresh),
+                // reached only for a non-view plugin table (the view arm above returns first). The guard is the
+                // method returning a value — NOT the source name — so iceberg/paimon/es/jdbc (empty SPI default)
+                // fall through to Env.getDdlStmt below and render exactly as today; only a connector that natively
+                // renders its DDL short-circuits here. Delegated iceberg/hudi-on-HMS tables also return empty.
+                Optional<String> nativeDdl = ((PluginDrivenExternalTable) table).getShowCreateTableDdl();
+                if (nativeDdl.isPresent()) {
+                    rows.add(Arrays.asList(table.getName(), nativeDdl.get()));
+                    return new ShowResultSet(META_DATA, rows);
+                }
+            }
             List<String> createTableStmt = Lists.newArrayList();
             Env.getDdlStmt(null, null, table, createTableStmt, null, null, false,
                     true /* hide password */, false, -1L, isBrief, false);

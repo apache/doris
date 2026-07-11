@@ -54,6 +54,7 @@ import org.apache.doris.connector.api.pushdown.ConnectorFilterConstraint;
 import org.apache.doris.connector.api.pushdown.ConnectorIn;
 import org.apache.doris.connector.api.pushdown.ConnectorLiteral;
 import org.apache.doris.connector.api.pushdown.FilterApplicationResult;
+import org.apache.doris.connector.hms.HiveShowCreateTableRenderer;
 import org.apache.doris.connector.hms.HmsClient;
 import org.apache.doris.connector.hms.HmsClientConfig;
 import org.apache.doris.connector.hms.HmsClientException;
@@ -388,6 +389,26 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
                 .firstColumnIsString(firstColumnIsString(tableInfo))
                 .build();
         return Optional.of(handle);
+    }
+
+    /**
+     * Renders native hive {@code SHOW CREATE TABLE} DDL from a FRESH metastore read (see
+     * {@link HiveShowCreateTableRenderer}). Fetches via {@link HmsClient#getTableFresh} — SHOW CREATE must show
+     * the latest schema even while {@code DESC}, served from the schema cache, is stale (the {@code use_meta_cache}
+     * freshness contract). A delegated iceberg/hudi-on-HMS table routes through THIS hive gateway metadata
+     * ({@code getTableHandle} returns the sibling's foreign handle), so guard exactly like {@link #getTableSchema}:
+     * a non-{@link HiveTableHandle} is not a plain-hive base table — return empty to defer to the engine
+     * ({@code Env.getDdlStmt}), keeping delegated-table SHOW CREATE at today's behavior.
+     */
+    @Override
+    public Optional<String> renderShowCreateTableDdl(
+            ConnectorSession session, ConnectorTableHandle handle) {
+        if (!(handle instanceof HiveTableHandle)) {
+            return Optional.empty();
+        }
+        HiveTableHandle hiveHandle = (HiveTableHandle) handle;
+        HmsTableInfo tableInfo = hmsClient.getTableFresh(hiveHandle.getDbName(), hiveHandle.getTableName());
+        return Optional.of(HiveShowCreateTableRenderer.render(tableInfo));
     }
 
     @Override

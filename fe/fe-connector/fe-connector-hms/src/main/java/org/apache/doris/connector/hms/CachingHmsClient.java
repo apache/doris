@@ -145,6 +145,15 @@ public class CachingHmsClient implements HmsClient {
     }
 
     @Override
+    public HmsTableInfo getTableFresh(String dbName, String tableName) {
+        // Fresh (cache-bypassing) table read for SHOW CREATE TABLE, which must reflect the latest remote schema
+        // even while DESC (served from the schema cache backed by this tableCache) still shows a stale one. This
+        // neither READS nor WRITES tableCache: reading would serve the stale table this method exists to avoid,
+        // writing would let a non-cache path repopulate off-band (mirrors listPartitionNamesFresh).
+        return delegate.getTableFresh(dbName, tableName);
+    }
+
+    @Override
     public List<String> listPartitionNames(String dbName, String tableName, int maxParts) {
         return partitionNamesCache.get(new PartitionNamesKey(dbName, tableName, maxParts),
                 key -> delegate.listPartitionNames(key.dbName, key.tableName, key.maxParts));

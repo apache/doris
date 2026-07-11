@@ -113,6 +113,42 @@ public class CachingHmsClientTest {
         Assertions.assertEquals(2, delegate.listPartitionNamesCalls);
     }
 
+    // ---- getTableFresh (SHOW CREATE TABLE — must bypass the table cache) ----
+
+    @Test
+    public void getTableFreshAlwaysHitsDelegate() {
+        RecordingHmsClient delegate = new RecordingHmsClient();
+        CachingHmsClient cache = new CachingHmsClient(delegate, Collections.emptyMap());
+
+        // WHY: SHOW CREATE TABLE must see the latest schema (a column added externally after the cache filled)
+        // even while DESC serves the stale cached table. Every fresh call goes to the metastore. (test_hive_meta_cache.)
+        cache.getTableFresh("db", "t1");
+        cache.getTableFresh("db", "t1");
+        Assertions.assertEquals(2, delegate.getTableCalls);
+    }
+
+    @Test
+    public void getTableFreshDoesNotPopulateCache() {
+        RecordingHmsClient delegate = new RecordingHmsClient();
+        CachingHmsClient cache = new CachingHmsClient(delegate, Collections.emptyMap());
+
+        // Fresh call must NOT write the table cache: a following cached getTable must still MISS (delegate call #2)
+        // and only THEN populate — proving fresh bypasses the cache in both directions.
+        cache.getTableFresh("db", "t1");   // delegate #1, no populate
+        cache.getTable("db", "t1");        // cache miss -> delegate #2 + populate
+        cache.getTable("db", "t1");        // cache hit -> no delegate call
+        Assertions.assertEquals(2, delegate.getTableCalls);
+    }
+
+    @Test
+    public void getTableFreshDefaultOnNonCachingClientIsPlainGet() {
+        // A bare HmsClient (no caching decorator) inherits the interface default: fresh == the raw getTable.
+        RecordingHmsClient raw = new RecordingHmsClient();
+        raw.getTableFresh("db", "t1");
+        raw.getTable("db", "t1");
+        Assertions.assertEquals(2, raw.getTableCalls);
+    }
+
     // ---- listPartitionNamesFresh (SHOW PARTITIONS / partitions TVF — must bypass the names cache) ----
 
     @Test
