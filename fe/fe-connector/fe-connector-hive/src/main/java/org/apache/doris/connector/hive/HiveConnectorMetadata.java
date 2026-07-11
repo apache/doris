@@ -1971,12 +1971,12 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
     }
 
     private static HmsTypeMapping.Options buildTypeMappingOptions(Map<String, String> props) {
-        boolean binaryAsString = Boolean.parseBoolean(
-                props.getOrDefault(HiveConnectorProperties.ENABLE_MAPPING_BINARY_AS_STRING, "false"));
+        boolean enableMappingVarbinary = Boolean.parseBoolean(
+                props.getOrDefault(HiveConnectorProperties.ENABLE_MAPPING_VARBINARY, "false"));
         boolean timestampTz = Boolean.parseBoolean(
                 props.getOrDefault(HiveConnectorProperties.ENABLE_MAPPING_TIMESTAMP_TZ, "false"));
         return new HmsTypeMapping.Options(
-                HmsTypeMapping.DEFAULT_TIME_SCALE, binaryAsString, timestampTz);
+                HmsTypeMapping.DEFAULT_TIME_SCALE, enableMappingVarbinary, timestampTz);
     }
 
     /**

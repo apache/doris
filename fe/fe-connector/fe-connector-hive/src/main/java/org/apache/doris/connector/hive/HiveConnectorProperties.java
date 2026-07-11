@@ -53,8 +53,11 @@ public final class HiveConnectorProperties {
     public static final String FLINK_CONNECTOR = "connector";
 
     // -- type mapping options --
-    public static final String ENABLE_MAPPING_BINARY_AS_STRING = "enable_mapping_binary_as_string";
-    public static final String ENABLE_MAPPING_TIMESTAMP_TZ = "enable_mapping_timestamp_tz";
+    // Catalog-level property keys (dot form), matching CatalogProperty and the iceberg/paimon connectors.
+    // ExternalCatalog forwards these two keys to the connector; the earlier underscore spellings were never
+    // populated, so the toggles silently no-op'd (hive BINARY always STRING, timestamp never TIMESTAMPTZ).
+    public static final String ENABLE_MAPPING_VARBINARY = "enable.mapping.varbinary";
+    public static final String ENABLE_MAPPING_TIMESTAMP_TZ = "enable.mapping.timestamp_tz";
 
     // -- CREATE TABLE / DATABASE property keys (legacy HiveMetadataOps) --
     public static final String CREATE_FILE_FORMAT = "file_format";
