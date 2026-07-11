@@ -707,7 +707,6 @@ Status VCollectIterator::Level1Iterator::init(bool get_data_by_ref) {
                     break;
                 }
             }
-            DCHECK(sequence_loc != -1);
         }
 
         _heap = std::make_unique<MergeHeap>(LevelIteratorComparator(
