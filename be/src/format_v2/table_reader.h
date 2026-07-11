@@ -54,6 +54,7 @@
 #include "exprs/vexpr_context.h"
 #include "exprs/vexpr_fwd.h"
 #include "exprs/vslot_ref.h"
+#include "format/table/deletion_vector.h"
 #include "format_v2/column_data.h"
 #include "format_v2/column_mapper.h"
 #include "format_v2/expr/cast.h"
@@ -101,12 +102,19 @@ struct ReadProfile {
     RuntimeProfile::Counter* num_delete_files = nullptr;
     RuntimeProfile::Counter* num_delete_rows = nullptr;
     RuntimeProfile::Counter* parse_delete_file_time = nullptr;
+    RuntimeProfile::Counter* decoded_dv_cache_hit_count = nullptr;
+    RuntimeProfile::Counter* decoded_dv_cache_miss_count = nullptr;
+    RuntimeProfile::Counter* dv_file_cache_hit_count = nullptr;
+    RuntimeProfile::Counter* dv_file_cache_miss_count = nullptr;
+    RuntimeProfile::Counter* dv_file_cache_peer_read_count = nullptr;
     RuntimeProfile::Counter* exec_timer = nullptr;
     RuntimeProfile::Counter* prepare_split_timer = nullptr;
     RuntimeProfile::Counter* finalize_timer = nullptr;
     RuntimeProfile::Counter* create_reader_timer = nullptr;
     RuntimeProfile::Counter* pushdown_agg_timer = nullptr;
     RuntimeProfile::Counter* open_reader_timer = nullptr;
+    RuntimeProfile::Counter* runtime_filter_partition_prune_timer = nullptr;
+    RuntimeProfile::Counter* runtime_filter_partition_pruned_range_counter = nullptr;
 };
 
 struct TableReadOptions {
@@ -134,6 +142,9 @@ struct TableReadOptions {
 struct SplitReadOptions {
     // Split-level information for reader initialization, which may include file path, partition values, delete file info, etc. The content is table format specific and opaque to table reader base class; it's the responsibility of the concrete table reader implementation to parse necessary information for reader initialization and filter pushdown.
     std::map<std::string, Field> partition_values;
+    // Latest scanner conjuncts rewritten to table/global column indices. Runtime filters can
+    // arrive after TableReader::init(), so split preparation must receive a fresh snapshot.
+    VExprContextSPtrs partition_prune_conjuncts;
     ShardedKVCache* cache;
     TFileRangeDesc current_range;
     FileFormat current_split_format = FileFormat::PARQUET;
@@ -167,6 +178,24 @@ public:
     // 1. Pass a new split/task to reader, which will be used in subsequent open_reader() to initialize the underlying file reader.
     // 2. Parse delete predicates from split/task information, which will be used for later dynamic filtering and delete handling.
     virtual Status prepare_split(const SplitReadOptions& options);
+
+    virtual bool current_split_pruned() const { return _current_split_pruned; }
+
+    // Discard the active split after the caller decides an error is ignorable, for example a
+    // stale external-table file listing that returns NOT_FOUND. The next prepare_split() must start
+    // with no concrete reader or split-local state left from the failed split.
+    virtual Status abort_split() {
+        if (_data_reader.reader != nullptr) {
+            RETURN_IF_ERROR(close_current_reader());
+        } else {
+            _current_task.reset();
+            _current_file_description.reset();
+        }
+        _delete_rows = nullptr;
+        _remaining_table_level_count = -1;
+        _current_split_pruned = false;
+        return Status::OK();
+    }
 
     // Public entry point for reading a table-schema block. The base class opens the current reader,
     // advances across EOF, and closes exhausted readers. Subclasses provide protected hooks for
@@ -382,6 +411,9 @@ protected:
     }
 
     Status _build_table_filters_from_conjuncts();
+    Status _evaluate_partition_prune_conjuncts(const VExprContextSPtrs& conjuncts,
+                                               bool* can_filter_all);
+    Status _build_partition_prune_block(Block* block) const;
     Status _open_local_filter_exprs(const FileScanRequest& file_request);
     Status _init_reader_condition_cache(const FileScanRequest& file_request);
     void _finalize_reader_condition_cache();
@@ -542,20 +574,28 @@ protected:
     // Append DeletePredicate to file scan request if there are deletes. The predicate will be evaluated in file reader level and filter out deleted rows before returning data to table reader.
     Status _append_delete_predicate(FileScanRequest* request) {
         DORIS_CHECK(request != nullptr);
-        if (_delete_rows == nullptr || _delete_rows->empty()) {
+        if ((_delete_rows == nullptr || _delete_rows->empty()) &&
+            (_deletion_vector == nullptr || _deletion_vector->isEmpty())) {
             return Status::OK();
         }
         const auto row_position_column_id = LocalColumnId(ROW_POSITION_COLUMN_ID);
         _append_file_scan_column(request, row_position_column_id, &request->predicate_columns);
 
-        auto delete_predicate = std::make_shared<DeletePredicate>(*_delete_rows);
         const auto block_position = request->local_positions.at(row_position_column_id);
-        delete_predicate->add_child(VSlotRef::create_shared(
-                cast_set<int>(block_position.value()), cast_set<int>(block_position.value()), -1,
-                std::make_shared<DataTypeInt64>(), ROW_POSITION_COLUMN_NAME));
-
-        request->delete_conjuncts.push_back(
-                VExprContext::create_shared(std::move(delete_predicate)));
+        auto append_predicate = [&](auto& deleted_rows) {
+            auto delete_predicate = std::make_shared<DeletePredicate>(deleted_rows);
+            delete_predicate->add_child(VSlotRef::create_shared(
+                    cast_set<int>(block_position.value()), cast_set<int>(block_position.value()),
+                    -1, std::make_shared<DataTypeInt64>(), ROW_POSITION_COLUMN_NAME));
+            request->delete_conjuncts.push_back(
+                    VExprContext::create_shared(std::move(delete_predicate)));
+        };
+        if (_delete_rows != nullptr && !_delete_rows->empty()) {
+            append_predicate(*_delete_rows);
+        }
+        if (_deletion_vector != nullptr && !_deletion_vector->isEmpty()) {
+            append_predicate(*_deletion_vector);
+        }
         return Status::OK();
     }
 
@@ -863,7 +903,8 @@ protected:
         // Only support aggregate pushdown when there is no delete or filter, so
         // the reduced rows consumed by the upper aggregate remain semantically equivalent to a
         // normal scan.
-        if (_delete_rows != nullptr && !_delete_rows->empty()) {
+        if ((_delete_rows != nullptr && !_delete_rows->empty()) ||
+            (_deletion_vector != nullptr && !_deletion_vector->isEmpty())) {
             return false;
         }
         if (!_table_filters.empty()) {
@@ -1479,6 +1520,7 @@ protected:
     ReadProfile _profile;
     // Parsed from row-position based delete files, including position delete and deletion vector.
     DeleteRows* _delete_rows = nullptr;
+    DeletionVector* _deletion_vector = nullptr;
     TFileScanRangeParams* _scan_params;
     std::shared_ptr<io::IOContext> _io_ctx;
     RuntimeState* _runtime_state;
@@ -1496,6 +1538,7 @@ protected:
     int64_t _remaining_table_level_count = -1;
     std::optional<GlobalRowIdContext> _global_rowid_context;
     bool _aggregate_pushdown_tried = false;
+    bool _current_split_pruned = false;
     TableColumnMapperOptions _mapper_options;
 
 private:
@@ -1575,7 +1618,7 @@ private:
         return Status::OK();
     }
 
-    // Parse row-position deletes from table format specific parameters, and fill in _delete_rows.
+    // Parse a DV into its compressed bitmap. Position delete files continue to use _delete_rows.
     Status _parse_delete_predicates(const SplitReadOptions& options);
 };
 

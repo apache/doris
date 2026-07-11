@@ -17,11 +17,13 @@
 
 package org.apache.doris.paimon;
 
+import org.apache.paimon.data.InternalRow;
 import org.apache.paimon.disk.BufferFileReader;
 import org.apache.paimon.disk.BufferFileWriter;
 import org.apache.paimon.disk.FileIOChannel;
 import org.apache.paimon.disk.IOManager;
 import org.apache.paimon.disk.IOManagerImpl;
+import org.apache.paimon.reader.RecordReader;
 import org.apache.paimon.table.Table;
 import org.junit.Assert;
 import org.junit.Rule;
@@ -37,6 +39,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class PaimonJniScannerTest {
     @Rule
@@ -158,6 +161,33 @@ public class PaimonJniScannerTest {
         Assert.assertEquals(Long.valueOf(2L * 1024L * 1024L * 1024L),
                 PaimonJniScanner.parseDataSizeBytes("2GB").get());
         Assert.assertFalse(PaimonJniScanner.parseDataSizeBytes("unknown").isPresent());
+    }
+
+    @Test
+    public void testCloseReleasesActiveRecordIterator() throws Exception {
+        PaimonJniScanner scanner = new PaimonJniScanner(128, createBaseParams());
+        AtomicBoolean released = new AtomicBoolean(false);
+        RecordReader.RecordIterator<InternalRow> recordIterator =
+                new RecordReader.RecordIterator<InternalRow>() {
+                    @Override
+                    public InternalRow next() {
+                        return null;
+                    }
+
+                    @Override
+                    public void releaseBatch() {
+                        released.set(true);
+                    }
+                };
+
+        Field recordIteratorField = PaimonJniScanner.class.getDeclaredField("recordIterator");
+        recordIteratorField.setAccessible(true);
+        recordIteratorField.set(scanner, recordIterator);
+
+        scanner.close();
+
+        Assert.assertTrue(released.get());
+        Assert.assertNull(recordIteratorField.get(scanner));
     }
 
     private Map<String, String> createBaseParams() {

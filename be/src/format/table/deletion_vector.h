@@ -15,30 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// FFI functions necessarily work with raw pointers
-#![allow(clippy::not_unsafe_ptr_arg_deref)]
+#pragma once
 
-pub mod error;
-pub mod ffi;
-pub mod lance_reader;
+#include "roaring/roaring64map.hh"
 
-use std::panic::AssertUnwindSafe;
+namespace doris {
 
-/// Trivial FFI round-trip function for build verification (Phase 0).
-/// Returns the input value unchanged.
-#[no_mangle]
-pub extern "C" fn rust_echo(x: i32) -> i32 {
-    std::panic::catch_unwind(AssertUnwindSafe(|| x)).unwrap_or(-1)
-}
+// A deletion vector is already a bitmap on the wire. Keep decoded DVs compressed in the
+// query-local cache instead of expanding every set bit into an int64_t. Position delete files use
+// a different representation because their input is a stream of (file_path, row_position) rows.
+using DeletionVector = roaring::Roaring64Map;
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_echo() {
-        assert_eq!(rust_echo(42), 42);
-        assert_eq!(rust_echo(0), 0);
-        assert_eq!(rust_echo(-1), -1);
-    }
-}
+} // namespace doris

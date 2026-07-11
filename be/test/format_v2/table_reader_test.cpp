@@ -978,6 +978,7 @@ struct FakeFileReaderState {
     bool eof_with_first_batch = true;
     bool inject_delete_conjunct = false;
     bool stop_during_aggregate = false;
+    bool not_found_during_init = false;
     std::shared_ptr<FileScanRequest> last_request;
     std::shared_ptr<ConditionCacheContext> condition_cache_ctx;
     std::shared_ptr<io::IOContext> io_ctx;
@@ -995,6 +996,9 @@ public:
     Status init(RuntimeState* state) override {
         (void)state;
         ++_state->init_count;
+        if (_state->not_found_during_init) {
+            return Status::NotFound("fake table reader input is missing");
+        }
         _eof = false;
         return Status::OK();
     }
@@ -1171,6 +1175,46 @@ private:
     std::unique_ptr<segment_v2::ConditionCache> _cache;
 };
 
+TEST(TableReaderTest, PrepareSplitPrunesPartitionRuntimeFilter) {
+    std::vector<ColumnDefinition> projected_columns;
+    auto partition_column = make_table_column(0, "part", std::make_shared<DataTypeInt32>());
+    partition_column.is_partition_key = true;
+    projected_columns.push_back(std::move(partition_column));
+    set_name_identifiers(&projected_columns);
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    RuntimeProfile profile("scanner");
+    TableReader reader;
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .conjuncts = {},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = &profile,
+                            })
+                        .ok());
+
+    SplitReadOptions pruned_split;
+    pruned_split.current_range.__set_path("unused-pruned-file");
+    pruned_split.partition_values.emplace("part", Field::create_field<TYPE_INT>(7));
+    pruned_split.partition_prune_conjuncts.push_back(VExprContext::create_shared(
+            runtime_filter_wrapper_expr(table_int32_greater_than_expr(0, 0, 10))));
+    ASSERT_TRUE(reader.prepare_split(pruned_split).ok());
+    EXPECT_TRUE(reader.current_split_pruned());
+    ASSERT_NE(profile.get_counter("RuntimeFilterPartitionPrunedRangeNum"), nullptr);
+    EXPECT_EQ(profile.get_counter("RuntimeFilterPartitionPrunedRangeNum")->value(), 1);
+
+    SplitReadOptions retained_split;
+    retained_split.current_range.__set_path("unused-retained-file");
+    retained_split.partition_values.emplace("part", Field::create_field<TYPE_INT>(11));
+    retained_split.partition_prune_conjuncts.push_back(VExprContext::create_shared(
+            runtime_filter_wrapper_expr(table_int32_greater_than_expr(0, 0, 10))));
+    ASSERT_TRUE(reader.prepare_split(retained_split).ok());
+    EXPECT_FALSE(reader.current_split_pruned());
+}
+
 TEST(TableReaderTest, CanUseInjectedFileReaderForStandaloneUnitTest) {
     std::vector<ColumnDefinition> file_schema;
     file_schema.push_back(make_file_column(0, "id", std::make_shared<DataTypeInt32>()));
@@ -1227,6 +1271,48 @@ TEST(TableReaderTest, CanUseInjectedFileReaderForStandaloneUnitTest) {
     eos = false;
     ASSERT_TRUE(reader.get_block(&block, &eos).ok());
     EXPECT_TRUE(eos);
+}
+
+TEST(TableReaderTest, AbortSplitClearsReaderAfterIgnorableNotFound) {
+    std::vector<ColumnDefinition> file_schema;
+    file_schema.push_back(make_file_column(0, "id", std::make_shared<DataTypeInt32>()));
+    std::vector<ColumnDefinition> projected_columns;
+    projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+    set_name_identifiers(&projected_columns);
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto fake_state = std::make_shared<FakeFileReaderState>();
+    fake_state->not_found_during_init = true;
+    FakeTableReader reader(file_schema, fake_state);
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .conjuncts = {},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                            })
+                        .ok());
+
+    SplitReadOptions split_options;
+    split_options.current_range.__set_path("missing-fake-table-reader-input");
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    const auto status = reader.get_block(&block, &eos);
+    ASSERT_TRUE(status.is<ErrorCode::NOT_FOUND>()) << status;
+    ASSERT_TRUE(reader.abort_split().ok());
+    EXPECT_EQ(fake_state->init_count, 1);
+    EXPECT_EQ(fake_state->close_count, 1);
+
+    fake_state->not_found_during_init = false;
+    split_options.current_range.__set_path("existing-fake-table-reader-input");
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    EXPECT_EQ(fake_state->init_count, 2);
+    EXPECT_EQ(fake_state->close_count, 2);
+    ASSERT_TRUE(reader.close().ok());
 }
 
 TEST(TableReaderTest, PushDownCountRecordsReaderRowsBeforeClosingReader) {

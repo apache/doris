@@ -47,6 +47,9 @@ Status JniTableReader::prepare_split(const SplitReadOptions& options) {
     _current_range = options.current_range;
     RETURN_IF_ERROR(validate_scan_range(options.current_range));
     RETURN_IF_ERROR(TableReader::prepare_split(options));
+    if (current_split_pruned()) {
+        return Status::OK();
+    }
     DORIS_CHECK(!_closed);
     DORIS_CHECK(!_scanner_opened);
     if (_is_table_level_count_active()) {
@@ -93,6 +96,11 @@ Status JniTableReader::get_block(Block* output_block, bool* eos) {
         *eos = false;
         return Status::OK();
     }
+}
+
+Status JniTableReader::abort_split() {
+    RETURN_IF_ERROR(_close_jni_scanner());
+    return TableReader::abort_split();
 }
 
 Status JniTableReader::_get_next_jni_block(size_t* rows, bool* eof) {
