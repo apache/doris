@@ -37,9 +37,6 @@ import org.apache.doris.filesystem.FileEntry;
 import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.filesystem.FileSystemUtil;
 import org.apache.doris.filesystem.Location;
-import org.apache.doris.filesystem.properties.StorageKind;
-import org.apache.doris.filesystem.properties.StorageProperties;
-import org.apache.doris.filesystem.spi.FileSystemProvider;
 import org.apache.doris.filesystem.spi.ObjFileSystem;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.THiveLocationParams;
@@ -70,7 +67,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Queue;
-import java.util.ServiceLoader;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -93,14 +89,16 @@ import java.util.stream.Collectors;
  * multipart-upload complete/abort, {@code addPartitions}, and statistics updates.
  *
  * <p>fe-core couplings broken per design: query profiling dropped (D4); metastore access via the plugin
- * {@link HmsClient} SPI instead of {@code HiveMetadataOps} (D10); object-store multipart uploads via a
- * plugin-side {@code fe-filesystem-spi} {@link ObjFileSystem} built from {@code context.getStorageProperties()}
- * instead of {@code SpiSwitchingFileSystem} (D6); plugin-owned async pool threads each auth-wrapped
- * (D5); full-ACID writes hard-rejected at begin (D7); {@code rollback()} deletes staging + aborts MPUs (D9).
+ * {@link HmsClient} SPI instead of {@code HiveMetadataOps} (D10); staging renames/deletes and object-store
+ * multipart-upload complete/abort go through the engine-owned {@link FileSystem} borrowed via
+ * {@code context.getFileSystem(session)} (a per-catalog {@code SpiSwitchingFileSystem}, all schemes), with the
+ * concrete {@link ObjFileSystem} resolved per object-store location via {@link FileSystem#forLocation} for the
+ * MPU narrowing (D6); plugin-owned async pool threads each auth-wrapped (D5); full-ACID writes hard-rejected at
+ * begin (D7); {@code rollback()} deletes staging + aborts MPUs (D9).
  *
- * <p>Gate-closed / dormant: hive is not in {@code SPI_READY_TYPES}, so nothing routes plugin-driven hive
- * writes through this class until the P7.4/P7.5 cutover. {@link #beginWrite} is wired by INC-4's
- * {@code HiveWritePlanProvider.planWrite}.
+ * <p>Live since the HMS cutover: {@code hms} is in {@code SPI_READY_TYPES}, so a {@code type=hms} table INSERT
+ * routes through {@code HiveWritePlanProvider.planWrite} &rarr; {@link #beginWrite} &rarr; this class. The engine
+ * {@link FileSystem} is borrowed (never closed here — the catalog owns its lifecycle).
  */
 public class HiveConnectorTransaction implements ConnectorTransaction {
 
@@ -116,9 +114,10 @@ public class HiveConnectorTransaction implements ConnectorTransaction {
     private final ExecutorService fileSystemExecutor;
     private final Executor authWrappingExecutor;
 
-    // Built lazily from the catalog's object-store StorageProperties (D6). Held so staging renames/deletes
-    // and MPU complete/abort share one FileSystem; closed in close().
-    private volatile FileSystem fs;
+    // Captured at beginWrite (D6). Threaded to context.getFileSystem(session) so the engine hands back the
+    // per-catalog borrowed FileSystem; the session reserves per-user identity (getUser()) — the current engine
+    // impl resolves the FS at catalog level and ignores it, so a null session (rollback-before-begin) is safe.
+    private ConnectorSession session;
 
     private NameMapping nameMapping;
     private volatile HmsTableInfo hmsTableInfo;
@@ -186,16 +185,9 @@ public class HiveConnectorTransaction implements ConnectorTransaction {
 
     @Override
     public void close() {
+        // Only the self-owned async pool is closed here. The FileSystem is borrowed from the engine
+        // (context.getFileSystem) — the catalog owns its lifecycle, so the connector must not close it (D6).
         shutdownExecutorService(fileSystemExecutor);
-        FileSystem local = fs;
-        if (local != null) {
-            try {
-                local.close();
-            } catch (Exception e) {
-                LOG.warn("Failed to close filesystem for hive write transaction {}: {}",
-                        transactionId, e.getMessage());
-            }
-        }
     }
 
     /**
@@ -205,6 +197,7 @@ public class HiveConnectorTransaction implements ConnectorTransaction {
      * only pre-commit point that has the table — so the full-ACID reject (D7) can run here.
      */
     public void beginWrite(ConnectorSession session, String db, String tableName, HiveWriteContext ctx) {
+        this.session = session;
         this.queryId = ctx.getQueryId();
         this.isOverwrite = ctx.isOverwrite();
         this.fileType = ctx.getFileType();
@@ -752,45 +745,20 @@ public class HiveConnectorTransaction implements ConnectorTransaction {
 
     // ─────────────────────────────── filesystem (D6) ───────────────────────────────
 
-    private FileSystem getFileSystem() {
-        FileSystem local = fs;
-        if (local == null) {
-            synchronized (this) {
-                local = fs;
-                if (local == null) {
-                    StorageProperties objSp = context.getStorageProperties().stream()
-                            .filter(sp -> sp.kind() == StorageKind.OBJECT_STORAGE)
-                            .findFirst()
-                            .orElse(null);
-                    try {
-                        local = resolveObjectStoreFileSystem(objSp);
-                    } catch (IOException e) {
-                        throw new DorisConnectorException(
-                                "Failed to build filesystem for hive write: " + e.getMessage(), e);
-                    }
-                    fs = local;
-                }
-            }
-        }
-        return local;
-    }
-
     /**
-     * Builds the plugin-side object-store {@link FileSystem} used for staging renames/deletes and MPU
-     * complete/abort (D6). Isolated behind this single method so production ServiceLoader discovery — a
-     * cutover-time concern (the object-store providers may be directory-loaded in a separate classloader) —
-     * is swappable and unit tests can inject a fake FileSystem by overriding it.
+     * Returns the engine-owned {@link FileSystem} for this write, borrowed via
+     * {@code context.getFileSystem(session)} (a per-catalog {@code SpiSwitchingFileSystem} that routes every
+     * scheme — HDFS and object stores alike). The engine lazily builds and caches it per catalog, so this is a
+     * cheap lookup; the connector borrows and must never close it (D6). MPU sites narrow to the concrete
+     * {@link ObjFileSystem} via {@link FileSystem#forLocation}.
      */
-    protected FileSystem resolveObjectStoreFileSystem(StorageProperties objSp) throws IOException {
-        if (objSp == null) {
-            throw new DorisConnectorException("No object-store StorageProperties available for hive write");
+    private FileSystem getFileSystem() {
+        FileSystem engineFs = context.getFileSystem(session);
+        if (engineFs == null) {
+            throw new DorisConnectorException("No engine FileSystem available for hive write transaction "
+                    + transactionId + " (catalog has no storage properties)");
         }
-        for (FileSystemProvider provider : ServiceLoader.load(FileSystemProvider.class)) {
-            if (provider.supports(objSp.rawProperties())) {
-                return provider.create(objSp.rawProperties());
-            }
-        }
-        throw new DorisConnectorException("No FileSystemProvider supports the object-store properties for hive write");
+        return engineFs;
     }
 
     // ─────────────────────────────── commit-time object-store MPU (D6) ───────────────────────────────
@@ -805,7 +773,17 @@ public class HiveConnectorTransaction implements ConnectorTransaction {
         if (isMockedPartitionUpdate) {
             return;
         }
-        FileSystem resolved = getFileSystem();
+        // Narrow the borrowed switching FileSystem to the concrete ObjFileSystem for this object-store write.
+        // path is the native-scheme write target (s3://, oss://, abfss://, …); catch Exception because
+        // forLocation can throw StoragePropertiesException (a RuntimeException) on a props-resolution miss.
+        FileSystem resolved;
+        try {
+            resolved = getFileSystem().forLocation(Location.of(path));
+        } catch (Exception e) {
+            throw new DorisConnectorException(
+                    "Failed to resolve object-store filesystem for MPU commit at '" + path + "': "
+                            + e.getMessage(), e);
+        }
         if (!(resolved instanceof ObjFileSystem)) {
             throw new RuntimeException("Expected ObjFileSystem for MPU commit at path '" + path + "', got: "
                     + resolved.getClass().getSimpleName() + ". This path does not point to an object-storage "
@@ -1331,16 +1309,25 @@ public class HiveConnectorTransaction implements ConnectorTransaction {
             if (uncompletedMpuPendingUploads.isEmpty()) {
                 return;
             }
-            FileSystem resolved = getFileSystem();
             for (UncompletedMpuPendingUpload uncompletedMpuPendingUpload : uncompletedMpuPendingUploads) {
+                TS3MPUPendingUpload mpu = uncompletedMpuPendingUpload.s3MPUPendingUpload;
+                String remotePath = "s3://" + mpu.getBucket() + "/" + mpu.getKey();
+                // Resolve the concrete ObjFileSystem from the upload's native-scheme write path (NOT the
+                // BE-unified s3:// remotePath, which an Azure-typed catalog cannot resolve). Lenient: any
+                // resolution failure (incl. StoragePropertiesException, a RuntimeException) warns and skips.
+                FileSystem resolved;
+                try {
+                    resolved = getFileSystem().forLocation(Location.of(uncompletedMpuPendingUpload.path));
+                } catch (Exception e) {
+                    LOG.warn("Failed to resolve filesystem for MPU abort {}: {}", remotePath, e.getMessage());
+                    continue;
+                }
                 if (!(resolved instanceof ObjFileSystem)) {
                     LOG.warn("FileSystem {} is not object-storage, skipping MPU abort for {}",
                             resolved.getClass().getSimpleName(), uncompletedMpuPendingUpload.path);
                     continue;
                 }
                 ObjFileSystem objFs = (ObjFileSystem) resolved;
-                TS3MPUPendingUpload mpu = uncompletedMpuPendingUpload.s3MPUPendingUpload;
-                String remotePath = "s3://" + mpu.getBucket() + "/" + mpu.getKey();
                 asyncFileSystemTaskFutures.add(CompletableFuture.runAsync(() -> {
                     try {
                         context.executeAuthenticated(() -> {

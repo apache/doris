@@ -18,6 +18,7 @@
 package org.apache.doris.connector.hive;
 
 import org.apache.doris.connector.api.ConnectorColumn;
+import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.ConnectorType;
 import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.handle.WriteOperation;
@@ -33,7 +34,6 @@ import org.apache.doris.filesystem.FileIterator;
 import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.filesystem.Location;
 import org.apache.doris.filesystem.UploadPartResult;
-import org.apache.doris.filesystem.properties.StorageProperties;
 import org.apache.doris.filesystem.spi.ObjFileSystem;
 import org.apache.doris.filesystem.spi.ObjStorage;
 import org.apache.doris.filesystem.spi.RemoteObject;
@@ -52,6 +52,7 @@ import org.apache.thrift.protocol.TBinaryProtocol;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -82,11 +83,12 @@ import java.util.stream.Collectors;
  * </ul>
  *
  * <p>The commit-time object-store work is driven through a fake {@code ObjFileSystem}/{@code ObjStorage}
- * injected via the {@code resolveObjectStoreFileSystem} seam: multipart-upload <b>complete</b> on commit
- * and <b>abort</b> on rollback (D6/D9), the <b>idempotency</b> of a repeated rollback, and the single
- * batched {@code addPartitions} call (GAP-7 — the 20-at-a-time batching lives in the client, so the
- * committer adds the whole list once). The staging-directory rename walk and the full multi-partition
- * commit remain for the P7.4/P7.5 cutover integration gate (the live write path).</p>
+ * injected via the {@code FakeConnectorContext.getFileSystem(session)} seam behind a non-{@code ObjFileSystem}
+ * routing facade (mirroring the engine's {@code SpiSwitchingFileSystem}, so the connector must narrow via
+ * {@code forLocation}): multipart-upload <b>complete</b> on commit and <b>abort</b> on rollback (D6/D9), the
+ * <b>idempotency</b> of a repeated rollback, and the single batched {@code addPartitions} call (GAP-7 — the
+ * 20-at-a-time batching lives in the client, so the committer adds the whole list once). The staging-directory
+ * rename walk and the full multi-partition commit are covered by the e2e write suites.</p>
  */
 public class HiveConnectorTransactionTest {
 
@@ -160,16 +162,19 @@ public class HiveConnectorTransactionTest {
         return u;
     }
 
-    // Builds a transaction whose object-store FileSystem is the injected fake, bypassing the production
-    // ServiceLoader discovery (a cutover-time concern) — the seam the design carved out for exactly this.
-    private HiveConnectorTransaction newTxnWithFs(HmsClient client, FileSystem fakeFs) {
+    // Builds a transaction whose engine FileSystem is the injected fake, borrowed via the context — mirroring
+    // production, where context.getFileSystem(session) hands back the per-catalog SpiSwitchingFileSystem. The
+    // concrete fake is wrapped in a non-ObjFileSystem routing facade so the connector MUST call forLocation(...)
+    // to narrow to the ObjFileSystem: a regression that casts getFileSystem() directly then fails instanceof.
+    private HiveConnectorTransaction newTxnWithFs(HmsClient client, FileSystem concreteFs) {
+        FileSystem borrowed = new RoutingFacadeFileSystem(concreteFs);
         return new HiveConnectorTransaction(42L, client,
-                new FakeConnectorContext("test_catalog", CATALOG_ID, Collections.emptyMap())) {
-            @Override
-            protected FileSystem resolveObjectStoreFileSystem(StorageProperties objSp) {
-                return fakeFs;
-            }
-        };
+                new FakeConnectorContext("test_catalog", CATALOG_ID, Collections.emptyMap()) {
+                    @Override
+                    public FileSystem getFileSystem(ConnectorSession session) {
+                        return borrowed;
+                    }
+                });
     }
 
     // ─────────────────────────────── SPI identity ───────────────────────────────
@@ -653,6 +658,66 @@ public class HiveConnectorTransactionTest {
         @Override
         public DorisOutputFile newOutputFile(Location location) {
             throw new UnsupportedOperationException("newOutputFile");
+        }
+    }
+
+    /**
+     * A non-{@link ObjFileSystem} routing facade mirroring the engine's {@code SpiSwitchingFileSystem}: it is
+     * NOT itself an {@code ObjFileSystem}, so the connector must call {@link FileSystem#forLocation} to narrow
+     * to the concrete {@code ObjFileSystem} before an MPU (a regression that casts {@code getFileSystem()}
+     * directly then fails {@code instanceof} here). Base operations delegate to the wrapped concrete FS;
+     * {@code close()} throws to lock in the borrow contract — the connector must never close the engine FS.
+     */
+    private static final class RoutingFacadeFileSystem implements FileSystem {
+        private final FileSystem delegate;
+
+        RoutingFacadeFileSystem(FileSystem delegate) {
+            this.delegate = delegate;
+        }
+
+        @Override
+        public FileSystem forLocation(Location location) {
+            return delegate;
+        }
+
+        @Override
+        public boolean exists(Location location) throws IOException {
+            return delegate.exists(location);
+        }
+
+        @Override
+        public void mkdirs(Location location) throws IOException {
+            delegate.mkdirs(location);
+        }
+
+        @Override
+        public void delete(Location location, boolean recursive) throws IOException {
+            delegate.delete(location, recursive);
+        }
+
+        @Override
+        public void rename(Location src, Location dst) throws IOException {
+            delegate.rename(src, dst);
+        }
+
+        @Override
+        public FileIterator list(Location location) throws IOException {
+            return delegate.list(location);
+        }
+
+        @Override
+        public DorisInputFile newInputFile(Location location) throws IOException {
+            return delegate.newInputFile(location);
+        }
+
+        @Override
+        public DorisOutputFile newOutputFile(Location location) throws IOException {
+            return delegate.newOutputFile(location);
+        }
+
+        @Override
+        public void close() {
+            throw new AssertionError("connector must not close the borrowed engine FileSystem");
         }
     }
 }
