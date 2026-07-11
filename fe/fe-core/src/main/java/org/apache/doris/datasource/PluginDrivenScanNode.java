@@ -371,6 +371,20 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             if (detailLevel == TExplainLevel.VERBOSE && !isBatchMode()) {
                 appendBackendScanRangeDetail(output, prefix);
             }
+            // R5 (explain gap): FileScanNode#getNodeExplainString emits the cardinality/avgRowSize/numNodes
+            // line right after the VERBOSE block; this override drops it by not calling super, so
+            // test_hive_statistics_p0's `cardinality=66` assertion failed. Re-emit it verbatim -- like the
+            // sibling inputSplitNum / partition / backend-detail / nested-columns lines -- because row-count
+            // stats visibility is universal FileScanNode info, not connector-specific (the cardinality field
+            // is populated for every plugin FileScan via PhysicalPlanTranslator#setCardinality).
+            output.append(prefix);
+            if (cardinality > 0) {
+                output.append(String.format("cardinality=%s, ", cardinality));
+            }
+            if (avgRowSize > 0) {
+                output.append(String.format("avgRowSize=%s, ", avgRowSize));
+            }
+            output.append(String.format("numNodes=%s", numNodes)).append("\n");
             // F6/F7 (explain gap): the parent FileScanNode emits the "nested columns:" block (pruned type /
             // sub path / all + predicate access paths) via printNestedColumns, which this override drops by
             // not calling super, so the ENTIRE block vanished for every plugin FileScan connector (broader
