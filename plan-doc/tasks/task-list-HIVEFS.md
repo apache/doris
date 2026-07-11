@@ -57,10 +57,12 @@
   - UT：注入缝迁 `resolveObjectStoreFileSystem`-override → `FakeConnectorContext.getFileSystem`-override + **non-`ObjFileSystem` 路由 facade**（红队 minor：强制走 `forLocation`，漏调即 instanceof RED；facade `close()` 抛 AssertionError 钉借用契约）。import bookkeeping（+`ConnectorSession`/`java.io.IOException`、−`StorageProperties`）。
   - 校验：`-pl :fe-connector-hive -am -Dtest=HiveConnectorTransactionTest -DfailIfNoTests=false test` = BUILD SUCCESS + 14/14 + 0 checkstyle。
 
-- [ ] **HIVEFS-7（pom + 去 jar，达成终点）**：删 `fe-connector-hive/pom.xml` 的 `hadoop-hdfs-client`；**保留** `hadoop-common`（`Configuration`/`HiveConf`/HMS client 仍需）。
-  - 全局 grep 校验连接器 main 源 `org.apache.hadoop.fs.FileSystem`/`FileStatus`/`FileSystem.get` **零残留**（`new Path` 若仅路径拼接可留，但确认不再 FS I/O）。
-  - 打包校验：`output/fe/plugins/connector/hive/lib/` 无 `hadoop-hdfs-client`；插件 zip 仍完整。
-  - 依赖：HIVEFS-4/5/6 全完成后做。
+- [x] **HIVEFS-7（去 jar，达成终点）** ✅ DONE（**无需改 pom/代码**——已核实当前依赖图本就不含 `hadoop-hdfs-client`；打包实测确认）：
+  - **关键纠正**：task-list 原设想"删 `fe-connector-hive/pom.xml` 的 `hadoop-hdfs-client`"是 Option A（bundle hdfs）时代的假设。实际走 Option B（借引擎 FS）+ HIVEFS-0 撤销了未提交的 hdfs-client 创可贴，故**连接器 pom 从无该直接依赖**，`fe-connector-hms→hadoop-common` 也**不传递** hadoop-hdfs-client（`mvn dependency:tree -pl :fe-connector-hive` 全树零 hdfs-client 命中）。→ **pom 无一行可删、无需加 `<exclusion>`**（对不存在的传递依赖加排除是死配置）。
+  - **grep 校验**：连接器 main 源 `org.apache.hadoop.fs.FileSystem`/`FileStatus`/`FileSystem.get`/`listStatus` **零残留**（HIVEFS-4/5/6 已清；仅 `org.apache.hadoop.fs.Path` 纯路径拼接留存，非 FS I/O）。
+  - **打包实测**（`-pl :fe-connector-hive -am package -DskipTests` BUILD SUCCESS，17:45 新 zip）：`target/doris-fe-connector-hive.zip` 的 `lib/` **无 `hadoop-hdfs-client`**、**保留 `hadoop-common`**（+shaded protobuf/guava/annotations/auth，供 `Configuration`/`HiveConf`/`Path`/HMS client）、root 插件 jar 在、82 个 lib jar，zip 完整。
+  - **⚠ 陈旧产物**：`output/fe/plugins/connector/hive/lib/` 与旧 `target` zip（今日 12:44/12:48 打包，创可贴 pom 状态）**仍含 `hadoop-hdfs-client`**——是撤销前的旧构建残留，非当前图。**HIVEFS-8 全量重构建 output/ 后即消失**；e2e 前须重打包重部署（否则测的是带 hdfs-client 的旧插件）。
+  - 依赖：HIVEFS-4/5/6 全完成后做（已满足）。
 
 - [ ] **HIVEFS-8（全量构建 + UT + e2e 交接）**：fe-filesystem-api + fe-connector-spi + fe-core + fe-connector-hive 全量 build（后台跑读 LOG，`BUILD SUCCESS`/`Tests run`/checkstyle），全 UT 绿、0 checkstyle、import 门净。
 

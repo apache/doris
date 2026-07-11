@@ -5,9 +5,9 @@
 
 ---
 
-# 🆕 下一个 session 起步 = FIX-HIVEFS 续（下一步 = 去 jar HIVEFS-7 + 全量 build/e2e HIVEFS-8，收尾）
+# 🆕 下一个 session 起步 = FIX-HIVEFS 收尾（下一步 = 全量 build + e2e 交接 HIVEFS-8）
 
-> 本地 hive 回归 `test_string_dict_filter` q01 `No FileSystem for scheme "hdfs"` 引出的**架构性改造**（非环境/文案）。**起步必读：设计 `plan-doc/tasks/designs/FIX-HIVEFS-design.md` + 任务清单 `plan-doc/tasks/task-list-HIVEFS.md`（行号信 HEAD 不信文档）。连接器读+ACID+写三条裸 Hadoop 路径已全部转引擎注入 FileSystem（HIVEFS-4/5/6 DONE），只剩去依赖 jar + 全量验证。**
+> 本地 hive 回归 `test_string_dict_filter` q01 `No FileSystem for scheme "hdfs"` 引出的**架构性改造**（非环境/文案）。**起步必读：设计 `plan-doc/tasks/designs/FIX-HIVEFS-design.md` + 任务清单 `plan-doc/tasks/task-list-HIVEFS.md`（行号信 HEAD 不信文档）。连接器读+ACID+写三条裸 Hadoop 路径已全部转引擎注入 FileSystem（HIVEFS-4/5/6 DONE），去 jar 已核实达成（HIVEFS-7 DONE，无需改 pom）；只剩全量 build + e2e。**
 
 **根因**：连接器扫描/写全程用**裸 `org.apache.hadoop.fs.FileSystem`**（`HiveFileListingCache:162`/`HiveScanPlanProvider:272`/`HiveAcidUtil`/`HiveConnectorTransaction`），但 hive 插件类加载器隔离、lib/ 无 `DistributedFileSystem`（仅 hadoop-common，注册 Local/View/Har/Http、无 hdfs）。老 fe-core 经 `org.apache.doris.filesystem.FileSystem`+`DirectoryLister` 列文件（`HiveExternalMetaCache:392-396`），**新代码裸 Hadoop 是迁移走样**。非环境问题（hostname 可解析、metastore 通、已取到 location）。
 
@@ -25,20 +25,22 @@
 
 **✅ HIVEFS-6 DONE（code `d31ceb0364e`）= 连接器·写路径已转引擎 FileSystem（最险，已过红队）**：`HiveConnectorTransaction` `getFileSystem()`（:755）本已全程用 Doris `FileSystem` API（19 非-MPU I/O + 2 MPU），**缺陷只在 FS 来源**——`resolveObjectStoreFileSystem` 本地 `ServiceLoader`（跨插件拿不到 provider）+ `.filter(OBJECT_STORAGE)`（HDFS 后端直接抛）。翻闸后 **live**（class-javadoc "dormant" 陈旧），hive INSERT 今天在 HDFS/对象存储上都必炸。改：`getFileSystem()`→`context.getFileSystem(session)`（引擎 per-catalog `SpiSwitchingFileSystem`，全 scheme）；删 `resolveObjectStoreFileSystem`+`fs` 字段+OBJECT_STORAGE 过滤+孤儿 import；19 非-MPU 点不动（facade 逐操作 `forLocation` 委派）；MPU 两处 `forLocation` narrow 具体 `ObjFileSystem`（`objCommit`=native 写目标 strict、`abortMultiUploads`=逐 upload native `u.path` lenient）；`close()` 删 `fs.close()`（借用不关）；`session` 于 `beginWrite` 捕获（null 安全）。**红队 `wf_8fd372d6-10d`（5 lens+裁决，GO_WITH_FIXES）**：classloader/instanceof（provided-scope+parent-first→共享 `ObjFileSystem`）、session/null、close 去除、19 非-MPU 字节等价 均 SOUND；折入 1 major（MPU abort 用 native-scheme `u.path` 非合成 `s3://`，Azure 才可解析；两处 catch `IOException`→`Exception` 兜 `StoragePropertiesException` RuntimeException）+ 4 minor（test import / non-`ObjFileSystem` facade 强制 `forLocation` + `close()` 抛 AssertionError 钉借用契约 / 类 javadoc）。**fe-connector-hive BUILD SUCCESS、`HiveConnectorTransactionTest` 14/14、0 checkstyle**。设计 `designs/FIX-HIVEFS-6-design.md`。
 
-**⭐ 下一步 = HIVEFS-7（去 jar，达成终点）→ HIVEFS-8（全量 build+e2e）**：① 删 `fe-connector-hive/pom.xml` 的 `hadoop-hdfs-client`（**保留** `hadoop-common`——`Configuration`/`HiveConf`/HMS client 仍需）；全局 grep 校验连接器 main 源 `org.apache.hadoop.fs.FileSystem`/`FileStatus`/`FileSystem.get`/`listStatus` **零残留**（`org.apache.hadoop.fs.Path` 若仅路径拼接可留，确认不再 FS I/O）；打包校验 `output/fe/plugins/connector/hive/lib/` 无 `hadoop-hdfs-client`、插件 zip 完整。② 全量 build（fe-filesystem-api+spi + fe-core + fe-connector-hive）+ 全 UT + 0 checkstyle + import 门净。③ e2e（用户自跑）：重部署后 `test_string_dict_filter`（读 hdfs）+ hive INSERT 写套件（rename/delete/MPU complete）+ INSERT 回滚（MPU abort）+ 若有对象存储环境抽查 s3/oss。
+**✅ HIVEFS-7 DONE（无 commit——无需改 pom/代码，纯核实+打包实测）= 去 jar 已达成**：task-list 原设想"删 pom 的 `hadoop-hdfs-client`"是 Option A 时代假设；实走 Option B（借引擎 FS）+ HIVEFS-0 撤销创可贴，故**连接器 pom 从无该直接依赖**、`fe-connector-hms→hadoop-common` **不传递** hadoop-hdfs-client（`mvn dependency:tree -pl :fe-connector-hive` 全树零命中）→ **pom 无一行可删、加 `<exclusion>` 是死配置**。打包实测（`-am package` BUILD SUCCESS）：新 zip `lib/` **无 hadoop-hdfs-client**、**留 hadoop-common**（+shaded 供 `Configuration`/`HiveConf`/`Path`/HMS）、root jar 在、82 lib、完整。连接器 main 源裸 `org.apache.hadoop.fs.FileSystem`/`FileStatus`/`FileSystem.get`/`listStatus` 零残留（仅 `Path` 纯拼接）。**⚠ `output/fe/plugins/connector/hive/lib/` 仍含 hadoop-hdfs-client 是撤销前旧构建残留（今日 12:48 创可贴态），HIVEFS-8 全量重构建后消失；e2e 前须重打包重部署。**
+
+**⭐ 下一步 = HIVEFS-8（全量 build + e2e，收尾）**：① 全量 build（fe-filesystem-api+spi + fe-core + fe-connector-hive；后台跑读 LOG，`BUILD SUCCESS`/`Tests run`/checkstyle）+ 全 UT 绿 + 0 checkstyle + import 门净 + 重构建 output/（刷掉陈旧 hadoop-hdfs-client）。② e2e（用户自跑）：重部署后 `test_string_dict_filter`（读 hdfs，本失败用例）+ `external_table_p0/hive` 含 INSERT 写套件（验 rename/delete/MPU complete）+ INSERT 回滚（验 MPU abort）+ 若有对象存储环境抽查 s3/oss；断言与老 fe-core 逐位一致。
 
 **已探明的去风险事实（勿重查）**：
 - **引擎侧已落地（HIVEFS-3）**——`DefaultConnectorContext.getFileSystem` 用已持的 `storagePropertiesSupplier` + `SpiSwitchingFileSystem`（范式镜像 `cleanupEmptyManagedLocation:348`）；close 由 catalog 在 `onClose`/换连接器处关（context 单一持有、sibling 共享）。
 - **TCCL 无需连接器侧处理**——`DFSFileSystem.getHadoopFs:131-144` 对 hdfs/viewfs **自钉**到自身插件 loader 再 `FileSystem.get`、finally 还原（注释即描述 “No FileSystem for scheme hdfs” 场景）。连接器去 jar 后任意 TCCL 调用皆安全。
 - 写路径 MPU 需**具体** `ObjFileSystem`（`HiveConnectorTransaction` objCommit/abort）→ `FileSystem.forLocation`（HIVEFS-1 加、HIVEFS-6 已用：非切换返回 this、切换返回具体 FS）。**跨 连接器↔fs-plugin `instanceof ObjFileSystem` 安全**（`fe-filesystem-spi` 双 provided-scope + `FileSystemPluginManager:72` parent-first `"org.apache.doris.filesystem."` → 共享同一 `ObjFileSystem` Class；红队 HIVEFS-6 逐点取证）。
-- 连接器裸 Hadoop **FileSystem I/O 面已全清**（读扫描 HIVEFS-4 + ACID HIVEFS-5 + 写路径 HIVEFS-6）：三条路径均经 `context.getFileSystem(session)` 借引擎 `SpiSwitchingFileSystem`；仅剩 **pom 的 `hadoop-hdfs-client` jar 依赖**待 HIVEFS-7 删。`FileStatus` 字段全映射 `FileEntry`（`name()`/`location().uri()`/`length()`/`modificationTime()`/`isDirectory()`）。
+- 连接器裸 Hadoop **FileSystem I/O 面已全清**（读扫描 HIVEFS-4 + ACID HIVEFS-5 + 写路径 HIVEFS-6）：三条路径均经 `context.getFileSystem(session)` 借引擎 `SpiSwitchingFileSystem`；`hadoop-hdfs-client` 已核实不在依赖图（HIVEFS-7）。`FileStatus` 字段全映射 `FileEntry`（`name()`/`location().uri()`/`length()`/`modificationTime()`/`isDirectory()`）。
 - fe-filesystem 全 9 插件（hdfs/s3/oss/cos/obs/azure/http/local/broker）已部署 → hive 表任意后端天然支持（免 bundle hadoop-aws/huaweicloud，架构红利）。
 
 **⚠ 待下个 session 核定**（task-list Open §）：无阻塞项待决——HIVEFS-7 是纯 pom 删依赖 + grep 校验，HIVEFS-8 是全量 build + e2e。（写路径 FS/identity 捕获=HIVEFS-6 已定 `beginWrite`；`buildHadoopConf` 去留=HIVEFS-4/5 已删；`HiveAcidUtilTest` 注入=HIVEFS-5 定 `fe-filesystem-local`。）**HIVEFS-7 删 `hadoop-hdfs-client` 后须打包实测**（避免误删 `hadoop-common` 传递依赖破 HMS client/`HiveConf`）。
 
 **⚠ 重要事实（红队 HIVEFS-5 确认）**：翻闸后 hive **事务表读已 live 走 plugin**（`planAcidScan` 非休眠）；HIVEFS-5 前它在 hdfs 上就是坏的（`No FileSystem for scheme hdfs`），HIVEFS-5 修的是 live 生产 bug（e2e 因需 docker HMS+hdfs harness 延后，非"不可测"）。
 
-**⚠ 状态**：HIVEFS-0/1/2/3/4/5/6 已入库（code `0c4e0595f8f`/`3b4f7477d34`/`a8ed72f2650`/`7e06c2aa2a9`/`7a2d8714951`/`d31ceb0364e` + doc commit）。落地纪律：每子步 = 设计→红队→折入→实现→UT→独立 commit（HIVEFS-4/5/6 均已按此走完一轮）。剩 HIVEFS-7（去 jar）/HIVEFS-8（全量 build+e2e）为收尾，无需红队（纯依赖删除 + 验证）。
+**⚠ 状态**：HIVEFS-0/1/2/3/4/5/6 已入库（code `0c4e0595f8f`/`3b4f7477d34`/`a8ed72f2650`/`7e06c2aa2a9`/`7a2d8714951`/`d31ceb0364e` + doc commit）；HIVEFS-7 = 无代码变更（核实+打包实测，达成去 jar 目标）。落地纪律：每子步 = 设计→红队→折入→实现→UT→独立 commit（HIVEFS-4/5/6 均已按此走完一轮）。剩 HIVEFS-8（全量 build + 重构建 output/ + e2e）为收尾。
 
 ---
 
