@@ -32,7 +32,7 @@ Legend：⬜ todo / 🔄 in progress / ✅ done / ⏸ 挂起(需决策/live)
 | 5 | **M1** | 🟠中 | fe-core | TABLESAMPLE 插件路径静默全表扫 | ⬜ | ⬜ | ⬜ | ⬜ |
 | 6 | **M2** | 🟠中 | hive | 翻闸 hive 丢批量/异步 split | ⬜ | ⬜ | ⬜ | ⬜ |
 | 7 | **M3** | 🟠中 | fe-core | MC batch 闸门 `!=NOT_PRUNED`→`!isPruned` | ⬜ | ⬜ | ⬜ | ⬜ |
-| 8 | **M4** | 🟠中 | maxcompute | MC 分区值缓存删除→每查询全量 listPartitions | ⬜ | ⬜ | ⬜ | ⬜ |
+| 8 | **M4** | 🟠中 | maxcompute | MC 分区值缓存删除→每查询全量 listPartitions | ✅ | ✅ | ✅ | ✅ |
 | 9 | **M5** | 🟠中 | iceberg | computeRowCount 丢 equality-delete gate | ✅ | ✅ | ✅ | ✅ |
 | 10 | **M6** | 🟠中 | iceberg | s3tables 无显式凭证硬失败(丢默认链) | ✅ | ✅ | ✅ | ✅ |
 | 11 | **M7** | 🟠中 | iceberg | REST vended-cred region 别名收窄 | ✅ | ✅ | ✅ | ✅ |
@@ -132,7 +132,7 @@ Legend：⬜ todo / 🔄 in progress / ✅ done / ⏸ 挂起(需决策/live)
 - **Test intent**:纯 helper 单测覆盖 `(isPruned=false, 非 NOT_PRUNED, size≥阈值)` 应 →batch(RED:返回 false)。
 
 ### M4 — MC 分区值缓存删除 · reverify §3 M4
-- [ ] **M4**
+- [x] **M4** · DONE `c553c3c7696`（设计 `designs/FIX-M4-design.md`；实现经 impl-subagent + 独立 build/test/zip 核验）。新 `MaxComputePartitionCache`=`HiveFileListingCache` 结构副本（共享 `fe-connector-cache`，contextual-only+manual-miss flag 字节一致），keyed(db,table)，持于 `MaxComputeDorisConnector`、注入 metadata、三方法走它、4 个 REFRESH 钩子刷；pom 加 `fe-connector-cache`+Caffeine 2.9.3。`MaxComputePartitionCacheTest` 9/9 + 模块 113/113、0 checkstyle、import 门 0、**插件 zip 恰含单个 caffeine-2.9.3.jar**。e2e live-gated。
 - **现码**:`PluginDrivenExternalTable.getNameToPartitionItems:780-781`(每次 `listPartitions`)→ `MaxComputeConnectorMetadata.listPartitions:256-273` → `McStructureHelper.getPartitions:112-118`(裸 ODPS SDK)。fe-core+连接器**两层无缓存**。
 - **Fix**:maxcompute 连接器内加 TTL/容量 Caffeine(仿 `CachingHmsClient`/`HiveFileListingCache`),keyed `(project,db,table)`,`REFRESH` 失效。**不**在 fe-core 加二级缓存。若延后须登记 CACHE-P1。
 - **Files**:`fe-connector-maxcompute/.../MaxComputeConnectorMetadata.java`(+ 新缓存类)。
@@ -244,3 +244,4 @@ Legend：⬜ todo / 🔄 in progress / ✅ done / ⏸ 挂起(需决策/live)
 - **M5** DONE `84f580c9075`(code) — iceberg 表级行数恢复 equality-delete 护栏,对齐当前旧版(上游 #64648 移动了 parity 目标)。**推翻先前签字的「不 gate」决定,用户 2026-07-11 签字**;3 处 P6.6-FIX-H4 文档批注 SUPERSEDED;`IcebergConnectorMetadataStatisticsTest` 7/7 绿。e2e live-gated(equality-delete 表 SHOW TABLE STATS=UNKNOWN,独立 iceberg + iceberg-on-HMS 同表同结果)。
 - **M7** DONE `f6de950e5bd`(code) — iceberg REST vended-cred `client.region` 别名 4→10 拓宽,逐字节对齐 fe-core `S3Properties` isRegionField 集;注释按红队更正为「S3 子集」。`IcebergCatalogFactoryTest` 62/62 绿。e2e live-gated(region 经 `AWS_REGION` 写提交不报 Unable to load region)。
 - **M6** DONE `03bd4f58187`(code) — iceberg s3tables 无绑定存储不再硬失败:region 唯一必需(存储或 props),凭证回退 `DefaultCredentialsProvider` 默认链;companion 无存储臂发 data-plane `client.region`。`IcebergConnectorTest` 19/19 + `IcebergCatalogFactoryTest` 63/63 绿。**iceberg 子组(M5/M7/M6)全 DONE**。e2e live-gated(EC2 instance-profile s3tables 目录 CREATE+list 不抛)。
+- **M4** DONE `c553c3c7696`(code) — maxcompute 连接器内 `MaxComputePartitionCache`(HiveFileListingCache 结构副本)恢复被删的分区值缓存,消除每规划一次全量 ODPS listPartitions;4 REFRESH 钩子刷;pom+Caffeine 2.9.3。9/9+模块 113/113 绿,插件 zip 单 caffeine 版本。e2e live-gated。
