@@ -15,7 +15,7 @@ Discipline per task: 设计(`tasks/designs/FIX-<id>-design.md`) → 设计红队
 ## Remaining code fixes
 ### fe-connector 中型
 - [x] R7  SHOW PARTITIONS bypass cache (test_hive_use_meta_cache_true)   `4df95ad44ac` — design red-teamed 4/4 SOUND, UT 19/19
-- [ ] R10 openx json ignore.malformed (test_hive_openx_json)
+- [x] R10 openx json ignore.malformed (test_hive_openx_json)   `9c70d4acf9a` — openx-only gate, red-teamed 3-lens, UT 13/13
 - [ ] R12/serde OpenCSV all-STRING schema (test_open_csv_serde, test_hive_serde_prop)
 - [ ] text_write LZ4FRAME→LZ4BLOCK read (test_hive_text_write_insert)
 
