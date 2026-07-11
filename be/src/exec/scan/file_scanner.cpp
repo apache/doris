@@ -352,6 +352,11 @@ void FileScanner::_init_runtime_filter_partition_prune_ctxs() {
         auto impl = conjunct->root()->get_impl();
         // If impl is not null, which means this a conjuncts from runtime filter.
         auto expr = impl ? impl : conjunct->root();
+        // Preserve a safe prefix of the row-level conjunct order. Considering later predicates
+        // after an unsafe one could prune the split before the unsafe predicate is evaluated.
+        if (!expr->is_safe_to_execute_on_selected_rows()) {
+            break;
+        }
         if (_check_partition_prune_expr(expr)) {
             _runtime_filter_partition_prune_ctxs.emplace_back(conjunct);
         }

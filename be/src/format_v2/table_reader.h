@@ -413,6 +413,7 @@ protected:
     Status _build_table_filters_from_conjuncts();
     Status _evaluate_partition_prune_conjuncts(const VExprContextSPtrs& conjuncts,
                                                bool* can_filter_all);
+    static bool _is_safe_to_pre_execute(const VExprContextSPtr& conjunct);
     Status _build_partition_prune_block(Block* block) const;
     Status _open_local_filter_exprs(const FileScanRequest& file_request);
     Status _init_reader_condition_cache(const FileScanRequest& file_request);
@@ -423,12 +424,20 @@ protected:
         DORIS_CHECK(can_filter_all != nullptr);
         *can_filter_all = false;
         for (const auto& table_filter : _table_filters) {
-            if (table_filter.conjunct == nullptr ||
-                // RuntimeFilterExpr does not implement execute_column_impl(); it is evaluated by
-                // the row-level filter path through execute_filter(). Constant split pruning uses
-                // VExprContext::execute() on a one-row synthetic block, so runtime filters must not
-                // be pre-executed here even when their referenced slot maps to a constant value.
-                table_filter.conjunct->root()->is_rf_wrapper() ||
+            if (table_filter.conjunct == nullptr) {
+                continue;
+            }
+            // Constant pruning must preserve a safe prefix of the row-level conjunct order. Once
+            // an unsafe predicate is reached, evaluating any later constant predicate could hide
+            // its error or other row-level behavior by pruning the split first.
+            if (!_is_safe_to_pre_execute(table_filter.conjunct)) {
+                break;
+            }
+            // RuntimeFilterExpr does not implement execute_column_impl(); it is evaluated by the
+            // row-level filter path through execute_filter(). Constant split pruning uses
+            // VExprContext::execute() on a one-row synthetic block, so runtime filters must not be
+            // pre-executed here even when their referenced slot maps to a constant value.
+            if (table_filter.conjunct->root()->is_rf_wrapper() ||
                 !_table_filter_has_only_constant_entries(table_filter)) {
                 continue;
             }

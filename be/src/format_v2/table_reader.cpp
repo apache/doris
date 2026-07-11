@@ -803,14 +803,11 @@ Status TableReader::_evaluate_partition_prune_conjuncts(const VExprContextSPtrs&
     for (const auto& conjunct : conjuncts) {
         DORIS_CHECK(conjunct != nullptr);
         DORIS_CHECK(conjunct->root() != nullptr);
-        const auto root = conjunct->root();
-        const auto impl = root->get_impl();
-        const auto predicate = impl != nullptr ? impl : root;
-        // Split pruning evaluates a predicate once before any file rows are read. Reordering
-        // non-deterministic or error-preserving expressions can change their row-level semantics,
-        // even when every referenced slot is a partition column.
-        if (!predicate->is_safe_to_execute_on_selected_rows()) {
-            continue;
+        // Keep only the safe prefix of the original conjunct order. If an unsafe conjunct is
+        // skipped, a later predicate could prune the split before the unsafe one reaches its
+        // normal row-level evaluation point.
+        if (!_is_safe_to_pre_execute(conjunct)) {
+            break;
         }
         std::set<GlobalIndex> global_indices;
         collect_global_indices(conjunct->root(), &global_indices);
@@ -843,6 +840,18 @@ Status TableReader::_evaluate_partition_prune_conjuncts(const VExprContextSPtrs&
     IColumn::Filter result_filter(block.rows(), 1);
     return VExprContext::execute_conjuncts(partition_conjuncts, nullptr, &block, &result_filter,
                                            can_filter_all);
+}
+
+bool TableReader::_is_safe_to_pre_execute(const VExprContextSPtr& conjunct) {
+    DORIS_CHECK(conjunct != nullptr);
+    DORIS_CHECK(conjunct->root() != nullptr);
+    const auto root = conjunct->root();
+    const auto impl = root->get_impl();
+    const auto predicate = impl != nullptr ? impl : root;
+    // Split pruning evaluates a predicate once before any file rows are read. Reordering
+    // non-deterministic or error-preserving expressions can change their row-level semantics,
+    // even when every referenced slot is a partition column or maps to a constant entry.
+    return predicate->is_safe_to_execute_on_selected_rows();
 }
 
 Status TableReader::_build_partition_prune_block(Block* block) const {
