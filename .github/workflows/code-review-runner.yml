@@ -250,14 +250,59 @@ jobs:
             printf 'No additional user-provided review focus.\n' > "$REVIEW_CONTEXT_DIR/review_focus.txt"
           fi
 
-      - name: Prepare required AGENTS guides
+      - name: Prepare authoritative PR context and required AGENTS guides
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
           PR_NUMBER: ${{ inputs.pr_number }}
+          HEAD_SHA: ${{ inputs.head_sha }}
+          BASE_SHA: ${{ inputs.base_sha }}
           HELPER_REF: ${{ github.workflow_sha || github.sha }}
         run: |
-          gh api --paginate "repos/${REPO}/pulls/${PR_NUMBER}/files" --jq '.[].filename' > "$REVIEW_CONTEXT_DIR/pr_changed_files.txt"
+          checkout_head_sha="$(git rev-parse HEAD)"
+          if [ "$checkout_head_sha" != "$HEAD_SHA" ]; then
+            echo "Checked-out HEAD $checkout_head_sha does not match expected PR head $HEAD_SHA"
+            exit 1
+          fi
+
+          retry_to_file() {
+            local output_file="$1"
+            shift
+            local attempt delay=2 tmp_file
+            tmp_file="$(mktemp "${output_file}.tmp.XXXXXX")"
+
+            for attempt in 1 2 3 4; do
+              if "$@" > "$tmp_file"; then
+                mv "$tmp_file" "$output_file"
+                return 0
+              fi
+
+              if [ "$attempt" -lt 4 ]; then
+                echo "Attempt ${attempt}/4 failed while preparing ${output_file}; retrying in ${delay}s..."
+                sleep "$delay"
+                delay=$((delay * 2))
+              fi
+            done
+
+            rm -f "$tmp_file"
+            return 1
+          }
+
+          retry_to_file "$REVIEW_CONTEXT_DIR/pr_changed_files.txt" \
+            gh api --paginate "repos/${REPO}/pulls/${PR_NUMBER}/files?per_page=100" \
+            --jq '.[].filename'
+          retry_to_file "$REVIEW_CONTEXT_DIR/pr.diff" \
+            gh pr diff "$PR_NUMBER" --repo "$REPO" --color=never
+
+          live_pr="$(gh api "repos/${REPO}/pulls/${PR_NUMBER}")"
+          live_head_sha="$(jq -r '.head.sha' <<<"$live_pr")"
+          live_base_sha="$(jq -r '.base.sha' <<<"$live_pr")"
+          if [ "$live_head_sha" != "$HEAD_SHA" ] || [ "$live_base_sha" != "$BASE_SHA" ]; then
+            echo "PR changed while review context was being prepared; restart the review"
+            echo "Expected base/head: $BASE_SHA $HEAD_SHA"
+            echo "Current base/head:  $live_base_sha $live_head_sha"
+            exit 1
+          fi
 
           helper="$RUNNER_TEMP/prepare_review_agents.py"
           gh api \
@@ -282,7 +327,8 @@ jobs:
           This environment is only used for review operations, so do not attempt any builds or code modifications. However, temporary scripts you use for review purposes are exceptions.
           You MUST NOT attempt to access any files outside the current directory. and you DO NOT need to. But this does not prevent you from normally using any skill or web fetch tools.
           You can comment on the pull request.
-          This review task is executed in Codex goal mode. 只有根据
+          This review task is executed in Codex goal mode. Subsequent prompts and skill indicate all the review and commenting actions you need to perform. The current round can only be concluded after completing the main agent risk scan, the normal full-review subagent review for each round, and the risk-focused subagent scan (if applicable). The final GitHub review can only be submitted after all subagents return NO_NEW_VALUABLE_FINDINGS, and all candidate points from the subagents have been validated, deduplicated, accepted, or rejected by the main agent.
+          In addition, the number of iterations shall not exceed 3 rounds. If new subagents identify valuable candidate points after 3 rounds, the main agent must indicate in the final summary that the review is incomplete.
 
           Context:
           - Repository: PLACEHOLDER_REPO
@@ -293,41 +339,47 @@ jobs:
           - Raw inline review comments JSON: PLACEHOLDER_CONTEXT_DIR/pr_review_comments.json
           - User review focus: PLACEHOLDER_CONTEXT_DIR/review_focus.txt
           - PR changed files: PLACEHOLDER_CONTEXT_DIR/pr_changed_files.txt
+          - Authoritative aggregate PR diff: PLACEHOLDER_CONTEXT_DIR/pr.diff
           - Required AGENTS.md files: PLACEHOLDER_CONTEXT_DIR/required_agents.txt
           - Shared subagent review ledger: PLACEHOLDER_CONTEXT_DIR/subagent_review_findings.md
 
+          PR diff and path-reading (for all subagents and the main agent):
+          - PLACEHOLDER_CONTEXT_DIR/pr.diff is the authoritative aggregate diff for the whole PR, and PLACEHOLDER_CONTEXT_DIR/pr_changed_files.txt is the authoritative changed-path list. Do not obtain the PR diff or changed-path list through other means.
+          - Before reading any file whose exact path is not already confirmed by PLACEHOLDER_CONTEXT_DIR/pr_changed_files.txt, PLACEHOLDER_CONTEXT_DIR/pr.diff, or a previous successful command output, you MUST first run `rg --files` to confirm the actual path of the target file.
+
           Before reviewing any code, you MUST read and follow the code review skill in this repository. During review, you must strictly follow those instructions.
           The active review goal's progress tracking MUST include, and must stay current throughout the review:
-          - Read the review prompt, code-review skill, required AGENTS.md files, existing review threads, user focus, changed-file list, and the shared subagent review ledger.
-          - Perform a main-agent initial whole-PR risk scan before spawning review subagents. This scan must inspect the PR file list and patch broadly, identify the most suspicious mechanisms or state that no special high-risk focus was found, and write the result under `## Main Initial Risk Scan` in the shared ledger.
-          - Spawn the required focused subagents and assign each subagent a dedicated section in the shared ledger before it reviews.
-          - If the main initial risk scan identifies one or more suspicious mechanisms, spawn additional no-inherit risk-focused subagent(s), separate from the normal complete-review subagents, to investigate those specific mechanisms and their upstream/downstream interactions.
-          - Require every subagent to append only to its assigned ledger section, while reading the whole ledger to avoid duplicate candidates.
-          - Read the shared ledger after every subagent result, then independently verify, deduplicate, accept, or dismiss every candidate in the main merged section.
-          - Run at least one final convergence round where every live subagent reviews the current ledger and proposed final comment set.
-          - Continue reviewing if any subagent reports a new valuable candidate during convergence; repeat verification and convergence until every subagent says `NO_NEW_VALUABLE_FINDINGS` for the same current ledger/comment set.
-          - Submit the final GitHub review and verify that all accepted comments landed before marking the goal complete.
-          The active review goal MUST remain incomplete until every suspicious point found during review has a clear conclusion: submitted as an inline issue, dismissed as already covered by existing review context, or dismissed with concrete code evidence explaining why it is not a bug.
-          You MUST use the available subagent or multi-agent spawn tool for this review; do not merely simulate subagent output in your own text. If tool discovery is needed, search for the subagent/multi-agent tool first. Spawn at least two subagents before final submission:
-          Before spawning those normal complete-review subagents, the main agent MUST first conduct a broad, whole-PR risk scan. This is a fast but real code-reading pass over the changed-file list, PR patch, and obvious related mechanism entry points. The scan must identify which parts of the change are most likely to hide correctness bugs and why. Examples include, but are not limited to: changed operator blockability requiring pipeline task scheduling review; new optimizer rules requiring interaction checks with adjacent rewrite/expression/type rules; new lifecycle or async behavior requiring caller/callback/thread-pool review; new type/cast predicates requiring BE runtime semantics, equality/hash, serialization, and set-operation semantics review; new config/session variables requiring all propagation paths and dynamic/static behavior review; new transaction, persistence, or cloud metadata paths requiring retry/idempotency/failover review; and new tests requiring proof that they actually exercise the intended path. If the scan finds no special high-risk focus beyond the normal full review, it must explicitly write that conclusion with evidence.
-          The main initial risk scan MUST be written under `## Main Initial Risk Scan` in the shared ledger before any subagent is spawned. For every risk focus item, include: ID, changed files/lines involved, related mechanisms to inspect, why it is suspicious, required upstream/downstream files or paths, and the exact question the risk-focused subagent must answer.
-          If `## Main Initial Risk Scan` contains any risk focus item, the main agent MUST spawn additional no-inherit risk-focused subagent(s) dedicated to those item(s), in addition to the normal complete-review subagents. Each risk-focused subagent prompt must include the whole ledger path, its assigned ledger section, the risk focus IDs it owns, and a requirement to inspect the related mechanisms listed by the main agent rather than only the changed lines. Risk-focused subagents must append evidence-backed conclusions or candidates only under their assigned section. They must not replace the normal complete-review subagents; the normal subagents must still perform the full skill-based review.
-          The shared subagent review ledger is PLACEHOLDER_CONTEXT_DIR/subagent_review_findings.md. Before spawning any subagent, the main agent MUST read this ledger. Every subagent prompt MUST include this ledger path and the exact ledger section assigned to that subagent. Subagents must read the whole ledger before reviewing, avoid duplicating existing candidates, and append their findings only under their assigned subagent section. They must not rewrite the whole ledger, edit another subagent section, edit the main merged sections, edit repository source files, or submit GitHub comments.
-          Each subagent must record candidate findings in its own ledger section with stable IDs, path/line, claim, evidence, duplicate relationship if any, and recommendation. If a candidate overlaps an existing ledger item, the subagent should add a duplicate note in its own section that references the existing candidate ID instead of modifying the existing candidate. This section-owned append-only rule is mandatory to avoid concurrent patch conflicts.
-          The main agent must read the shared ledger after each subagent result, merge duplicate candidates into the main merged section, update candidate statuses, and keep a proposed final comment set in the main-owned ledger sections. It must also update the status of every main risk focus item as covered_by_subagent, accepted_for_inline_comment, dismissed_with_evidence, duplicate_of_existing_thread, duplicate_of_candidate, or needs_more_evidence. Statuses must distinguish at least: proposed_by_subagent, accepted_for_inline_comment, dismissed_with_evidence, duplicate_of_existing_thread, duplicate_of_candidate, and needs_more_evidence.
-          Before final submission, the main agent MUST send the current ledger and proposed final comment set to every live subagent, including all risk-focused subagents, and require a convergence response. A subagent may either append a new valuable candidate under its assigned section or reply exactly `NO_NEW_VALUABLE_FINDINGS` for the current ledger/comment set. The main agent MUST NOT complete the goal, final summary, or GitHub review until every live subagent has returned `NO_NEW_VALUABLE_FINDINGS` in the same convergence round after the last accepted or dismissed candidate update.
-          Subagents must only report candidate findings with evidence. The main agent must read their results and the shared ledger, independently verify or dismiss every candidate with concrete code evidence, deduplicate against existing review threads, and submit the final GitHub review itself. The final summary must include a short "Initial risk scan and subagent conclusions" section describing the main risk focus items, which extra risk-focused subagents were spawned, which subagent candidates became inline comments, which were dismissed, which duplicates were merged, and which convergence round ended with all subagents reporting `NO_NEW_VALUABLE_FINDINGS`.
-          If and only if the runtime exposes no subagent or multi-agent tool after explicit discovery, state that limitation in the final summary and continue the review manually.
-          You MUST NOT stop after finding the first blocking issue. Keep reviewing changed files, related control flow, tests, and parallel/special-case paths until all plausible correctness, lifecycle, configuration, compatibility, performance, and coverage bugs have been investigated and every bug you can substantiate has been reported.
-          Before submitting the final review, do one explicit final sweep over the changed-file list and your unresolved candidate list. Only finish when there are no unresolved suspicious points and all possible substantiated bugs have been pointed out in the GitHub review.
+          1. Read the review prompt, code-review skill, required AGENTS.md files, existing review threads, user focus, changed-file list, and the shared subagent review ledger.
+          2. Perform a main-agent initial risk scan before spawning review subagents. You must thoroughly read all the changes in this PR and understand all the involved mechanisms, pointing out: if there is a problem with this PR, where is the problem most likely to be? Or are there any points you suspect to be risky? write the result under `## Main Initial Risk Scan` in the shared ledger.
+          3. Based on the requirements of the code-review skill regarding the coverage points of the review spawn 1-3 subagents (depends on the complexity of the PR), each focusing on certain aspects. The sum of their focus points must fully cover the entire content of PR, as well as the points required in skill and any additional review points you consider necessary. They must complete the review of their own aspects and identify all possible issues before they can finish their work. You need assign each subagent a dedicated section in the shared ledger.
+          4. If the main initial risk scan identifies one or more suspicious mechanisms, spawn additional risk-focused subagent(s), separate from the normal complete-review subagents, to specially investigate those specific mechanisms and their upstream/downstream interactions.
+          5. Read the shared ledger after every subagent result, then independently verify, deduplicate, accept, or dismiss every candidate in the main merged section. The status of each candidate must be clarified after this stage.
+          6. If all subagents return `NO_NEW_VALUABLE_FINDINGS`, or if this loop has already executed 3 rounds, conduct the necessary review to ensure that all current candidate points have been verified, deduplicated, accepted, or rejected, and then submit the final GitHub comment. Otherwise, continue with the next round of the same review process from the beginning.
+          7. Submit the final GitHub review and verify that all accepted comments landed before marking the goal complete. You must address all checkpoints required by the skill, user concerns (if any), and indicate the status of the review completion.
+
+          Subagent Constraints:
+          - Every subagent appends only to its assigned ledger section, while reading the whole ledger to avoid duplicate candidates.
+          - Follow the principles indicated in the code-review skill.
+          - The shared subagent review ledger is PLACEHOLDER_CONTEXT_DIR/subagent_review_findings.md. Subagents must read the whole ledger before reviewing, avoid duplicating existing candidates, and append their findings only under their assigned subagent section. They must not rewrite the whole ledger, edit another subagent section, edit the main merged sections, edit repository source files, or submit GitHub comments.
+          - Each subagent must record candidate findings in its own ledger section with stable IDs, path/line, claim, evidence, duplicate relationship if any, and recommendation. Do not add duplicates of existing items. This section-owned append-only rule is mandatory to avoid concurrent patch conflicts.
+          - Before returning, a further thought must be made—what problem, if any, might I have missed just now, and where? Then a thorough recheck should be conducted to confirm whether this potential issue is real and whether it needs to be reported.
+
+          Main-agent Constraints:
+          - The active review goal MUST remain incomplete until every suspicious point found during review has a clear conclusion: submitted as an inline issue, dismissed as already covered by existing review context, or dismissed with concrete code evidence explaining why it is not a bug.
+          - The main initial risk scan MUST be written under `## Main Initial Risk Scan` in the shared ledger before any subagent is spawned. For every risk focus item, include: ID, changed files/lines involved, related mechanisms to inspect, why it is suspicious, required upstream/downstream files or paths, and the exact question the risk-focused subagent must answer.
+          - The shared subagent review ledger is PLACEHOLDER_CONTEXT_DIR/subagent_review_findings.md. Before spawning any subagent, the main agent MUST read this ledger. Every subagent prompt MUST include this ledger path and the exact ledger section assigned to that subagent.
+          - The main agent must read the shared ledger after each subagent result, merge duplicate candidates into the main merged section, update candidate statuses, and keep a proposed final comment set in the main-owned ledger sections. It must also update the status of every main risk focus item.
+          - Before submitting the final review, do one explicit final sweep over the changed-file list and your unresolved candidate list. Only finish when there are no unresolved suspicious points and all possible substantiated bugs have been pointed out in the GitHub review. At this stage, you can conduct final research on any part you still have doubts about or which may not have been fully investigated, ensuring that all potential issues have been thoroughly investigated and reported.
+
+          Any agent MUST NOT stop after finding the first blocking issue. Keep reviewing changed files, related control flow, tests, and parallel/special-case paths until all plausible correctness, lifecycle, configuration, compatibility, performance, and coverage bugs have been investigated and every bug you can substantiate has been reported.
+
           Before inspecting the PR diff or related code, you MUST read the contents of every AGENTS.md file listed below. These paths are computed from the PR changed file ancestors in this checkout. Searching for or listing paths is not sufficient; read each listed file directly.
           Required AGENTS.md files for this PR:
           PLACEHOLDER_REQUIRED_AGENTS_BLOCK
+
           Before proposing any new issue, you MUST read PLACEHOLDER_CONTEXT_DIR/pr_review_threads.md and treat every existing inline comment thread and reply as already-known review context.
-          Do NOT submit the same or substantially similar issue again if it has already been raised in the existing review threads, even if you would phrase it differently.
-          Only raise a similar concern when the PR introduces a genuinely different instance in another location that is not already covered by the existing thread, and explain why it is distinct.
-          You MUST also read PLACEHOLDER_CONTEXT_DIR/review_focus.txt. Perform a complete review of the whole PR as usual, and additionally pay special attention to the user-provided focus points from that file.
-          In the final summary, include a short response to the user focus points, including when no additional issue was found for them.
+          Do NOT submit the same or substantially similar issue again if it has already been raised in the existing review threads, even if you would phrase it differently. Only raise a similar concern when the PR introduces a genuinely different instance in another location that is not already covered by the existing thread, and explain why it is distinct.
+          You MUST also read PLACEHOLDER_CONTEXT_DIR/review_focus.txt. Perform a complete review of the whole PR as usual, and additionally pay special attention to the user-provided focus points from that file. In the final summary, include a short response to the user focus points, including when no additional issue was found for them.
           In addition, you can perform any desired review operations to observe suspicious code and details in order to identify issues as much as possible.
 
           ## Final response format
@@ -341,13 +393,14 @@ jobs:
               - Build a JSON array of comments like: [{ "path": "<file>", "position": <diff_position>, "body": "..." }]
               - Submit via: gh api repos/PLACEHOLDER_REPO/pulls/PLACEHOLDER_PR_NUMBER/reviews --input <json_file>
               - The JSON file should contain: {"event":"REQUEST_CHANGES","body":"<summary>","comments":[...]}
-          - A complete and detailed review of the entire PR must be conducted, identifying all potential issues and submitting corresponding comments. Only then can the review work be considered finished. If this standard is not strictly met, the review of the remaining parts must continue.
           PROMPT
+
           sed -i "s|PLACEHOLDER_REPO|${REPO}|g" "$REVIEW_CONTEXT_DIR/review_prompt.txt"
           sed -i "s|PLACEHOLDER_PR_NUMBER|${PR_NUMBER}|g" "$REVIEW_CONTEXT_DIR/review_prompt.txt"
           sed -i "s|PLACEHOLDER_HEAD_SHA|${HEAD_SHA}|g" "$REVIEW_CONTEXT_DIR/review_prompt.txt"
           sed -i "s|PLACEHOLDER_BASE_SHA|${BASE_SHA}|g" "$REVIEW_CONTEXT_DIR/review_prompt.txt"
           sed -i "s|PLACEHOLDER_CONTEXT_DIR|${REVIEW_CONTEXT_REL}|g" "$REVIEW_CONTEXT_DIR/review_prompt.txt"
+
           python3 - "$REVIEW_CONTEXT_DIR/review_prompt.txt" "$REVIEW_CONTEXT_DIR/required_agents_prompt.txt" <<'PY'
           import sys
           from pathlib import Path
@@ -370,7 +423,6 @@ jobs:
           - Subagents must not rewrite this file, edit another subagent section, edit main-owned sections, edit repository source files, or submit GitHub comments.
           - Avoid duplicates. If a candidate overlaps an existing candidate, add a duplicate note in your own section that references the existing candidate ID.
           - The main agent owns final status, final deduplication, GitHub review submission, and GitHub API verification.
-          - The goal is not complete until all live subagents have reviewed the current ledger and proposed final comment set in the same convergence round and replied `NO_NEW_VALUABLE_FINDINGS`.
 
           ## Main Initial Risk Scan
 
@@ -389,10 +441,7 @@ jobs:
           - proposed_by_subagent
           - accepted_for_inline_comment
           - dismissed_with_evidence
-          - duplicate_of_existing_thread
-          - duplicate_of_candidate
-          - needs_more_evidence
-          - covered_by_subagent
+          - duplicated
 
           Candidate format:
 
@@ -432,10 +481,7 @@ jobs:
           cat > "$REVIEW_CONTEXT_DIR/codex_goal_prompt.txt" <<EOF
           You are performing an automated code review inside a GitHub Actions runner.
           This invocation is already running in Codex goal mode. Before inspecting the PR diff or related code, read ${REVIEW_CONTEXT_REL}/review_prompt.txt verbatim and follow that file as the complete review instruction set.
-          This review must start with a main-agent whole-PR risk scan recorded in ${REVIEW_CONTEXT_REL}/subagent_review_findings.md under Main Initial Risk Scan. If that scan identifies suspicious high-risk mechanisms, spawn additional no-inherit risk-focused subagent(s) for those items, in addition to the normal full-review subagents.
-          This review must use the available subagent or multi-agent spawn tool for focused review passes. All subagents and the main agent must maintain ${REVIEW_CONTEXT_REL}/subagent_review_findings.md as the shared source of truth. Each subagent may append only to its assigned ledger section; the main agent owns merged statuses, duplicate suppression, proposed final comments, GitHub review submission, and GitHub API verification.
-          The review goal's completion process must include the main initial risk scan, shared-ledger review, normal full-review subagent spawning, risk-focused subagent spawning when risk focus items exist, candidate verification, duplicate merge, a final subagent convergence round, GitHub review submission, and GitHub API verification. Do not complete the goal unless every live subagent, including risk-focused subagents, has replied NO_NEW_VALUABLE_FINDINGS for the same current ledger/comment set after the last candidate update.
-          Keep reviewing until every suspicious point has a clear conclusion, every substantiated issue has been submitted as a GitHub inline review comment, and no new valuable review comment remains possible.
+          This document outlines the complete process, cyclic procedures, and exit agreements you need to follow. Please read it seriously and reconfirm the requirements at the end of each cycle. Complete the review according to the stipulations in this document.
           EOF
         env:
           REPO: ${{ github.repository }}
