@@ -19,9 +19,13 @@
 // and modified by Doris
 
 #pragma once
+#include <array>
 #include <cstdint>
+#include <optional>
+#include <string>
 #include <vector>
 
+#include "common/status.h"
 #include "core/uint128.h"
 #include "io/io_common.h"
 
@@ -42,6 +46,22 @@ enum FileCacheType {
     DISPOSABLE = 0,
     TTL = 3,
 };
+
+enum class FileCacheCapacityMode {
+    AUTO,
+    MANUAL,
+};
+
+enum class FileCacheResizeSource {
+    STARTUP,
+    AUTO_REFRESH,
+    HTTP,
+    RELOAD,
+};
+
+std::string file_cache_capacity_mode_to_string(FileCacheCapacityMode mode);
+std::string file_cache_resize_source_to_string(FileCacheResizeSource source);
+
 std::string cache_type_to_surfix(FileCacheType type);
 FileCacheType surfix_to_cache_type(const std::string& str);
 
@@ -126,6 +146,7 @@ struct FileCacheKey {
 
 struct FileCacheSettings {
     size_t capacity {0};
+    uint64_t requested_capacity {0};
     size_t disposable_queue_size {0};
     size_t disposable_queue_elements {0};
     size_t index_queue_size {0};
@@ -136,6 +157,11 @@ struct FileCacheSettings {
     size_t ttl_queue_elements {0};
     size_t max_file_block_size {0};
     size_t max_query_cache_size {0};
+    size_t normal_percent {DEFAULT_NORMAL_PERCENT};
+    size_t disposable_percent {DEFAULT_DISPOSABLE_PERCENT};
+    size_t index_percent {DEFAULT_INDEX_PERCENT};
+    size_t ttl_percent {DEFAULT_TTL_PERCENT};
+    bool auto_capacity {false};
     std::string storage;
 
     // to string
@@ -148,6 +174,114 @@ FileCacheSettings get_file_cache_settings(size_t capacity, size_t max_query_cach
                                           size_t index_percent = DEFAULT_INDEX_PERCENT,
                                           size_t ttl_percent = DEFAULT_TTL_PERCENT,
                                           const std::string& storage = "disk");
+
+struct FileCacheDiskState {
+    uint64_t total_capacity {0};
+    uint64_t available_capacity {0};
+    int disk_used_percent {0};
+    int inode_used_percent {0};
+};
+
+Status get_file_cache_disk_state(const std::string& path, FileCacheDiskState* state);
+
+struct FileCacheCapacityPolicy {
+    FileCacheCapacityMode mode {FileCacheCapacityMode::MANUAL};
+    uint64_t requested_capacity {0};
+    size_t normal_percent {DEFAULT_NORMAL_PERCENT};
+    size_t disposable_percent {DEFAULT_DISPOSABLE_PERCENT};
+    size_t index_percent {DEFAULT_INDEX_PERCENT};
+    size_t ttl_percent {DEFAULT_TTL_PERCENT};
+    size_t max_query_cache_size {0};
+    size_t max_file_block_size {FILE_CACHE_MAX_FILE_BLOCK_SIZE};
+    std::string storage {"disk"};
+};
+
+FileCacheCapacityPolicy make_file_cache_capacity_policy(const FileCacheSettings& settings);
+
+struct FileCacheResizeAudit {
+    FileCacheResizeSource source {FileCacheResizeSource::STARTUP};
+    int64_t time_ms {0};
+    std::string status {"OK"};
+    std::string message;
+};
+
+struct FileCacheCapacityState {
+    FileCacheCapacityPolicy policy;
+    uint64_t generation {0};
+    std::optional<FileCacheDiskState> last_disk_state;
+    FileCacheResizeAudit last_resize;
+    uint64_t pending_eviction_bytes {0};
+};
+
+struct BlockFileCacheResetRequest {
+    uint64_t requested_capacity {0};
+    FileCacheResizeSource source {FileCacheResizeSource::HTTP};
+    std::optional<uint64_t> expected_generation;
+};
+
+struct FileCacheResizePlan {
+    FileCacheCapacityPolicy next_policy;
+    FileCacheSettings next_settings;
+    std::optional<FileCacheDiskState> disk_state;
+    std::optional<uint64_t> expected_generation;
+    FileCacheResizeSource source {FileCacheResizeSource::HTTP};
+    bool clamped_by_disk {false};
+};
+
+struct FileCachePathResizeResult {
+    std::string path;
+    FileCacheCapacityMode mode {FileCacheCapacityMode::MANUAL};
+    uint64_t requested_capacity {0};
+    uint64_t old_capacity {0};
+    uint64_t new_capacity {0};
+    uint64_t disk_total_capacity {0};
+    uint64_t disk_available_capacity {0};
+    uint64_t used_bytes {0};
+    uint64_t pending_eviction_bytes {0};
+    bool clamped_by_disk {false};
+    bool changed {false};
+    bool skipped {false};
+};
+
+struct FileCacheResetResult {
+    uint64_t total_capacity {0};
+    std::vector<FileCachePathResizeResult> caches;
+};
+
+Status resolve_file_cache_capacity(const FileCacheCapacityPolicy& policy,
+                                   const std::optional<FileCacheDiskState>& disk_state,
+                                   uint64_t* effective_capacity, bool* clamped_by_disk);
+Status build_file_cache_settings(uint64_t effective_capacity, const FileCacheCapacityPolicy& policy,
+                                 FileCacheSettings* settings);
+Status build_file_cache_resize_plan(const FileCacheCapacityPolicy& current_policy,
+                                    const BlockFileCacheResetRequest& request,
+                                    const std::optional<FileCacheDiskState>& disk_state,
+                                    FileCacheResizePlan* plan);
+
+struct FileCacheQueueRuntimeInfo {
+    size_t percent {0};
+    size_t max_size {0};
+    size_t current_size {0};
+    size_t max_elements {0};
+    size_t current_elements {0};
+};
+
+struct FileCacheRuntimeInfo {
+    std::string path;
+    std::string storage;
+    FileCacheCapacityMode capacity_mode {FileCacheCapacityMode::MANUAL};
+    uint64_t requested_capacity {0};
+    uint64_t capacity_generation {0};
+    uint64_t capacity {0};
+    uint64_t current_size {0};
+    uint64_t pending_eviction_size {0};
+    uint64_t max_file_block_size {0};
+    bool disk_resource_limit_mode {false};
+    bool need_evict_in_advance {false};
+    std::optional<FileCacheDiskState> disk_state;
+    FileCacheResizeAudit last_resize;
+    std::array<FileCacheQueueRuntimeInfo, 4> queues;
+};
 
 struct CacheContext {
     CacheContext(const IOContext* io_context) {

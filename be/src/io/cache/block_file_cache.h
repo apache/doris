@@ -212,7 +212,7 @@ public:
     Status initialize();
 
     /// Cache capacity in bytes.
-    [[nodiscard]] size_t capacity() const { return _capacity; }
+    [[nodiscard]] size_t capacity() const;
 
     // try to release all releasable block
     // it maybe hang the io/system
@@ -264,6 +264,16 @@ public:
      * @returns summary message
      */
     std::string reset_capacity(size_t new_capacity);
+    std::string reset_capacity(size_t new_capacity, bool auto_capacity);
+
+    Status prepare_reset_capacity(const BlockFileCacheResetRequest& request,
+                                  const std::optional<FileCacheDiskState>& observed_disk,
+                                  FileCacheResizePlan* plan) const;
+    Status apply_reset_capacity(const FileCacheResizePlan& plan, FileCachePathResizeResult* result);
+    Status reset_capacity(const BlockFileCacheResetRequest& request,
+                          FileCachePathResizeResult* result);
+
+    Status get_runtime_info(FileCacheRuntimeInfo* info) const;
 
     std::map<size_t, FileBlockSPtr> get_blocks_by_key(const UInt128Wrapper& hash);
 
@@ -467,8 +477,12 @@ private:
     size_t get_used_cache_size_unlocked(FileCacheType type,
                                         std::lock_guard<std::mutex>& cache_lock) const;
 
+    void check_disk_resource_limit(const FileCacheDiskState& disk_state);
+    void check_need_evict_cache_in_advance(const FileCacheDiskState& disk_state);
     void check_disk_resource_limit();
     void check_need_evict_cache_in_advance();
+    void maybe_reset_capacity_from_disk(const FileCacheDiskState& disk_state,
+                                        uint64_t expected_generation);
 
     size_t get_available_cache_size_unlocked(FileCacheType type,
                                              std::lock_guard<std::mutex>& cache_lock) const;
@@ -479,6 +493,7 @@ private:
     bool need_to_move(FileCacheType cell_type, FileCacheType query_type) const;
 
     void run_background_monitor();
+    void run_background_monitor_once();
     void run_background_gc();
     void run_background_lru_log_replay();
     size_t replay_lru_logs_once();
@@ -522,10 +537,20 @@ private:
 
     void clear_need_update_lru_blocks();
 
+    Status apply_reset_capacity_unlocked(const FileCacheResizePlan& plan,
+                                         FileCachePathResizeResult* result,
+                                         std::lock_guard<std::mutex>& cache_lock);
+    void update_resize_pending_unlocked(std::lock_guard<std::mutex>& cache_lock);
+    void update_disk_state_unlocked(const FileCacheDiskState& disk_state,
+                                    std::lock_guard<std::mutex>& cache_lock);
+    void record_resize_failure(FileCacheResizeSource source, const Status& status);
+    void evict_over_capacity(size_t batch_size, std::lock_guard<std::mutex>& cache_lock);
+
     // info
     std::string _cache_base_path;
     size_t _capacity = 0;
     size_t _max_file_block_size = 0;
+    FileCacheCapacityState _capacity_state;
 
     mutable std::mutex _mutex;
     bool _close {false};
@@ -572,6 +597,12 @@ private:
 
     // metrics
     std::shared_ptr<bvar::Status<size_t>> _cache_capacity_metrics;
+    std::shared_ptr<bvar::Status<size_t>> _resize_pending_bytes_metrics;
+    std::shared_ptr<bvar::Status<size_t>> _disk_total_capacity_metrics;
+    std::shared_ptr<bvar::Status<size_t>> _disk_available_capacity_metrics;
+    std::shared_ptr<bvar::Status<int>> _capacity_mode_metrics;
+    std::shared_ptr<bvar::Adder<size_t>> _auto_resize_success_metrics;
+    std::shared_ptr<bvar::Adder<size_t>> _auto_resize_failure_metrics;
     std::shared_ptr<bvar::Status<size_t>> _cur_cache_size_metrics;
     std::shared_ptr<bvar::Status<size_t>> _cur_ttl_cache_size_metrics;
     std::shared_ptr<bvar::Status<size_t>> _cur_ttl_cache_lru_queue_cache_size_metrics;

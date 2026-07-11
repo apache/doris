@@ -659,7 +659,6 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_direct_read_order_check) {
     }
     FileCacheFactory::instance()->_caches.clear();
     FileCacheFactory::instance()->_path_to_cache.clear();
-    FileCacheFactory::instance()->_capacity = 0;
 }
 
 TEST_F(BlockFileCacheTest, get_or_set_hit_order_check) {

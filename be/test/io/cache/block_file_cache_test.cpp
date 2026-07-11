@@ -68,7 +68,6 @@ io::FileCacheSettings create_cached_remote_reader_tiny_settings(size_t block_siz
 void clear_cached_remote_reader_factory() {
     FileCacheFactory::instance()->_caches.clear();
     FileCacheFactory::instance()->_path_to_cache.clear();
-    FileCacheFactory::instance()->_capacity = 0;
 }
 
 io::BlockFileCache* create_cached_remote_reader_test_cache(const fs::path& cache_path,
@@ -243,7 +242,6 @@ io::FileCacheSettings cached_remote_reader_cache_settings() {
 void reset_file_cache_factory_for_test() {
     FileCacheFactory::instance()->_caches.clear();
     FileCacheFactory::instance()->_path_to_cache.clear();
-    FileCacheFactory::instance()->_capacity = 0;
 }
 
 Status create_cached_remote_reader_cache(const std::string& cache_path, BlockFileCache** cache) {
@@ -3192,7 +3190,6 @@ TEST_F(BlockFileCacheTest, clear_file_cache_sync_factory_rejects_concurrent_sync
     auto* factory = FileCacheFactory::instance();
     factory->_caches.clear();
     factory->_path_to_cache.clear();
-    factory->_capacity = 0;
 
     io::FileCacheSettings settings;
     settings.query_queue_size = 1024;
@@ -3247,7 +3244,6 @@ TEST_F(BlockFileCacheTest, clear_file_cache_sync_factory_rejects_concurrent_sync
         sp->clear_all_call_backs();
         factory->_caches.clear();
         factory->_path_to_cache.clear();
-        factory->_capacity = 0;
         if (fs::exists(my_cache_path)) {
             fs::remove_all(my_cache_path);
         }
@@ -3589,7 +3585,6 @@ TEST_F(BlockFileCacheTest, test_factory_1) {
     }
     FileCacheFactory::instance()->_caches.clear();
     FileCacheFactory::instance()->_path_to_cache.clear();
-    FileCacheFactory::instance()->_capacity = 0;
 }
 
 TEST_F(BlockFileCacheTest, test_factory_2) {
@@ -3627,7 +3622,6 @@ TEST_F(BlockFileCacheTest, test_factory_2) {
     config::clear_file_cache = false;
     FileCacheFactory::instance()->_caches.clear();
     FileCacheFactory::instance()->_path_to_cache.clear();
-    FileCacheFactory::instance()->_capacity = 0;
 }
 
 TEST_F(BlockFileCacheTest, test_factory_3) {
@@ -3661,7 +3655,6 @@ TEST_F(BlockFileCacheTest, test_factory_3) {
     }
     FileCacheFactory::instance()->_caches.clear();
     FileCacheFactory::instance()->_path_to_cache.clear();
-    FileCacheFactory::instance()->_capacity = 0;
 }
 
 TEST_F(BlockFileCacheTest, test_hash_key) {
@@ -3803,7 +3796,6 @@ TEST_F(BlockFileCacheTest, test_query_limit) {
     }
     FileCacheFactory::instance()->_caches.clear();
     FileCacheFactory::instance()->_path_to_cache.clear();
-    FileCacheFactory::instance()->_capacity = 0;
 }
 
 TEST_F(BlockFileCacheTest, state_to_string) {
@@ -4192,7 +4184,6 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader) {
     }
     FileCacheFactory::instance()->_caches.clear();
     FileCacheFactory::instance()->_path_to_cache.clear();
-    FileCacheFactory::instance()->_capacity = 0;
 }
 
 TEST_F(BlockFileCacheTest, cached_remote_file_reader_accepts_null_io_context) {
@@ -4246,7 +4237,6 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_accepts_null_io_context) {
     }
     FileCacheFactory::instance()->_caches.clear();
     FileCacheFactory::instance()->_path_to_cache.clear();
-    FileCacheFactory::instance()->_capacity = 0;
 }
 
 TEST_F(BlockFileCacheTest, cached_remote_file_reader_tail) {
@@ -4317,7 +4307,6 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_tail) {
     }
     FileCacheFactory::instance()->_caches.clear();
     FileCacheFactory::instance()->_path_to_cache.clear();
-    FileCacheFactory::instance()->_capacity = 0;
 }
 
 TEST_F(BlockFileCacheTest, cached_remote_file_reader_error_handle) {
@@ -4402,7 +4391,6 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_error_handle) {
     }
     FileCacheFactory::instance()->_caches.clear();
     FileCacheFactory::instance()->_path_to_cache.clear();
-    FileCacheFactory::instance()->_capacity = 0;
 }
 
 extern bvar::Adder<uint64_t> g_read_cache_self_heal_on_not_found;
@@ -4728,7 +4716,6 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_no_self_heal_on_non_not_fou
     }
     FileCacheFactory::instance()->_caches.clear();
     FileCacheFactory::instance()->_path_to_cache.clear();
-    FileCacheFactory::instance()->_capacity = 0;
 }
 
 TEST_F(BlockFileCacheTest, cached_remote_file_reader_failed_read_does_not_update_metrics) {
@@ -4845,7 +4832,6 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_init) {
     }
     FileCacheFactory::instance()->_caches.clear();
     FileCacheFactory::instance()->_path_to_cache.clear();
-    FileCacheFactory::instance()->_capacity = 0;
 }
 
 TEST_F(BlockFileCacheTest, cached_remote_file_reader_concurrent) {
@@ -4930,7 +4916,6 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_concurrent) {
     }
     FileCacheFactory::instance()->_caches.clear();
     FileCacheFactory::instance()->_path_to_cache.clear();
-    FileCacheFactory::instance()->_capacity = 0;
 }
 
 TEST_F(BlockFileCacheTest, cached_remote_file_reader_concurrent_2) {
@@ -5014,7 +4999,6 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_concurrent_2) {
     }
     FileCacheFactory::instance()->_caches.clear();
     FileCacheFactory::instance()->_path_to_cache.clear();
-    FileCacheFactory::instance()->_capacity = 0;
 }
 
 TEST_F(BlockFileCacheTest, test_hot_data) {
@@ -5587,7 +5571,6 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_opt_lock) {
     }
     FileCacheFactory::instance()->_caches.clear();
     FileCacheFactory::instance()->_path_to_cache.clear();
-    FileCacheFactory::instance()->_capacity = 0;
     config::enable_read_cache_file_directly = false;
 }
 
@@ -5772,6 +5755,313 @@ TEST_F(BlockFileCacheTest, remove_from_other_queue_2) {
     }
 }
 
+TEST_F(BlockFileCacheTest, capacity_policy_and_settings) {
+    FileCacheCapacityPolicy policy;
+    policy.mode = FileCacheCapacityMode::AUTO;
+    policy.requested_capacity = 0;
+    policy.normal_percent = 41;
+    policy.disposable_percent = 7;
+    policy.index_percent = 11;
+    policy.ttl_percent = 41;
+    policy.max_file_block_size = 10;
+    policy.storage = "disk";
+    FileCacheDiskState disk_state {.total_capacity = 1000,
+                                   .available_capacity = 600,
+                                   .disk_used_percent = 40,
+                                   .inode_used_percent = 10};
+
+    uint64_t effective_capacity = 0;
+    bool clamped_by_disk = false;
+    ASSERT_TRUE(
+            resolve_file_cache_capacity(policy, disk_state, &effective_capacity, &clamped_by_disk));
+    EXPECT_EQ(effective_capacity, 1000);
+    EXPECT_FALSE(clamped_by_disk);
+
+    FileCacheSettings settings;
+    ASSERT_TRUE(build_file_cache_settings(effective_capacity, policy, &settings));
+    EXPECT_EQ(settings.disposable_queue_size, 70);
+    EXPECT_EQ(settings.index_queue_size, 110);
+    EXPECT_EQ(settings.ttl_queue_size, 410);
+    EXPECT_EQ(settings.query_queue_size, 410);
+    EXPECT_EQ(settings.disposable_queue_size + settings.index_queue_size + settings.ttl_queue_size +
+                      settings.query_queue_size,
+              settings.capacity);
+    EXPECT_EQ(settings.query_queue_elements, REMOTE_FS_OBJECTS_CACHE_DEFAULT_ELEMENTS);
+
+    ASSERT_TRUE(build_file_cache_settings(1003, policy, &settings));
+    EXPECT_EQ(settings.query_queue_size, 413);
+    EXPECT_EQ(settings.disposable_queue_size + settings.index_queue_size + settings.ttl_queue_size +
+                      settings.query_queue_size,
+              settings.capacity);
+
+    policy.max_file_block_size = 1;
+    ASSERT_TRUE(build_file_cache_settings(20'000'000, policy, &settings));
+    EXPECT_EQ(settings.query_queue_elements, 8'200'000);
+    policy.max_file_block_size = 10;
+
+    policy.mode = FileCacheCapacityMode::MANUAL;
+    policy.requested_capacity = 1200;
+    ASSERT_TRUE(
+            resolve_file_cache_capacity(policy, disk_state, &effective_capacity, &clamped_by_disk));
+    EXPECT_EQ(effective_capacity, 1000);
+    EXPECT_TRUE(clamped_by_disk);
+
+    policy.requested_capacity = 800;
+    ASSERT_TRUE(
+            resolve_file_cache_capacity(policy, disk_state, &effective_capacity, &clamped_by_disk));
+    EXPECT_EQ(effective_capacity, 800);
+    EXPECT_FALSE(clamped_by_disk);
+
+    policy.storage = "memory";
+    ASSERT_TRUE(resolve_file_cache_capacity(policy, std::nullopt, &effective_capacity,
+                                            &clamped_by_disk));
+    EXPECT_EQ(effective_capacity, 800);
+    policy.mode = FileCacheCapacityMode::AUTO;
+    EXPECT_FALSE(resolve_file_cache_capacity(policy, std::nullopt, &effective_capacity,
+                                             &clamped_by_disk));
+
+    policy.storage = "disk";
+    FileCacheDiskState zero_disk;
+    EXPECT_FALSE(
+            resolve_file_cache_capacity(policy, zero_disk, &effective_capacity, &clamped_by_disk));
+}
+
+TEST_F(BlockFileCacheTest, auto_resize_capacity_with_sync_point_disk_state) {
+    const std::string resize_cache_path = caches_dir / "auto_resize_cache" / "";
+    if (fs::exists(resize_cache_path)) {
+        fs::remove_all(resize_cache_path);
+    }
+    fs::create_directories(resize_cache_path);
+
+    const int32_t original_evict_interval = config::file_cache_evict_in_advance_interval_ms;
+    config::file_cache_evict_in_advance_interval_ms = 60 * 60 * 1000;
+    Defer restore_evict_interval {
+            [&] { config::file_cache_evict_in_advance_interval_ms = original_evict_interval; }};
+
+    std::atomic<uint64_t> disk_capacity {1000};
+    std::atomic<int> disk_state_calls {0};
+    auto* sync_point = SyncPoint::get_instance();
+    SyncPoint::CallbackGuard disk_state_guard;
+    SyncPoint::CallbackGuard sleep_guard;
+    sync_point->set_call_back(
+            "BlockFileCache::get_file_cache_disk_state",
+            [&](auto&& args) {
+                auto* state = try_any_cast<FileCacheDiskState*>(args[0]);
+                state->total_capacity = disk_capacity.load();
+                state->available_capacity = state->total_capacity / 2;
+                state->disk_used_percent = 10;
+                state->inode_used_percent = 10;
+                ++disk_state_calls;
+            },
+            &disk_state_guard);
+    sync_point->set_call_back(
+            "BlockFileCache::set_sleep_time",
+            [](auto&& args) { *try_any_cast<int64_t*>(args[0]) = 60 * 60 * 1000; }, &sleep_guard);
+    sync_point->enable_processing();
+
+    FileCacheCapacityPolicy policy;
+    policy.mode = FileCacheCapacityMode::AUTO;
+    policy.max_file_block_size = 10;
+    policy.storage = "disk";
+    FileCacheSettings settings;
+    ASSERT_TRUE(build_file_cache_settings(1000, policy, &settings));
+
+    {
+        BlockFileCache cache(resize_cache_path, settings);
+        ASSERT_TRUE(cache.initialize());
+        wait_until_cache_ready(cache);
+        for (int i = 0; i < 100 && disk_state_calls.load() == 0; ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        ASSERT_GT(disk_state_calls.load(), 0);
+
+        int calls_before_tick = disk_state_calls.load();
+        disk_capacity = 2000;
+        cache.run_background_monitor_once();
+        EXPECT_EQ(disk_state_calls.load(), calls_before_tick + 1);
+        EXPECT_EQ(cache.capacity(), 2000);
+        EXPECT_EQ(cache._disposable_queue.max_size, 100);
+        EXPECT_EQ(cache._index_queue.max_size, 100);
+        EXPECT_EQ(cache._ttl_queue.max_size, 1000);
+        EXPECT_EQ(cache._normal_queue.max_size, 800);
+
+        CacheContext context;
+        ReadStatistics stats;
+        context.stats = &stats;
+        {
+            auto holder =
+                    cache.get_or_set(BlockFileCache::hash("auto-resize-data"), 0, 900, context);
+            for (const auto& block : holder.file_blocks) {
+                ASSERT_EQ(block->get_or_set_downloader(), FileBlock::get_caller_id());
+                std::string data(block->range().size(), 'x');
+                ASSERT_TRUE(block->append(Slice(data)).ok());
+                ASSERT_TRUE(block->finalize().ok());
+            }
+        }
+        EXPECT_EQ(cache._cur_cache_size, 900);
+
+        calls_before_tick = disk_state_calls.load();
+        disk_capacity = 600;
+        cache.run_background_monitor_once();
+        EXPECT_EQ(disk_state_calls.load(), calls_before_tick + 1);
+        EXPECT_EQ(cache.capacity(), 600);
+        EXPECT_EQ(cache._disposable_queue.max_size, 30);
+        EXPECT_EQ(cache._index_queue.max_size, 30);
+        EXPECT_EQ(cache._ttl_queue.max_size, 300);
+        EXPECT_EQ(cache._normal_queue.max_size, 240);
+        EXPECT_EQ(cache._capacity_state.pending_eviction_bytes, 300);
+        {
+            std::lock_guard cache_lock(cache._mutex);
+            cache.evict_over_capacity(300, cache_lock);
+        }
+        EXPECT_EQ(cache._cur_cache_size, 600);
+        EXPECT_EQ(cache._capacity_state.pending_eviction_bytes, 0);
+
+        disk_capacity = 3000;
+        BlockFileCacheResetRequest manual_request {.requested_capacity = 700,
+                                                   .source = FileCacheResizeSource::HTTP,
+                                                   .expected_generation = std::nullopt};
+        FileCachePathResizeResult manual_result;
+        ASSERT_TRUE(cache.reset_capacity(manual_request, &manual_result));
+        EXPECT_TRUE(manual_result.changed);
+        EXPECT_EQ(manual_result.mode, FileCacheCapacityMode::MANUAL);
+        EXPECT_EQ(cache.capacity(), 700);
+
+        calls_before_tick = disk_state_calls.load();
+        cache.run_background_monitor_once();
+        EXPECT_EQ(disk_state_calls.load(), calls_before_tick + 1);
+        EXPECT_EQ(cache.capacity(), 700);
+
+        BlockFileCacheResetRequest auto_request {.requested_capacity = 0,
+                                                 .source = FileCacheResizeSource::HTTP,
+                                                 .expected_generation = std::nullopt};
+        FileCachePathResizeResult auto_result;
+        ASSERT_TRUE(cache.reset_capacity(auto_request, &auto_result));
+        EXPECT_EQ(auto_result.mode, FileCacheCapacityMode::AUTO);
+        EXPECT_EQ(cache.capacity(), 3000);
+
+        FileCacheCapacityPolicy stale_policy;
+        uint64_t stale_generation = 0;
+        {
+            std::lock_guard cache_lock(cache._mutex);
+            stale_policy = cache._capacity_state.policy;
+            stale_generation = cache._capacity_state.generation;
+        }
+        FileCacheDiskState stale_disk {.total_capacity = 4000,
+                                       .available_capacity = 2000,
+                                       .disk_used_percent = 10,
+                                       .inode_used_percent = 10};
+        BlockFileCacheResetRequest stale_request {.source = FileCacheResizeSource::AUTO_REFRESH,
+                                                  .expected_generation = stale_generation};
+        FileCacheResizePlan stale_plan;
+        ASSERT_TRUE(
+                build_file_cache_resize_plan(stale_policy, stale_request, stale_disk, &stale_plan));
+        manual_request.requested_capacity = 500;
+        ASSERT_TRUE(cache.reset_capacity(manual_request, &manual_result));
+        FileCachePathResizeResult stale_result;
+        ASSERT_TRUE(cache.apply_reset_capacity(stale_plan, &stale_result));
+        EXPECT_TRUE(stale_result.skipped);
+        EXPECT_EQ(cache.capacity(), 500);
+
+        FileCacheRuntimeInfo info;
+        ASSERT_TRUE(cache.get_runtime_info(&info));
+        EXPECT_EQ(info.capacity_mode, FileCacheCapacityMode::MANUAL);
+        EXPECT_EQ(info.requested_capacity, 500);
+        ASSERT_TRUE(info.disk_state.has_value());
+        EXPECT_EQ(info.disk_state->total_capacity, 4000);
+    }
+
+    fs::remove_all(resize_cache_path);
+}
+
+TEST_F(BlockFileCacheTest, factory_aggregates_dynamic_capacity_and_preflights_all_paths) {
+    reset_file_cache_factory_for_test();
+    const std::string path1 = caches_dir / "factory_resize_cache1" / "";
+    const std::string path2 = caches_dir / "factory_resize_cache2" / "";
+    fs::remove_all(path1);
+    fs::remove_all(path2);
+    fs::create_directories(path1);
+    fs::create_directories(path2);
+
+    std::atomic<uint64_t> disk1_capacity {1000};
+    std::atomic<uint64_t> disk2_capacity {2000};
+    auto* sync_point = SyncPoint::get_instance();
+    SyncPoint::CallbackGuard disk_state_guard;
+    SyncPoint::CallbackGuard sleep_guard;
+    sync_point->set_call_back(
+            "BlockFileCache::get_file_cache_disk_state",
+            [&](auto&& args) {
+                auto* state = try_any_cast<FileCacheDiskState*>(args[0]);
+                const auto* path = try_any_cast<const std::string*>(args[1]);
+                state->total_capacity =
+                        *path == path1 ? disk1_capacity.load() : disk2_capacity.load();
+                state->available_capacity = state->total_capacity / 2;
+                state->disk_used_percent = 10;
+                state->inode_used_percent = 10;
+            },
+            &disk_state_guard);
+    sync_point->set_call_back(
+            "BlockFileCache::set_sleep_time",
+            [](auto&& args) { *try_any_cast<int64_t*>(args[0]) = 60 * 60 * 1000; }, &sleep_guard);
+    sync_point->enable_processing();
+
+    FileCacheSettings auto_settings = get_file_cache_settings(0, 0);
+    auto_settings.auto_capacity = true;
+    ASSERT_TRUE(FileCacheFactory::instance()->create_file_cache(path1, auto_settings));
+    ASSERT_TRUE(FileCacheFactory::instance()->create_file_cache(path2, auto_settings));
+    EXPECT_EQ(FileCacheFactory::instance()->get_capacity(), 3000);
+
+    auto* cache1 = FileCacheFactory::instance()->get_by_path(path1);
+    ASSERT_NE(cache1, nullptr);
+    disk1_capacity = 1500;
+    cache1->run_background_monitor_once();
+    EXPECT_EQ(cache1->capacity(), 1500);
+    EXPECT_EQ(FileCacheFactory::instance()->get_capacity(), 3500);
+
+    FileCacheResetResult manual_result;
+    ASSERT_TRUE(
+            FileCacheFactory::instance()->reset_capacity(path1, uint64_t {500}, &manual_result));
+    ASSERT_EQ(manual_result.caches.size(), 1);
+    EXPECT_EQ(manual_result.caches[0].mode, FileCacheCapacityMode::MANUAL);
+    EXPECT_EQ(manual_result.total_capacity, 2500);
+
+    {
+        SyncPoint::CallbackGuard status_guard;
+        sync_point->set_call_back(
+                "BlockFileCache::get_file_cache_disk_state:status",
+                [](auto&& args) {
+                    *try_any_cast<Status*>(args[0]) = Status::IOError("injected disk error");
+                },
+                &status_guard);
+        FileCacheResetResult failed_result;
+        Status status =
+                FileCacheFactory::instance()->reset_capacity(path1, uint64_t {400}, &failed_result);
+        EXPECT_TRUE(status.is<ErrorCode::IO_ERROR>());
+        EXPECT_EQ(cache1->capacity(), 500);
+    }
+
+    FileCacheCapacityPolicy memory_policy;
+    memory_policy.mode = FileCacheCapacityMode::MANUAL;
+    memory_policy.requested_capacity = 100;
+    memory_policy.max_file_block_size = 10;
+    memory_policy.storage = "memory";
+    FileCacheSettings memory_settings;
+    ASSERT_TRUE(build_file_cache_settings(100, memory_policy, &memory_settings));
+    ASSERT_TRUE(FileCacheFactory::instance()->create_file_cache("memory", memory_settings));
+    const size_t capacity_before_failed_reset = FileCacheFactory::instance()->get_capacity();
+
+    FileCacheResetResult auto_result;
+    Status status = FileCacheFactory::instance()->reset_capacity("", uint64_t {0}, &auto_result);
+    EXPECT_TRUE(status.is<ErrorCode::INVALID_ARGUMENT>());
+    EXPECT_EQ(FileCacheFactory::instance()->get_capacity(), capacity_before_failed_reset);
+    EXPECT_EQ(cache1->capacity(), 500);
+
+    FileCacheFactory::instance()->clear_file_caches(true);
+    reset_file_cache_factory_for_test();
+    fs::remove_all(path1);
+    fs::remove_all(path2);
+}
+
 TEST_F(BlockFileCacheTest, reset_capacity) {
     if (fs::exists(cache_base_path)) {
         fs::remove_all(cache_base_path);
@@ -5797,8 +6087,11 @@ TEST_F(BlockFileCacheTest, reset_capacity) {
     auto key = io::BlockFileCache::hash("key1");
     auto key2 = io::BlockFileCache::hash("key2");
     io::BlockFileCache cache(cache_base_path, settings);
+    const int32_t original_evict_interval = config::file_cache_evict_in_advance_interval_ms;
+    config::file_cache_evict_in_advance_interval_ms = 60 * 60 * 1000;
     auto sp = SyncPoint::get_instance();
-    Defer defer {[sp] {
+    Defer defer {[sp, original_evict_interval] {
+        config::file_cache_evict_in_advance_interval_ms = original_evict_interval;
         sp->clear_call_back("BlockFileCache::set_remove_batch");
         sp->clear_call_back("BlockFileCache::set_sleep_time");
     }};
@@ -5841,7 +6134,15 @@ TEST_F(BlockFileCacheTest, reset_capacity) {
     }
     std::cout << cache.reset_capacity(30) << std::endl;
 
+    EXPECT_EQ(cache.capacity(), 30);
+    EXPECT_EQ(cache._cur_cache_size, 90);
+    EXPECT_EQ(cache._capacity_state.pending_eviction_bytes, 60);
+    {
+        std::lock_guard cache_lock(cache._mutex);
+        cache.evict_over_capacity(60, cache_lock);
+    }
     EXPECT_EQ(cache._cur_cache_size, 30);
+    EXPECT_EQ(cache._capacity_state.pending_eviction_bytes, 0);
     if (fs::exists(cache_base_path)) {
         fs::remove_all(cache_base_path);
     }
@@ -8073,7 +8374,6 @@ TEST_F(BlockFileCacheTest, reader_dryrun_when_download_file_cache) {
     }
     FileCacheFactory::instance()->_caches.clear();
     FileCacheFactory::instance()->_path_to_cache.clear();
-    FileCacheFactory::instance()->_capacity = 0;
     config::enable_reader_dryrun_when_download_file_cache = org;
 }
 
@@ -8561,7 +8861,6 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_ttl_index) {
     // Then clean up internal state (following the pattern from other tests)
     FileCacheFactory::instance()->_caches.clear();
     FileCacheFactory::instance()->_path_to_cache.clear();
-    FileCacheFactory::instance()->_capacity = 0;
 }
 
 TEST_F(BlockFileCacheTest, cached_remote_file_reader_normal_index) {
@@ -8639,7 +8938,6 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_normal_index) {
     }
     FileCacheFactory::instance()->_caches.clear();
     FileCacheFactory::instance()->_path_to_cache.clear();
-    FileCacheFactory::instance()->_capacity = 0;
 }
 
 TEST_F(BlockFileCacheTest, test_reset_capacity) {
@@ -8717,7 +9015,6 @@ TEST_F(BlockFileCacheTest, test_reset_capacity) {
     }
     FileCacheFactory::instance()->_caches.clear();
     FileCacheFactory::instance()->_path_to_cache.clear();
-    FileCacheFactory::instance()->_capacity = 0;
 }
 
 TEST_F(BlockFileCacheTest, DISABLE_cached_remote_file_reader_direct_read_and_evict_cache) {
@@ -8794,7 +9091,6 @@ TEST_F(BlockFileCacheTest, DISABLE_cached_remote_file_reader_direct_read_and_evi
     }
     FileCacheFactory::instance()->_caches.clear();
     FileCacheFactory::instance()->_path_to_cache.clear();
-    FileCacheFactory::instance()->_capacity = 0;
 }
 
 extern bvar::Adder<uint64_t> g_read_cache_direct_whole_num;
@@ -8916,7 +9212,6 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_direct_read_bytes_check) {
     }
     FileCacheFactory::instance()->_caches.clear();
     FileCacheFactory::instance()->_path_to_cache.clear();
-    FileCacheFactory::instance()->_capacity = 0;
 }
 
 TEST_F(BlockFileCacheTest, finalize_empty_block) {

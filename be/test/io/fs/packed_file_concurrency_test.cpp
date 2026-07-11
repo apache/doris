@@ -566,7 +566,6 @@ void cleanup_file_cache_resources() {
         if (factory != nullptr) {
             factory->_caches.clear();
             factory->_path_to_cache.clear();
-            factory->_capacity = 0;
         }
         g_cache_initialized = false;
         g_cache_base_path.clear();

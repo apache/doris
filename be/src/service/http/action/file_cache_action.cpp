@@ -48,6 +48,7 @@ constexpr static std::string_view SYNC = "sync";
 constexpr static std::string_view PATH = "path";
 constexpr static std::string_view CLEAR = "clear";
 constexpr static std::string_view RESET = "reset";
+constexpr static std::string_view INFO = "info";
 constexpr static std::string_view HASH = "hash";
 constexpr static std::string_view LIST_CACHE = "list_cache";
 constexpr static std::string_view LIST_BASE_PATHS = "list_base_paths";
@@ -59,6 +60,87 @@ constexpr static std::string_view RELEASED_ELEMENTS = "released_elements";
 constexpr static std::string_view DUMP = "dump";
 constexpr static std::string_view VALUE = "value";
 constexpr static std::string_view RELOAD = "reload";
+
+std::string file_cache_infos_to_json(const std::vector<io::FileCacheRuntimeInfo>& infos,
+                                     const std::string& message = "") {
+    EasyJson json;
+    json["status"] = "OK";
+    if (!message.empty()) {
+        json["message"] = message;
+    }
+    uint64_t total_capacity = 0;
+    auto caches = json["caches"];
+    caches.SetArray();
+    auto add_queue = [](EasyJson queues, const std::string& name,
+                        const io::FileCacheQueueRuntimeInfo& info) {
+        auto queue = queues[name];
+        queue.SetObject();
+        queue["percent"] = static_cast<uint64_t>(info.percent);
+        queue["max_bytes"] = static_cast<uint64_t>(info.max_size);
+        queue["used_bytes"] = static_cast<uint64_t>(info.current_size);
+        queue["max_elements"] = static_cast<uint64_t>(info.max_elements);
+        queue["elements"] = static_cast<uint64_t>(info.current_elements);
+    };
+    for (const auto& info : infos) {
+        total_capacity += info.capacity;
+        auto cache = caches.PushBack(EasyJson::kObject);
+        cache["path"] = info.path;
+        cache["storage"] = info.storage;
+        cache["capacity_mode"] = io::file_cache_capacity_mode_to_string(info.capacity_mode);
+        cache["requested_capacity"] = info.requested_capacity;
+        cache["capacity_generation"] = info.capacity_generation;
+        cache["effective_capacity"] = info.capacity;
+        cache["used_bytes"] = info.current_size;
+        cache["pending_eviction_bytes"] = static_cast<uint64_t>(info.pending_eviction_size);
+        cache["max_file_block_size"] = info.max_file_block_size;
+        cache["disk_resource_limit_mode"] = info.disk_resource_limit_mode;
+        cache["need_evict_in_advance"] = info.need_evict_in_advance;
+        if (info.disk_state.has_value()) {
+            cache["disk_total_bytes"] = info.disk_state->total_capacity;
+            cache["disk_available_bytes"] = info.disk_state->available_capacity;
+        } else {
+            cache["disk_total_bytes"];
+            cache["disk_available_bytes"];
+        }
+        auto last_resize = cache["last_resize"];
+        last_resize.SetObject();
+        last_resize["source"] = io::file_cache_resize_source_to_string(info.last_resize.source);
+        last_resize["time_ms"] = info.last_resize.time_ms;
+        last_resize["status"] = info.last_resize.status;
+        last_resize["message"] = info.last_resize.message;
+        auto queues = cache["queues"];
+        queues.SetObject();
+        add_queue(queues, "normal", info.queues[io::FileCacheType::NORMAL]);
+        add_queue(queues, "disposable", info.queues[io::FileCacheType::DISPOSABLE]);
+        add_queue(queues, "index", info.queues[io::FileCacheType::INDEX]);
+        add_queue(queues, "ttl", info.queues[io::FileCacheType::TTL]);
+    }
+    json["total_capacity"] = total_capacity;
+    return json.ToString();
+}
+
+std::string file_cache_reset_result_to_json(const io::FileCacheResetResult& result) {
+    EasyJson json;
+    json["status"] = "OK";
+    json["total_capacity"] = result.total_capacity;
+    auto caches = json["caches"];
+    caches.SetArray();
+    for (const auto& info : result.caches) {
+        auto cache = caches.PushBack(EasyJson::kObject);
+        cache["path"] = info.path;
+        cache["capacity_mode"] = io::file_cache_capacity_mode_to_string(info.mode);
+        cache["requested_capacity"] = info.requested_capacity;
+        cache["old_capacity"] = info.old_capacity;
+        cache["effective_capacity"] = info.new_capacity;
+        cache["disk_total_bytes"] = info.disk_total_capacity;
+        cache["disk_available_bytes"] = info.disk_available_capacity;
+        cache["used_bytes"] = info.used_bytes;
+        cache["pending_eviction_bytes"] = info.pending_eviction_bytes;
+        cache["clamped_by_disk"] = info.clamped_by_disk;
+        cache["changed"] = info.changed;
+    }
+    return json.ToString();
+}
 
 Status FileCacheAction::_handle_header(HttpRequest* req, std::string* json_metrics) {
     const std::string header_json(HEADER_JSON);
@@ -105,20 +187,29 @@ Status FileCacheAction::_handle_header(HttpRequest* req, std::string* json_metri
         int64_t new_capacity = 0;
         bool parse = true;
         try {
-            new_capacity = std::stoll(capacity);
+            size_t parsed_chars = 0;
+            new_capacity = std::stoll(capacity, &parsed_chars);
+            parse = parsed_chars == capacity.size();
         } catch (...) {
             parse = false;
         }
-        if (!parse || new_capacity <= 0) {
+        if (!parse || new_capacity < 0) {
             st = Status::InvalidArgument(
                     "The capacity {} failed to be parsed, the capacity needs to be in "
-                    "the interval (0, INT64_MAX]",
+                    "the interval [0, INT64_MAX]",
                     capacity);
         } else {
             const std::string& path = req->param(std::string(PATH));
-            auto ret = io::FileCacheFactory::instance()->reset_capacity(path, new_capacity);
-            LOG(INFO) << ret;
+            io::FileCacheResetResult reset_result;
+            RETURN_IF_ERROR(io::FileCacheFactory::instance()->reset_capacity(
+                    path, static_cast<uint64_t>(new_capacity), &reset_result));
+            *json_metrics = file_cache_reset_result_to_json(reset_result);
         }
+    } else if (operation == INFO) {
+        const std::string& path = req->param(std::string(PATH));
+        std::vector<io::FileCacheRuntimeInfo> infos;
+        RETURN_IF_ERROR(io::FileCacheFactory::instance()->get_cache_infos(path, &infos));
+        *json_metrics = file_cache_infos_to_json(infos);
     } else if (operation == HASH) {
         const std::string& segment_path = req->param(std::string(VALUE));
         if (segment_path.empty()) {

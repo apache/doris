@@ -70,7 +70,6 @@
 namespace doris::io {
 namespace fs = std::filesystem;
 
-extern int disk_used_percentage(const std::string& path, std::pair<int, int>* percent);
 extern fs::path caches_dir;
 extern std::string cache_base_path;
 extern std::string tmp_file;

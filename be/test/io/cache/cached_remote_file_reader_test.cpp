@@ -118,7 +118,6 @@ TEST_F(BlockFileCacheTest,
     }
     FileCacheFactory::instance()->_caches.clear();
     FileCacheFactory::instance()->_path_to_cache.clear();
-    FileCacheFactory::instance()->_capacity = 0;
     config::enable_read_cache_file_directly = false;
 }
 
