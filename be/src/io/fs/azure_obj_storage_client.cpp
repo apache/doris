@@ -188,6 +188,7 @@ struct AzureBatchDeleter {
                     0 == strcmp(e.ErrorCode.c_str(), BlobNotFound)) {
                     continue;
                 }
+                doris::record_object_request_failed(static_cast<int>(e.StatusCode));
                 auto msg = fmt::format(
                         "Azure request failed because {}, error msg {}, http code {}, path msg "
                         "{}{}",

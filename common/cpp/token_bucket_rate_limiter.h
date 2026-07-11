@@ -77,6 +77,13 @@ private:
     long _prev_ns_count {0}; // Previous `add` call time (in nanoseconds).
 };
 
+struct TokenBucketRateLimiterResult {
+    int64_t sleep_duration;
+    size_t max_speed;
+    size_t max_burst;
+    size_t limit;
+};
+
 class TokenBucketRateLimiterHolder {
 public:
     TokenBucketRateLimiterHolder(size_t max_speed, size_t max_burst, size_t limit,
@@ -84,17 +91,16 @@ public:
     ~TokenBucketRateLimiterHolder();
 
     int64_t add(size_t amount);
+    TokenBucketRateLimiterResult add_with_config(size_t amount);
 
     int reset(size_t max_speed, size_t max_burst, size_t limit);
 
-    size_t get_max_speed() const { return rate_limiter->get_max_speed(); }
-
-    size_t get_max_burst() const { return rate_limiter->get_max_burst(); }
-
-    size_t get_limit() const { return rate_limiter->get_limit(); }
+    size_t get_max_speed() const;
+    size_t get_max_burst() const;
+    size_t get_limit() const;
 
 private:
-    std::shared_mutex rate_limiter_rw_lock;
+    mutable std::shared_mutex rate_limiter_rw_lock;
     std::unique_ptr<TokenBucketRateLimiter> rate_limiter;
     // Record the correspoding sleeping time(unit is ms)
     std::function<void(int64_t)> metric_func;

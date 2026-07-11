@@ -150,3 +150,40 @@ TEST(S3RateLimiterHolderTest, ApplyS3RateLimitRecordsRejectedMetric) {
     EXPECT_EQ(sleep_time, -1);
     EXPECT_EQ(doris::s3_put_rate_limit_rejected_count.get_value(), rejected_count + 1);
 }
+
+TEST(S3RateLimiterHolderTest, ConcurrentResetReturnsConsistentConfig) {
+    constexpr size_t config_a_speed = 101;
+    constexpr size_t config_a_burst = 102;
+    constexpr size_t config_a_limit = 103;
+    constexpr size_t config_b_speed = 201;
+    constexpr size_t config_b_burst = 202;
+    constexpr size_t config_b_limit = 203;
+
+    doris::S3RateLimiterHolder rate_limiter_holder(config_a_speed, config_a_burst, config_a_limit,
+                                                   [](int64_t) {});
+    std::atomic<bool> start {false};
+    std::thread reset_thread([&]() {
+        while (!start.load(std::memory_order_acquire)) {
+            std::this_thread::yield();
+        }
+        for (size_t i = 0; i < 10000; ++i) {
+            if (i % 2 == 0) {
+                rate_limiter_holder.reset(config_b_speed, config_b_burst, config_b_limit);
+            } else {
+                rate_limiter_holder.reset(config_a_speed, config_a_burst, config_a_limit);
+            }
+        }
+    });
+
+    start.store(true, std::memory_order_release);
+    for (size_t i = 0; i < 10000; ++i) {
+        auto result = rate_limiter_holder.add_with_config(0);
+        bool is_config_a = result.max_speed == config_a_speed &&
+                           result.max_burst == config_a_burst && result.limit == config_a_limit;
+        bool is_config_b = result.max_speed == config_b_speed &&
+                           result.max_burst == config_b_burst && result.limit == config_b_limit;
+        EXPECT_TRUE(is_config_a || is_config_b);
+    }
+
+    reset_thread.join();
+}

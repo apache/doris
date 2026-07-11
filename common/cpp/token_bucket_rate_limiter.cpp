@@ -131,13 +131,20 @@ TokenBucketRateLimiterHolder::TokenBucketRateLimiterHolder(size_t max_speed, siz
           metric_func(std::move(metric_func)) {}
 
 int64_t TokenBucketRateLimiterHolder::add(size_t amount) {
-    int64_t sleep;
+    return add_with_config(amount).sleep_duration;
+}
+
+TokenBucketRateLimiterResult TokenBucketRateLimiterHolder::add_with_config(size_t amount) {
+    TokenBucketRateLimiterResult result;
     {
         std::shared_lock read {rate_limiter_rw_lock};
-        sleep = rate_limiter->add(amount);
+        result = {.sleep_duration = rate_limiter->add(amount),
+                  .max_speed = rate_limiter->get_max_speed(),
+                  .max_burst = rate_limiter->get_max_burst(),
+                  .limit = rate_limiter->get_limit()};
     }
-    metric_func(sleep);
-    return sleep;
+    metric_func(result.sleep_duration);
+    return result;
 }
 
 int TokenBucketRateLimiterHolder::reset(size_t max_speed, size_t max_burst, size_t limit) {
@@ -146,6 +153,21 @@ int TokenBucketRateLimiterHolder::reset(size_t max_speed, size_t max_burst, size
         rate_limiter = std::make_unique<TokenBucketRateLimiter>(max_speed, max_burst, limit);
     }
     return 0;
+}
+
+size_t TokenBucketRateLimiterHolder::get_max_speed() const {
+    std::shared_lock read {rate_limiter_rw_lock};
+    return rate_limiter->get_max_speed();
+}
+
+size_t TokenBucketRateLimiterHolder::get_max_burst() const {
+    std::shared_lock read {rate_limiter_rw_lock};
+    return rate_limiter->get_max_burst();
+}
+
+size_t TokenBucketRateLimiterHolder::get_limit() const {
+    std::shared_lock read {rate_limiter_rw_lock};
+    return rate_limiter->get_limit();
 }
 
 std::string to_string(S3RateLimitType type) {
@@ -183,7 +205,8 @@ std::function<void(int64_t)> s3_rate_limiter_metric_func(S3RateLimitType type) {
 
 int64_t apply_s3_rate_limit(S3RateLimitType type, S3RateLimiterHolder* rate_limiter,
                             int64_t log_interval) {
-    auto sleep_duration = rate_limiter->add(1);
+    auto result = rate_limiter->add_with_config(1);
+    auto sleep_duration = result.sleep_duration;
     if (log_interval <= 0 || sleep_duration == 0) {
         return sleep_duration;
     }
@@ -199,19 +222,17 @@ int64_t apply_s3_rate_limit(S3RateLimitType type, S3RateLimiterHolder* rate_limi
         if (count == 1 || count % log_interval == 0) {
             LOG(INFO) << "S3 " << to_string(type) << " request is throttled by local rate limiter"
                       << ", sleep_ms=" << sleep_duration / 1000000 << ", sleep_count=" << count
-                      << ", token_per_second=" << rate_limiter->get_max_speed()
-                      << ", bucket_tokens=" << rate_limiter->get_max_burst()
-                      << ", token_limit=" << rate_limiter->get_limit();
+                      << ", token_per_second=" << result.max_speed
+                      << ", bucket_tokens=" << result.max_burst << ", token_limit=" << result.limit;
         }
     } else {
         int64_t count = rejected_log_count->fetch_add(1, std::memory_order_relaxed) + 1;
         if (count == 1 || count % log_interval == 0) {
-            LOG(WARNING) << "S3 " << to_string(type)
-                         << " request is rejected by local rate limiter"
+            LOG(WARNING) << "S3 " << to_string(type) << " request is rejected by local rate limiter"
                          << ", rejected_count=" << count
-                         << ", token_per_second=" << rate_limiter->get_max_speed()
-                         << ", bucket_tokens=" << rate_limiter->get_max_burst()
-                         << ", token_limit=" << rate_limiter->get_limit();
+                         << ", token_per_second=" << result.max_speed
+                         << ", bucket_tokens=" << result.max_burst
+                         << ", token_limit=" << result.limit;
         }
     }
     return sleep_duration;
