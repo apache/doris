@@ -48,13 +48,14 @@
   - **测试注入方式已决=`fe-filesystem-local` 真 `LocalFileSystem`**（+ 抛-`listFiles` 子类 `LiteralListingLocalFileSystem` 钉字面量列），非 in-memory fake（保真、改动最小）。`HiveAcidUtilTest` 9 用例全迁、全绿。pom 加 `fe-filesystem-local` test 依赖；`commons-lang` test 依赖**实测证实仍需**（hive-common `Valid*.writeToString` 引用，非 Hadoop），保留+订正注释。
   - 校验：`-pl :fe-connector-hive -am -Dtest=HiveAcidUtilTest -DfailIfNoTests=false test` = BUILD SUCCESS + 9/9 + 0 checkstyle。
 
-- [ ] **HIVEFS-6（连接器·写路径，最险）**：`HiveConnectorTransaction`：
-  - `resolveObjectStoreFileSystem`（坏 ServiceLoader stub，:784-793）→ `context.getFileSystem(session).forLocation(loc)`；MPU `instanceof ObjFileSystem`（:809/1336）落到 `forLocation` 返回的具体 FS；`objFs.completeMultipartUpload`/`getObjStorage().abortMultipartUpload` 不变。
-  - 事务内 delete/rename/exists 等裸 Hadoop 调用一并换注入 FS。
-  - `close()`：**不再 close 借用的引擎 FS**（仅关自有资源）。
-  - **待核**：commit/abort 时机 session 是否还在 → 在 `beginWrite`（:207，已捕获 user）时捕获所需 FS/identity 供后续复用。
-  - UT：`resolveObjectStoreFileSystem` 为 `protected` 可 override 注入 fake ObjFileSystem；断言 MPU complete/abort 路径 + close 不关借用 FS。
-  - 校验：`-Dtest=HiveConnectorTransaction*,HiveWrite* -DfailIfNoTests=false`。
+- [x] **HIVEFS-6（连接器·写路径，最险）** ✅ DONE（code `d31ceb0364e`；设计 `designs/FIX-HIVEFS-6-design.md`；设计红队 `wf_8fd372d6-10d` GO_WITH_FIXES 全折入；fe-connector-hive BUILD SUCCESS、`HiveConnectorTransactionTest` 14/14、0 checkstyle）：`HiveConnectorTransaction`：
+  - **关键发现**：`getFileSystem()`（:755）本已全程用 Doris `FileSystem` API（19 个非-MPU I/O 点 + 2 MPU），缺陷**只在 FS 来源**——`resolveObjectStoreFileSystem`（:784）本地 `ServiceLoader.load(FileSystemProvider)`（跨插件拿不到 provider）+ `.filter(OBJECT_STORAGE)`（HDFS 后端 `objSp==null` 直接抛）。**翻闸后 live**（class-javadoc "dormant" 陈旧），hive INSERT 今天在 HDFS/对象存储上都必炸。
+  - `getFileSystem()` 换来源 → `context.getFileSystem(session)`（引擎 per-catalog `SpiSwitchingFileSystem`，全 scheme）；删 `resolveObjectStoreFileSystem` + `fs` 字段 + OBJECT_STORAGE 过滤 + 孤儿 import（ServiceLoader/StorageKind/StorageProperties/FileSystemProvider）。19 非-MPU 点**不动**（facade 逐操作 `forLocation` 委派）。
+  - MPU 两处 narrow 具体 `ObjFileSystem`：`objCommit`（complete，strict）`forLocation(Location.of(path))`（native 写目标）；`abortMultiUploads`（abort，lenient）循环内逐 upload `forLocation(Location.of(u.path))`（**红队 major**：native-scheme `u.path`=`pu.getLocation().getWritePath()`，非合成 `s3://`——否则 Azure catalog 不可解析）。
+  - **两处 catch 拓宽 `IOException`→`Exception`**（红队 major）：`SpiSwitchingFileSystem.forLocation` props 解析失败抛 `StoragePropertiesException`（RuntimeException）；窄 catch 会逃逸破坏 rollback/泄漏 MPU。
+  - `close()`：删 `fs.close()`（借用引擎 FS 不关，仅关自有 executor）。session 于 `beginWrite`（:207）捕获（null 安全：引擎忽略 session）。class-javadoc dormant→live 订正。
+  - UT：注入缝迁 `resolveObjectStoreFileSystem`-override → `FakeConnectorContext.getFileSystem`-override + **non-`ObjFileSystem` 路由 facade**（红队 minor：强制走 `forLocation`，漏调即 instanceof RED；facade `close()` 抛 AssertionError 钉借用契约）。import bookkeeping（+`ConnectorSession`/`java.io.IOException`、−`StorageProperties`）。
+  - 校验：`-pl :fe-connector-hive -am -Dtest=HiveConnectorTransactionTest -DfailIfNoTests=false test` = BUILD SUCCESS + 14/14 + 0 checkstyle。
 
 - [ ] **HIVEFS-7（pom + 去 jar，达成终点）**：删 `fe-connector-hive/pom.xml` 的 `hadoop-hdfs-client`；**保留** `hadoop-common`（`Configuration`/`HiveConf`/HMS client 仍需）。
   - 全局 grep 校验连接器 main 源 `org.apache.hadoop.fs.FileSystem`/`FileStatus`/`FileSystem.get` **零残留**（`new Path` 若仅路径拼接可留，但确认不再 FS I/O）。
@@ -67,8 +68,9 @@
 
 ## 设计红队（落地前）
 
-- [ ] 按 `clean-room-adversarial-review-pref`：实现前对设计做多 agent 对抗红队（重点：写路径 MPU/rename/delete 语义等价、生命周期误 close、`forLocation` 与 SpiSwitchingFileSystem 缓存交互、session-ignore 的 catalog 级正确性）。
-  - [x] HIVEFS-5 已做（`wf_792d1900-cc7`，5 lens + 逐条对抗验证）：迁移码 4 lens SOUND；唯一 REAL(major)=planAcidScan live 非休眠，已折入注释/文档订正。**HIVEFS-6 写路径红队仍待做（落地前）。**
+- [x] 按 `clean-room-adversarial-review-pref`：实现前对设计做多 agent 对抗红队（重点：写路径 MPU/rename/delete 语义等价、生命周期误 close、`forLocation` 与 SpiSwitchingFileSystem 缓存交互、session-ignore 的 catalog 级正确性）。
+  - [x] HIVEFS-5 已做（`wf_792d1900-cc7`）。
+  - [x] **HIVEFS-6 写路径红队已做（`wf_8fd372d6-10d`，GO_WITH_FIXES）**：5 lens（classloader-cast / semantic-equivalence / lifecycle-session-concurrency / forlocation-mpu-fidelity / test-fidelity）+ 1 独立裁决者。classloader/instanceof、session/null、close 去除、19 非-MPU 字节等价 均 SOUND；无 blocker。折入 1 major（MPU abort native-path + 两处 catch 拓宽 Exception）+ 4 minor（test import / non-ObjFileSystem facade / close 守卫必做 / 类 javadoc）。
 
 ## e2e（用户自跑，勿丢——新能力必配 e2e，memory `hms-iceberg-delegation-needs-e2e`）
 
@@ -83,7 +85,7 @@
 1. ~~`DefaultConnectorContext` 缓存 FS 的 close 挂点~~ ✅ **已解（HIVEFS-3）**：catalog 单一持有 + `onClose`/换连接器两处关，`DefaultConnectorContext implements Closeable`（见上 HIVEFS-3）。
 2. `HiveScanPlanProvider.buildHadoopConf()`/`Configuration` 在去 FS.get 后的去留（格式/split/传 BE 是否仍需）——HIVEFS-4 定。
 3. ~~`HiveAcidUtilTest` 从真 LocalFileSystem 迁到 fake/`fe-filesystem-local` 的注入方式~~ ✅ **已解（HIVEFS-5）**：用 `fe-filesystem-local` 真 `LocalFileSystem`（+ 抛-`listFiles` 子类守卫），非 in-memory fake。`commons-lang` test 依赖实测证实仍需（hive-common `Valid*`）。
-4. 写路径 commit/abort 时 FS/identity 的捕获时机（begin 时捕获）——HIVEFS-6 定。
+4. ~~写路径 commit/abort 时 FS/identity 的捕获时机~~ ✅ **已解（HIVEFS-6）**：`session` 于 `beginWrite` 捕获为字段；FS 解析惰性（引擎 per-catalog 缓存，等价 begin 时建）；null-session（rollback-before-begin/测试）安全（引擎忽略 session）。注入缝迁 `FakeConnectorContext.getFileSystem`-override + non-`ObjFileSystem` facade（非保留死 `resolveObjectStoreFileSystem`）。
 5. ~~`forLocation` 加到接口后与现有非切换 impl 的兼容~~ ✅ **已解（HIVEFS-1）**：default `return this`；`SpiSwitchingFileSystem` override 返回 per-scheme 委派；`FileSystemDefaultMethodsTest` 已断言。
 
 ## Future（不属本次）
