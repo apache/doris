@@ -694,8 +694,10 @@ public class ThriftHmsClient implements HmsClient {
         for (FieldSchema fs : schemas) {
             ConnectorType type = HmsTypeMapping.toConnectorType(
                     fs.getType(), typeMappingOptions);
+            // isKey=true: external-table semantics (legacy HMSExternalTable and the iceberg connector both
+            // mark external columns as key so DESC shows Key=true). The 5-arg ctor defaults isKey=false.
             result.add(new ConnectorColumn(
-                    fs.getName(), type, fs.getComment(), true, null));
+                    fs.getName(), type, fs.getComment(), true, null, true));
         }
         return result;
     }
