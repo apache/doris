@@ -31,7 +31,7 @@ Legend：⬜ todo / 🔄 in progress / ✅ done / ⏸ 挂起(需决策/live)
 | 4 | **H4** | 🔴高 | hudi | 混大小写 Avro→JNI 崩 | ✅ | ✅ | ✅ | ✅ |
 | 5 | **M1** | 🟠中 | fe-core | TABLESAMPLE 插件路径静默全表扫 | ⬜ | ⬜ | ⬜ | ⬜ |
 | 6 | **M2** | 🟠中 | hive | 翻闸 hive 丢批量/异步 split | ✅ | ✅ | ✅ | ✅ |
-| 7 | **M3** | 🟠中 | fe-core | MC batch 闸门 `!=NOT_PRUNED`→`!isPruned` | ⬜ | ⬜ | ⬜ | ⬜ |
+| 7 | **M3** | 🟠中 | fe-core | MC batch 闸门 `!=NOT_PRUNED`→`!isPruned` | ✅ | ✅ | ✅ | ✅ |
 | 8 | **M4** | 🟠中 | maxcompute | MC 分区值缓存删除→每查询全量 listPartitions | ✅ | ✅ | ✅ | ✅ |
 | 9 | **M5** | 🟠中 | iceberg | computeRowCount 丢 equality-delete gate | ✅ | ✅ | ✅ | ✅ |
 | 10 | **M6** | 🟠中 | iceberg | s3tables 无显式凭证硬失败(丢默认链) | ✅ | ✅ | ✅ | ✅ |
@@ -125,7 +125,7 @@ Legend：⬜ todo / 🔄 in progress / ✅ done / ⏸ 挂起(需决策/live)
 - **Test intent**:单测断言分区表 `supportsBatchScan`;大分区异步 split live e2e gated。
 
 ### M3 — MC batch 闸门 `!=NOT_PRUNED`→`!isPruned` · reverify §3 M3
-- [ ] **M3**
+- [x] **M3** · DONE `6963de4124f`（设计 `designs/FIX-M3-design.md`；设计红队 `wf_811e6242-d8b` 3 lens：BLAST-RADIUS SOUND / LEGACY-PARITY SOUND_WITH_CHANGES / COMPLETENESS SOUND_WITH_CHANGES，1 blocker+1 major 已解）。`:1136` `!isPruned`→`== NOT_PRUNED`（对齐 legacy `MaxComputeScanNode:227` + sibling `displayPartitionCounts:298`；git `1da88365e85^` 取证 + 全 producer 枚举证闭合）。**反转** pinning 测试 `testUnprocessedPruningNeverBatches`→`testNoPredicatePartitionedTableBatches`（assertTrue）。**解 M2 的 BATCH-UNPRUNED-SYNC**。**登记 supersession**：D-035/DV-019 的 LP-1「`!isPruned` 等价」判定被推翻（已补 SUPERSEDED 批注）。**docker-hive golden**`test_hive_partitions:200``(approximate)inputSplitNum` `60→6`（**用户 2026-07-11 签字：SPI 统一分区数口径**；batch 模式 `selectedSplitNum=numApproximateSplits=分区数`；对齐 MaxCompute/Trino）。`PluginDrivenScanNodeBatchModeTest` 12/12 绿。e2e live-gated（docker-hive，本地不可跑；sweep 确认全 regression 仅此 1 处 `(approximate)` 断言受影响）。
 - **现码**:`PluginDrivenScanNode.shouldUseBatchMode:1136` `!selectedPartitions.isPruned`;应 `== SelectedPartitions.NOT_PRUNED`。`ExternalTable.initSelectedPartitions:447` 无谓词返 `isPruned=false` 非哨兵。行内 `:1129-1132` 注释误称 parity。仅 MC opt-in(`MaxComputeScanPlanProvider.supportsBatchScan:254`)。
 - **Fix**:`:1136` 改回 `== NOT_PRUNED` 早退语义;订正 `:1129-1132` 注释。
 - **Files**:`fe-core/.../PluginDrivenScanNode.java`。
@@ -248,3 +248,10 @@ Legend：⬜ todo / 🔄 in progress / ✅ done / ⏸ 挂起(需决策/live)
 - **M2** DONE `702153885ab`(code) — hive 补 batch 通路:`supportsBatchScan`(分区∧非事务)+`planScanForPartitionBatch`(scope 到 batch,防重复 split——hive `planScan` 非 partition-scoped 故须额外 override)。**登记 BATCH-ACID-SYNC(永久)+BATCH-UNPRUNED-SYNC(M3 解)**。4/4+hive 模块 284/284 绿。e2e live-gated。
 - **批次 1 最终对抗复核(5 per-fix skeptic + 1 cross-cut,`wf_542c60b9-001`)= M5/M6/M7/M2/cross-cut CLEAN；M4 命中 1 medium 缺陷已修**:M4 TTL 默认误抄 hive 文件缓存 knob(86400s)而非旧版 MaxCompute 分区缓存 knob(`external_cache_refresh_time_minutes*60`=600s),144x 过陈;经核旧版删除 commit `1da88365e85^`+Config 默认证实,已改 600s(**`fca288424fc`**,9/9 仍绿)。capacity 10000 巧合正确(旧版 `max_hive_partition_table_cache_num`)。
 - **⭐ 批次 1(M5/M7/M6/M4/M2)全部 DONE + 最终复核 CLEAN。** 5 连接器局部修全绿(iceberg 3 + mc 1 + hive 1),各配 RED-able 单测 + 独立 code/doc commit。**e2e 全 live-gated**(equality-delete 统计/vended-region/s3tables 默认链/mc 分区缓存往返/hive 大分区异步),须真集群回归(memory `hms-iceberg-delegation-needs-e2e`)。**下一步=批次 2(M3→M1,fe-core 通用节点,blast radius 较大)**;M3 顺带解 M2 的 BATCH-UNPRUNED-SYNC 残余。
+
+---
+
+**⭐ 批次 2(M3→M1,fe-core 通用节点)进行中**
+
+- **M3** DONE `6963de4124f`(code) — batch 闸门 `!isPruned`→`== NOT_PRUNED`:无谓词大分区表(MaxCompute + 翻闸 hive)恢复异步 batch split(legacy `MaxComputeScanNode:227` 的 `!= NOT_PRUNED` + sibling `displayPartitionCounts` 双证;git `1da88365e85^` 取证 + 全 producer 枚举证闭合)。**顺带解 M2 的 BATCH-UNPRUNED-SYNC**。设计红队 `wf_811e6242-d8b`(3 lens:BLAST-RADIUS SOUND / LEGACY-PARITY SOUND_WITH_CHANGES / COMPLETENESS SOUND_WITH_CHANGES)命中 1 blocker(docker-hive golden 未 reconcile)+ 1 major(overturn 前次签字 LP-1/D-035「等价」未登记)均已解:**反转** pinning 测试(`testUnprocessedPruningNeverBatches`→`testNoPredicatePartitionedTableBatches`,assertTrue)、**登记 supersession**(D-035/DV-019 补 SUPERSEDED 批注)、**docker-hive golden** `test_hive_partitions:200` `(approximate)inputSplitNum` `60→6`(**用户 2026-07-11 签字:SPI 统一分区数口径**,非 hive 专属 split-count 估算;对齐 MaxCompute/Trino「引擎层统一报分片」)。`PluginDrivenScanNodeBatchModeTest` **12/12** 绿、fe-core test-compile BUILD SUCCESS 0 checkstyle。**e2e live-gated**(docker-hive `(approximate)inputSplitNum=6` + MaxCompute 无谓词 ≥阈值分区表进 batch;sweep 确认全 regression 仅此 1 处 `(approximate)` 断言受影响,maxcompute p2 只断言 `partition=N/M`/结果不受影响)。**⚠ 构建坑**:本轮 UT 一度被并行 session 的 `be-java-extensions package -am -T 1C` 构建污染共享 target 报「cannot access 生成类」假失败(非本码);待其结束后干净重跑 12/12(memory `concurrent-sessions-shared-worktree-hazard`)。
+- **下一步 = M1**(TABLESAMPLE 插件路径静默全表扫;translator 转发 `setTableSample` + `PluginDrivenScanNode.getSplits` 通用按 split 大小采样,仿 legacy `HiveScanNode:448-458` 但 connector-agnostic)。
