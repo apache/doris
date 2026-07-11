@@ -27,8 +27,10 @@ import org.apache.doris.filesystem.Location;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 
 /**
  * A recording {@link FileSystem} test double for the hive connector's file-listing tests (the module has no
@@ -44,11 +46,30 @@ import java.util.List;
 final class FakeFileSystem implements FileSystem {
 
     private List<FileEntry> entries = Collections.emptyList();
+    // Tree mode: a per-location listing, keyed by Location.uri(). Populated => list(loc) returns tree.get(uri)
+    // (empty if absent); empty (the default) => list() falls back to the flat `entries`, so the existing flat-fake
+    // tests are untouched. Needed to model recursive descent, where each sub-directory must list its OWN entries.
+    private Map<String, List<FileEntry>> tree = Collections.emptyMap();
     private IOException forLocationError;
     private IOException listError;
+    // Per-location list() failures (uri -> error): models "top-level dir lists fine, one sub-directory fails",
+    // which the single global listError cannot (it fails every list()).
+    private final Map<String, IOException> listErrorByLocation = new HashMap<>();
 
     FakeFileSystem withEntries(FileEntry... e) {
         this.entries = Arrays.asList(e);
+        return this;
+    }
+
+    /** Tree mode: {@code list(loc)} returns the entries mapped to {@code loc.uri()} (empty if unmapped). */
+    FakeFileSystem withTree(Map<String, List<FileEntry>> t) {
+        this.tree = t;
+        return this;
+    }
+
+    /** Makes {@link #list} throw only for {@code location} (a single failing directory among healthy ones). */
+    FakeFileSystem failListAt(String location, IOException e) {
+        this.listErrorByLocation.put(location, e);
         return this;
     }
 
@@ -83,8 +104,15 @@ final class FakeFileSystem implements FileSystem {
 
     @Override
     public FileIterator list(Location location) throws IOException {
+        IOException perLocation = listErrorByLocation.get(location.uri());
+        if (perLocation != null) {
+            throw perLocation;
+        }
         if (listError != null) {
             throw listError;
+        }
+        if (!tree.isEmpty()) {
+            return new ListFileIterator(tree.getOrDefault(location.uri(), Collections.emptyList()).iterator());
         }
         return new ListFileIterator(entries.iterator());
     }

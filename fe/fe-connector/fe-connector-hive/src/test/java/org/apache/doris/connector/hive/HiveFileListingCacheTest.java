@@ -22,6 +22,7 @@ import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.api.scan.ConnectorScanRange;
 import org.apache.doris.connector.hms.HmsPartitionInfo;
+import org.apache.doris.filesystem.FileEntry;
 import org.apache.doris.filesystem.FileSystem;
 
 import org.apache.hadoop.fs.UnsupportedFileSystemException;
@@ -231,6 +232,117 @@ public class HiveFileListingCacheTest {
 
         Assertions.assertEquals(1, files.size(), "the literal directory must be listed, not glob-matched");
         Assertions.assertEquals(dir + "/000000_0", files.get(0).getPath());
+    }
+
+    // ==================== recursive listing (hive.recursive_directories, default true) ====================
+
+    /** A three-level tree: top-level exp_a plus sub-directories 1/ (exp_b) and 2/ (exp_c). */
+    private static Map<String, List<FileEntry>> recursiveTree(String top) {
+        Map<String, List<FileEntry>> tree = new HashMap<>();
+        tree.put(top, Arrays.asList(
+                FakeFileSystem.file(top + "/exp_a", 1L, 1L),
+                FakeFileSystem.dir(top + "/1"),
+                FakeFileSystem.dir(top + "/2")));
+        tree.put(top + "/1", Collections.singletonList(FakeFileSystem.file(top + "/1/exp_b", 1L, 1L)));
+        tree.put(top + "/2", Collections.singletonList(FakeFileSystem.file(top + "/2/exp_c", 1L, 1L)));
+        return tree;
+    }
+
+    @Test
+    public void recursiveDescendsIntoSubdirectories() {
+        // WHY (Rule 9): a table whose data lives in sub-directories (top + 1/ + 2/) must contribute ALL its files
+        // when recursion is on — else those rows are silently lost (the regression this restores). Mirrors
+        // hive_config_test's hive_recursive_directories_table (tags 2/21 = 6 rows).
+        String top = "file:///wh/db/t/dt=1";
+        FakeFileSystem fs = new FakeFileSystem().withTree(recursiveTree(top));
+
+        List<HiveFileStatus> files = HiveFileListingCache.listFromFileSystem(top, fs, true);
+
+        Assertions.assertEquals(3, files.size(), "recursive listing must include files from every sub-directory");
+    }
+
+    @Test
+    public void nonRecursiveListsTopLevelOnly() {
+        // WHY (Rule 9): with recursion off, only top-level files are returned — sub-directories are NOT descended
+        // (byte-identical to today; pins hive_config_test tag 1 = 2 rows).
+        String top = "file:///wh/db/t/dt=1";
+        FakeFileSystem fs = new FakeFileSystem().withTree(recursiveTree(top));
+
+        List<HiveFileStatus> files = HiveFileListingCache.listFromFileSystem(top, fs, false);
+
+        Assertions.assertEquals(1, files.size(), "non-recursive listing must not descend into sub-directories");
+        Assertions.assertTrue(files.get(0).getPath().endsWith("/exp_a"), "only the top-level file survives");
+    }
+
+    @Test
+    public void recursiveSkipsHiddenSubdirectoriesAndFiles() {
+        // WHY (Rule 9): recursion must skip hidden sub-directories (_temporary / .hive-staging write-staging) and
+        // hidden files at every level — exact net parity with legacy's full-path containsHiddenPath filter. A
+        // descend-all-then-leaf-filter regression would surface _temporary/part-0 staging files.
+        String top = "file:///wh/db/t/dt=1";
+        Map<String, List<FileEntry>> tree = new HashMap<>();
+        tree.put(top, Arrays.asList(
+                FakeFileSystem.file(top + "/exp_a", 1L, 1L),
+                FakeFileSystem.file(top + "/.hidden", 1L, 1L),   // hidden file — skipped
+                FakeFileSystem.dir(top + "/_temporary"),         // hidden dir — NOT descended
+                FakeFileSystem.dir(top + "/1")));                // real sub-dir — descended
+        tree.put(top + "/_temporary",
+                Collections.singletonList(FakeFileSystem.file(top + "/_temporary/part-0", 1L, 1L)));
+        tree.put(top + "/1", Collections.singletonList(FakeFileSystem.file(top + "/1/exp_b", 1L, 1L)));
+        FakeFileSystem fs = new FakeFileSystem().withTree(tree);
+
+        List<HiveFileStatus> files = HiveFileListingCache.listFromFileSystem(top, fs, true);
+
+        Assertions.assertEquals(2, files.size(), "only real data files survive; hidden dir/file are excluded");
+        for (HiveFileStatus f : files) {
+            Assertions.assertFalse(f.getPath().contains("_temporary"),
+                    "must not read a hidden staging dir: " + f.getPath());
+            Assertions.assertFalse(f.getPath().endsWith("/.hidden"), "must not read a hidden file");
+        }
+    }
+
+    @Test
+    public void defaultIsRecursive() {
+        // WHY (Rule 9): with NO hive.recursive_directories property the catalog defaults to recursive (legacy
+        // default "true"); pins tag 21. Drives the REAL production lister through listDataFiles — the
+        // RED-against-literal-HEAD guarantee (today's non-recursive lister returns 1, not 3).
+        String top = "file:///wh/db/t/dt=1";
+        FakeFileSystem fs = new FakeFileSystem().withTree(recursiveTree(top));
+        HiveFileListingCache cache = new HiveFileListingCache(Collections.emptyMap());
+
+        List<HiveFileStatus> files = cache.listDataFiles("db", "t", top, fs);
+
+        Assertions.assertEquals(3, files.size(), "default (no property) must be recursive");
+    }
+
+    @Test
+    public void recursiveFlagFalseFromProperty() {
+        // WHY (Rule 9): hive.recursive_directories=false is honoured through the public ctor / listDataFiles path —
+        // pins that the tag-1 vs tag-2 divergence is driven by the property, not hardcoded.
+        String top = "file:///wh/db/t/dt=1";
+        FakeFileSystem fs = new FakeFileSystem().withTree(recursiveTree(top));
+        HiveFileListingCache cache = new HiveFileListingCache(props("hive.recursive_directories", "false"));
+
+        List<HiveFileStatus> files = cache.listDataFiles("db", "t", top, fs);
+
+        Assertions.assertEquals(1, files.size(), "hive.recursive_directories=false must list top-level only");
+    }
+
+    @Test
+    public void recursiveSubdirListingFailureIsSkippable() {
+        // WHY (Rule 9): a listing failure in a DESCENDED sub-directory must reach the SAME classifier as a
+        // top-level failure — a local FileNotFound stays the skippable HiveDirectoryListingException (so the scan
+        // skips just this partition). Guards a future swallowing/reclassifying catch around the recursion.
+        String top = "file:///wh/db/t/dt=1";
+        Map<String, List<FileEntry>> tree = new HashMap<>();
+        tree.put(top, Arrays.asList(
+                FakeFileSystem.file(top + "/exp_a", 1L, 1L),
+                FakeFileSystem.dir(top + "/1")));
+        FakeFileSystem fs = new FakeFileSystem().withTree(tree)
+                .failListAt(top + "/1", new FileNotFoundException("Path does not exist"));
+
+        Assertions.assertThrows(HiveDirectoryListingException.class,
+                () -> HiveFileListingCache.listFromFileSystem(top, fs, true));
     }
 
     // ==================== failure split: systemic is loud, local is skippable ====================

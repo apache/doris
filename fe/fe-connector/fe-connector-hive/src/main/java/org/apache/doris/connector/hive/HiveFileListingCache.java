@@ -86,6 +86,13 @@ public class HiveFileListingCache {
     static final long DEFAULT_FILE_CAPACITY = 10000L;
 
     /**
+     * Catalog property controlling whether partition directories are listed recursively (descend into
+     * sub-directories). Default {@code true} — legacy {@code HiveExternalMetaCache.getFileCache} defaulted the
+     * same. When {@code false}, a table whose data lives in sub-directories silently loses those rows.
+     */
+    static final String RECURSIVE_DIRECTORIES_PROPERTY = "hive.recursive_directories";
+
+    /**
      * The raw directory lister: the engine-injected Doris {@link FileSystem} in production
      * ({@link #listFromFileSystem}), a fake in unit tests. Injected so the cache's hit/miss/invalidation behaviour
      * is testable without a live filesystem (mirrors {@code HiveConnectorMetadata.estimateDataSize} injecting its
@@ -101,7 +108,20 @@ public class HiveFileListingCache {
     private final DirectoryLister lister;
 
     public HiveFileListingCache(Map<String, String> properties) {
-        this(properties, HiveFileListingCache::listFromFileSystem);
+        this(properties, defaultLister(properties));
+    }
+
+    /**
+     * The production {@link DirectoryLister}: {@link #listFromFileSystem} with the catalog's
+     * {@code hive.recursive_directories} flag (default {@code true}) baked in. The flag is a per-catalog
+     * constant, so capturing it here makes every consumer of the shared cache (scan, size estimate, stats
+     * sampling) recurse consistently without a hot-path signature change.
+     */
+    private static DirectoryLister defaultLister(Map<String, String> properties) {
+        Map<String, String> props = properties == null ? Collections.emptyMap() : properties;
+        boolean recursive = Boolean.parseBoolean(
+                props.getOrDefault(RECURSIVE_DIRECTORIES_PROPERTY, "true"));
+        return (location, fs) -> listFromFileSystem(location, fs, recursive);
     }
 
     HiveFileListingCache(Map<String, String> properties, DirectoryLister lister) {
@@ -115,7 +135,8 @@ public class HiveFileListingCache {
     }
 
     /**
-     * Lists the data files directly under {@code location} (non-recursive; directories and {@code _}/{@code .}
+     * Lists the data files under {@code location} (recursively into non-hidden sub-directories when the catalog's
+     * {@code hive.recursive_directories} is set, default {@code true}; directories and {@code _}/{@code .}
      * -prefixed hidden files removed), served from the cache. Keyed by {@code (db, table, location)} so
      * {@link #invalidateTable} can drop exactly one table's entries. The loader runs on the calling thread; an I/O
      * failure throws {@link DorisConnectorException} (and is NOT cached). The returned list is shared by reference
@@ -149,12 +170,13 @@ public class HiveFileListingCache {
     }
 
     /**
-     * The production {@link DirectoryLister}: a non-recursive, LITERAL listing through the engine-injected Doris
+     * The production {@link DirectoryLister}: a LITERAL listing through the engine-injected Doris
      * {@link FileSystem} (a per-catalog {@code SpiSwitchingFileSystem}), filtering out directories and
      * {@code _}/{@code .}-prefixed hidden files (byte-parity with the pre-cache filters in
-     * {@code HiveScanPlanProvider.listAndSplitFiles} and {@code HiveConnectorMetadata.sumCachedFileSizes}). A zero
-     * -length data file is kept (the scan splitter skips it; the size estimate adds 0) so both consumers keep their
-     * exact prior behaviour.
+     * {@code HiveScanPlanProvider.listAndSplitFiles} and {@code HiveConnectorMetadata.sumCachedFileSizes}). When
+     * {@code recursive} (from {@code hive.recursive_directories}, default {@code true}) it descends into non-hidden
+     * sub-directories (see {@link #collectFiles}). A zero-length data file is kept (the scan splitter skips it; the
+     * size estimate adds 0) so both consumers keep their exact prior behaviour.
      *
      * <p><b>Two-boundary failure split (byte-parity with the pre-cache {@code FileSystem.get}/{@code listStatus}
      * split):</b> {@link FileSystem#forLocation} does the scheme/storage resolution + concrete-FS construction (no
@@ -172,6 +194,10 @@ public class HiveFileListingCache {
      * {@code listStatus} never glob-expanded, and a hive location can legitimately contain those characters.
      */
     static List<HiveFileStatus> listFromFileSystem(String location, FileSystem fs) {
+        return listFromFileSystem(location, fs, false);
+    }
+
+    static List<HiveFileStatus> listFromFileSystem(String location, FileSystem fs, boolean recursive) {
         if (fs == null) {
             // No engine filesystem for this catalog (empty storage): a SYSTEMIC config error affecting every
             // partition. Fail loud (the scan path does NOT skip this), never a silent empty scan.
@@ -190,20 +216,7 @@ public class HiveFileListingCache {
         }
         try {
             List<HiveFileStatus> files = new ArrayList<>();
-            try (FileIterator it = resolved.list(loc)) {
-                while (it.hasNext()) {
-                    FileEntry entry = it.next();
-                    if (entry.isDirectory()) {
-                        continue;
-                    }
-                    String fileName = entry.name();
-                    if (fileName.startsWith("_") || fileName.startsWith(".")) {
-                        continue;
-                    }
-                    files.add(new HiveFileStatus(entry.location().uri(), entry.length(),
-                            entry.modificationTime()));
-                }
-            }
+            collectFiles(resolved, loc, recursive, files);
             return files;
         } catch (IOException e) {
             if (isSystemicResolutionFailure(e)) {
@@ -212,11 +225,46 @@ public class HiveFileListingCache {
                 // FileSystem.get behavior (this is the exact error class FIX-HIVEFS exists to keep loud).
                 throw new DorisConnectorException("Failed to resolve filesystem for " + location, e);
             }
-            // Listing THIS partition directory failed (missing / unreadable / transient): a LOCAL failure the scan
-            // path tolerates by skipping the partition with a warning (pre-cache parity). Distinct exception type so
-            // only this is skipped, while the systemic failures above stay loud.
+            // Listing THIS partition directory (or one of its sub-directories) failed (missing / unreadable /
+            // transient): a LOCAL failure the scan path tolerates by skipping the partition with a warning
+            // (pre-cache parity). Distinct exception type so only this is skipped, while systemic failures stay loud.
             throw new HiveDirectoryListingException("Failed to list files under " + location, e);
         }
+    }
+
+    /**
+     * Collects the visible data files under {@code dir} into {@code out}, filtering directories and
+     * {@code _}/{@code .}-prefixed hidden files. When {@code recursive}, descends into every NON-hidden
+     * sub-directory; a hidden sub-directory ({@code _temporary} / {@code .hive-staging}) is skipped — exact net
+     * parity with legacy {@code HiveExternalMetaCache}'s full-path {@code containsHiddenPath} filter (the connector
+     * filters only the leaf {@link FileEntry#name()}, so descending into a hidden dir would surface staging files
+     * legacy suppresses). A listing failure at any level throws {@link IOException} up to the single classifier in
+     * {@link #listFromFileSystem}, so a sub-directory failure gets the same systemic/local verdict as the top.
+     * Descent reuses the already-resolved {@code resolved} (a sub-directory shares scheme/authority).
+     */
+    private static void collectFiles(FileSystem resolved, Location dir, boolean recursive,
+            List<HiveFileStatus> out) throws IOException {
+        try (FileIterator it = resolved.list(dir)) {
+            while (it.hasNext()) {
+                FileEntry entry = it.next();
+                String name = entry.name();
+                if (entry.isDirectory()) {
+                    if (recursive && !isHidden(name)) {
+                        collectFiles(resolved, entry.location(), true, out);
+                    }
+                    continue;
+                }
+                if (isHidden(name)) {
+                    continue;
+                }
+                out.add(new HiveFileStatus(entry.location().uri(), entry.length(),
+                        entry.modificationTime()));
+            }
+        }
+    }
+
+    private static boolean isHidden(String name) {
+        return name.startsWith("_") || name.startsWith(".");
     }
 
     /**
