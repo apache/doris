@@ -44,6 +44,7 @@
 #include <vector>
 
 #include "common/cast_set.h"
+#include "common/config.h"
 #include "common/consts.h"
 #include "common/exception.h"
 #include "core/block/block.h"
@@ -68,6 +69,7 @@
 #include "exprs/vliteral.h"
 #include "exprs/vslot_ref.h"
 #include "format_v2/column_mapper.h"
+#include "format_v2/orc/orc_file_input_stream.h"
 #include "format_v2/orc/orc_search_argument.h"
 #include "io/fs/file_reader.h"
 #include "runtime/exec_env.h"
@@ -82,7 +84,6 @@ namespace doris::format::orc {
 namespace {
 
 constexpr uint64_t DEFAULT_ORC_READ_BATCH_SIZE = 4096;
-constexpr uint64_t DEFAULT_ORC_NATURAL_READ_SIZE = 128 * 1024;
 constexpr int DECIMAL_PRECISION_FOR_HIVE11 = BeConsts::MAX_DECIMAL128_PRECISION;
 constexpr int DECIMAL_SCALE_FOR_HIVE11 = 10;
 constexpr const char* ORC_LIST_ELEMENT_NAME = "element";
@@ -139,54 +140,6 @@ Status set_orc_reader_timezone(const std::string& timezone,
     row_reader_options->setTimezoneName(timezone.empty() ? "UTC" : timezone);
     return Status::OK();
 }
-
-// Thin adapter from Doris FileReader to ORC's InputStream API. Keep IO policy,
-// tracing, and retry behavior in the underlying FileReader.
-class DorisOrcInputStream final : public ::orc::InputStream {
-public:
-    DorisOrcInputStream(std::string file_name, io::FileReaderSPtr file_reader,
-                        io::IOContext* io_ctx)
-            : _file_name(std::move(file_name)),
-              _file_reader(std::move(file_reader)),
-              _io_ctx(io_ctx) {}
-
-    uint64_t getLength() const override { return _file_reader->size(); }
-
-    uint64_t getNaturalReadSize() const override { return DEFAULT_ORC_NATURAL_READ_SIZE; }
-
-    void read(void* buf, uint64_t length, uint64_t offset) override {
-        uint64_t bytes_read = 0;
-        auto* out = static_cast<uint8_t*>(buf);
-        while (bytes_read < length) {
-            if (_io_ctx != nullptr && _io_ctx->should_stop) {
-                throw ::orc::ParseError("stop");
-            }
-            size_t loop_read = 0;
-            Status st = _file_reader->read_at(
-                    static_cast<size_t>(offset + bytes_read),
-                    Slice(out + bytes_read, static_cast<size_t>(length - bytes_read)), &loop_read,
-                    _io_ctx);
-            if (!st.ok()) {
-                throw ::orc::ParseError("Failed to read " + _file_name + ": " +
-                                        st.to_string_no_stack());
-            }
-            if (loop_read == 0) {
-                break;
-            }
-            bytes_read += loop_read;
-        }
-        if (bytes_read != length) {
-            throw ::orc::ParseError("Short read from " + _file_name);
-        }
-    }
-
-    const std::string& getName() const override { return _file_name; }
-
-private:
-    std::string _file_name;
-    io::FileReaderSPtr _file_reader;
-    io::IOContext* _io_ctx = nullptr;
-};
 
 // selected_rows is a source-row remap produced by ORC lazy callback:
 // predicate columns are decoded first, then surviving row ids drive follower decodes.
@@ -870,8 +823,21 @@ Status OrcReader::init(RuntimeState* state) {
     options.setMemoryPool(*ExecEnv::GetInstance()->orc_memory_pool());
     options.setReaderMetrics(&_state->reader_metrics);
 
-    auto input_stream = std::make_unique<DorisOrcInputStream>(_file_description->path,
-                                                              _tracing_file_reader, _io_ctx.get());
+    OrcFileInputStreamOptions input_stream_options;
+    const auto natural_read_size_mb = config::orc_natural_read_size_mb;
+    if (natural_read_size_mb <= 0 || natural_read_size_mb > 1024) {
+        return Status::InvalidArgument(
+                "Invalid orc_natural_read_size_mb {}, valid range is [1, 1024]",
+                natural_read_size_mb);
+    }
+    input_stream_options.natural_read_size = static_cast<uint64_t>(natural_read_size_mb) << 20;
+    if (state != nullptr) {
+        input_stream_options.once_max_read_bytes = state->query_options().orc_once_max_read_bytes;
+        input_stream_options.max_merge_distance_bytes =
+                state->query_options().orc_max_merge_distance_bytes;
+    }
+    auto input_stream = std::make_unique<OrcFileInputStream>(
+            _file_description->path, _file_reader, _io_ctx.get(), _profile, input_stream_options);
     try {
         _state->reader = ::orc::createReader(std::move(input_stream), options);
         _state->root_type = &_state->reader->getType();
