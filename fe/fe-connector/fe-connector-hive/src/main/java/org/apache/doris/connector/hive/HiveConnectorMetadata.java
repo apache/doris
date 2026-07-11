@@ -1051,7 +1051,9 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
         if (!(handle instanceof HiveTableHandle)) {
             return siblingMetadata(session, handle).listPartitionNames(session, handle);
         }
-        return collectPartitionNames((HiveTableHandle) handle);
+        // SHOW PARTITIONS / partitions metadata TVF: FRESH listing (bypass cache), matching legacy's raw-client
+        // read — else an externally-added partition stays invisible until TTL/REFRESH (test_hive_use_meta_cache_true).
+        return collectPartitionNames((HiveTableHandle) handle, true);
     }
 
     /**
@@ -1076,7 +1078,8 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
         }
         HiveTableHandle hiveHandle = (HiveTableHandle) handle;
         List<String> partKeyNames = hiveHandle.getPartitionKeyNames();
-        List<String> partitionNames = collectPartitionNames(hiveHandle);
+        // Query partition pruning: CACHED listing (use_meta_cache contract; legacy pruned off HiveExternalMetaCache).
+        List<String> partitionNames = collectPartitionNames(hiveHandle, false);
         List<ConnectorPartitionInfo> result = new ArrayList<>(partitionNames.size());
         for (String partitionName : partitionNames) {
             result.add(new ConnectorPartitionInfo(partitionName,
@@ -1087,18 +1090,27 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
     }
 
     /**
-     * Shared partition-name lister backing {@link #listPartitionNames} and {@link #listPartitions}. Returns
-     * the metastore's rendered partition names ({@code key=value/...}); an unpartitioned table (no partition
-     * keys) lists nothing without touching the metastore.
+     * Shared partition-name lister backing {@link #listPartitionNames}, {@link #listPartitions} and
+     * {@link #getTableFreshness}. Returns the metastore's rendered partition names ({@code key=value/...}); an
+     * unpartitioned table (no partition keys) lists nothing without touching the metastore.
+     *
+     * <p>{@code bypassCache} selects the freshness contract: the SHOW-PARTITIONS / partitions-TVF path
+     * ({@link #listPartitionNames}) lists FRESH (legacy read the raw pooled client, never the metadata cache),
+     * while the query-pruning path ({@link #listPartitions}) and the MTMV freshness path
+     * ({@link #getTableFreshness}) stay CACHED (the {@code use_meta_cache} contract; legacy pruning/MTMV both read
+     * the cached {@code HiveExternalMetaCache}). The {@code CachingHmsClient} decorator owns the two behaviours;
+     * a non-caching client serves both identically.
      */
-    private List<String> collectPartitionNames(HiveTableHandle handle) {
+    private List<String> collectPartitionNames(HiveTableHandle handle, boolean bypassCache) {
         List<String> partKeyNames = handle.getPartitionKeyNames();
         if (partKeyNames == null || partKeyNames.isEmpty()) {
             return Collections.emptyList();
         }
         // -1 = "all partitions": ThriftHmsClient maps it to an unbounded HMS listing (no silent cap),
         // matching legacy's default (Config.max_hive_list_partition_num = -1).
-        return hmsClient.listPartitionNames(handle.getDbName(), handle.getTableName(), -1);
+        return bypassCache
+                ? hmsClient.listPartitionNamesFresh(handle.getDbName(), handle.getTableName(), -1)
+                : hmsClient.listPartitionNames(handle.getDbName(), handle.getTableName(), -1);
     }
 
     /**
@@ -1174,7 +1186,8 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
             return Optional.of(new ConnectorTableFreshness(hiveHandle.getTableName(),
                     lastDdlMillis(hiveHandle.getTableParameters())));
         }
-        List<String> partitionNames = collectPartitionNames(hiveHandle);
+        // MTMV whole-table freshness: CACHED listing (legacy HiveDlaTable.getTableSnapshot read cached names too).
+        List<String> partitionNames = collectPartitionNames(hiveHandle, false);
         if (partitionNames.isEmpty()) {
             // Parity: an empty partition list yields MTMVMaxTimestampSnapshot(tableName, 0).
             return Optional.of(new ConnectorTableFreshness(hiveHandle.getTableName(), 0L));

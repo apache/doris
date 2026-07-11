@@ -115,6 +115,25 @@ public interface HmsClient extends Closeable {
             int maxParts);
 
     /**
+     * Lists partition names bypassing any decorator cache (a FRESH metastore listing). SHOW PARTITIONS and the
+     * {@code partitions} metadata TVF need a fresh view (legacy read the raw pooled client, never the metadata
+     * cache); the query-pruning path keeps {@link #listPartitionNames} (cached under {@code use_meta_cache}).
+     *
+     * <p>Default = the cached path: a non-decorating client (e.g. the raw {@link ThriftHmsClient}) has no cache
+     * to bypass, so the two are identical for it. <b>Any caching {@code HmsClient} decorator MUST override this</b>
+     * to reach its delegate directly, or SHOW PARTITIONS regresses to serving a stale cached list.
+     *
+     * @param dbName    database name
+     * @param tableName table name
+     * @param maxParts  maximum number of partitions to return
+     * @return list of partition name strings (e.g. "dt=2024-01-01/region=us")
+     * @throws HmsClientException if the operation fails
+     */
+    default List<String> listPartitionNamesFresh(String dbName, String tableName, int maxParts) {
+        return listPartitionNames(dbName, tableName, maxParts);
+    }
+
+    /**
      * Get partition metadata by partition names.
      *
      * @param dbName    database name

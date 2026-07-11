@@ -151,6 +151,15 @@ public class CachingHmsClient implements HmsClient {
     }
 
     @Override
+    public List<String> listPartitionNamesFresh(String dbName, String tableName, int maxParts) {
+        // Fresh (cache-bypassing) listing for SHOW PARTITIONS / the partitions metadata TVF — legacy read the raw
+        // pooled client, never the metadata cache. This neither READS nor WRITES partitionNamesCache: reading would
+        // serve the stale list this method exists to avoid, and writing would let a non-cache path repopulate the
+        // cache off-band. The query-pruning path stays on the cached listPartitionNames (use_meta_cache contract).
+        return delegate.listPartitionNames(dbName, tableName, maxParts);
+    }
+
+    @Override
     public List<HmsPartitionInfo> getPartitions(String dbName, String tableName, List<String> partNames) {
         if (partNames == null || partNames.isEmpty()) {
             return Collections.emptyList();

@@ -113,6 +113,43 @@ public class CachingHmsClientTest {
         Assertions.assertEquals(2, delegate.listPartitionNamesCalls);
     }
 
+    // ---- listPartitionNamesFresh (SHOW PARTITIONS / partitions TVF — must bypass the names cache) ----
+
+    @Test
+    public void listPartitionNamesFreshAlwaysHitsDelegate() {
+        RecordingHmsClient delegate = new RecordingHmsClient();
+        CachingHmsClient cache = new CachingHmsClient(delegate, Collections.emptyMap());
+
+        // WHY: SHOW PARTITIONS must see partitions added externally after the cache filled. Every fresh call
+        // goes to the metastore — never served from partitionNamesCache. (test_hive_use_meta_cache_true sql09.)
+        cache.listPartitionNamesFresh("db", "t", -1);
+        cache.listPartitionNamesFresh("db", "t", -1);
+        Assertions.assertEquals(2, delegate.listPartitionNamesCalls);
+    }
+
+    @Test
+    public void listPartitionNamesFreshDoesNotPopulateCache() {
+        RecordingHmsClient delegate = new RecordingHmsClient();
+        CachingHmsClient cache = new CachingHmsClient(delegate, Collections.emptyMap());
+
+        // Fresh call must NOT write the names cache: a following cached listPartitionNames must still MISS
+        // (delegate call #2) and only THEN populate — proving fresh bypasses the cache in both directions.
+        cache.listPartitionNamesFresh("db", "t", -1);   // delegate #1, no populate
+        cache.listPartitionNames("db", "t", -1);        // cache miss -> delegate #2 + populate
+        cache.listPartitionNames("db", "t", -1);         // cache hit -> no delegate call
+        Assertions.assertEquals(2, delegate.listPartitionNamesCalls);
+    }
+
+    @Test
+    public void listPartitionNamesFreshDefaultOnNonCachingClientIsPlainListing() {
+        // A bare HmsClient (no caching decorator) inherits the interface default: fresh == the raw listing.
+        // Guards the C4 foot-gun — a non-decorating client has nothing to bypass, so the two must be identical.
+        RecordingHmsClient raw = new RecordingHmsClient();
+        raw.listPartitionNamesFresh("db", "t", -1);
+        raw.listPartitionNames("db", "t", -1);
+        Assertions.assertEquals(2, raw.listPartitionNamesCalls);
+    }
+
     // ---- getPartitions ----
 
     @Test
