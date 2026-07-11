@@ -20,6 +20,17 @@
 
 ---
 
+# 🚑 插队任务 DONE（2026-07-11）——TeamCity #991951 hive connector CI classloader split-brain
+
+PR #65474（hive connector SPI 迁移）build **991951** 50 外表 case 失败。根因 = FE 侧 classloader split-brain：`ThriftHmsClient.doAs` 把 metastore-client 创建的 TCCL 钉成 `getSystemClassLoader()`，`SecurityUtil.<clinit>` 的 `new Configuration()` 捕获它 → `DNSDomainNameResolver` 从 fe-core hadoop 副本加载、其父接口 `DomainNameResolver` 从 hive 插件 child-first 副本加载 → `isAssignableFrom` false → `SecurityUtil` 全 JVM 永久毒化 → 49 hive/iceberg-on-HMS/hudi/mtmv/kerberos/tvf 用例全挂（+outlier `test_hms_partitions_tvf` 同因，表象 comms-failure）。集群健康、非 case 问题。**已修**（设计+摘要 `plan-doc/tasks/designs/FIX-CLR-classloader-splitbrain-{design,summary}.md`，跟踪 `plan-doc/tasks/task-list-CLR-991951.md`，对抗验证 `wf_bf3a50e5-046` high-confidence）：
+- `92004ef1d0d` **CLR1** `ThriftHmsClient.doAs`→`getClass().getClassLoader()`（plugin loader）+ 隔离 child-first loader 探针单测（RED/GREEN 双验）。fe-connector-hms 40/40。
+- `15d3df1dfd6` **CLR2** `HiveConnector.buildPluginAuthenticator` 方法体钉 plugin loader（挡 `HadoopSimpleAuthenticator` eager UGI latent 毒化）。fe-connector-hive 186/186。
+- **memory 新增第 4 个 TCCL-pin locus**：plain-hive HMS metastore-client 创建（见 `catalog-spi-plugin-tccl-classloader-gotcha`）。
+- **⚠ e2e 欠账（用户自跑）**：真集群重跑 991951 的 49 个 SecurityUtil 用例断言全绿（系统 vs 插件双 loader 只在真 child-first 环境复现，单测已用隔离 loader 复刻精确根因）。`test_hdfs_parquet_group0`（BE `MEM_LIMIT_EXCEEDED`/ASAN flake）与本 PR 无关。
+- **残余另开 ticket**：TVF analyze 阶段抛 `java.lang.Error` 未转 SQL 错误、拆连接（outlier1 表象来源；毒化去除后触发点消失）。
+
+---
+
 # 🔧 复核修复系列（#65185 reverify，2026-07-11 起）——跟踪表 `plan-doc/task-list-65185-reverify-fixes.md`
 
 翻闸后第三方复核（`reviews/catalog-spi-review-65185-reverify-2026-07-11.md`）判定的真实/活跃需修条目，按批次做（H1–H4 高 / M1–M8 中 / L1–L20 低 / D-系列设计债）。**处理纪律**：每条 = 设计(`tasks/designs/FIX-<id>-design.md`) → 设计红队 → 实现 → build+靶向 UT → 独立 commit → 勾表 → 更新 HANDOFF。path-whitelist `git add`。
