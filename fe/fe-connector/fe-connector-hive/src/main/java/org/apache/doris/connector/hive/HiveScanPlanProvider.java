@@ -35,6 +35,7 @@ import org.apache.doris.thrift.TFileCompressType;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -472,6 +473,15 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
         try {
             files = fileListingCache.listDataFiles(dbName, tableName, partition.location, fs);
         } catch (HiveDirectoryListingException e) {
+            // hive.ignore_absent_partitions=false (non-default): a partition whose LOCATION does not exist
+            // must fail the query loud with the legacy message rather than be silently skipped. Only a
+            // not-found cause counts as "absent"; a transient/unreadable listing failure still follows the
+            // tolerant skip-with-warning path below. Default true preserves the skip behavior.
+            if (isLocationNotFound(e) && !HiveConnectorProperties.getBoolean(
+                    catalogProperties, HiveConnectorProperties.IGNORE_ABSENT_PARTITIONS, true)) {
+                throw new DorisConnectorException(
+                        "Partition location does not exist: " + partition.location, e);
+            }
             LOG.warn("Cannot list files in partition: {}", partition.location, e);
             return;
         }
@@ -479,6 +489,21 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
             splitFile(file.getPath(), file.getLength(), file.getModificationTime(),
                     partition, fileFormat, splittable, targetSplitSize, null, null, ranges);
         }
+    }
+
+    /**
+     * Whether a listing failure was caused by the directory not existing (a {@link FileNotFoundException}
+     * anywhere in the cause chain), as opposed to a transient or unreadable-permission failure. Used to
+     * decide whether {@code hive.ignore_absent_partitions=false} should turn a skipped partition into a
+     * loud "Partition location does not exist" error.
+     */
+    private static boolean isLocationNotFound(Throwable e) {
+        for (Throwable t = e; t != null; t = t.getCause()) {
+            if (t instanceof FileNotFoundException) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

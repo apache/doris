@@ -109,6 +109,13 @@ public final class HiveConnectorProperties {
     public static final int DEFAULT_HMS_EVENTS_BATCH_SIZE = 500;
 
     /**
+     * When {@code false}, a partition whose storage location does not exist fails the query loud
+     * ({@code "Partition location does not exist"}); the default {@code true} tolerates it by skipping
+     * the partition with a warning. Mirrors legacy {@code HiveExternalMetaCache} semantics.
+     */
+    public static final String IGNORE_ABSENT_PARTITIONS = "hive.ignore_absent_partitions";
+
+    /**
      * Parse an integer property with a default value.
      */
     public static int getInt(Map<String, String> props, String key, int defaultVal) {
