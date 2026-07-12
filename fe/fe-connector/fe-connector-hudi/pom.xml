@@ -93,6 +93,29 @@ under the License.
             <artifactId>hudi-hadoop-mr</artifactId>
         </dependency>
 
+        <!-- parquet-hadoop supplies org.apache.parquet.hadoop.ParquetFileReader and parquet-avro supplies
+             org.apache.parquet.avro.AvroSchemaConverter for hudi's FE-side schema read: TableSchemaResolver
+             reads a data file's parquet footer to resolve the table Avro schema
+             (ParquetUtils.readAvroSchema -> readSchema -> ParquetFileReader.readFooter(Configuration, Path),
+             then converts the parquet MessageType to Avro). hudi-common bundles NO parquet, and the
+             hive-catalog-shade jar carries only a RELOCATED (org.apache.paimon.shade.*) parquet — so the
+             un-relocated ParquetFileReader would otherwise resolve from the parent 'app' loader while
+             ParquetUtils and Configuration come from the child (org.apache.hadoop is child-first here, from the
+             bundled hadoop-common) — readFooter's Configuration parameter then splits across two loaders and the
+             JVM throws a LinkageError (loader constraint violation on org.apache.hadoop.conf.Configuration).
+             Co-locating parquet child-first here — the SAME FIX-PAIMON-HADOOP-CLASSLOADER pattern as hadoop-aws
+             — keeps ParquetFileReader + Configuration in one loader. parquet-hadoop pulls its
+             parquet-column/common/encoding/format-structures/jackson siblings transitively; versions are
+             BOM-managed (${parquet.version}). -->
+        <dependency>
+            <groupId>org.apache.parquet</groupId>
+            <artifactId>parquet-hadoop</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.parquet</groupId>
+            <artifactId>parquet-avro</artifactId>
+        </dependency>
+
         <dependency>
             <groupId>org.apache.logging.log4j</groupId>
             <artifactId>log4j-api</artifactId>
