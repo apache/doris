@@ -392,6 +392,34 @@ TEST(ParquetStatisticsTransformTest, ConvertsMinMaxNullCountUnsignedStringAndTim
     EXPECT_LT(timestamp_stats.min_value, timestamp_stats.max_value);
 }
 
+TEST(ParquetStatisticsTransformTest, DisablesUtcTimestampMinMaxAcrossDstRollback) {
+    constexpr int64_t MICROS_PER_SECOND = 1000000;
+    // America/New_York moved from UTC-04:00 to UTC-05:00 at 2021-11-07 06:00:00 UTC.
+    // Both UTC endpoints below map to 01:30 local time, while values inside the interval cover
+    // 01:00 through 01:59. Endpoint conversion therefore cannot represent the true local range.
+    auto table = arrow::Table::Make(
+            arrow::schema(
+                    {arrow::field("ts", arrow::timestamp(arrow::TimeUnit::MICRO, "UTC"), false)}),
+            {timestamp_array({1636263000 * MICROS_PER_SECOND, 1636263900 * MICROS_PER_SECOND,
+                              1636266600 * MICROS_PER_SECOND})});
+    auto reader = make_reader(table, 3, false, true);
+    auto schema = build_file_schema(*reader);
+    auto statistics = reader->metadata()->RowGroup(0)->ColumnChunk(0)->statistics();
+
+    cctz::time_zone new_york;
+    ASSERT_TRUE(cctz::load_time_zone("America/New_York", &new_york));
+    const auto local_stats = format::parquet::ParquetStatisticsUtils::TransformColumnStatistics(
+            *schema[0], statistics, &new_york);
+    EXPECT_TRUE(local_stats.has_not_null);
+    EXPECT_FALSE(local_stats.has_min_max);
+
+    auto utc = cctz::utc_time_zone();
+    const auto utc_stats = format::parquet::ParquetStatisticsUtils::TransformColumnStatistics(
+            *schema[0], statistics, &utc);
+    EXPECT_TRUE(utc_stats.has_min_max);
+    EXPECT_LT(utc_stats.min_value, utc_stats.max_value);
+}
+
 TEST(ParquetStatisticsTransformTest, HandlesMissingStatisticsAndAllNullChunks) {
     auto no_stats_table = arrow::Table::Make(
             arrow::schema({arrow::field("i", arrow::int32(), true)}), {int32_array({1, 2, 3})});

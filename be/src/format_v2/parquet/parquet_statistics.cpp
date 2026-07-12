@@ -34,6 +34,7 @@
 #include <optional>
 #include <set>
 #include <string>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -45,6 +46,7 @@
 #include "exprs/expr_zonemap_filter.h"
 #include "exprs/vexpr_context.h"
 #include "format_v2/parquet/parquet_column_schema.h"
+#include "format_v2/timestamp_statistics.h"
 #include "runtime/runtime_profile.h"
 #include "storage/index/zone_map/zone_map_index.h"
 #include "storage/index/zone_map/zonemap_eval_context.h"
@@ -118,6 +120,35 @@ bool set_decoded_field(const ParquetColumnSchema& column_schema, DecodedValueKin
     return read_decoded_field(column_schema, view, field, timezone).ok();
 }
 
+int64_t floor_timestamp_seconds(int64_t value, ParquetTimeUnit time_unit) {
+    int64_t units_per_second = 1;
+    switch (time_unit) {
+    case ParquetTimeUnit::MILLIS:
+        units_per_second = 1000;
+        break;
+    case ParquetTimeUnit::MICROS:
+        units_per_second = 1000000;
+        break;
+    case ParquetTimeUnit::NANOS:
+        units_per_second = 1000000000;
+        break;
+    default:
+        DORIS_CHECK(false);
+    }
+    return format::floor_epoch_seconds(value, units_per_second);
+}
+
+bool timestamp_min_max_is_safe(const ParquetColumnSchema& column_schema, int64_t min_value,
+                               int64_t max_value, const cctz::time_zone* timezone) {
+    if (!column_schema.type_descriptor.is_timestamp ||
+        !column_schema.type_descriptor.timestamp_is_adjusted_to_utc || timezone == nullptr) {
+        return true;
+    }
+    return format::utc_timestamp_range_is_monotonic(
+            floor_timestamp_seconds(min_value, column_schema.type_descriptor.time_unit),
+            floor_timestamp_seconds(max_value, column_schema.type_descriptor.time_unit), *timezone);
+}
+
 template <typename ParquetDType>
 bool set_decoded_min_max(const std::shared_ptr<::parquet::Statistics>& statistics,
                          const ParquetColumnSchema& column_schema, DecodedValueKind value_kind,
@@ -125,6 +156,12 @@ bool set_decoded_min_max(const std::shared_ptr<::parquet::Statistics>& statistic
                          const cctz::time_zone* timezone) {
     auto typed_statistics =
             std::static_pointer_cast<::parquet::TypedStatistics<ParquetDType>>(statistics);
+    if constexpr (std::is_same_v<ParquetDType, ::parquet::Int64Type>) {
+        if (!timestamp_min_max_is_safe(column_schema, typed_statistics->min(),
+                                       typed_statistics->max(), timezone)) {
+            return false;
+        }
+    }
     if (!set_decoded_field(column_schema, value_kind, typed_statistics->min(),
                            &column_statistics->min_value, timezone) ||
         !set_decoded_field(column_schema, value_kind, typed_statistics->max(),
@@ -968,6 +1005,12 @@ bool set_page_decoded_min_max(const std::shared_ptr<::parquet::ColumnIndex>& col
     if (page_idx >= typed_index->min_values().size() ||
         page_idx >= typed_index->max_values().size()) {
         return false;
+    }
+    if constexpr (std::is_same_v<ParquetDType, ::parquet::Int64Type>) {
+        if (!timestamp_min_max_is_safe(column_schema, typed_index->min_values()[page_idx],
+                                       typed_index->max_values()[page_idx], timezone)) {
+            return false;
+        }
     }
     if (!set_decoded_field(column_schema, value_kind, typed_index->min_values()[page_idx],
                            &page_statistics->min_value, timezone) ||
