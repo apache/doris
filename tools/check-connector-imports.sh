@@ -21,10 +21,15 @@
 # See plan-doc/01-spi-extensions-rfc.md §15.4.
 #
 # Connector modules MUST NOT import fe-core internals (catalog / common /
-# datasource / qe / analysis / nereids / planner). Anything they need from
-# fe-core has to be exposed through the SPI in
+# datasource / qe / analysis / nereids / planner / persist / transaction / fs /
+# statistics / mysql / service). Anything they need from fe-core has to be
+# exposed through the SPI in
 #   org.apache.doris.connector.{api,spi,extension,...}
 # or shared types in org.apache.doris.thrift / org.apache.doris.filesystem.
+#
+# The gate matches both plain and `import static` imports, scans src/main/java
+# AND src/test/java, and anchors the SPI-allowed exclusion to the import target
+# (not the file path). Self-test: tools/check-connector-imports.test.sh.
 #
 # Usage:
 #   tools/check-connector-imports.sh                  # search default root
@@ -45,13 +50,18 @@ if [ ! -d "${ROOT}" ]; then
     exit 2
 fi
 
-FORBIDDEN='org\.apache\.doris\.(catalog|common|datasource|qe|analysis|nereids|planner)'
+FORBIDDEN='org\.apache\.doris\.(catalog|common|datasource|qe|analysis|nereids|planner|persist|transaction|fs|statistics|mysql|service)'
 
-CANDIDATES=$(grep -rEn "^import ${FORBIDDEN}\." "${ROOT}"/*/src/main/java 2>/dev/null \
-        | grep -v 'org.apache.doris.thrift' \
-        | grep -v 'org.apache.doris.connector' \
-        | grep -v 'org.apache.doris.extension' \
-        | grep -v 'org.apache.doris.filesystem' || true)
+# SPI-shared packages a connector MAY import. Anchor the exclusion to the IMPORT TARGET (":import ..."), NOT
+# the whole "<path>:<lineno>:import ..." line: a bare 'grep -v org.apache.doris.connector' matches the FILE
+# PATH too (regex '.' matches '/'), so a forbidden import inside a src/.../org/apache/doris/connector/** file
+# would be dropped by its location — blinding the gate to the very modules it guards. Import-anchored keeps the
+# real allowance (imports OF these packages) without the path-collision false negative.
+ALLOWED_IMPORT=':import[[:space:]]+(static[[:space:]]+)?org[.]apache[.]doris[.](connector|thrift|extension|filesystem)[.]'
+
+CANDIDATES=$(grep -rEn "^import[[:space:]]+(static[[:space:]]+)?${FORBIDDEN}[.]" \
+        "${ROOT}"/*/src/main/java "${ROOT}"/*/src/test/java 2>/dev/null \
+        | grep -vE "${ALLOWED_IMPORT}" || true)
 
 # A flagged import is a FALSE POSITIVE when the connector module VENDORS its own self-contained copy of the
 # class: a real source file inside a fe-connector module whose package happens to match a fe-core prefix (e.g.
@@ -82,7 +92,7 @@ if [ -n "${CANDIDATES}" ]; then
     while IFS= read -r line; do
         [ -z "${line}" ] && continue
         # line = <file>:<lineno>:import <fqn>;
-        fqn=$(printf '%s\n' "${line}" | sed -E 's/.*import[[:space:]]+//; s/;.*//')
+        fqn=$(printf '%s\n' "${line}" | sed -E 's/.*import[[:space:]]+(static[[:space:]]+)?//; s/;.*//')
         if is_vendored "${fqn}"; then
             echo "check-connector-imports: skipping vendored same-module import: ${fqn}" >&2
             continue
