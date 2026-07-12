@@ -51,7 +51,7 @@ Legend：⬜ todo / 🔄 in progress / ✅ done / ⏸ 挂起(需决策/live)
 | 24 | **L12** | 🟡低 | fe-core/paimon | selectedPartitionNum 语义(登记或对齐) | ⬜ | ⬜ | ⬜ | ⏸ 需决策 |
 | 25 | **L13** | 🟡低 | paimon | to-Paimon 丢嵌套 nullability | ✅ | ✅ | ✅ | ✅ |
 | 26 | **L14** | 🟡低 | paimon | ignore_split_type 静默 no-op | ✅ | ✅ | ✅ | ✅ |
-| 27 | **L15** | 🟡低 | fe-core | PAIMON_SCAN_METRICS 悬空常量 | ⬜ | ⬜ | ⬜ | ⬜ |
+| 27 | **L15** | 🟡低 | fe-core | PAIMON_SCAN_METRICS 悬空常量 | ✅ | ✅ | ✅ | ✅ |
 | 28 | **L16** | 🟡低 | iceberg | 快照/schema 缓存偏斜(防御性 union) | ⬜ | ⬜ | ⬜ | ⬜ |
 | 29 | **L17** | 🟡低 | fe-core/iceberg | 同表多版本 version-blind schema 绑定 | ⬜ | ⬜ | ⬜ | ⬜ |
 | 30 | **L18** | 🟡低 | iceberg | 未知/v3 类型静默 UNSUPPORTED | ⬜ | ⬜ | ⬜ | ⬜ |
@@ -192,7 +192,7 @@ Legend：⬜ todo / 🔄 in progress / ✅ done / ⏸ 挂起(需决策/live)
 - [ ] **L12** ⏸ selectedPartitionNum 语义 · `PluginDrivenScanNode.java:297-303`。**需决策**:登记为「paimon/iceberg 对齐 MC/hive 的 Nereids-剪枝数」验收偏差(推荐)**vs** 连接器回报 SDK-distinct(重,不推荐)。同步 paimon/iceberg EXPLAIN `partition=N/M` 回归期望。**勿**在通用节点按源分支。
 - [x] **L13** DONE `ced4775b844`(设计 `FIX-L13-design.md`;红队 3 lens 全 SOUND）· `toPaimonType` 对 ARRAY 元素/MAP value/STRUCT 字段加 `.copy(type.isChildNullable(i))`(MAP key 保持 `.copy(false)`),恢复 legacy `DorisToPaimonTypeVisitor` 嵌套 nullability parity。**scope=仅 nullability**:comment 丢=DV-035 M10.1 已接受偏差、field-id 顺序 parity 均不动。`.copy(true)` 对默认可空子类型逐字节恒等(既有 parity 测保持绿)。3 新 RED-able 测(经 `.type().isNullable()` 断言,非 DataField equals)。type-mapping+schema-builder 26/26 绿。e2e live-gated(建嵌套 NOT NULL 表 DESCRIBE/SDK 读回)。
 - [x] **L14** DONE `478718aca6f`(设计 `FIX-L14-design.md`;红队 3 lens SOUND/SOUND_WITH_CHANGES）· null-tolerant `resolveIgnoreSplitType(session)`(镜像 `isCppReaderEnabled`,红队 MINOR)+三 legacy `continue` 位:`IGNORE_JNI` drops nonDataSplit+DataSplit-JNI 臂、`IGNORE_NATIVE` drops native 臂、count 臂不检、`IGNORE_PAIMON_CPP` 保持 no-op(=legacy parity,全树 grep 证 legacy 从不引用)。默认 NONE 逐字节不变。3 新 live-planScan RED 测(IGNORE_JNI/IGNORE_NATIVE 各证跳 split+IGNORE_PAIMON_CPP==NONE);nonDataSplit IGNORE_JNI 位离线不可测→留 E2E-only。69/69 绿。e2e live-gated(真集群 SET ignore_split_type 断言跳分片)。
-- [ ] **L15** PAIMON_SCAN_METRICS 悬空 · `SummaryProfile.java:158,218,277`:删三处死引用(P5 已验收弃 paimon FE scan metrics);或加 connector-neutral scan-metrics SPI(feature,非必需)。
+- [x] **L15** DONE `b2cdf971889`(设计 `designs/FIX-L15-design.md`;summary `FIX-L15-summary.md`)· 删 `SummaryProfile.java` 三处 `PAIMON_SCAN_METRICS` 死引用(常量 + `EXECUTION_SUMMARY_KEYS` + 缩进 map);P5(`dbc38a265e5`)删写入方后无任何 reporter 填充该分组(对照活的 `ICEBERG_SCAN_METRICS` 有 `IcebergMetricsReporter` 保留不动)。**未加** connector-neutral scan-metrics SPI(feature、非必需,超出清死引用 scope)。零行为变更、无新测(死码删除无可断言);fe-core test-compile BUILD SUCCESS + 0 checkstyle。**非 live**(该 profile 列本就从不出现)。
 - [ ] **L16** iceberg 缓存偏斜(部分已修) · `IcebergScanPlanProvider.java:1077-1108`:hasSnapshotPin 臂把 field-id dict 建成「pinned schema ∪ requested latest columns」超集(传 requestedLowerNames 而非 `emptyList`),两向都超集;或 fe-core 侧 query-begin pin 解析 pinnedSchema 到 pinned schemaId(对齐 time-travel 臂 `:377-387`)。
 - [ ] **L17** iceberg 同表多版本 version-blind 绑定 · `PluginDrivenMvccExternalTable.java:475-485`:per-reference schema 绑定 version-aware(用 `StatementContext.getSnapshot(table, tableSnapshot, scanParams)` 的 pinnedSchema,fallback latest);与 L16 同根,建议一并。窄触发 + fail-loud。
 - [ ] **L18** iceberg 未知/v3 类型静默 UNSUPPORTED · `IcebergTypeMapping.java:91,143`:两 default 臂改 `throw DorisConnectorException("Cannot transform unknown type: "+...)`,保留显式 TIME/VARIANT UNSUPPORTED;或接受更松并登记。
@@ -301,3 +301,15 @@ Legend：⬜ todo / 🔄 in progress / ✅ done / ⏸ 挂起(需决策/live)
 - **L2 已完成** `c9a86337906`（独立工作线,今日）——SQL 结果缓存资格用 `MTMVRelatedTableIf` 能力恢复(选「加能力」非登记偏差)、`COUNTER_QUERY_HIVE_TABLE` dead bump 有意移除;4 文件+3 测试类。标 done `83674a8c1ec`。
 - **L10 已定** = **用户 2026-07-12 签字 accept**,登记 [DV-050],**无代码**：EXPLAIN 通用节点名 `VPluginDrivenScanNode` 接受为 display-only 偏差(`CONNECTOR:` 行已披露 + 黄金文件已适配 + 对齐 Trino 通用节点名做法)。
 - **净结果**：L2–L10 全部收口(done 或 accept)。决策类**仅余 L12/L20**,动前先中文讲清问用户。⏸ 决策类先问用户。
+
+---
+
+**⭐ L15 DONE `b2cdf971889`(2026-07-13)** — 删 `SummaryProfile` 三处 `PAIMON_SCAN_METRICS` 死引用(P5 后无 reporter 填充,对照活的 iceberg metrics 保留)。零行为变更、无新测、非 live;fe-core BUILD SUCCESS + 0 checkstyle。设计/summary = `designs/FIX-L15-{design,summary}.md`。
+
+**⭐ L12 侦察完成(2026-07-13,workflow `wf_6c516483-c34`,4 agent recon)= 待用户决策**：
+- **确认 iceberg 也受影响**:iceberg 读实走 `PluginDrivenScanNode`(legacy `IcebergScanNode.java` 已死;`PhysicalPlanTranslator:812-829` instanceof `PluginDrivenExternalTable` 臂)。故 L12 覆盖 paimon+iceberg 两者。
+- **旧→新语义**:旧 = **SDK-distinct**(连接器 SDK 实际规划 split 后的 distinct 原生分区数;paimon `partitionInfoMaps.size()` keyed `dataSplit.partition()`、iceberg `partitionMapInfos.size()` keyed `file().partition()`);新 = **Nereids-剪枝分区项数**(`selectedPartitions.size()`,仅按声明分区列在 `LogicalFilter` 下剪,见不到 SDK manifest/residual/bucket/transform 剪枝)。新数 **≥** 旧数。
+- **背离场景**:仅当 SDK 能剪而 Nereids 不能——iceberg 隐藏/transform 分区(`days(ts)` + WHERE ts:新 30/30 vs 旧 1/30)、paimon 非分区列 manifest 剪枝(WHERE id=999:新 2/2 vs 旧 1/2)。identity 分区 + 无谓词时两者相等。
+- **爆炸半径 = 0 黄金 EXPLAIN 断言**:paimon/iceberg 无任何 `partition=N/M` 黄金(它们断言 split-count 指标 `inputSplitNum`/`paimonNativeReadSplits`,不受影响)。3 个 `sql_block_rule partition_num` 测(iceberg/paimon/hive)均**identity 分区 + 无谓词**→两选项同值→**两选项都不破测**。
+- **Trino 对照**:Trino EXPLAIN **无**引擎统一的 per-scan 分区计数;分区计量完全 connector-owned(row estimate 由连接器 `getTableStatistics` 报,分区 guard 如 hive `max-partitions-per-scan` 在连接器内执行)。据此 Trino 更贴近 **选项 B**(连接器经能力 SPI 回报 SDK-distinct,不违铁律——能力 SPI 本身即反分支机制,仿现有 `supportsTableSample`/`Split.getLength()` opt-in)。
+- **张力(Rule 7)**:task list 原推荐 A(登记 Nereids 数为验收偏差,零代码);但 Trino 与「该数还喂 `sql_block_rule` 治理」角度支持 B(A 在隐藏分区下**高报**实际扫描分区数=治理 false-positive over-block)。已用中文向用户讲清背景+两选项+推荐,待拍板。
