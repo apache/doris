@@ -121,13 +121,8 @@ public:
 
     Status read(int64_t, MutableColumnPtr&, int64_t*) override { return Status::OK(); }
 
-    Status build_nested_column(int64_t length_upper_bound, MutableColumnPtr& column,
-                               int64_t* values_read) override {
-        auto& values = assert_cast<ColumnInt32&>(*column);
-        for (int64_t row = 0; row < length_upper_bound; ++row) {
-            values.insert_value(static_cast<int32_t>(row));
-        }
-        *values_read = length_upper_bound;
+    Status consume_nested_column(int64_t length_upper_bound, int64_t* values_consumed) override {
+        *values_consumed = length_upper_bound;
         return Status::OK();
     }
 };
@@ -1929,7 +1924,7 @@ TEST(ParquetColumnReaderBaseTest, SelectionVectorRangesAndValidation) {
     EXPECT_FALSE(identity.verify(1, -1).ok());
 }
 
-TEST(ParquetColumnReaderBaseTest, DefaultSelectUsesSkipReadRangesAndSkipNestedUsesBuild) {
+TEST(ParquetColumnReaderBaseTest, DefaultSelectUsesSkipReadRangesAndNestedConsumeIsExplicit) {
     DefaultSelectReader reader;
     std::array<SelectionVector::Index, 3> selected = {1, 3, 4};
     SelectionVector selection(selected.data(), selected.size());
@@ -1953,10 +1948,12 @@ TEST(ParquetColumnReaderBaseTest, DefaultSelectUsesSkipReadRangesAndSkipNestedUs
     EXPECT_FALSE(unsupported_reader.load_nested_batch(1).ok());
     int64_t values_read = 0;
     EXPECT_FALSE(unsupported_reader.build_nested_column(1, mutable_column, &values_read).ok());
+    EXPECT_FALSE(unsupported_reader.consume_nested_column(1, &values_read).ok());
 
     NestedSkipReader nested_reader;
-    auto nested_status = nested_reader.skip_nested_column(3);
+    auto nested_status = nested_reader.consume_nested_column(3, &values_read);
     ASSERT_TRUE(nested_status.ok()) << nested_status;
+    EXPECT_EQ(values_read, 3);
 }
 
 TEST_F(ParquetColumnReaderTest, ScalarReadCoversRequiredNullableAllNullAndMultipleBatches) {

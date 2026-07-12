@@ -80,17 +80,32 @@ public:
 
     virtual Status load_nested_batch(int64_t rows);
 
-    // Shape-only load interface for COUNT(col). Implementations only guarantee that
-    // nested_definition_levels(), nested_repetition_levels(), and nested_levels_written() are available;
-    // value_indices and values_column are not guaranteed, so callers must not call build_nested_column() afterwards.
-    // This protocol lets the V2 aggregation path avoid Doris-side value materialization even when
-    // the representative ARRAY/STRUCT leaf is STRING/BINARY; normal scans still use load_nested_batch().
+    // Shape-only load interface for COUNT(col) and skip. Implementations guarantee only that
+    // nested_definition_levels(), nested_repetition_levels(), and nested_levels_written() are
+    // available; value indices and payload columns may be absent. Callers may inspect the levels or
+    // call consume_nested_column(), but must not call build_nested_column() afterwards. For example,
+    // skipping ARRAY<STRING> uses this method to find ARRAY boundaries without decoding strings.
+    // Normal scans that need output values use load_nested_batch() instead.
     virtual Status load_nested_levels_batch(int64_t rows);
 
     virtual Status build_nested_column(int64_t length_upper_bound, MutableColumnPtr& column,
                                        int64_t* values_read);
 
-    virtual Status skip_nested_column(int64_t rows);
+    // Consume logical values from a batch previously loaded by load_nested_batch() or
+    // load_nested_levels_batch() without appending them to an output Column. Implementations must
+    // advance exactly the same nested level cursors and perform the same shape/null/alignment
+    // validation as build_nested_column(). The levels-only form is preferred for skip paths because
+    // it also avoids decoding leaf payloads that will be discarded.
+    //
+    // `length_upper_bound` is expressed at this reader's logical level, not in physical leaf
+    // values. For example, consuming two rows from ARRAY [[1, 2], []] consumes two parent ARRAY
+    // rows but only two element values. A MAP implementation must also consume key/value streams
+    // in lockstep, while a nullable STRUCT consumes no child value for a null parent.
+    //
+    // Callers must not use the ordinary skip() after either load call: the leaf stream has already
+    // advanced into an in-memory nested batch, and doing so would advance it twice.
+    // `values_consumed` may be smaller than the requested bound only when the loaded batch ends.
+    virtual Status consume_nested_column(int64_t length_upper_bound, int64_t* values_consumed);
 
     virtual const std::vector<int16_t>& nested_definition_levels() const;
     virtual const std::vector<int16_t>& nested_repetition_levels() const;
@@ -109,9 +124,9 @@ protected:
     ParquetColumnReader(const ParquetColumnSchema& schema, const DataTypePtr type,
                         ParquetColumnReaderProfile profile = {});
     ParquetColumnReader() = default;
-    // Complex readers cannot advance their child streams without rebuilding parent boundaries
-    // from definition/repetition levels. Materialize that discarded shape in bounded batches so
-    // a large selection gap does not allocate a scratch column for the entire gap at once.
+    // Load shape levels and consume skipped parent rows in bounded batches. The bound limits level
+    // memory when a parent expands to many children; the levels-only load plus
+    // consume_nested_column() avoids both payload decoding and output Columns.
     Status skip_nested_rows(int64_t rows);
     void update_reader_read_rows(int64_t rows) const;
     void update_reader_skip_rows(int64_t rows) const;

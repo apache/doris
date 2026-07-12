@@ -56,27 +56,53 @@ Status ListColumnReader::load_nested_batch(int64_t rows) {
     return _element_reader->load_nested_batch(rows);
 }
 
+Status ListColumnReader::load_nested_levels_batch(int64_t rows) {
+    DORIS_CHECK(_element_reader != nullptr);
+    reset_nested_build_level_cursor();
+    return _element_reader->load_nested_levels_batch(rows);
+}
+
 Status ListColumnReader::build_nested_column(int64_t length_upper_bound, MutableColumnPtr& column,
                                              int64_t* values_read) {
-    if (column.get() == nullptr || values_read == nullptr) {
+    if (column.get() == nullptr) {
         return Status::InvalidArgument("Invalid parquet list build result pointer for column {}",
                                        _name);
     }
+    return _consume_or_build_nested_column(length_upper_bound, &column, values_read);
+}
+
+Status ListColumnReader::consume_nested_column(int64_t length_upper_bound,
+                                               int64_t* values_consumed) {
+    return _consume_or_build_nested_column(length_upper_bound, nullptr, values_consumed);
+}
+
+Status ListColumnReader::_consume_or_build_nested_column(int64_t length_upper_bound,
+                                                         MutableColumnPtr* column,
+                                                         int64_t* values_processed) {
+    if (values_processed == nullptr) {
+        return Status::InvalidArgument("Invalid parquet list process result pointer for column {}",
+                                       _name);
+    }
     DORIS_CHECK(_element_reader != nullptr);
-    auto* array_column = array_column_from_output(column);
-    DORIS_CHECK(array_column != nullptr);
-    auto* parent_null_map = null_map_from_nullable_output(column);
-    auto nested_column = array_column->get_data_ptr()->assert_mutable();
-    const auto& element_output_type =
-            assert_cast<const DataTypeArray&>(*remove_nullable(_type)).get_nested_type();
-    remove_nullable_wrapper_if_not_expected(element_output_type, &nested_column);
+    ColumnArray* array_column = nullptr;
+    NullMap* parent_null_map = nullptr;
+    MutableColumnPtr nested_column;
+    if (column != nullptr) {
+        array_column = array_column_from_output(*column);
+        DORIS_CHECK(array_column != nullptr);
+        parent_null_map = null_map_from_nullable_output(*column);
+        nested_column = array_column->get_data_ptr()->assert_mutable();
+        const auto& element_output_type =
+                assert_cast<const DataTypeArray&>(*remove_nullable(_type)).get_nested_type();
+        remove_nullable_wrapper_if_not_expected(element_output_type, &nested_column);
+    }
 
     const auto& def_levels = _element_reader->nested_definition_levels();
     const auto& rep_levels = _element_reader->nested_repetition_levels();
     const int64_t levels_written = _element_reader->nested_levels_written();
     std::vector<uint64_t> entry_counts;
     NullMap parent_nulls;
-    *values_read = 0;
+    *values_processed = 0;
     int64_t level_idx = nested_build_level_cursor();
     const int16_t min_parent_definition_level =
             static_cast<int16_t>(_definition_level - 1 - (_type->is_nullable() ? 1 : 0));
@@ -84,7 +110,7 @@ Status ListColumnReader::build_nested_column(int64_t length_upper_bound, Mutable
         const int16_t def_level = def_levels[level_idx];
         const int16_t rep_level = rep_levels[level_idx];
         const bool starts_parent = rep_level < _repetition_level;
-        if (starts_parent && *values_read >= length_upper_bound) {
+        if (starts_parent && *values_processed >= length_upper_bound) {
             break;
         }
         ++level_idx;
@@ -104,13 +130,13 @@ Status ListColumnReader::build_nested_column(int64_t length_upper_bound, Mutable
         }
 
         const bool parent_is_null = def_level < _definition_level - 1;
-        if (parent_is_null && parent_null_map == nullptr) {
+        if (parent_is_null && !_type->is_nullable()) {
             return Status::Corruption("Parquet LIST column {} contains null for non-nullable LIST",
                                       _name);
         }
         parent_nulls.push_back(parent_is_null);
         entry_counts.push_back(def_level >= _definition_level ? 1 : 0);
-        ++*values_read;
+        ++*values_processed;
     }
     set_nested_build_level_cursor(level_idx);
 
@@ -120,8 +146,13 @@ Status ListColumnReader::build_nested_column(int64_t length_upper_bound, Mutable
         for (const auto entry_count : entry_counts) {
             total_entries += entry_count;
         }
-        RETURN_IF_ERROR(_element_reader->build_nested_column(static_cast<int64_t>(total_entries),
-                                                             nested_column, &child_value_count));
+        if (column != nullptr) {
+            RETURN_IF_ERROR(_element_reader->build_nested_column(
+                    static_cast<int64_t>(total_entries), nested_column, &child_value_count));
+        } else {
+            RETURN_IF_ERROR(_element_reader->consume_nested_column(
+                    static_cast<int64_t>(total_entries), &child_value_count));
+        }
     } else {
         uint64_t pending_entries = 0;
         auto flush_pending_entries = [&]() -> Status {
@@ -129,8 +160,14 @@ Status ListColumnReader::build_nested_column(int64_t length_upper_bound, Mutable
                 return Status::OK();
             }
             int64_t span_child_value_count = 0;
-            RETURN_IF_ERROR(_element_reader->build_nested_column(
-                    static_cast<int64_t>(pending_entries), nested_column, &span_child_value_count));
+            if (column != nullptr) {
+                RETURN_IF_ERROR(_element_reader->build_nested_column(
+                        static_cast<int64_t>(pending_entries), nested_column,
+                        &span_child_value_count));
+            } else {
+                RETURN_IF_ERROR(_element_reader->consume_nested_column(
+                        static_cast<int64_t>(pending_entries), &span_child_value_count));
+            }
             if (span_child_value_count != static_cast<int64_t>(pending_entries)) {
                 return Status::Corruption(
                         "Parquet LIST column {} built {} child values, expected {}", _name,
@@ -156,9 +193,11 @@ Status ListColumnReader::build_nested_column(int64_t length_upper_bound, Mutable
         return Status::Corruption("Parquet LIST column {} built {} child values, expected {}",
                                   _name, child_value_count, total_entries);
     }
-    array_column->get_data_ptr() = std::move(nested_column);
-    append_offsets(array_column->get_offsets(), entry_counts);
-    append_parent_nulls(parent_null_map, parent_nulls);
+    if (column != nullptr) {
+        array_column->get_data_ptr() = std::move(nested_column);
+        append_offsets(array_column->get_offsets(), entry_counts);
+        append_parent_nulls(parent_null_map, parent_nulls);
+    }
     return Status::OK();
 }
 

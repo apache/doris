@@ -449,7 +449,11 @@ Status ScalarColumnReader::build_nested_column(int64_t length_upper_bound, Mutab
     }
     DORIS_CHECK(_nested_batch != nullptr);
     ParquetNestedScalarValueCursor value_cursor(_nested_batch.get());
-    const int16_t materialized_slot_definition_level = _nested_batch->value_slot_definition_level;
+    // The levels-only loader intentionally does not populate value-slot metadata or payload
+    // buffers. Derive the logical slot threshold from the schema, exactly as load_nested_batch()
+    // does, so this consumer works for both loaded batch forms.
+    const int16_t materialized_slot_definition_level =
+            static_cast<int16_t>(_definition_level - (_type->is_nullable() ? 1 : 0));
     *values_read = 0;
     int64_t level_idx = nested_build_level_cursor();
     while (level_idx < _nested_batch->levels_written && *values_read < length_upper_bound) {
@@ -476,6 +480,31 @@ Status ScalarColumnReader::build_nested_column(int64_t length_upper_bound, Mutab
     return Status::OK();
 }
 
+Status ScalarColumnReader::consume_nested_column(int64_t length_upper_bound,
+                                                 int64_t* values_consumed) {
+    if (values_consumed == nullptr) {
+        return Status::InvalidArgument("Invalid parquet nested scalar consume result for column {}",
+                                       _name);
+    }
+    DORIS_CHECK(_nested_batch != nullptr);
+    const int16_t materialized_slot_definition_level = _nested_batch->value_slot_definition_level;
+    *values_consumed = 0;
+    int64_t level_idx = nested_build_level_cursor();
+    while (level_idx < _nested_batch->levels_written && *values_consumed < length_upper_bound) {
+        const int64_t current_level_idx = level_idx;
+        const int16_t def_level = _nested_batch->def_levels[current_level_idx];
+        const int16_t rep_level = _nested_batch->rep_levels[current_level_idx];
+        ++level_idx;
+        if (def_level < materialized_slot_definition_level || rep_level > _repetition_level) {
+            continue;
+        }
+        RETURN_IF_ERROR(validate_nested_value(current_level_idx, false));
+        ++*values_consumed;
+    }
+    set_nested_build_level_cursor(level_idx);
+    return Status::OK();
+}
+
 Status ScalarColumnReader::append_nested_value(int64_t level_idx, MutableColumnPtr& column) const {
     if (column.get() == nullptr) {
         return Status::InvalidArgument("Invalid parquet nested scalar append result for column {}",
@@ -494,6 +523,21 @@ Status ScalarColumnReader::append_nested_value(int64_t level_idx, MutableColumnP
                                   _name);
     }
     column->insert_default();
+    return Status::OK();
+}
+
+Status ScalarColumnReader::validate_nested_value(int64_t level_idx, bool require_non_null) const {
+    DORIS_CHECK(_nested_batch != nullptr);
+    DORIS_CHECK(level_idx >= 0);
+    DORIS_CHECK(level_idx < _nested_batch->levels_written);
+    const int16_t def_level = _nested_batch->def_levels[level_idx];
+    if (def_level == _definition_level) {
+        return Status::OK();
+    }
+    if (require_non_null || !_type->is_nullable()) {
+        return Status::Corruption("Parquet scalar column {} contains null for non-nullable field",
+                                  _name);
+    }
     return Status::OK();
 }
 
