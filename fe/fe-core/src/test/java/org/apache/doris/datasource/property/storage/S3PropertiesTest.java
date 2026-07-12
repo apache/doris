@@ -294,16 +294,18 @@ public class S3PropertiesTest {
     }
 
     @Test
-    public void testGcpAdcCredentialsProviderForCloud() {
+    public void testGcpWorkloadIdentityCredentialsProviderForCloud() {
         origProps.put("s3.endpoint", "storage.googleapis.com");
         origProps.put("s3.region", "us-central1");
         origProps.put("s3.bucket", "bucket");
         origProps.put("s3.root.path", "root");
         origProps.put("provider", "GCP");
-        origProps.put("s3.credentials_provider_type", "gcp_adc");
+        origProps.put("s3.credentials_provider_type", "gcp_workload_identity");
 
         Cloud.ObjectStoreInfoPB.Builder builder = S3Properties.getObjStoreInfoPB(origProps);
-        Assertions.assertEquals(CredProviderTypePB.GCP_ADC, builder.getCredProviderType());
+        Assertions.assertEquals(CredProviderTypePB.GCP_WORKLOAD_IDENTITY,
+                builder.getCredProviderType());
+        Assertions.assertEquals(S3Properties.GCS_XML_ENDPOINT, builder.getEndpoint());
         Assertions.assertFalse(builder.hasAk());
         Assertions.assertFalse(builder.hasSk());
         Assertions.assertFalse(builder.hasRoleArn());
@@ -311,26 +313,49 @@ public class S3PropertiesTest {
     }
 
     @Test
-    public void testGcpAdcCredentialsProviderRequiresGcpProvider() {
+    public void testGcpWorkloadIdentityEndpointValidation() {
+        origProps.put("s3.endpoint", "http://storage.googleapis.com");
+        origProps.put("provider", "GCP");
+        origProps.put("s3.credentials_provider_type", "gcp_workload_identity");
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> S3Properties.getObjStoreInfoPB(origProps));
+
+        origProps.put("s3.endpoint", "https://example.com");
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> S3Properties.getObjStoreInfoPB(origProps));
+    }
+
+    @Test
+    public void testGcpWorkloadIdentityPartialAlterProperties() {
+        origProps.put("s3.credentials_provider_type", "gcp_workload_identity");
+        Cloud.ObjectStoreInfoPB.Builder builder = S3Properties.getObjStoreInfoPB(origProps);
+        Assertions.assertEquals(CredProviderTypePB.GCP_WORKLOAD_IDENTITY,
+                builder.getCredProviderType());
+        Assertions.assertFalse(builder.hasProvider());
+        Assertions.assertFalse(builder.hasEndpoint());
+    }
+
+    @Test
+    public void testGcpWorkloadIdentityCredentialsProviderRequiresGcpProvider() {
         origProps.put("s3.endpoint", "s3.us-west-2.amazonaws.com");
         origProps.put("s3.region", "us-west-2");
         origProps.put("s3.bucket", "bucket");
         origProps.put("s3.root.path", "root");
         origProps.put("provider", "S3");
-        origProps.put("s3.credentials_provider_type", "gcp_adc");
+        origProps.put("s3.credentials_provider_type", "gcp_workload_identity");
 
         Assertions.assertThrows(IllegalArgumentException.class,
                 () -> S3Properties.getObjStoreInfoPB(origProps));
     }
 
     @Test
-    public void testGcpAdcCredentialsProviderRejectsStaticCredentials() {
+    public void testGcpWorkloadIdentityCredentialsProviderRejectsStaticCredentials() {
         origProps.put("s3.endpoint", "storage.googleapis.com");
         origProps.put("s3.region", "us-central1");
         origProps.put("s3.bucket", "bucket");
         origProps.put("s3.root.path", "root");
         origProps.put("provider", "GCP");
-        origProps.put("s3.credentials_provider_type", "gcp_adc");
+        origProps.put("s3.credentials_provider_type", "gcp_workload_identity");
 
         origProps.put("s3.access_key", "hmac_id");
         origProps.put("s3.secret_key", "hmac_secret");

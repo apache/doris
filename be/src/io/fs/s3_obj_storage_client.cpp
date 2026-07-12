@@ -508,14 +508,12 @@ ObjectStorageResponse S3ObjStorageClient::delete_objects_recursively(
     return ObjectStorageResponse::OK();
 }
 
-std::string S3ObjStorageClient::generate_presigned_url(const ObjectStoragePathOptions& opts,
-                                                       int64_t expiration_secs,
-                                                       const S3ClientConf&) {
+Result<std::string> S3ObjStorageClient::generate_presigned_url(const ObjectStoragePathOptions& opts,
+                                                               int64_t expiration_secs,
+                                                               const S3ClientConf&) {
     if (_bearer_token_provider != nullptr) {
-        // SigV4 presigning needs a signing key; GCP_ADC only carries a
-        // short-lived OAuth2 token, which cannot be embedded in a URL.
-        LOG(WARNING) << "presigned URLs are not supported with the GCP_ADC credentials provider";
-        return "";
+        return ResultError(Status::NotSupported(
+                "presigned URLs are not supported with GCP Workload Identity"));
     }
     return _client->GeneratePresignedUrl(opts.bucket, opts.key, Aws::Http::HttpMethod::HTTP_GET,
                                          expiration_secs);

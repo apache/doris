@@ -33,19 +33,24 @@ class S3ClientFactoryTest : public testing::Test {
     FRIEND_TEST(S3ClientFactoryTest, S3ClientFactory);
 };
 
-TEST_F(S3ClientFactoryTest, GcpAdcClientCreation) {
-    // A GCP_ADC conf has neither ak/sk nor role_arn; the factory must build a
-    // client wired with the shared ADC token provider (and anonymous SDK
+TEST_F(S3ClientFactoryTest, GcpWorkloadIdentityClientCreation) {
+    // Workload Identity has neither ak/sk nor role_arn; the factory must build a
+    // client wired with the shared metadata token provider (and anonymous SDK
     // credentials, so no signing happens at request time).
     S3ClientConf conf;
-    conf.endpoint = "storage.googleapis.com";
+    conf.endpoint = "https://storage.googleapis.com";
     conf.region = "us-central1";
     conf.bucket = "dummy-bucket";
     conf.provider = io::ObjStorageType::GCP;
-    conf.cred_provider_type = CredProviderType::GcpAdc;
+    conf.cred_provider_type = CredProviderType::GcpWorkloadIdentity;
 
     auto client = S3ClientFactory::instance().create(conf);
     ASSERT_NE(client, nullptr);
+
+    conf.endpoint = "http://storage.googleapis.com";
+    EXPECT_EQ(S3ClientFactory::instance().create(conf), nullptr);
+    conf.endpoint = "https://example.com";
+    EXPECT_EQ(S3ClientFactory::instance().create(conf), nullptr);
 }
 
 TEST_F(S3ClientFactoryTest, AwsCredentialsProvider) {
@@ -66,8 +71,8 @@ TEST_F(S3ClientFactoryTest, AwsCredentialsProvider) {
     S3ClientConf web_identity_conf;
     web_identity_conf.cred_provider_type = CredProviderType::WebIdentity;
 
-    S3ClientConf gcp_adc_conf;
-    gcp_adc_conf.cred_provider_type = CredProviderType::GcpAdc;
+    S3ClientConf gcp_workload_identity_conf;
+    gcp_workload_identity_conf.cred_provider_type = CredProviderType::GcpWorkloadIdentity;
 
     config::aws_credentials_provider_version = "v2";
     {
@@ -92,9 +97,9 @@ TEST_F(S3ClientFactoryTest, AwsCredentialsProvider) {
     }
 
     {
-        // GcpAdc must yield anonymous credentials: SigV4 signing is skipped
+        // Workload Identity must yield anonymous credentials: SigV4 signing is skipped
         // and requests carry an OAuth2 bearer header instead.
-        auto provider_v2 = factory.get_aws_credentials_provider(gcp_adc_conf);
+        auto provider_v2 = factory.get_aws_credentials_provider(gcp_workload_identity_conf);
         auto anonymous_v2 =
                 std::dynamic_pointer_cast<Aws::Auth::AnonymousAWSCredentialsProvider>(provider_v2);
         ASSERT_NE(anonymous_v2, nullptr);

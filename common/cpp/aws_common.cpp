@@ -39,8 +39,8 @@ CredProviderType cred_provider_type_from_pb(cloud::CredProviderTypePB cred_provi
         return CredProviderType::Container;
     case cloud::CredProviderTypePB::ANONYMOUS:
         return CredProviderType::Anonymous;
-    case cloud::CredProviderTypePB::GCP_ADC:
-        return CredProviderType::GcpAdc;
+    case cloud::CredProviderTypePB::GCP_WORKLOAD_IDENTITY:
+        return CredProviderType::GcpWorkloadIdentity;
     default:
         __builtin_unreachable();
         LOG(WARNING) << "Invalid CredProviderTypePB value: " << cred_provider_type
@@ -74,11 +74,15 @@ CredProviderType cred_provider_type_from_string(const std::string& type) {
     if (type == "ANONYMOUS") {
         return CredProviderType::Anonymous;
     }
-    if (type == "GCP_ADC") {
-        return CredProviderType::GcpAdc;
+    if (type == "GCP_WORKLOAD_IDENTITY") {
+        return CredProviderType::GcpWorkloadIdentity;
     }
     LOG(WARNING) << "Unknown credentials provider type: " << type << ", use default instead.";
     return CredProviderType::Default;
+}
+
+bool is_gcs_xml_endpoint(std::string_view endpoint) {
+    return endpoint == GCS_XML_ENDPOINT;
 }
 
 std::string get_valid_ca_cert_path(const std::vector<std::string>& ca_cert_file_paths) {

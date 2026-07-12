@@ -27,6 +27,7 @@ import org.apache.doris.filesystem.spi.ObjFileSystem;
 import org.apache.doris.filesystem.spi.ObjStorage;
 import org.apache.doris.filesystem.spi.RequestBody;
 import org.apache.doris.fs.FileSystemFactory;
+import org.apache.doris.nereids.trees.plans.commands.CreateResourceCommand;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -75,6 +76,7 @@ public class S3Resource extends Resource {
     private static final Logger LOG = LogManager.getLogger(S3Resource.class);
     @SerializedName(value = "properties")
     private Map<String, String> properties;
+    private transient boolean storageVault;
 
     public S3Resource() {
         super();
@@ -85,6 +87,19 @@ public class S3Resource extends Resource {
         properties = Maps.newHashMap();
     }
 
+    private S3Resource(String name, boolean storageVault) {
+        this(name);
+        this.storageVault = storageVault;
+    }
+
+    static S3Resource fromStorageVaultCommand(CreateResourceCommand command) throws DdlException {
+        S3Resource resource = new S3Resource(command.getInfo().getResourceName(), true);
+        resource.id = Env.getCurrentEnv().getNextId();
+        resource.version = 0;
+        resource.setProperties(command.getInfo().getProperties());
+        return resource;
+    }
+
     public String getProperty(String propertyKey) {
         return properties.get(propertyKey);
     }
@@ -93,6 +108,22 @@ public class S3Resource extends Resource {
     protected void setProperties(ImmutableMap<String, String> newProperties) throws DdlException {
         Preconditions.checkState(newProperties != null);
         this.properties = Maps.newHashMap(newProperties);
+
+        boolean useWorkloadIdentity =
+                S3Properties.isGcpWorkloadIdentityCredentialsProvider(properties);
+        if (useWorkloadIdentity) {
+            if (!storageVault) {
+                throw new DdlException("gcp_workload_identity is only supported for storage vaults");
+            }
+            try {
+                String endpoint = S3Properties.normalizeGcpWorkloadIdentityEndpoint(
+                        properties.get(S3Properties.ENDPOINT));
+                properties.put(S3Properties.ENDPOINT, endpoint);
+                properties.put(S3Properties.Env.ENDPOINT, endpoint);
+            } catch (IllegalArgumentException e) {
+                throw new DdlException(e.getMessage());
+            }
+        }
 
         // check properties
         S3Properties.requiredS3PingProperties(properties);
@@ -112,13 +143,13 @@ public class S3Resource extends Resource {
         String region = S3Properties.getRegionOfEndpoint(pingEndpoint);
         properties.putIfAbsent(S3Properties.REGION, region);
 
-        if (needCheck && S3Properties.isGcpAdcCredentialsProvider(properties)) {
+        if (needCheck && useWorkloadIdentity) {
             // The FE's S3 client signs with static credentials and cannot attach
-            // the ADC bearer token, so the connectivity probe would always fail;
+            // the metadata-server bearer token, so the connectivity probe would always fail;
             // BE probes the vault with the real credentials at startup instead.
-            LOG.info("skip s3 connectivity check: {}={} authenticates on BE via "
-                    + "application default credentials",
-                    S3Properties.CREDENTIALS_PROVIDER_TYPE, S3Properties.GCP_ADC_CREDENTIALS_PROVIDER);
+            LOG.info("skip s3 connectivity check: {}={} authenticates on BE via Workload Identity",
+                    S3Properties.CREDENTIALS_PROVIDER_TYPE,
+                    S3Properties.GCP_WORKLOAD_IDENTITY_CREDENTIALS_PROVIDER);
             needCheck = false;
         }
         if (needCheck) {
@@ -337,4 +368,3 @@ public class S3Resource extends Resource {
         readUnlock();
     }
 }
-

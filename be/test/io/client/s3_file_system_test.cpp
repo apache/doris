@@ -613,7 +613,9 @@ TEST_F(S3FileSystemTest, GeneratePresignedUrlTest) {
 
     // Generate presigned URL
     int64_t expiration_secs = 3600; // 1 hour
-    std::string presigned_url = s3_fs_->generate_presigned_url(test_file, expiration_secs, false);
+    auto presigned_url_result = s3_fs_->generate_presigned_url(test_file, expiration_secs, false);
+    ASSERT_TRUE(presigned_url_result) << presigned_url_result.error();
+    const auto& presigned_url = presigned_url_result.value();
 
     std::cout << "Generated presigned URL: " << presigned_url << std::endl;
 
@@ -623,8 +625,10 @@ TEST_F(S3FileSystemTest, GeneratePresignedUrlTest) {
 
     // For public endpoint test (if using OSS)
     if (config_->get_provider() == "OSS") {
-        std::string presigned_url_public =
+        auto presigned_url_public_result =
                 s3_fs_->generate_presigned_url(test_file, expiration_secs, true);
+        ASSERT_TRUE(presigned_url_public_result) << presigned_url_public_result.error();
+        const auto& presigned_url_public = presigned_url_public_result.value();
         std::cout << "Generated presigned URL (public): " << presigned_url_public << std::endl;
         EXPECT_FALSE(presigned_url_public.empty()) << "Public presigned URL should not be empty";
     }

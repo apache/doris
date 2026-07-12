@@ -440,8 +440,8 @@ Status S3FileSystem::download_impl(const Path& remote_file, const Path& local_fi
 
 // oss has public endpoint and private endpoint, is_public_endpoint determines
 // whether to return a public endpoint.
-std::string S3FileSystem::generate_presigned_url(const Path& path, int64_t expiration_secs,
-                                                 bool is_public_endpoint) const {
+Result<std::string> S3FileSystem::generate_presigned_url(const Path& path, int64_t expiration_secs,
+                                                         bool is_public_endpoint) const {
     std::string key = fmt::format("{}/{}", _prefix, path.native());
     std::shared_ptr<ObjStorageClient> client;
     if (is_public_endpoint &&

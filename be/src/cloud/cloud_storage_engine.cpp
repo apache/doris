@@ -134,10 +134,11 @@ struct VaultCreateFSVisitor {
 
         auto fs = DORIS_TRY(io::S3FileSystem::create(s3_conf, id));
         // Probe connectivity for keyless credential modes (assumed role or
-        // GCP ADC): a misconfigured identity should fail loudly at startup
+        // GCP Workload Identity): a misconfigured identity should fail loudly at startup
         // rather than on the first tablet write.
-        if (check_fs && (!s3_conf.client_conf.role_arn.empty() ||
-                         s3_conf.client_conf.cred_provider_type == CredProviderType::GcpAdc)) {
+        if (check_fs &&
+            (!s3_conf.client_conf.role_arn.empty() ||
+             s3_conf.client_conf.cred_provider_type == CredProviderType::GcpWorkloadIdentity)) {
             bool res = false;
             // just check connectivity, not care object if exist
             auto st = fs->exists("not_exist_object", &res);

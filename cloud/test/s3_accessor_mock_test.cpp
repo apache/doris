@@ -83,4 +83,34 @@ TEST_F(S3AccessorMockTest, list_objects_compatibility) {
     EXPECT_FALSE(response->is_valid());
 }
 
+TEST_F(S3AccessorMockTest, workload_identity_bearer_token_applied) {
+    auto mock_s3_client = std::make_shared<MockS3Client>();
+    auto token_provider = std::make_shared<GcpWorkloadIdentityTokenProvider>(
+            [](std::string* token, std::chrono::seconds* expires_in) {
+                *token = "test-token";
+                *expires_in = std::chrono::hours(1);
+                return true;
+            },
+            std::chrono::steady_clock::now);
+    S3ObjClient s3_obj_client(mock_s3_client, "https://storage.googleapis.com", token_provider);
+
+    ListObjectsV2Result result;
+    result.SetIsTruncated(false);
+    EXPECT_CALL(*mock_s3_client, ListObjectsV2(testing::_))
+            .WillOnce([&](const ListObjectsV2Request& request) {
+                const auto& headers = request.GetAdditionalCustomHeaders();
+                auto header = headers.find("Authorization");
+                EXPECT_NE(header, headers.end());
+                if (header != headers.end()) {
+                    EXPECT_EQ(header->second, "Bearer test-token");
+                }
+                return ListObjectsV2Outcome(result);
+            });
+
+    auto response = s3_obj_client.list_objects(
+            {.bucket = "dummy-bucket", .key = "S3AccessorMockTest/workload_identity"});
+    EXPECT_FALSE(response->has_next());
+    EXPECT_TRUE(response->is_valid());
+}
+
 } // namespace doris::cloud

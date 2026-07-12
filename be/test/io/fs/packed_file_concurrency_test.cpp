@@ -347,9 +347,9 @@ public:
         return ObjectStorageResponse::OK();
     }
 
-    std::string generate_presigned_url(const ObjectStoragePathOptions& opts,
-                                       int64_t /*expiration_secs*/,
-                                       const S3ClientConf& /*conf*/) override {
+    Result<std::string> generate_presigned_url(const ObjectStoragePathOptions& opts,
+                                               int64_t /*expiration_secs*/,
+                                               const S3ClientConf& /*conf*/) override {
         return fmt::format("mock://{}/{}", opts.bucket, opts.key);
     }
 

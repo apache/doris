@@ -20,6 +20,10 @@
 #include <aws/s3/model/ListObjectsV2Request.h>
 #include <aws/s3/model/ListObjectsV2Result.h>
 #include <aws/s3/model/Object.h>
+#include <fmt/format.h>
+
+#include <atomic>
+#include <thread>
 
 #include "gmock/gmock.h"
 #include "io/fs/s3_obj_storage_client.h"
@@ -35,19 +39,6 @@ public:
 
     MOCK_METHOD(Aws::S3::Model::ListObjectsV2Outcome, ListObjectsV2,
                 (const Aws::S3::Model::ListObjectsV2Request& request), (const, override));
-};
-
-class FakeGcpAdcTokenProvider : public GcpAdcTokenProvider {
-public:
-    int refresh_count = 0;
-
-protected:
-    bool refresh_token(std::string* token, std::chrono::seconds* expires_in) override {
-        ++refresh_count;
-        *token = "test-token";
-        *expires_in = std::chrono::seconds(3600);
-        return true;
-    }
 };
 
 class S3ObjStorageClientMockTest : public testing::Test {
@@ -81,9 +72,17 @@ TEST_F(S3ObjStorageClientMockTest, list_objects_compatibility) {
     files.clear();
 }
 
-TEST_F(S3ObjStorageClientMockTest, gcp_adc_bearer_token_applied) {
+TEST_F(S3ObjStorageClientMockTest, gcp_workload_identity_bearer_token_applied) {
     auto mock_s3_client = std::make_shared<MockS3Client>();
-    auto token_provider = std::make_shared<FakeGcpAdcTokenProvider>();
+    std::atomic<int> fetch_count = 0;
+    auto token_provider = std::make_shared<GcpWorkloadIdentityTokenProvider>(
+            [&](std::string* token, std::chrono::seconds* expires_in) {
+                ++fetch_count;
+                *token = "test-token";
+                *expires_in = std::chrono::hours(1);
+                return true;
+            },
+            std::chrono::steady_clock::now);
     S3ObjStorageClient s3_obj_storage_client(mock_s3_client, token_provider);
 
     std::vector<io::FileInfo> files;
@@ -91,29 +90,111 @@ TEST_F(S3ObjStorageClientMockTest, gcp_adc_bearer_token_applied) {
     result.SetIsTruncated(false);
     EXPECT_CALL(*mock_s3_client, ListObjectsV2(testing::_))
             .Times(2)
-            .WillRepeatedly(testing::Return(ListObjectsV2Outcome(result)));
+            .WillRepeatedly([&](const ListObjectsV2Request& request) {
+                const auto& headers = request.GetAdditionalCustomHeaders();
+                auto header = headers.find("Authorization");
+                EXPECT_NE(header, headers.end());
+                if (header != headers.end()) {
+                    EXPECT_EQ(header->second, "Bearer test-token");
+                }
+                return ListObjectsV2Outcome(result);
+            });
 
     auto response = s3_obj_storage_client.list_objects(
-            {.bucket = "dummy-bucket", .prefix = "S3ObjStorageClientMockTest/gcp_adc"}, &files);
+            {.bucket = "dummy-bucket",
+             .prefix = "S3ObjStorageClientMockTest/gcp_workload_identity"},
+            &files);
     EXPECT_EQ(response.status.code, ErrorCode::OK);
 
     // The token is cached: a second request must not refresh it again.
     response = s3_obj_storage_client.list_objects(
-            {.bucket = "dummy-bucket", .prefix = "S3ObjStorageClientMockTest/gcp_adc"}, &files);
+            {.bucket = "dummy-bucket",
+             .prefix = "S3ObjStorageClientMockTest/gcp_workload_identity"},
+            &files);
     EXPECT_EQ(response.status.code, ErrorCode::OK);
-    EXPECT_EQ(token_provider->refresh_count, 1);
+    EXPECT_EQ(fetch_count.load(), 1);
 }
 
-TEST_F(S3ObjStorageClientMockTest, gcp_adc_presigned_url_unsupported) {
+TEST_F(S3ObjStorageClientMockTest, gcp_workload_identity_token_refresh) {
+    auto now = std::chrono::steady_clock::now();
+    int fetch_count = 0;
+    bool fetch_succeeds = true;
+    GcpWorkloadIdentityTokenProvider token_provider(
+            [&](std::string* token, std::chrono::seconds* expires_in) {
+                ++fetch_count;
+                if (!fetch_succeeds) {
+                    return false;
+                }
+                *token = fmt::format("token-{}", fetch_count);
+                *expires_in = std::chrono::hours(1);
+                return true;
+            },
+            [&] { return now; });
+
+    EXPECT_EQ(token_provider.get_token(), "token-1");
+    EXPECT_EQ(token_provider.get_token(), "token-1");
+    EXPECT_EQ(fetch_count, 1);
+
+    now += std::chrono::minutes(56);
+    EXPECT_EQ(token_provider.get_token(), "token-2");
+
+    fetch_succeeds = false;
+    now += std::chrono::minutes(56);
+    EXPECT_EQ(token_provider.get_token(), "token-2");
+    now += std::chrono::minutes(5);
+    EXPECT_TRUE(token_provider.get_token().empty());
+}
+
+TEST_F(S3ObjStorageClientMockTest, gcp_workload_identity_refresh_is_serialized) {
+    std::atomic<int> fetch_count = 0;
+    GcpWorkloadIdentityTokenProvider token_provider(
+            [&](std::string* token, std::chrono::seconds* expires_in) {
+                ++fetch_count;
+                *token = "shared-token";
+                *expires_in = std::chrono::hours(1);
+                return true;
+            },
+            std::chrono::steady_clock::now);
+
+    std::vector<std::thread> threads;
+    for (int i = 0; i < 16; ++i) {
+        threads.emplace_back([&] { EXPECT_EQ(token_provider.get_token(), "shared-token"); });
+    }
+    for (auto& thread : threads) {
+        thread.join();
+    }
+    EXPECT_EQ(fetch_count.load(), 1);
+}
+
+TEST_F(S3ObjStorageClientMockTest, gcp_workload_identity_fails_closed_without_token) {
+    auto token_provider = std::make_shared<GcpWorkloadIdentityTokenProvider>(
+            [](std::string*, std::chrono::seconds*) { return false; },
+            std::chrono::steady_clock::now);
+    ListObjectsV2Request request;
+    apply_gcp_bearer_token(request, token_provider);
+
+    const auto& headers = request.GetAdditionalCustomHeaders();
+    auto header = headers.find("Authorization");
+    ASSERT_NE(header, headers.end());
+    EXPECT_EQ(header->second, "Bearer unavailable");
+}
+
+TEST_F(S3ObjStorageClientMockTest, gcp_workload_identity_presigned_url_unsupported) {
     auto mock_s3_client = std::make_shared<MockS3Client>();
-    auto token_provider = std::make_shared<FakeGcpAdcTokenProvider>();
+    auto token_provider = std::make_shared<GcpWorkloadIdentityTokenProvider>(
+            [](std::string* token, std::chrono::seconds* expires_in) {
+                *token = "test-token";
+                *expires_in = std::chrono::hours(1);
+                return true;
+            },
+            std::chrono::steady_clock::now);
     S3ObjStorageClient s3_obj_storage_client(mock_s3_client, token_provider);
 
-    // A short-lived bearer token cannot be embedded in a URL.
     S3ClientConf conf;
-    EXPECT_EQ(s3_obj_storage_client.generate_presigned_url(
-                      {.bucket = "dummy-bucket", .key = "object"}, 60, conf),
-              "");
+    auto result = s3_obj_storage_client.generate_presigned_url(
+            {.bucket = "dummy-bucket", .key = "object"}, 60, conf);
+    ASSERT_FALSE(result);
+    EXPECT_TRUE(result.error().is<ErrorCode::NOT_IMPLEMENTED_ERROR>());
 }
 
 ListObjectsV2Result CreatePageResult(const std::string& nextToken,

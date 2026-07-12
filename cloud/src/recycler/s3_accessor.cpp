@@ -48,7 +48,7 @@
 #include "common/util.h"
 #include "cpp/aws_logger.h"
 #include "cpp/custom_aws_credentials_provider_chain.h"
-#include "cpp/gcp_adc_token_provider.h"
+#include "cpp/gcp_workload_identity_token_provider.h"
 #include "cpp/obj_retry_strategy.h"
 #include "cpp/sync_point.h"
 #include "cpp/token_bucket_rate_limiter.h"
@@ -275,6 +275,14 @@ std::string S3Accessor::to_uri(const std::string& relative_path) const {
 
 int S3Accessor::create(S3Conf conf, std::shared_ptr<S3Accessor>* accessor) {
     TEST_SYNC_POINT_RETURN_WITH_VALUE("S3Accessor::init.s3_init_failed", (int)-1);
+    if (conf.cred_provider_type == CredProviderType::GcpWorkloadIdentity &&
+        (conf.provider != S3Conf::GCS || !is_gcs_xml_endpoint(conf.endpoint) || !conf.ak.empty() ||
+         !conf.sk.empty() || !conf.role_arn.empty())) {
+        LOG_WARNING("invalid GCP workload identity configuration")
+                .tag("provider", static_cast<int>(conf.provider))
+                .tag("endpoint", conf.endpoint);
+        return -1;
+    }
     switch (conf.provider) {
     case S3Conf::GCS:
         *accessor = std::make_shared<GcsAccessor>(conf);
@@ -297,7 +305,7 @@ std::shared_ptr<Aws::Auth::AWSCredentialsProvider> S3Accessor::_get_aws_credenti
         return std::make_shared<Aws::Auth::SimpleAWSCredentialsProvider>(std::move(aws_cred));
     }
 
-    if (s3_conf.cred_provider_type == CredProviderType::GcpAdc) {
+    if (s3_conf.cred_provider_type == CredProviderType::GcpWorkloadIdentity) {
         return _create_credentials_provider(s3_conf.cred_provider_type);
     }
 
@@ -343,10 +351,10 @@ std::shared_ptr<Aws::Auth::AWSCredentialsProvider> S3Accessor::_create_credentia
         return std::make_shared<Aws::Auth::InstanceProfileCredentialsProvider>();
     case CredProviderType::Anonymous:
         return std::make_shared<Aws::Auth::AnonymousAWSCredentialsProvider>();
-    case CredProviderType::GcpAdc:
+    case CredProviderType::GcpWorkloadIdentity:
         // Anonymous credentials make the SDK's SigV4 signer a no-op; the
         // request-level `Authorization: Bearer` header (see S3ObjClient)
-        // authenticates against the GCS S3-compatible endpoint instead.
+        // authenticates against the GCS XML API instead.
         return std::make_shared<Aws::Auth::AnonymousAWSCredentialsProvider>();
     case CredProviderType::Default:
     default:
@@ -451,6 +459,9 @@ int S3Accessor::init() {
         if (config::s3_client_http_scheme == "http") {
             aws_config.scheme = Aws::Http::Scheme::HTTP;
         }
+        if (conf_.cred_provider_type == CredProviderType::GcpWorkloadIdentity) {
+            aws_config.scheme = Aws::Http::Scheme::HTTPS;
+        }
         aws_config.retryStrategy = std::make_shared<S3CustomRetryStrategy>(
                 config::max_s3_client_retry, config::s3_client_retry_slow_down);
 
@@ -465,9 +476,9 @@ int S3Accessor::init() {
                 get_aws_credentials_provider(conf_), std::move(aws_config),
                 Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never,
                 conf_.use_virtual_addressing /* useVirtualAddressing */);
-        std::shared_ptr<GcpAdcTokenProvider> bearer_token_provider;
-        if (conf_.cred_provider_type == CredProviderType::GcpAdc) {
-            bearer_token_provider = global_gcp_adc_token_provider();
+        std::shared_ptr<GcpWorkloadIdentityTokenProvider> bearer_token_provider;
+        if (conf_.cred_provider_type == CredProviderType::GcpWorkloadIdentity) {
+            bearer_token_provider = global_gcp_workload_identity_token_provider();
         }
         obj_client_ = std::make_shared<S3ObjClient>(std::move(s3_client), conf_.endpoint,
                                                     std::move(bearer_token_provider));

@@ -99,8 +99,9 @@ public:
         return io::ObjectStorageResponse::OK();
     }
 
-    std::string generate_presigned_url(const io::ObjectStoragePathOptions& opts,
-                                       int64_t expiration_secs, const S3ClientConf& conf) override {
+    Result<std::string> generate_presigned_url(const io::ObjectStoragePathOptions& opts,
+                                               int64_t expiration_secs,
+                                               const S3ClientConf& conf) override {
         last_opts = opts;
         last_expiration_secs = expiration_secs;
         last_conf = conf;

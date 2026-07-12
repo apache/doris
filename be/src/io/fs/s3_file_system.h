@@ -90,8 +90,8 @@ public:
     const std::string& bucket() const { return _bucket; }
     const std::string& prefix() const { return _prefix; }
 
-    std::string generate_presigned_url(const Path& path, int64_t expiration_secs,
-                                       bool is_public_endpoint) const;
+    Result<std::string> generate_presigned_url(const Path& path, int64_t expiration_secs,
+                                               bool is_public_endpoint) const;
 
 protected:
     Status create_file_impl(const Path& file, FileWriterPtr* writer,

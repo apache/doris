@@ -74,9 +74,10 @@ auto s3_put_rate_limit(Func callback) -> decltype(callback()) {
 
 class S3ObjListIterator final : public ObjectListIterator {
 public:
-    S3ObjListIterator(std::shared_ptr<Aws::S3::S3Client> client, std::string bucket,
-                      std::string prefix, std::string endpoint,
-                      std::shared_ptr<GcpAdcTokenProvider> bearer_token_provider = nullptr)
+    S3ObjListIterator(
+            std::shared_ptr<Aws::S3::S3Client> client, std::string bucket, std::string prefix,
+            std::string endpoint,
+            std::shared_ptr<GcpWorkloadIdentityTokenProvider> bearer_token_provider = nullptr)
             : client_(std::move(client)),
               bearer_token_provider_(std::move(bearer_token_provider)),
               endpoint_(std::move(endpoint)) {
@@ -193,7 +194,7 @@ public:
 
 private:
     std::shared_ptr<Aws::S3::S3Client> client_;
-    std::shared_ptr<GcpAdcTokenProvider> bearer_token_provider_;
+    std::shared_ptr<GcpWorkloadIdentityTokenProvider> bearer_token_provider_;
     Aws::S3::Model::ListObjectsV2Request req_;
     std::vector<ObjectMeta> results_;
     std::string endpoint_;

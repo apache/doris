@@ -32,11 +32,13 @@
 #include <memory>
 #include <random>
 #include <string>
+#include <string_view>
 #include <thread>
 
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/util.h"
+#include "cpp/aws_common.h"
 #include "cpp/sync_point.h"
 #include "meta-service/meta_service_helper.h"
 #include "meta-store/blob_message.h"
@@ -10559,7 +10561,7 @@ TEST(MetaServiceTest, CreateS3VaultWithIamRole) {
     SyncPoint::get_instance()->clear_all_call_backs();
 }
 
-TEST(MetaServiceTest, CreateAndAlterS3VaultWithGcpAdc) {
+TEST(MetaServiceTest, CreateAndAlterS3VaultWithGcpWorkloadIdentity) {
     auto sp = SyncPoint::get_instance();
     sp->enable_processing();
     sp->set_call_back("encrypt_ak_sk:get_encryption_key", [](auto&& args) {
@@ -10607,43 +10609,45 @@ TEST(MetaServiceTest, CreateAndAlterS3VaultWithGcpAdc) {
         vault->ParseFromString(val);
     };
 
-    std::string adc_vault_id;
-    {
-        // A keyless GCP vault with the GCP_ADC credentials provider is accepted.
+    auto make_workload_identity_vault = [](std::string name, std::string_view endpoint,
+                                           ObjectStoreInfoPB::Provider provider) {
         StorageVaultPB vault;
-        vault.mutable_obj_info()->set_endpoint("storage.googleapis.com");
-        vault.mutable_obj_info()->set_region("us-central1");
-        vault.mutable_obj_info()->set_bucket("test_bucket");
-        vault.mutable_obj_info()->set_prefix("test_prefix");
-        vault.mutable_obj_info()->set_provider(
-                ObjectStoreInfoPB::Provider::ObjectStoreInfoPB_Provider_GCP);
-        vault.mutable_obj_info()->set_cred_provider_type(CredProviderTypePB::GCP_ADC);
-        vault.set_name("gcp_adc_vault");
+        vault.set_name(std::move(name));
+        auto* obj_info = vault.mutable_obj_info();
+        obj_info->set_endpoint(std::string(endpoint));
+        obj_info->set_region("us-central1");
+        obj_info->set_bucket("test_bucket");
+        obj_info->set_prefix("test_prefix");
+        obj_info->set_provider(provider);
+        obj_info->set_cred_provider_type(CredProviderTypePB::GCP_WORKLOAD_IDENTITY);
+        return vault;
+    };
+
+    std::string workload_identity_vault_id;
+    {
+        auto vault = make_workload_identity_vault("gcp_workload_identity_vault",
+                                                  "storage.googleapis.com", ObjectStoreInfoPB::GCP);
 
         AlterObjStoreInfoResponse res;
         add_vault(vault, &res);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
-        adc_vault_id = res.storage_vault_id();
+        workload_identity_vault_id = res.storage_vault_id();
 
         StorageVaultPB get_obj;
-        get_vault(adc_vault_id, &get_obj);
+        get_vault(workload_identity_vault_id, &get_obj);
         ASSERT_FALSE(get_obj.obj_info().has_ak());
         ASSERT_FALSE(get_obj.obj_info().has_role_arn());
-        ASSERT_EQ(get_obj.obj_info().cred_provider_type(), CredProviderTypePB::GCP_ADC)
+        ASSERT_EQ(get_obj.obj_info().cred_provider_type(),
+                  CredProviderTypePB::GCP_WORKLOAD_IDENTITY)
                 << get_obj.obj_info().cred_provider_type();
+        ASSERT_EQ(get_obj.obj_info().endpoint(), GCS_XML_ENDPOINT);
     }
 
-    {
-        // GCP_ADC is rejected for any provider other than GCP.
-        StorageVaultPB vault;
-        vault.mutable_obj_info()->set_endpoint("s3.us-east-1.amazonaws.com");
-        vault.mutable_obj_info()->set_region("us-east-1");
-        vault.mutable_obj_info()->set_bucket("test_bucket");
-        vault.mutable_obj_info()->set_prefix("test_prefix");
-        vault.mutable_obj_info()->set_provider(
-                ObjectStoreInfoPB::Provider::ObjectStoreInfoPB_Provider_S3);
-        vault.mutable_obj_info()->set_cred_provider_type(CredProviderTypePB::GCP_ADC);
-        vault.set_name("gcp_adc_wrong_provider_vault");
+    int invalid_endpoint_index = 0;
+    for (const auto& endpoint : {"http://storage.googleapis.com", "https://example.com"}) {
+        auto vault = make_workload_identity_vault(
+                fmt::format("gcp_workload_identity_invalid_endpoint_{}", invalid_endpoint_index++),
+                endpoint, ObjectStoreInfoPB::GCP);
 
         AlterObjStoreInfoResponse res;
         add_vault(vault, &res);
@@ -10651,17 +10655,18 @@ TEST(MetaServiceTest, CreateAndAlterS3VaultWithGcpAdc) {
     }
 
     {
-        // GCP_ADC cannot be combined with role_arn.
-        StorageVaultPB vault;
-        vault.mutable_obj_info()->set_endpoint("storage.googleapis.com");
-        vault.mutable_obj_info()->set_region("us-central1");
-        vault.mutable_obj_info()->set_bucket("test_bucket");
-        vault.mutable_obj_info()->set_prefix("test_prefix");
-        vault.mutable_obj_info()->set_provider(
-                ObjectStoreInfoPB::Provider::ObjectStoreInfoPB_Provider_GCP);
-        vault.mutable_obj_info()->set_cred_provider_type(CredProviderTypePB::GCP_ADC);
+        auto vault = make_workload_identity_vault("gcp_workload_identity_wrong_provider_vault",
+                                                  GCS_XML_ENDPOINT, ObjectStoreInfoPB::S3);
+
+        AlterObjStoreInfoResponse res;
+        add_vault(vault, &res);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT) << res.status().msg();
+    }
+
+    {
+        auto vault = make_workload_identity_vault("gcp_workload_identity_role_arn_vault",
+                                                  GCS_XML_ENDPOINT, ObjectStoreInfoPB::GCP);
         vault.mutable_obj_info()->set_role_arn("arn:aws:iam::123456789012:role/test-role");
-        vault.set_name("gcp_adc_role_arn_vault");
 
         AlterObjStoreInfoResponse res;
         add_vault(vault, &res);
@@ -10689,13 +10694,13 @@ TEST(MetaServiceTest, CreateAndAlterS3VaultWithGcpAdc) {
     }
 
     {
-        // ...can be altered to GCP_ADC, which clears the stored keys.
+        // ...can be altered to Workload Identity, which clears the stored keys.
         AlterObjStoreInfoRequest req;
         req.set_cloud_unique_id("test_cloud_unique_id");
         req.set_op(AlterObjStoreInfoRequest::ALTER_S3_VAULT);
         req.mutable_vault()->set_name("gcp_hmac_vault");
         req.mutable_vault()->mutable_obj_info()->set_cred_provider_type(
-                CredProviderTypePB::GCP_ADC);
+                CredProviderTypePB::GCP_WORKLOAD_IDENTITY);
 
         brpc::Controller cntl;
         AlterObjStoreInfoResponse res;
@@ -10708,18 +10713,20 @@ TEST(MetaServiceTest, CreateAndAlterS3VaultWithGcpAdc) {
         ASSERT_FALSE(get_obj.obj_info().has_ak());
         ASSERT_FALSE(get_obj.obj_info().has_sk());
         ASSERT_FALSE(get_obj.obj_info().has_encryption_info());
-        ASSERT_EQ(get_obj.obj_info().cred_provider_type(), CredProviderTypePB::GCP_ADC)
+        ASSERT_EQ(get_obj.obj_info().cred_provider_type(),
+                  CredProviderTypePB::GCP_WORKLOAD_IDENTITY)
                 << get_obj.obj_info().cred_provider_type();
+        ASSERT_EQ(get_obj.obj_info().endpoint(), GCS_XML_ENDPOINT);
     }
 
     {
-        // Altering to GCP_ADC together with ak/sk in one request is rejected.
+        // Altering to Workload Identity together with ak/sk in one request is rejected.
         AlterObjStoreInfoRequest req;
         req.set_cloud_unique_id("test_cloud_unique_id");
         req.set_op(AlterObjStoreInfoRequest::ALTER_S3_VAULT);
         req.mutable_vault()->set_name("gcp_hmac_vault");
         req.mutable_vault()->mutable_obj_info()->set_cred_provider_type(
-                CredProviderTypePB::GCP_ADC);
+                CredProviderTypePB::GCP_WORKLOAD_IDENTITY);
         req.mutable_vault()->mutable_obj_info()->set_ak("new_ak");
         req.mutable_vault()->mutable_obj_info()->set_sk("new_sk");
 

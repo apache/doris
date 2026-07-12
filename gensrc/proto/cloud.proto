@@ -274,12 +274,9 @@ enum CredProviderTypePB {
     WEB_IDENTITY = 6;  // STSAssumeRoleWebIdentityCredentialsProvider
     CONTAINER = 7;  // TaskRoleCredentialsProvider
     ANONYMOUS = 8;  // AnonymousAWSCredentialsProvider
-    // GCP Application Default Credentials; only valid with provider GCP.
-    // Requests to the GCS S3-compatible XML API are authenticated with an
-    // OAuth2 bearer token obtained via ADC (GOOGLE_APPLICATION_CREDENTIALS
-    // service account json or the GCE/GKE metadata server, i.e. Workload
-    // Identity) instead of HMAC keys.
-    GCP_ADC = 9;
+    // GKE Workload Identity. Requests to the GCS XML API are authenticated
+    // with a short-lived OAuth2 token from the GKE metadata server.
+    GCP_WORKLOAD_IDENTITY = 9;
 }
 
 message ObjectStoreInfoPB {

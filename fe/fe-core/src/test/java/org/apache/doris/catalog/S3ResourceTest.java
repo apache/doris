@@ -246,6 +246,46 @@ public class S3ResourceTest {
     }
 
     @Test
+    public void testWorkloadIdentityIsRejectedForS3Resource() {
+        ImmutableMap<String, String> properties = ImmutableMap.<String, String>builder()
+                .put("s3.endpoint", "storage.googleapis.com")
+                .put("s3.region", "us-central1")
+                .put("s3.bucket", "test-bucket")
+                .put("s3.root.path", "root")
+                .put("provider", "GCP")
+                .put("s3.credentials_provider_type", "gcp_workload_identity")
+                .build();
+
+        S3Resource resource = new S3Resource("gcp_resource");
+        DdlException exception = Assert.assertThrows(
+                DdlException.class, () -> resource.setProperties(properties));
+        Assert.assertTrue(exception.getMessage().contains("only supported for storage vaults"));
+    }
+
+    @Test
+    public void testWorkloadIdentityStorageVaultUsesHttpsEndpoint() throws DdlException {
+        ImmutableMap<String, String> properties = ImmutableMap.<String, String>builder()
+                .put("type", "s3")
+                .put("s3.endpoint", "storage.googleapis.com")
+                .put("s3.region", "us-central1")
+                .put("s3.bucket", "test-bucket")
+                .put("s3.root.path", "root")
+                .put("provider", "GCP")
+                .put("s3.credentials_provider_type", "gcp_workload_identity")
+                .build();
+        CreateResourceCommand command = new CreateResourceCommand(
+                new CreateResourceInfo(false, false, "gcp_vault", properties));
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            Env env = Mockito.mock(Env.class);
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            S3Resource resource = S3Resource.fromStorageVaultCommand(command);
+            Assert.assertEquals(S3Properties.GCS_XML_ENDPOINT,
+                    resource.getProperty(S3Properties.ENDPOINT));
+        }
+    }
+
+    @Test
     public void testPingS3() {
         try {
             String accessKey = System.getenv("ACCESS_KEY");

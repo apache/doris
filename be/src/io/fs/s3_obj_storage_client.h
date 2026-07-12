@@ -17,7 +17,7 @@
 
 #pragma once
 
-#include "cpp/gcp_adc_token_provider.h"
+#include "cpp/gcp_workload_identity_token_provider.h"
 #include "io/fs/obj_storage_client.h"
 #include "io/fs/s3_file_system.h"
 
@@ -33,8 +33,9 @@ class ObjClientHolder;
 
 class S3ObjStorageClient final : public ObjStorageClient {
 public:
-    S3ObjStorageClient(std::shared_ptr<Aws::S3::S3Client> client,
-                       std::shared_ptr<GcpAdcTokenProvider> bearer_token_provider = nullptr)
+    S3ObjStorageClient(
+            std::shared_ptr<Aws::S3::S3Client> client,
+            std::shared_ptr<GcpWorkloadIdentityTokenProvider> bearer_token_provider = nullptr)
             : _client(std::move(client)),
               _bearer_token_provider(std::move(bearer_token_provider)) {}
     ~S3ObjStorageClient() override = default;
@@ -57,8 +58,9 @@ public:
                                          std::vector<std::string> objs) override;
     ObjectStorageResponse delete_object(const ObjectStoragePathOptions& opts) override;
     ObjectStorageResponse delete_objects_recursively(const ObjectStoragePathOptions& opts) override;
-    std::string generate_presigned_url(const ObjectStoragePathOptions& opts,
-                                       int64_t expiration_secs, const S3ClientConf&) override;
+    Result<std::string> generate_presigned_url(const ObjectStoragePathOptions& opts,
+                                               int64_t expiration_secs,
+                                               const S3ClientConf&) override;
 
 private:
     template <typename Request>
@@ -67,9 +69,8 @@ private:
     }
 
     std::shared_ptr<Aws::S3::S3Client> _client;
-    // Set iff the client authenticates via the GCP_ADC credentials provider
-    // type (OAuth2 bearer token on the GCS S3-compatible endpoint).
-    std::shared_ptr<GcpAdcTokenProvider> _bearer_token_provider;
+    // Set iff the client authenticates through GKE Workload Identity.
+    std::shared_ptr<GcpWorkloadIdentityTokenProvider> _bearer_token_provider;
 };
 
 } // namespace doris::io

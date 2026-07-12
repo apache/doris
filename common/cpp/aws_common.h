@@ -20,6 +20,9 @@
 #include <gen_cpp/cloud.pb.h>
 
 #include <filesystem>
+#include <string>
+#include <string_view>
+#include <vector>
 
 namespace doris {
 //AWS Credentials Provider Type
@@ -32,11 +35,13 @@ enum class CredProviderType {
     WebIdentity = 5,
     Container = 6,
     Anonymous = 7,
-    // GCP Application Default Credentials; only valid with provider GCP.
-    // The S3 client is created with anonymous credentials (SigV4 signing
-    // is skipped) and requests carry an OAuth2 bearer token instead.
-    GcpAdc = 8
+    // GKE Workload Identity; only valid with provider GCP.
+    GcpWorkloadIdentity = 8
 };
+
+inline constexpr std::string_view GCS_XML_ENDPOINT = "https://storage.googleapis.com";
+
+bool is_gcs_xml_endpoint(std::string_view endpoint);
 
 CredProviderType cred_provider_type_from_pb(cloud::CredProviderTypePB cred_provider_type);
 
