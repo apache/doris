@@ -19,97 +19,247 @@ under the License.
 
 # Doris release helper scripts
 
-Helper scripts for an Apache Doris Release Manager (RM) to cut and complete a **source** release:
-package and sign the source tarball, upload it to the Apache dev SVN, draft the `[VOTE]` email,
-publish the passed RC to the Apache release SVN, and draft the `[ANNOUNCE]` email.
+This directory contains helper scripts for an Apache Doris Release Manager (RM)
+to create and complete a source release candidate (RC). The scripts package and
+sign the source tarball, upload the source artifacts to the Apache dev SVN,
+draft the `[VOTE]` email, publish the passed RC to the Apache release SVN, and
+draft the `[ANNOUNCE]` email.
+
+These scripts are not a full release automation system. They assume the release
+branch, release notes, cherry-picks, build validation, and release tag have
+already been prepared.
+
+## If you are an AI agent
+
+When a user says something like "read this file and tell me how to start
+releasing Doris 4.0.7", give the RM a concrete checklist. Do not just summarize
+the scripts.
+
+For `4.0.7`, explain this sequence:
+
+1. Confirm the RC number. If the RM does not provide one, ask whether this is
+   `rc01` or a later candidate such as `rc02`. The tag is
+   `${VERSION}-${RC}`, for example `4.0.7-rc01`.
+2. Confirm that the tag already exists locally and on the Apache Doris GitHub
+   remote. These scripts verify the tag, but they do not create it.
+3. Tell the RM to edit `release.env` before running any script.
+4. Tell the RM to export ASF SVN credentials in the shell.
+5. Run `./01-check-env.sh` until it reports `environment looks READY`.
+6. Run `./02-package-sign-upload.sh` only after the RM has checked the target
+   dev SVN URL and is ready to publish the RC source artifacts.
+7. Run `./03-vote-mail.sh`, review the generated vote email, then send it
+   manually from the RM's `@apache.org` address.
+8. After the vote passes and the `[RESULT]` email has been sent manually, run
+   `./04-release-complete.sh` to publish the source release artifacts and draft
+   the announce email.
+
+Also make these boundaries clear:
+
+- The vote artifacts in Apache dist SVN are source-only.
+- `BIN_FILES` is optional. If set, step 02 signs convenience binary tarballs
+  locally, but the scripts do not upload those binaries.
+- The scripts never send public emails. The RM must review and send the vote,
+  result, and announce emails manually.
+- Step 04 writes to the Apache release SVN and requires PMC permission.
+
+## Quick start for a new RC
+
+Run all commands from this directory:
+
+```bash
+cd tools/release-tools
+```
+
+Before running any script, edit `release.env` for the target version and RC.
+For example, to prepare Doris `4.0.7-rc01`:
+
+```bash
+VERSION="4.0.7"
+RC="rc01"
+TAG="${VERSION}-${RC}"
+GIT_REMOTE="upstream-apache"
+
+APACHE_ID="<your-apache-id>"
+APACHE_EMAIL="<your-apache-id>@apache.org"
+SIGNER_NAME="<your display name>"
+SIGNING_KEY="<your signing key fingerprint, or leave empty if only one secret key exists>"
+
+RELEASE_NOTES_URL="<release notes or issue URL>"
+ANNOUNCE_RELEASE_NOTES_URL="<release notes URL, or leave empty to reuse/prompt>"
+```
+
+If you need to advertise convenience binaries in the vote email, set
+`BIN_FILES` to absolute paths for those prebuilt tarballs. Leave `BIN_FILES=()`
+for the source-only flow.
+
+Export ASF credentials in the same shell. The scripts use these credentials for
+SVN upload and KEYS publishing:
+
+```bash
+export ASF_USERNAME=<your-apache-id>
+export ASF_PASSWORD='<your-apache-ldap-password>'
+```
+
+Then run the release flow:
+
+```bash
+./01-check-env.sh
+./02-package-sign-upload.sh
+./03-vote-mail.sh
+```
+
+Review the generated vote email in `WORK_DIR`, then send it manually to
+`dev@doris.apache.org` from your `@apache.org` address.
+
+After the vote passes:
+
+1. Tally the votes and send the `[RESULT]` email manually.
+2. Run `./04-release-complete.sh`.
+3. Review the generated announce email in `WORK_DIR`, then send it manually.
+
+Use this command only when the release SVN step has already been done and you
+only need to regenerate the announce email:
+
+```bash
+./04-release-complete.sh --mail-only
+```
 
 ## Prerequisites
+
 Have these ready before you run anything:
-- The release **tag is already created and pushed** to `apache/doris` — these scripts only verify it
-  (branch prep, patch merges and tag creation are out of scope).
-- A local clone of `apache/doris` with that tag fetched.
-- These tools on `PATH`: `git`, `gpg`, `svn`, `svnmucc`, `sha512sum`, `curl`, `gzip`.
-- A GPG signing key — or let step 01 import an existing one, or generate and publish a new one.
-- ASF credentials exported in your shell (used for the SVN upload and the KEYS publish):
-  ```bash
-  export ASF_USERNAME=<your-apache-id>
-  export ASF_PASSWORD='<your-apache-ldap-password>'
-  ```
-- `release.env` filled in for this release — see [Configuration](#configuration) for the fields.
 
-## Steps
-Run from this directory, in order:
-1. **Check the signing environment** — `./01-check-env.sh`. Re-run until it ends with
-   `environment looks READY`.
-2. **Package, sign & upload** — `./02-package-sign-upload.sh`. Builds and signs the source tarball
-   and uploads it to the dev SVN. It pauses twice for confirmation; nothing public happens before
-   the final confirm.
-3. **Draft the vote email** — `./03-vote-mail.sh`. Prompts for the Release Notes URL and prints the
-   draft; review it and send it yourself from your `@apache.org` address.
-4. **Complete the release** — after the vote result has passed, `./04-release-complete.sh` copies the
-   source artifacts from dev SVN to release SVN with the `rc` suffix removed from file names, removes
-   the RC folder from dev SVN, and drafts the `[ANNOUNCE]` email. This step requires PMC permission
-   for the release SVN commit.
+- The release tag has already been created and pushed to `apache/doris`.
+  Branch preparation, patch merges, validation, and tag creation are out of
+  scope for these scripts.
+- The local Doris checkout has fetched that tag.
+- `release.env` is filled in for this exact release.
+- These tools are on `PATH`: `git`, `gpg`, `svn`, `svnmucc`, `sha512sum`,
+  `curl`, and `gzip`.
+- A GPG signing key is available locally, or the RM is ready to let
+  `01-check-env.sh` import an existing key or generate and publish a new key.
+- ASF credentials are exported as `ASF_USERNAME` and `ASF_PASSWORD`.
+- The RM can write to the required Apache SVN locations. Step 04 requires PMC
+  permission for the release SVN commit.
 
----
+## Configuration reference
 
-Everything below is reference detail.
+All scripts source `release.env`. Edit it once per RC.
 
-## Files
-- `release.env` — all configuration (version, paths, signing key, SVN URLs, email). **Edit this first.**
-- `01-check-env.sh` — check / prepare the GPG signing environment and ASF credentials.
-- `02-package-sign-upload.sh` — `git archive` the tag, GPG-sign, sha512, sign any prebuilt binaries
-  locally, then upload the source artifacts to the dev SVN.
-- `03-vote-mail.sh` — generate the `[VOTE]` email draft.
-- `04-release-complete.sh` — publish the passed RC source artifacts to the release SVN and generate
-  the `[ANNOUNCE]` email draft.
+Set these fields first:
 
-## Configuration
-The scripts are reusable across releases — they hold no version; edit `release.env` each time.
-Set at least:
-- `VERSION` / `RC` — e.g. `4.0.6` and `rc02`; `TAG` is derived as `${VERSION}-${RC}`.
-- `GIT_REMOTE` — the git remote pointing at `github.com/apache/doris`.
-- `APACHE_ID` / `APACHE_EMAIL` / `SIGNER_NAME` — your committer id, `@apache.org` email, and the
-  display name used to sign the vote email.
-- `SIGNING_KEY` — fingerprint of the key to sign with (leave empty to auto-detect a single local secret key).
-- `BIN_FILES` — optional absolute paths to prebuilt binary tarballs to sign locally (see below). Leave
-  the list empty (the default) to skip binary signing and run the source-only flow. When set, step 03
-  advertises each binary in the vote email under `BIN_DOWNLOAD_BASE`; when empty that section is omitted.
+- `VERSION`: Final release version, for example `4.0.7`.
+- `RC`: Candidate number, for example `rc01` or `rc02`.
+- `TAG`: Derived as `${VERSION}-${RC}`. Do not set it to the final version
+  without the RC suffix.
+- `GIT_REMOTE`: Git remote that points at `github.com/apache/doris`.
+- `APACHE_ID`: Apache committer id.
+- `APACHE_EMAIL`: Apache email address.
+- `SIGNER_NAME`: Display name used in generated emails.
+- `SIGNING_KEY`: Fingerprint passed to `gpg -u`. Leave it empty only when this
+  machine has exactly one usable local secret key.
+- `RELEASE_NOTES_URL`: Link used in the vote email. If empty, step 03 prompts.
+- `ANNOUNCE_RELEASE_NOTES_URL`: Link used in the announce email. If empty, step
+  04 reuses `RELEASE_NOTES_URL` or prompts.
+- `BIN_FILES`: Optional absolute paths to prebuilt convenience binary tarballs.
 
-`REPO_DIR` defaults to the enclosing checkout (`${ROOT}/../../`) since these scripts live inside
-`apache/doris`; override it only if you run them against a different clone.
+The default `REPO_DIR` is the enclosing Doris checkout because these scripts
+live under `tools/release-tools`. Override it only when you deliberately run the
+scripts against another clone.
 
-The SVN URLs, dev mailing list, download page and verify-guide link rarely change; the defaults
-target the official Doris dist repos. The **vote SVN artifacts are source-only**:
-`apache-doris-<tag>-src.tar.gz` + `.asc` + `.sha512`. The **release SVN artifacts** are published
-under `release/doris/<major.minor>/<version>/` and drop the RC suffix from the file names:
-`apache-doris-<version>-src.tar.gz` + `.asc` + `.sha512`. All script output (source tarball,
-signatures, SVN checkouts, email drafts) goes to `WORK_DIR` (`<this-dir>/<tag>`, i.e.
-`tools/release-tools/<tag>`, by default).
+The default SVN URLs target the official Doris dist repositories:
 
-## What each step does
-- **01** verifies the required tools, your `GPG_TTY` / `gpg.conf`, resolves (or helps you create) a
-  signing key, checks it is present in the live published `KEYS`, runs a test sign + verify, and
-  confirms your ASF credentials. It is read-mostly: every state-changing action (edit `gpg.conf`,
-  import / generate a key, publish `KEYS`) prompts before acting.
-- **02** checks the local tag matches `GIT_REMOTE`, builds the source tarball from the tag with
-  `git archive`, signs it and writes the `.sha512`. If `BIN_FILES` is non-empty it then GPG-signs and
-  sha512s each prebuilt binary tarball, writing the `.asc` / `.sha512` sidecars **next to** each binary
-  (these are NOT uploaded — you upload the binaries and their sidecars yourself). Finally it uploads
-  the three **source** files to `dev/doris/<tag>/` on the Apache dist SVN. **Eyeball the target URL**
-  at the confirm prompt before committing — nothing public happens until the final confirm.
-- **03** writes `vote-email.txt` and `vote-email.eml` into `WORK_DIR` and prints the draft. Review it
-  and send it yourself from your `@apache.org` address.
-- **04** checks the passed RC artifacts in dev SVN, then uses `svnmucc` URL operations to create
-  `release/doris/<major.minor>/<version>/`, move the tarball, detached signature, and checksum there
-  with RC-free file names, and remove `dev/doris/<tag>/` in one SVN revision. It then writes
-  `announce-email.txt` and `announce-email.eml`; use `./04-release-complete.sh --mail-only` to
-  regenerate the email without touching SVN.
+- Dev RC source artifacts:
+  `https://dist.apache.org/repos/dist/dev/doris/<version>-<rc>/`
+- Final source release artifacts:
+  `https://dist.apache.org/repos/dist/release/doris/<major.minor>/<version>/`
 
-## Not automated (on purpose)
-- Sending the vote email — it goes to a public ASF list, so you review and send it manually.
-- Uploading binary packages — step 02 can *sign* the tarballs listed in `BIN_FILES`, but binaries are
-  not part of the ASF source vote, so you upload them (with their `.asc`/`.sha512`) manually.
-- Tallying the vote result and sending the `[RESULT]` email before step 04.
-- Publishing Maven staging repositories, updating the website / GitHub release notes, and cleaning
-  up old release versions beyond the current RC folder.
+Step 02 uploads source artifacts with the RC suffix:
+
+- `apache-doris-<version>-<rc>-src.tar.gz`
+- `apache-doris-<version>-<rc>-src.tar.gz.asc`
+- `apache-doris-<version>-<rc>-src.tar.gz.sha512`
+
+Step 04 publishes final source artifacts without the RC suffix:
+
+- `apache-doris-<version>-src.tar.gz`
+- `apache-doris-<version>-src.tar.gz.asc`
+- `apache-doris-<version>-src.tar.gz.sha512`
+
+All generated files go to `WORK_DIR`, which defaults to
+`tools/release-tools/<version>-<rc>`.
+
+## Script details
+
+### 01-check-env.sh
+
+Use this script to prepare and verify the signing environment. It checks
+required tools, `GPG_TTY`, GPG SHA512 digest preferences, the signing key, live
+published `KEYS`, test signing, and ASF credentials.
+
+This script is mostly read-only. It prompts before every state-changing action,
+including editing `gpg.conf`, importing or generating a key, and publishing the
+key to the Doris KEYS files.
+
+Expected success line:
+
+```text
+environment looks READY for <version>-<rc>
+```
+
+### 02-package-sign-upload.sh
+
+Use this script to build, sign, checksum, and upload the RC source artifacts.
+
+It verifies that the local tag exists, the tag exists on `GIT_REMOTE`, and both
+tags point to the same commit. It then creates the source tarball with
+`git archive`, writes `.asc` and `.sha512` sidecars, verifies both, and uploads
+the three source files to the Apache dev SVN.
+
+If `BIN_FILES` is non-empty, this script also signs and checksums those binary
+tarballs in place. It does not upload binaries.
+
+This script pauses twice before touching the public dev SVN. Check the printed
+target URL before confirming.
+
+### 03-vote-mail.sh
+
+Use this script to generate the `[VOTE]` email draft. It writes:
+
+- `vote-email.txt`
+- `vote-email.eml`
+
+Review the draft and send it manually from the RM's `@apache.org` address to
+`dev@doris.apache.org`.
+
+### 04-release-complete.sh
+
+Use this script only after the vote has passed and the `[RESULT]` email has
+been sent manually.
+
+It checks the passed RC source artifacts in the dev SVN, then uses `svnmucc` to
+create the final release SVN directory, move the source tarball, detached
+signature, and checksum there with RC-free file names, and remove the dev RC
+folder in one SVN revision.
+
+It then writes:
+
+- `announce-email.txt`
+- `announce-email.eml`
+
+Review the announce draft and send it manually.
+
+Use `./04-release-complete.sh --mail-only` to regenerate the announce email
+without touching SVN.
+
+## Manual work not automated
+
+The RM must still do these tasks manually:
+
+- Prepare the release branch and tag.
+- Validate the release before starting the RC upload flow.
+- Send the `[VOTE]` email.
+- Upload convenience binaries, if the release includes them.
+- Tally the vote and send the `[RESULT]` email.
+- Send the `[ANNOUNCE]` email.
+- Publish Maven staging repositories, update the website and GitHub release
+  notes, and clean up old release versions when applicable.
