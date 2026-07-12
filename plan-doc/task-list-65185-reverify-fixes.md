@@ -179,10 +179,10 @@ Legend：⬜ todo / 🔄 in progress / ✅ done / ⏸ 挂起(需决策/live)
 
 - [x] **L1** DONE `88aa55b831b`(设计 `designs/FIX-L1-design.md`;设计红队 `wf_643c11b4-3fe` 3 lens 全 SOUND_WITH_CHANGES)。补 3 洞(static / +6 包 / test 源)**+ 红队发现的第 4 洞**:4 条白名单 `grep -v` 按**整行**匹配(`.`≡`/`)→连接器命名空间文件(608 个,全根在 `org.apache.doris.connector.**`)里的违规 import 被**按路径抑制**,门禁对其结构性失明。修法=候选 grep 加宽(static+test glob+6 包)+**白名单锚定到 import 目标**(`:import ...` 非整行)+ fqn sed 剥 `static`(修 static-vendored 误报,红队证 E3 属正确性非装饰)。新增自测 `tools/check-connector-imports.test.sh`(8 违规/2 vendored skip/3 allow;GREEN 于新、RED 于旧,真树 exit 0)。保留 `is_vendored()`(HiveVersionUtil FP)。**观察**:grep-denylist 固有盲区(新增内部包漏登记/FQN-无-import 内联/间距)登记设计债,根治须 allowlist/ArchUnit(Trino 先例)。
 - [ ] **L2** ⏸ 翻闸 hive 丢 SQL 缓存资格 · `CacheAnalyzer.java:308/316/319`(instanceof HiveScanNode)+ `BindRelation.java:887`(instanceof HMSExternalTable)。**需决策**:加 `ConnectorCapability` 让 `PluginDrivenScanNode`/`PluginDrivenExternalTable` 被识别并恢复缓存 **vs** 登记为 fail-safe 验收偏差(`enable_hive_sql_cache` 默认关)。
-- [ ] **L3** trino 事务从不 commit/close · `TrinoConnectorDorisMetadata.java`(6 处)+ `TrinoScanPlanProvider.java:112`(scan 站有意保持):元数据 6 站 try/finally `commit(txn)`(read-only 廉价)。scan 站不动。
-- [ ] **L4** trino plugin.dir 首胜单例 · `TrinoBootstrap.java:136,316`:单例已存在且 pluginDir 不同时 fail-loud 抛(而非静默用旧);或删 per-catalog 分支只认全局 config。
-- [ ] **L5** trino listTableNames 丢去重 · `TrinoConnectorDorisMetadata.java:98`:收集加 `.distinct()`/LinkedHashSet 保序;不复原 prefix 过滤(冗余)。
-- [ ] **L6** trino guard 字段发布顺序 NPE · `TrinoDorisConnector.java:176`:`doInitialize` 把 guard 字段 `trinoConnector` 赋值移到**最后**(volatile happens-before);或原子发布不可变 holder。
+- [x] **L3** DONE `4cd63c6911a`(设计 `FIX-L3-design.md`;对抗复审 `agent a182a049f` SOUND_WITH_CHANGES）· trino 6 个 FE-only 元数据站 try/finally 经 `releaseQuietly` 释放事务(commit + swallow-log 防 mask);scan 站不动(txnHandle 序列化发 BE 须保持打开)。UT 受 `io.trino.Session` 构造墙阻,登记 e2e live-gated。
+- [x] **L4** DONE `e27602d4ab6`(设计 `FIX-L4-design.md`;并发对抗复审 `agent a28dc47095` SOUND）· `TrinoBootstrap` 存 pluginDir,`getInstance` 不同 dir fail-loud 抛(canonicalize best-effort 兜同物理目录异拼写)。UT 受重构造墙阻,登记。
+- [x] **L5** DONE `be96adf76ba`(设计 `FIX-L5-design.md`）· `listTableNames` 加 `.distinct()` 复原 legacy LinkedHashSet 保序去重;不复原冗余 prefix 过滤。
+- [x] **L6** DONE `18048f7f217`(设计 `FIX-L6-design.md`;并发对抗复审同上 SOUND）· `doInitialize` guard 字段 `trinoConnector` 移到最后赋值(安全发布,闭合半初始化瞬时 NPE 窗口);全字段已 volatile,重排即足。
 - [ ] **L7** kerberos UGI.setConfiguration 无 guard · `HadoopKerberosAuthenticator.java:53-59,83,115`:port master first-writer-wins(仅首次 setConfiguration,进程锁序列化,已匹配则 skip+WARN);refresh 分支不重跑 initializeAuthConfig。注:metastore 路 parity,仅 fe-filesystem HDFS 数据路是真变。
 - [ ] **L8** kerberos doAs 吞 interrupt · `HadoopAuthenticator.java:34`:`throw new IOException(e)` 前加 `Thread.currentThread().interrupt();`。一行。
 - [ ] **L9** MC 谓词下推全有全无 · `MaxComputePredicateConverter.java:87-97,117-123`:`convertFilter` 若根是 `ConnectorAnd` 则逐 top-level conjunct 独立 try/catch(丢+log 失败)再 AND 幸存者;**不**对 OR/嵌套 AND 逐子容错。
@@ -269,3 +269,13 @@ Legend：⬜ todo / 🔄 in progress / ✅ done / ⏸ 挂起(需决策/live)
 - **L1** DONE `88aa55b831b`(code+test) — import 门禁补 3 洞 + **红队发现的第 4 洞**(白名单按整行匹配→连接器命名空间文件违规 import 被路径抑制,门禁对 608 个连接器实现文件结构性失明)。修法=候选 grep 加宽(static/test/6 包)+ 白名单锚定 import 目标 + fqn 剥 static;新增 `tools/check-connector-imports.test.sh`(RED 于旧/GREEN 于新/真树 exit 0)。设计红队 `wf_643c11b4-3fe` 3 lens 全 SOUND_WITH_CHANGES,发现全部逐条复现并折入。**非 live**(纯工具,无 e2e 欠账)。
 - **M8** ⏸ **用户 2026-07-12 明确要求跳过**(转做 L 系列)。侦察结论已留档(build.sh 已部署插件,缺口在升级流程+文档,含一个「仅文档 vs 文档+可选防御码」的用户决策)。**不 silently drop**——保留在表中待办,回来做时先中文讲清再拍板。
 - **下一步(用户指向 L 系列)**:直接可做的低危连接器 L 条=`L3–L9`(trino/kerberos/mc)、`L11/L13/L14`(paimon)、`L15–L19`(paimon/iceberg 杂项)。⏸ 决策类 `L2/L10/L12/L20` 须先中文讲清背景+选项问用户再动(memory `ask-user-explain-in-chinese-first`)。
+
+---
+
+**⭐ 批次 4·trino 子群(L3/L4/L5/L6)全 DONE**（各独立 code commit + 设计文档；trino 局部,不碰 fe-core,import 门净）：
+- **L3** `4cd63c6911a` — 6 元数据站释放事务(releaseQuietly,masking-safe);scan 站不动。对抗复审 `a182a049f` SOUND_WITH_CHANGES(折入 masking-safe 守卫)。
+- **L5** `be96adf76ba` — listTableNames `.distinct()` 复原去重。
+- **L6** `18048f7f217` — guard 字段最后发布,闭合并发瞬时 NPE。并发对抗复审 `a28dc47095` SOUND。
+- **L4** `e27602d4ab6` — plugin.dir 不同 fail-loud(canonicalize 兜异拼写)。同上复审 SOUND(折入 canonicalize minor)。
+- **共性**:trino UT 受 `io.trino.Session`/重构造墙阻,均 build-compile + 对抗复审 + e2e live-gated 兜底(非静默;显式登记 UT-wall)。
+- **下一步 = kerberos 子群 L7/L8,再 mc L9**。
