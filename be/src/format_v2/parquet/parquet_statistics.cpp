@@ -701,7 +701,7 @@ ParquetColumnStatistics ParquetStatisticsUtils::TransformColumnStatistics(
         return result;
     }
 
-    result.has_null = statistics->HasNullCount() && statistics->null_count() > 0;
+    result.has_null = !statistics->HasNullCount() || statistics->null_count() > 0;
     result.has_not_null = statistics->num_values() > 0 || statistics->HasMinMax();
     result.has_null_count = statistics->HasNullCount();
     if (!result.has_not_null || !statistics->HasMinMax()) {
