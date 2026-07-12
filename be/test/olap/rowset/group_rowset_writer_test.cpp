@@ -341,7 +341,7 @@ TEST_F(GroupRowsetWriterTest, partialUpdateSkipsHiddenNonKeyColumns) {
 
     Block eof_block = row_binlog_schema->create_block();
     status = rowset_reader->next_batch(&eof_block);
-    EXPECT_TRUE(status.is<END_OF_FILE>()) << status;
+    EXPECT_TRUE(status.is<ErrorCode::END_OF_FILE>()) << status;
 }
 
 } // namespace doris
