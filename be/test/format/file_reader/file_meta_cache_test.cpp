@@ -31,8 +31,10 @@
 #include "io/cache/block_file_cache.h"
 #include "io/cache/file_block.h"
 #include "io/cache/file_cache_common.h"
+#include "io/cache/fs_file_cache_storage.h"
 #include "io/fs/file_meta_disk_cache.h"
 #include "io/fs/file_reader.h"
+#include "runtime/exec_env.h"
 #include "util/coding.h"
 #include "util/defer_op.h"
 
@@ -681,13 +683,23 @@ TEST(FileMetaCacheDiskTest, DiskEntrySurvivesBlockFileCacheReinitialization) {
             config::enable_external_file_meta_disk_cache;
     const int64_t old_external_file_meta_disk_cache_max_entry_bytes =
             config::external_file_meta_disk_cache_max_entry_bytes;
+    const int64_t old_file_cache_background_ttl_gc_interval_ms =
+            config::file_cache_background_ttl_gc_interval_ms;
+    const int64_t old_file_cache_background_ttl_info_update_interval_ms =
+            config::file_cache_background_ttl_info_update_interval_ms;
     Defer restore_config {[&] {
         config::enable_external_file_meta_disk_cache = old_enable_external_file_meta_disk_cache;
         config::external_file_meta_disk_cache_max_entry_bytes =
                 old_external_file_meta_disk_cache_max_entry_bytes;
+        config::file_cache_background_ttl_gc_interval_ms =
+                old_file_cache_background_ttl_gc_interval_ms;
+        config::file_cache_background_ttl_info_update_interval_ms =
+                old_file_cache_background_ttl_info_update_interval_ms;
     }};
     config::enable_external_file_meta_disk_cache = true;
     config::external_file_meta_disk_cache_max_entry_bytes = 1024;
+    config::file_cache_background_ttl_gc_interval_ms = 20;
+    config::file_cache_background_ttl_info_update_interval_ms = 20;
 
     const std::filesystem::path cache_path =
             std::filesystem::temp_directory_path() /
@@ -696,6 +708,17 @@ TEST(FileMetaCacheDiskTest, DiskEntrySurvivesBlockFileCacheReinitialization) {
     std::filesystem::remove_all(cache_path, error);
     ASSERT_TRUE(std::filesystem::create_directories(cache_path));
     Defer remove_cache_path {[&] { std::filesystem::remove_all(cache_path, error); }};
+
+    auto* exec_env = ExecEnv::GetInstance();
+    const bool owns_fd_cache = exec_env->file_cache_open_fd_cache() == nullptr;
+    if (owns_fd_cache) {
+        exec_env->set_file_cache_open_fd_cache(std::make_unique<io::FDCache>());
+    }
+    Defer release_fd_cache {[&] {
+        if (owns_fd_cache) {
+            exec_env->set_file_cache_open_fd_cache(nullptr);
+        }
+    }};
 
     io::FileCacheSettings settings = create_file_meta_disk_cache_test_settings();
     settings.storage = "disk";
