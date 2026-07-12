@@ -152,6 +152,15 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
     // bypassing the native ORC/Parquet readers to dodge native-reader bugs. Default false (legacy default).
     private static final String FORCE_JNI_SCANNER = "force_jni_scanner";
 
+    // Session variable name (byte-identical to SessionVariable.IGNORE_SPLIT_TYPE) surfaced through the same
+    // VariableMgr.toMap channel. A debugging escape hatch to isolate reader bugs: IGNORE_JNI drops every JNI
+    // split, IGNORE_NATIVE drops every native split (legacy PaimonScanNode.getSplits). IGNORE_PAIMON_CPP is a
+    // documented option but was NEVER consulted by legacy getSplits, so it stays a no-op here (legacy parity).
+    // Default NONE, so normal reads are unaffected.
+    private static final String IGNORE_SPLIT_TYPE = "ignore_split_type";
+    private static final String IGNORE_SPLIT_TYPE_JNI = "IGNORE_JNI";
+    private static final String IGNORE_SPLIT_TYPE_NATIVE = "IGNORE_NATIVE";
+
     // FIX-NATIVE-SUBSPLIT (M-3): file-split session vars (byte-identical to SessionVariable.{FILE_SPLIT_SIZE,
     // MAX_INITIAL_FILE_SPLIT_SIZE, MAX_FILE_SPLIT_SIZE, MAX_INITIAL_FILE_SPLIT_NUM, MAX_FILE_SPLIT_NUM}),
     // read via the same VariableMgr.toMap channel as ENABLE_PAIMON_CPP_READER. They drive the native
@@ -248,6 +257,21 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             return false;
         }
         return Boolean.parseBoolean(session.getSessionProperties().get(FORCE_JNI_SCANNER));
+    }
+
+    /**
+     * Reads the {@code ignore_split_type} session variable (same {@code VariableMgr.toMap} channel as
+     * {@link #isCppReaderEnabled}). Returns {@code "NONE"} when the session is absent (offline unit tests)
+     * or the variable is unset, matching this file's null-tolerant session-read convention. Only
+     * {@code IGNORE_JNI} / {@code IGNORE_NATIVE} carry behavior (skip the matching split type, legacy
+     * {@code PaimonScanNode.getSplits}); every other value (incl. {@code NONE} / {@code IGNORE_PAIMON_CPP})
+     * is a no-op. Package-private static for offline unit testing.
+     */
+    static String resolveIgnoreSplitType(ConnectorSession session) {
+        if (session == null) {
+            return "NONE";
+        }
+        return session.getSessionProperties().getOrDefault(IGNORE_SPLIT_TYPE, "NONE");
     }
 
     /**
@@ -427,6 +451,14 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         // Read the cpp-reader flag once: it selects the JNI split serialization format (see encodeSplit).
         boolean cppReader = isCppReaderEnabled(session);
 
+        // FIX-L14: honor the ignore_split_type debugging escape hatch (legacy PaimonScanNode.getSplits):
+        // IGNORE_JNI drops JNI splits (nonDataSplit + DataSplit-JNI arms), IGNORE_NATIVE drops native splits.
+        // The COUNT(*) arm is never dropped (legacy parity); IGNORE_PAIMON_CPP stays a no-op (legacy getSplits
+        // never consulted it). Read once here, null-tolerant like the flags above.
+        String ignoreSplitType = resolveIgnoreSplitType(session);
+        boolean ignoreJni = IGNORE_SPLIT_TYPE_JNI.equals(ignoreSplitType);
+        boolean ignoreNative = IGNORE_SPLIT_TYPE_NATIVE.equals(ignoreSplitType);
+
         // FIX-REST-VENDED-URI-NORMALIZE (P9-1): extract the per-table vended token ONCE per scan
         // (validToken() may refresh; legacy computes its storage map once in doInitialize), threaded into
         // the native-path URI normalization below so REST object-store reads normalize via the vended
@@ -444,6 +476,10 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
 
         // Non-DataSplit → always JNI
         for (Split split : nonDataSplits) {
+            if (ignoreJni) {
+                // FIX-L14: ignore_split_type=IGNORE_JNI drops JNI splits (legacy getSplits:401).
+                continue;
+            }
             ranges.add(buildJniScanRange(split, tableLocation, defaultFileFormat,
                     Collections.emptyMap(), false, cppReader, weightDenominator));
         }
@@ -484,6 +520,10 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
 
             if (shouldUseNativeReader(paimonHandle.isForceJni(),
                     isForceJniScannerEnabled(session), optRawFiles)) {
+                if (ignoreNative) {
+                    // FIX-L14: ignore_split_type=IGNORE_NATIVE drops native splits (legacy getSplits:443).
+                    continue;
+                }
                 // Native reader path: sub-split large ORC/Parquet files for read parallelism
                 // (FIX-NATIVE-SUBSPLIT), mirroring legacy fileSplitter.splitFile. Under COUNT(*) pushdown
                 // legacy passes splittable=!applyCountPushdown, so a native split that reaches this arm
@@ -506,6 +546,10 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                 }
             } else {
                 // JNI reader path
+                if (ignoreJni) {
+                    // FIX-L14: ignore_split_type=IGNORE_JNI drops JNI splits (legacy getSplits:483).
+                    continue;
+                }
                 ranges.add(buildJniScanRange(
                         dataSplit, tableLocation, defaultFileFormat,
                         partitionValues, true, cppReader, weightDenominator));

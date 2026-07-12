@@ -1043,6 +1043,156 @@ public class PaimonScanPlanProviderTest {
         }
     }
 
+    // ---- FIX-L14: ignore_split_type escape hatch ----
+
+    @Test
+    public void ignoreJniDropsForcedJniSplit(@TempDir Path warehouse) throws Exception {
+        // FIX-L14: force_jni routes the DataSplit to the JNI arm; ignore_split_type=IGNORE_JNI must then drop
+        // it (legacy PaimonScanNode.getSplits:483). MUTATION: not honoring IGNORE_JNI -> the JNI range is
+        // still emitted -> red.
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            Identifier id = Identifier.create("db", "t");
+            catalog.createTable(id, Schema.newBuilder()
+                    .column("id", DataTypes.INT())
+                    .column("val", DataTypes.BIGINT())
+                    .primaryKey("id")
+                    .option("bucket", "1")
+                    .build(), false);
+            Table table = catalog.getTable(id);
+            BatchWriteBuilder wb = table.newBatchWriteBuilder();
+            try (BatchTableWrite write = wb.newWrite()) {
+                write.write(GenericRow.of(1, 100L));
+                write.write(GenericRow.of(2, 200L));
+                List<CommitMessage> messages = write.prepareCommit();
+                try (BatchTableCommit commit = wb.newCommit()) {
+                    commit.commit(messages);
+                }
+            }
+
+            RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+            ops.table = table;
+            PaimonScanPlanProvider provider = new PaimonScanPlanProvider(Collections.emptyMap(), ops);
+            PaimonTableHandle handle = new PaimonTableHandle(
+                    "db", "t", Collections.emptyList(), Collections.emptyList());
+            List<ConnectorColumnHandle> noColumns = Collections.emptyList();
+
+            // Baseline: force_jni alone emits a JNI range.
+            List<ConnectorScanRange> baseline = provider.planScan(
+                    sessionWithProps(Collections.singletonMap("force_jni_scanner", "true")),
+                    handle, noColumns, Optional.empty(), -1, null, /*countPushdown*/ false);
+            Assertions.assertFalse(baseline.isEmpty(), "force_jni alone must emit >=1 JNI range (baseline)");
+
+            // force_jni + IGNORE_JNI: the JNI split is dropped (2-entry props map).
+            Map<String, String> props = new HashMap<>();
+            props.put("force_jni_scanner", "true");
+            props.put("ignore_split_type", "IGNORE_JNI");
+            List<ConnectorScanRange> ignored = provider.planScan(
+                    sessionWithProps(props), handle, noColumns, Optional.empty(), -1, null, false);
+            Assertions.assertTrue(ignored.isEmpty(),
+                    "ignore_split_type=IGNORE_JNI must drop the forced-JNI DataSplit");
+        }
+    }
+
+    @Test
+    public void ignoreNativeDropsNativeSplit(@TempDir Path warehouse) throws Exception {
+        // FIX-L14: an append-only table's DataSplit is native-eligible; ignore_split_type=IGNORE_NATIVE must
+        // drop it (legacy PaimonScanNode.getSplits:443). MUTATION: not honoring IGNORE_NATIVE -> the native
+        // range is still emitted -> red.
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            Identifier id = Identifier.create("db", "t");
+            catalog.createTable(id, Schema.newBuilder()
+                    .column("id", DataTypes.INT())
+                    .column("val", DataTypes.BIGINT())
+                    .option("bucket", "-1")   // append-only (no primary key) -> raw files -> native reader
+                    .build(), false);
+            Table table = catalog.getTable(id);
+            BatchWriteBuilder wb = table.newBatchWriteBuilder();
+            try (BatchTableWrite write = wb.newWrite()) {
+                write.write(GenericRow.of(1, 100L));
+                write.write(GenericRow.of(2, 200L));
+                List<CommitMessage> messages = write.prepareCommit();
+                try (BatchTableCommit commit = wb.newCommit()) {
+                    commit.commit(messages);
+                }
+            }
+
+            RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+            ops.table = table;
+            PaimonScanPlanProvider provider = new PaimonScanPlanProvider(Collections.emptyMap(), ops);
+            PaimonTableHandle handle = new PaimonTableHandle(
+                    "db", "t", Collections.emptyList(), Collections.emptyList());
+            List<ConnectorColumnHandle> noColumns = Collections.emptyList();
+
+            // Baseline (NONE): a native range is emitted (no paimon.split marker == native path).
+            List<ConnectorScanRange> baseline = provider.planScan(
+                    sessionWithProps(Collections.emptyMap()),
+                    handle, noColumns, Optional.empty(), -1, null, false);
+            Assertions.assertFalse(baseline.isEmpty(), "append-only scan must emit >=1 range (baseline)");
+            boolean anyNative = baseline.stream()
+                    .anyMatch(r -> !r.getProperties().containsKey("paimon.split"));
+            Assertions.assertTrue(anyNative,
+                    "precondition: the append-only split must take the native path (no paimon.split)");
+
+            // IGNORE_NATIVE: the native split is dropped.
+            List<ConnectorScanRange> ignored = provider.planScan(
+                    sessionWithProps(Collections.singletonMap("ignore_split_type", "IGNORE_NATIVE")),
+                    handle, noColumns, Optional.empty(), -1, null, false);
+            boolean anyNativeAfter = ignored.stream()
+                    .anyMatch(r -> !r.getProperties().containsKey("paimon.split"));
+            Assertions.assertFalse(anyNativeAfter,
+                    "ignore_split_type=IGNORE_NATIVE must drop the native split");
+        }
+    }
+
+    @Test
+    public void ignorePaimonCppIsNoOpParity(@TempDir Path warehouse) throws Exception {
+        // FIX-L14: IGNORE_PAIMON_CPP is a documented ignore_split_type value that legacy
+        // PaimonScanNode.getSplits NEVER consulted, so it stays a no-op (legacy parity) — the scan emits the
+        // same ranges as NONE. Pins that a future change does not add a half-implemented CPP arm.
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            Identifier id = Identifier.create("db", "t");
+            catalog.createTable(id, Schema.newBuilder()
+                    .column("id", DataTypes.INT())
+                    .column("val", DataTypes.BIGINT())
+                    .primaryKey("id")
+                    .option("bucket", "1")
+                    .build(), false);
+            Table table = catalog.getTable(id);
+            BatchWriteBuilder wb = table.newBatchWriteBuilder();
+            try (BatchTableWrite write = wb.newWrite()) {
+                write.write(GenericRow.of(1, 100L));
+                write.write(GenericRow.of(2, 200L));
+                List<CommitMessage> messages = write.prepareCommit();
+                try (BatchTableCommit commit = wb.newCommit()) {
+                    commit.commit(messages);
+                }
+            }
+
+            RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+            ops.table = table;
+            PaimonScanPlanProvider provider = new PaimonScanPlanProvider(Collections.emptyMap(), ops);
+            PaimonTableHandle handle = new PaimonTableHandle(
+                    "db", "t", Collections.emptyList(), Collections.emptyList());
+            List<ConnectorColumnHandle> noColumns = Collections.emptyList();
+
+            int noneCount = provider.planScan(
+                    sessionWithProps(Collections.emptyMap()),
+                    handle, noColumns, Optional.empty(), -1, null, false).size();
+            int cppCount = provider.planScan(
+                    sessionWithProps(Collections.singletonMap("ignore_split_type", "IGNORE_PAIMON_CPP")),
+                    handle, noColumns, Optional.empty(), -1, null, false).size();
+            Assertions.assertTrue(noneCount > 0, "baseline scan must emit >=1 range");
+            Assertions.assertEquals(noneCount, cppCount,
+                    "IGNORE_PAIMON_CPP must be a no-op (legacy parity): same range count as NONE");
+        }
+    }
+
     // ---- FIX-NATIVE-SUBSPLIT (M-3) ----
 
     private static final long MB = 1024L * 1024L;
