@@ -723,8 +723,8 @@ public class ThriftHmsClient implements HmsClient {
         try {
             return clientPool.borrowObject();
         } catch (Exception e) {
-            throw new HmsClientException("Failed to borrow HMS client "
-                    + "from pool: " + e.getMessage(), e);
+            throw new HmsClientException(withRootCause("Failed to borrow HMS client "
+                    + "from pool: " + e.getMessage(), e), e);
         }
     }
 
@@ -733,9 +733,41 @@ public class ThriftHmsClient implements HmsClient {
             return doAs(() -> new PooledHmsClient(
                     clientProvider.create(hiveConf)));
         } catch (Exception e) {
-            throw new HmsClientException("Failed to create HMS client: "
-                    + e.getMessage(), e);
+            throw new HmsClientException(withRootCause("Failed to create HMS client: "
+                    + e.getMessage(), e), e);
         }
+    }
+
+    /**
+     * Appends the deepest cause's message to {@code message} so the actionable reason survives.
+     *
+     * <p>WHY: Hive wraps the real connection failure (e.g. a thrift {@code TTransportException:
+     * GSS initiate failed} from a SASL/kerberos misconfiguration) inside a generic
+     * {@code RuntimeException("Unable to instantiate ...HiveMetaStoreClient")} whose own
+     * {@link Throwable#getMessage()} drops that cause. FE surfaces only the top exception's message,
+     * so without this the user (and regression assertions) would see "Unable to instantiate ..."
+     * with no hint of the SASL/GSS/transport root cause. This mirrors the legacy
+     * {@code ThriftHMSCachedClient}/{@code HMSClientException}, which appended
+     * {@code Util.getRootCauseMessage(cause)} in the same {@code className: message} form.
+     *
+     * <p>The guard avoids duplicating the reason when a fresh-client failure is re-wrapped by the
+     * pool's {@link #borrowClient()} (the inner message already carries the appended root cause).
+     */
+    static String withRootCause(String message, Throwable cause) {
+        if (cause == null) {
+            return message;
+        }
+        Throwable root = cause;
+        while (root.getCause() != null && root.getCause() != root) {
+            root = root.getCause();
+        }
+        String rootMessage = root.getMessage();
+        String rootDescription = root.getClass().getName()
+                + (rootMessage == null ? "" : ": " + rootMessage);
+        if (message != null && message.contains(rootDescription)) {
+            return message;
+        }
+        return message + ". reason: " + rootDescription;
     }
 
     private GenericObjectPoolConfig createPoolConfig(
