@@ -351,6 +351,36 @@ public class CachingHmsClientTest {
         Assertions.assertEquals(1, delegate.getPartitionsCalls);
     }
 
+    @Test
+    public void legacyTtlPropertiesControlCaching() {
+        // The legacy fe-core catalog knobs must still work after the SPI cutover: schema.cache.ttl-second maps
+        // onto the table/schema cache; partition.cache.ttl-second onto the partition-NAME list (legacy's
+        // partition_values), NOT the per-partition objects cache. Mirrors HiveExternalMetaCache's compat map;
+        // this is what test_hive_meta_cache's schema-cache and partition-cache sections exercise.
+        Map<String, String> properties = props(
+                "schema.cache.ttl-second", "0",
+                "partition.cache.ttl-second", "0");
+        RecordingHmsClient delegate = new RecordingHmsClient();
+        CachingHmsClient cache = new CachingHmsClient(delegate, properties);
+
+        cache.getTable("db", "t");
+        cache.getTable("db", "t");
+        // WHY: schema.cache.ttl-second=0 must disable the table/schema cache (backs DESC) — every call reloads.
+        Assertions.assertEquals(2, delegate.getTableCalls);
+
+        cache.listPartitionNames("db", "t", -1);
+        cache.listPartitionNames("db", "t", -1);
+        // WHY: partition.cache.ttl-second=0 must disable the partition-name list — a newly-added partition is
+        // then visible without REFRESH.
+        Assertions.assertEquals(2, delegate.listPartitionNamesCalls);
+
+        cache.getPartitions("db", "t", Arrays.asList("p=1"));
+        cache.getPartitions("db", "t", Arrays.asList("p=1"));
+        // WHY: the per-partition objects cache has NO legacy knob (fe-core mapped partition.cache only to the
+        // partition-values list), so it stays enabled — pins the faithful legacy mapping.
+        Assertions.assertEquals(1, delegate.getPartitionsCalls);
+    }
+
     // ---- flush(db, table) ----
 
     @Test

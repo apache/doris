@@ -176,6 +176,21 @@ public class HiveFileListingCacheTest {
         Assertions.assertEquals(2, lister.totalCalls);
     }
 
+    @Test
+    public void legacyFileMetaCacheTtlZeroBypassesTheCache() {
+        CountingLister lister = new CountingLister();
+        HiveFileListingCache cache = new HiveFileListingCache(
+                props("file.meta.cache.ttl-second", "0"), lister);
+
+        cache.listDataFiles("db", "t", "loc", FS);
+        cache.listDataFiles("db", "t", "loc", FS);
+        // WHY: the legacy fe-core knob file.meta.cache.ttl-second=0 must still disable the listing cache after the
+        // SPI cutover (it is remapped onto meta.cache.hive.file.ttl-second). Without the compatibility remap the
+        // key was ignored, the default 24h cache stayed on, and a newly-written file in an already-listed
+        // partition stayed invisible until REFRESH (regression that failed test_hive_meta_cache's sql_2row).
+        Assertions.assertEquals(2, lister.totalCalls);
+    }
+
     // ==================== the production lister: filters dirs + hidden files, lists literally ====================
 
     @Test

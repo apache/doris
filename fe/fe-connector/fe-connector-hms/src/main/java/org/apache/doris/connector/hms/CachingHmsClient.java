@@ -25,6 +25,7 @@ import org.apache.hadoop.hive.common.FileUtils;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -118,7 +119,8 @@ public class CachingHmsClient implements HmsClient {
 
     public CachingHmsClient(HmsClient delegate, Map<String, String> properties) {
         this.delegate = Objects.requireNonNull(delegate, "delegate can not be null");
-        Map<String, String> props = properties == null ? Collections.emptyMap() : properties;
+        Map<String, String> props = applyLegacyTtlCompatibility(
+                properties == null ? Collections.emptyMap() : properties);
         this.tableCache = newEntry("hive.table", props, ENTRY_TABLE, DEFAULT_TABLE_CAPACITY);
         this.partitionNamesCache =
                 newEntry("hive.partition_names", props, ENTRY_PARTITION_NAMES, DEFAULT_PARTITION_NAMES_CAPACITY);
@@ -134,6 +136,33 @@ public class CachingHmsClient implements HmsClient {
         // Contextual-only + manual-miss load so a slow HMS RPC runs outside Caffeine's sync compute lock
         // (deduplicated by a striped lock instead), mirroring PaimonLatestSnapshotCache / IcebergLatestSnapshotCache.
         return new MetaCacheEntry<>(name, null, spec, ForkJoinPool.commonPool(), false, true, 0L, true);
+    }
+
+    /** Legacy fe-core catalog knob ({@code ExternalCatalog.SCHEMA_CACHE_TTL_SECOND}) for the table/schema cache. */
+    static final String LEGACY_SCHEMA_CACHE_TTL_SECOND = "schema.cache.ttl-second";
+    /** Legacy fe-core knob ({@code HMSExternalCatalog.PARTITION_CACHE_TTL_SECOND}) for the partition-list cache. */
+    static final String LEGACY_PARTITION_CACHE_TTL_SECOND = "partition.cache.ttl-second";
+
+    /**
+     * Translate the legacy fe-core catalog TTL knobs into this client's namespaced entry keys, mirroring
+     * {@code HiveExternalMetaCache.catalogPropertyCompatibilityMap} so an existing "hms" catalog that set the old
+     * keys keeps working after the SPI cutover:
+     * <ul>
+     *   <li>{@code schema.cache.ttl-second}    &rarr; {@code meta.cache.hive.table.ttl-second} (schema/table meta,
+     *       backs DESC)</li>
+     *   <li>{@code partition.cache.ttl-second} &rarr; {@code meta.cache.hive.partition_names.ttl-second} (the
+     *       partition-name list — legacy's {@code partition_values} entry; disabling it makes a newly-added
+     *       partition visible without REFRESH)</li>
+     * </ul>
+     * Only the TTL is remapped (the sole knob the legacy keys exposed); {@code enable}/{@code capacity} have no
+     * legacy equivalent. If both the legacy and namespaced keys are present, the namespaced key wins
+     * ({@link CacheSpec#applyCompatibilityMap} contract).
+     */
+    private static Map<String, String> applyLegacyTtlCompatibility(Map<String, String> props) {
+        Map<String, String> compat = new HashMap<>();
+        compat.put(LEGACY_SCHEMA_CACHE_TTL_SECOND, CacheSpec.metaCacheTtlKey(ENGINE, ENTRY_TABLE));
+        compat.put(LEGACY_PARTITION_CACHE_TTL_SECOND, CacheSpec.metaCacheTtlKey(ENGINE, ENTRY_PARTITION_NAMES));
+        return CacheSpec.applyCompatibilityMap(props, compat);
     }
 
     // ========== Cached reads ==========

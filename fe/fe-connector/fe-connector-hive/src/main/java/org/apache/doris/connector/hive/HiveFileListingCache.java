@@ -79,6 +79,12 @@ public class HiveFileListingCache {
     /** {@code meta.cache.hive.file.*} — cached directory listings. */
     static final String ENTRY_FILE = "file";
 
+    /**
+     * Legacy fe-core catalog knob ({@code HMSExternalCatalog.FILE_META_CACHE_TTL_SECOND}) remapped onto this
+     * cache's namespaced {@code meta.cache.hive.file.ttl-second} for backward compatibility. See the constructor.
+     */
+    static final String LEGACY_FILE_META_CACHE_TTL_SECOND = "file.meta.cache.ttl-second";
+
     // Legacy fe-core Config values, mirrored locally (the connector never touches fe-core Config):
     //   TTL      = Config.external_cache_expire_time_seconds_after_access (86400s = 24h)
     //   capacity = Config.max_external_file_cache_num                     (10000)
@@ -126,6 +132,14 @@ public class HiveFileListingCache {
 
     HiveFileListingCache(Map<String, String> properties, DirectoryLister lister) {
         Map<String, String> props = properties == null ? Collections.emptyMap() : properties;
+        // Translate the legacy fe-core catalog knob file.meta.cache.ttl-second into the namespaced key this cache
+        // reads (mirrors HiveExternalMetaCache.catalogPropertyCompatibilityMap: FILE_META_CACHE_TTL_SECOND ->
+        // ENTRY_FILE ttl). Without this, an "hms" catalog that set the legacy key silently kept the default 24h
+        // file cache after the SPI cutover, so e.g. file.meta.cache.ttl-second=0 no longer disabled the listing
+        // cache and a newly-written file in an already-listed partition stayed invisible until REFRESH.
+        props = CacheSpec.applyCompatibilityMap(props,
+                Collections.singletonMap(LEGACY_FILE_META_CACHE_TTL_SECOND,
+                        CacheSpec.metaCacheTtlKey(ENGINE, ENTRY_FILE)));
         CacheSpec spec = CacheSpec.fromProperties(props, ENGINE, ENTRY_FILE,
                 CacheSpec.of(true, DEFAULT_TTL_SECOND, DEFAULT_FILE_CAPACITY));
         // Contextual-only + manual-miss so the slow listStatus runs on the caller (TCCL-pinned) thread outside
