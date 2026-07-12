@@ -976,6 +976,7 @@ struct FakeFileReaderState {
     int64_t total_rows = 2;
     int64_t aggregate_count = -1;
     int64_t condition_cache_base_granule = 0;
+    size_t condition_cache_num_granules = 0;
     bool eof_with_first_batch = true;
     bool inject_delete_conjunct = false;
     bool stop_during_aggregate = false;
@@ -1108,6 +1109,9 @@ public:
         _state->condition_cache_ctx = std::move(ctx);
         if (_state->condition_cache_ctx != nullptr && !_state->condition_cache_ctx->is_hit) {
             _state->condition_cache_ctx->base_granule = _state->condition_cache_base_granule;
+            if (_state->condition_cache_num_granules > 0) {
+                _state->condition_cache_ctx->num_granules = _state->condition_cache_num_granules;
+            }
         }
     }
 
@@ -1848,6 +1852,7 @@ TEST(TableReaderTest, ConditionCacheMissPublishesBitmapAfterReaderEof) {
     auto fake_state = std::make_shared<FakeFileReaderState>();
     fake_state->total_rows = ConditionCacheContext::GRANULE_SIZE;
     fake_state->condition_cache_base_granule = 7;
+    fake_state->condition_cache_num_granules = 1;
     FakeTableReader reader(file_schema, fake_state);
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
@@ -1872,12 +1877,18 @@ TEST(TableReaderTest, ConditionCacheMissPublishesBitmapAfterReaderEof) {
     ASSERT_NE(fake_state->condition_cache_ctx, nullptr);
     EXPECT_FALSE(fake_state->condition_cache_ctx->is_hit);
 
-    segment_v2::ConditionCache::ExternalCacheKey key("fake-table-reader-input", 0, -1, 7, 0, -1);
+    segment_v2::ConditionCache::ExternalCacheKey legacy_key("fake-table-reader-input", 0, -1, 7, 0,
+                                                            -1);
     segment_v2::ConditionCacheHandle handle;
+    EXPECT_FALSE(cache.get()->lookup(legacy_key, &handle));
+    segment_v2::ConditionCache::ExternalCacheKey key(
+            "fake-table-reader-input", 0, -1, 7, 0, -1,
+            segment_v2::ConditionCache::ExternalCacheKey::BASE_GRANULE_AWARE_VERSION);
     ASSERT_TRUE(cache.get()->lookup(key, &handle));
     const auto cached_bitmap = handle.get_filter_result();
     ASSERT_NE(cached_bitmap, nullptr);
     ASSERT_FALSE(cached_bitmap->empty());
+    EXPECT_EQ(cached_bitmap->size(), 1);
     EXPECT_TRUE((*cached_bitmap)[0]);
     EXPECT_EQ(handle.get_base_granule(), 7);
 
@@ -1925,7 +1936,9 @@ TEST(TableReaderTest, ConditionCacheMissIsDroppedWhenReaderClosesBeforeEof) {
     EXPECT_FALSE(fake_state->condition_cache_ctx->is_hit);
 
     ASSERT_TRUE(reader.close().ok());
-    segment_v2::ConditionCache::ExternalCacheKey key("fake-table-reader-input", 0, -1, 7, 0, -1);
+    segment_v2::ConditionCache::ExternalCacheKey key(
+            "fake-table-reader-input", 0, -1, 7, 0, -1,
+            segment_v2::ConditionCache::ExternalCacheKey::BASE_GRANULE_AWARE_VERSION);
     segment_v2::ConditionCacheHandle handle;
     EXPECT_FALSE(cache.get()->lookup(key, &handle));
 }

@@ -893,6 +893,16 @@ void OrcReader::set_condition_cache_context(std::shared_ptr<ConditionCacheContex
         !_state->condition_cache_ctx->is_hit) {
         _state->condition_cache_ctx->base_granule = static_cast<int64_t>(
                 _state->row_reader_range_first_row / ConditionCacheContext::GRANULE_SIZE);
+        const auto end_granule =
+                (_state->row_reader_range_first_row + _state->row_reader_range_rows +
+                 ConditionCacheContext::GRANULE_SIZE - 1) /
+                ConditionCacheContext::GRANULE_SIZE;
+        DORIS_CHECK(end_granule > static_cast<uint64_t>(_state->condition_cache_ctx->base_granule));
+        _state->condition_cache_ctx->num_granules =
+                std::min(_state->condition_cache_ctx->filter_result->size(),
+                         static_cast<size_t>(
+                                 end_granule -
+                                 static_cast<uint64_t>(_state->condition_cache_ctx->base_granule)));
     }
 }
 

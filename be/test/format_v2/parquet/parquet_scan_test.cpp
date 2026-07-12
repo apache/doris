@@ -551,7 +551,7 @@ TEST(ParquetScanConditionCacheTest, HitKeepsCachedBaseWhenCurrentPlanStartsLater
     auto ctx = std::make_shared<ConditionCacheContext>();
     ctx->is_hit = true;
     ctx->base_granule = 0;
-    ctx->filter_result = std::make_shared<std::vector<bool>>(std::vector<bool> {false, true});
+    ctx->filter_result = std::make_shared<std::vector<bool>>(std::vector<bool> {false});
     scheduler.set_condition_cache_context(ctx);
 
     EXPECT_FALSE(scheduler.empty());

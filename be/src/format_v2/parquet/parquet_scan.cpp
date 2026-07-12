@@ -608,6 +608,14 @@ void ParquetScanScheduler::set_condition_cache_context(std::shared_ptr<Condition
     if (!_condition_cache_ctx->is_hit) {
         _condition_cache_ctx->base_granule =
                 _row_group_plans.front().first_file_row / ConditionCacheContext::GRANULE_SIZE;
+        const auto& last_plan = _row_group_plans.back();
+        const int64_t end_granule = (last_plan.first_file_row + last_plan.row_group_rows +
+                                     ConditionCacheContext::GRANULE_SIZE - 1) /
+                                    ConditionCacheContext::GRANULE_SIZE;
+        DORIS_CHECK(end_granule > _condition_cache_ctx->base_granule);
+        _condition_cache_ctx->num_granules =
+                std::min(_condition_cache_ctx->filter_result->size(),
+                         static_cast<size_t>(end_granule - _condition_cache_ctx->base_granule));
         return;
     }
 
