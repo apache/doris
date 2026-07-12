@@ -416,6 +416,26 @@ TEST(ParquetStatisticsTransformTest, HandlesMissingStatisticsAndAllNullChunks) {
     EXPECT_FALSE(all_null_stats.has_min_max);
 }
 
+TEST(ParquetStatisticsTransformTest, MissingNullCountConservativelyReportsPossibleNulls) {
+    auto table = arrow::Table::Make(arrow::schema({arrow::field("i", arrow::int32(), true)}),
+                                    {int32_array({1, std::nullopt, 3})});
+    auto reader = make_reader(table, 3, false, true);
+    auto schema = build_file_schema(*reader);
+    auto file_statistics = reader->metadata()->RowGroup(0)->ColumnChunk(0)->statistics();
+    auto statistics_without_null_count = ::parquet::MakeStatistics<::parquet::Int32Type>(
+            reader->metadata()->schema()->Column(0), file_statistics->EncodeMin(),
+            file_statistics->EncodeMax(), file_statistics->num_values(), 0, 0, true, false, false);
+
+    const auto statistics = format::parquet::ParquetStatisticsUtils::TransformColumnStatistics(
+            *schema[0], statistics_without_null_count);
+    EXPECT_FALSE(statistics.has_null_count);
+    EXPECT_TRUE(statistics.has_null);
+    EXPECT_TRUE(statistics.has_not_null);
+    EXPECT_TRUE(statistics.has_min_max);
+    EXPECT_EQ(statistics.min_value.get<TYPE_INT>(), 1);
+    EXPECT_EQ(statistics.max_value.get<TYPE_INT>(), 3);
+}
+
 TEST(ParquetStatisticsPruningTest, ExprZonemapPredicatesAndNullPredicatesPruneRowGroups) {
     auto table = arrow::Table::Make(arrow::schema({arrow::field("i", arrow::int32(), true)}),
                                     {int32_array({std::nullopt, std::nullopt, 3, 4, 5, 6})});
