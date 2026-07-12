@@ -1,7 +1,7 @@
 # 🔖 HANDOFF —— #65185 复核修复系列(独立任务线快照)
 
 > **用途**：这是**「复核修复系列」这一条任务线**的**独立**交接快照，与主线滚动 `plan-doc/HANDOFF.md`（HMS 翻闸主线）**分开**。你切去做别的实现后，回到这条线时**先读本文件**即可续做，不必炒对话历史。
-> **生成**：2026-07-11。**分支** = `catalog-spi-11-hive`（off `branch-catalog-spi`，PR base = `branch-catalog-spi`，squash 合并）。**HEAD 快照** = `af1cb7e853a`。
+> **生成**：2026-07-11（更新 2026-07-12）。**分支** = `catalog-spi-11-hive`（off `branch-catalog-spi`，PR base = `branch-catalog-spi`，squash 合并）。**HEAD 快照** = `88aa55b831b`（本线 L1 提交；主线另有 HMS 翻闸提交穿插,与本线文件不重叠,fast-forward）。
 > **公开 tracking issue** = apache/doris#65185。
 
 ---
@@ -34,9 +34,9 @@ HMS 翻闸（catalog 类型 `hms` 从旧代码切到插件 SPI）后，第三方
 |------|------|------|
 | 批次 0 | H1–H4 高危（hudi/hive 分区剪枝：转义/DATETIME/非-hive-style/混大小写列名） | ✅ 全 DONE + 3-skeptic 复审 CLEAN |
 | 批次 1 | M5/M7/M6/M4/M2 中危（连接器局部：iceberg×3 + mc + hive） | ✅ 全 DONE + 最终复核 CLEAN |
-| **批次 2** | **M3→M1 中危(fe-core 通用节点)** | **✅ 全 DONE(本轮)** |
-| 批次 3 | M8(发布工具/文档) + L1(import 门禁) | ⬜ **← 回来从这里续** |
-| 批次 4 | 低危连接器 L3–L20（trino/kerberos/mc/paimon/iceberg） | ⬜ |
+| 批次 2 | M3→M1 中危(fe-core 通用节点) | ✅ 全 DONE |
+| **批次 3** | **L1(import 门禁) + M8(发布工具/文档)** | **✅ L1 DONE;M8 ⏸ 用户跳过(07-12)** |
+| 批次 4 | 低危连接器 L3–L20（trino/kerberos/mc/paimon/iceberg） | ⬜ **← 回来从这里续(用户指向)** |
 | 决策类 | L2 / L10 / L12 / L20 | ⏸ 先用中文讲清背景问用户再动 |
 | 设计债 | D-系列 | ⏸ 择机 / 随 P8 |
 
@@ -60,22 +60,26 @@ HMS 翻闸（catalog 类型 `hms` 从旧代码切到插件 SPI）后，第三方
 
 ---
 
-## 3. 下一步 = 批次 3（细节，回来直接开工）
+## 3. 批次 3 收尾 + 下一步 = 批次 4（低危连接器）
 
-**M8 — 升级只换 lib 不部署 plugins → 首访抛（reverify §3 M8；无 fe 编译）**
-- 现码：`PluginDrivenExternalCatalog.java:135` throw；`CatalogFactory` degraded 只护启动。翻闸把 blast radius 扩到全部
-  `type=hms` 目录。
-- Fix（主线）：发布/升级工具把连接器 jar 部署到 `connector_plugin_root`（`build.sh`/部署步骤）+ 响亮 release note。
-  可选防御：replay 后聚合 ERROR 枚举所有 degraded 目录。**保留** first-access throw，**不**加 legacy fallback。
-- 测试：升级文档步骤评审；（可选）degraded 聚合日志单测。
+**批次 3 结果**：
+- **L1 DONE** `88aa55b831b`（code+test）—— import 门禁补 3 洞 + **设计红队 `wf_643c11b4-3fe` 发现的第 4 洞**：
+  4 条白名单 `grep -v` 按**整行**匹配（正则 `.`≡`/`）→ 连接器命名空间文件（608 个,全根在 `org.apache.doris.connector.**`）
+  里的违规 import 被**按路径抑制**,门禁对其本该守护的模块**结构性失明**（实测:连接器目录下放 `import ...catalog.Type;`
+  旧脚本 exit 0 放行）。修法=候选 grep 加宽（static / test glob / +6 包）+ **白名单锚定到 import 目标**（`:import ...`
+  非整行）+ fqn sed 剥 `static`（修 static-vendored 误报,红队证 E3=正确性非装饰）+ 新增自测 `check-connector-imports.test.sh`
+  （8 违规上报/2 vendored skip/3 allow;GREEN 于新、RED 于旧、真树 exit 0）。设计 `designs/FIX-L1-design.md`。**非 live**。
+- **M8 ⏸ 用户 2026-07-12 明确跳过**（转做 L 系列）。侦察留档:`build.sh:1069-1083` 已部署连接器插件到
+  `output/fe/plugins/connector/`（**非构建缺口**）;缺口在**升级流程**——只替 `fe/lib/` 漏拷新 `fe/plugins/connector/` 目录
+  → replay 时全部 `type=hms` degraded（`CatalogFactory.java:119-127`）→首访抛（`PluginDrivenExternalCatalog.java:148-150`）。
+  修法=升级文档/release-note + (**可选**)replay 收尾聚合 degraded ERROR（触 fe-core,需编译）。**不 silently drop**,表中留待办;
+  回来做时先中文讲清「仅文档 vs 文档+可选防御码」让用户拍板。
 
-**L1 — import-gate 三洞（reverify §1）**
-- `tools/check-connector-imports.sh:48,50`：grep 改 `^import (static )?${FORBIDDEN}[.]`；`FORBIDDEN` 补
-  `persist|transaction|fs|statistics|mysql|service`；glob 覆盖 `src/test/java`。**保留** `is_vendored()`
-  （`datasource.hive.HiveVersionUtil` 是 fe-connector-hms vendored 副本，误报非违规；memory
-  `catalog-spi-hms-hiveversionutil-gate-false-positive`）。
-
-之后：批次 4（低危连接器）；决策类（L2/L10/L12/L20）先问用户；设计债 D-系列择机。跟踪表「建议批次」节有全清单。
+**下一步 = 批次 4（低危连接器,用户指向）**：直接可做=`L3–L9`（trino 事务/单例/去重/NPE、kerberos guard/interrupt、mc 谓词）、
+`L11/L13/L14`（paimon file_format/nullability/ignore_split_type）、`L15–L19`（paimon metrics 悬空、iceberg 缓存/version-blind/
+未知类型、partition_columns 撞名）。逐条走单任务循环（复核现码→设计→红队→实现→build+UT→独立 commit→勾表→更 HANDOFF）。
+⏸ **决策类 `L2/L10/L12/L20` 先中文讲清背景+选项问用户再动**（memory `ask-user-explain-in-chinese-first`）。设计债 D-系列择机。
+跟踪表「建议批次」节有全清单。
 
 ---
 

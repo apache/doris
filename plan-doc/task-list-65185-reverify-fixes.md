@@ -36,8 +36,8 @@ Legend：⬜ todo / 🔄 in progress / ✅ done / ⏸ 挂起(需决策/live)
 | 9 | **M5** | 🟠中 | iceberg | computeRowCount 丢 equality-delete gate | ✅ | ✅ | ✅ | ✅ |
 | 10 | **M6** | 🟠中 | iceberg | s3tables 无显式凭证硬失败(丢默认链) | ✅ | ✅ | ✅ | ✅ |
 | 11 | **M7** | 🟠中 | iceberg | REST vended-cred region 别名收窄 | ✅ | ✅ | ✅ | ✅ |
-| 12 | **M8** | 🟠中(运营) | build/docs | 升级只换 lib 不部署 plugins→首访抛 | ⬜ | ⬜ | ⬜ | ⬜ |
-| 13 | **L1** | 🟡低 | tools | import-gate 三洞 | ⬜ | ⬜ | ⬜ | ⬜ |
+| 12 | **M8** | 🟠中(运营) | build/docs | 升级只换 lib 不部署 plugins→首访抛 | ⬜ | ⬜ | ⬜ | ⏸ 跳过(用户 07-12;侦察见下) |
+| 13 | **L1** | 🟡低 | tools | import-gate 三洞**+第4洞** | ✅ | ✅ | ✅ | ✅ |
 | 14 | **L2** | 🟡低 | fe-core | 翻闸 hive 丢 SQL 缓存资格 + COUNTER 停增 | ⬜ | ⬜ | ⬜ | ⏸ 需决策 |
 | 15 | **L3** | 🟡低 | trino | 元数据事务从不 commit/close | ⬜ | ⬜ | ⬜ | ⬜ |
 | 16 | **L4** | 🟡低 | trino | plugin.dir 首胜单例(fail-loud) | ⬜ | ⬜ | ⬜ | ⬜ |
@@ -160,7 +160,12 @@ Legend：⬜ todo / 🔄 in progress / ✅ done / ⏸ 挂起(需决策/live)
 - **Test intent**:仅 `AWS_REGION` 的 props → `CLIENT_REGION` 被发(RED:null)。
 
 ### M8 — 升级只换 lib 不部署 plugins → 首访抛 · reverify §3 M8
-- [ ] **M8**(无 fe 编译;发布工具 + 文档)
+- [ ] **M8** ⏸ **用户 2026-07-12 要求跳过**（运营/文档欠账,非代码 bug;不 silently drop,登记待办）。
+  **侦察结论(留档)**:`build.sh:1069-1083` 已把每个连接器 zip 解到 `output/fe/plugins/connector/<mod>/`,故**非构建缺口**;
+  缺口在**升级流程**——运营若只替换 `fe/lib/` 而漏拷新的 `fe/plugins/connector/` 目录,FE 重启 replay 时全部 `type=hms`
+  目录进 degraded(`CatalogFactory.java:119-127`)→首访抛(`PluginDrivenExternalCatalog.java:148-150`)。修法=升级文档/release-note
+  响亮提示新增 `fe/plugins/connector/` + (**可选**)replay 收尾聚合 ERROR 枚举 degraded 目录(触碰 fe-core,需编译)。
+  **保留** first-access throw,不加 legacy fallback。回来做时:先用中文讲清「仅文档」vs「文档+可选防御码」让用户拍板。
 - **现码**:`PluginDrivenExternalCatalog.java:135` throw;`CatalogFactory` degraded 只护启动 `:119-127`。翻闸把 blast radius 扩到全部 type=hms 目录。
 - **Fix**:主线 = 发布/升级工具把连接器 jar 部署到 `connector_plugin_root`(build.sh/部署步骤)+ 响亮 release note。代码侧可选防御:replay 后聚合 ERROR 枚举所有 degraded 目录。**保留** first-access throw,**不**加 legacy fallback。
 - **Files**:`build.sh`/部署脚本、release-note/升级文档;(可选)`fe-core/.../CatalogFactory.java` 或 replay 收尾处聚合日志。
@@ -172,7 +177,7 @@ Legend：⬜ todo / 🔄 in progress / ✅ done / ⏸ 挂起(需决策/live)
 
 > 每条一行「现码 → fix」,详见 reverify §1 表 + 对应正文。⏸ 三条(L2/L10/L12)先问用户。
 
-- [ ] **L1** import-gate 三洞 · `tools/check-connector-imports.sh:48,50`:grep 改 `^import (static )?${FORBIDDEN}[.]`;`FORBIDDEN` 补 `persist|transaction|fs|statistics|mysql|service`;glob 覆盖 `src/test/java`。保留 `is_vendored()`(HiveVersionUtil FP)。
+- [x] **L1** DONE `88aa55b831b`(设计 `designs/FIX-L1-design.md`;设计红队 `wf_643c11b4-3fe` 3 lens 全 SOUND_WITH_CHANGES)。补 3 洞(static / +6 包 / test 源)**+ 红队发现的第 4 洞**:4 条白名单 `grep -v` 按**整行**匹配(`.`≡`/`)→连接器命名空间文件(608 个,全根在 `org.apache.doris.connector.**`)里的违规 import 被**按路径抑制**,门禁对其结构性失明。修法=候选 grep 加宽(static+test glob+6 包)+**白名单锚定到 import 目标**(`:import ...` 非整行)+ fqn sed 剥 `static`(修 static-vendored 误报,红队证 E3 属正确性非装饰)。新增自测 `tools/check-connector-imports.test.sh`(8 违规/2 vendored skip/3 allow;GREEN 于新、RED 于旧,真树 exit 0)。保留 `is_vendored()`(HiveVersionUtil FP)。**观察**:grep-denylist 固有盲区(新增内部包漏登记/FQN-无-import 内联/间距)登记设计债,根治须 allowlist/ArchUnit(Trino 先例)。
 - [ ] **L2** ⏸ 翻闸 hive 丢 SQL 缓存资格 · `CacheAnalyzer.java:308/316/319`(instanceof HiveScanNode)+ `BindRelation.java:887`(instanceof HMSExternalTable)。**需决策**:加 `ConnectorCapability` 让 `PluginDrivenScanNode`/`PluginDrivenExternalTable` 被识别并恢复缓存 **vs** 登记为 fail-safe 验收偏差(`enable_hive_sql_cache` 默认关)。
 - [ ] **L3** trino 事务从不 commit/close · `TrinoConnectorDorisMetadata.java`(6 处)+ `TrinoScanPlanProvider.java:112`(scan 站有意保持):元数据 6 站 try/finally `commit(txn)`(read-only 廉价)。scan 站不动。
 - [ ] **L4** trino plugin.dir 首胜单例 · `TrinoBootstrap.java:136,316`:单例已存在且 pluginDir 不同时 fail-loud 抛(而非静默用旧);或删 per-catalog 分支只认全局 config。
@@ -256,3 +261,11 @@ Legend：⬜ todo / 🔄 in progress / ✅ done / ⏸ 挂起(需决策/live)
 - **M3** DONE `6963de4124f`(code) — batch 闸门 `!isPruned`→`== NOT_PRUNED`:无谓词大分区表(MaxCompute + 翻闸 hive)恢复异步 batch split(legacy `MaxComputeScanNode:227` 的 `!= NOT_PRUNED` + sibling `displayPartitionCounts` 双证;git `1da88365e85^` 取证 + 全 producer 枚举证闭合)。**顺带解 M2 的 BATCH-UNPRUNED-SYNC**。设计红队 `wf_811e6242-d8b`(3 lens:BLAST-RADIUS SOUND / LEGACY-PARITY SOUND_WITH_CHANGES / COMPLETENESS SOUND_WITH_CHANGES)命中 1 blocker(docker-hive golden 未 reconcile)+ 1 major(overturn 前次签字 LP-1/D-035「等价」未登记)均已解:**反转** pinning 测试(`testUnprocessedPruningNeverBatches`→`testNoPredicatePartitionedTableBatches`,assertTrue)、**登记 supersession**(D-035/DV-019 补 SUPERSEDED 批注)、**docker-hive golden** `test_hive_partitions:200` `(approximate)inputSplitNum` `60→6`(**用户 2026-07-11 签字:SPI 统一分区数口径**,非 hive 专属 split-count 估算;对齐 MaxCompute/Trino「引擎层统一报分片」)。`PluginDrivenScanNodeBatchModeTest` **12/12** 绿、fe-core test-compile BUILD SUCCESS 0 checkstyle。**e2e live-gated**(docker-hive `(approximate)inputSplitNum=6` + MaxCompute 无谓词 ≥阈值分区表进 batch;sweep 确认全 regression 仅此 1 处 `(approximate)` 断言受影响,maxcompute p2 只断言 `partition=N/M`/结果不受影响)。**⚠ 构建坑**:本轮 UT 一度被并行 session 的 `be-java-extensions package -am -T 1C` 构建污染共享 target 报「cannot access 生成类」假失败(非本码);待其结束后干净重跑 12/12(memory `concurrent-sessions-shared-worktree-hazard`)。
 - **M1** DONE `17b432dc1e1`(code) — TABLESAMPLE 翻闸 hive 静默全表扫修复。**红队 `wf_32decfa0-349` 推翻原"通用采样"方案(UNSOUND)**:`Split.getLength()` 对 MaxCompute 默认 byte_size / Paimon JNI range 报 -1、对 MaxCompute row_offset 报行数 → 盲目按字节采样出乱结果(全表或 1 split)。**scope 更正=hive-only 回归**(只有 hive 曾采样)。→ 改**连接器 opt-in**(`ConnectorScanPlanProvider.supportsTableSample()` 默认 false、仅 `HiveScanPlanProvider` true;**用户 2026-07-11 签字 scope=hive-only**)。translator 插件臂通用转发 + `PluginDrivenScanNode.sampleSplits`(仅 `applySample` 时,legacy `selectFiles` 端口)+ 非支持连接器 no-op+WARN(非静默)+ 两 gate 门(COUNT 抑制/batch 抑制,挂 `applySample`)。对齐 Trino `applySample` + 上一批 `supportsBatchScan` opt-in 先例。`PluginDrivenScanNodeTableSampleTest` 6/6 + BatchMode 12/12 + hive 285/285 绿、0 checkstyle、import 门净。e2e live-gated(docker-hive 结果不变式已加;强基数缩减须多文件 fixture 真集群验)。
 - **⭐ 批次 2(M3→M1)全部 DONE。** 2 条 fe-core 通用节点修复,各配 RED-able 单测 + 独立 code/doc commit + 设计红队(各 3 lens;**M1 红队捕获并推翻 UNSOUND 原方案 → 触发用户 scope 决策**)。**下一步 = 批次 3(M8 发布工具/文档 + L1 import 门禁)**;之后批次 4(低危连接器)… ⏸ 决策类(L2/L10/L12/L20)先问用户。
+
+---
+
+**⭐ 批次 3 = L1 DONE;M8 用户跳过(2026-07-12)**
+
+- **L1** DONE `88aa55b831b`(code+test) — import 门禁补 3 洞 + **红队发现的第 4 洞**(白名单按整行匹配→连接器命名空间文件违规 import 被路径抑制,门禁对 608 个连接器实现文件结构性失明)。修法=候选 grep 加宽(static/test/6 包)+ 白名单锚定 import 目标 + fqn 剥 static;新增 `tools/check-connector-imports.test.sh`(RED 于旧/GREEN 于新/真树 exit 0)。设计红队 `wf_643c11b4-3fe` 3 lens 全 SOUND_WITH_CHANGES,发现全部逐条复现并折入。**非 live**(纯工具,无 e2e 欠账)。
+- **M8** ⏸ **用户 2026-07-12 明确要求跳过**(转做 L 系列)。侦察结论已留档(build.sh 已部署插件,缺口在升级流程+文档,含一个「仅文档 vs 文档+可选防御码」的用户决策)。**不 silently drop**——保留在表中待办,回来做时先中文讲清再拍板。
+- **下一步(用户指向 L 系列)**:直接可做的低危连接器 L 条=`L3–L9`(trino/kerberos/mc)、`L11/L13/L14`(paimon)、`L15–L19`(paimon/iceberg 杂项)。⏸ 决策类 `L2/L10/L12/L20` 须先中文讲清背景+选项问用户再动(memory `ask-user-explain-in-chinese-first`)。
