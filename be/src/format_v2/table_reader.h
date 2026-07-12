@@ -142,8 +142,12 @@ struct TableReadOptions {
 struct SplitReadOptions {
     // Split-level information for reader initialization, which may include file path, partition values, delete file info, etc. The content is table format specific and opaque to table reader base class; it's the responsibility of the concrete table reader implementation to parse necessary information for reader initialization and filter pushdown.
     std::map<std::string, Field> partition_values;
-    // Latest scanner conjuncts rewritten to table/global column indices. Runtime filters can
-    // arrive after TableReader::init(), so split preparation must receive a fresh snapshot.
+    // Latest scanner conjuncts rewritten to table/global column indices. Runtime filters may
+    // arrive after TableReader::init(), so scanner-driven splits replace the initial snapshot.
+    // nullopt preserves the initial snapshot for standalone TableReader callers.
+    std::optional<VExprContextSPtrs> conjuncts;
+    // Independent clones used for partition pruning because evaluation prepares and opens them
+    // against a synthetic partition block before the file reader opens its row-level conjuncts.
     VExprContextSPtrs partition_prune_conjuncts;
     ShardedKVCache* cache;
     TFileRangeDesc current_range;
