@@ -69,6 +69,7 @@
 #include "exprs/vslot_ref.h"
 #include "format_v2/column_mapper.h"
 #include "format_v2/orc/orc_search_argument.h"
+#include "format_v2/timestamp_statistics.h"
 #include "io/fs/file_reader.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_profile.h"
@@ -530,6 +531,11 @@ bool set_timestamp_zone_map(const ::orc::ColumnStatistics& statistics,
         zone_map->max_value = Field::create_field<TYPE_TIMESTAMPTZ>(timestamp_tz_from_orc_millis(
                 timestamp_statistics->getMaximum(), timestamp_statistics->getMaximumNanos()));
         return true;
+    }
+    if (!format::utc_timestamp_range_is_monotonic(
+                format::floor_epoch_seconds(timestamp_statistics->getMinimum(), 1000),
+                format::floor_epoch_seconds(timestamp_statistics->getMaximum(), 1000), timezone)) {
+        return false;
     }
     zone_map->min_value = Field::create_field<TYPE_DATETIMEV2>(datetime_v2_from_orc_millis(
             timestamp_statistics->getMinimum(), timestamp_statistics->getMinimumNanos(), timezone));
