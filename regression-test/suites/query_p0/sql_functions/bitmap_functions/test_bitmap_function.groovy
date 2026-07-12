@@ -777,6 +777,12 @@ suite("test_bitmap_function") {
     qt_sql_bitmap_base64_nereids6 """ select bitmap_to_string(bitmap_from_base64(bitmap_to_base64(bitmap_from_string("0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32")))) """
     qt_sql_bitmap_base64_nereids7 """ select bitmap_to_string(bitmap_from_base64(bitmap_to_base64(bitmap_from_string("0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,4294967296")))) """
     qt_sql_bitmap_base64_nereids8 """ select bitmap_to_string(bitmap_from_base64(bitmap_to_base64(to_bitmap(1)))); """
+    // SET serialization order is not stable because it depends on hash-set iteration order.
+    // These fixed historical bytes verify from_base64 semantics rather than bitmap_to_base64 bytes.
+    qt_sql_bitmap_base64_history_set_v1 """ select bitmap_to_string(bitmap_from_base64("BQIBAAAAAAAAAH+WmAAAAAAA")); """
+    qt_sql_bitmap_base64_history_set_v1_reversed """ select bitmap_to_string(bitmap_from_base64("BQJ/lpgAAAAAAAEAAAAAAAAA")); """
+    qt_sql_bitmap_base64_history_set_v2_reversed """ select bitmap_to_string(bitmap_from_base64("CgIAAAB/lpgAAAAAAAEAAAAAAAAA")); """
+    qt_sql_bitmap_base64_history_set_v1_mixed """ select bitmap_to_string(bitmap_from_base64("BQX//////////wAAAAAAAAAAAAAAAAEAAAAHAAAAAAAAAAEAAAAAAAAA")); """
 
     // test nullable
     sql """ DROP TABLE IF EXISTS test_bitmap_base64 """ 
