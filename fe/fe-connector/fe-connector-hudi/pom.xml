@@ -104,7 +104,7 @@ under the License.
              bundled hadoop-common) — readFooter's Configuration parameter then splits across two loaders and the
              JVM throws a LinkageError (loader constraint violation on org.apache.hadoop.conf.Configuration).
              Co-locating parquet child-first here — the SAME FIX-PAIMON-HADOOP-CLASSLOADER pattern as hadoop-aws
-             — keeps ParquetFileReader + Configuration in one loader. parquet-hadoop pulls its
+             below — keeps ParquetFileReader + Configuration in one loader. parquet-hadoop pulls its
              parquet-column/common/encoding/format-structures/jackson siblings transitively; versions are
              BOM-managed (${parquet.version}). -->
         <dependency>
@@ -114,6 +114,47 @@ under the License.
         <dependency>
             <groupId>org.apache.parquet</groupId>
             <artifactId>parquet-avro</artifactId>
+        </dependency>
+
+        <!-- hadoop-aws supplies org.apache.hadoop.fs.s3a.S3AFileSystem for s3a:// warehouses. Unlike hive
+             (whose FE metadata path is HMS-thrift-only and never opens an s3a:// FileSystem), the hudi
+             connector opens the table base path on the FE to read the .hoodie timeline
+             (HudiScanPlanProvider.buildMetaClient -> HoodieTableMetaClient.getStorage -> FileSystem.get). The
+             base org.apache.hadoop.fs.FileSystem comes from hadoop-common (bundled transitively via hudi
+             above); the plugin runs child-first (org.apache.hadoop is NOT in ChildFirstClassLoader's
+             parent-first allowlist), so bundling hadoop-common WITHOUT hadoop-aws left FileSystem in the child
+             loader while S3AFileSystem resolved from the parent 'app' loader (fe-core's own hadoop-aws) —
+             FileSystem.createFileSystem's cast then threw "S3AFileSystem cannot be cast to FileSystem" (the
+             SAME FIX-PAIMON-HADOOP-CLASSLOADER split iceberg/paimon already carry). Co-locating S3AFileSystem
+             in the child loader here makes the cast succeed. Version + the monolithic
+             software.amazon.awssdk:bundle exclusion are inherited from fe/pom.xml dependencyManagement; the
+             AWS SDK v2 modules S3A needs at runtime are bundled child-first below. -->
+        <dependency>
+            <groupId>org.apache.hadoop</groupId>
+            <artifactId>hadoop-aws</artifactId>
+        </dependency>
+
+        <!-- AWS SDK v2 for the child-bundled hadoop-aws S3AFileSystem (mirrors fe-connector-paimon/iceberg,
+             RC-3). Without it the plugin bundles S3AFileSystem child-first but NO SDK: its
+             ExecutionAttribute static registers against the single PARENT-loaded sdk-core, colliding with
+             fe-core's S3A in ExecutionAttribute.ensureUnique() -> ExceptionInInitializerError that permanently
+             poisons S3 for the whole FE JVM. The 's3' module's compile closure brings sdk-core (the
+             load-bearing ExecutionAttribute) + aws-core + auth + regions; apache-client is added explicitly
+             because hadoop-aws 3.4.2 wires ApacheHttpClient and it is only test-scoped in s3's closure;
+             s3-transfer-manager carries the software/amazon/awssdk/services/s3/execution.interceptors SPI
+             resource that must resolve child-first. Versions are BOM-managed (awssdk ${awssdk.version}).
+             software.amazon.awssdk MUST stay child-first (NOT in the parent-first allowlist). -->
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>s3</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>apache-client</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>s3-transfer-manager</artifactId>
         </dependency>
 
         <dependency>
