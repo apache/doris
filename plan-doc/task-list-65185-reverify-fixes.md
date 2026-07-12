@@ -47,10 +47,10 @@ Legend：⬜ todo / 🔄 in progress / ✅ done / ⏸ 挂起(需决策/live)
 | 20 | **L8** | 🟡低 | kerberos | doAs 吞 interrupt 不 restore | ⬜ | ⬜ | ⬜ | ⬜ |
 | 21 | **L9** | 🟡低 | maxcompute | 谓词下推全有全无 | ⬜ | ⬜ | ⬜ | ⬜ |
 | 22 | **L10** | 🟡低 | fe-core | EXPLAIN 节点名 VPluginDrivenScanNode | ⬜ | ⬜ | ⬜ | ⏸ 需决策 |
-| 23 | **L11** | 🟡低 | paimon | JNI/COUNT file_format 用表级默认 | ⬜ | ⬜ | ⬜ | ⬜ |
+| 23 | **L11** | 🟡低 | paimon | JNI/COUNT file_format 用表级默认 | ✅ | ✅ | ✅ | ✅ |
 | 24 | **L12** | 🟡低 | fe-core/paimon | selectedPartitionNum 语义(登记或对齐) | ⬜ | ⬜ | ⬜ | ⏸ 需决策 |
-| 25 | **L13** | 🟡低 | paimon | to-Paimon 丢嵌套 nullability | ⬜ | ⬜ | ⬜ | ⬜ |
-| 26 | **L14** | 🟡低 | paimon | ignore_split_type 静默 no-op | ⬜ | ⬜ | ⬜ | ⬜ |
+| 25 | **L13** | 🟡低 | paimon | to-Paimon 丢嵌套 nullability | ✅ | ✅ | ✅ | ✅ |
+| 26 | **L14** | 🟡低 | paimon | ignore_split_type 静默 no-op | ✅ | ✅ | ✅ | ✅ |
 | 27 | **L15** | 🟡低 | fe-core | PAIMON_SCAN_METRICS 悬空常量 | ⬜ | ⬜ | ⬜ | ⬜ |
 | 28 | **L16** | 🟡低 | iceberg | 快照/schema 缓存偏斜(防御性 union) | ⬜ | ⬜ | ⬜ | ⬜ |
 | 29 | **L17** | 🟡低 | fe-core/iceberg | 同表多版本 version-blind schema 绑定 | ⬜ | ⬜ | ⬜ | ⬜ |
@@ -188,10 +188,10 @@ Legend：⬜ todo / 🔄 in progress / ✅ done / ⏸ 挂起(需决策/live)
 - [x] **L9** DONE `017d1af1894`(设计 `FIX-L9-design.md`;converter 纯函数,**RED-able UT**）· `convert` 特判根 `ConnectorAnd`:逐 top-level conjunct 独立转(抽 `convertOne`),丢+log 失败者、AND 幸存者;OR/NOT/嵌套 AND 保持全有全无(只根 AND 处正/单调位置丢 conjunct=超集,BE 重滤;OR 丢 disjunct=子集会漏行)。加 5 UT(3 RED-able+2 guard),21/21 绿。perf-only。
 
 - [ ] **L10** ⏸ EXPLAIN 节点名 · `PluginDrivenScanNode.java:170,320`。**需决策**:登记 display-only 验收偏差(cheapest,`CONNECTOR:` 行已披露)**vs** 加连接器声明的 legacy `*_SCAN_NODE` 名(连 `Connector.getLegacyEngineName` 一起,见 D-ENGINE)。注:报告的 `connectorType.toUpperCase()+"_SCAN_NODE"` 一行修法**不够**(hms 会出 `VHMS_SCAN_NODE` 非 `VHIVE_/VICEBERG_`)。
-- [ ] **L11** paimon file_format · `PaimonScanPlanProvider.java:812-813,848-849`:JNI DataSplit + COUNT 路按首数据文件后缀 `getFileFormatBySuffix("/"+dataFiles().get(0).fileName()).orElse(defaultFileFormat)`(仿 native 臂 `:540`/legacy)。注:默认 JNI reader 不消费 file_format,影响窄(仅 opt-in cpp reader)。
+- [x] **L11** DONE `4a8650bd062`(设计 `FIX-L11-design.md`;红队 `wf_05574ccb-bd2` 3 lens SOUND/SOUND_WITH_CHANGES）· JNI DataSplit + COUNT 路改按**首数据文件后缀**取 file_format(新 package-private `dataSplitFileFormat`,legacy `getFileFormat(getPathString())` parity),回退表级默认;顺补 `getFileFormatBySuffix` 的 `.avro` 臂(legacy `FileFormatUtils` parity,inert on native)。**call-site RED 测**(`Table.copy` 令表默认 parquet≠磁盘 .orc,断言 JNI+COUNT range 携 "orc")——原 helper 孤立测不守护接线(红队 MAJOR)。69/69 绿、0 checkstyle、gate 净。默认 JNI reader 不消费 file_format,影响窄(仅 opt-in cpp reader)。e2e live-gated(cpp reader over 混/改格式表)。
 - [ ] **L12** ⏸ selectedPartitionNum 语义 · `PluginDrivenScanNode.java:297-303`。**需决策**:登记为「paimon/iceberg 对齐 MC/hive 的 Nereids-剪枝数」验收偏差(推荐)**vs** 连接器回报 SDK-distinct(重,不推荐)。同步 paimon/iceberg EXPLAIN `partition=N/M` 回归期望。**勿**在通用节点按源分支。
-- [ ] **L13** paimon 嵌套 nullability · `PaimonTypeMapping.java:254,257-259,269-281`:发 4-arg `DataField(id,name,type.copy(isChildNullable),comment)`;ARRAY 元素/MAP value `.copy(...)`。仿 `IcebergSchemaBuilder`/legacy。comment 半已登记 DV-035c。
-- [ ] **L14** paimon ignore_split_type no-op · `PaimonScanPlanProvider.java:407-451`:读 `ignore_split_type`(经 `ConnectorSession.getSessionProperties()`)按被忽略 reader 类型跳 split;或退休变量+登记。
+- [x] **L13** DONE `ced4775b844`(设计 `FIX-L13-design.md`;红队 3 lens 全 SOUND）· `toPaimonType` 对 ARRAY 元素/MAP value/STRUCT 字段加 `.copy(type.isChildNullable(i))`(MAP key 保持 `.copy(false)`),恢复 legacy `DorisToPaimonTypeVisitor` 嵌套 nullability parity。**scope=仅 nullability**:comment 丢=DV-035 M10.1 已接受偏差、field-id 顺序 parity 均不动。`.copy(true)` 对默认可空子类型逐字节恒等(既有 parity 测保持绿)。3 新 RED-able 测(经 `.type().isNullable()` 断言,非 DataField equals)。type-mapping+schema-builder 26/26 绿。e2e live-gated(建嵌套 NOT NULL 表 DESCRIBE/SDK 读回)。
+- [x] **L14** DONE `478718aca6f`(设计 `FIX-L14-design.md`;红队 3 lens SOUND/SOUND_WITH_CHANGES）· null-tolerant `resolveIgnoreSplitType(session)`(镜像 `isCppReaderEnabled`,红队 MINOR)+三 legacy `continue` 位:`IGNORE_JNI` drops nonDataSplit+DataSplit-JNI 臂、`IGNORE_NATIVE` drops native 臂、count 臂不检、`IGNORE_PAIMON_CPP` 保持 no-op(=legacy parity,全树 grep 证 legacy 从不引用)。默认 NONE 逐字节不变。3 新 live-planScan RED 测(IGNORE_JNI/IGNORE_NATIVE 各证跳 split+IGNORE_PAIMON_CPP==NONE);nonDataSplit IGNORE_JNI 位离线不可测→留 E2E-only。69/69 绿。e2e live-gated(真集群 SET ignore_split_type 断言跳分片)。
 - [ ] **L15** PAIMON_SCAN_METRICS 悬空 · `SummaryProfile.java:158,218,277`:删三处死引用(P5 已验收弃 paimon FE scan metrics);或加 connector-neutral scan-metrics SPI(feature,非必需)。
 - [ ] **L16** iceberg 缓存偏斜(部分已修) · `IcebergScanPlanProvider.java:1077-1108`:hasSnapshotPin 臂把 field-id dict 建成「pinned schema ∪ requested latest columns」超集(传 requestedLowerNames 而非 `emptyList`),两向都超集;或 fe-core 侧 query-begin pin 解析 pinnedSchema 到 pinned schemaId(对齐 time-travel 臂 `:377-387`)。
 - [ ] **L17** iceberg 同表多版本 version-blind 绑定 · `PluginDrivenMvccExternalTable.java:475-485`:per-reference schema 绑定 version-aware(用 `StatementContext.getSnapshot(table, tableSnapshot, scanParams)` 的 pinnedSchema,fallback latest);与 L16 同根,建议一并。窄触发 + fail-loud。
@@ -286,4 +286,10 @@ Legend：⬜ todo / 🔄 in progress / ✅ done / ⏸ 挂起(需决策/live)
 - fe-kerberos UT 11/11 绿(含 AuthenticationTest);L7 e2e live-gated(双 kerberos HDFS 目录)。
 
 **⭐ 批次 4·maxcompute L9 DONE** `017d1af1894` — 谓词下推从「全有全无」改为顶层 AND 逐 conjunct 容错(超集正确、BE 重滤)。**首个有 RED-able UT 的 L 条**(converter 纯函数):5 新 UT(3 RED-able+2 guard,证 OR/嵌套 AND 不容错),21/21 绿。perf-only。
-- **下一步 = paimon 子群 L11/L13/L14,再 iceberg/杂项 L15–L19**;⏸ 决策类 L2/L10/L12/L20 先问用户。
+
+**⭐ 批次 4·paimon 子群(L11/L13/L14)全 DONE**（fe-connector-paimon 局部,各独立 code commit + 统一设计红队 `wf_05574ccb-bd2`：3 设计 × 3 lens = 9 agent,无 UNSOUND;设计文档 `FIX-L11/L13/L14-design.md` 含红队折入）：
+- **L11** `4a8650bd062` — JNI/COUNT range file_format 改按首数据文件后缀取(legacy `getFileFormat(getPathString())` parity),补 `.avro` 臂;call-site RED 测(`Table.copy` 令表默认≠磁盘后缀,红队 MAJOR)。
+- **L13** `ced4775b844` — `toPaimonType` 嵌套 nullability `.copy(isChildNullable)`(ARRAY/MAP-value/STRUCT-field),scope 仅 nullability(comment=DV-035 M10.1 已接受);`.copy(true)` 默认恒等。
+- **L14** `478718aca6f` — honor `ignore_split_type`(null-tolerant helper + 三 legacy continue 位;`IGNORE_PAIMON_CPP` no-op=legacy parity);3 live-planScan RED 测,nonDataSplit 位 E2E-only。
+- **共性**:全走单任务循环(复核现码→设计→红队→实现→build+靶向 UT→独立 commit)。**paimon 构建坑复现**:`mvn test` 因 hive-shade 模块 shade 绑 package→`HiveConf` NoClassDefFound 假失败,改 `package` 阶段即绿(memory `doris-build-verify-gotchas`)。模块靶向 UT 全绿(scan 69/69 + type-mapping/schema-builder 26/26)、0 checkstyle、import gate 净。**e2e 全 live-gated**(cpp reader 混格式 / 嵌套 NOT NULL DDL / SET ignore_split_type 跳分片)。
+- **下一步 = iceberg/杂项 L15–L19**(L15 paimon-metrics 悬空、L16/L17 iceberg 缓存/version-blind、L18 iceberg 未知类型、L19 partition_columns 撞名);⏸ 决策类 L2/L10/L12/L20 先中文讲清背景问用户。

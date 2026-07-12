@@ -36,7 +36,7 @@ HMS 翻闸（catalog 类型 `hms` 从旧代码切到插件 SPI）后，第三方
 | 批次 1 | M5/M7/M6/M4/M2 中危（连接器局部：iceberg×3 + mc + hive） | ✅ 全 DONE + 最终复核 CLEAN |
 | 批次 2 | M3→M1 中危(fe-core 通用节点) | ✅ 全 DONE |
 | **批次 3** | **L1(import 门禁) + M8(发布工具/文档)** | **✅ L1 DONE;M8 ⏸ 用户跳过(07-12)** |
-| 批次 4 | 低危连接器 L3–L20（trino/kerberos/mc/paimon/iceberg） | 🔄 trino L3-L6 ✅ · kerberos L7/L8 ✅ · mc L9 ✅;**← 续 paimon L11/L13/L14** |
+| 批次 4 | 低危连接器 L3–L20（trino/kerberos/mc/paimon/iceberg） | 🔄 trino L3-L6 ✅ · kerberos L7/L8 ✅ · mc L9 ✅ · paimon L11/L13/L14 ✅;**← 续 iceberg/杂项 L15–L19** |
 | 决策类 | L2 / L10 / L12 / L20 | ⏸ 先用中文讲清背景问用户再动 |
 | 设计债 | D-系列 | ⏸ 择机 / 随 P8 |
 
@@ -75,9 +75,20 @@ HMS 翻闸（catalog 类型 `hms` 从旧代码切到插件 SPI）后，第三方
   修法=升级文档/release-note + (**可选**)replay 收尾聚合 degraded ERROR（触 fe-core,需编译）。**不 silently drop**,表中留待办;
   回来做时先中文讲清「仅文档 vs 文档+可选防御码」让用户拍板。
 
-**下一步 = 批次 4（低危连接器,用户指向）**：直接可做=`L3–L9`（trino 事务/单例/去重/NPE、kerberos guard/interrupt、mc 谓词）、
-`L11/L13/L14`（paimon file_format/nullability/ignore_split_type）、`L15–L19`（paimon metrics 悬空、iceberg 缓存/version-blind/
-未知类型、partition_columns 撞名）。逐条走单任务循环（复核现码→设计→红队→实现→build+UT→独立 commit→勾表→更 HANDOFF）。
+**批次 4 已完成子群**：trino `L3–L6` ✅ · kerberos `L7/L8` ✅ · mc `L9` ✅ · **paimon `L11/L13/L14` ✅（本轮）**。
+- **paimon 子群（L11/L13/L14）**：统一设计红队 `wf_05574ccb-bd2`（3 设计 × 3 lens = 9 agent,无 UNSOUND）。
+  - `L11` `4a8650bd062` — JNI/COUNT range file_format 按首数据文件后缀取(legacy `getFileFormat(getPathString())` parity)+补 `.avro` 臂;
+    call-site RED 测(`Table.copy` 令表默认≠磁盘后缀,红队 MAJOR:原 helper 孤立测不守护接线)。
+  - `L13` `ced4775b844` — `toPaimonType` 嵌套 nullability `.copy(isChildNullable)`(ARRAY/MAP-value/STRUCT-field);
+    **scope 仅 nullability**(comment=DV-035 M10.1 已接受、field-id 顺序 parity);`.copy(true)` 默认恒等,既有 parity 测保持绿。
+  - `L14` `478718aca6f` — honor `ignore_split_type`(null-tolerant `resolveIgnoreSplitType` + 三 legacy continue 位;
+    `IGNORE_PAIMON_CPP` no-op=legacy parity,全树 grep 证);nonDataSplit IGNORE_JNI 位 E2E-only。
+  - **⚠ 构建坑复现**：paimon 模块 `mvn test` 因 hive-shade 模块 shade 绑 `package` 阶段→`org.apache.hadoop.hive.conf` NoClassDefFound
+    **假失败**;改 `package` 阶段即绿。模块靶向 UT 全绿(scan 69/69 + type-mapping/schema-builder 26/26)、0 checkstyle、gate 净。
+
+**下一步 = 批次 4 剩余（低危连接器/杂项）**：`L15–L19`（`L15` paimon `PAIMON_SCAN_METRICS` 悬空常量、`L16/L17` iceberg
+快照/schema 缓存偏斜 + version-blind schema 绑定、`L18` iceberg 未知/v3 类型静默 UNSUPPORTED、`L19` `partition_columns` 魔法键撞名）。
+逐条走单任务循环（复核现码→设计→红队→实现→build+UT→独立 commit→勾表→更 HANDOFF）。
 ⏸ **决策类 `L2/L10/L12/L20` 先中文讲清背景+选项问用户再动**（memory `ask-user-explain-in-chinese-first`）。设计债 D-系列择机。
 跟踪表「建议批次」节有全清单。
 
