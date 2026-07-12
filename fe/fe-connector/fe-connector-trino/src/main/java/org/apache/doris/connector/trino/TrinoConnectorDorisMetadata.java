@@ -125,8 +125,11 @@ public class TrinoConnectorDorisMetadata implements ConnectorMetadata {
 
             Optional<String> schemaName = Optional.of(dbName);
             List<SchemaTableName> tables = metadata.listTables(connSession, schemaName);
+            // distinct() restores the legacy LinkedHashSet de-dup (order-preserving): some Trino
+            // connectors list the same table name more than once (tables+views, multi-source merges).
             return tables.stream()
                     .map(SchemaTableName::getTableName)
+                    .distinct()
                     .collect(Collectors.toList());
         } finally {
             releaseQuietly(txn);
