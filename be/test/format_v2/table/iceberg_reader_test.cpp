@@ -66,6 +66,8 @@
 #include "gen_cpp/Exprs_types.h"
 #include "gen_cpp/ExternalTableSchema_types.h"
 #include "gen_cpp/PlanNodes_types.h"
+#include "io/fs/file_meta_cache.h"
+#include "io/fs/local_file_system.h"
 #include "io/io_common.h"
 #include "roaring/roaring64map.hh"
 #include "runtime/runtime_profile.h"
@@ -2899,6 +2901,71 @@ TEST(IcebergV2ReaderTest, IcebergPositionDeleteCacheIsScopedByFileSystem) {
     EXPECT_EQ(read_iceberg_ids(&reader, projected_columns), std::vector<int32_t>({2, 3}));
 
     ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
+TEST(IcebergV2ReaderTest, IcebergDeleteReaderInheritsFileMetaMemoryCachePolicy) {
+    const auto test_dir =
+            std::filesystem::temp_directory_path() / "doris_iceberg_delete_file_meta_cache_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+
+    const auto file_path = (test_dir / "split.parquet").string();
+    const auto delete_file_path = (test_dir / "position-delete.parquet").string();
+    write_int_pair_parquet_file(file_path, {1, 2, 3}, {10, 20, 30}, {"one", "two", "three"});
+    write_position_delete_parquet_file(delete_file_path, {file_path}, {1});
+
+    std::vector<ColumnDefinition> projected_columns;
+    projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+    RuntimeProfile profile("test_profile");
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto scan_params = make_local_parquet_scan_params();
+    io::FileReaderStats file_reader_stats;
+    io::FileCacheStatistics file_cache_stats;
+    auto io_ctx = make_io_context(&file_reader_stats, &file_cache_stats);
+    ShardedKVCache delete_file_cache(1);
+
+    auto delete_footer_is_cached = [&](bool enable_file_meta_memory_cache) {
+        FileMetaCache file_meta_cache(1024);
+        doris::format::iceberg::IcebergTableReader reader;
+        EXPECT_TRUE(
+                reader.init({
+                                    .projected_columns = projected_columns,
+                                    .conjuncts = {},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = &scan_params,
+                                    .io_ctx = io_ctx,
+                                    .runtime_state = &state,
+                                    .scanner_profile = &profile,
+                                    .file_meta_cache = &file_meta_cache,
+                                    .enable_file_meta_memory_cache = enable_file_meta_memory_cache,
+                            })
+                        .ok());
+
+        auto split_options = build_split_options(file_path);
+        split_options.cache = &delete_file_cache;
+        split_options.current_range.__set_table_format_params(make_iceberg_table_format_desc(
+                file_path, {make_iceberg_position_delete_file(delete_file_path)}));
+        EXPECT_TRUE(reader.prepare_split(split_options).ok());
+
+        io::FileReaderSPtr delete_file_reader;
+        EXPECT_TRUE(io::global_local_filesystem()
+                            ->open_file(delete_file_path, &delete_file_reader)
+                            .ok());
+        io::FileDescription file_description;
+        file_description.mtime = 0;
+        file_description.file_size = -1;
+        const std::string meta_key = FileMetaCache::get_key(delete_file_reader, file_description);
+        const std::string memory_key =
+                FileMetaCache::get_memory_cache_key(FileMetaCacheFormat::PARQUET_V2, meta_key);
+        ObjLRUCache::CacheHandle handle;
+        const bool cached = file_meta_cache.lookup(memory_key, &handle);
+        EXPECT_TRUE(reader.close().ok());
+        return cached;
+    };
+
+    EXPECT_TRUE(delete_footer_is_cached(true));
+    EXPECT_FALSE(delete_footer_is_cached(false));
     std::filesystem::remove_all(test_dir);
 }
 
