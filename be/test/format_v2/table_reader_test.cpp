@@ -1352,6 +1352,46 @@ TEST(TableReaderTest, RefreshedConjunctDisablesTableLevelCount) {
     ASSERT_TRUE(reader.close().ok());
 }
 
+TEST(TableReaderTest, PendingRuntimeFilterDisablesTableLevelCount) {
+    std::vector<ColumnDefinition> file_schema;
+    file_schema.push_back(make_file_column(0, "id", std::make_shared<DataTypeInt32>()));
+
+    std::vector<ColumnDefinition> projected_columns;
+    projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+    set_name_identifiers(&projected_columns);
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto fake_state = std::make_shared<FakeFileReaderState>();
+    FakeTableReader reader(file_schema, fake_state);
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .conjuncts = {},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                                    .push_down_agg_type = TPushAggOp::type::COUNT,
+                            })
+                        .ok());
+
+    SplitReadOptions split_options;
+    split_options.current_range.__set_path("fake-table-reader-input");
+    // A pending runtime filter makes metadata COUNT ineligible before its first synthetic batch.
+    // This prevents the filter from arriving between scheduler reads after unfiltered rows have
+    // already escaped.
+    split_options.all_runtime_filters_applied = false;
+    set_table_level_row_count(&split_options, state.batch_size() + 5);
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    EXPECT_EQ(fake_state->open_count, 1);
+    EXPECT_EQ(block.rows(), 2);
+    ASSERT_TRUE(reader.close().ok());
+}
+
 TEST(TableReaderTest, AbortSplitClearsReaderAfterIgnorableNotFound) {
     std::vector<ColumnDefinition> file_schema;
     file_schema.push_back(make_file_column(0, "id", std::make_shared<DataTypeInt32>()));

@@ -149,6 +149,11 @@ struct SplitReadOptions {
     // Independent clones used for partition pruning because evaluation prepares and opens them
     // against a synthetic partition block before the file reader opens its row-level conjuncts.
     VExprContextSPtrs partition_prune_conjuncts;
+    // Table-level COUNT may emit one metadata-derived batch and resume on a later scheduler turn.
+    // It is safe only after every runtime filter assigned to the scanner has arrived; otherwise a
+    // filter could arrive after synthetic rows have already been returned and those rows cannot be
+    // retracted. Standalone TableReader callers have no scanner runtime-filter lifecycle.
+    bool all_runtime_filters_applied = true;
     ShardedKVCache* cache;
     TFileRangeDesc current_range;
     FileFormat current_split_format = FileFormat::PARQUET;
