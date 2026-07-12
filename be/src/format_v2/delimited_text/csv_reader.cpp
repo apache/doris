@@ -138,7 +138,8 @@ Status CsvReader::_create_line_reader() {
                     _source_file_slot_descs.size() > 1 ? _source_file_slot_descs.size() - 1 : 0;
             _enclose_reader_ctx = std::make_shared<EncloseCsvLineReaderCtx>(
                     _line_delimiter, _line_delimiter.size(), _value_separator,
-                    _value_separator.size(), col_sep_num, _enclose, _escape, _keep_cr);
+                    _value_separator.size(), col_sep_num, _enclose, _escape, _keep_cr,
+                    _start_offset == 0);
             text_line_reader_ctx = _enclose_reader_ctx;
         }
         _line_reader = NewPlainTextLineReader::create_unique(

@@ -931,6 +931,83 @@ TEST_F(CsvV2ReaderTest, BomIsRemovedFromFirstDataLineWithoutHeader) {
     EXPECT_EQ(nullable_int_at(*block.get_by_position(0).column, 0), 5);
 }
 
+// The enclosed line reader sees bytes before DelimitedTextReader removes the BOM. It must skip the
+// BOM structurally so the quote immediately after it still starts an enclosed first field and the
+// comma inside that field is not recorded as a column separator.
+TEST_F(CsvV2ReaderTest, BomBeforeQuotedFirstFieldWithComma) {
+    const auto bom_path = (_test_dir / "bom_quoted_comma.csv").string();
+    std::ofstream output(bom_path, std::ios::binary);
+    output.write("\xEF\xBB\xBF", 3);
+    output << "\"alice,team\",20\n";
+    output.close();
+
+    auto string_slot = make_test_slot(&_pool, 10, 0,
+                                      make_nullable(std::make_shared<DataTypeString>()), "name");
+    auto score_slot = make_test_slot(&_pool, 11, 1,
+                                     make_nullable(std::make_shared<DataTypeInt32>()), "score");
+    std::vector<SlotDescriptor*> slots {string_slot, score_slot};
+    _params.__set_column_idxs({0, 1});
+    _params.file_attributes.__isset.header_type = false;
+    _params.file_attributes.text_params.__set_enclose('"');
+    _params.file_attributes.text_params.__set_escape('\\');
+    auto reader = create_reader(bom_path, &_params, slots, &_state, &_profile);
+    std::vector<ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+
+    auto request = std::make_shared<FileScanRequest>();
+    request->non_predicate_columns = {LocalColumnIndex::top_level(LocalColumnId(0)),
+                                      LocalColumnIndex::top_level(LocalColumnId(1))};
+    request->local_positions.emplace(LocalColumnId(0), LocalIndex(0));
+    request->local_positions.emplace(LocalColumnId(1), LocalIndex(1));
+    ASSERT_TRUE(reader->open(request).ok());
+
+    auto block = make_block(schema, {0, 1});
+    size_t rows = 0;
+    bool eof = false;
+    ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+    ASSERT_EQ(rows, 1);
+    EXPECT_EQ(nullable_string_at(*block.get_by_position(0).column, 0), "alice,team");
+    EXPECT_EQ(nullable_int_at(*block.get_by_position(1).column, 0), 20);
+}
+
+// The same ordering matters before logical-row detection: a newline inside the first enclosed
+// field belongs to the field, even when the opening quote follows a file BOM.
+TEST_F(CsvV2ReaderTest, BomBeforeQuotedFirstFieldWithNewline) {
+    const auto bom_path = (_test_dir / "bom_quoted_newline.csv").string();
+    std::ofstream output(bom_path, std::ios::binary);
+    output.write("\xEF\xBB\xBF", 3);
+    output << "\"alice\nteam\",20\n";
+    output.close();
+
+    auto string_slot = make_test_slot(&_pool, 10, 0,
+                                      make_nullable(std::make_shared<DataTypeString>()), "name");
+    auto score_slot = make_test_slot(&_pool, 11, 1,
+                                     make_nullable(std::make_shared<DataTypeInt32>()), "score");
+    std::vector<SlotDescriptor*> slots {string_slot, score_slot};
+    _params.__set_column_idxs({0, 1});
+    _params.file_attributes.__isset.header_type = false;
+    _params.file_attributes.text_params.__set_enclose('"');
+    _params.file_attributes.text_params.__set_escape('\\');
+    auto reader = create_reader(bom_path, &_params, slots, &_state, &_profile);
+    std::vector<ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+
+    auto request = std::make_shared<FileScanRequest>();
+    request->non_predicate_columns = {LocalColumnIndex::top_level(LocalColumnId(0)),
+                                      LocalColumnIndex::top_level(LocalColumnId(1))};
+    request->local_positions.emplace(LocalColumnId(0), LocalIndex(0));
+    request->local_positions.emplace(LocalColumnId(1), LocalIndex(1));
+    ASSERT_TRUE(reader->open(request).ok());
+
+    auto block = make_block(schema, {0, 1});
+    size_t rows = 0;
+    bool eof = false;
+    ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+    ASSERT_EQ(rows, 1);
+    EXPECT_EQ(nullable_string_at(*block.get_by_position(0).column, 0), "alice\nteam");
+    EXPECT_EQ(nullable_int_at(*block.get_by_position(1).column, 0), 20);
+}
+
 // Scenario: when FE does not set header_type, CSV v2 must honor skip_lines exactly as the old
 // reader does.
 TEST_F(CsvV2ReaderTest, SkipLinesUsedWhenHeaderTypeUnset) {
