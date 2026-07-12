@@ -850,6 +850,39 @@ TEST_F(CsvV2ReaderTest, MatchingEscapeAndEncloseStillSplitQuotedFields) {
     EXPECT_EQ(nullable_int_at(*block.get_by_position(2).column, 0), 10);
 }
 
+// OpenCSV custom quote characters only remove that configured enclosure. Literal double quotes in
+// a field must remain when the configured enclosure is a single quote.
+TEST_F(CsvV2ReaderTest, CustomEnclosePreservesLiteralDoubleQuotes) {
+    const auto quoted_path = (_test_dir / "custom_enclose.csv").string();
+    std::ofstream output(quoted_path, std::ios::binary);
+    output << R"("Project Manager")" << '\n';
+    output.close();
+
+    auto value_slot = make_test_slot(&_pool, 10, 0,
+                                     make_nullable(std::make_shared<DataTypeString>()), "value");
+    std::vector<SlotDescriptor*> slots {value_slot};
+    _params.__set_column_idxs({0});
+    _params.file_attributes.__isset.header_type = false;
+    _params.file_attributes.text_params.__set_column_separator("\t");
+    _params.file_attributes.text_params.__set_enclose('\'');
+    _params.file_attributes.text_params.__set_escape('|');
+    auto reader = create_reader(quoted_path, &_params, slots, &_state, &_profile);
+    std::vector<ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+
+    auto request = std::make_shared<FileScanRequest>();
+    request->non_predicate_columns = {LocalColumnIndex::top_level(LocalColumnId(0))};
+    request->local_positions.emplace(LocalColumnId(0), LocalIndex(0));
+    ASSERT_TRUE(reader->open(request).ok());
+
+    auto block = make_block(schema, {0});
+    size_t rows = 0;
+    bool eof = false;
+    ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+    ASSERT_EQ(rows, 1);
+    EXPECT_EQ(nullable_string_at(*block.get_by_position(0).column, 0), R"("Project Manager")");
+}
+
 // A column separator that overlaps the line delimiter must not be recorded because CsvReader
 // splits a Slice that excludes the line delimiter bytes.
 TEST_F(CsvV2ReaderTest, ColumnSeparatorOverlappingLineDelimiterStaysOutsideReturnedLine) {
