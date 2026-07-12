@@ -51,6 +51,7 @@ import org.apache.doris.datasource.doris.RemoteDorisExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
 import org.apache.doris.datasource.systable.SysTableResolver;
+import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.nereids.CTEContext;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.SqlCacheContext;
@@ -882,8 +883,12 @@ public class BindRelation extends OneAnalysisRuleFactory {
                             sqlCacheContext.setHasUnsupportedTables(true);
                         } else if (table instanceof OlapTable) {
                             sqlCacheContext.addUsedTable(table);
-                        } else if (table instanceof HMSExternalTable
+                        } else if (table instanceof ExternalTable && table instanceof MTMVRelatedTableIf
                                 && cascadesContext.getConnectContext().getSessionVariable().enableHiveSqlCache) {
+                            // Any external lakehouse plugin table that exposes a stable data-version token
+                            // (MTMVRelatedTableIf#getNewestUpdateVersionOrTime) is cacheable; addUsedTable
+                            // records the token and fails safe if it is unavailable. Gated by the (default
+                            // false) enable_hive_sql_cache switch so behavior is unchanged unless opted in.
                             sqlCacheContext.addUsedTable(table);
                         } else {
                             sqlCacheContext.setHasUnsupportedTables(true);

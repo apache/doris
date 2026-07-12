@@ -34,8 +34,8 @@ import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.datasource.CatalogIf;
-import org.apache.doris.datasource.hive.source.HiveScanNode;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.SqlCacheContext;
 import org.apache.doris.nereids.SqlCacheContext.FullTableName;
@@ -301,24 +301,21 @@ public class CacheAnalyzer {
             // Check the last version time of the table
             MetricRepo.COUNTER_QUERY_TABLE.increase(1L);
             long olapScanNodeSize = 0;
-            long hiveScanNodeSize = 0;
+            long externalCacheableSize = 0;
             for (ScanNode scanNode : scanNodes) {
                 if (scanNode instanceof OlapScanNode) {
                     olapScanNodeSize++;
-                } else if (scanNode instanceof HiveScanNode) {
-                    hiveScanNodeSize++;
+                } else if (isExternalCacheableScanNode(scanNode)) {
+                    externalCacheableSize++;
                 }
             }
             if (olapScanNodeSize > 0) {
                 MetricRepo.COUNTER_QUERY_OLAP_TABLE.increase(1L);
             }
-            if (hiveScanNodeSize > 0) {
-                MetricRepo.COUNTER_QUERY_HIVE_TABLE.increase(1L);
-            }
 
-            if (!(olapScanNodeSize == scanNodes.size() || hiveScanNodeSize == scanNodes.size())) {
+            if (!(olapScanNodeSize == scanNodes.size() || externalCacheableSize == scanNodes.size())) {
                 if (LOG.isDebugEnabled()) {
-                    LOG.debug("only support olap/hive table with non-federated query, "
+                    LOG.debug("only support olap/external table with non-federated query, "
                             + "other types are not supported now, queryId {}", DebugUtil.printId(queryId));
                 }
                 return Collections.emptyList();
@@ -329,7 +326,7 @@ public class CacheAnalyzer {
                 ScanNode node = scanNodes.get(i);
                 CacheTable cTable = node instanceof OlapScanNode
                         ? buildCacheTableForOlapScanNode((OlapScanNode) node)
-                        : buildCacheTableForHiveScanNode((HiveScanNode) node);
+                        : buildCacheTableForExternalScanNode(node);
                 tblTimeList.add(cTable);
             }
             Collections.sort(tblTimeList);
@@ -469,12 +466,27 @@ public class CacheAnalyzer {
         return cacheTable;
     }
 
-    private CacheTable buildCacheTableForHiveScanNode(HiveScanNode node) {
+    /**
+     * A non-Olap scan node is cacheable iff its target table exposes a stable data-version token
+     * (implements {@link MTMVRelatedTableIf}). Keying on the target-table capability rather than the scan
+     * node class is connector-agnostic and robust: it recognizes every lakehouse plugin table (hive /
+     * iceberg / paimon / hudi, whether scanned via {@code PluginDrivenScanNode} or a legacy
+     * {@code HudiScanNode}) while excluding token-less nodes such as {@code jdbc_query(...)} TVFs (backed by
+     * a {@code FunctionGenTable}) and system-table scans.
+     */
+    private boolean isExternalCacheableScanNode(ScanNode scanNode) {
+        return scanNode.getTupleDesc() != null
+                && scanNode.getTupleDesc().getTable() instanceof MTMVRelatedTableIf;
+    }
+
+    private CacheTable buildCacheTableForExternalScanNode(ScanNode node) {
         CacheTable cacheTable = new CacheTable();
-        cacheTable.table = node.getTargetTable();
+        TableIf tableIf = node.getTupleDesc().getTable();
+        cacheTable.table = tableIf;
         cacheTable.partitionNum = node.getSelectedPartitionNum();
-        cacheTable.latestPartitionTime = cacheTable.table.getUpdateTime();
-        TableIf tableIf = cacheTable.table;
+        // Connector-agnostic data-version token (hive: max transient_lastDdlTime; iceberg/paimon: monotonic
+        // snapshot version). Gated to MTMVRelatedTableIf tables by isExternalCacheableScanNode above.
+        cacheTable.latestPartitionTime = ((MTMVRelatedTableIf) tableIf).getNewestUpdateVersionOrTime();
         DatabaseIf database = tableIf.getDatabase();
         CatalogIf catalog = database.getCatalog();
         ScanTable scanTable = new ScanTable(new FullTableName(
