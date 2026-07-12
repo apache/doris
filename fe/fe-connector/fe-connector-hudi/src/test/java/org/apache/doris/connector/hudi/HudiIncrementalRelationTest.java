@@ -26,6 +26,7 @@ import org.junit.jupiter.api.Test;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.function.UnaryOperator;
 
 /**
  * Tests the OFFLINE-verifiable surface of the ported {@code @incr} IncrementalRelation family (INC-2): the pure
@@ -194,7 +195,8 @@ public class HudiIncrementalRelationTest {
         // The empty-timeline relation selects no files on either shape and never falls back. Its end bound is the
         // legacy "000" sentinel. Guards against a mutation returning non-empty / a non-"000" bound.
         EmptyIncrementalRelation empty = new EmptyIncrementalRelation();
-        Assertions.assertTrue(empty.collectSplits().isEmpty(), "empty relation must select no splits");
+        Assertions.assertTrue(empty.collectSplits(UnaryOperator.identity()).isEmpty(),
+                "empty relation must select no splits");
         Assertions.assertTrue(empty.collectFileSlices().isEmpty(), "empty relation must select no file slices");
         Assertions.assertFalse(empty.fallbackFullTableScan(), "empty relation never falls back to a full scan");
         Assertions.assertEquals("000", empty.getEndTs(), "empty relation end bound is the legacy \"000\"");

@@ -1,11 +1,19 @@
-# Task List — CI 973411 paimon-SPI regression fixes
+# Task List — hudi BE-scan s3a:// failures (14 p2 suites)
 
-Source RCA: `memory/catalog-spi-ci-973411-4fails-rca.md` + workflow `wf_e1c3d93c-22c` (adversarially verified).
-Build 973411, HEAD e1d6f88. All 4 test files are byte-identical to master ⇒ all 4 are SPI-migration regressions.
+Root cause: the new fe-connector hudi BE-scan path under-threads S3 storage config (parity gap vs
+legacy `HudiScanNode`). Two independent wiring gaps, fixed independently. RCA: recon workflow
+`wf_67162858-b79` + inline verification (this session, 2026-07-12).
 
-- [x] FIX-1 — test_create_paimon_table: paimon-over-HMS create-db classloader split (PaimonCatalogFactory.assembleHiveConf) — DONE (16/16 UT, checkstyle clean)
-- [x] FIX-2 — test_mysql_mtmv: connector-null NPE during mv_infos scan (PluginDrivenMvccExternalTable.materializeLatest) — DONE (36/36 UT, RED reproduced exact NPE, checkstyle clean)
-- [x] FIX-3 — test_paimon_mtmv: Duplicated p_NULL partition naming (ListPartitionItem.toPartitionKeyDesc) — DONE (2/2 new UT + MTMV 10/10, RED reproduced p_NULL collision, checkstyle clean)
-- [x] FIX-4 — test_paimon_table_meta_cache: restore paimon table cache, 2 axes (PaimonConnector snapshot cache + Connector SPI invalidate/schemaTtl + fe-core overlay/refresh wiring) — DONE (cache 5/5, override 4/4, Mvcc 40/40, fe-core compiles + FIX-2/3 guards 36/2, checkstyle clean; e2e docker-gated)
+- [ ] FIX-hudi-s3a-native-scheme — native reader `[INVALID_ARGUMENT]Invalid S3 URI: s3a://...`:
+      connector emits the raw HMS `s3a://` path into the native range `.path()`; must normalize
+      `s3a://`→`s3://` via `context.normalizeStorageUri` (mirror iceberg/paimon `normalizeUri`).
+      fe-connector-hudi only. JNI `THudiFileDesc` paths stay raw `s3a://` (S3AFileSystem wants s3a).
+- [ ] FIX-hudi-s3a-jni-creds — JNI Hudi scanner `NoAuthWithAWSException: No AWS Credentials`:
+      `HudiScanPlanProvider.getScanNodeProperties` never emits the Hadoop-canonical `fs.s3a.*`
+      creds under the `location.` prefix; add `storageHadoopConfig(context)` emission so BE's JNI
+      Hadoop conf receives `fs.s3a.access.key/secret.key/endpoint`. fe-connector-hudi only.
 
-Order: 1 → 2 → 3 → 4 (smallest/lightest module first; #4 largest). TDD per fix, independent commit each.
+E2E = the existing 14 failing suites under `regression-test/suites/external_table_p2/hudi/`
+(no new suites needed; they are the regression gate). Run both fixes together, then re-run all 14.
+
+Order: native-scheme → jni-creds (independent; either order works). TDD per fix, independent commit.

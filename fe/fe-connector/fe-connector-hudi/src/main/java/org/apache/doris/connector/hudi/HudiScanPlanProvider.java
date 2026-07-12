@@ -63,6 +63,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.Function;
+import java.util.function.UnaryOperator;
 import java.util.stream.Collectors;
 
 /**
@@ -256,7 +257,8 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
         if (hudiHandle.getBeginInstant() != null) {
             IncrementalRelation relation = buildIncrementalRelation(metaClient, conf, hudiHandle, isCow);
             Optional<List<ConnectorScanRange>> incrementalRanges = incrementalRanges(relation, isCow, forceJni,
-                    basePath, inputFormat, serdeLib, columnNames, columnTypes, partitionFieldNames(metaClient));
+                    basePath, inputFormat, serdeLib, columnNames, columnTypes, partitionFieldNames(metaClient),
+                    this::normalizeNativeUri);
             if (incrementalRanges.isPresent()) {
                 LOG.info("Hudi incremental scan planning: {}.{} window=({}, {}] splits={}",
                         hudiHandle.getDbName(), hudiHandle.getTableName(),
@@ -400,6 +402,20 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
     }
 
     /**
+     * Normalizes a raw HMS/Hudi-SDK storage URI into BE's canonical scheme for the NATIVE reader's range path
+     * (e.g. {@code s3a://}/{@code oss://}/{@code cos://} &rarr; {@code s3://}), delegating to the engine seam
+     * {@link ConnectorContext#normalizeStorageUri(String)} — the connector cannot import fe-core's
+     * {@code LocationPath}. BE's native S3 file factory (S3URI) accepts ONLY {@code s3://}, so an un-normalized
+     * {@code s3a://} range path fails the native read with "Invalid S3 URI". Mirrors iceberg/paimon
+     * {@code normalizeUri}. Applied ONLY to the native range {@code .path()}; the JNI reader's
+     * {@code THudiFileDesc} base/data/delta-log paths stay raw {@code s3a://} (Hadoop {@code S3AFileSystem}
+     * wants the {@code s3a} scheme). A null context (offline unit tests) preserves the raw URI.
+     */
+    private String normalizeNativeUri(String rawUri) {
+        return context != null ? context.normalizeStorageUri(rawUri) : rawUri;
+    }
+
+    /**
      * Collect splits for COW (Copy on Write) tables.
      * COW tables only have base files — use native Parquet/ORC reader.
      */
@@ -417,7 +433,7 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
                     String format = detectFileFormat(filePath);
 
                     HudiScanRange.Builder builder = new HudiScanRange.Builder()
-                            .path(filePath)
+                            .path(normalizeNativeUri(filePath))
                             .start(0)
                             .length(fileSize)
                             .fileSize(fileSize)
@@ -447,7 +463,8 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
             Function<String, Long> schemaIdResolver) {
         fsView.getLatestMergedFileSlicesBeforeOrOn(partitionPath, queryInstant)
                 .forEach(fileSlice -> ranges.add(buildMorRange(fileSlice, partValues, queryInstant,
-                        forceJni, basePath, inputFormat, serdeLib, columnNames, columnTypes, schemaIdResolver)));
+                        forceJni, basePath, inputFormat, serdeLib, columnNames, columnTypes, schemaIdResolver,
+                        this::normalizeNativeUri)));
     }
 
     /**
@@ -467,7 +484,7 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
     static HudiScanRange buildMorRange(FileSlice fileSlice, Map<String, String> partValues, String jniInstant,
             boolean forceJni, String basePath, String inputFormat, String serdeLib,
             List<String> columnNames, List<String> columnTypes,
-            Function<String, Long> schemaIdResolver) {
+            Function<String, Long> schemaIdResolver, UnaryOperator<String> nativePathNormalizer) {
         Optional<HoodieBaseFile> baseFileOpt = fileSlice.getBaseFile().toJavaOptional();
         String filePath = baseFileOpt.map(BaseFile::getPath).orElse("");
         long fileSize = baseFileOpt.map(BaseFile::getFileSize).orElse(0L);
@@ -487,7 +504,7 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
                 ? logs.get(0) : filePath;
 
         HudiScanRange.Builder builder = new HudiScanRange.Builder()
-                .path(agencyPath)
+                .path(nativePathNormalizer.apply(agencyPath))
                 .start(0)
                 .length(fileSize)
                 .fileSize(fileSize)
@@ -568,13 +585,16 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
      */
     static Optional<List<ConnectorScanRange>> incrementalRanges(IncrementalRelation relation, boolean isCow,
             boolean forceJni, String basePath, String inputFormat, String serdeLib,
-            List<String> columnNames, List<String> columnTypes, List<String> partitionFieldNames) {
+            List<String> columnNames, List<String> columnTypes, List<String> partitionFieldNames,
+            UnaryOperator<String> nativePathNormalizer) {
         if (relation.fallbackFullTableScan()) {
             return Optional.empty();
         }
         List<ConnectorScanRange> ranges = new ArrayList<>();
         if (isCow) {
-            ranges.addAll(relation.collectSplits());
+            // COW @incr yields native ranges directly; normalize their scheme (s3a->s3) for BE's native reader
+            // (COWIncrementalRelation.collectSplits builds .path() from the raw HMS base path).
+            ranges.addAll(relation.collectSplits(nativePathNormalizer));
             return Optional.of(ranges);
         }
         String endTs = relation.getEndTs();
@@ -582,7 +602,7 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
             Map<String, String> partValues = parsePartitionValues(fileSlice.getPartitionPath(), partitionFieldNames);
             // @incr lists the LATEST schema (no per-file schema_id dict on the incremental path) -> null resolver.
             ranges.add(buildMorRange(fileSlice, partValues, endTs, forceJni,
-                    basePath, inputFormat, serdeLib, columnNames, columnTypes, null));
+                    basePath, inputFormat, serdeLib, columnNames, columnTypes, null, nativePathNormalizer));
         }
         return Optional.of(ranges);
     }

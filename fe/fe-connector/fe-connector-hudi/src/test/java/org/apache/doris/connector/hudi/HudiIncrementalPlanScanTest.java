@@ -30,6 +30,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.UnaryOperator;
 
 /**
  * Tests the OFFLINE-verifiable core of the INC-3 incremental {@code planScan} wiring: the pure static helpers
@@ -66,7 +67,7 @@ public class HudiIncrementalPlanScanTest {
         fallback.collectFileSlicesThrows = true;
         Optional<List<ConnectorScanRange>> result = HudiScanPlanProvider.incrementalRanges(
                 fallback, /*isCow*/ true, /*forceJni*/ false, BASE_PATH, INPUT_FORMAT, SERDE,
-                Collections.emptyList(), Collections.emptyList(), YEAR_MONTH);
+                Collections.emptyList(), Collections.emptyList(), YEAR_MONTH, UnaryOperator.identity());
         Assertions.assertFalse(result.isPresent(),
                 "fallbackFullTableScan must signal degrade to the snapshot scan (Optional.empty)");
     }
@@ -84,7 +85,7 @@ public class HudiIncrementalPlanScanTest {
         cow.collectFileSlicesThrows = true;
         Optional<List<ConnectorScanRange>> result = HudiScanPlanProvider.incrementalRanges(
                 cow, /*isCow*/ true, /*forceJni*/ false, BASE_PATH, INPUT_FORMAT, SERDE,
-                Collections.emptyList(), Collections.emptyList(), YEAR_MONTH);
+                Collections.emptyList(), Collections.emptyList(), YEAR_MONTH, UnaryOperator.identity());
         Assertions.assertTrue(result.isPresent());
         Assertions.assertEquals(1, result.get().size());
         Assertions.assertSame(native1, result.get().get(0), "COW ranges must be the relation's collectSplits output");
@@ -101,7 +102,7 @@ public class HudiIncrementalPlanScanTest {
         cow.collectFileSlicesThrows = true;
         Optional<List<ConnectorScanRange>> result = HudiScanPlanProvider.incrementalRanges(
                 cow, /*isCow*/ true, /*forceJni*/ true, BASE_PATH, INPUT_FORMAT, SERDE,
-                Collections.emptyList(), Collections.emptyList(), YEAR_MONTH);
+                Collections.emptyList(), Collections.emptyList(), YEAR_MONTH, UnaryOperator.identity());
         Assertions.assertTrue(result.isPresent());
         Assertions.assertSame(native1, result.get().get(0),
                 "COW incremental must stay native even under force_jni (never call collectFileSlices)");
@@ -122,7 +123,7 @@ public class HudiIncrementalPlanScanTest {
         mor.collectSplitsThrows = true;
         Optional<List<ConnectorScanRange>> result = HudiScanPlanProvider.incrementalRanges(
                 mor, /*isCow*/ false, /*forceJni*/ true, BASE_PATH, INPUT_FORMAT, SERDE,
-                Arrays.asList("c1"), Arrays.asList("int"), YEAR_MONTH);
+                Arrays.asList("c1"), Arrays.asList("int"), YEAR_MONTH, UnaryOperator.identity());
         Assertions.assertTrue(result.isPresent());
         Assertions.assertEquals(1, result.get().size());
         HudiScanRange range = (HudiScanRange) result.get().get(0);
@@ -144,7 +145,7 @@ public class HudiIncrementalPlanScanTest {
         mor.collectSplitsThrows = true;
         Optional<List<ConnectorScanRange>> result = HudiScanPlanProvider.incrementalRanges(
                 mor, /*isCow*/ false, /*forceJni*/ false, BASE_PATH, INPUT_FORMAT, SERDE,
-                Collections.emptyList(), Collections.emptyList(), YEAR_MONTH);
+                Collections.emptyList(), Collections.emptyList(), YEAR_MONTH, UnaryOperator.identity());
         Assertions.assertTrue(result.isPresent());
         Assertions.assertTrue(result.get().isEmpty());
     }
@@ -160,7 +161,8 @@ public class HudiIncrementalPlanScanTest {
         Map<String, String> partValues = HudiScanPlanProvider.parsePartitionValues(
                 slice.getPartitionPath(), YEAR_MONTH);
         HudiScanRange range = HudiScanPlanProvider.buildMorRange(slice, partValues, END_TS, /*forceJni*/ true,
-                BASE_PATH, INPUT_FORMAT, SERDE, Arrays.asList("c1"), Arrays.asList("int"), p -> 7L);
+                BASE_PATH, INPUT_FORMAT, SERDE, Arrays.asList("c1"), Arrays.asList("int"), p -> 7L,
+                UnaryOperator.identity());
         Assertions.assertEquals("jni", range.getFileFormat());
         Assertions.assertEquals(END_TS, range.getProperties().get("hudi.instant_time"));
         Assertions.assertEquals(SERDE, range.getProperties().get("hudi.serde"));
@@ -177,11 +179,46 @@ public class HudiIncrementalPlanScanTest {
                 "s3://b/t/year=2024/month=01/fileid-1_0_20240101000000.parquet");
         HudiScanRange range = HudiScanPlanProvider.buildMorRange(slice, Collections.emptyMap(), END_TS,
                 /*forceJni*/ false, BASE_PATH, INPUT_FORMAT, SERDE,
-                Arrays.asList("c1"), Arrays.asList("int"), p -> 7L);
+                Arrays.asList("c1"), Arrays.asList("int"), p -> 7L, UnaryOperator.identity());
         Assertions.assertEquals("parquet", range.getFileFormat(),
                 "a no-log slice without force_jni must downgrade to the native parquet reader");
         // C4c: a native downgraded slice carries the per-file schema_id from the resolver (native field-id path).
         Assertions.assertEquals("7", range.getProperties().get("hudi.schema_id"));
+    }
+
+    // ── native path scheme normalization (FIX-hudi-s3a-native-scheme) ────────────────────────────────────────
+
+    @Test
+    public void cowIncrementalNormalizesNativePathScheme() {
+        // The COW @incr branch must thread incrementalRanges' normalizer into relation.collectSplits so the native
+        // range path is rewritten s3a->s3 for BE's native S3 reader (which rejects s3a). Kills a mutation that drops
+        // the normalizer or passes identity: the range path would stay s3a:// and BE would throw "Invalid S3 URI".
+        FakeRelation cow = new FakeRelation();
+        cow.rawCowPath = "s3a://datalake/warehouse/t/f1.parquet";
+        cow.collectFileSlicesThrows = true;
+        Optional<List<ConnectorScanRange>> result = HudiScanPlanProvider.incrementalRanges(
+                cow, /*isCow*/ true, /*forceJni*/ false, BASE_PATH, INPUT_FORMAT, SERDE,
+                Collections.emptyList(), Collections.emptyList(), YEAR_MONTH,
+                s -> s.replace("s3a://", "s3://"));
+        Assertions.assertTrue(result.isPresent());
+        HudiScanRange range = (HudiScanRange) result.get().get(0);
+        Assertions.assertEquals("s3://datalake/warehouse/t/f1.parquet", range.getPath().orElse(null),
+                "COW @incr native range path must be scheme-normalized (s3a->s3) via the threaded normalizer");
+    }
+
+    @Test
+    public void buildMorRangeNormalizesNativeNoLogSlicePathScheme() {
+        // A no-log MOR slice reads native; buildMorRange must apply the normalizer to the base-file path (agencyPath)
+        // so BE's native reader gets s3://, not the raw s3a:// from the Hudi SDK. The JNI metadata paths are a
+        // separate concern (this slice reads native, so none are set).
+        FileSlice slice = baseOnlySlice("year=2024/month=01",
+                "s3a://datalake/warehouse/t/year=2024/month=01/fileid-1_0_20240101000000.parquet");
+        HudiScanRange range = HudiScanPlanProvider.buildMorRange(slice, Collections.emptyMap(), END_TS,
+                /*forceJni*/ false, BASE_PATH, INPUT_FORMAT, SERDE,
+                Arrays.asList("c1"), Arrays.asList("int"), null, s -> s.replace("s3a://", "s3://"));
+        Assertions.assertEquals("s3://datalake/warehouse/t/year=2024/month=01/fileid-1_0_20240101000000.parquet",
+                range.getPath().orElse(null),
+                "a native no-log MOR slice's range path must be scheme-normalized (s3a->s3) by buildMorRange");
     }
 
     // ── helpers ────────────────────────────────────────────────────────────────────────────────────────────
@@ -201,6 +238,10 @@ public class HudiIncrementalPlanScanTest {
         private String endTs = END_TS;
         private boolean collectSplitsThrows;
         private boolean collectFileSlicesThrows;
+        // When set, collectSplits builds ONE native range whose path is the normalizer applied to this raw URI —
+        // stands in for the real COWIncrementalRelation.collectSplits (which needs a live metaClient), letting the
+        // test verify incrementalRanges THREADS its normalizer into the COW collectSplits call.
+        private String rawCowPath;
 
         @Override
         public List<FileSlice> collectFileSlices() {
@@ -211,9 +252,13 @@ public class HudiIncrementalPlanScanTest {
         }
 
         @Override
-        public List<HudiScanRange> collectSplits() {
+        public List<HudiScanRange> collectSplits(UnaryOperator<String> nativePathNormalizer) {
             if (collectSplitsThrows) {
                 throw new UnsupportedOperationException("collectSplits must not be called on this route");
+            }
+            if (rawCowPath != null) {
+                return Collections.singletonList(new HudiScanRange.Builder()
+                        .path(nativePathNormalizer.apply(rawCowPath)).fileFormat("parquet").build());
             }
             return splits;
         }

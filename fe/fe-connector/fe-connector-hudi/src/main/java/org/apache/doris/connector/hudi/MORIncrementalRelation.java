@@ -37,6 +37,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.function.UnaryOperator;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -171,7 +172,8 @@ final class MORIncrementalRelation implements IncrementalRelation {
     }
 
     @Override
-    public List<HudiScanRange> collectSplits() {
+    public List<HudiScanRange> collectSplits(UnaryOperator<String> nativePathNormalizer) {
+        // MOR emits ranges via collectFileSlices()/buildMorRange, not here; the normalizer is irrelevant.
         throw new UnsupportedOperationException();
     }
 }

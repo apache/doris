@@ -21,6 +21,7 @@ import org.apache.hudi.common.model.FileSlice;
 
 import java.util.Collections;
 import java.util.List;
+import java.util.function.UnaryOperator;
 
 /**
  * The {@code @incr} relation for an empty completed timeline: it selects nothing. Connector-internal port of
@@ -43,7 +44,7 @@ final class EmptyIncrementalRelation implements IncrementalRelation {
     }
 
     @Override
-    public List<HudiScanRange> collectSplits() {
+    public List<HudiScanRange> collectSplits(UnaryOperator<String> nativePathNormalizer) {
         return Collections.emptyList();
     }
 

@@ -24,6 +24,7 @@ import org.apache.hudi.common.table.timeline.TimelineUtils.HollowCommitHandling;
 
 import java.util.List;
 import java.util.Map;
+import java.util.function.UnaryOperator;
 
 /**
  * Selects the files an {@code @incr(...)} incremental read must scan over a resolved {@code (begin, end]}
@@ -55,8 +56,12 @@ interface IncrementalRelation {
     /** Merged file slices at {@code endTs} for the MOR path (COW throws {@link UnsupportedOperationException}). */
     List<FileSlice> collectFileSlices();
 
-    /** Native base-file ranges for the COW path (MOR throws {@link UnsupportedOperationException}). */
-    List<HudiScanRange> collectSplits();
+    /**
+     * Native base-file ranges for the COW path (MOR throws {@link UnsupportedOperationException}).
+     * {@code nativePathNormalizer} rewrites each range's raw storage URI to BE's canonical scheme
+     * (s3a-&gt;s3) for the native reader; implementations that emit no native ranges here ignore it.
+     */
+    List<HudiScanRange> collectSplits(UnaryOperator<String> nativePathNormalizer);
 
     /**
      * Whether the window fell back to a full-table scan (archived instant / missing file). The scan planner

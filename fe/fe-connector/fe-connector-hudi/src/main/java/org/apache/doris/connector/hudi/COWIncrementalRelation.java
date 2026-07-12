@@ -43,6 +43,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Consumer;
+import java.util.function.UnaryOperator;
 import java.util.stream.Collectors;
 
 /**
@@ -182,7 +183,7 @@ final class COWIncrementalRelation implements IncrementalRelation {
     }
 
     @Override
-    public List<HudiScanRange> collectSplits() {
+    public List<HudiScanRange> collectSplits(UnaryOperator<String> nativePathNormalizer) {
         IncrementalRelation.checkNotFullTableScan(fullTableScan);
         if (filteredRegularFullPaths.isEmpty() && filteredMetaBootstrapFullPaths.isEmpty()) {
             return Collections.emptyList();
@@ -197,7 +198,9 @@ final class COWIncrementalRelation implements IncrementalRelation {
         Consumer<String> generatorSplit = baseFile -> {
             HoodieWriteStat stat = fileToWriteStat.get(baseFile);
             splits.add(new HudiScanRange.Builder()
-                    .path(baseFile)
+                    // Native COW @incr range: normalize scheme (s3a->s3) for BE's native reader. The raw baseFile
+                    // is a full HMS path anchored on metaClient.getBasePath(); BE's S3URI rejects s3a.
+                    .path(nativePathNormalizer.apply(baseFile))
                     .start(0)
                     // length + fileSize both from the write stat, matching legacy HudiSplit(0, size, size, ...).
                     .length(stat.getFileSizeInBytes())
