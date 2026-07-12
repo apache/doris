@@ -38,7 +38,7 @@ Legend：⬜ todo / 🔄 in progress / ✅ done / ⏸ 挂起(需决策/live)
 | 11 | **M7** | 🟠中 | iceberg | REST vended-cred region 别名收窄 | ✅ | ✅ | ✅ | ✅ |
 | 12 | **M8** | 🟠中(运营) | build/docs | 升级只换 lib 不部署 plugins→首访抛 | ⬜ | ⬜ | ⬜ | ⏸ 跳过(用户 07-12;侦察见下) |
 | 13 | **L1** | 🟡低 | tools | import-gate 三洞**+第4洞** | ✅ | ✅ | ✅ | ✅ |
-| 14 | **L2** | 🟡低 | fe-core | 翻闸 hive 丢 SQL 缓存资格 + COUNTER 停增 | ⬜ | ⬜ | ⬜ | ⏸ 需决策 |
+| 14 | **L2** | 🟡低 | fe-core | 翻闸 hive 丢 SQL 缓存资格 + COUNTER 停增 | ✅ | ✅ | ✅ | ✅ |
 | 15 | **L3** | 🟡低 | trino | 元数据事务从不 commit/close | ✅ | ✅ | ✅ | ✅ |
 | 16 | **L4** | 🟡低 | trino | plugin.dir 首胜单例(fail-loud) | ✅ | ✅ | ✅ | ✅ |
 | 17 | **L5** | 🟡低 | trino | listTableNames 丢去重 | ✅ | ✅ | ✅ | ✅ |
@@ -178,7 +178,7 @@ Legend：⬜ todo / 🔄 in progress / ✅ done / ⏸ 挂起(需决策/live)
 > 每条一行「现码 → fix」,详见 reverify §1 表 + 对应正文。⏸ 三条(L2/L10/L12)先问用户。
 
 - [x] **L1** DONE `88aa55b831b`(设计 `designs/FIX-L1-design.md`;设计红队 `wf_643c11b4-3fe` 3 lens 全 SOUND_WITH_CHANGES)。补 3 洞(static / +6 包 / test 源)**+ 红队发现的第 4 洞**:4 条白名单 `grep -v` 按**整行**匹配(`.`≡`/`)→连接器命名空间文件(608 个,全根在 `org.apache.doris.connector.**`)里的违规 import 被**按路径抑制**,门禁对其结构性失明。修法=候选 grep 加宽(static+test glob+6 包)+**白名单锚定到 import 目标**(`:import ...` 非整行)+ fqn sed 剥 `static`(修 static-vendored 误报,红队证 E3 属正确性非装饰)。新增自测 `tools/check-connector-imports.test.sh`(8 违规/2 vendored skip/3 allow;GREEN 于新、RED 于旧,真树 exit 0)。保留 `is_vendored()`(HiveVersionUtil FP)。**观察**:grep-denylist 固有盲区(新增内部包漏登记/FQN-无-import 内联/间距)登记设计债,根治须 allowlist/ArchUnit(Trino 先例)。
-- [ ] **L2** ⏸ 翻闸 hive 丢 SQL 缓存资格 · `CacheAnalyzer.java:308/316/319`(instanceof HiveScanNode)+ `BindRelation.java:887`(instanceof HMSExternalTable)。**需决策**:加 `ConnectorCapability` 让 `PluginDrivenScanNode`/`PluginDrivenExternalTable` 被识别并恢复缓存 **vs** 登记为 fail-safe 验收偏差(`enable_hive_sql_cache` 默认关)。
+- [x] **L2** DONE `c9a86337906`(独立工作线,设计 `FIX-querycache-spi-design.md`;4 文件 + 3 测试类 8 测,fe-core BUILD SUCCESS 0 checkstyle)· **决策已定=恢复缓存**(选「加能力」路,非登记偏差):把 `CacheAnalyzer`/`BindRelation`/`SqlCacheContext`/`NereidsSqlCacheManager` 四文件六处源名分支换成 **connector-agnostic `MTMVRelatedTableIf` 能力** + 其 data-tied token `getNewestUpdateVersionOrTime()`(hive=max transient_lastDdlTime、iceberg/paimon=单调 snapshot 版本;token≤0 fail-safe 标 unsupported 不 pin 假常量),遵铁律无 `instanceof HMSExternalTable/HiveScanNode`。`enable_hive_sql_cache` 默认关不变。**COUNTER 部分**:dead 的 source-specific `COUNTER_QUERY_HIVE_TABLE` bump **有意移除**(非静默——commit 明载,通用外部缓存路不该 bump hive 专属计数)。e2e live-gated(翻闸 hive 表结果缓存命中/失效)。
 - [x] **L3** DONE `4cd63c6911a`(设计 `FIX-L3-design.md`;对抗复审 `agent a182a049f` SOUND_WITH_CHANGES）· trino 6 个 FE-only 元数据站 try/finally 经 `releaseQuietly` 释放事务(commit + swallow-log 防 mask);scan 站不动(txnHandle 序列化发 BE 须保持打开)。UT 受 `io.trino.Session` 构造墙阻,登记 e2e live-gated。
 - [x] **L4** DONE `e27602d4ab6`(设计 `FIX-L4-design.md`;并发对抗复审 `agent a28dc47095` SOUND）· `TrinoBootstrap` 存 pluginDir,`getInstance` 不同 dir fail-loud 抛(canonicalize best-effort 兜同物理目录异拼写)。UT 受重构造墙阻,登记。
 - [x] **L5** DONE `be96adf76ba`(设计 `FIX-L5-design.md`）· `listTableNames` 加 `.distinct()` 复原 legacy LinkedHashSet 保序去重;不复原冗余 prefix 过滤。
