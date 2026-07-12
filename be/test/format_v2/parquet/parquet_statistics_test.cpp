@@ -36,6 +36,7 @@
 
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
+#include "core/data_type/data_type_timestamptz.h"
 #include "core/field.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
@@ -418,6 +419,32 @@ TEST(ParquetStatisticsTransformTest, DisablesUtcTimestampMinMaxAcrossDstRollback
             *schema[0], statistics, &utc);
     EXPECT_TRUE(utc_stats.has_min_max);
     EXPECT_LT(utc_stats.min_value, utc_stats.max_value);
+}
+
+TEST(ParquetStatisticsTransformTest, KeepsTimestampTzMinMaxAcrossDstRollback) {
+    constexpr int64_t MICROS_PER_SECOND = 1000000;
+    auto table = arrow::Table::Make(
+            arrow::schema(
+                    {arrow::field("ts", arrow::timestamp(arrow::TimeUnit::MICRO, "UTC"), false)}),
+            {timestamp_array({1636263000 * MICROS_PER_SECOND, 1636266600 * MICROS_PER_SECOND})});
+    auto reader = make_reader(table, 2, false, true);
+    auto schema = build_file_schema(*reader);
+    auto statistics = reader->metadata()->RowGroup(0)->ColumnChunk(0)->statistics();
+
+    // This is the effective type produced by enable_mapping_timestamp_tz. The physical timestamp
+    // flags intentionally remain adjusted-to-UTC so decoding can preserve the source semantics.
+    schema[0]->type = std::make_shared<DataTypeTimeStampTz>(6);
+    schema[0]->type_descriptor.doris_type = schema[0]->type;
+
+    cctz::time_zone new_york;
+    ASSERT_TRUE(cctz::load_time_zone("America/New_York", &new_york));
+    const auto timestamp_tz_stats =
+            format::parquet::ParquetStatisticsUtils::TransformColumnStatistics(
+                    *schema[0], statistics, &new_york);
+    EXPECT_TRUE(timestamp_tz_stats.has_min_max);
+    EXPECT_EQ(timestamp_tz_stats.min_value.get_type(), TYPE_TIMESTAMPTZ);
+    EXPECT_EQ(timestamp_tz_stats.max_value.get_type(), TYPE_TIMESTAMPTZ);
+    EXPECT_LT(timestamp_tz_stats.min_value, timestamp_tz_stats.max_value);
 }
 
 TEST(ParquetStatisticsTransformTest, HandlesMissingStatisticsAndAllNullChunks) {
