@@ -124,10 +124,11 @@ EOF
 }
 
 publish_to_release_svn() {
-  local src_tar src_asc src_sha512 dst_tar dst_asc dst_sha512
+  local src_tar src_asc src_sha512 dst_tar dst_asc dst_sha512 checksum_dir final_sha512_file
 
   require_tool svn
   require_tool svnmucc
+  require_tool sha512sum
 
   src_tar="${DEV_SVN_DIR}/${PKG_BASE}.tar.gz"
   src_asc="${src_tar}.asc"
@@ -158,25 +159,39 @@ publish_to_release_svn() {
     die "release SVN folder already exists: $RELEASE_SVN_DIR (use --mail-only to regenerate the email)"
   fi
 
+  checksum_dir="$(mktemp -d)"
+  final_sha512_file="${checksum_dir}/${dst_sha512}"
+  svn cat "${svn_auth[@]}" "$src_tar" > "${checksum_dir}/${dst_tar}"
+  (
+    cd "$checksum_dir"
+    sha512sum "$dst_tar" > "$dst_sha512"
+    sha512sum --check "$dst_sha512"
+  )
+  ok "final sha512 ok: ${dst_sha512}"
+
   echo "--- svnmucc operations ---"
   echo "mkdir ${RELEASE_SVN_DIR}"
   echo "mv    ${src_tar}"
   echo "  ->  ${RELEASE_SVN_DIR}/${dst_tar}"
   echo "mv    ${src_asc}"
   echo "  ->  ${RELEASE_SVN_DIR}/${dst_asc}"
-  echo "mv    ${src_sha512}"
+  echo "put   ${final_sha512_file}"
   echo "  ->  ${RELEASE_SVN_DIR}/${dst_sha512}"
   echo "rm    ${DEV_SVN_DIR}"
   echo
   echo "Will commit the URL operations above in one SVN revision."
-  confirm "FINAL confirm - publish release SVN and remove dev RC now?" || { warn "stopping before SVN commit."; exit 0; }
+  confirm "FINAL confirm - publish release SVN and remove dev RC now?" || { warn "stopping before SVN commit."; rm -rf "$checksum_dir"; exit 0; }
 
-  svnmucc "${svnmucc_auth[@]}" -m "Release Doris ${VERSION}" \
+  if ! svnmucc "${svnmucc_auth[@]}" -m "Release Doris ${VERSION}" \
     mkdir "$RELEASE_SVN_DIR" \
     mv "$src_tar" "${RELEASE_SVN_DIR}/${dst_tar}" \
     mv "$src_asc" "${RELEASE_SVN_DIR}/${dst_asc}" \
-    mv "$src_sha512" "${RELEASE_SVN_DIR}/${dst_sha512}" \
-    rm "$DEV_SVN_DIR"
+    put "$final_sha512_file" "${RELEASE_SVN_DIR}/${dst_sha512}" \
+    rm "$DEV_SVN_DIR"; then
+    rm -rf "$checksum_dir"
+    die "svnmucc release publish failed"
+  fi
+  rm -rf "$checksum_dir"
   ok "committed release artifacts: ${RELEASE_SVN_DIR}/"
   ok "removed dev RC folder: ${DEV_SVN_DIR}/"
 }
