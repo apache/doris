@@ -27,6 +27,8 @@
 #include <string_view>
 #include <type_traits>
 
+#include "common/exception.h"
+#include "common/status.h"
 #include "core/column/column_complex.h"
 #include "core/column/column_string.h"
 #include "core/column/column_vector.h"
@@ -166,7 +168,10 @@ public:
         buf.read_binary(AggOrthBitmapBaseData<T>::first_init);
         std::string data;
         buf.read_binary(data);
-        AggOrthBitmapBaseData<T>::bitmap.deserialize(data.data());
+        if (!AggOrthBitmapBaseData<T>::bitmap.deserialize(data.data(), data.size())) {
+            throw Exception(ErrorCode::INTERNAL_ERROR,
+                            "failed to deserialize BitmapIntersect state");
+        }
     }
 
     void get(IColumn& to) const {

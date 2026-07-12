@@ -22,7 +22,10 @@
 #include <roaring/roaring.h>
 
 #include <cstdint>
+#include <cstring>
+#include <limits>
 #include <string>
+#include <vector>
 
 #include "gtest/gtest.h"
 #include "gtest/gtest_pred_impl.h"
@@ -187,7 +190,7 @@ TEST(BitmapValueTest, Roaring64Map_write_read) {
 
     roaring64_map.write(buffer.get(), 1);
 
-    detail::Roaring64Map bitmap_read = detail::Roaring64Map::read(buffer.get());
+    detail::Roaring64Map bitmap_read = detail::Roaring64Map::readSafe(buffer.get(), bytes);
 
     EXPECT_EQ(bitmap_read, roaring64_map);
 
@@ -195,7 +198,7 @@ TEST(BitmapValueTest, Roaring64Map_write_read) {
     buffer.reset(new char[bytes]);
 
     roaring64_map.write(buffer.get(), 2);
-    bitmap_read = detail::Roaring64Map::read(buffer.get());
+    bitmap_read = detail::Roaring64Map::readSafe(buffer.get(), bytes);
 
     EXPECT_EQ(bitmap_read, roaring64_map);
 
@@ -207,7 +210,7 @@ TEST(BitmapValueTest, Roaring64Map_write_read) {
 
     roaring64_map.write(buffer.get(), 1);
 
-    bitmap_read = detail::Roaring64Map::read(buffer.get());
+    bitmap_read = detail::Roaring64Map::readSafe(buffer.get(), bytes);
 
     EXPECT_EQ(bitmap_read, roaring64_map);
 
@@ -215,7 +218,7 @@ TEST(BitmapValueTest, Roaring64Map_write_read) {
     buffer.reset(new char[bytes]);
 
     roaring64_map.write(buffer.get(), 2);
-    bitmap_read = detail::Roaring64Map::read(buffer.get());
+    bitmap_read = detail::Roaring64Map::readSafe(buffer.get(), bytes);
 
     EXPECT_EQ(bitmap_read, roaring64_map);
 }
@@ -529,7 +532,7 @@ TEST(BitmapValueTest, write_read) {
     std::unique_ptr<char[]> buffer(new char[size]);
 
     bitmap_empty.write_to(buffer.get());
-    BitmapValue deserialized(buffer.get());
+    BitmapValue deserialized(buffer.get(), size);
 
     check_bitmap_equal(deserialized, bitmap_empty);
 
@@ -538,7 +541,7 @@ TEST(BitmapValueTest, write_read) {
 
     bitmap_single.write_to(buffer.get());
     deserialized.reset();
-    deserialized.deserialize(buffer.get());
+    deserialized.deserialize(buffer.get(), size);
 
     check_bitmap_equal(deserialized, bitmap_single);
 
@@ -547,7 +550,7 @@ TEST(BitmapValueTest, write_read) {
 
     bitmap_set.write_to(buffer.get());
     deserialized.reset();
-    deserialized.deserialize(buffer.get());
+    deserialized.deserialize(buffer.get(), size);
 
     check_bitmap_equal(deserialized, bitmap_set);
 
@@ -556,7 +559,7 @@ TEST(BitmapValueTest, write_read) {
 
     bitmap.write_to(buffer.get());
     deserialized.reset();
-    deserialized.deserialize(buffer.get());
+    deserialized.deserialize(buffer.get(), size);
 
     check_bitmap_equal(deserialized, bitmap);
 
@@ -973,7 +976,7 @@ TEST(BitmapValueTest, bitmap_serde) {
         std::string expect_buffer(1, BitmapTypeCode::EMPTY);
         EXPECT_EQ(expect_buffer, buffer);
 
-        BitmapValue out(buffer.data());
+        BitmapValue out(buffer.data(), buffer.size());
         EXPECT_EQ(0, out.cardinality());
     }
     { // SINGLE32
@@ -984,15 +987,15 @@ TEST(BitmapValueTest, bitmap_serde) {
         put_fixed32_le(&expect_buffer, i);
         EXPECT_EQ(expect_buffer, buffer);
 
-        BitmapValue out(buffer.data());
+        BitmapValue out(buffer.data(), buffer.size());
         EXPECT_EQ(1, out.cardinality());
         EXPECT_TRUE(out.contains(i));
     }
     { // BITMAP32
-        BitmapValue bitmap32({0, UINT32_MAX});
+        BitmapValue bitmap32(std::vector<uint64_t> {0, UINT32_MAX});
         std::string buffer = convert_bitmap_to_string(bitmap32);
 
-        BitmapValue out(buffer.data());
+        BitmapValue out(buffer.data(), buffer.size());
         EXPECT_EQ(2, out.cardinality());
         EXPECT_TRUE(out.contains(0));
         EXPECT_TRUE(out.contains(UINT32_MAX));
@@ -1005,15 +1008,15 @@ TEST(BitmapValueTest, bitmap_serde) {
         put_fixed64_le(&expect_buffer, i);
         EXPECT_EQ(expect_buffer, buffer);
 
-        BitmapValue out(buffer.data());
+        BitmapValue out(buffer.data(), buffer.size());
         EXPECT_EQ(1, out.cardinality());
         EXPECT_TRUE(out.contains(i));
     }
     { // BITMAP64
-        BitmapValue bitmap64({0, static_cast<uint64_t>(UINT32_MAX) + 1});
+        BitmapValue bitmap64(std::vector<uint64_t> {0, static_cast<uint64_t>(UINT32_MAX) + 1});
         std::string buffer = convert_bitmap_to_string(bitmap64);
 
-        BitmapValue out(buffer.data());
+        BitmapValue out(buffer.data(), buffer.size());
         EXPECT_EQ(2, out.cardinality());
         EXPECT_TRUE(out.contains(0));
         EXPECT_TRUE(out.contains(static_cast<uint64_t>(UINT32_MAX) + 1));
@@ -1078,7 +1081,7 @@ TEST(BitmapValueTest, Roaring64Map) {
     uint32_t expectedsize = r1.getSizeInBytes(1);
     char* serializedbytes = new char[expectedsize];
     r1.write(serializedbytes, 1);
-    Roaring64Map t = Roaring64Map::read(serializedbytes);
+    Roaring64Map t = Roaring64Map::readSafe(serializedbytes, expectedsize);
     EXPECT_TRUE(r1 == t);
     delete[] serializedbytes;
 
@@ -1192,6 +1195,97 @@ TEST(BitmapValueTest, bitmap_value_iterator_test) {
 TEST(BitmapValueTest, invalid_data) {
     BitmapValue bitmap;
     char data[] = {0x02, static_cast<char>(0xff), 0x03};
-    EXPECT_FALSE(bitmap.deserialize(data));
+    EXPECT_FALSE(bitmap.deserialize(data, sizeof(data)));
+}
+
+// Reproduces a heap out-of-bounds read in the legacy BitmapValue::deserialize:
+//
+//   - The type byte is BITMAP64 (v1), so Roaring64Map::read is invoked.
+//   - The next bytes are a varint encoding a huge map_size (UINT32_MAX).
+//   - There are NO further bytes in the buffer, so the unbounded loop in
+//     Roaring64Map::read would dereference far past the buffer end.
+//   - Roaring::read is unsafe (no maxbytes) and the try/catch in deserialize
+//     only catches std::runtime_error — an over-read does not necessarily
+//     throw.
+//
+// The new bounded deserialize(src, maxbytes) must safely reject this without
+// reading past the end of the provided buffer.
+TEST(BitmapValueTest, deserialize_malicious_bitmap64_map_size) {
+    // Build payload: [BITMAP64][varint(UINT32_MAX)] then nothing.
+    std::string payload;
+    payload.push_back(static_cast<char>(BitmapTypeCode::BITMAP64));
+    uint8_t varint_buf[10];
+    uint8_t* end = encode_varint64(varint_buf, std::numeric_limits<uint32_t>::max());
+    payload.append(reinterpret_cast<char*>(varint_buf), reinterpret_cast<char*>(end));
+
+    // Place the payload at the very end of a heap allocation so any
+    // out-of-bounds read is observable (under ASAN, this would crash).
+    std::vector<char> heap_buf(payload.size());
+    std::memcpy(heap_buf.data(), payload.data(), payload.size());
+
+    BitmapValue bitmap;
+    EXPECT_FALSE(bitmap.deserialize(heap_buf.data(), heap_buf.size()));
+}
+
+// Same shape but with the new portable encoding (BITMAP64_V2).
+TEST(BitmapValueTest, deserialize_malicious_bitmap64v2_map_size) {
+    std::string payload;
+    payload.push_back(static_cast<char>(BitmapTypeCode::BITMAP64_V2));
+    uint8_t varint_buf[10];
+    uint8_t* end = encode_varint64(varint_buf, 1'000'000ULL);
+    payload.append(reinterpret_cast<char*>(varint_buf), reinterpret_cast<char*>(end));
+
+    std::vector<char> heap_buf(payload.size());
+    std::memcpy(heap_buf.data(), payload.data(), payload.size());
+
+    BitmapValue bitmap;
+    EXPECT_FALSE(bitmap.deserialize(heap_buf.data(), heap_buf.size()));
+}
+
+// Truncated single32/single64 must not over-read the type byte's tail.
+TEST(BitmapValueTest, deserialize_truncated_single) {
+    {
+        char data[] = {static_cast<char>(BitmapTypeCode::SINGLE32), 0x01};
+        BitmapValue bitmap;
+        EXPECT_FALSE(bitmap.deserialize(data, sizeof(data)));
+    }
+    {
+        char data[] = {static_cast<char>(BitmapTypeCode::SINGLE64), 0x01, 0x02};
+        BitmapValue bitmap;
+        EXPECT_FALSE(bitmap.deserialize(data, sizeof(data)));
+    }
+}
+
+// Truncated SET_V2 with a huge claimed element count must be rejected.
+TEST(BitmapValueTest, deserialize_malicious_set_v2) {
+    std::string payload;
+    payload.push_back(static_cast<char>(BitmapTypeCode::SET_V2));
+    uint32_t fake_size = 1'000'000;
+    payload.append(reinterpret_cast<const char*>(&fake_size), sizeof(fake_size));
+
+    std::vector<char> heap_buf(payload.size());
+    std::memcpy(heap_buf.data(), payload.data(), payload.size());
+
+    BitmapValue bitmap;
+    EXPECT_FALSE(bitmap.deserialize(heap_buf.data(), heap_buf.size()));
+}
+
+// Round-trip: serialize a real bitmap and verify the safe deserialize accepts
+// it and reads exactly the right number of bytes.
+TEST(BitmapValueTest, deserialize_bounded_roundtrip) {
+    BitmapValue original;
+    for (uint64_t v : {1ULL, 100ULL, 1ULL << 40, (1ULL << 40) + 7}) {
+        original.add(v);
+    }
+    std::string buf(original.getSizeInBytes(), '\0');
+    original.write_to(buf.data());
+
+    BitmapValue restored;
+    EXPECT_TRUE(restored.deserialize(buf.data(), buf.size()));
+    EXPECT_EQ(restored.cardinality(), original.cardinality());
+
+    // Even a 1-byte short buffer must be rejected without UB.
+    BitmapValue short_target;
+    EXPECT_FALSE(short_target.deserialize(buf.data(), buf.size() - 1));
 }
 } // namespace doris

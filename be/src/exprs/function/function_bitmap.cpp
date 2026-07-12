@@ -260,9 +260,6 @@ struct BitmapFromString {
     }
 };
 
-struct NameBitmapFromBase64 {
-    static constexpr auto name = "bitmap_from_base64";
-};
 struct BitmapFromBase64 {
     using ArgumentType = DataTypeString;
 
@@ -302,7 +299,7 @@ struct BitmapFromBase64 {
                 null_map[i] = 1;
             } else {
                 BitmapValue bitmap_val;
-                if (!bitmap_val.deserialize(decode_buff.data())) {
+                if (!bitmap_val.deserialize(decode_buff.data(), outlen)) {
                     return Status::RuntimeError("bitmap_from_base64 decode failed: base64: {}",
                                                 std::string(src_str, src_size));
                 }
