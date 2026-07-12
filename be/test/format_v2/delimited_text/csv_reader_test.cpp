@@ -780,6 +780,73 @@ TEST_F(CsvV2ReaderTest, EnclosedFieldKeepsSeparatorInsideStringValue) {
     EXPECT_EQ(nullable_string_at(*block.get_by_position(0).column, 0), "alice,team");
 }
 
+// Bare quotes and escapes outside enclosed fields stay in NORMAL state in
+// EncloseCsvLineReaderCtx. Field slicing must reuse those exact separator positions.
+TEST_F(CsvV2ReaderTest, EncloseFieldSplittingMatchesLineReaderStateMachine) {
+    const auto quoted_path = (_test_dir / "enclose_state.csv").string();
+    std::ofstream output(quoted_path, std::ios::binary);
+    output << "id,name,score\n";
+    output << "1,ab\"cd,20\n";
+    output << "2,C:\\dir\\,30,40\n";
+    output.close();
+
+    _params.file_attributes.text_params.__set_enclose('"');
+    _params.file_attributes.text_params.__set_escape('\\');
+    auto reader = create_reader(quoted_path, &_params, _slots, &_state, &_profile);
+    std::vector<ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+
+    auto request = std::make_shared<FileScanRequest>();
+    request->non_predicate_columns = {LocalColumnIndex::top_level(LocalColumnId(1)),
+                                      LocalColumnIndex::top_level(LocalColumnId(2))};
+    request->local_positions.emplace(LocalColumnId(1), LocalIndex(0));
+    request->local_positions.emplace(LocalColumnId(2), LocalIndex(1));
+    ASSERT_TRUE(reader->open(request).ok());
+
+    auto block = make_block(schema, {1, 2});
+    size_t rows = 0;
+    bool eof = false;
+    ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+    ASSERT_EQ(rows, 2);
+    EXPECT_EQ(nullable_string_at(*block.get_by_position(0).column, 0), "ab\"cd");
+    EXPECT_EQ(nullable_int_at(*block.get_by_position(1).column, 0), 20);
+    EXPECT_EQ(nullable_int_at(*block.get_by_position(1).column, 1), 30);
+}
+
+// OpenCSV permits escape and enclose to use the same character. The shared line-reader state
+// machine handles doubled quotes without treating every quote as a generic escape.
+TEST_F(CsvV2ReaderTest, MatchingEscapeAndEncloseStillSplitQuotedFields) {
+    const auto quoted_path = (_test_dir / "matching_escape_enclose.csv").string();
+    std::ofstream output(quoted_path, std::ios::binary);
+    output << "id,name,score\n";
+    output << "\"1\",\"alice\",\"10\"\n";
+    output.close();
+
+    _params.file_attributes.text_params.__set_enclose('"');
+    _params.file_attributes.text_params.__set_escape('"');
+    auto reader = create_reader(quoted_path, &_params, _slots, &_state, &_profile);
+    std::vector<ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+
+    auto request = std::make_shared<FileScanRequest>();
+    request->non_predicate_columns = {LocalColumnIndex::top_level(LocalColumnId(0)),
+                                      LocalColumnIndex::top_level(LocalColumnId(1)),
+                                      LocalColumnIndex::top_level(LocalColumnId(2))};
+    request->local_positions.emplace(LocalColumnId(0), LocalIndex(0));
+    request->local_positions.emplace(LocalColumnId(1), LocalIndex(1));
+    request->local_positions.emplace(LocalColumnId(2), LocalIndex(2));
+    ASSERT_TRUE(reader->open(request).ok());
+
+    auto block = make_block(schema, {0, 1, 2});
+    size_t rows = 0;
+    bool eof = false;
+    ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+    ASSERT_EQ(rows, 1);
+    EXPECT_EQ(nullable_int_at(*block.get_by_position(0).column, 0), 1);
+    EXPECT_EQ(nullable_string_at(*block.get_by_position(1).column, 0), "alice");
+    EXPECT_EQ(nullable_int_at(*block.get_by_position(2).column, 0), 10);
+}
+
 // Scenario: when the CSV row has fewer fields than the FE-provided file slot list, v2 fills the
 // missing requested field with NULL instead of failing or shifting later columns.
 TEST_F(CsvV2ReaderTest, MissingRequestedFieldUsesNullFormat) {
@@ -845,6 +912,8 @@ TEST_F(CsvV2ReaderTest, BomIsRemovedFromFirstDataLineWithoutHeader) {
     output.close();
 
     _params.file_attributes.__isset.header_type = false;
+    _params.file_attributes.text_params.__set_enclose('"');
+    _params.file_attributes.text_params.__set_escape('\\');
     auto reader = create_reader(bom_path, &_params, _slots, &_state, &_profile);
     std::vector<ColumnDefinition> schema;
     ASSERT_TRUE(reader->get_schema(&schema).ok());
@@ -949,6 +1018,37 @@ TEST_F(CsvV2ReaderTest, NullFormatAndEmptyFieldAsNullProduceNullableValues) {
     ASSERT_EQ(rows, 1);
     EXPECT_TRUE(is_null_at(*block.get_by_position(0).column, 0));
     EXPECT_TRUE(is_null_at(*block.get_by_position(1).column, 0));
+}
+
+// trim_double_quotes preserves quoted null literals as strings while an unquoted marker remains
+// NULL, matching the V1 CSV reader's converted-from-string behavior.
+TEST_F(CsvV2ReaderTest, QuotedNullFormatIsAStringLiteral) {
+    const auto null_path = (_test_dir / "quoted_null_format.csv").string();
+    std::ofstream output(null_path, std::ios::binary);
+    output << "id,name,score\n";
+    output << "1,\"\\N\",10\n";
+    output << "2,\\N,20\n";
+    output.close();
+
+    _params.file_attributes.__set_trim_double_quotes(true);
+    _params.file_attributes.text_params.__set_null_format("\\N");
+    auto reader = create_reader(null_path, &_params, _slots, &_state, &_profile);
+    std::vector<ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+
+    auto request = std::make_shared<FileScanRequest>();
+    request->non_predicate_columns = {LocalColumnIndex::top_level(LocalColumnId(1))};
+    request->local_positions.emplace(LocalColumnId(1), LocalIndex(0));
+    ASSERT_TRUE(reader->open(request).ok());
+
+    auto block = make_block(schema, {1});
+    size_t rows = 0;
+    bool eof = false;
+    ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+    ASSERT_EQ(rows, 2);
+    EXPECT_FALSE(is_null_at(*block.get_by_position(0).column, 0));
+    EXPECT_EQ(nullable_string_at(*block.get_by_position(0).column, 0), "\\N");
+    EXPECT_TRUE(is_null_at(*block.get_by_position(0).column, 1));
 }
 
 // Scenario: OpenCSV keeps an empty field as an empty string when empty_field_as_null is false,

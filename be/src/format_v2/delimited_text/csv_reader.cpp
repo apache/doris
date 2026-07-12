@@ -134,14 +134,12 @@ Status CsvReader::_create_line_reader() {
             text_line_reader_ctx = std::make_shared<PlainTextLineReaderCtx>(
                     _line_delimiter, _line_delimiter.size(), _keep_cr);
         } else {
-            // The enclosed-line context finds logical records that may span physical newlines.
-            // Field slicing still happens in `_split_line()` because the v2 scan request may ask
-            // for CSV ordinals in a different order from the physical file.
             const size_t col_sep_num =
                     _source_file_slot_descs.size() > 1 ? _source_file_slot_descs.size() - 1 : 0;
-            text_line_reader_ctx = std::make_shared<EncloseCsvLineReaderCtx>(
+            _enclose_reader_ctx = std::make_shared<EncloseCsvLineReaderCtx>(
                     _line_delimiter, _line_delimiter.size(), _value_separator,
                     _value_separator.size(), col_sep_num, _enclose, _escape, _keep_cr);
+            text_line_reader_ctx = _enclose_reader_ctx;
         }
         _line_reader = NewPlainTextLineReader::create_unique(
                 _profile, _file_reader, _decompressor.get(), std::move(text_line_reader_ctx), _size,
@@ -174,77 +172,40 @@ void CsvReader::_split_line(const Slice& line) {
         return;
     }
 
-    // The text line reader is responsible for split boundaries and multi-line quoted fields.
-    // Field slicing still happens here because FileScannerV2 asks columns by file-local id, so we
-    // must be able to materialize only the requested CSV ordinals without building a row object.
-    // Example: for `1,"a,b",10` and column separator `,`, this loop returns three slices:
-    // `1`, `a,b`, and `10`; the comma inside quotes does not create an extra field.
-    bool in_quote = false;
-    bool escaped = false;
-    size_t start = 0;
-    size_t i = 0;
-    while (i < line.size) {
-        const char ch = line.data[i];
-        if (_enclose != 0) {
-            if (escaped) {
-                escaped = false;
-                ++i;
-                continue;
-            }
-            if (_escape != 0 && ch == _escape) {
-                escaped = true;
-                ++i;
-                continue;
-            }
-            if (ch == _enclose) {
-                if (in_quote && i + 1 < line.size && line.data[i + 1] == _enclose) {
-                    i += 2;
-                    continue;
-                }
-                in_quote = !in_quote;
-                ++i;
-                continue;
-            }
+    const auto append_value = [&](size_t value_start, size_t value_len) {
+        while (_trim_tailing_spaces && value_len > 0 &&
+               line.data[value_start + value_len - 1] == ' ') {
+            --value_len;
         }
-        if (!in_quote && starts_with_at(line, i, _value_separator)) {
-            size_t value_start = start;
-            size_t value_len = i - start;
-            while (_trim_tailing_spaces && value_len > 0 &&
-                   line.data[value_start + value_len - 1] == ' ') {
-                --value_len;
-            }
-            if (_trim_double_quotes && value_len > 1 && line.data[value_start] == '"' &&
-                line.data[value_start + value_len - 1] == '"') {
-                ++value_start;
-                value_len -= 2;
-            } else if (_enclose != 0 && value_len > 1 && line.data[value_start] == _enclose &&
-                       line.data[value_start + value_len - 1] == _enclose) {
-                ++value_start;
-                value_len -= 2;
-            }
-            _split_values.emplace_back(line.data + value_start, value_len);
-            i += _value_separator.size();
-            start = i;
-            continue;
+        if (_enclose != 0 && value_len > 1 && line.data[value_start] == _enclose &&
+            line.data[value_start + value_len - 1] == _enclose) {
+            ++value_start;
+            value_len -= 2;
         }
-        ++i;
-    }
+        _split_values.emplace_back(line.data + value_start, value_len);
+    };
 
-    size_t value_start = start;
-    size_t value_len = line.size - start;
-    while (_trim_tailing_spaces && value_len > 0 && line.data[value_start + value_len - 1] == ' ') {
-        --value_len;
+    size_t value_start = 0;
+    if (_enclose_reader_ctx != nullptr) {
+        for (const size_t separator_position : _enclose_reader_ctx->column_sep_positions()) {
+            DORIS_CHECK_LE(value_start, separator_position);
+            DORIS_CHECK_LE(separator_position, line.size);
+            append_value(value_start, separator_position - value_start);
+            value_start = separator_position + _value_separator.size();
+        }
+    } else {
+        for (size_t i = 0; i < line.size;) {
+            if (starts_with_at(line, i, _value_separator)) {
+                append_value(value_start, i - value_start);
+                i += _value_separator.size();
+                value_start = i;
+            } else {
+                ++i;
+            }
+        }
     }
-    if (_trim_double_quotes && value_len > 1 && line.data[value_start] == '"' &&
-        line.data[value_start + value_len - 1] == '"') {
-        ++value_start;
-        value_len -= 2;
-    } else if (_enclose != 0 && value_len > 1 && line.data[value_start] == _enclose &&
-               line.data[value_start + value_len - 1] == _enclose) {
-        ++value_start;
-        value_len -= 2;
-    }
-    _split_values.emplace_back(line.data + value_start, value_len);
+    DORIS_CHECK_LE(value_start, line.size);
+    append_value(value_start, line.size - value_start);
 }
 
 Status CsvReader::_deserialize_one_cell(const RequestedColumn& column, IColumn* output,
@@ -261,7 +222,8 @@ Status CsvReader::_deserialize_one_cell(const RequestedColumn& column, IColumn* 
         // CSV keeps empty-field handling separate from null_format matching. An empty
         // null_format must not turn every empty CSV field into NULL unless FE explicitly sets
         // empty_field_as_null; OpenCSV-compatible tables expect empty fields to stay empty strings.
-        if (_options.null_len > 0 && value.size == _options.null_len &&
+        const bool quoted = _options.converted_from_string && value.trim_double_quotes();
+        if (!quoted && _options.null_len > 0 && value.size == _options.null_len &&
             std::memcmp(value.data, _options.null_format, value.size) == 0) {
             null_column.insert_data(nullptr, 0);
             return Status::OK();
@@ -290,6 +252,12 @@ bool CsvReader::_can_split() const {
     return (_file_compress_type == TFileCompressType::PLAIN) ||
            (_file_compress_type == TFileCompressType::UNKNOWN &&
             _file_format_type == TFileFormatType::FORMAT_CSV_PLAIN);
+}
+
+void CsvReader::_on_bom_removed(size_t bom_size) {
+    if (_enclose_reader_ctx != nullptr) {
+        _enclose_reader_ctx->adjust_column_sep_positions(bom_size);
+    }
 }
 
 } // namespace doris::format::csv
