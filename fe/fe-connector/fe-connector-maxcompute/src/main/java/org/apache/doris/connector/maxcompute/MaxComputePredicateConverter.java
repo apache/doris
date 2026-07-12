@@ -88,6 +88,30 @@ public class MaxComputePredicateConverter {
         if (expr == null) {
             return Predicate.NO_PREDICATE;
         }
+        // Top-level conjunction: convert each conjunct independently and AND the survivors, so one
+        // unconvertible conjunct doesn't sink the whole filter. This is only safe at the root (a positive,
+        // monotone position): dropping a conjunct from the root AND yields a superset that BE re-filters.
+        // OR (dropping a disjunct is a subset -> loses rows), NOT, and nested AND are converted whole by
+        // convertOne(); partially dropping inside them could change the predicate's meaning.
+        if (expr instanceof ConnectorAnd) {
+            List<Predicate> survivors = new ArrayList<>();
+            for (ConnectorExpression conjunct : ((ConnectorAnd) expr).getConjuncts()) {
+                Predicate p = convertOne(conjunct);
+                if (p != Predicate.NO_PREDICATE) {
+                    survivors.add(p);
+                }
+            }
+            if (survivors.isEmpty()) {
+                return Predicate.NO_PREDICATE;
+            }
+            return survivors.size() == 1
+                    ? survivors.get(0)
+                    : new CompoundPredicate(CompoundPredicate.Operator.AND, survivors);
+        }
+        return convertOne(expr);
+    }
+
+    private Predicate convertOne(ConnectorExpression expr) {
         try {
             return doConvert(expr);
         } catch (Exception e) {

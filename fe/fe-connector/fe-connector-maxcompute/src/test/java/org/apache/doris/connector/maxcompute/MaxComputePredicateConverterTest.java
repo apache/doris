@@ -24,6 +24,7 @@ import org.apache.doris.connector.api.pushdown.ConnectorComparison;
 import org.apache.doris.connector.api.pushdown.ConnectorExpression;
 import org.apache.doris.connector.api.pushdown.ConnectorIn;
 import org.apache.doris.connector.api.pushdown.ConnectorLiteral;
+import org.apache.doris.connector.api.pushdown.ConnectorOr;
 
 import com.aliyun.odps.OdpsType;
 import com.aliyun.odps.table.optimizer.predicate.Predicate;
@@ -71,6 +72,7 @@ public class MaxComputePredicateConverterTest {
         m.put("ts", OdpsType.TIMESTAMP);
         m.put("ntz", OdpsType.TIMESTAMP_NTZ);
         m.put("id", OdpsType.INT);
+        m.put("amount", OdpsType.INT);
         return m;
     }
 
@@ -263,5 +265,70 @@ public class MaxComputePredicateConverterTest {
         Assertions.assertNotSame(Predicate.NO_PREDICATE, p);
         Assertions.assertTrue(p.toString().contains("id"),
                 "a known-column predicate must still push down; got: " + p);
+    }
+
+    // ---- L9 (FIX-L9): a top-level AND must push its convertible conjuncts even when one conjunct is
+    //      unconvertible, instead of dropping the whole filter (perf; BE re-filters). Only the ROOT AND
+    //      gets per-conjunct tolerance — OR and nested AND stay all-or-nothing so no rows are lost.
+    //      "ghost"/"ghost2" are not in typeMap(), so they are unconvertible. ----
+
+    private static ConnectorComparison intEq(String col, long value) {
+        return new ConnectorComparison(ConnectorComparison.Operator.EQ,
+                new ConnectorColumnRef(col, ConnectorType.of("INT")), ConnectorLiteral.ofLong(value));
+    }
+
+    @Test
+    public void topLevelAndKeepsConvertibleWhenOneConjunctFails() {
+        // Before the fix: id=5 AND ghost=3 degraded the whole tree to NO_PREDICATE (full scan);
+        // now id=5 still pushes down and only ghost falls back to BE.
+        ConnectorAnd and = new ConnectorAnd(Arrays.<ConnectorExpression>asList(
+                intEq("id", 5), intEq("ghost", 3)));
+        Predicate p = converter(true, UTC).convert(and);
+        Assertions.assertNotSame(Predicate.NO_PREDICATE, p,
+                "a convertible conjunct must survive an unconvertible sibling");
+        String s = p.toString();
+        Assertions.assertTrue(s.contains("id"), "the id conjunct must be pushed; got: " + s);
+        Assertions.assertFalse(s.contains("ghost"), "the unconvertible conjunct must be dropped; got: " + s);
+    }
+
+    @Test
+    public void topLevelAndAllConjunctsFailDropsToNoPredicate() {
+        ConnectorAnd and = new ConnectorAnd(Arrays.<ConnectorExpression>asList(
+                intEq("ghost", 3), intEq("ghost2", 4)));
+        Assertions.assertSame(Predicate.NO_PREDICATE, converter(true, UTC).convert(and),
+                "when every conjunct is unconvertible the filter degrades to NO_PREDICATE");
+    }
+
+    @Test
+    public void topLevelAndSingleSurvivorReturnedWithoutWrappingAnd() {
+        // One survivor -> return it directly (not wrapped in CompoundPredicate(AND, [x])).
+        Predicate single = converter(true, UTC).convert(new ConnectorAnd(
+                Arrays.<ConnectorExpression>asList(intEq("id", 5), intEq("ghost", 3))));
+        Predicate bare = converter(true, UTC).convert(intEq("id", 5));
+        Assertions.assertEquals(bare.toString(), single.toString(),
+                "a single surviving conjunct must equal the bare predicate; got: " + single);
+    }
+
+    @Test
+    public void nestedAndStaysAllOrNothing() {
+        // id=5 AND (amount=6 AND ghost=3): the nested AND is converted whole, so its failure drops the
+        // whole nested conjunct -- amount is lost too. Only top-level conjuncts get per-conjunct tolerance.
+        ConnectorAnd nested = new ConnectorAnd(Arrays.<ConnectorExpression>asList(
+                intEq("amount", 6), intEq("ghost", 3)));
+        ConnectorAnd and = new ConnectorAnd(Arrays.<ConnectorExpression>asList(intEq("id", 5), nested));
+        String s = converter(true, UTC).convert(and).toString();
+        Assertions.assertTrue(s.contains("id"), "top-level id conjunct must push; got: " + s);
+        Assertions.assertFalse(s.contains("amount"),
+                "a nested AND is all-or-nothing: its convertible sibling is dropped with it; got: " + s);
+    }
+
+    @Test
+    public void topLevelOrIsNotTolerated() {
+        // id=5 OR ghost=3: dropping a disjunct would make the predicate a subset and lose rows, so OR is
+        // all-or-nothing -- one unconvertible disjunct drops the whole OR.
+        ConnectorOr or = new ConnectorOr(Arrays.<ConnectorExpression>asList(
+                intEq("id", 5), intEq("ghost", 3)));
+        Assertions.assertSame(Predicate.NO_PREDICATE, converter(true, UTC).convert(or),
+                "an unconvertible disjunct must drop the whole OR (no row loss)");
     }
 }
