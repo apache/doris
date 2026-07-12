@@ -15,7 +15,17 @@ legacy `HudiScanNode`). Two independent wiring gaps, fixed independently. RCA: r
       Hadoop conf receives `fs.s3a.access.key/secret.key/endpoint`. fe-connector-hudi only.
       **DONE** (getScanNodeProperties emits translated fs.s3a.* under location.; +1 UT, 0 checkstyle).
 
-E2E = the existing 14 failing suites under `regression-test/suites/external_table_p2/hudi/`
-(no new suites needed; they are the regression gate). Run both fixes together, then re-run all 14.
+- [x] FIX-hive-s3a-read — plain-hive object-store latent gap (found via the hudi red-team; user asked
+      to fix it too). TWO gaps in fe-connector-hive: (1) native `.path()` not scheme-normalized
+      (`splitFile`/`newRangeBuilder` + ACID paths) → `Invalid S3 URI`; (2) `getScanNodeProperties`
+      emitted raw `s3.` aliases instead of BE-canonical `AWS_*` (legacy `getLocationProperties` emitted
+      `getBackendStorageProperties()`) → private-bucket 403. Hive has no JNI → no fs.s3a. analog.
+      **DONE** (normalizeNativeUri + canonical creds emission; +2 UT, full hive suite 328/328, 0 checkstyle).
+      **Unexercised locally** (docker=HDFS; hive-s3 suites are p2/real-cloud) → unit-verified only,
+      object-store e2e needs user's real s3/oss env.
 
-Order: native-scheme → jni-creds (independent; either order works). TDD per fix, independent commit.
+E2E = the existing 14 failing suites under `regression-test/suites/external_table_p2/hudi/`
+(no new suites needed; they are the regression gate). Run both hudi fixes together, then re-run all 14.
+Hive: object-store e2e needs a real s3/oss hive table (docker is HDFS); HDFS hive suites are the parity guard.
+
+Order: hudi native-scheme → hudi jni-creds → hive-s3a-read. TDD per fix, independent commit.

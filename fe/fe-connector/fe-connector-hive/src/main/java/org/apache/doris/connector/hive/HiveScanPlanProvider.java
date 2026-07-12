@@ -45,6 +45,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.UnaryOperator;
 
 /**
  * Scan plan provider for Hive tables.
@@ -309,9 +310,11 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
                 // merge-on-read reader). Insert-only tables use the write-id snapshot to pick files but
                 // store plain data files, so their splits stay plain hive — matching legacy AcidUtil,
                 // which sets acidInfo only when isFullAcid.
-                String acidLocation = isFullAcid ? partition.location : null;
+                // BE-facing ACID paths (delete-delta dir + partition location) also carry the raw HMS scheme; the
+                // BE transactional reader opens them via the same native S3 factory, so normalize s3a://->s3://.
+                String acidLocation = isFullAcid ? normalizeNativeUri(partition.location) : null;
                 List<String> encodedDeltas = isFullAcid
-                        ? encodeDeleteDeltas(state.getDeleteDeltas()) : null;
+                        ? encodeDeleteDeltas(state.getDeleteDeltas(), this::normalizeNativeUri) : null;
                 for (FileEntry dataFile : state.getDataFiles()) {
                     splitFile(dataFile.location().uri(), dataFile.length(),
                             dataFile.modificationTime(), partition, partFormat, splittable,
@@ -339,10 +342,13 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
     }
 
     /** Encodes each delete-delta as {@code "dir|file1,file2"} for {@link HiveScanRange.Builder#acidInfo}. */
-    private static List<String> encodeDeleteDeltas(List<HiveAcidUtil.DeleteDelta> deltas) {
+    private static List<String> encodeDeleteDeltas(List<HiveAcidUtil.DeleteDelta> deltas,
+            UnaryOperator<String> nativePathNormalizer) {
         List<String> encoded = new ArrayList<>(deltas.size());
         for (HiveAcidUtil.DeleteDelta delta : deltas) {
-            encoded.add(delta.getDirectoryLocation() + "|"
+            // Normalize the delete-delta directory scheme (s3a://->s3://) for BE's native reader; the file names
+            // are bare names appended after '|'.
+            encoded.add(nativePathNormalizer.apply(delta.getDirectoryLocation()) + "|"
                     + String.join(",", delta.getFileNames()));
         }
         return encoded;
@@ -381,7 +387,19 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
             props.put(PROP_PATH_PARTITION_KEYS, String.join(",", partKeys));
         }
 
-        // Location properties (Hadoop/S3 config for BE file access)
+        // Location properties (Hadoop/S3 config for BE file access).
+        //  (1) BE-canonical static credentials (AWS_* for object stores, resolved hadoop.*/dfs.* for HDFS): BE's
+        //      native (FILE_S3) reader understands ONLY these canonical keys — it reads AWS_ACCESS_KEY /
+        //      AWS_SECRET_KEY / AWS_ENDPOINT (s3_util.cpp), NOT the raw s3.access_key/... aliases — so without
+        //      them a private bucket 403s. Legacy HiveScanNode.getLocationProperties() emitted exactly this
+        //      (hmsTable.getBackendStorageProperties()); the new path had dropped it. Empty for a null context
+        //      (offline tests) or a credential-less warehouse.
+        if (context != null) {
+            context.getBackendStorageProperties().forEach((k, v) -> props.put(PROP_LOCATION_PREFIX + k, v));
+        }
+        //  (2) Raw catalog aliases + inline fs./hadoop./dfs. keys. Emitted AFTER the canonical set so a user-inline
+        //      fs./hadoop. key wins; the s3./oss./cos./obs. aliases are harmless to BE (ignored by the native
+        //      reader) but kept so no configured key is dropped.
         for (Map.Entry<String, String> entry : catalogProperties.entrySet()) {
             String key = entry.getKey();
             if (isLocationProperty(key)) {
@@ -550,6 +568,20 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
     }
 
     /**
+     * Normalizes a raw HMS storage URI into BE's canonical scheme for a BE-facing native reader path
+     * (e.g. {@code s3a://}/{@code oss://}/{@code cos://} &rarr; {@code s3://}), delegating to the engine seam
+     * {@link ConnectorContext#normalizeStorageUri(String)} — the connector cannot import fe-core's
+     * {@code LocationPath}. BE's native S3 file factory (S3URI) accepts ONLY {@code s3://}, so an un-normalized
+     * {@code s3a://} scan path fails the native read with "Invalid S3 URI". Mirrors iceberg/paimon/hudi and hive's
+     * OWN write path ({@code HiveWritePlanProvider}); legacy {@code HiveScanNode} normalized via the 2-arg
+     * {@code LocationPath.of(path, storagePropertiesMap)}. Non-object-store schemes (hdfs://, local) pass through
+     * unchanged. A null context (offline unit tests) preserves the raw URI.
+     */
+    private String normalizeNativeUri(String rawUri) {
+        return context != null ? context.normalizeStorageUri(rawUri) : rawUri;
+    }
+
+    /**
      * Splits a file into scan ranges based on target split size.
      *
      * <p>When {@code acidPartitionLocation} is non-null the ranges carry ACID delete-delta info
@@ -562,6 +594,10 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
         if (fileSize == 0) {
             return;
         }
+        // Normalize the BE-facing native data-file path scheme (s3a://->s3://): the connector lists files via the
+        // engine FileSystem with the raw scheme (Hadoop wants s3a), but BE's native S3 reader rejects s3a. ACID
+        // delete-delta / partition paths are normalized separately at their emit sites.
+        filePath = normalizeNativeUri(filePath);
 
         if (!splittable || targetSplitSize <= 0 || fileSize <= targetSplitSize) {
             // Single range for the whole file

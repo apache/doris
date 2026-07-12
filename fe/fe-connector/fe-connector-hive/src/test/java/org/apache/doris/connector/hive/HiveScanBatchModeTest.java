@@ -141,6 +141,72 @@ public class HiveScanBatchModeTest {
         Assertions.assertNull(lister.callsPerLocation.get("year=2024/month=02"));
     }
 
+    // ===== object-store native read (FIX-hive-s3a: scheme normalization + canonical creds) =====
+
+    @Test
+    public void nativeScanRangePathNormalizedS3aToS3() {
+        // BE's native S3 reader rejects the s3a scheme (S3URI accepts only s3/http/https). The connector lists
+        // files with the raw scheme (Hadoop wants s3a) but must normalize the BE-facing range path to s3://.
+        // MUTATION: dropping the splitFile normalization leaves the range path s3a:// -> BE "Invalid S3 URI".
+        HiveFileListingCache.DirectoryLister s3aLister = (location, fs) ->
+                new ArrayList<>(Collections.singletonList(
+                        new HiveFileStatus("s3a://bucket/db/t/p/000000_0", 10L, 1L)));
+        FakeConnectorContext normCtx = new FakeConnectorContext() {
+            @Override
+            public String normalizeStorageUri(String rawUri) {
+                return rawUri == null ? null : rawUri.replace("s3a://", "s3://");
+            }
+        };
+        HiveScanPlanProvider provider = new HiveScanPlanProvider(new FakeHmsClient(),
+                Collections.emptyMap(), normCtx, new HiveReadTransactionManager(),
+                new HiveFileListingCache(Collections.emptyMap(), s3aLister));
+        HiveTableHandle handle = new HiveTableHandle.Builder("db", "t", HiveTableType.HIVE)
+                .inputFormat(PARQUET_INPUT_FORMAT)
+                .serializationLib(PARQUET_SERDE)
+                .partitionKeyNames(PART_KEYS)
+                .prunedPartitions(Collections.singletonList(part("year=2024/month=01")))
+                .build();
+
+        List<ConnectorScanRange> ranges = provider.planScanForPartitionBatch(
+                new FakeSession(), handle, Collections.<ConnectorColumnHandle>emptyList(),
+                Optional.empty(), -1L, Collections.singletonList("year=2024/month=01"));
+
+        Assertions.assertEquals(1, ranges.size());
+        Assertions.assertEquals("s3://bucket/db/t/p/000000_0",
+                ((HiveScanRange) ranges.get(0)).getPath().orElse(null),
+                "native hive range path must be scheme-normalized s3a->s3 for BE's native reader");
+    }
+
+    @Test
+    public void scanNodePropertiesEmitsCanonicalCredsForNativeReader() {
+        // BE's native FILE_S3 reader reads ONLY AWS_ACCESS_KEY/AWS_SECRET_KEY/AWS_ENDPOINT (s3_util.cpp), never the
+        // raw s3.access_key alias. getScanNodeProperties must emit the BE-canonical creds
+        // (getBackendStorageProperties) like legacy HiveScanNode.getLocationProperties did; without them a private
+        // bucket 403s. MUTATION: dropping the canonical emission (pre-fix: only raw s3. aliases were emitted).
+        FakeConnectorContext credCtx = new FakeConnectorContext() {
+            @Override
+            public Map<String, String> getBackendStorageProperties() {
+                return Collections.singletonMap("AWS_ACCESS_KEY", "canonAK");
+            }
+        };
+        HiveScanPlanProvider provider = new HiveScanPlanProvider(new FakeHmsClient(),
+                Collections.singletonMap("s3.access_key", "aliasAK"), credCtx,
+                new HiveReadTransactionManager(),
+                new HiveFileListingCache(Collections.emptyMap(), new CountingLister()));
+        HiveTableHandle handle = new HiveTableHandle.Builder("db", "t", HiveTableType.HIVE)
+                .inputFormat(PARQUET_INPUT_FORMAT)
+                .serializationLib(PARQUET_SERDE)
+                .build();
+
+        Map<String, String> props = provider.getScanNodeProperties(
+                new FakeSession(), handle, Collections.<ConnectorColumnHandle>emptyList(), Optional.empty());
+
+        Assertions.assertEquals("canonAK", props.get("location.AWS_ACCESS_KEY"),
+                "BE-canonical AWS_* creds must be emitted for the native reader (legacy parity)");
+        // the raw s3. alias is still forwarded (harmless, ignored by BE), so no configured key is dropped
+        Assertions.assertEquals("aliasAK", props.get("location.s3.access_key"));
+    }
+
     // ===== helpers =====
 
     @Test
