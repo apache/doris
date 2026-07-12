@@ -796,10 +796,11 @@ Status TableReader::prepare_split(const SplitReadOptions& options) {
     _current_task->data_file = create_file_description(options.current_range);
     _current_file_description = *_current_task->data_file;
     // A table-level row count is only equivalent to scanning the split when no row predicate is
-    // active. In particular, a runtime filter may arrive after init() and replace `_conjuncts`
-    // above. Returning synthetic rows here would bypass that fresh split snapshot completely.
-    if (_push_down_agg_type == TPushAggOp::type::COUNT && _conjuncts.empty() &&
-        options.current_range.__isset.table_format_params &&
+    // active and no predicate can arrive later. The metadata path can return several batches for
+    // one split; after its first synthetic batch there is no way to recover the real rows if a
+    // runtime filter arrives before the next scheduler turn.
+    if (_push_down_agg_type == TPushAggOp::type::COUNT && options.all_runtime_filters_applied &&
+        _conjuncts.empty() && options.current_range.__isset.table_format_params &&
         options.current_range.table_format_params.__isset.table_level_row_count) {
         DORIS_CHECK(options.current_range.table_format_params.table_level_row_count >= -1);
         _remaining_table_level_count =
