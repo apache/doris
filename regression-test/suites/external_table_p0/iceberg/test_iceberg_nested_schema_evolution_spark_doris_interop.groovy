@@ -26,6 +26,7 @@ suite("test_iceberg_nested_schema_evolution_spark_doris_interop", "p0,external,i
     String dbName = "iceberg_nested_schema_evolution_interop_db"
     String dorisTable = "doris_nested_evolution_to_spark"
     String sparkTable = "spark_nested_evolution_to_doris"
+    String mixedCaseTable = "spark_mixed_case_nested_collision"
     String restPort = context.config.otherConfigs.get("iceberg_rest_uri_port")
     String minioPort = context.config.otherConfigs.get("iceberg_minio_port")
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
@@ -156,6 +157,11 @@ suite("test_iceberg_nested_schema_evolution_spark_doris_interop", "p0,external,i
 
         spark_iceberg_multi """
             DROP TABLE IF EXISTS demo.${dbName}.${sparkTable};
+            DROP TABLE IF EXISTS demo.${dbName}.${mixedCaseTable};
+            CREATE TABLE demo.${dbName}.${mixedCaseTable} (
+                id INT,
+                Info STRUCT<Metric:INT, Label:STRING>
+            ) USING iceberg;
             CREATE TABLE demo.${dbName}.${sparkTable} (
                 id INT,
                 info STRUCT<metric:INT, label:STRING>,
@@ -213,6 +219,15 @@ suite("test_iceberg_nested_schema_evolution_spark_doris_interop", "p0,external,i
         sql """refresh catalog ${catalogName}"""
         sql """switch ${catalogName}"""
         sql """use ${dbName}"""
+
+        test {
+            sql """ALTER TABLE ${mixedCaseTable} ADD COLUMN info.metric STRING NULL"""
+            exception "conflicts with existing Iceberg field 'Info.Metric' (case-insensitive)"
+        }
+        test {
+            sql """ALTER TABLE ${mixedCaseTable} RENAME COLUMN info.label TO metric"""
+            exception "conflicts with existing Iceberg field 'Info.Metric' (case-insensitive)"
+        }
 
         def sparkDrivenDescRows = sql """DESC ${sparkTable}"""
         String sparkDrivenDesc = sparkDrivenDescRows.toString().toLowerCase().replaceAll("\\s+", "")
@@ -311,6 +326,7 @@ suite("test_iceberg_nested_schema_evolution_spark_doris_interop", "p0,external,i
         try {
             spark_iceberg """DROP TABLE IF EXISTS demo.${dbName}.${dorisTable}"""
             spark_iceberg """DROP TABLE IF EXISTS demo.${dbName}.${sparkTable}"""
+            spark_iceberg """DROP TABLE IF EXISTS demo.${dbName}.${mixedCaseTable}"""
         } catch (Throwable t) {
             logger.warn("failed to clean Spark Iceberg tables", t)
         }

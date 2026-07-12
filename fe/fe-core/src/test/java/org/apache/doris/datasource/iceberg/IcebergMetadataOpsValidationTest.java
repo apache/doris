@@ -210,6 +210,25 @@ public class IcebergMetadataOpsValidationTest {
     }
 
     @Test
+    public void testValidateNoCaseInsensitiveSiblingCollisionRejectsAddAndRenameTargets() {
+        Types.StructType parentType = mixedCaseNestedSchema().findField("Info").type().asStructType();
+        ColumnPath parentPath = ColumnPath.fromDotName("Info");
+        assertUserException(() -> ops.validateNoCaseInsensitiveSiblingCollision(
+                        parentType, parentPath, "metric", null, "add"),
+                "Cannot add nested column 'Info.metric': conflicts with existing Iceberg field 'Info.Metric'");
+        assertUserException(() -> ops.validateNoCaseInsensitiveSiblingCollision(
+                        parentType, parentPath, "metric", parentType.field("Label"), "rename"),
+                "Cannot rename nested column 'Info.metric': conflicts with existing Iceberg field 'Info.Metric'");
+    }
+
+    @Test
+    public void testValidateNoCaseInsensitiveSiblingCollisionAllowsCaseOnlyRename() throws Throwable {
+        Types.StructType parentType = mixedCaseNestedSchema().findField("Info").type().asStructType();
+        ops.validateNoCaseInsensitiveSiblingCollision(parentType, ColumnPath.fromDotName("Info"),
+                "metric", parentType.field("Metric"), "rename");
+    }
+
+    @Test
     public void testResolveNestedColumnPathRejectsMapKey() {
         assertUserException(() -> ops.resolveNestedColumnPath(nestedSchema(), ColumnPath.fromDotName("m.key.x"),
                         "modify"),

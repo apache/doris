@@ -855,6 +855,8 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
             throw new UserException("Parent column path '" + columnPath.getParentPathString()
                     + "' is not a struct in Iceberg table: " + icebergTable.name());
         }
+        validateNoCaseInsensitiveSiblingCollision(parentPath.getType().asStructType(),
+                parentPath.getColumnPath(), columnPath.getLeafName(), null, "add");
 
         UpdateSchema updateSchema = icebergTable.updateSchema();
         org.apache.iceberg.types.Type dorisType = IcebergUtils.dorisTypeToIcebergType(column.getType());
@@ -951,6 +953,9 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         }
         Table icebergTable = IcebergUtils.getIcebergTable(dorisTable);
         ResolvedColumnPath resolvedPath = validateNestedStructFieldPath(icebergTable.schema(), columnPath, "rename");
+        ResolvedColumnPath parentPath = resolveColumnPath(icebergTable.schema(), columnPath.getParentPath(), "rename");
+        validateNoCaseInsensitiveSiblingCollision(parentPath.getType().asStructType(),
+                parentPath.getColumnPath(), newName, resolvedPath.getField(), "rename");
 
         UpdateSchema updateSchema = icebergTable.updateSchema();
         updateSchema.renameColumn(resolvedPath.getFullPath(), newName);
@@ -1219,6 +1224,19 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         List<String> parts = new ArrayList<>(parentPath.getParts());
         parts.add(childName);
         return ColumnPath.of(parts);
+    }
+
+    @VisibleForTesting
+    void validateNoCaseInsensitiveSiblingCollision(Types.StructType parentType, ColumnPath parentPath,
+            String targetName, NestedField sourceField, String operation) throws UserException {
+        NestedField conflictingField = parentType.caseInsensitiveField(targetName);
+        if (conflictingField != null
+                && (sourceField == null || conflictingField.fieldId() != sourceField.fieldId())) {
+            String targetPath = childPath(parentPath, targetName).getFullPath();
+            String conflictingPath = childPath(parentPath, conflictingField.name()).getFullPath();
+            throw new UserException("Cannot " + operation + " nested column '" + targetPath
+                    + "': conflicts with existing Iceberg field '" + conflictingPath + "' (case-insensitive)");
+        }
     }
 
     private static class ResolvedColumnPath {
