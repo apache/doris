@@ -38,6 +38,8 @@
 #include "storage/binlog.h"
 #include "storage/olap_define.h"
 #include "storage/partial_update_info.h"
+#include "storage/rowset/rowset_reader.h"
+#include "storage/rowset/rowset_reader_context.h"
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet.h"
 #include "storage/tablet/tablet_manager.h"
@@ -90,6 +92,8 @@ protected:
         testutil::enable_row_binlog(&_request);
         _request.row_binlog_schema.columns.erase(_request.row_binlog_schema.columns.begin() + 5);
         _request.row_binlog_schema.columns.erase(_request.row_binlog_schema.columns.begin() + 2);
+        _request.row_binlog_schema.columns[5].__set_is_allow_null(true);
+        _request.row_binlog_schema.columns[6].__set_is_allow_null(true);
         auto profile = std::make_unique<RuntimeProfile>("GroupRowsetWriterTest");
         ASSERT_TRUE(engine_ptr->create_tablet(_request, profile.get()).ok());
         _tablet = engine_ptr->tablet_manager()->get_tablet(_request.tablet_id);
@@ -307,7 +311,37 @@ TEST_F(GroupRowsetWriterTest, partialUpdateSkipsHiddenNonKeyColumns) {
 
     RowsetSharedPtr row_binlog_rowset;
     ASSERT_TRUE(row_binlog_writer->build(row_binlog_rowset).ok());
-    EXPECT_EQ(1, row_binlog_rowset->num_segments());
+    ASSERT_EQ(1, row_binlog_rowset->num_segments());
+
+    const auto& row_binlog_schema = _tablet->row_binlog_tablet_schema();
+    ASSERT_EQ(7, row_binlog_schema->num_columns());
+    std::vector<uint32_t> return_columns {0, 1, 2, 3, 4, 5, 6};
+    RowsetReaderContext reader_context;
+    reader_context.tablet_schema = row_binlog_schema;
+    reader_context.need_ordered_result = false;
+    reader_context.return_columns = &return_columns;
+
+    RowsetReaderSharedPtr rowset_reader;
+    ASSERT_TRUE(row_binlog_rowset->create_reader(&rowset_reader).ok());
+    ASSERT_TRUE(rowset_reader->init(&reader_context).ok());
+
+    Block output_block = row_binlog_schema->create_block();
+    auto status = rowset_reader->next_batch(&output_block);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_EQ(1, output_block.rows());
+    ASSERT_EQ(return_columns.size(), output_block.columns());
+
+    EXPECT_EQ(1, output_block.get_by_position(0).column->get_int(0));
+    EXPECT_EQ(1001, output_block.get_by_position(1).column->get_int(0));
+    EXPECT_EQ(20, output_block.get_by_position(2).column->get_int(0));
+    EXPECT_TRUE(output_block.get_by_position(3).column->is_null_at(0));
+    EXPECT_EQ(1000, output_block.get_by_position(4).column->get_int(0));
+    EXPECT_EQ(ROW_BINLOG_APPEND, output_block.get_by_position(5).column->get_int(0));
+    EXPECT_TRUE(output_block.get_by_position(6).column->is_null_at(0));
+
+    Block eof_block = row_binlog_schema->create_block();
+    status = rowset_reader->next_batch(&eof_block);
+    EXPECT_TRUE(status.is<END_OF_FILE>()) << status;
 }
 
 } // namespace doris
