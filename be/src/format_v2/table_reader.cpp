@@ -795,7 +795,10 @@ Status TableReader::prepare_split(const SplitReadOptions& options) {
     _current_task = std::make_unique<ScanTask>();
     _current_task->data_file = create_file_description(options.current_range);
     _current_file_description = *_current_task->data_file;
-    if (_push_down_agg_type == TPushAggOp::type::COUNT &&
+    // A table-level row count is only equivalent to scanning the split when no row predicate is
+    // active. In particular, a runtime filter may arrive after init() and replace `_conjuncts`
+    // above. Returning synthetic rows here would bypass that fresh split snapshot completely.
+    if (_push_down_agg_type == TPushAggOp::type::COUNT && _conjuncts.empty() &&
         options.current_range.__isset.table_format_params &&
         options.current_range.table_format_params.__isset.table_level_row_count) {
         DORIS_CHECK(options.current_range.table_format_params.table_level_row_count >= -1);
