@@ -185,6 +185,27 @@ TEST(FileScannerV2Test, FileScanLocalStateSelectsV2ForSupportedQueriesOnly) {
     EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
 }
 
+TEST(FileScannerV2Test, PaimonCppReaderForcesLegacyScanner) {
+    TQueryOptions query_options;
+    query_options.__set_enable_file_scanner_v2(true);
+    query_options.__set_enable_paimon_cpp_reader(true);
+
+    TFileScanRangeParams params;
+    params.__set_format_type(TFileFormatType::FORMAT_JNI);
+    TTableFormatFileDesc table_format_params;
+    table_format_params.__set_table_format_type("paimon");
+    params.__set_table_format_params(std::move(table_format_params));
+
+    EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
+
+    // Other JNI table formats and Paimon without the C++ reader remain eligible for V2.
+    params.table_format_params.__set_table_format_type("hudi");
+    EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
+    params.table_format_params.__set_table_format_type("paimon");
+    query_options.__set_enable_paimon_cpp_reader(false);
+    EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
+}
+
 // Scenario: Once FileScannerV2 is selected, an unsupported range must fail instead of falling back
 // to FileScanner.
 TEST(FileScannerV2Test, ValidateScanRangeRejectsUnsupportedRange) {

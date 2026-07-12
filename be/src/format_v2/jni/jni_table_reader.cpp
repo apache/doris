@@ -44,6 +44,9 @@ Status JniTableReader::init(TableReadOptions&& options) {
 }
 
 Status JniTableReader::prepare_split(const SplitReadOptions& options) {
+    // EOF belongs to the previous split. Keep it set after closing that split so repeated reads
+    // are idempotent, and clear it only when a new split is explicitly prepared.
+    _eof = false;
     _current_range = options.current_range;
     RETURN_IF_ERROR(validate_scan_range(options.current_range));
     RETURN_IF_ERROR(TableReader::prepare_split(options));
@@ -69,13 +72,21 @@ Status JniTableReader::get_block(Block* output_block, bool* eos) {
         return _read_table_level_count(output_block, eos);
     }
 
-    DORIS_CHECK(_scanner_opened);
     if (_eof) {
         *eos = true;
         return Status::OK();
     }
+    DORIS_CHECK(_scanner_opened);
 
     while (true) {
+        // JNI readers can loop internally when conjuncts filter every Java batch. Mirror the base
+        // TableReader cancellation contract so a cancelled query does not drain the whole split.
+        if (_io_ctx != nullptr && _io_ctx->should_stop) {
+            _eof = true;
+            RETURN_IF_ERROR(_close_jni_scanner());
+            *eos = true;
+            return Status::OK();
+        }
         size_t current_rows = 0;
         bool current_eof = false;
         // get next block data from Java scanner, and fill the data to _jni_block_template
@@ -287,9 +298,15 @@ Status JniTableReader::close() {
     if (_closed) {
         return Status::OK();
     }
-    _closed = true;
-    RETURN_IF_ERROR(_close_jni_scanner());
-    return TableReader::close();
+    auto close_status = _close_jni_scanner();
+    auto table_status = TableReader::close();
+    if (close_status.ok() && !table_status.ok()) {
+        close_status = std::move(table_status);
+    }
+    if (close_status.ok()) {
+        _closed = true;
+    }
+    return close_status;
 }
 
 Status JniTableReader::_close_jni_scanner() {
@@ -309,15 +326,23 @@ Status JniTableReader::_close_jni_scanner() {
         COUNTER_UPDATE(_fill_block_time, _fill_block_watcher);
     }
 
-    RETURN_ERROR_IF_EXC(env);
     jlong append_data_time = 0;
-    RETURN_IF_ERROR(_jni_scanner_obj.call_long_method(env, _jni_scanner_get_append_data_time)
-                            .call(&append_data_time));
+    const auto append_time_status =
+            _jni_scanner_obj.call_long_method(env, _jni_scanner_get_append_data_time)
+                    .call(&append_data_time);
     jlong create_vector_table_time = 0;
-    RETURN_IF_ERROR(
+    const auto create_table_time_status =
             _jni_scanner_obj.call_long_method(env, _jni_scanner_get_create_vector_table_time)
-                    .call(&create_vector_table_time));
-    if (_scanner_profile != nullptr) {
+                    .call(&create_vector_table_time);
+    if (!append_time_status.ok()) {
+        LOG(WARNING) << "failed to collect JNI append-data time during close: "
+                     << append_time_status;
+    }
+    if (!create_table_time_status.ok()) {
+        LOG(WARNING) << "failed to collect JNI vector-table time during close: "
+                     << create_table_time_status;
+    }
+    if (_scanner_profile != nullptr && append_time_status.ok() && create_table_time_status.ok()) {
         COUNTER_UPDATE(_java_append_data_time, append_data_time);
         COUNTER_UPDATE(_java_create_vector_table_time, create_vector_table_time);
         COUNTER_UPDATE(_java_scan_time,
@@ -329,11 +354,15 @@ Status JniTableReader::_close_jni_scanner() {
     _collect_jni_scanner_profile(env);
 
     // _fill_jni_block may fail before releasing the current Java table. JniScanner::releaseTable()
-    // is idempotent, so closing the split always releases it.
-    RETURN_IF_ERROR(_jni_scanner_obj.call_void_method(env, _jni_scanner_release_table).call());
-    RETURN_IF_ERROR(_jni_scanner_obj.call_void_method(env, _jni_scanner_close).call());
+    // is idempotent, so closing the split always releases it. Java close must still run if that
+    // release fails; otherwise connector resources such as JDBC connections can leak.
+    auto cleanup_status = _jni_scanner_obj.call_void_method(env, _jni_scanner_release_table).call();
+    auto java_close_status = _jni_scanner_obj.call_void_method(env, _jni_scanner_close).call();
+    if (cleanup_status.ok() && !java_close_status.ok()) {
+        cleanup_status = std::move(java_close_status);
+    }
     _reset_split_state(env);
-    return Status::OK();
+    return cleanup_status;
 }
 
 void JniTableReader::_reset_split_state(JNIEnv* env) {
@@ -342,7 +371,6 @@ void JniTableReader::_reset_split_state(JNIEnv* env) {
         _jni_scanner_obj.reset(env);
     }
     _scanner_opened = false;
-    _eof = false;
     _scanner_params.clear();
     _jni_columns.clear();
     _jni_block_template.clear();
@@ -371,12 +399,40 @@ Status JniTableReader::_open_jni_scanner() {
     SCOPED_RAW_TIMER(&_jni_scanner_open_watcher);
     RETURN_IF_ERROR(_register_jni_class_functions_once(env));
     RETURN_IF_ERROR(_create_jni_scanner_object(env, cast_set<int>(_batch_size)));
-    // call open() method in JAVA side.
-    RETURN_IF_ERROR(_jni_scanner_obj.call_void_method(env, _jni_scanner_open).call());
-    RETURN_ERROR_IF_EXC(env);
-
+    // Once the Java object exists, close it even if open() fails partway through initialization.
+    // Connector implementations may already own streams, off-heap tables, or JDBC connections.
     _scanner_opened = true;
+    // call open() method in JAVA side.
+    const auto open_status = _jni_scanner_obj.call_void_method(env, _jni_scanner_open).call();
+    if (!open_status.ok()) {
+        const auto close_status = _close_jni_scanner();
+        if (!close_status.ok()) {
+            LOG(WARNING) << "failed to clean up JNI scanner after open failure: " << close_status;
+        }
+        return open_status;
+    }
     return Status::OK();
+}
+
+void JniTableReader::set_batch_size(size_t batch_size) {
+    TableReader::set_batch_size(batch_size);
+    if (!_scanner_opened) {
+        return;
+    }
+    const auto status = _set_open_scanner_batch_size(_batch_size);
+    if (!status.ok()) {
+        // Adaptive batch sizing is an optimization. Keep the scanner usable with its previous
+        // size if Java rejects a mid-split update, but surface the failure for diagnosis.
+        LOG(WARNING) << "failed to update JNI scanner batch size: " << status;
+    }
+}
+
+Status JniTableReader::_set_open_scanner_batch_size(size_t batch_size) {
+    JNIEnv* env = nullptr;
+    RETURN_IF_ERROR(Jni::Env::Get(&env));
+    return _jni_scanner_obj.call_void_method(env, _jni_scanner_set_batch_size)
+            .with_arg(cast_set<int>(batch_size))
+            .call();
 }
 
 void JniTableReader::_prepare_jni_scanner_schema() {

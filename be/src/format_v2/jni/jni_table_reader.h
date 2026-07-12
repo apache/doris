@@ -51,6 +51,17 @@ public:
     Status get_block(Block* block, bool* eos) override;
     Status abort_split() override;
     Status close() override;
+    void set_batch_size(size_t batch_size) override;
+
+#ifdef BE_TEST
+    void TEST_set_split_state(bool scanner_opened, bool eof) {
+        _scanner_opened = scanner_opened;
+        _eof = eof;
+    }
+    bool TEST_scanner_opened() const { return _scanner_opened; }
+    bool TEST_eof() const { return _eof; }
+    bool TEST_closed() const { return _closed; }
+#endif
 
 protected:
     // Subclasses should implement these methods to specify the Java scanner class
@@ -63,6 +74,9 @@ protected:
     virtual Status finalize_jni_block(Block* jni_block, Block* output_block, size_t* rows);
     // used for profile
     virtual int64_t self_split_weight() const;
+    virtual Status _get_next_jni_block(size_t* rows, bool* eof);
+    virtual Status _close_jni_scanner();
+    virtual Status _set_open_scanner_batch_size(size_t batch_size);
     const std::vector<JniColumn>& jni_columns() const { return _jni_columns; }
     TFileRangeDesc _current_range;
 
@@ -77,12 +91,9 @@ private:
     Status _register_jni_class_functions_once(JNIEnv* env);
     Status _create_jni_scanner_object(JNIEnv* env, int batch_size);
     // get_next
-    Status _get_next_jni_block(size_t* rows, bool* eof);
     Status _fill_jni_block(JniDataBridge::TableMetaAddress& table_meta, size_t num_rows);
     Status _get_statistics(JNIEnv* env, std::map<std::string, std::string>* result);
     void _collect_jni_scanner_profile(JNIEnv* env);
-
-    Status _close_jni_scanner();
 
     std::map<std::string, std::string> _scanner_params;
     std::vector<JniColumn> _jni_columns;
