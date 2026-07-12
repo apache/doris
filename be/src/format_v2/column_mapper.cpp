@@ -20,6 +20,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <memory>
+#include <optional>
 #include <sstream>
 #include <string_view>
 #include <utility>
@@ -530,6 +531,71 @@ static void collect_top_level_slot_columns(const VExprSPtr& expr,
     }
 }
 
+static std::optional<uint8_t> signed_integer_width(PrimitiveType type) {
+    switch (type) {
+    case TYPE_TINYINT:
+        return 8;
+    case TYPE_SMALLINT:
+        return 16;
+    case TYPE_INT:
+        return 32;
+    case TYPE_BIGINT:
+        return 64;
+    case TYPE_LARGEINT:
+        return 128;
+    default:
+        return std::nullopt;
+    }
+}
+
+static std::optional<uint8_t> floating_width(PrimitiveType type) {
+    switch (type) {
+    case TYPE_FLOAT:
+        return 32;
+    case TYPE_DOUBLE:
+        return 64;
+    default:
+        return std::nullopt;
+    }
+}
+
+static std::optional<uint8_t> floating_exact_integer_width(PrimitiveType type) {
+    switch (type) {
+    case TYPE_FLOAT:
+        return 24;
+    case TYPE_DOUBLE:
+        return 53;
+    default:
+        return std::nullopt;
+    }
+}
+
+static bool is_lossless_file_to_table_numeric_cast(const DataTypePtr& file_type,
+                                                   const DataTypePtr& table_type) {
+    const auto file_nested_type = remove_nullable(file_type);
+    const auto table_nested_type = remove_nullable(table_type);
+    if (file_nested_type->equals(*table_nested_type)) {
+        return true;
+    }
+
+    const auto file_primitive_type = file_nested_type->get_primitive_type();
+    const auto table_primitive_type = table_nested_type->get_primitive_type();
+    if (const auto file_width = signed_integer_width(file_primitive_type)) {
+        if (const auto table_width = signed_integer_width(table_primitive_type)) {
+            return *table_width >= *file_width;
+        }
+        if (const auto table_width = floating_exact_integer_width(table_primitive_type)) {
+            return *table_width >= *file_width;
+        }
+        return false;
+    }
+    if (const auto file_width = floating_width(file_primitive_type)) {
+        const auto table_width = floating_width(table_primitive_type);
+        return table_width.has_value() && *table_width >= *file_width;
+    }
+    return false;
+}
+
 static VExprSPtr rewrite_literal_to_file_type(const VExprSPtr& literal_expr,
                                               const FileSlotRewriteInfo& rewrite_info,
                                               RewriteContext* rewrite_context) {
@@ -539,6 +605,16 @@ static VExprSPtr rewrite_literal_to_file_type(const VExprSPtr& literal_expr,
     const Field original_field = literal_field(original_literal);
     if (rewrite_info.file_type->equals(*original_literal->data_type())) {
         return original_literal;
+    }
+    // A literal round trip alone cannot prove that file-local evaluation is safe: the file slot
+    // itself may lose information when materialized as the table type. For example, DOUBLE 1.5
+    // becomes BIGINT 1, so table predicate `value = 1` is true while file predicate
+    // `value = 1.0` is false. Complex Field equality also does not compare nested contents.
+    // Restrict localization to scalar numeric casts that preserve every file value; unsupported
+    // and complex casts keep the table predicate and evaluate after materialization.
+    if (!is_lossless_file_to_table_numeric_cast(rewrite_info.file_type,
+                                                original_literal->data_type())) {
+        return nullptr;
     }
     Field file_field;
     try {
@@ -560,11 +636,8 @@ static VExprSPtr rewrite_literal_to_file_type(const VExprSPtr& literal_expr,
     } catch (const Exception&) {
         return nullptr;
     }
-    // Only localize a literal when converting it to the file type is lossless. For example,
-    // BIGINT 1 -> INT 1 -> BIGINT 1 succeeds. However, for a table predicate `value < 1.5`
-    // with DOUBLE table type and INT file type, rewriting 1.5 to INT 1 would make a file value
-    // of 1 fail `value < 1` and silently drop a matching row. Its round trip
-    // DOUBLE 1.5 -> INT 1 -> DOUBLE 1.0 fails here and keeps the table-typed predicate instead.
+    // The file-to-table type check protects every possible file value. This round trip separately
+    // proves that the specific predicate boundary is exactly representable in the file type.
     if (round_trip_field != original_field) {
         return nullptr;
     }
