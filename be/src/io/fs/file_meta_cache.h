@@ -106,6 +106,7 @@ public:
         return get_memory_cache_key(context.format, context.key);
     }
 
+    static bool is_persistent_cache_configured();
     static bool is_persistent_cache_enabled();
     static bool is_persistent_cache_payload_size_allowed(uint64_t payload_size);
 

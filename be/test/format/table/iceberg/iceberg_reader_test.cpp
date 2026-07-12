@@ -1486,6 +1486,50 @@ TEST_F(IcebergReaderTest, v1_orc_partial_id_equality_delete_ignores_stale_field_
     std::filesystem::remove_all(test_dir);
 }
 
+TEST_F(IcebergReaderTest, position_delete_inherits_disabled_file_meta_memory_cache) {
+    RuntimeState runtime_state = RuntimeState(TQueryOptions(), TQueryGlobals());
+    TFileScanRangeParams scan_params;
+    scan_params.__set_file_type(TFileType::FILE_LOCAL);
+    scan_params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
+
+    TFileRangeDesc scan_range;
+    scan_range.__set_fs_name("");
+    scan_range.__set_path("data.parquet");
+    scan_range.__set_start_offset(0);
+    scan_range.__set_size(0);
+
+    RuntimeProfile profile("test_profile");
+    cctz::time_zone ctz;
+    TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
+    io::IOContext io_ctx;
+    ShardedKVCache kv_cache(8);
+
+    IcebergParquetReader iceberg_reader(&kv_cache, &profile, scan_params, scan_range, 1024, &ctz,
+                                        &io_ctx, &runtime_state, cache.get());
+    iceberg_reader.set_enable_file_meta_memory_cache(false);
+
+    TIcebergDeleteFileDesc delete_file;
+    delete_file.__set_content(IcebergReaderMixin<ParquetReader>::POSITION_DELETE);
+    delete_file.__set_path(mixed_position_delete_file());
+    ASSERT_TRUE(iceberg_reader
+                        .TEST_position_delete_base("file:///tmp/non_matching_data.parquet",
+                                                   {delete_file})
+                        .ok());
+
+    io::FileReaderSPtr delete_file_reader;
+    ASSERT_TRUE(io::global_local_filesystem()
+                        ->open_file(mixed_position_delete_file(), &delete_file_reader)
+                        .ok());
+    io::FileDescription file_description;
+    file_description.mtime = 0;
+    file_description.file_size = -1;
+    const std::string meta_key = FileMetaCache::get_key(delete_file_reader, file_description);
+    const std::string memory_key =
+            FileMetaCache::get_memory_cache_key(FileMetaCacheFormat::PARQUET, meta_key);
+    ObjLRUCache::CacheHandle handle;
+    EXPECT_FALSE(cache->lookup(memory_key, &handle));
+}
+
 // Test reading real Iceberg Orc file using IcebergTableReader
 TEST_F(IcebergReaderTest, read_iceberg_orc_file) {
     // Read only: name, profile.address.coordinates.lat, profile.address.coordinates.lng, profile.contact.email

@@ -505,6 +505,7 @@ Status IcebergReaderMixin<BaseReader>::_equality_delete_base(
         }
 
         std::unique_ptr<GenericReader> delete_reader = _create_equality_reader(delete_desc);
+        delete_reader->set_enable_file_meta_memory_cache(this->_enable_file_meta_memory_cache);
         RETURN_IF_ERROR(delete_reader->init_schema_reader());
 
         std::vector<std::string> equality_delete_col_names;

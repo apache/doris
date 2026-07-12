@@ -507,7 +507,7 @@ void ExecEnv::init_file_cache_factory(std::vector<doris::CachePath>& cache_paths
                           "= true";
             exit(-1);
         }
-        if (!FileMetaCache::is_persistent_cache_enabled()) {
+        if (!FileMetaCache::is_persistent_cache_configured()) {
             return;
         }
     }
@@ -680,7 +680,7 @@ Status ExecEnv::init_mem_env() {
     config::file_cache_max_file_reader_cache_size = block_file_cache_fd_cache_size;
 
     _file_meta_cache = new FileMetaCache(config::max_external_file_meta_cache_num,
-                                         FileMetaCache::is_persistent_cache_enabled()
+                                         FileMetaCache::is_persistent_cache_configured()
                                                  ? std::make_unique<FileMetaDiskCache>()
                                                  : nullptr);
 

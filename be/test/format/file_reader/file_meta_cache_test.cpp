@@ -18,8 +18,12 @@
 #include "io/fs/file_meta_cache.h"
 
 #include <crc32c/crc32c.h>
+#include <unistd.h>
 
+#include <chrono>
+#include <filesystem>
 #include <memory>
+#include <thread>
 
 #include "common/config.h"
 #include "gmock/gmock.h"
@@ -129,6 +133,13 @@ io::CacheContext create_file_meta_disk_cache_context(io::ReadStatistics* stats) 
     context.is_warmup = false;
     context.stats = stats;
     return context;
+}
+
+bool wait_until_file_cache_ready(io::BlockFileCache* cache) {
+    for (int i = 0; i < 1000 && !cache->get_async_open_success(); ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    return cache->get_async_open_success();
 }
 } // anonymous namespace
 
@@ -303,6 +314,31 @@ TEST(FileMetaCacheTest, ContextMemoryCacheKeyIncludesFormat) {
               FileMetaCacheLookupState::MEMORY_HIT);
 }
 
+TEST(FileMetaCacheTest, PersistentCacheConfigurationIsIndependentFromRuntimeSizeGate) {
+    const bool old_enable_external_file_meta_disk_cache =
+            config::enable_external_file_meta_disk_cache;
+    const int64_t old_external_file_meta_disk_cache_max_entry_bytes =
+            config::external_file_meta_disk_cache_max_entry_bytes;
+    Defer defer {[&] {
+        config::enable_external_file_meta_disk_cache = old_enable_external_file_meta_disk_cache;
+        config::external_file_meta_disk_cache_max_entry_bytes =
+                old_external_file_meta_disk_cache_max_entry_bytes;
+    }};
+
+    config::enable_external_file_meta_disk_cache = true;
+    config::external_file_meta_disk_cache_max_entry_bytes = 0;
+    EXPECT_TRUE(FileMetaCache::is_persistent_cache_configured());
+    EXPECT_FALSE(FileMetaCache::is_persistent_cache_enabled());
+
+    config::external_file_meta_disk_cache_max_entry_bytes = 1024;
+    EXPECT_TRUE(FileMetaCache::is_persistent_cache_configured());
+    EXPECT_TRUE(FileMetaCache::is_persistent_cache_enabled());
+
+    config::enable_external_file_meta_disk_cache = false;
+    EXPECT_FALSE(FileMetaCache::is_persistent_cache_configured());
+    EXPECT_FALSE(FileMetaCache::is_persistent_cache_enabled());
+}
+
 TEST(FileMetaCacheDiskTest, OrcFormatsUseIndependentKeys) {
     const bool old_enable_external_file_meta_disk_cache =
             config::enable_external_file_meta_disk_cache;
@@ -449,6 +485,85 @@ TEST(FileMetaCacheDiskTest, PersistentCacheStoresPayloadBehindFileMetaInterface)
             cache.lookup(stale_context, &lookup_handle, &output);
     EXPECT_EQ(stale_lookup_result.state, FileMetaCacheLookupState::MISS);
     EXPECT_TRUE(output.empty());
+}
+
+TEST(FileMetaCacheDiskTest, CapacityFailureDoesNotLeavePartiallyDownloadedBlocks) {
+    const bool old_enable_external_file_meta_disk_cache =
+            config::enable_external_file_meta_disk_cache;
+    const int64_t old_external_file_meta_disk_cache_max_entry_bytes =
+            config::external_file_meta_disk_cache_max_entry_bytes;
+    Defer defer {[&] {
+        config::enable_external_file_meta_disk_cache = old_enable_external_file_meta_disk_cache;
+        config::external_file_meta_disk_cache_max_entry_bytes =
+                old_external_file_meta_disk_cache_max_entry_bytes;
+    }};
+    config::enable_external_file_meta_disk_cache = true;
+    config::external_file_meta_disk_cache_max_entry_bytes = 1024;
+
+    io::FileCacheSettings settings = create_file_meta_disk_cache_test_settings();
+    settings.capacity = 64;
+    settings.index_queue_size = 64;
+    settings.index_queue_elements = 8;
+    settings.max_query_cache_size = 0;
+    io::BlockFileCache block_cache("file_meta_disk_cache_capacity_failure_test", settings);
+    ASSERT_TRUE(block_cache.initialize().ok());
+
+    const std::string meta_key = FileMetaCache::get_key("s3://bucket/too-large.parquet", 123, 456);
+    const auto hash = io::BlockFileCache::hash(
+            file_meta_disk_cache_key(FileMetaCacheFormat::PARQUET, meta_key));
+    FileMetaDiskCache disk_cache(&block_cache);
+
+    const Status status = disk_cache.write(FileMetaCacheFormat::PARQUET, meta_key, 123, 456,
+                                           std::string(80, 'p'));
+    EXPECT_FALSE(status.ok());
+    EXPECT_TRUE(block_cache.get_blocks_by_key(hash).empty());
+}
+
+TEST(FileMetaCacheDiskTest, DiskEntrySurvivesBlockFileCacheReinitialization) {
+    const bool old_enable_external_file_meta_disk_cache =
+            config::enable_external_file_meta_disk_cache;
+    const int64_t old_external_file_meta_disk_cache_max_entry_bytes =
+            config::external_file_meta_disk_cache_max_entry_bytes;
+    Defer restore_config {[&] {
+        config::enable_external_file_meta_disk_cache = old_enable_external_file_meta_disk_cache;
+        config::external_file_meta_disk_cache_max_entry_bytes =
+                old_external_file_meta_disk_cache_max_entry_bytes;
+    }};
+    config::enable_external_file_meta_disk_cache = true;
+    config::external_file_meta_disk_cache_max_entry_bytes = 1024;
+
+    const std::filesystem::path cache_path =
+            std::filesystem::temp_directory_path() /
+            ("doris_file_meta_disk_cache_restart_" + std::to_string(getpid()));
+    std::error_code error;
+    std::filesystem::remove_all(cache_path, error);
+    ASSERT_TRUE(std::filesystem::create_directories(cache_path));
+    Defer remove_cache_path {[&] { std::filesystem::remove_all(cache_path, error); }};
+
+    io::FileCacheSettings settings = create_file_meta_disk_cache_test_settings();
+    settings.storage = "disk";
+    const std::string meta_key = FileMetaCache::get_key("s3://bucket/restart.parquet", 123, 456);
+    const std::string payload = "serialized footer persisted across cache initialization";
+
+    {
+        io::BlockFileCache block_cache(cache_path.string(), settings);
+        ASSERT_TRUE(block_cache.initialize().ok());
+        ASSERT_TRUE(wait_until_file_cache_ready(&block_cache));
+        FileMetaDiskCache disk_cache(&block_cache);
+        ASSERT_TRUE(
+                disk_cache.write(FileMetaCacheFormat::PARQUET, meta_key, 123, 456, payload).ok());
+    }
+
+    {
+        io::BlockFileCache block_cache(cache_path.string(), settings);
+        ASSERT_TRUE(block_cache.initialize().ok());
+        ASSERT_TRUE(wait_until_file_cache_ready(&block_cache));
+        FileMetaDiskCache disk_cache(&block_cache);
+        std::string output;
+        ASSERT_TRUE(
+                disk_cache.read(FileMetaCacheFormat::PARQUET, meta_key, 123, 456, &output).ok());
+        EXPECT_EQ(output, payload);
+    }
 }
 
 TEST(FileMetaCacheDiskTest, IncompleteMultiBlockEntryMissesWithoutInvalidating) {

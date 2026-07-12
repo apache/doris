@@ -261,21 +261,27 @@ Status FileMetaDiskCache::write(FileMetaCacheFormat format, const std::string& f
     io::CacheContext context = build_meta_cache_context();
     context.stats = &stats;
     auto holder = cache->get_or_set(hash, 0, value.size(), context);
-    auto write_block = [&](const io::FileBlockSPtr& block) -> Status {
+
+    // Claim the complete entry before appending so a rejected block cannot leave partial data.
+    io::FileBlocks blocks_to_write;
+    for (const auto& block : holder.file_blocks) {
         auto state = block->state();
         if (state == io::FileBlock::State::DOWNLOADING && !block->is_downloader()) {
             state = block->wait();
         }
         if (state == io::FileBlock::State::DOWNLOADED) {
-            return Status::OK();
+            continue;
         }
         if (state != io::FileBlock::State::EMPTY) {
             return Status::NotFound("file meta disk cache block is not writable");
         }
-
         if (block->get_or_set_downloader() != io::FileBlock::get_caller_id()) {
             return Status::NotFound("file meta disk cache block has another downloader");
         }
+        blocks_to_write.emplace_back(block);
+    }
+
+    auto write_block = [&](const io::FileBlockSPtr& block) -> Status {
         const auto& range = block->range();
         DCHECK_LT(range.right, value.size());
         Status status = block->append(Slice(value.data() + range.left, range.size()));
@@ -291,12 +297,12 @@ Status FileMetaDiskCache::write(FileMetaCacheFormat format, const std::string& f
         return Status::OK();
     };
 
-    for (const auto& block : holder.file_blocks) {
+    for (const auto& block : blocks_to_write) {
         if (block->range().left >= FILE_META_DISK_CACHE_HEADER_SIZE) {
             RETURN_IF_ERROR(write_block(block));
         }
     }
-    for (const auto& block : holder.file_blocks) {
+    for (const auto& block : blocks_to_write) {
         if (block->range().left < FILE_META_DISK_CACHE_HEADER_SIZE) {
             RETURN_IF_ERROR(write_block(block));
         }

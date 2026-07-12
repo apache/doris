@@ -68,8 +68,12 @@ std::string FileMetaCache::get_memory_cache_key(FileMetaCacheFormat format, std:
     return memory_cache_key;
 }
 
+bool FileMetaCache::is_persistent_cache_configured() {
+    return config::enable_external_file_meta_disk_cache;
+}
+
 bool FileMetaCache::is_persistent_cache_enabled() {
-    return config::enable_external_file_meta_disk_cache &&
+    return is_persistent_cache_configured() &&
            config::external_file_meta_disk_cache_max_entry_bytes > 0;
 }
 

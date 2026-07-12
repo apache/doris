@@ -206,6 +206,7 @@ Status TransactionalHiveReader::on_after_init_reader(ReaderInitContext* /*ctx*/)
         OrcReader delete_reader(get_profile(), get_state(), get_scan_params(), delete_range,
                                 256 /*batch_size*/, get_state()->timezone(), get_io_ctx(),
                                 _meta_cache, false);
+        delete_reader.set_enable_file_meta_memory_cache(_enable_file_meta_memory_cache);
 
         auto acid_info_node = std::make_shared<StructNode>();
         for (auto idx = 0; idx < TransactionalHive::DELETE_ROW_COLUMN_NAMES_LOWER_CASE.size();
