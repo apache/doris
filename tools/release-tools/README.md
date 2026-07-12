@@ -236,11 +236,12 @@ Review the draft and send it manually from the RM's `@apache.org` address to
 Use this script only after the vote has passed and the `[RESULT]` email has
 been sent manually.
 
-It checks the passed RC source artifacts in the dev SVN, regenerates and
-verifies the final checksum sidecar with the RC-free source tarball name, then
-uses `svnmucc` to create the final release SVN directory, move the source
-tarball and detached signature there, upload the final checksum, and remove the
-dev RC folder in one SVN revision.
+It checks the passed RC source artifacts in the dev SVN, verifies the source
+tarball against the RC checksum and detached signature that voters approved,
+regenerates and verifies the final checksum sidecar with the RC-free source
+tarball name, then uses `svnmucc` to create the final release SVN directory,
+move the source tarball and detached signature there, upload the final checksum,
+and remove the dev RC folder in one SVN revision.
 
 It then writes:
 

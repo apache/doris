@@ -124,10 +124,11 @@ EOF
 }
 
 publish_to_release_svn() {
-  local src_tar src_asc src_sha512 dst_tar dst_asc dst_sha512 checksum_dir final_sha512_file
+  local src_tar src_asc src_sha512 dst_tar dst_asc dst_sha512 checksum_dir src_tar_file final_sha512_file
 
   require_tool svn
   require_tool svnmucc
+  require_tool gpg
   require_tool sha512sum
 
   src_tar="${DEV_SVN_DIR}/${PKG_BASE}.tar.gz"
@@ -160,13 +161,20 @@ publish_to_release_svn() {
   fi
 
   checksum_dir="$(mktemp -d)"
+  src_tar_file="${PKG_BASE}.tar.gz"
   final_sha512_file="${checksum_dir}/${dst_sha512}"
-  svn cat "${svn_auth[@]}" "$src_tar" > "${checksum_dir}/${dst_tar}"
+  svn cat "${svn_auth[@]}" "$src_tar" > "${checksum_dir}/${src_tar_file}"
+  svn cat "${svn_auth[@]}" "$src_sha512" > "${checksum_dir}/${src_tar_file}.sha512"
+  svn cat "${svn_auth[@]}" "$src_asc" > "${checksum_dir}/${src_tar_file}.asc"
   (
     cd "$checksum_dir"
+    sha512sum --check "${src_tar_file}.sha512"
+    gpg --verify "${src_tar_file}.asc" "$src_tar_file"
+    cp "$src_tar_file" "$dst_tar"
     sha512sum "$dst_tar" > "$dst_sha512"
     sha512sum --check "$dst_sha512"
   )
+  ok "source RC checksum and signature verified: ${src_tar_file}"
   ok "final sha512 ok: ${dst_sha512}"
 
   echo "--- svnmucc operations ---"

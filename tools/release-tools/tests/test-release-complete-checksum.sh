@@ -55,6 +55,7 @@ case "$cmd" in
     ;;
   cat)
     url="${@: -1}"
+    printf '%s\n' "$url" >> "$FAKE_SVN_CAT_LOG"
     case "$url" in
       *.tar.gz)
         printf 'release artifact bytes\n'
@@ -62,6 +63,9 @@ case "$cmd" in
       *.sha512)
         digest="$(printf 'release artifact bytes\n' | sha512sum | awk '{print $1}')"
         printf '%s  apache-doris-9.9.9-rc01-src.tar.gz\n' "$digest"
+        ;;
+      *.asc)
+        printf 'fake detached signature\n'
         ;;
       *)
         echo "unexpected svn cat url: $url" >&2
@@ -76,6 +80,18 @@ case "$cmd" in
 esac
 EOF
 chmod +x "$tmp/svn"
+
+cat > "$tmp/gpg" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$*" > "$FAKE_GPG_LOG"
+[[ "$1" == "--verify" ]]
+[[ "$2" == "apache-doris-9.9.9-rc01-src.tar.gz.asc" ]]
+[[ "$3" == "apache-doris-9.9.9-rc01-src.tar.gz" ]]
+[[ -f "$2" ]]
+[[ -f "$3" ]]
+EOF
+chmod +x "$tmp/gpg"
 
 cat > "$tmp/svnmucc" <<'EOF'
 #!/usr/bin/env bash
@@ -92,6 +108,8 @@ EOF
 chmod +x "$tmp/svnmucc"
 
 export PATH="$tmp:$PATH"
+export FAKE_SVN_CAT_LOG="$tmp/svn-cat.log"
+export FAKE_GPG_LOG="$tmp/gpg.log"
 export FAKE_SVNMUCC_LOG="$tmp/svnmucc.log"
 export FAKE_FINAL_SHA512="$tmp/final.sha512"
 
@@ -102,6 +120,10 @@ if grep -q 'mv https://dist.example.test/dev/doris/9.9.9-rc01/apache-doris-9.9.9
   exit 1
 fi
 
+grep -q 'apache-doris-9.9.9-rc01-src.tar.gz$' "$FAKE_SVN_CAT_LOG"
+grep -q 'apache-doris-9.9.9-rc01-src.tar.gz.sha512$' "$FAKE_SVN_CAT_LOG"
+grep -q 'apache-doris-9.9.9-rc01-src.tar.gz.asc$' "$FAKE_SVN_CAT_LOG"
+grep -q -- '--verify apache-doris-9.9.9-rc01-src.tar.gz.asc apache-doris-9.9.9-rc01-src.tar.gz' "$FAKE_GPG_LOG"
 grep -q 'put ' "$FAKE_SVNMUCC_LOG"
 grep -q 'apache-doris-9.9.9-src.tar.gz$' "$FAKE_FINAL_SHA512"
 if grep -q 'apache-doris-9.9.9-rc01-src.tar.gz' "$FAKE_FINAL_SHA512"; then
