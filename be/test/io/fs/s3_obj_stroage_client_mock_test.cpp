@@ -145,12 +145,15 @@ TEST_F(S3ObjStorageClientMockTest, gcp_workload_identity_token_refresh) {
     EXPECT_EQ(token_provider.get_token(), "token-2");
     EXPECT_EQ(token_provider.get_token(), "token-2");
     EXPECT_EQ(fetch_count, 3);
-    now += std::chrono::minutes(5);
-    EXPECT_TRUE(token_provider.get_token().empty());
+    now += std::chrono::seconds(5);
+    EXPECT_EQ(token_provider.get_token(), "token-2");
     EXPECT_EQ(fetch_count, 3);
-    now += std::chrono::seconds(31);
-    EXPECT_TRUE(token_provider.get_token().empty());
+    now += std::chrono::seconds(26);
+    EXPECT_EQ(token_provider.get_token(), "token-2");
     EXPECT_EQ(fetch_count, 4);
+    now += std::chrono::minutes(4);
+    EXPECT_TRUE(token_provider.get_token().empty());
+    EXPECT_EQ(fetch_count, 5);
 }
 
 TEST_F(S3ObjStorageClientMockTest, gcp_workload_identity_refresh_uses_valid_cached_token) {

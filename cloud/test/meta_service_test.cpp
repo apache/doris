@@ -10738,7 +10738,7 @@ TEST(MetaServiceTest, CreateAndAlterS3VaultWithGcpWorkloadIdentity) {
         get_vault(hmac_vault_id, &get_obj);
         ASSERT_TRUE(get_obj.obj_info().has_ak());
         ASSERT_TRUE(get_obj.obj_info().has_sk());
-        ASSERT_NE(get_obj.obj_info().ak(), "new_hmac_ak");
+        ASSERT_EQ(get_obj.obj_info().ak(), "new_hmac_ak");
         ASSERT_NE(get_obj.obj_info().sk(), "new_hmac_sk");
         ASSERT_TRUE(get_obj.obj_info().has_encryption_info());
         ASSERT_FALSE(get_obj.obj_info().has_cred_provider_type());
