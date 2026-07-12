@@ -61,6 +61,15 @@ public final class HmsConfHelper {
         for (Map.Entry<String, String> entry : properties.entrySet()) {
             hiveConf.set(entry.getKey(), entry.getValue());
         }
+        // A kerberized HMS requires SASL transport on the metastore Thrift connection. The legacy fe-core
+        // HMSBaseProperties.initHadoopAuthenticator auto-enabled hive.metastore.sasl.enabled whenever the
+        // metastore/hadoop auth was kerberos; preserve that here so a catalog that only declares kerberos auth
+        // (without an explicit hive.metastore.sasl.enabled) still negotiates SASL, instead of opening a plain
+        // TSocket that a kerberized metastore drops with TTransportException.
+        if ("kerberos".equalsIgnoreCase(properties.get("hadoop.security.authentication"))
+                || "kerberos".equalsIgnoreCase(properties.get("hive.metastore.authentication.type"))) {
+            hiveConf.set("hive.metastore.sasl.enabled", "true");
+        }
         return hiveConf;
     }
 
