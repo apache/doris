@@ -95,6 +95,9 @@ std::string file_meta_disk_cache_key(FileMetaCacheFormat format, const std::stri
     case FileMetaCacheFormat::PARQUET_V2:
         key.append("parquet_v2");
         break;
+    case FileMetaCacheFormat::ORC_V2:
+        key.append("orc_v2");
+        break;
     }
     key.push_back(':');
     key.append(meta_key);
@@ -298,6 +301,39 @@ TEST(FileMetaCacheTest, ContextMemoryCacheKeyIncludesFormat) {
               FileMetaCacheLookupState::MISS);
     EXPECT_EQ(cache.lookup(parquet_context, &lookup_handle, &serialized_meta).state,
               FileMetaCacheLookupState::MEMORY_HIT);
+}
+
+TEST(FileMetaCacheDiskTest, OrcFormatsUseIndependentKeys) {
+    const bool old_enable_external_file_meta_disk_cache =
+            config::enable_external_file_meta_disk_cache;
+    Defer defer {[&] {
+        config::enable_external_file_meta_disk_cache = old_enable_external_file_meta_disk_cache;
+    }};
+    config::enable_external_file_meta_disk_cache = true;
+
+    io::FileCacheSettings settings = create_file_meta_disk_cache_test_settings();
+    io::BlockFileCache block_cache("file_meta_disk_cache_orc_format_isolation_test", settings);
+    ASSERT_TRUE(block_cache.initialize().ok());
+
+    const std::string meta_key = FileMetaCache::get_key("s3://bucket/same.orc", 123, 456);
+    FileMetaDiskCache disk_cache(&block_cache);
+    ASSERT_TRUE(disk_cache
+                        .write(FileMetaCacheFormat::ORC, meta_key, 123, 456,
+                               "legacy orc serialized tail")
+                        .ok());
+    ASSERT_TRUE(disk_cache
+                        .write(FileMetaCacheFormat::ORC_V2, meta_key, 123, 456,
+                               "format v2 orc serialized tail")
+                        .ok());
+
+    std::string legacy_payload;
+    ASSERT_TRUE(
+            disk_cache.read(FileMetaCacheFormat::ORC, meta_key, 123, 456, &legacy_payload).ok());
+    EXPECT_EQ(legacy_payload, "legacy orc serialized tail");
+
+    std::string v2_payload;
+    ASSERT_TRUE(disk_cache.read(FileMetaCacheFormat::ORC_V2, meta_key, 123, 456, &v2_payload).ok());
+    EXPECT_EQ(v2_payload, "format v2 orc serialized tail");
 }
 
 TEST(FileMetaCacheTest, ContextInsertCanSkipMemoryCacheWithoutPersistentStore) {

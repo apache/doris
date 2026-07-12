@@ -48,6 +48,8 @@ std::string_view format_name(FileMetaCacheFormat format) {
         return "orc";
     case FileMetaCacheFormat::PARQUET_V2:
         return "parquet_v2";
+    case FileMetaCacheFormat::ORC_V2:
+        return "orc_v2";
     }
     DCHECK(false) << "unknown file meta cache format";
     return "unknown";
@@ -58,6 +60,7 @@ Status parse_format(uint8_t format, FileMetaCacheFormat* parsed) {
     case FileMetaCacheFormat::PARQUET:
     case FileMetaCacheFormat::ORC:
     case FileMetaCacheFormat::PARQUET_V2:
+    case FileMetaCacheFormat::ORC_V2:
         *parsed = static_cast<FileMetaCacheFormat>(format);
         return Status::OK();
     }

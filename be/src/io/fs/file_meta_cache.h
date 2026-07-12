@@ -33,6 +33,7 @@ enum class FileMetaCacheFormat : uint8_t {
     PARQUET = 1,
     ORC = 2,
     PARQUET_V2 = 3,
+    ORC_V2 = 4,
 };
 
 struct FileMetaCacheContext {

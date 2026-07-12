@@ -33,6 +33,10 @@ namespace cctz {
 class time_zone;
 } // namespace cctz
 
+namespace doris {
+class FileMetaCache;
+}
+
 namespace doris::format::orc {
 
 struct OrcReaderScanState;
@@ -49,7 +53,8 @@ public:
               std::unique_ptr<io::FileDescription>& file_description,
               std::shared_ptr<io::IOContext> io_ctx, RuntimeProfile* profile,
               std::optional<format::GlobalRowIdContext> global_rowid_context = std::nullopt,
-              bool enable_mapping_timestamp_tz = false);
+              bool enable_mapping_timestamp_tz = false, FileMetaCache* file_meta_cache = nullptr,
+              bool enable_file_meta_memory_cache = true);
     ~OrcReader() override;
 
     static format::ColumnDefinition row_position_column_definition();
@@ -92,12 +97,23 @@ private:
         RuntimeProfile::Counter* read_row_groups = nullptr; // RowGroupsReadNum
         RuntimeProfile::Counter* lazy_read_filtered_rows = nullptr;
         RuntimeProfile::Counter* open_file_num = nullptr;
+        RuntimeProfile::Counter* file_footer_read_calls = nullptr;
+        RuntimeProfile::Counter* file_footer_hit_cache = nullptr;
+        RuntimeProfile::Counter* file_footer_hit_memory_cache = nullptr;
+        RuntimeProfile::Counter* file_footer_hit_disk_cache = nullptr;
+        RuntimeProfile::Counter* file_footer_miss_disk_cache = nullptr;
+        RuntimeProfile::Counter* file_footer_write_disk_cache = nullptr;
+        RuntimeProfile::Counter* file_footer_read_disk_cache_time = nullptr;
+        RuntimeProfile::Counter* file_footer_write_disk_cache_time = nullptr;
     };
 
     class OrcFilterImpl;
 
     void _init_profile() override;
     void _collect_profile() const;
+    void _update_file_meta_cache_profile() const;
+    Status _init_orc_reader(RuntimeState* state);
+    Status _create_orc_reader(const std::string* serialized_file_tail, RuntimeState* state);
 
     DataTypePtr _convert_to_doris_type(const ::orc::Type& type) const;
     DataTypePtr _convert_list_to_doris_type(const ::orc::Type& type) const;
@@ -180,6 +196,8 @@ private:
     OrcProfile _orc_profile; // RuntimeProfile counters
     std::optional<format::GlobalRowIdContext> _global_rowid_context;
     bool _enable_mapping_timestamp_tz = false;
+    FileMetaCache* _file_meta_cache = nullptr;
+    bool _enable_file_meta_memory_cache = true;
 };
 
 } // namespace doris::format::orc
