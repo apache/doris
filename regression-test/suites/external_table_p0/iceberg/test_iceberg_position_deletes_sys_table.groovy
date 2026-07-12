@@ -62,6 +62,25 @@ suite("test_iceberg_position_deletes_sys_table", "p0,external") {
         SELECT /*+ COALESCE(1) */ id, name FROM VALUES
             (1, 'a'), (2, 'b'), (3, 'c'), (4, 'd') AS t(id, name);
         DELETE FROM demo.${dbName}.pd_unpartitioned WHERE id = 2;
+        DROP TABLE IF EXISTS demo.${dbName}.pd_orc_unpartitioned;
+        CREATE TABLE demo.${dbName}.pd_orc_unpartitioned (
+            id INT,
+            name STRING
+        ) USING iceberg
+        TBLPROPERTIES (
+            'format-version'='2',
+            'write.format.default'='orc',
+            'write.delete.format.default'='orc',
+            'write.delete.mode'='merge-on-read',
+            'write.update.mode'='merge-on-read',
+            'write.merge.mode'='merge-on-read',
+            'write.distribution-mode'='none',
+            'write.target-file-size-bytes'='134217728'
+        );
+        INSERT INTO demo.${dbName}.pd_orc_unpartitioned
+        SELECT /*+ COALESCE(1) */ id, name FROM VALUES
+            (1, 'a'), (2, 'b'), (3, 'c') AS t(id, name);
+        DELETE FROM demo.${dbName}.pd_orc_unpartitioned WHERE id = 2;
         DROP TABLE IF EXISTS demo.${dbName}.pd_partitioned;
         CREATE TABLE demo.${dbName}.pd_partitioned (
             id INT,
@@ -330,12 +349,22 @@ suite("test_iceberg_position_deletes_sys_table", "p0,external") {
     assertEquals(0L, countRows("""select count(*) from pd_unpartitioned\$position_deletes where pos < 0"""))
     List<List<Object>> unpartitionedRows = sql """select `row` from pd_unpartitioned\$position_deletes"""
     assertEquals(unpartitionedCount, (long) unpartitionedRows.size())
+
+    assertPositionDeletesSchema("pd_orc_unpartitioned", false)
+    long orcUnpartitionedCount = countRows(
+            """select count(*) from pd_orc_unpartitioned\$position_deletes""")
+    assertTrue(orcUnpartitionedCount > 0)
+    assertSparkDorisPositionDeletes("pd_orc_unpartitioned", commonCompareColumns)
+    assertEquals(orcUnpartitionedCount, (long) sql(
+            """select `row` from pd_orc_unpartitioned\$position_deletes""").size())
     assertTrue(unpartitionedRows.every { it[0] == null })
     try {
         sql """set file_split_size=1"""
         assertSparkDorisPositionDeletes("pd_unpartitioned", commonCompareColumns)
         assertEquals(unpartitionedCount, countRows(
                 """select count(*) from pd_unpartitioned\$position_deletes where pos >= 0"""))
+        assertEquals(orcUnpartitionedCount, countRows(
+                """select count(*) from pd_orc_unpartitioned\$position_deletes where pos >= 0"""))
     } finally {
         sql """unset variable file_split_size"""
     }
@@ -553,6 +582,7 @@ suite("test_iceberg_position_deletes_sys_table", "p0,external") {
                 """select count(*) from pd_v3_unpartitioned\$position_deletes
                         where content_offset >= 0 and content_size_in_bytes > 0"""))
         assertSparkDorisPositionDeletes("pd_unpartitioned", commonCompareColumns)
+        assertSparkDorisPositionDeletes("pd_orc_unpartitioned", commonCompareColumns)
         assertSparkDorisPositionDeletes("pd_v3_unpartitioned", v3CompareColumns)
     }
     assertPositionDeletesScannerPath(false)

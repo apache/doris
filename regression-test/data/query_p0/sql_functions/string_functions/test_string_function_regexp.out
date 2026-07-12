@@ -262,6 +262,62 @@ aXb
 -- !sql_regexp_extract_all_10 --
 ['aXb','cXd']
 
+-- !regexp_extract_all_array_1 --
+["18", "17"]
+
+-- !regexp_extract_all_array_2 --
+["41915", "73660"]
+
+-- !regexp_extract_all_array_3 --
+["abc", "def", "ghi"]
+
+-- !regexp_extract_all_array_4 --
+[]
+
+-- !regexp_extract_all_array_5 --
+\N
+
+-- !regexp_extract_all_array_6 --
+\N
+
+-- !regexp_extract_all_array_7 --
+["ab", "c", "c", "c"]
+
+-- !regexp_extract_all_array_8 --
+\N
+[]
+["Emmy", "eillish"]
+["It", "s", "ok"]
+["It", "s", "true"]
+["billie", "eillish"]
+["billie", "eillish"]
+
+-- !regexp_extract_all_array_9 --
+\N
+[]
+["mmy", "eillish"]
+["t", "s", "ok"]
+["t", "s", "true"]
+["billie", "eillish"]
+["billie", "eillish"]
+
+-- !regexp_extract_all_array_10 --
+\N	5	\N
+	6	[]
+Emmy eillish	3	["Emmy", "eillish"]
+It's ok	2	["It", "s", "ok"]
+It's true	4	["It", "s", "true"]
+billie eillish	\N	["billie", "eillish"]
+billie eillish	1	["billie", "eillish"]
+
+-- !regexp_extract_all_array_11 --
+[]
+[]
+[]
+[]
+[]
+[]
+
 -- !sql --
 a-b-c
 

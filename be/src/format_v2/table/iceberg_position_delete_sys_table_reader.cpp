@@ -285,10 +285,15 @@ Status IcebergPositionDeleteSysTableV2Reader::_init_position_delete_reader() {
     if (!_delete_file_desc->__isset.file_format) {
         return Status::InternalError("Iceberg position delete file misses file format");
     }
-    if (_delete_file_desc->file_format != TFileFormatType::FORMAT_PARQUET) {
+    format::FileFormat file_format;
+    if (_delete_file_desc->file_format == TFileFormatType::FORMAT_PARQUET) {
+        file_format = format::FileFormat::PARQUET;
+    } else if (_delete_file_desc->file_format == TFileFormatType::FORMAT_ORC) {
+        file_format = format::FileFormat::ORC;
+    } else {
         return Status::NotSupported(
-                "Iceberg position delete system table v2 reader only supports Parquet delete "
-                "files, file_format={}",
+                "Iceberg position delete system table v2 reader only supports Parquet and ORC "
+                "delete files, file_format={}",
                 _delete_file_desc->file_format);
     }
 
@@ -301,7 +306,7 @@ Status IcebergPositionDeleteSysTableV2Reader::_init_position_delete_reader() {
     RETURN_IF_ERROR(_position_reader->init({
             .projected_columns = std::move(projected_columns),
             .conjuncts = {},
-            .format = format::FileFormat::PARQUET,
+            .format = file_format,
             .scan_params = _scan_params,
             .io_ctx = _io_ctx,
             .runtime_state = _runtime_state,
@@ -312,9 +317,10 @@ Status IcebergPositionDeleteSysTableV2Reader::_init_position_delete_reader() {
     }));
     RETURN_IF_ERROR(_position_reader->prepare_split({
             .partition_values = {},
+            .partition_prune_conjuncts = {},
             .cache = nullptr,
             .current_range = _current_range,
-            .current_split_format = format::FileFormat::PARQUET,
+            .current_split_format = file_format,
             .global_rowid_context = std::nullopt,
     }));
     return Status::OK();

@@ -59,7 +59,6 @@
 #include "io/io_common.h"
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
-#include "storage/predicate/predicate_creator.h"
 #include "storage/segment/condition_cache.h"
 
 namespace doris::format {
@@ -897,6 +896,11 @@ public:
     using TableReader::_truncate_char_or_varchar_column;
 };
 
+class TableReaderCastTestHelper final : public TableReader {
+public:
+    using TableReader::_cast_column_to_type;
+};
+
 TEST(TableReaderTest, TruncateCharOrVarcharPredicateOnlyAppliesToParquetStringWidthMismatch) {
     ColumnMapping mapping;
     mapping.table_type = std::make_shared<DataTypeString>(3, TYPE_VARCHAR);
@@ -956,12 +960,6 @@ void set_name_identifiers(std::vector<ColumnDefinition>* columns) {
     }
 }
 
-void add_column_predicate(TableColumnPredicates* column_predicates, GlobalIndex global_index,
-                          std::shared_ptr<ColumnPredicate> predicate) {
-    auto& entry = (*column_predicates)[global_index];
-    entry.push_back(std::move(predicate));
-}
-
 VExprContextSPtr prepared_conjunct(RuntimeState* state, const VExprSPtr& expr) {
     auto ctx = VExprContext::create_shared(expr);
     auto status = ctx->prepare(state, RowDescriptor());
@@ -976,10 +974,14 @@ struct FakeFileReaderState {
     int open_count = 0;
     int close_count = 0;
     int64_t total_rows = 2;
+    int64_t aggregate_count = -1;
     bool eof_with_first_batch = true;
     bool inject_delete_conjunct = false;
+    bool stop_during_aggregate = false;
+    bool not_found_during_init = false;
     std::shared_ptr<FileScanRequest> last_request;
     std::shared_ptr<ConditionCacheContext> condition_cache_ctx;
+    std::shared_ptr<io::IOContext> io_ctx;
 };
 
 class FakeFileReader final : public FileReader {
@@ -987,13 +989,16 @@ public:
     FakeFileReader(std::shared_ptr<io::FileSystemProperties>& system_properties,
                    std::unique_ptr<io::FileDescription>& file_description,
                    std::vector<ColumnDefinition> schema, std::shared_ptr<FakeFileReaderState> state)
-            : FileReader(system_properties, file_description, nullptr, nullptr),
+            : FileReader(system_properties, file_description, state->io_ctx, nullptr),
               _schema(std::move(schema)),
               _state(std::move(state)) {}
 
     Status init(RuntimeState* state) override {
         (void)state;
         ++_state->init_count;
+        if (_state->not_found_during_init) {
+            return Status::NotFound("fake table reader input is missing");
+        }
         _eof = false;
         return Status::OK();
     }
@@ -1077,6 +1082,27 @@ public:
         return Status::OK();
     }
 
+    Status get_aggregate_result(const FileAggregateRequest& request,
+                                FileAggregateResult* result) override {
+        DORIS_CHECK(result != nullptr);
+        if (_state->aggregate_count < 0) {
+            return FileReader::get_aggregate_result(request, result);
+        }
+        if (request.agg_type != TPushAggOp::type::COUNT) {
+            return Status::NotSupported("fake reader only supports COUNT aggregate pushdown");
+        }
+        if (_state->stop_during_aggregate) {
+            DORIS_CHECK(_state->io_ctx != nullptr);
+            _state->io_ctx->should_stop = true;
+            return Status::EndOfFile("stop");
+        }
+        result->count = _state->aggregate_count;
+        result->columns.clear();
+        _record_scan_rows(_state->aggregate_count);
+        _eof = true;
+        return Status::OK();
+    }
+
     void set_condition_cache_context(std::shared_ptr<ConditionCacheContext> ctx) override {
         _state->condition_cache_ctx = std::move(ctx);
     }
@@ -1149,6 +1175,46 @@ private:
     std::unique_ptr<segment_v2::ConditionCache> _cache;
 };
 
+TEST(TableReaderTest, PrepareSplitPrunesPartitionRuntimeFilter) {
+    std::vector<ColumnDefinition> projected_columns;
+    auto partition_column = make_table_column(0, "part", std::make_shared<DataTypeInt32>());
+    partition_column.is_partition_key = true;
+    projected_columns.push_back(std::move(partition_column));
+    set_name_identifiers(&projected_columns);
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    RuntimeProfile profile("scanner");
+    TableReader reader;
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .conjuncts = {},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = &profile,
+                            })
+                        .ok());
+
+    SplitReadOptions pruned_split;
+    pruned_split.current_range.__set_path("unused-pruned-file");
+    pruned_split.partition_values.emplace("part", Field::create_field<TYPE_INT>(7));
+    pruned_split.partition_prune_conjuncts.push_back(VExprContext::create_shared(
+            runtime_filter_wrapper_expr(table_int32_greater_than_expr(0, 0, 10))));
+    ASSERT_TRUE(reader.prepare_split(pruned_split).ok());
+    EXPECT_TRUE(reader.current_split_pruned());
+    ASSERT_NE(profile.get_counter("RuntimeFilterPartitionPrunedRangeNum"), nullptr);
+    EXPECT_EQ(profile.get_counter("RuntimeFilterPartitionPrunedRangeNum")->value(), 1);
+
+    SplitReadOptions retained_split;
+    retained_split.current_range.__set_path("unused-retained-file");
+    retained_split.partition_values.emplace("part", Field::create_field<TYPE_INT>(11));
+    retained_split.partition_prune_conjuncts.push_back(VExprContext::create_shared(
+            runtime_filter_wrapper_expr(table_int32_greater_than_expr(0, 0, 10))));
+    ASSERT_TRUE(reader.prepare_split(retained_split).ok());
+    EXPECT_FALSE(reader.current_split_pruned());
+}
+
 TEST(TableReaderTest, CanUseInjectedFileReaderForStandaloneUnitTest) {
     std::vector<ColumnDefinition> file_schema;
     file_schema.push_back(make_file_column(0, "id", std::make_shared<DataTypeInt32>()));
@@ -1164,7 +1230,6 @@ TEST(TableReaderTest, CanUseInjectedFileReaderForStandaloneUnitTest) {
     FakeTableReader reader(file_schema, fake_state);
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
-                                    .column_predicates = {},
                                     .conjuncts = {},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = nullptr,
@@ -1208,6 +1273,130 @@ TEST(TableReaderTest, CanUseInjectedFileReaderForStandaloneUnitTest) {
     EXPECT_TRUE(eos);
 }
 
+TEST(TableReaderTest, AbortSplitClearsReaderAfterIgnorableNotFound) {
+    std::vector<ColumnDefinition> file_schema;
+    file_schema.push_back(make_file_column(0, "id", std::make_shared<DataTypeInt32>()));
+    std::vector<ColumnDefinition> projected_columns;
+    projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+    set_name_identifiers(&projected_columns);
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto fake_state = std::make_shared<FakeFileReaderState>();
+    fake_state->not_found_during_init = true;
+    FakeTableReader reader(file_schema, fake_state);
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .conjuncts = {},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                            })
+                        .ok());
+
+    SplitReadOptions split_options;
+    split_options.current_range.__set_path("missing-fake-table-reader-input");
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    const auto status = reader.get_block(&block, &eos);
+    ASSERT_TRUE(status.is<ErrorCode::NOT_FOUND>()) << status;
+    ASSERT_TRUE(reader.abort_split().ok());
+    EXPECT_EQ(fake_state->init_count, 1);
+    EXPECT_EQ(fake_state->close_count, 1);
+
+    fake_state->not_found_during_init = false;
+    split_options.current_range.__set_path("existing-fake-table-reader-input");
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    EXPECT_EQ(fake_state->init_count, 2);
+    EXPECT_EQ(fake_state->close_count, 2);
+    ASSERT_TRUE(reader.close().ok());
+}
+
+TEST(TableReaderTest, PushDownCountRecordsReaderRowsBeforeClosingReader) {
+    std::vector<ColumnDefinition> file_schema;
+    file_schema.push_back(make_file_column(0, "id", std::make_shared<DataTypeInt32>()));
+
+    std::vector<ColumnDefinition> projected_columns;
+    projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+    set_name_identifiers(&projected_columns);
+
+    io::FileReaderStats file_reader_stats;
+    auto io_ctx = std::make_shared<io::IOContext>();
+    io_ctx->file_reader_stats = &file_reader_stats;
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto fake_state = std::make_shared<FakeFileReaderState>();
+    fake_state->aggregate_count = 3;
+    fake_state->io_ctx = io_ctx;
+    FakeTableReader reader(file_schema, fake_state);
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .conjuncts = {},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = io_ctx,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                                    .push_down_agg_type = TPushAggOp::type::COUNT,
+                            })
+                        .ok());
+
+    SplitReadOptions split_options;
+    split_options.current_range.__set_path("fake-table-reader-input");
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    EXPECT_FALSE(eos);
+    EXPECT_EQ(block.rows(), 3);
+    EXPECT_EQ(file_reader_stats.read_rows, 3);
+    EXPECT_EQ(fake_state->close_count, 1);
+}
+
+TEST(TableReaderTest, PushDownCountStopConvertsAggregateEndOfFileToEos) {
+    std::vector<ColumnDefinition> file_schema;
+    file_schema.push_back(make_file_column(0, "id", std::make_shared<DataTypeInt32>()));
+
+    std::vector<ColumnDefinition> projected_columns;
+    projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+    set_name_identifiers(&projected_columns);
+
+    auto io_ctx = std::make_shared<io::IOContext>();
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto fake_state = std::make_shared<FakeFileReaderState>();
+    fake_state->aggregate_count = 3;
+    fake_state->io_ctx = io_ctx;
+    fake_state->stop_during_aggregate = true;
+    FakeTableReader reader(file_schema, fake_state);
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .conjuncts = {},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = io_ctx,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                                    .push_down_agg_type = TPushAggOp::type::COUNT,
+                            })
+                        .ok());
+
+    SplitReadOptions split_options;
+    split_options.current_range.__set_path("fake-table-reader-input");
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    EXPECT_TRUE(eos);
+    EXPECT_EQ(block.rows(), 0);
+    EXPECT_EQ(fake_state->close_count, 0);
+}
+
 TEST(TableReaderTest, DebugStringCoversReaderStateAndEnumNames) {
     std::vector<ColumnDefinition> file_schema;
     file_schema.push_back(make_file_column(0, "id", std::make_shared<DataTypeInt32>()));
@@ -1219,19 +1408,12 @@ TEST(TableReaderTest, DebugStringCoversReaderStateAndEnumNames) {
     projected_columns[0].name_mapping = {"legacy_id"};
     set_name_identifiers(&projected_columns);
 
-    TableColumnPredicates column_predicates;
-    add_column_predicate(&column_predicates, GlobalIndex(0),
-                         create_comparison_predicate<PredicateType::GT>(
-                                 0, "id", make_nullable(std::make_shared<DataTypeInt32>()),
-                                 Field::create_field<TYPE_INT>(0), false));
-
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     auto fake_state = std::make_shared<FakeFileReaderState>();
     fake_state->eof_with_first_batch = false;
     FakeTableReader reader(file_schema, fake_state);
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
-                                    .column_predicates = std::move(column_predicates),
                                     .conjuncts = {prepared_conjunct(
                                             &state, table_int32_greater_than_expr(0, 0, 0))},
                                     .format = FileFormat::PARQUET,
@@ -1265,7 +1447,6 @@ TEST(TableReaderTest, DebugStringCoversReaderStateAndEnumNames) {
               std::string::npos);
     EXPECT_NE(debug.find("partition_values={dt}"), std::string::npos);
     EXPECT_NE(debug.find("table_filters=[TableFilter{conjunct=VExprContext"), std::string::npos);
-    EXPECT_NE(debug.find("table_column_predicates={0:{predicate_count=1}}"), std::string::npos);
     EXPECT_NE(debug.find("ColumnDefinition{name=id"), std::string::npos);
     EXPECT_NE(debug.find("name_mapping=[legacy_id]"), std::string::npos);
     EXPECT_NE(debug.find("ColumnMapping{global_index=0"), std::string::npos);
@@ -1282,7 +1463,6 @@ TEST(TableReaderTest, DebugStringCoversReaderStateAndEnumNames) {
         ASSERT_TRUE(enum_reader
                             .init({
                                     .projected_columns = {},
-                                    .column_predicates = {},
                                     .conjuncts = {},
                                     .format = formats[idx],
                                     .scan_params = nullptr,
@@ -1304,7 +1484,6 @@ TEST(TableReaderTest, DebugStringCoversReaderStateAndEnumNames) {
         ASSERT_TRUE(enum_reader
                             .init({
                                     .projected_columns = {},
-                                    .column_predicates = {},
                                     .conjuncts = {},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = nullptr,
@@ -1389,7 +1568,6 @@ TEST(TableReaderTest, ComplexRematerializeCastsScalarChildToTableType) {
     FakeTableReader reader(file_schema, fake_state);
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
-                                    .column_predicates = {},
                                     .conjuncts = {},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = nullptr,
@@ -1429,6 +1607,41 @@ TEST(TableReaderTest, ComplexRematerializeCastsScalarChildToTableType) {
     EXPECT_EQ(city_values.get_data_at(1).to_string(), "London");
 }
 
+TEST(TableReaderTest, ComplexRematerializeCastsNonNullableScalarChildWithNullableFileType) {
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    const auto bigint_type = std::make_shared<DataTypeInt64>();
+    const auto nullable_int_type = make_nullable(int_type);
+    const auto nullable_bigint_type = make_nullable(bigint_type);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    TableReaderCastTestHelper reader;
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = {},
+                                    .conjuncts = {},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                            })
+                        .ok());
+
+    auto column = ColumnInt32::create();
+    column->insert_value(10);
+    column->insert_value(20);
+    ColumnPtr result_column = std::move(column);
+    const auto status = reader._cast_column_to_type(&result_column, nullable_int_type,
+                                                    nullable_bigint_type, "struct_column.a");
+    ASSERT_TRUE(status.ok()) << status.to_string();
+
+    const auto& result_nullable = assert_cast<const ColumnNullable&>(*result_column);
+    const auto& child_values = assert_cast<const ColumnInt64&>(result_nullable.get_nested_column());
+    ASSERT_EQ(result_nullable.size(), 2);
+    EXPECT_FALSE(result_nullable.is_null_at(0));
+    EXPECT_FALSE(result_nullable.is_null_at(1));
+    EXPECT_EQ(child_values.get_element(0), 10);
+    EXPECT_EQ(child_values.get_element(1), 20);
+}
+
 TEST(TableReaderTest, ReopenSplitAfterClose) {
     const auto test_dir = std::filesystem::temp_directory_path() / "doris_table_reader_test";
     std::filesystem::remove_all(test_dir);
@@ -1452,7 +1665,6 @@ TEST(TableReaderTest, ReopenSplitAfterClose) {
     TableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
-                                    .column_predicates = {},
                                     .conjuncts = {prepared_conjunct(
                                             &state, table_int32_greater_than_expr(1, 1, 0))},
                                     .format = FileFormat::PARQUET,
@@ -1499,9 +1711,9 @@ TEST(TableReaderTest, ReopenSplitAfterClose) {
     std::filesystem::remove_all(test_dir);
 }
 
-// Scenario: column predicates are pruning hints only. They do not produce a row-level survivor
-// bitmap, so TableReader must not enable condition cache when the scan request has no conjuncts.
-TEST(TableReaderTest, ConditionCacheSkipsColumnPredicateOnlyRequest) {
+// Scenario: requests without file-local row conjuncts do not produce a row-level survivor bitmap,
+// so TableReader must not enable condition cache.
+TEST(TableReaderTest, ConditionCacheSkipsRequestWithoutFileLocalConjuncts) {
     std::vector<ColumnDefinition> file_schema;
     file_schema.push_back(make_file_column(0, "id", std::make_shared<DataTypeInt32>()));
 
@@ -1509,18 +1721,11 @@ TEST(TableReaderTest, ConditionCacheSkipsColumnPredicateOnlyRequest) {
     projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
     set_name_identifiers(&projected_columns);
 
-    TableColumnPredicates column_predicates;
-    add_column_predicate(&column_predicates, GlobalIndex(0),
-                         create_comparison_predicate<PredicateType::GT>(
-                                 0, "id", make_nullable(std::make_shared<DataTypeInt32>()),
-                                 Field::create_field<TYPE_INT>(0), false));
-
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     auto fake_state = std::make_shared<FakeFileReaderState>();
     FakeTableReader reader(file_schema, fake_state);
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
-                                    .column_predicates = std::move(column_predicates),
                                     .conjuncts = {},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = nullptr,
@@ -1559,7 +1764,6 @@ TEST(TableReaderTest, ConditionCacheSkipsRuntimeFilterConjunct) {
     ASSERT_TRUE(
             reader.init({
                                 .projected_columns = projected_columns,
-                                .column_predicates = {},
                                 .conjuncts = {prepared_conjunct(
                                         &state, runtime_filter_wrapper_expr(
                                                         table_int32_greater_than_expr(0, 0, 0)))},
@@ -1601,7 +1805,6 @@ TEST(TableReaderTest, ConditionCacheSkipsRequestWithDeleteConjuncts) {
     FakeTableReader reader(file_schema, fake_state);
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
-                                    .column_predicates = {},
                                     .conjuncts = {prepared_conjunct(
                                             &state, table_int32_greater_than_expr(0, 0, 0))},
                                     .format = FileFormat::PARQUET,
@@ -1643,7 +1846,6 @@ TEST(TableReaderTest, ConditionCacheMissPublishesBitmapAfterReaderEof) {
     FakeTableReader reader(file_schema, fake_state);
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
-                                    .column_predicates = {},
                                     .conjuncts = {prepared_conjunct(
                                             &state, table_int32_greater_than_expr(0, 0, 0))},
                                     .format = FileFormat::PARQUET,
@@ -1695,7 +1897,6 @@ TEST(TableReaderTest, ConditionCacheMissIsDroppedWhenReaderClosesBeforeEof) {
     FakeTableReader reader(file_schema, fake_state);
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
-                                    .column_predicates = {},
                                     .conjuncts = {prepared_conjunct(
                                             &state, table_int32_greater_than_expr(0, 0, 0))},
                                     .format = FileFormat::PARQUET,
@@ -1740,7 +1941,6 @@ TEST(TableReaderTest, PushDownCountFromNewParquetReader) {
     TableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
-                                    .column_predicates = {},
                                     .conjuncts = {},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = nullptr,
@@ -1782,7 +1982,6 @@ TEST(TableReaderTest, TableLevelCountUsesAssignedRowCount) {
     TableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
-                                    .column_predicates = {},
                                     .conjuncts = {},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = nullptr,
@@ -1839,7 +2038,6 @@ TEST(TableReaderTest, PushDownMinMaxFromNewParquetReader) {
     TableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
-                                    .column_predicates = {},
                                     .conjuncts = {},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = nullptr,
@@ -1886,7 +2084,6 @@ TEST(TableReaderTest, PushDownMinMaxCastsFileValueToTableType) {
     TableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
-                                    .column_predicates = {},
                                     .conjuncts = {},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = nullptr,
@@ -1933,7 +2130,6 @@ TEST(TableReaderTest, PushDownMinMaxFromProjectedStructLeaf) {
     TableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
-                                    .column_predicates = {},
                                     .conjuncts = {},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = nullptr,
@@ -1986,7 +2182,6 @@ TEST(TableReaderTest, PushDownMinMaxFallsBackForProjectedListStructLeaf) {
     TableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
-                                    .column_predicates = {},
                                     .conjuncts = {},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = nullptr,
@@ -2058,7 +2253,6 @@ TEST(TableReaderTest, ProjectedListStructReadsSelectedElementChild) {
     TableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
-                                    .column_predicates = {},
                                     .conjuncts = {},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = nullptr,
@@ -2127,7 +2321,6 @@ TEST(TableReaderTest, ProjectedListStructReordersRenamedAndMissingElementChildre
     TableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
-                                    .column_predicates = {},
                                     .conjuncts = {},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = nullptr,
@@ -2199,7 +2392,6 @@ TEST(TableReaderTest, ProjectedListStructOnlyMissingElementChildFallsBackToFullE
     TableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
-                                    .column_predicates = {},
                                     .conjuncts = {},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = nullptr,
@@ -2258,7 +2450,6 @@ TEST(TableReaderTest, PushDownMinMaxFallsBackForProjectedMapValueStructLeaf) {
     TableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
-                                    .column_predicates = {},
                                     .conjuncts = {},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = nullptr,
@@ -2336,7 +2527,6 @@ TEST(TableReaderTest, ProjectedMapValueStructReordersRenamedAndMissingChildren) 
     TableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
-                                    .column_predicates = {},
                                     .conjuncts = {},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = nullptr,
@@ -2589,7 +2779,6 @@ TEST(TableReaderTest, PushDownMinMaxOnlyUsesSelectedRowGroupInFileRange) {
     TableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
-                                    .column_predicates = {},
                                     .conjuncts = {},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = nullptr,
@@ -2631,7 +2820,6 @@ TEST(TableReaderTest, PushDownCountOnlyUsesSelectedRowGroupInFileRange) {
     TableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
-                                    .column_predicates = {},
                                     .conjuncts = {},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = nullptr,
@@ -2670,7 +2858,6 @@ TEST(TableReaderTest, PushDownCountFallsBackWithTableConjunct) {
     TableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
-                                    .column_predicates = {},
                                     .conjuncts = {prepared_conjunct(
                                             &state, table_int32_greater_than_expr(0, 0, 2))},
                                     .format = FileFormat::PARQUET,
@@ -2695,7 +2882,7 @@ TEST(TableReaderTest, PushDownCountFallsBackWithTableConjunct) {
     std::filesystem::remove_all(test_dir);
 }
 
-TEST(TableReaderTest, PushDownCountFallsBackWithColumnPredicate) {
+TEST(TableReaderTest, PushDownCountFallsBackWithFilter) {
     const auto test_dir =
             std::filesystem::temp_directory_path() / "doris_table_reader_count_predicate_test";
     std::filesystem::remove_all(test_dir);
@@ -2707,19 +2894,13 @@ TEST(TableReaderTest, PushDownCountFallsBackWithColumnPredicate) {
     std::vector<ColumnDefinition> projected_columns;
     projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
 
-    TableColumnPredicates column_predicates;
-    add_column_predicate(&column_predicates, GlobalIndex(0),
-                         create_comparison_predicate<PredicateType::GT>(
-                                 0, "id", make_nullable(std::make_shared<DataTypeInt32>()),
-                                 Field::create_field<TYPE_INT>(2), false));
-
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     set_name_identifiers(&projected_columns);
     TableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
-                                    .column_predicates = std::move(column_predicates),
-                                    .conjuncts = {},
+                                    .conjuncts = {prepared_conjunct(
+                                            &state, table_int32_greater_than_expr(0, 0, 2))},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = nullptr,
                                     .io_ctx = nullptr,
@@ -2760,7 +2941,6 @@ TEST(TableReaderTest, PushDownMinMaxFallsBackWithoutDirectFileMapping) {
     TableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
-                                    .column_predicates = {},
                                     .conjuncts = {},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = nullptr,
@@ -2801,7 +2981,6 @@ TEST(TableReaderTest, OpenReaderBuildsTableFiltersFromConjuncts) {
     TableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
-                                    .column_predicates = {},
                                     .conjuncts = {prepared_conjunct(
                                             &state, table_int32_greater_than_expr(1, 1, 2))},
                                     .format = FileFormat::PARQUET,
@@ -2833,7 +3012,6 @@ TEST(TableReaderTest, OpenReaderBuildsTableFiltersFromConjuncts) {
     ASSERT_TRUE(filtered_reader
                         .init({
                                 .projected_columns = projected_columns,
-                                .column_predicates = {},
                                 .conjuncts = {prepared_conjunct(
                                         &state, table_int32_greater_than_expr(1, 1, 4))},
                                 .format = FileFormat::PARQUET,
@@ -2855,34 +3033,28 @@ TEST(TableReaderTest, OpenReaderBuildsTableFiltersFromConjuncts) {
     std::filesystem::remove_all(test_dir);
 }
 
-TEST(TableReaderTest, OpenReaderBuildsColumnPredicateFilters) {
+TEST(TableReaderTest, OpenReaderPushesVExprPredicateToParquetReader) {
     const auto test_dir =
             std::filesystem::temp_directory_path() / "doris_table_reader_column_predicate_test";
     std::filesystem::remove_all(test_dir);
     std::filesystem::create_directories(test_dir);
 
     const auto file_path = (test_dir / "split.parquet").string();
-    // ColumnPredicate is only used for row-group/statistics pruning. Keep one row per row
-    // group so the predicate can prune the first two row groups and leave only id = 3.
+    // Keep one row per row group so the VExpr ZoneMap path can prune the first two row groups and
+    // leave only id = 3.
     write_int_pair_parquet_file(file_path, {1, 2, 3}, {1, 5, 8}, {"one", "two", "three"}, 1);
 
     std::vector<ColumnDefinition> projected_columns;
     projected_columns.push_back(make_table_column(2, "value", std::make_shared<DataTypeString>()));
     projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
 
-    TableColumnPredicates column_predicates;
-    add_column_predicate(&column_predicates, GlobalIndex(1),
-                         create_comparison_predicate<PredicateType::GT>(
-                                 0, "id", make_nullable(std::make_shared<DataTypeInt32>()),
-                                 Field::create_field<TYPE_INT>(2), false));
-
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     set_name_identifiers(&projected_columns);
     TableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
-                                    .column_predicates = std::move(column_predicates),
-                                    .conjuncts = {},
+                                    .conjuncts = {prepared_conjunct(
+                                            &state, table_int32_greater_than_expr(1, 1, 2))},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = nullptr,
                                     .io_ctx = nullptr,
@@ -2910,7 +3082,7 @@ TEST(TableReaderTest, OpenReaderBuildsColumnPredicateFilters) {
     std::filesystem::remove_all(test_dir);
 }
 
-TEST(TableReaderTest, ColumnPredicateSurvivesReopenSplit) {
+TEST(TableReaderTest, VExprPredicateSurvivesReopenSplit) {
     const auto test_dir =
             std::filesystem::temp_directory_path() / "doris_table_reader_predicate_reopen_test";
     std::filesystem::remove_all(test_dir);
@@ -2926,19 +3098,13 @@ TEST(TableReaderTest, ColumnPredicateSurvivesReopenSplit) {
     std::vector<ColumnDefinition> projected_columns;
     projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
 
-    TableColumnPredicates column_predicates;
-    add_column_predicate(&column_predicates, GlobalIndex(0),
-                         create_comparison_predicate<PredicateType::GT>(
-                                 0, "id", make_nullable(std::make_shared<DataTypeInt32>()),
-                                 Field::create_field<TYPE_INT>(2), false));
-
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     set_name_identifiers(&projected_columns);
     TableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
-                                    .column_predicates = std::move(column_predicates),
-                                    .conjuncts = {},
+                                    .conjuncts = {prepared_conjunct(
+                                            &state, table_int32_greater_than_expr(0, 0, 2))},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = nullptr,
                                     .io_ctx = nullptr,
@@ -2999,8 +3165,7 @@ TEST(TableReaderTest, CreateScanRequestDeduplicatesSharedPredicateColumns) {
     });
 
     FileScanRequest file_request;
-    ASSERT_TRUE(
-            mapper.create_scan_request(table_filters, {}, projected_columns, &file_request).ok());
+    ASSERT_TRUE(mapper.create_scan_request(table_filters, projected_columns, &file_request).ok());
 
     // Both filters reference column a. It must still be read once as a predicate column, and a
     // predicate column must not be repeated as a non-predicate column.
@@ -3039,8 +3204,7 @@ TEST(TableReaderTest, CreateScanRequestPromotesProjectedColumnToPredicateColumn)
     };
 
     FileScanRequest file_request;
-    ASSERT_TRUE(
-            mapper.create_scan_request({table_filter}, {}, projected_columns, &file_request).ok());
+    ASSERT_TRUE(mapper.create_scan_request({table_filter}, projected_columns, &file_request).ok());
 
     EXPECT_EQ(projection_ids(file_request.predicate_columns), std::vector<int32_t>({0}));
     EXPECT_EQ(projection_ids(file_request.non_predicate_columns), std::vector<int32_t>({1}));
@@ -3070,8 +3234,7 @@ TEST(TableReaderTest, CreateScanRequestUsesColumnNameForByNamePredicateMapping) 
     };
 
     FileScanRequest file_request;
-    ASSERT_TRUE(
-            mapper.create_scan_request({table_filter}, {}, projected_columns, &file_request).ok());
+    ASSERT_TRUE(mapper.create_scan_request({table_filter}, projected_columns, &file_request).ok());
 
     EXPECT_EQ(projection_ids(file_request.predicate_columns), std::vector<int32_t>({0}));
     EXPECT_EQ(projection_ids(file_request.non_predicate_columns), std::vector<int32_t>({1}));
@@ -3080,37 +3243,6 @@ TEST(TableReaderTest, CreateScanRequestUsesColumnNameForByNamePredicateMapping) 
             assert_cast<const VSlotRef*>(file_request.conjuncts[0]->root()->children()[0].get());
     EXPECT_EQ(localized_slot->slot_id(), 0);
     EXPECT_EQ(localized_slot->column_id(), 1);
-}
-
-TEST(TableReaderTest, ColumnPredicateFilterUsesColumnNameForByNameMapping) {
-    const auto int_type = std::make_shared<DataTypeInt32>();
-    std::vector<ColumnDefinition> projected_columns = {
-            make_table_column(10, "id", int_type),
-            make_table_column(11, "score", int_type),
-    };
-    const std::vector<ColumnDefinition> file_schema = {
-            make_file_column(0, "ID", int_type),
-            make_file_column(1, "score", int_type),
-    };
-
-    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_NAME});
-    set_name_identifiers(&projected_columns);
-    ASSERT_TRUE(mapper.create_mapping(projected_columns, {}, file_schema).ok());
-
-    TableColumnPredicates column_predicates;
-    add_column_predicate(
-            &column_predicates, GlobalIndex(0),
-            create_comparison_predicate<PredicateType::GT>(
-                    10, "id", make_nullable(int_type), Field::create_field<TYPE_INT>(2), false));
-
-    FileScanRequest file_request;
-    ASSERT_TRUE(mapper.create_scan_request({}, column_predicates, projected_columns, &file_request)
-                        .ok());
-
-    ASSERT_EQ(file_request.column_predicate_filters.size(), 1);
-    EXPECT_EQ(file_request.column_predicate_filters[0].file_column_id.value(), 0);
-    EXPECT_EQ(projection_ids(file_request.non_predicate_columns), std::vector<int32_t>({0, 1}));
-    EXPECT_TRUE(file_request.predicate_columns.empty());
 }
 
 TEST(TableReaderTest, OpenReaderPushesMultiColumnConjunctToParquetReader) {
@@ -3133,7 +3265,6 @@ TEST(TableReaderTest, OpenReaderPushesMultiColumnConjunctToParquetReader) {
     ASSERT_TRUE(
             reader.init({
                                 .projected_columns = projected_columns,
-                                .column_predicates = {},
                                 .conjuncts = {prepared_conjunct(
                                         &state, table_int32_sum_greater_than_expr(1, 1, 2, 2, 8))},
                                 .format = FileFormat::PARQUET,
@@ -3188,7 +3319,6 @@ TEST(TableReaderTest, ProjectedColumnsFillDefaultForParquetSchemaMismatch) {
     TableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
-                                    .column_predicates = {},
                                     .conjuncts = {},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = nullptr,
@@ -3234,7 +3364,6 @@ TEST(TableReaderTest, DefaultExprResultMatchesNullableTableType) {
     TableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
-                                    .column_predicates = {},
                                     .conjuncts = {},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = nullptr,
@@ -3289,7 +3418,6 @@ TEST(TableReaderTest, DefaultExprAlignsNestedNullableArrayTableType) {
     TableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
-                                    .column_predicates = {},
                                     .conjuncts = {},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = nullptr,
@@ -3346,7 +3474,6 @@ TEST(TableReaderTest, ProjectedColumnsFillMissingParquetColumnWithDefault) {
     TableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
-                                    .column_predicates = {},
                                     .conjuncts = {},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = nullptr,
@@ -3400,7 +3527,6 @@ TEST(TableReaderTest, ProjectedStructFillsMissingChildWithDefault) {
     TableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
-                                    .column_predicates = {},
                                     .conjuncts = {},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = nullptr,
@@ -3457,7 +3583,6 @@ TEST(TableReaderTest, ReusedBlockClearsProjectedStructWithNullableChild) {
     TableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
-                                    .column_predicates = {},
                                     .conjuncts = {},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = nullptr,
@@ -3507,7 +3632,6 @@ TEST(TableReaderTest, ProjectedPartitionColumnUsesSplitPartitionValue) {
     TableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
-                                    .column_predicates = {},
                                     .conjuncts = {},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = nullptr,
@@ -3557,7 +3681,6 @@ TEST(TableReaderTest, ConstantPartitionFilterSkipsSplitWhenFalse) {
     TableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
-                                    .column_predicates = {},
                                     .conjuncts = {prepared_conjunct(
                                             &state, table_int32_greater_than_expr(0, 0, 10))},
                                     .format = FileFormat::PARQUET,
@@ -3601,7 +3724,6 @@ TEST(TableReaderTest, ConstantPartitionFilterKeepsSplitWhenTrue) {
     TableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
-                                    .column_predicates = {},
                                     .conjuncts = {prepared_conjunct(
                                             &state, table_int32_greater_than_expr(0, 0, 1))},
                                     .format = FileFormat::PARQUET,
@@ -3647,7 +3769,6 @@ TEST(TableReaderTest, RuntimeFilterOnConstantPartitionIsNotPreExecuted) {
     ASSERT_TRUE(
             reader.init({
                                 .projected_columns = projected_columns,
-                                .column_predicates = {},
                                 .conjuncts = {prepared_conjunct(
                                         &state, runtime_filter_wrapper_expr(
                                                         table_int32_greater_than_expr(0, 0, 1)))},
@@ -3693,7 +3814,6 @@ TEST(TableReaderTest, ParquetReaderReadsOnlyRowGroupsInFileRange) {
     TableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
-                                    .column_predicates = {},
                                     .conjuncts = {},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = nullptr,
@@ -3742,7 +3862,6 @@ TEST(TableReaderTest, ProjectedColumnsUseMapperExpressionForSameNameDifferentIdP
     TableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
-                                    .column_predicates = {},
                                     .conjuncts = {},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = nullptr,
@@ -3788,7 +3907,6 @@ TEST(TableReaderTest, ProjectedColumnsUseMapperExpressionsForParquetSchemaMismat
     TableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
-                                    .column_predicates = {},
                                     .conjuncts = {},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = nullptr,

@@ -115,6 +115,11 @@ public:
         this->data(place).add(column.get_data()[row_num], weight.get_element(row_num));
     }
 
+    void check_input_columns_type(const IColumn** columns) const override {
+        this->template check_argument_column_type<ColVecType>(columns[0]);
+        this->template check_argument_column_type<ColumnFloat64>(columns[1]);
+    }
+
     void reset(AggregateDataPtr place) const override { this->data(place).reset(); }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
@@ -132,7 +137,7 @@ public:
     }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
-        auto& column = assert_cast<ColumnFloat64&>(to);
+        auto& column = assert_cast<ColumnFloat64&, TypeCheckOnRelease::DISABLE>(to);
         column.get_data().push_back(this->data(place).get());
     }
 };

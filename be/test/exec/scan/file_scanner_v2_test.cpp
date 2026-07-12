@@ -31,7 +31,7 @@
 #include "core/assert_cast.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
-#include "exec/scan/split_source_connector.h"
+#include "exec/operator/file_scan_operator.h"
 #include "exprs/runtime_filter_expr.h"
 #include "exprs/vdirect_in_predicate.h"
 #include "exprs/vslot_ref.h"
@@ -68,12 +68,6 @@ TFileRangeDesc hudi_range_with_delta_logs() {
     hudi_params.__set_delta_logs({"delta.log"});
     range.table_format_params.__set_hudi_params(std::move(hudi_params));
     return range;
-}
-
-TScanRangeParams scan_range_param(const TFileRangeDesc& range) {
-    TScanRangeParams params;
-    params.scan_range.ext_scan_range.file_scan_range.ranges.push_back(range);
-    return params;
 }
 
 VExprSPtr slot_ref(int slot_id, int column_id, DataTypePtr type, const std::string& name) {
@@ -119,7 +113,8 @@ TEST(FileScannerV2Test, SupportedFormatMatrix) {
             {"hudi", TFileFormatType::FORMAT_PARQUET, std::nullopt, true},
             {"jdbc", TFileFormatType::FORMAT_PARQUET, std::nullopt, false},
             {"", TFileFormatType::FORMAT_JNI, std::nullopt, false},
-            {"hive", TFileFormatType::FORMAT_ORC, std::nullopt, false},
+            {"hive", TFileFormatType::FORMAT_ORC, std::nullopt, true},
+            {"transactional_hive", TFileFormatType::FORMAT_ORC, std::nullopt, false},
             {"jdbc", TFileFormatType::FORMAT_JNI, std::nullopt, true},
             {"hive", TFileFormatType::FORMAT_JNI, std::nullopt, false},
             {"", TFileFormatType::FORMAT_CSV_PLAIN, std::nullopt, true},
@@ -133,7 +128,7 @@ TEST(FileScannerV2Test, SupportedFormatMatrix) {
             {"hive", TFileFormatType::FORMAT_PROTO, std::nullopt, true},
             {"hive", TFileFormatType::FORMAT_TEXT, std::nullopt, true},
             {"hive", TFileFormatType::FORMAT_JSON, std::nullopt, true},
-            {"hive", TFileFormatType::FORMAT_PARQUET, TFileFormatType::FORMAT_ORC, false},
+            {"hive", TFileFormatType::FORMAT_PARQUET, TFileFormatType::FORMAT_ORC, true},
             {"hive", TFileFormatType::FORMAT_ORC, TFileFormatType::FORMAT_PARQUET, true},
             {"hive", TFileFormatType::FORMAT_PARQUET, TFileFormatType::FORMAT_CSV_PLAIN, true},
             {"hive", TFileFormatType::FORMAT_PARQUET, TFileFormatType::FORMAT_TEXT, true},
@@ -143,6 +138,8 @@ TEST(FileScannerV2Test, SupportedFormatMatrix) {
             {"hive", TFileFormatType::FORMAT_ARROW, std::nullopt, false},
             {"", TFileFormatType::FORMAT_ARROW, std::nullopt, false},
             {"", TFileFormatType::FORMAT_WAL, std::nullopt, false},
+            {"", TFileFormatType::FORMAT_ES_HTTP, std::nullopt, false},
+            {"", TFileFormatType::FORMAT_LANCE, std::nullopt, false},
     };
 
     for (const auto& test_case : cases) {
@@ -164,10 +161,9 @@ TEST(FileScannerV2Test, SupportedFormatMatrix) {
     EXPECT_FALSE(FileScannerV2::is_supported(params, hudi_range_with_delta_logs()));
 }
 
-// Scenario: Iceberg ORC position-delete system table splits must not be routed to FileScannerV2.
-// The V2 table reader supports Parquet position-delete files and V3 deletion vectors; ORC position
-// deletes fall back to FileScanner V1, whose position-delete system-table reader has an ORC path.
-TEST(FileScannerV2Test, IcebergPositionDeletesOrcFallsBackToV1) {
+// Scenario: Iceberg position-delete system table splits use FileScannerV2 for both native delete
+// formats and V3 deletion vectors. Avro remains unsupported and is rejected by FE before routing.
+TEST(FileScannerV2Test, IcebergPositionDeletesSupportNativeFormats) {
     TFileScanRangeParams params;
     params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
 
@@ -177,45 +173,63 @@ TEST(FileScannerV2Test, IcebergPositionDeletesOrcFallsBackToV1) {
             TFileFormatType::FORMAT_PARQUET, kIcebergDeletionVectorContent);
     const auto orc_position_delete = iceberg_position_deletes_range(TFileFormatType::FORMAT_ORC,
                                                                     kIcebergPositionDeleteContent);
+    const auto avro_position_delete = iceberg_position_deletes_range(TFileFormatType::FORMAT_AVRO,
+                                                                     kIcebergPositionDeleteContent);
 
     EXPECT_TRUE(FileScannerV2::is_supported(params, parquet_position_delete));
     EXPECT_TRUE(FileScannerV2::is_supported(params, parquet_deletion_vector));
-    EXPECT_FALSE(FileScannerV2::is_supported(params, orc_position_delete));
-
-    LocalSplitSourceConnector mixed_delete_formats(
-            {scan_range_param(parquet_position_delete), scan_range_param(orc_position_delete)}, 1);
-    EXPECT_FALSE(mixed_delete_formats.all_scan_ranges_match(params, FileScannerV2::is_supported));
+    EXPECT_TRUE(FileScannerV2::is_supported(params, orc_position_delete));
+    EXPECT_FALSE(FileScannerV2::is_supported(params, avro_position_delete));
 }
 
-// Scenario: SplitSourceConnector should route to FileScannerV2 only when every scan range in the
-// source is supported; one unsupported table format or file format must make the match fail.
-TEST(FileScannerV2Test, SplitSourceAllScanRangesMatchRequiresEveryRangeSupported) {
+TEST(FileScannerV2Test, FileScanLocalStateSelectsV2ForSupportedQueriesOnly) {
+    TQueryOptions query_options;
+    TFileScanRangeParams params;
+    params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
+
+    EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
+
+    query_options.__set_enable_file_scanner_v2(true);
+    EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
+    EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, true, params));
+
+    const std::vector<TFileFormatType::type> unsupported_formats {
+            TFileFormatType::FORMAT_WAL,
+            TFileFormatType::FORMAT_ES_HTTP,
+            TFileFormatType::FORMAT_LANCE,
+    };
+    for (const auto format : unsupported_formats) {
+        params.__set_format_type(format);
+        EXPECT_FALSE(
+                FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
+    }
+
+    params.__set_format_type(TFileFormatType::FORMAT_ORC);
+    TTableFormatFileDesc table_format_params;
+    table_format_params.__set_table_format_type("transactional_hive");
+    params.__set_table_format_params(table_format_params);
+    EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
+
+    params.table_format_params.__set_table_format_type("hive");
+    EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
+
+    query_options.__set_enable_file_scanner_v2(false);
+    EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
+}
+
+// Scenario: Once FileScannerV2 is selected, an unsupported range must fail instead of falling back
+// to FileScanner.
+TEST(FileScannerV2Test, ValidateScanRangeRejectsUnsupportedRange) {
     TFileScanRangeParams params;
     params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
 
     const auto supported = range_with_format("hive", TFileFormatType::FORMAT_PARQUET);
-    const auto unsupported_table = range_with_format("lakesoul", TFileFormatType::FORMAT_PARQUET);
-    const auto unsupported_format = range_with_format("hive", TFileFormatType::FORMAT_ORC);
+    EXPECT_TRUE(FileScannerV2::TEST_validate_scan_range(params, supported).ok());
 
-    LocalSplitSourceConnector all_supported(
-            {scan_range_param(supported),
-             scan_range_param(range_with_format("iceberg", TFileFormatType::FORMAT_PARQUET))},
-            1);
-    EXPECT_TRUE(all_supported.all_scan_ranges_match(params, FileScannerV2::is_supported));
-
-    LocalSplitSourceConnector hudi_supported(
-            {scan_range_param(supported),
-             scan_range_param(range_with_format("hudi", TFileFormatType::FORMAT_PARQUET))},
-            1);
-    EXPECT_TRUE(hudi_supported.all_scan_ranges_match(params, FileScannerV2::is_supported));
-
-    LocalSplitSourceConnector table_mismatch(
-            {scan_range_param(supported), scan_range_param(unsupported_table)}, 1);
-    EXPECT_FALSE(table_mismatch.all_scan_ranges_match(params, FileScannerV2::is_supported));
-
-    LocalSplitSourceConnector format_mismatch(
-            {scan_range_param(supported), scan_range_param(unsupported_format)}, 1);
-    EXPECT_FALSE(format_mismatch.all_scan_ranges_match(params, FileScannerV2::is_supported));
+    const auto unsupported = range_with_format("lakesoul", TFileFormatType::FORMAT_PARQUET);
+    const auto status = FileScannerV2::TEST_validate_scan_range(params, unsupported);
+    EXPECT_TRUE(status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>());
+    EXPECT_NE(status.to_string().find("lakesoul"), std::string::npos);
 }
 
 // Scenario: FileScannerV2 converts only the file formats implemented by format_v2 readers and
@@ -241,7 +255,7 @@ TEST(FileScannerV2Test, FileFormatConversionMatrix) {
             {TFileFormatType::FORMAT_JSON, format::FileFormat::JSON},
             {TFileFormatType::FORMAT_NATIVE, format::FileFormat::NATIVE},
             {TFileFormatType::FORMAT_ARROW, format::FileFormat::ARROW},
-            {TFileFormatType::FORMAT_ORC, std::nullopt},
+            {TFileFormatType::FORMAT_ORC, format::FileFormat::ORC},
     };
 
     for (const auto& test_case : cases) {
@@ -254,6 +268,158 @@ TEST(FileScannerV2Test, FileFormatConversionMatrix) {
             EXPECT_FALSE(status.ok());
         }
     }
+}
+
+TEST(FileScannerV2Test, RealtimeCounterDeltasUseReaderBytesAsRemoteWithoutCacheStats) {
+    io::FileReaderStats file_reader_stats;
+    io::FileCacheStatistics file_cache_statistics;
+    int64_t last_read_bytes = 0;
+    int64_t last_read_rows = 0;
+    int64_t last_bytes_read_from_local = 0;
+    int64_t last_bytes_read_from_remote = 0;
+
+    file_reader_stats.read_bytes = 100;
+    file_reader_stats.read_rows = 7;
+    auto deltas = FileScannerV2::TEST_collect_realtime_counter_deltas(
+            file_reader_stats, file_cache_statistics,
+            FileScannerV2::UncachedReaderBytesStorage::REMOTE, &last_read_bytes, &last_read_rows,
+            &last_bytes_read_from_local, &last_bytes_read_from_remote);
+    EXPECT_EQ(7, deltas.scan_rows);
+    EXPECT_EQ(100, deltas.scan_bytes);
+    EXPECT_EQ(0, deltas.scan_bytes_from_local_storage);
+    EXPECT_EQ(100, deltas.scan_bytes_from_remote_storage);
+
+    deltas = FileScannerV2::TEST_collect_realtime_counter_deltas(
+            file_reader_stats, file_cache_statistics,
+            FileScannerV2::UncachedReaderBytesStorage::REMOTE, &last_read_bytes, &last_read_rows,
+            &last_bytes_read_from_local, &last_bytes_read_from_remote);
+    EXPECT_EQ(0, deltas.scan_rows);
+    EXPECT_EQ(0, deltas.scan_bytes);
+    EXPECT_EQ(0, deltas.scan_bytes_from_local_storage);
+    EXPECT_EQ(0, deltas.scan_bytes_from_remote_storage);
+
+    file_reader_stats.read_bytes = 160;
+    file_reader_stats.read_rows = 9;
+    deltas = FileScannerV2::TEST_collect_realtime_counter_deltas(
+            file_reader_stats, file_cache_statistics,
+            FileScannerV2::UncachedReaderBytesStorage::REMOTE, &last_read_bytes, &last_read_rows,
+            &last_bytes_read_from_local, &last_bytes_read_from_remote);
+    EXPECT_EQ(2, deltas.scan_rows);
+    EXPECT_EQ(60, deltas.scan_bytes);
+    EXPECT_EQ(0, deltas.scan_bytes_from_local_storage);
+    EXPECT_EQ(60, deltas.scan_bytes_from_remote_storage);
+}
+
+TEST(FileScannerV2Test, RealtimeCounterDeltasUseFileCacheDeltasWhenAvailable) {
+    io::FileReaderStats file_reader_stats;
+    io::FileCacheStatistics file_cache_statistics;
+    int64_t last_read_bytes = 0;
+    int64_t last_read_rows = 0;
+    int64_t last_bytes_read_from_local = 0;
+    int64_t last_bytes_read_from_remote = 0;
+
+    file_reader_stats.read_bytes = 100;
+    file_reader_stats.read_rows = 7;
+    file_cache_statistics.bytes_read_from_local = 30;
+    file_cache_statistics.bytes_read_from_remote = 70;
+    auto deltas = FileScannerV2::TEST_collect_realtime_counter_deltas(
+            file_reader_stats, file_cache_statistics,
+            FileScannerV2::UncachedReaderBytesStorage::REMOTE, &last_read_bytes, &last_read_rows,
+            &last_bytes_read_from_local, &last_bytes_read_from_remote);
+    EXPECT_EQ(7, deltas.scan_rows);
+    EXPECT_EQ(100, deltas.scan_bytes);
+    EXPECT_EQ(30, deltas.scan_bytes_from_local_storage);
+    EXPECT_EQ(70, deltas.scan_bytes_from_remote_storage);
+
+    file_reader_stats.read_bytes = 125;
+    file_reader_stats.read_rows = 10;
+    file_cache_statistics.bytes_read_from_local = 35;
+    file_cache_statistics.bytes_read_from_remote = 90;
+    deltas = FileScannerV2::TEST_collect_realtime_counter_deltas(
+            file_reader_stats, file_cache_statistics,
+            FileScannerV2::UncachedReaderBytesStorage::REMOTE, &last_read_bytes, &last_read_rows,
+            &last_bytes_read_from_local, &last_bytes_read_from_remote);
+    EXPECT_EQ(3, deltas.scan_rows);
+    EXPECT_EQ(25, deltas.scan_bytes);
+    EXPECT_EQ(5, deltas.scan_bytes_from_local_storage);
+    EXPECT_EQ(20, deltas.scan_bytes_from_remote_storage);
+}
+
+TEST(FileScannerV2Test, RealtimeCounterDeltasDoNotChargePeerCacheAsRemoteStorage) {
+    io::FileReaderStats file_reader_stats;
+    io::FileCacheStatistics file_cache_statistics;
+    int64_t last_read_bytes = 0;
+    int64_t last_read_rows = 0;
+    int64_t last_bytes_read_from_local = 0;
+    int64_t last_bytes_read_from_remote = 0;
+
+    file_reader_stats.read_bytes = 100;
+    file_reader_stats.read_rows = 7;
+    file_cache_statistics.num_peer_io_total = 1;
+    file_cache_statistics.bytes_read_from_peer = 100;
+    auto deltas = FileScannerV2::TEST_collect_realtime_counter_deltas(
+            file_reader_stats, file_cache_statistics,
+            FileScannerV2::UncachedReaderBytesStorage::REMOTE, &last_read_bytes, &last_read_rows,
+            &last_bytes_read_from_local, &last_bytes_read_from_remote);
+    EXPECT_EQ(7, deltas.scan_rows);
+    EXPECT_EQ(100, deltas.scan_bytes);
+    EXPECT_EQ(0, deltas.scan_bytes_from_local_storage);
+    EXPECT_EQ(0, deltas.scan_bytes_from_remote_storage);
+}
+
+TEST(FileScannerV2Test, RealtimeCounterDeltasDoNotChargeLocalFileFallbackAsRemoteStorage) {
+    io::FileReaderStats file_reader_stats;
+    io::FileCacheStatistics file_cache_statistics;
+    int64_t last_read_bytes = 0;
+    int64_t last_read_rows = 0;
+    int64_t last_bytes_read_from_local = 0;
+    int64_t last_bytes_read_from_remote = 0;
+
+    file_reader_stats.read_bytes = 100;
+    file_reader_stats.read_rows = 7;
+    auto deltas = FileScannerV2::TEST_collect_realtime_counter_deltas(
+            file_reader_stats, file_cache_statistics,
+            FileScannerV2::UncachedReaderBytesStorage::LOCAL, &last_read_bytes, &last_read_rows,
+            &last_bytes_read_from_local, &last_bytes_read_from_remote);
+    EXPECT_EQ(7, deltas.scan_rows);
+    EXPECT_EQ(100, deltas.scan_bytes);
+    EXPECT_EQ(100, deltas.scan_bytes_from_local_storage);
+    EXPECT_EQ(0, deltas.scan_bytes_from_remote_storage);
+}
+
+TEST(FileScannerV2Test, FileCacheStatisticsArePublishedToScannerProfile) {
+    RuntimeProfile profile("file_scanner_v2");
+    io::FileCacheStatistics file_cache_statistics;
+    file_cache_statistics.num_local_io_total = 3;
+    file_cache_statistics.num_remote_io_total = 5;
+    file_cache_statistics.num_peer_io_total = 7;
+    file_cache_statistics.bytes_read_from_local = 11;
+    file_cache_statistics.bytes_read_from_remote = 13;
+    file_cache_statistics.bytes_read_from_peer = 17;
+    file_cache_statistics.bytes_write_into_cache = 19;
+    file_cache_statistics.peer_hosts = {"peer-a", "peer-b"};
+
+    FileScannerV2::TEST_report_file_cache_profile(&profile, file_cache_statistics);
+
+    ASSERT_NE(profile.get_counter("FileCache"), nullptr);
+    EXPECT_EQ(profile.get_counter("NumLocalIOTotal")->value(), 3);
+    EXPECT_EQ(profile.get_counter("NumRemoteIOTotal")->value(), 5);
+    EXPECT_EQ(profile.get_counter("NumPeerIOTotal")->value(), 7);
+    EXPECT_EQ(profile.get_counter("BytesScannedFromCache")->value(), 11);
+    EXPECT_EQ(profile.get_counter("BytesScannedFromRemote")->value(), 13);
+    EXPECT_EQ(profile.get_counter("BytesScannedFromPeer")->value(), 17);
+    EXPECT_EQ(profile.get_counter("BytesWriteIntoCache")->value(), 19);
+    ASSERT_NE(profile.get_info_string("PeerCacheNodes"), nullptr);
+    EXPECT_EQ(*profile.get_info_string("PeerCacheNodes"), "peer-a, peer-b");
+}
+
+TEST(FileScannerV2Test, NotFoundIsSkippedOnlyWhenConfigured) {
+    const auto not_found = Status::NotFound("missing external file");
+    EXPECT_TRUE(FileScannerV2::TEST_should_skip_not_found(not_found, true));
+    EXPECT_FALSE(FileScannerV2::TEST_should_skip_not_found(not_found, false));
+    EXPECT_FALSE(
+            FileScannerV2::TEST_should_skip_not_found(Status::InternalError("read failed"), true));
+    EXPECT_FALSE(FileScannerV2::TEST_should_skip_not_found(Status::OK(), true));
 }
 
 // Scenario: partition slots are identified from the explicit FE category when present, otherwise
