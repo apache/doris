@@ -18,6 +18,7 @@
 #pragma once
 
 #include <chrono>
+#include <condition_variable>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -31,8 +32,7 @@ namespace doris {
 class GcpWorkloadIdentityTokenProvider {
 public:
     using Clock = std::function<std::chrono::steady_clock::time_point()>;
-    using TokenFetcher =
-            std::function<bool(std::string* token, std::chrono::seconds* expires_in)>;
+    using TokenFetcher = std::function<bool(std::string* token, std::chrono::seconds* expires_in)>;
 
     GcpWorkloadIdentityTokenProvider();
     GcpWorkloadIdentityTokenProvider(TokenFetcher fetcher, Clock clock);
@@ -49,19 +49,20 @@ private:
     TokenFetcher _fetcher;
     Clock _clock;
     std::mutex _mutex;
+    std::condition_variable _refresh_complete;
+    bool _refresh_in_progress = false;
     std::string _cached_token;
     std::chrono::steady_clock::time_point _expire_at {};
+    std::chrono::steady_clock::time_point _next_refresh_attempt {};
 };
 
 // Workload identity is process-wide, so all GCP vaults in one BE or recycler
 // process share the same cached token.
-std::shared_ptr<GcpWorkloadIdentityTokenProvider>
-global_gcp_workload_identity_token_provider();
+std::shared_ptr<GcpWorkloadIdentityTokenProvider> global_gcp_workload_identity_token_provider();
 
 template <typename Request>
 void apply_gcp_bearer_token(
-        Request& request,
-        const std::shared_ptr<GcpWorkloadIdentityTokenProvider>& token_provider) {
+        Request& request, const std::shared_ptr<GcpWorkloadIdentityTokenProvider>& token_provider) {
     if (token_provider == nullptr) {
         return;
     }

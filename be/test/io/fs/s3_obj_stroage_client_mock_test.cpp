@@ -23,6 +23,8 @@
 #include <fmt/format.h>
 
 #include <atomic>
+#include <condition_variable>
+#include <mutex>
 #include <thread>
 
 #include "gmock/gmock.h"
@@ -92,7 +94,7 @@ TEST_F(S3ObjStorageClientMockTest, gcp_workload_identity_bearer_token_applied) {
             .Times(2)
             .WillRepeatedly([&](const ListObjectsV2Request& request) {
                 const auto& headers = request.GetAdditionalCustomHeaders();
-                auto header = headers.find("Authorization");
+                auto header = headers.find("authorization");
                 EXPECT_NE(header, headers.end());
                 if (header != headers.end()) {
                     EXPECT_EQ(header->second, "Bearer test-token");
@@ -141,8 +143,71 @@ TEST_F(S3ObjStorageClientMockTest, gcp_workload_identity_token_refresh) {
     fetch_succeeds = false;
     now += std::chrono::minutes(56);
     EXPECT_EQ(token_provider.get_token(), "token-2");
+    EXPECT_EQ(token_provider.get_token(), "token-2");
+    EXPECT_EQ(fetch_count, 3);
     now += std::chrono::minutes(5);
     EXPECT_TRUE(token_provider.get_token().empty());
+    EXPECT_EQ(fetch_count, 3);
+    now += std::chrono::seconds(31);
+    EXPECT_TRUE(token_provider.get_token().empty());
+    EXPECT_EQ(fetch_count, 4);
+}
+
+TEST_F(S3ObjStorageClientMockTest, gcp_workload_identity_refresh_uses_valid_cached_token) {
+    auto now = std::chrono::steady_clock::now();
+    std::mutex mutex;
+    std::condition_variable condition;
+    bool refresh_started = false;
+    bool finish_refresh = false;
+    bool cached_read_finished = false;
+    int fetch_count = 0;
+
+    GcpWorkloadIdentityTokenProvider token_provider(
+            [&](std::string* token, std::chrono::seconds* expires_in) {
+                ++fetch_count;
+                if (fetch_count > 1) {
+                    std::unique_lock lock(mutex);
+                    refresh_started = true;
+                    condition.notify_all();
+                    condition.wait(lock, [&] { return finish_refresh; });
+                }
+                *token = fmt::format("token-{}", fetch_count);
+                *expires_in = std::chrono::hours(1);
+                return true;
+            },
+            [&] { return now; });
+
+    EXPECT_EQ(token_provider.get_token(), "token-1");
+    now += std::chrono::minutes(56);
+
+    std::string refreshed_token;
+    std::thread refresh_thread([&] { refreshed_token = token_provider.get_token(); });
+    {
+        std::unique_lock lock(mutex);
+        EXPECT_TRUE(
+                condition.wait_for(lock, std::chrono::seconds(1), [&] { return refresh_started; }));
+    }
+
+    std::string cached_token;
+    std::thread cached_read_thread([&] {
+        cached_token = token_provider.get_token();
+        std::lock_guard lock(mutex);
+        cached_read_finished = true;
+        condition.notify_all();
+    });
+    {
+        std::unique_lock lock(mutex);
+        EXPECT_TRUE(condition.wait_for(lock, std::chrono::seconds(1),
+                                       [&] { return cached_read_finished; }));
+        finish_refresh = true;
+        condition.notify_all();
+    }
+
+    cached_read_thread.join();
+    refresh_thread.join();
+    EXPECT_EQ(cached_token, "token-1");
+    EXPECT_EQ(refreshed_token, "token-2");
+    EXPECT_EQ(fetch_count, 2);
 }
 
 TEST_F(S3ObjStorageClientMockTest, gcp_workload_identity_refresh_is_serialized) {
@@ -174,7 +239,7 @@ TEST_F(S3ObjStorageClientMockTest, gcp_workload_identity_fails_closed_without_to
     apply_gcp_bearer_token(request, token_provider);
 
     const auto& headers = request.GetAdditionalCustomHeaders();
-    auto header = headers.find("Authorization");
+    auto header = headers.find("authorization");
     ASSERT_NE(header, headers.end());
     EXPECT_EQ(header->second, "Bearer unavailable");
 }

@@ -10720,6 +10720,33 @@ TEST(MetaServiceTest, CreateAndAlterS3VaultWithGcpWorkloadIdentity) {
     }
 
     {
+        // Workload Identity can be altered back to HMAC credentials.
+        AlterObjStoreInfoRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_op(AlterObjStoreInfoRequest::ALTER_S3_VAULT);
+        req.mutable_vault()->set_name("gcp_hmac_vault");
+        req.mutable_vault()->mutable_obj_info()->set_ak("new_hmac_ak");
+        req.mutable_vault()->mutable_obj_info()->set_sk("new_hmac_sk");
+
+        brpc::Controller cntl;
+        AlterObjStoreInfoResponse res;
+        meta_service->alter_storage_vault(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+
+        StorageVaultPB get_obj;
+        get_vault(hmac_vault_id, &get_obj);
+        ASSERT_TRUE(get_obj.obj_info().has_ak());
+        ASSERT_TRUE(get_obj.obj_info().has_sk());
+        ASSERT_NE(get_obj.obj_info().ak(), "new_hmac_ak");
+        ASSERT_NE(get_obj.obj_info().sk(), "new_hmac_sk");
+        ASSERT_TRUE(get_obj.obj_info().has_encryption_info());
+        ASSERT_FALSE(get_obj.obj_info().has_cred_provider_type());
+        ASSERT_FALSE(get_obj.obj_info().has_role_arn());
+        ASSERT_EQ(get_obj.obj_info().endpoint(), GCS_XML_ENDPOINT);
+    }
+
+    {
         // Altering to Workload Identity together with ak/sk in one request is rejected.
         AlterObjStoreInfoRequest req;
         req.set_cloud_unique_id("test_cloud_unique_id");

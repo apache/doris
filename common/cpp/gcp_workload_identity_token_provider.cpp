@@ -34,6 +34,7 @@ namespace doris {
 namespace {
 
 constexpr std::chrono::seconds REFRESH_MARGIN {300};
+constexpr std::chrono::seconds REFRESH_RETRY_DELAY {30};
 constexpr std::string_view DEFAULT_METADATA_HOST = "metadata.google.internal";
 constexpr std::string_view METADATA_HOST_ENV = "GCE_METADATA_HOST";
 
@@ -50,8 +51,7 @@ bool fetch_from_metadata_server(std::string* token, std::chrono::seconds* expire
     std::string host = host_override != nullptr && host_override[0] != '\0'
                                ? host_override
                                : std::string(DEFAULT_METADATA_HOST);
-    auto url = "http://" + host +
-               "/computeMetadata/v1/instance/service-accounts/default/token";
+    auto url = "http://" + host + "/computeMetadata/v1/instance/service-accounts/default/token";
     auto request =
             Aws::Http::CreateHttpRequest(Aws::String(url), Aws::Http::HttpMethod::HTTP_GET,
                                          Aws::Utils::Stream::DefaultResponseStreamFactoryMethod);
@@ -95,34 +95,60 @@ GcpWorkloadIdentityTokenProvider::GcpWorkloadIdentityTokenProvider()
         : GcpWorkloadIdentityTokenProvider(fetch_from_metadata_server,
                                            std::chrono::steady_clock::now) {}
 
-GcpWorkloadIdentityTokenProvider::GcpWorkloadIdentityTokenProvider(TokenFetcher fetcher, Clock clock)
+GcpWorkloadIdentityTokenProvider::GcpWorkloadIdentityTokenProvider(TokenFetcher fetcher,
+                                                                   Clock clock)
         : _fetcher(std::move(fetcher)), _clock(std::move(clock)) {}
 
 std::string GcpWorkloadIdentityTokenProvider::get_token() {
-    std::lock_guard lock(_mutex);
-    auto now = _clock();
-    if (!_cached_token.empty() && now + REFRESH_MARGIN < _expire_at) {
-        return _cached_token;
+    std::unique_lock lock(_mutex);
+    while (true) {
+        auto now = _clock();
+        bool has_valid_token = !_cached_token.empty() && now < _expire_at;
+        if (has_valid_token && now + REFRESH_MARGIN < _expire_at) {
+            return _cached_token;
+        }
+        if (now < _next_refresh_attempt) {
+            return has_valid_token ? _cached_token : "";
+        }
+        if (!_refresh_in_progress) {
+            _refresh_in_progress = true;
+            break;
+        }
+        if (has_valid_token) {
+            return _cached_token;
+        }
+        _refresh_complete.wait(lock, [this] { return !_refresh_in_progress; });
     }
 
     std::string token;
     std::chrono::seconds expires_in {0};
-    if (!_fetcher(&token, &expires_in) || token.empty() ||
-        expires_in <= std::chrono::seconds::zero()) {
+    lock.unlock();
+    bool refreshed = _fetcher(&token, &expires_in) && !token.empty() &&
+                     expires_in > std::chrono::seconds::zero();
+    lock.lock();
+
+    auto now = _clock();
+    if (refreshed) {
+        _cached_token = std::move(token);
+        _expire_at = now + expires_in;
+        _next_refresh_attempt = {};
+    } else {
+        _next_refresh_attempt = now + REFRESH_RETRY_DELAY;
+    }
+    _refresh_in_progress = false;
+    _refresh_complete.notify_all();
+
+    if (!refreshed) {
         if (!_cached_token.empty() && now < _expire_at) {
             return _cached_token;
         }
         LOG(WARNING) << "GCP workload identity: no valid access token is available";
         return "";
     }
-
-    _cached_token = std::move(token);
-    _expire_at = now + expires_in;
     return _cached_token;
 }
 
-std::shared_ptr<GcpWorkloadIdentityTokenProvider>
-global_gcp_workload_identity_token_provider() {
+std::shared_ptr<GcpWorkloadIdentityTokenProvider> global_gcp_workload_identity_token_provider() {
     static auto provider = std::make_shared<GcpWorkloadIdentityTokenProvider>();
     return provider;
 }

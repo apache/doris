@@ -99,7 +99,7 @@ TEST_F(S3AccessorMockTest, workload_identity_bearer_token_applied) {
     EXPECT_CALL(*mock_s3_client, ListObjectsV2(testing::_))
             .WillOnce([&](const ListObjectsV2Request& request) {
                 const auto& headers = request.GetAdditionalCustomHeaders();
-                auto header = headers.find("Authorization");
+                auto header = headers.find("authorization");
                 EXPECT_NE(header, headers.end());
                 if (header != headers.end()) {
                     EXPECT_EQ(header->second, "Bearer test-token");
