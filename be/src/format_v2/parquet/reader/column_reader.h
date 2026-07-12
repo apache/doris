@@ -109,6 +109,10 @@ protected:
     ParquetColumnReader(const ParquetColumnSchema& schema, const DataTypePtr type,
                         ParquetColumnReaderProfile profile = {});
     ParquetColumnReader() = default;
+    // Complex readers cannot advance their child streams without rebuilding parent boundaries
+    // from definition/repetition levels. Materialize that discarded shape in bounded batches so
+    // a large selection gap does not allocate a scratch column for the entire gap at once.
+    Status skip_nested_rows(int64_t rows);
     void update_reader_read_rows(int64_t rows) const;
     void update_reader_skip_rows(int64_t rows) const;
 

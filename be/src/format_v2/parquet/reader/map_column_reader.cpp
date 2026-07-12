@@ -49,19 +49,7 @@ Status MapColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t* ro
 }
 
 Status MapColumnReader::skip(int64_t rows) {
-    if (rows <= 0) {
-        return Status::OK();
-    }
-    auto scratch_column = _type->create_column();
-    RETURN_IF_ERROR(load_nested_batch(rows));
-    int64_t rows_read = 0;
-    RETURN_IF_ERROR(build_nested_column(rows, scratch_column, &rows_read));
-    if (rows_read != rows) {
-        return Status::Corruption("Failed to skip parquet MAP column {}: skipped {} of {} rows",
-                                  _name, rows_read, rows);
-    }
-    update_reader_skip_rows(rows);
-    return Status::OK();
+    return skip_nested_rows(rows);
 }
 
 Status MapColumnReader::load_nested_batch(int64_t rows) {

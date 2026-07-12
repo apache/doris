@@ -617,6 +617,34 @@ Status ParquetColumnReader::skip_nested_column(int64_t rows) {
     return Status::OK();
 }
 
+Status ParquetColumnReader::skip_nested_rows(int64_t rows) {
+    if (rows <= 0) {
+        return Status::OK();
+    }
+
+    // A nested parent row may expand to many child values. Capping the number of parent rows per
+    // scratch column bounds the amplification for large holes while preserving the same nested
+    // level decoding and validation path as a normal read. Recreate the scratch column per batch
+    // so its child buffers are released before decoding the next batch.
+    constexpr int64_t MAX_NESTED_SKIP_BATCH_SIZE = 4096;
+    int64_t remaining_rows = rows;
+    while (remaining_rows > 0) {
+        const int64_t batch_rows = std::min(remaining_rows, MAX_NESTED_SKIP_BATCH_SIZE);
+        auto scratch_column = _type->create_column();
+        RETURN_IF_ERROR(load_nested_batch(batch_rows));
+        int64_t rows_read = 0;
+        RETURN_IF_ERROR(build_nested_column(batch_rows, scratch_column, &rows_read));
+        if (rows_read != batch_rows) {
+            return Status::Corruption(
+                    "Failed to skip nested parquet column {}: skipped {} of {} rows in batch",
+                    _name, rows_read, batch_rows);
+        }
+        remaining_rows -= batch_rows;
+    }
+    update_reader_skip_rows(rows);
+    return Status::OK();
+}
+
 const std::vector<int16_t>& ParquetColumnReader::nested_definition_levels() const {
     static const std::vector<int16_t> empty;
     return empty;
