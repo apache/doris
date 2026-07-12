@@ -48,7 +48,6 @@ suite("test_iceberg_nested_schema_evolution_ddl", "p0,external,doris,external_do
     sql """use ${dbName};"""
 
     sql """set enable_fallback_to_original_planner=false;"""
-    sql """set show_column_comment_in_describe=true;"""
 
     sql """drop table if exists ${tableName}"""
     sql """

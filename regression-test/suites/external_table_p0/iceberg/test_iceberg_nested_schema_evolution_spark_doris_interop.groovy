@@ -255,8 +255,9 @@ suite("test_iceberg_nested_schema_evolution_spark_doris_interop", "p0,external,i
         assertTrue(sparkDrivenDorisRowsBeforeWrite[0][6] == null, sparkDrivenDorisRowsBeforeWrite.toString())
         assertTrue(sparkDrivenDorisRowsBeforeWrite[0][8] == null, sparkDrivenDorisRowsBeforeWrite.toString())
         assertTrue(sparkDrivenDorisRowsBeforeWrite[0][9] == null, sparkDrivenDorisRowsBeforeWrite.toString())
-        assertTrue(sparkDrivenDorisRowsBeforeWrite[0][11] == null, sparkDrivenDorisRowsBeforeWrite.toString())
+        assertTrue(sparkDrivenDorisRowsBeforeWrite[0][10] == null, sparkDrivenDorisRowsBeforeWrite.toString())
         assertTrue(sparkDrivenDorisRowsBeforeWrite[0][12] == null, sparkDrivenDorisRowsBeforeWrite.toString())
+        assertTrue(sparkDrivenDorisRowsBeforeWrite[0][13] == null, sparkDrivenDorisRowsBeforeWrite.toString())
 
         sql """
             INSERT INTO ${sparkTable} VALUES (

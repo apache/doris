@@ -967,9 +967,12 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     public void modifyColumn(ExternalTable dorisTable, Column column, ColumnPosition position, long updateTime)
             throws UserException {
         Table icebergTable = IcebergUtils.getIcebergTable(dorisTable);
-        ResolvedColumnPath columnPath = resolveColumnPath(icebergTable.schema(), ColumnPath.of(column.getName()),
-                "modify");
-        NestedField currentCol = columnPath.getField();
+        NestedField currentCol = icebergTable.schema().caseInsensitiveFindField(column.getName());
+        if (currentCol == null) {
+            throw new UserException("Column " + column.getName() + " does not exist");
+        }
+        ResolvedColumnPath columnPath = new ResolvedColumnPath(ColumnPath.of(currentCol.name()),
+                currentCol.type(), currentCol);
 
         validateCommonColumnInfo(column);
         UpdateSchema updateSchema = icebergTable.updateSchema();
