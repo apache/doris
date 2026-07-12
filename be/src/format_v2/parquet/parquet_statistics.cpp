@@ -397,30 +397,33 @@ bool bloom_filter_excludes(const ParquetColumnSchema& column_schema, int slot_in
 }
 
 struct RowGroupBloomFilterCache {
+    using CacheKey = std::pair<int, int>;
+
     ::parquet::BloomFilterReader* bloom_filter_reader = nullptr;
-    std::map<int, std::unique_ptr<::parquet::BloomFilter>> column_bloom_filters;
-    std::set<int> loaded_columns;
+    std::map<CacheKey, std::unique_ptr<::parquet::BloomFilter>> column_bloom_filters;
+    std::set<CacheKey> loaded_columns;
 
     ::parquet::BloomFilter* get(int row_group_idx, int leaf_column_id,
                                 ParquetPruningStats* pruning_stats) {
         if (bloom_filter_reader == nullptr || leaf_column_id < 0) {
             return nullptr;
         }
-        if (loaded_columns.find(leaf_column_id) == loaded_columns.end()) {
-            loaded_columns.insert(leaf_column_id);
+        const CacheKey cache_key {row_group_idx, leaf_column_id};
+        if (loaded_columns.find(cache_key) == loaded_columns.end()) {
+            loaded_columns.insert(cache_key);
             try {
                 std::shared_ptr<::parquet::RowGroupBloomFilterReader> row_group_reader;
                 if (pruning_stats != nullptr) {
                     SCOPED_RAW_TIMER(&pruning_stats->bloom_filter_read_time);
                     row_group_reader = bloom_filter_reader->RowGroup(row_group_idx);
                     if (row_group_reader != nullptr) {
-                        column_bloom_filters[leaf_column_id] =
+                        column_bloom_filters[cache_key] =
                                 row_group_reader->GetColumnBloomFilter(leaf_column_id);
                     }
                 } else {
                     row_group_reader = bloom_filter_reader->RowGroup(row_group_idx);
                     if (row_group_reader != nullptr) {
-                        column_bloom_filters[leaf_column_id] =
+                        column_bloom_filters[cache_key] =
                                 row_group_reader->GetColumnBloomFilter(leaf_column_id);
                     }
                 }
@@ -430,7 +433,7 @@ struct RowGroupBloomFilterCache {
                 return nullptr;
             }
         }
-        auto it = column_bloom_filters.find(leaf_column_id);
+        auto it = column_bloom_filters.find(cache_key);
         return it == column_bloom_filters.end() ? nullptr : it->second.get();
     }
 };
