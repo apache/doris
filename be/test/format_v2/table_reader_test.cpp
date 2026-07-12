@@ -1367,14 +1367,17 @@ TEST(TableReaderTest, ConstantPruningStopsAtUnsafeSlotlessPredicate) {
     Block block = build_table_block(projected_columns);
     bool eos = false;
     ASSERT_TRUE(reader.get_block(&block, &eos).ok());
-    // The unsafe expression must reach normal row-level evaluation; it must not be hidden by the
-    // later false constant predicate pruning the split first.
     EXPECT_TRUE(predicate_executed);
     EXPECT_FALSE(eos);
     // The later partition predicate is false for part=7. Opening the file proves constant pruning
     // stopped at the earlier unsafe expression even though that expression had no slot and thus no
     // entry in `_table_filters`.
     EXPECT_EQ(fake_state->open_count, 1);
+    ASSERT_NE(fake_state->last_request, nullptr);
+    // A slotless unsafe conjunct is an ordering barrier even though it has no TableFilter entry.
+    // The later predicate must stay on the scanner's row-level path instead of running inside the
+    // file reader before the unsafe conjunct.
+    EXPECT_TRUE(fake_state->last_request->conjuncts.empty());
     ASSERT_TRUE(reader.close().ok());
 }
 
@@ -2229,7 +2232,7 @@ TEST(TableReaderTest, PushDownMinMaxFromNewParquetReader) {
     std::filesystem::remove_all(test_dir);
 }
 
-TEST(TableReaderTest, PushDownMinMaxCastsFileValueToTableType) {
+TEST(TableReaderTest, PushDownMinMaxFallsBackForFileToTableCast) {
     const auto test_dir =
             std::filesystem::temp_directory_path() / "doris_table_reader_minmax_cast_test";
     std::filesystem::remove_all(test_dir);
@@ -2265,8 +2268,17 @@ TEST(TableReaderTest, PushDownMinMaxCastsFileValueToTableType) {
     ASSERT_FALSE(eos);
     ASSERT_EQ(block.rows(), 2);
     const auto& id_column = assert_cast<const ColumnInt64&>(expect_not_null_table_column(block, 0));
-    EXPECT_EQ(id_column.get_element(0), 1);
-    EXPECT_EQ(id_column.get_element(1), 5);
+    EXPECT_EQ(id_column.get_element(0), 3);
+    EXPECT_EQ(id_column.get_element(1), 1);
+
+    block = build_table_block(projected_columns);
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    ASSERT_FALSE(eos);
+    ASSERT_EQ(block.rows(), 2);
+    const auto& second_id_column =
+            assert_cast<const ColumnInt64&>(expect_not_null_table_column(block, 0));
+    EXPECT_EQ(second_id_column.get_element(0), 5);
+    EXPECT_EQ(second_id_column.get_element(1), 2);
 
     ASSERT_TRUE(reader.close().ok());
     std::filesystem::remove_all(test_dir);

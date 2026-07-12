@@ -141,6 +141,9 @@ int64_t floor_timestamp_seconds(int64_t value, ParquetTimeUnit time_unit) {
 
 bool timestamp_min_max_is_safe(const ParquetColumnSchema& column_schema, int64_t min_value,
                                int64_t max_value, const cctz::time_zone* timezone) {
+    if (min_value > max_value) {
+        return false;
+    }
     if (!column_schema.type_descriptor.is_timestamp ||
         !column_schema.type_descriptor.timestamp_is_adjusted_to_utc || timezone == nullptr ||
         remove_nullable(column_schema.type)->get_primitive_type() == TYPE_TIMESTAMPTZ) {
@@ -157,9 +160,15 @@ template <typename NativeType>
 bool valid_min_max(const NativeType& min_value, const NativeType& max_value) {
     if constexpr (std::is_floating_point_v<NativeType>) {
         // Parquet requires readers to ignore min/max statistics if either bound is NaN.
-        return !std::isnan(min_value) && !std::isnan(max_value);
+        if (std::isnan(min_value) || std::isnan(max_value)) {
+            return false;
+        }
     }
     return true;
+}
+
+bool decoded_min_max_is_ordered(const ParquetColumnStatistics& column_statistics) {
+    return !(column_statistics.max_value < column_statistics.min_value);
 }
 
 template <typename ParquetDType>
@@ -183,7 +192,7 @@ bool set_decoded_min_max(const std::shared_ptr<::parquet::Statistics>& statistic
                            timezone)) {
         return false;
     }
-    return true;
+    return decoded_min_max_is_ordered(*column_statistics);
 }
 
 bool set_decoded_binary_field(const ParquetColumnSchema& column_schema, DecodedValueKind value_kind,
@@ -215,7 +224,7 @@ bool set_string_min_max(const std::shared_ptr<::parquet::Statistics>& statistics
                                       &column_statistics->max_value, timezone)) {
             return false;
         }
-        return true;
+        return decoded_min_max_is_ordered(*column_statistics);
     }
     case ::parquet::Type::FIXED_LEN_BYTE_ARRAY: {
         if (column_schema.descriptor == nullptr || column_schema.descriptor->type_length() <= 0) {
@@ -237,7 +246,7 @@ bool set_string_min_max(const std::shared_ptr<::parquet::Statistics>& statistics
                                       &column_statistics->max_value, timezone)) {
             return false;
         }
-        return true;
+        return decoded_min_max_is_ordered(*column_statistics);
     }
     default:
         return false;
@@ -1052,6 +1061,9 @@ bool set_page_decoded_min_max(const std::shared_ptr<::parquet::ColumnIndex>& col
                            timezone)) {
         return false;
     }
+    if (!decoded_min_max_is_ordered(*page_statistics)) {
+        return true;
+    }
     page_statistics->has_min_max = true;
     return true;
 }
@@ -1077,6 +1089,9 @@ bool set_page_string_min_max(const std::shared_ptr<::parquet::ColumnIndex>& colu
                                       StringRef(max.data(), max.size()),
                                       &page_statistics->max_value, timezone)) {
             return false;
+        }
+        if (!decoded_min_max_is_ordered(*page_statistics)) {
+            return true;
         }
         page_statistics->has_min_max = true;
         return true;
@@ -1104,6 +1119,9 @@ bool set_page_string_min_max(const std::shared_ptr<::parquet::ColumnIndex>& colu
                                       StringRef(max.data(), max.size()),
                                       &page_statistics->max_value, timezone)) {
             return false;
+        }
+        if (!decoded_min_max_is_ordered(*page_statistics)) {
+            return true;
         }
         page_statistics->has_min_max = true;
         return true;

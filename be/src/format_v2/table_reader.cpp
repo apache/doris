@@ -535,11 +535,12 @@ Status TableReader::_build_table_filters_from_conjuncts() {
         if (in_safe_prefix && !_is_safe_to_pre_execute(conjunct)) {
             in_safe_prefix = false;
         }
+        if (!in_safe_prefix) {
+            continue;
+        }
         RETURN_IF_ERROR(
                 build_table_filters_from_conjunct(conjunct, _runtime_state, &_table_filters));
-        if (in_safe_prefix) {
-            _constant_pruning_safe_filter_count = _table_filters.size();
-        }
+        _constant_pruning_safe_filter_count = _table_filters.size();
     }
     return Status::OK();
 }

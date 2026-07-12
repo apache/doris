@@ -650,6 +650,66 @@ TEST(ParquetStatisticsTransformTest, IgnoresNaNFloatAndDoubleColumnIndexMinMax) 
     EXPECT_EQ(following_page_stats.max_value.get<TYPE_DOUBLE>(), 2.0);
 }
 
+TEST(ParquetStatisticsTransformTest, IgnoresInvertedFooterAndColumnIndexMinMax) {
+    auto table = arrow::Table::Make(
+            arrow::schema({arrow::field("i", arrow::int32(), false),
+                           arrow::field("s", arrow::utf8(), false),
+                           arrow::field("ts", arrow::timestamp(arrow::TimeUnit::MICRO, "UTC"),
+                                        false)}),
+            {int32_array({1, 2}), string_array({"a", "z"}), timestamp_array({1000000, 2000000})});
+    auto reader = make_reader(table, 2, false, true);
+    auto schema = build_file_schema(*reader);
+
+    const int32_t inverted_min = 10;
+    const int32_t inverted_max = 1;
+    auto int_stats = ::parquet::MakeStatistics<::parquet::Int32Type>(
+            schema[0]->descriptor, encoded_value(inverted_min), encoded_value(inverted_max), 2, 0,
+            0, true, true, false);
+    const auto converted_int = format::parquet::ParquetStatisticsUtils::TransformColumnStatistics(
+            *schema[0], int_stats);
+    EXPECT_TRUE(converted_int.has_not_null);
+    EXPECT_FALSE(converted_int.has_min_max);
+
+    const std::string inverted_string_min = "z";
+    const std::string inverted_string_max = "a";
+    auto string_stats = ::parquet::MakeStatistics<::parquet::ByteArrayType>(
+            schema[1]->descriptor, inverted_string_min, inverted_string_max, 2, 0, 0, true, true,
+            false);
+    const auto converted_string =
+            format::parquet::ParquetStatisticsUtils::TransformColumnStatistics(*schema[1],
+                                                                               string_stats);
+    EXPECT_TRUE(converted_string.has_not_null);
+    EXPECT_FALSE(converted_string.has_min_max);
+
+    auto int_index = std::make_shared<TestColumnIndex<::parquet::Int32Type>>(inverted_min,
+                                                                            inverted_max);
+    format::parquet::ParquetColumnStatistics page_stats;
+    EXPECT_TRUE(format::parquet::ParquetStatisticsUtils::TransformColumnIndexStatistics(
+            int_index, *schema[0], 0, &page_stats));
+    EXPECT_TRUE(page_stats.has_not_null);
+    EXPECT_FALSE(page_stats.has_min_max);
+
+    // These endpoints are inverted within one second. Whole-second validation alone would miss
+    // the corruption, and TIMESTAMPTZ must reject the same raw inversion before its UTC shortcut.
+    constexpr int64_t timestamp_min = 1500000;
+    constexpr int64_t timestamp_max = 1000000;
+    auto timestamp_stats = ::parquet::MakeStatistics<::parquet::Int64Type>(
+            schema[2]->descriptor, encoded_value(timestamp_min), encoded_value(timestamp_max), 2,
+            0, 0, true, true, false);
+    auto utc = cctz::utc_time_zone();
+    const auto converted_timestamp =
+            format::parquet::ParquetStatisticsUtils::TransformColumnStatistics(
+                    *schema[2], timestamp_stats, &utc);
+    EXPECT_FALSE(converted_timestamp.has_min_max);
+
+    schema[2]->type = std::make_shared<DataTypeTimeStampTz>(6);
+    schema[2]->type_descriptor.doris_type = schema[2]->type;
+    const auto converted_timestamp_tz =
+            format::parquet::ParquetStatisticsUtils::TransformColumnStatistics(
+                    *schema[2], timestamp_stats, &utc);
+    EXPECT_FALSE(converted_timestamp_tz.has_min_max);
+}
+
 TEST(ParquetStatisticsTransformTest, PreservesNullCountWhenNaNInvalidatesMinMax) {
     auto table = arrow::Table::Make(arrow::schema({arrow::field("f", arrow::float64(), false)}),
                                     {double_array({1.0, 2.0})});

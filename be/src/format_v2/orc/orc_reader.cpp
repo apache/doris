@@ -525,6 +525,13 @@ bool set_timestamp_zone_map(const ::orc::ColumnStatistics& statistics,
         !timestamp_statistics->hasMaximum()) {
         return false;
     }
+    const auto min_endpoint = std::pair(timestamp_statistics->getMinimum(),
+                                        timestamp_statistics->getMinimumNanos());
+    const auto max_endpoint = std::pair(timestamp_statistics->getMaximum(),
+                                        timestamp_statistics->getMaximumNanos());
+    if (min_endpoint > max_endpoint) {
+        return false;
+    }
     if (use_timestamp_tz) {
         zone_map->min_value = Field::create_field<TYPE_TIMESTAMPTZ>(timestamp_tz_from_orc_millis(
                 timestamp_statistics->getMinimum(), timestamp_statistics->getMinimumNanos()));

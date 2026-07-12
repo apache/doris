@@ -1568,7 +1568,7 @@ private:
 
     static bool _can_push_down_minmax_for_mapping(const ColumnMapping& mapping) {
         if (mapping.child_mappings.empty()) {
-            return true;
+            return mapping.is_trivial && mapping.projection == nullptr;
         }
         const auto primitive_type = remove_nullable(mapping.file_type)->get_primitive_type();
         if (primitive_type != TYPE_STRUCT) {
