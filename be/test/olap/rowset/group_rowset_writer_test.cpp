@@ -79,13 +79,16 @@ protected:
                  {"__DORIS_TEST_HIDDEN_KEY__", TPrimitiveType::BIGINT, true},
                  {"__DORIS_TEST_HIDDEN_VALUE__", TPrimitiveType::INT, false},
                  {"v1", TPrimitiveType::INT, false},
-                 {"v2", TPrimitiveType::BIGINT, false}});
+                 {"v2", TPrimitiveType::BIGINT, false},
+                 {std::string(DELETE_SIGN), TPrimitiveType::TINYINT, false}});
         _request.tablet_schema.columns[1].__set_visible(false);
         _request.tablet_schema.columns[2].__set_visible(false);
+        _request.tablet_schema.columns[5].__set_visible(false);
         _request.tablet_schema.columns[2].__set_is_allow_null(true);
         _request.tablet_schema.columns[4].__set_is_allow_null(true);
         _request.__set_enable_unique_key_merge_on_write(true);
         testutil::enable_row_binlog(&_request);
+        _request.row_binlog_schema.columns.erase(_request.row_binlog_schema.columns.begin() + 5);
         _request.row_binlog_schema.columns.erase(_request.row_binlog_schema.columns.begin() + 2);
         auto profile = std::make_unique<RuntimeProfile>("GroupRowsetWriterTest");
         ASSERT_TRUE(engine_ptr->create_tablet(_request, profile.get()).ok());
@@ -120,6 +123,7 @@ protected:
                         Field::create_field<PrimitiveType::TYPE_INT>((start_key + i) * 10));
                 columns[4]->insert(Field::create_field<PrimitiveType::TYPE_BIGINT>(
                         static_cast<int64_t>((start_key + i) * 100)));
+                columns[5]->insert(Field::create_field<PrimitiveType::TYPE_TINYINT>(0));
             }
         }
         return block;
@@ -256,6 +260,7 @@ TEST_F(GroupRowsetWriterTest, success) {
 TEST_F(GroupRowsetWriterTest, partialUpdateSkipsHiddenNonKeyColumns) {
     ASSERT_EQ(1, _tablet->row_binlog_tablet_schema()->field_index("__DORIS_TEST_HIDDEN_KEY__"));
     ASSERT_EQ(-1, _tablet->row_binlog_tablet_schema()->field_index("__DORIS_TEST_HIDDEN_VALUE__"));
+    ASSERT_EQ(-1, _tablet->row_binlog_tablet_schema()->field_index(DELETE_SIGN));
 
     auto partial_update_info = std::make_shared<PartialUpdateInfo>();
     ASSERT_TRUE(
@@ -267,7 +272,7 @@ TEST_F(GroupRowsetWriterTest, partialUpdateSkipsHiddenNonKeyColumns) {
                            false, 0, 0, "", "")
                     .ok());
     EXPECT_EQ((std::vector<uint32_t> {0, 1, 2, 3}), partial_update_info->update_cids);
-    EXPECT_EQ((std::vector<uint32_t> {4}), partial_update_info->missing_cids);
+    EXPECT_EQ((std::vector<uint32_t> {4, 5}), partial_update_info->missing_cids);
 
     RowsetWriterContext row_binlog_context;
     row_binlog_context.tablet = _tablet;
