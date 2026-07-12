@@ -1031,8 +1031,13 @@ bool set_page_decoded_min_max(const std::shared_ptr<::parquet::ColumnIndex>& col
             return false;
         }
     }
-    if (!valid_min_max(min_value, max_value) ||
-        !set_decoded_field(column_schema, value_kind, min_value, &page_statistics->min_value,
+    if (!valid_min_max(min_value, max_value)) {
+        // A NaN invalidates only this page's bounds, not the ColumnIndex itself. Keep the page
+        // conservatively by returning usable null-count statistics with has_min_max=false, while
+        // allowing later pages with finite bounds to remain eligible for pruning.
+        return true;
+    }
+    if (!set_decoded_field(column_schema, value_kind, min_value, &page_statistics->min_value,
                            timezone) ||
         !set_decoded_field(column_schema, value_kind, max_value, &page_statistics->max_value,
                            timezone)) {
