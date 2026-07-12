@@ -172,7 +172,7 @@ void write_position_delete_parquet(const std::string& path,
     std::shared_ptr<arrow::io::FileOutputStream> output;
     ASSERT_TRUE(arrow::io::FileOutputStream::Open(path).Value(&output).ok());
     PARQUET_THROW_NOT_OK(
-            parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), output, 1024));
+            ::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), output, 1024));
 }
 
 IcebergDeleteFileReaderOptions make_delete_file_reader_options(
