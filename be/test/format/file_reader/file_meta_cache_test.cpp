@@ -74,6 +74,57 @@ private:
     bool _closed;
 };
 
+class TestPersistentFileMetaCache final : public FileMetaPersistentCache {
+public:
+    Status read(FileMetaCacheFormat format, const std::string& key, int64_t modification_time,
+                int64_t file_size, std::string* payload) override {
+        ++read_count;
+        if (fail_read) {
+            return Status::IOError("injected persistent cache read failure");
+        }
+        if (!has_value || format != stored_format || key != stored_key ||
+            modification_time != stored_modification_time || file_size != stored_file_size) {
+            return Status::NotFound("persistent cache entry not found");
+        }
+        *payload = stored_payload;
+        return Status::OK();
+    }
+
+    Status write(FileMetaCacheFormat format, const std::string& key, int64_t modification_time,
+                 int64_t file_size, std::string_view payload) override {
+        ++write_count;
+        if (fail_write) {
+            return Status::IOError("injected persistent cache write failure");
+        }
+        stored_format = format;
+        stored_key = key;
+        stored_modification_time = modification_time;
+        stored_file_size = file_size;
+        stored_payload = payload;
+        has_value = true;
+        return Status::OK();
+    }
+
+    void remove(FileMetaCacheFormat format, const std::string& key) override {
+        ++remove_count;
+        if (has_value && format == stored_format && key == stored_key) {
+            has_value = false;
+        }
+    }
+
+    bool fail_read = false;
+    bool fail_write = false;
+    bool has_value = false;
+    int read_count = 0;
+    int write_count = 0;
+    int remove_count = 0;
+    FileMetaCacheFormat stored_format = FileMetaCacheFormat::PARQUET;
+    std::string stored_key;
+    int64_t stored_modification_time = 0;
+    int64_t stored_file_size = 0;
+    std::string stored_payload;
+};
+
 io::FileCacheSettings create_file_meta_disk_cache_test_settings() {
     io::FileCacheSettings settings;
     settings.capacity = 1024 * 1024;
@@ -401,6 +452,112 @@ TEST(FileMetaCacheTest, ContextInsertCanSkipMemoryCacheWithoutPersistentStore) {
 
     ObjLRUCache::CacheHandle lookup_handle;
     EXPECT_FALSE(cache.lookup(meta_key, &lookup_handle));
+}
+
+TEST(FileMetaCacheTest, PersistentCacheRoundTripUsesFileMetaBoundary) {
+    const bool old_enable_external_file_meta_disk_cache =
+            config::enable_external_file_meta_disk_cache;
+    const int64_t old_external_file_meta_disk_cache_max_entry_bytes =
+            config::external_file_meta_disk_cache_max_entry_bytes;
+    Defer defer {[&] {
+        config::enable_external_file_meta_disk_cache = old_enable_external_file_meta_disk_cache;
+        config::external_file_meta_disk_cache_max_entry_bytes =
+                old_external_file_meta_disk_cache_max_entry_bytes;
+    }};
+    config::enable_external_file_meta_disk_cache = true;
+    config::external_file_meta_disk_cache_max_entry_bytes = 1024;
+
+    auto persistent_cache = std::make_unique<TestPersistentFileMetaCache>();
+    auto* persistent_cache_ptr = persistent_cache.get();
+    FileMetaCache cache(0, std::move(persistent_cache));
+    const std::string meta_key = FileMetaCache::get_key("s3://bucket/persistent.parquet", 123, 456);
+    const FileMetaCacheContext context {.format = FileMetaCacheFormat::PARQUET,
+                                        .key = meta_key,
+                                        .modification_time = 123,
+                                        .file_size = 456,
+                                        .enable_memory_cache = false};
+    auto parsed_value = std::make_unique<std::string>("parsed footer");
+    ObjLRUCache::CacheHandle handle;
+    int64_t hit_cache = 0;
+    int64_t hit_disk_cache = 0;
+    int64_t miss_disk_cache = 0;
+    int64_t write_disk_cache = 0;
+    FileMetaCacheProfile profile {.hit_cache = &hit_cache,
+                                  .hit_disk_cache = &hit_disk_cache,
+                                  .miss_disk_cache = &miss_disk_cache,
+                                  .write_disk_cache = &write_disk_cache};
+
+    const FileMetaCacheInsertResult insert_result =
+            cache.insert(context, parsed_value, &handle, "serialized footer", &profile);
+    ASSERT_TRUE(insert_result.persisted_inserted);
+    EXPECT_FALSE(insert_result.memory_inserted);
+    EXPECT_NE(parsed_value, nullptr);
+    EXPECT_EQ(persistent_cache_ptr->write_count, 1);
+    EXPECT_EQ(write_disk_cache, 1);
+
+    std::string serialized_meta;
+    const FileMetaCacheLookupResult lookup_result =
+            cache.lookup(context, &handle, &serialized_meta, &profile);
+    EXPECT_EQ(lookup_result.state, FileMetaCacheLookupState::PERSISTED_HIT);
+    EXPECT_EQ(serialized_meta, "serialized footer");
+    EXPECT_EQ(persistent_cache_ptr->read_count, 1);
+    EXPECT_EQ(hit_cache, 1);
+    EXPECT_EQ(hit_disk_cache, 1);
+    EXPECT_EQ(miss_disk_cache, 0);
+
+    cache.invalidate_persistent_cache(context);
+    EXPECT_EQ(persistent_cache_ptr->remove_count, 1);
+    EXPECT_FALSE(persistent_cache_ptr->has_value);
+    EXPECT_EQ(cache.lookup(context, &handle, &serialized_meta, &profile).state,
+              FileMetaCacheLookupState::MISS);
+    EXPECT_EQ(miss_disk_cache, 1);
+}
+
+TEST(FileMetaCacheTest, PersistentCacheFailureFallsBackToMiss) {
+    const bool old_enable_external_file_meta_disk_cache =
+            config::enable_external_file_meta_disk_cache;
+    const int64_t old_external_file_meta_disk_cache_max_entry_bytes =
+            config::external_file_meta_disk_cache_max_entry_bytes;
+    Defer defer {[&] {
+        config::enable_external_file_meta_disk_cache = old_enable_external_file_meta_disk_cache;
+        config::external_file_meta_disk_cache_max_entry_bytes =
+                old_external_file_meta_disk_cache_max_entry_bytes;
+    }};
+    config::enable_external_file_meta_disk_cache = true;
+    config::external_file_meta_disk_cache_max_entry_bytes = 1024;
+
+    auto persistent_cache = std::make_unique<TestPersistentFileMetaCache>();
+    auto* persistent_cache_ptr = persistent_cache.get();
+    persistent_cache_ptr->fail_read = true;
+    persistent_cache_ptr->fail_write = true;
+    FileMetaCache cache(0, std::move(persistent_cache));
+    const std::string meta_key = FileMetaCache::get_key("s3://bucket/failure.orc", 123, 456);
+    const FileMetaCacheContext context {.format = FileMetaCacheFormat::ORC,
+                                        .key = meta_key,
+                                        .modification_time = 123,
+                                        .file_size = 456,
+                                        .enable_memory_cache = false};
+    int64_t miss_disk_cache = 0;
+    int64_t write_disk_cache = 0;
+    FileMetaCacheProfile profile {.miss_disk_cache = &miss_disk_cache,
+                                  .write_disk_cache = &write_disk_cache};
+    ObjLRUCache::CacheHandle handle;
+    std::string serialized_meta = "stale output";
+
+    EXPECT_EQ(cache.lookup(context, &handle, &serialized_meta, &profile).state,
+              FileMetaCacheLookupState::MISS);
+    EXPECT_TRUE(serialized_meta.empty());
+    EXPECT_EQ(persistent_cache_ptr->read_count, 1);
+    EXPECT_EQ(miss_disk_cache, 1);
+
+    auto parsed_value = std::make_unique<std::string>("parsed footer");
+    const FileMetaCacheInsertResult insert_result =
+            cache.insert(context, parsed_value, &handle, "serialized footer", &profile);
+    EXPECT_FALSE(insert_result.persisted_inserted);
+    EXPECT_FALSE(insert_result.memory_inserted);
+    EXPECT_NE(parsed_value, nullptr);
+    EXPECT_EQ(persistent_cache_ptr->write_count, 1);
+    EXPECT_EQ(write_disk_cache, 0);
 }
 
 TEST(FileMetaCacheDiskTest, PersistentCacheRequiresStableModificationTime) {
