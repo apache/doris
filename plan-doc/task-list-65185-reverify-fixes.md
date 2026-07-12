@@ -46,7 +46,7 @@ Legend：⬜ todo / 🔄 in progress / ✅ done / ⏸ 挂起(需决策/live)
 | 19 | **L7** | 🟡低 | kerberos | UGI.setConfiguration 无 guard(丢 first-writer) | ✅ | ✅ | ✅ | ✅ |
 | 20 | **L8** | 🟡低 | kerberos | doAs 吞 interrupt 不 restore | ✅ | ✅ | ✅ | ✅ |
 | 21 | **L9** | 🟡低 | maxcompute | 谓词下推全有全无 | ✅ | ✅ | ✅ | ✅ |
-| 22 | **L10** | 🟡低 | fe-core | EXPLAIN 节点名 VPluginDrivenScanNode | ⬜ | ⬜ | ⬜ | ⏸ 需决策 |
+| 22 | **L10** | 🟡低 | fe-core | EXPLAIN 节点名 VPluginDrivenScanNode | — | — | — | ✅ 登记 DV-050 |
 | 23 | **L11** | 🟡低 | paimon | JNI/COUNT file_format 用表级默认 | ✅ | ✅ | ✅ | ✅ |
 | 24 | **L12** | 🟡低 | fe-core/paimon | selectedPartitionNum 语义(登记或对齐) | ⬜ | ⬜ | ⬜ | ⏸ 需决策 |
 | 25 | **L13** | 🟡低 | paimon | to-Paimon 丢嵌套 nullability | ✅ | ✅ | ✅ | ✅ |
@@ -68,7 +68,7 @@ Legend：⬜ todo / 🔄 in progress / ✅ done / ⏸ 挂起(需决策/live)
 - **批次 2(中危·fe-core 通用节点,blast radius 较大,单测充分后再动)**：`M3`、`M1`。
 - **批次 3(运营/门禁)**：`M8`(发布工具+文档,无 fe 编译)、`L1`(gate)。
 - **批次 4(低危·连接器)**：`L3–L6`(trino)、`L7/L8`(kerberos)、`L9/L20`(mc)、`L11/L13/L14`(paimon)、`L18`(iceberg)。
-- **批次 5(需决策,先问用户再动)**：`L2`(SQL 缓存:恢复 vs 登记)、`L10`(EXPLAIN 名:登记 vs 按连接器声明)、`L12`(selectedPartitionNum:登记 vs 对齐)。
+- **批次 5(需决策,先问用户再动)**：~~`L2`(SQL 缓存)~~ **DONE `c9a86337906` 恢复缓存**、~~`L10`(EXPLAIN 名)~~ **DONE 用户签字 accept [DV-050]**;**余** `L12`(selectedPartitionNum:登记 vs 对齐)、`L20`(MC EQ 写法)。
 - **批次 6(设计债/P8)**：`D-系列`,择机或随 P8。`D-PRUNE` 因承载 H1/H3,提前到批次 0。
 
 > 决策类(⏸)条目**先在 session 里用中文讲清背景+选项问用户**(memory `ask-user-explain-in-chinese-first`),别擅自选一路实现。
@@ -187,7 +187,7 @@ Legend：⬜ todo / 🔄 in progress / ✅ done / ⏸ 挂起(需决策/live)
 - [x] **L8** DONE `59697ce3fc7`(设计 `FIX-L8-design.md`）· `doAs` catch(InterruptedException) 内 `throw` 前加 `Thread.currentThread().interrupt();`(恢复中断标志)。
 - [x] **L9** DONE `017d1af1894`(设计 `FIX-L9-design.md`;converter 纯函数,**RED-able UT**）· `convert` 特判根 `ConnectorAnd`:逐 top-level conjunct 独立转(抽 `convertOne`),丢+log 失败者、AND 幸存者;OR/NOT/嵌套 AND 保持全有全无(只根 AND 处正/单调位置丢 conjunct=超集,BE 重滤;OR 丢 disjunct=子集会漏行)。加 5 UT(3 RED-able+2 guard),21/21 绿。perf-only。
 
-- [ ] **L10** ⏸ EXPLAIN 节点名 · `PluginDrivenScanNode.java:170,320`。**需决策**:登记 display-only 验收偏差(cheapest,`CONNECTOR:` 行已披露)**vs** 加连接器声明的 legacy `*_SCAN_NODE` 名(连 `Connector.getLegacyEngineName` 一起,见 D-ENGINE)。注:报告的 `connectorType.toUpperCase()+"_SCAN_NODE"` 一行修法**不够**(hms 会出 `VHMS_SCAN_NODE` 非 `VHIVE_/VICEBERG_`)。
+- [x] **L10** DONE（**用户 2026-07-12 签字 accept**,登记 [DV-050],**无代码**）· EXPLAIN 外部表扫描节点显示通用名 `VPluginDrivenScanNode`(`PluginDrivenScanNode:173` super label)。**决策=接受为 display-only 偏差**(非加 `Connector.getLegacyEngineName` SPI 恢复旧名):`getNodeExplainString:325` 已附 `CONNECTOR: <catalog type>` 披露数据源、regression 黄金文件全树仅 1 处引用且已是新名、且与 Trino 一致(统一 `TableScan` 通用名 + 连接器作属性)。否决 Option B(catalog type 拼名会误出 `VHMS_SCAN_NODE`;改动面大)。关联 D-ENGINE 择机随 P8。
 - [x] **L11** DONE `4a8650bd062`(设计 `FIX-L11-design.md`;红队 `wf_05574ccb-bd2` 3 lens SOUND/SOUND_WITH_CHANGES）· JNI DataSplit + COUNT 路改按**首数据文件后缀**取 file_format(新 package-private `dataSplitFileFormat`,legacy `getFileFormat(getPathString())` parity),回退表级默认;顺补 `getFileFormatBySuffix` 的 `.avro` 臂(legacy `FileFormatUtils` parity,inert on native)。**call-site RED 测**(`Table.copy` 令表默认 parquet≠磁盘 .orc,断言 JNI+COUNT range 携 "orc")——原 helper 孤立测不守护接线(红队 MAJOR)。69/69 绿、0 checkstyle、gate 净。默认 JNI reader 不消费 file_format,影响窄(仅 opt-in cpp reader)。e2e live-gated(cpp reader over 混/改格式表)。
 - [ ] **L12** ⏸ selectedPartitionNum 语义 · `PluginDrivenScanNode.java:297-303`。**需决策**:登记为「paimon/iceberg 对齐 MC/hive 的 Nereids-剪枝数」验收偏差(推荐)**vs** 连接器回报 SDK-distinct(重,不推荐)。同步 paimon/iceberg EXPLAIN `partition=N/M` 回归期望。**勿**在通用节点按源分支。
 - [x] **L13** DONE `ced4775b844`(设计 `FIX-L13-design.md`;红队 3 lens 全 SOUND）· `toPaimonType` 对 ARRAY 元素/MAP value/STRUCT 字段加 `.copy(type.isChildNullable(i))`(MAP key 保持 `.copy(false)`),恢复 legacy `DorisToPaimonTypeVisitor` 嵌套 nullability parity。**scope=仅 nullability**:comment 丢=DV-035 M10.1 已接受偏差、field-id 顺序 parity 均不动。`.copy(true)` 对默认可空子类型逐字节恒等(既有 parity 测保持绿)。3 新 RED-able 测(经 `.type().isNullable()` 断言,非 DataField equals)。type-mapping+schema-builder 26/26 绿。e2e live-gated(建嵌套 NOT NULL 表 DESCRIBE/SDK 读回)。
@@ -292,4 +292,12 @@ Legend：⬜ todo / 🔄 in progress / ✅ done / ⏸ 挂起(需决策/live)
 - **L13** `ced4775b844` — `toPaimonType` 嵌套 nullability `.copy(isChildNullable)`(ARRAY/MAP-value/STRUCT-field),scope 仅 nullability(comment=DV-035 M10.1 已接受);`.copy(true)` 默认恒等。
 - **L14** `478718aca6f` — honor `ignore_split_type`(null-tolerant helper + 三 legacy continue 位;`IGNORE_PAIMON_CPP` no-op=legacy parity);3 live-planScan RED 测,nonDataSplit 位 E2E-only。
 - **共性**:全走单任务循环(复核现码→设计→红队→实现→build+靶向 UT→独立 commit)。**paimon 构建坑复现**:`mvn test` 因 hive-shade 模块 shade 绑 package→`HiveConf` NoClassDefFound 假失败,改 `package` 阶段即绿(memory `doris-build-verify-gotchas`)。模块靶向 UT 全绿(scan 69/69 + type-mapping/schema-builder 26/26)、0 checkstyle、import gate 净。**e2e 全 live-gated**(cpp reader 混格式 / 嵌套 NOT NULL DDL / SET ignore_split_type 跳分片)。
-- **下一步 = iceberg/杂项 L15–L19**(L15 paimon-metrics 悬空、L16/L17 iceberg 缓存/version-blind、L18 iceberg 未知类型、L19 partition_columns 撞名);⏸ 决策类 L2/L10/L12/L20 先中文讲清背景问用户。
+- **下一步 = iceberg/杂项 L15–L19**(L15 paimon-metrics 悬空、L16/L17 iceberg 缓存/version-blind、L18 iceberg 未知类型、L19 partition_columns 撞名)。
+
+---
+
+**⭐ L2–L10 复核对账（2026-07-12,按 commit log 逐条核实）**：
+- **L3–L9 已完成**（顶部进度表此前漏勾,已同步 `a691d0264f5`）——7 commit 全在分支:trino `4cd63c6911a`/`e27602d4ab6`/`be96adf76ba`/`18048f7f217`、kerberos `9e4f2992382`/`59697ce3fc7`、mc `017d1af1894`。
+- **L2 已完成** `c9a86337906`（独立工作线,今日）——SQL 结果缓存资格用 `MTMVRelatedTableIf` 能力恢复(选「加能力」非登记偏差)、`COUNTER_QUERY_HIVE_TABLE` dead bump 有意移除;4 文件+3 测试类。标 done `83674a8c1ec`。
+- **L10 已定** = **用户 2026-07-12 签字 accept**,登记 [DV-050],**无代码**：EXPLAIN 通用节点名 `VPluginDrivenScanNode` 接受为 display-only 偏差(`CONNECTOR:` 行已披露 + 黄金文件已适配 + 对齐 Trino 通用节点名做法)。
+- **净结果**：L2–L10 全部收口(done 或 accept)。决策类**仅余 L12/L20**,动前先中文讲清问用户。⏸ 决策类先问用户。
