@@ -15,15 +15,23 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// The test builds TabletSchema/TabletColumn objects field by field, the same
-// way the existing storage unit tests do (tablet_schema_helper.cpp does the same).
+// White-box access to TabletColumn/TabletSchema private fields: the test
+// builds schema objects field by field, the same way the existing storage
+// unit tests do (tablet_schema_helper.cpp does the same). The macros wrap
+// only this include and are #undef-ed right away, so gtest, standard and
+// other Doris headers below are parsed with their access specifiers intact.
+#if defined(__clang__)
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wkeyword-macro"
+#endif
 #define private public
 #define protected public
+#include "storage/tablet/tablet_schema.h" // IWYU pragma: keep
+#undef private
+#undef protected
+#if defined(__clang__)
 #pragma clang diagnostic pop
-
-#include "storage/key/row_key_encoder.h"
+#endif
 
 #include <gtest/gtest.h>
 
@@ -35,8 +43,8 @@
 #include "common/consts.h"
 #include "core/block/block.h"
 #include "storage/iterator/olap_data_convertor.h"
+#include "storage/key/row_key_encoder.h"
 #include "storage/olap_common.h"
-#include "storage/tablet/tablet_schema.h"
 #include "storage/tablet/tablet_schema_helper.h"
 #include "storage/utils.h"
 
