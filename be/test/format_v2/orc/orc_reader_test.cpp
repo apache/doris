@@ -3419,7 +3419,8 @@ void write_multi_stripe_orc_int_file(const std::string& file_path,
 }
 
 void write_multi_stripe_orc_int_only_file(const std::string& file_path,
-                                          const std::vector<int64_t>& first_values) {
+                                          const std::vector<int64_t>& first_values,
+                                          int64_t rows_per_stripe = 200) {
     auto type = std::unique_ptr<::orc::Type>(::orc::Type::buildTypeFromString("struct<id:int>"));
 
     MemoryOutputStream memory_stream(1024 * 1024);
@@ -3430,15 +3431,14 @@ void write_multi_stripe_orc_int_only_file(const std::string& file_path,
     auto writer = ::orc::createWriter(*type, &memory_stream, options);
 
     auto add_batch = [&](int64_t first_value) {
-        constexpr int64_t ROWS_PER_STRIPE = 200;
-        auto batch = writer->createRowBatch(ROWS_PER_STRIPE);
+        auto batch = writer->createRowBatch(rows_per_stripe);
         auto& struct_batch = dynamic_cast<::orc::StructVectorBatch&>(*batch);
         auto& id_batch = dynamic_cast<::orc::LongVectorBatch&>(*struct_batch.fields[0]);
-        for (int64_t row = 0; row < ROWS_PER_STRIPE; ++row) {
+        for (int64_t row = 0; row < rows_per_stripe; ++row) {
             id_batch.data[row] = first_value + row;
         }
-        struct_batch.numElements = ROWS_PER_STRIPE;
-        id_batch.numElements = ROWS_PER_STRIPE;
+        struct_batch.numElements = rows_per_stripe;
+        id_batch.numElements = rows_per_stripe;
         writer->add(*batch);
     };
 
@@ -8723,6 +8723,59 @@ TEST_F(NewOrcReaderTest, SargConjunctReadsNonAdjacentStripeRangesAfterPruning) {
     EXPECT_EQ(reader->reader_statistics().filtered_row_groups, 1);
     EXPECT_EQ(reader->reader_statistics().filtered_row_groups_by_min_max, 1);
     EXPECT_EQ(reader->reader_statistics().filtered_group_rows, 200);
+}
+
+TEST_F(NewOrcReaderTest, ConditionCacheMissExtendsAcrossNonAdjacentStripeRanges) {
+    constexpr int64_t ROWS_PER_STRIPE = 2500;
+    const auto multi_stripe_file_path =
+            (_test_dir / "condition_cache_non_adjacent_stripes.orc").string();
+    write_multi_stripe_orc_int_only_file(multi_stripe_file_path, {1, 10000, 3000}, ROWS_PER_STRIPE);
+    ASSERT_EQ(get_orc_stripe_count(multi_stripe_file_path), 3);
+
+    auto reader = create_reader_for_path(multi_stripe_file_path);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    ASSERT_EQ(schema.size(), 1);
+
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->predicate_columns = {field_projection(0)};
+    request->conjuncts.push_back(
+            VExprContext::create_shared(std::make_shared<NullableInt32LessThanExpr>(0, 5000)));
+    ASSERT_TRUE(reader->open(request).ok());
+    EXPECT_EQ(reader->get_total_rows(), ROWS_PER_STRIPE);
+
+    auto cache_ctx = std::make_shared<ConditionCacheContext>();
+    cache_ctx->filter_result = std::make_shared<std::vector<bool>>(
+            (reader->get_total_rows() + ConditionCacheContext::GRANULE_SIZE - 1) /
+                            ConditionCacheContext::GRANULE_SIZE +
+                    1,
+            false);
+    reader->set_condition_cache_context(cache_ctx);
+    EXPECT_EQ(cache_ctx->base_granule, 0);
+    EXPECT_EQ(cache_ctx->num_granules, 2);
+
+    bool eof = false;
+    size_t result_rows = 0;
+    while (!eof) {
+        Block block = build_file_block(schema);
+        size_t rows = 0;
+        ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+        result_rows += rows;
+    }
+
+    EXPECT_EQ(result_rows, 4500);
+    ASSERT_NE(cache_ctx->filter_result, nullptr);
+    EXPECT_EQ(cache_ctx->num_granules, 4);
+    ASSERT_EQ(cache_ctx->filter_result->size(), 4);
+    EXPECT_TRUE((*cache_ctx->filter_result)[0]);
+    EXPECT_TRUE((*cache_ctx->filter_result)[1]);
+    EXPECT_TRUE((*cache_ctx->filter_result)[2]);
+    EXPECT_TRUE((*cache_ctx->filter_result)[3]);
+    EXPECT_EQ(reader->reader_statistics().filtered_row_groups, 1);
+    EXPECT_EQ(reader->reader_statistics().filtered_group_rows, ROWS_PER_STRIPE);
 }
 
 TEST_F(NewOrcReaderTest, SargConjunctReturnsEofWhenAllStripesArePruned) {
