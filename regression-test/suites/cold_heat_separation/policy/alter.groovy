@@ -132,7 +132,7 @@ suite("alter_policy") {
         // AWS_CONNECTION_TIMEOUT_MS
         assertEquals(show_alter_result[5][3], "2222")
         // AWS_ENDPOINT
-        assertEquals(show_alter_result[6][3], "11111111")
+        assertEquals(show_alter_result[6][3], "https://11111111")
         // AWS_REGION
         assertEquals(show_alter_result[7][3], "8888")
         // s3_rootpath
