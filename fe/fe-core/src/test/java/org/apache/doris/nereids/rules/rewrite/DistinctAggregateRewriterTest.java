@@ -22,15 +22,27 @@ import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.nereids.rules.analysis.LogicalSubQueryAliasToLogicalProject;
 import org.apache.doris.nereids.rules.rewrite.DistinctAggregateRewriter.Strategy;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AIAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctCount;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctGroupConcat;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Percentile;
+import org.apache.doris.nereids.trees.expressions.functions.agg.PercentileApprox;
+import org.apache.doris.nereids.trees.expressions.functions.agg.PercentileApproxWeighted;
+import org.apache.doris.nereids.trees.expressions.functions.agg.PercentileArray;
+import org.apache.doris.nereids.trees.expressions.functions.agg.PercentileReservoir;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum0;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
+import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.types.DoubleType;
+import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.qe.SessionVariable;
@@ -246,6 +258,58 @@ public class DistinctAggregateRewriterTest extends TestWithFeService implements 
     }
 
     @Test
+    void testPercentileDistinctIgnoresRequiredConstantArguments() {
+        SlotReference input = new SlotReference("input", DoubleType.INSTANCE);
+        DoubleLiteral quantile = new DoubleLiteral(0.5);
+
+        Assertions.assertEquals(ImmutableList.of(input),
+                new Percentile(true, input, quantile).getDistinctArguments());
+        Assertions.assertEquals(ImmutableList.of(input),
+                new PercentileApprox(true, input, quantile, new IntegerLiteral(2048)).getDistinctArguments());
+        Assertions.assertEquals(ImmutableList.of(input),
+                new PercentileArray(true, input,
+                        new ArrayLiteral(ImmutableList.of(quantile, new DoubleLiteral(0.8))))
+                        .getDistinctArguments());
+        Assertions.assertEquals(ImmutableList.of(input),
+                new PercentileReservoir(true, input, quantile).getDistinctArguments());
+    }
+
+    @Test
+    void testDistinctAggregatePreservesNonLiteralConstantArguments() {
+        assertRewriteSuccess(
+                "select percentile(distinct a, cast('0.5' as double)) from test.distinct_agg_split_t");
+        assertRewriteSuccess(
+                "select percentile_approx(distinct a, cast('0.5' as double), cast('2048' as double)) "
+                        + "from test.distinct_agg_split_t");
+        assertRewriteSuccess(
+                "select percentile_array(distinct a, array(cast('0.5' as double), cast('0.8' as double))) "
+                        + "from test.distinct_agg_split_t");
+        assertRewriteSuccess(
+                "select percentile_reservoir(distinct a, cast('0.5' as double)) "
+                        + "from test.distinct_agg_split_t");
+    }
+
+    @Test
+    void testPercentileApproxWeightedDistinctStillRejectsMultiColumnDistinct() {
+        SlotReference input = new SlotReference("input", DoubleType.INSTANCE);
+        SlotReference weight = new SlotReference("weight", DoubleType.INSTANCE);
+        DoubleLiteral quantile = new DoubleLiteral(0.5);
+
+        Assertions.assertEquals(ImmutableList.of(input, weight, quantile),
+                new PercentileApproxWeighted(true, input, weight, quantile).getDistinctArguments());
+    }
+
+    @Test
+    void testAIAggDistinctIgnoresResourceAndTaskArguments() {
+        SlotReference input = new SlotReference("input", StringType.INSTANCE);
+        AIAgg aiAgg = new AIAgg(new StringLiteral("resource"), input, new StringLiteral("task"))
+                .withDistinctAndChildren(true, ImmutableList.of(
+                        new StringLiteral("resource"), input, new StringLiteral("task")));
+
+        Assertions.assertEquals(ImmutableList.of(input), aiAgg.getDistinctArguments());
+    }
+
+    @Test
     void testChooseStrategyWithoutStatsSatisfyDistribution() throws Exception {
         DistinctAggregateRewriter rewriter = DistinctAggregateRewriter.INSTANCE;
         LogicalAggregate<? extends Plan> aggregate = getLogicalAggregate(
@@ -351,6 +415,12 @@ public class DistinctAggregateRewriterTest extends TestWithFeService implements 
         Optional<LogicalAggregate<? extends Plan>> aggregate = findAggregate(plan);
         Assertions.assertTrue(aggregate.isPresent());
         return aggregate.get();
+    }
+
+    private void assertRewriteSuccess(String sql) {
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite();
     }
 
     private Optional<LogicalAggregate<? extends Plan>> findAggregate(Plan plan) {

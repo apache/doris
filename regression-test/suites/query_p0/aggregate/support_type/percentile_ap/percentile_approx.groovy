@@ -77,6 +77,7 @@ suite("percentile_approx") {
     qt_percentile_approx_largeint """select percentile_approx(col_largeint, 0.5) from d_table;"""
     qt_percentile_approx_float """select percentile_approx(col_float, 0.5) from d_table;"""
     qt_percentile_approx_double """select percentile_approx(col_double, 0.5) from d_table;"""
+    qt_percentile_approx_distinct_const_arg """select percentile_approx(distinct col_double, cast('0.5' as double), cast('2048' as double)) from d_table;"""
 
     test {
         sql """select percentile_approx(col_double, -0.1) from d_table;"""

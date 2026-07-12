@@ -138,6 +138,9 @@
 8.5
 8
 
+-- !select_percentile_reservoir_distinct_const_arg --
+1
+
 -- !bool_and --
 false
 
@@ -449,4 +452,3 @@ true
 
 -- !maxminby_array_7 --
 [[3, 4], [3, 4]]	[[1, 2], [3, 4]]
-

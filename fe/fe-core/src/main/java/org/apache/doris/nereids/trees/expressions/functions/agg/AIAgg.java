@@ -52,17 +52,31 @@ public class AIAgg extends NullableAggregateFunction
     );
 
     /**
-     * constructor with 1 argument.
+     * Constructor with default resource.
      */
     public AIAgg(Expression arg0, Expression arg1) {
         this(new StringLiteral(getResourceName()), arg0, arg1);
     }
 
     /**
-     * constructor with 2 argument.
+     * Constructor with default resource and distinct.
+     */
+    public AIAgg(boolean distinct, Expression arg0, Expression arg1) {
+        this(distinct, new StringLiteral(getResourceName()), arg0, arg1);
+    }
+
+    /**
+     * Constructor with explicit resource.
      */
     public AIAgg(Expression arg0, Expression arg1, Expression arg2) {
-        super("ai_agg", false, false, arg0, arg1, arg2);
+        this(false, arg0, arg1, arg2);
+    }
+
+    /**
+     * Constructor with explicit resource and distinct.
+     */
+    public AIAgg(boolean distinct, Expression arg0, Expression arg1, Expression arg2) {
+        super("ai_agg", distinct, false, arg0, arg1, arg2);
     }
 
     /**
@@ -104,6 +118,11 @@ public class AIAgg extends NullableAggregateFunction
         Preconditions.checkArgument(children.size() == 3,
                 "AI_AGG only accept two or three parameters");
         return new AIAgg(getFunctionParams(distinct, children));
+    }
+
+    @Override
+    public List<Expression> getDistinctArguments() {
+        return distinct ? ImmutableList.of(getArgument(1)) : ImmutableList.of();
     }
 
     @Override
