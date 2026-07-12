@@ -33,6 +33,7 @@
 #include <optional>
 #include <set>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "core/data_type/data_type_number.h"
@@ -156,7 +157,19 @@ public:
     using NativeType = typename ParquetDType::c_type;
 
     TestColumnIndex(NativeType min_value, NativeType max_value)
-            : _min_values {min_value}, _max_values {max_value} {}
+            : TestColumnIndex(std::vector<NativeType> {min_value},
+                              std::vector<NativeType> {max_value}) {}
+
+    TestColumnIndex(std::vector<NativeType> min_values, std::vector<NativeType> max_values)
+            : _null_pages(min_values.size(), false),
+              _null_counts(min_values.size(), 0),
+              _min_values(std::move(min_values)),
+              _max_values(std::move(max_values)) {
+        EXPECT_EQ(_min_values.size(), _max_values.size());
+        for (size_t page_idx = 0; page_idx < _min_values.size(); ++page_idx) {
+            _non_null_page_indices.push_back(static_cast<int32_t>(page_idx));
+        }
+    }
 
     const std::vector<bool>& null_pages() const override { return _null_pages; }
     const std::vector<std::string>& encoded_min_values() const override { return _encoded_values; }
@@ -173,10 +186,10 @@ public:
     const std::vector<NativeType>& max_values() const override { return _max_values; }
 
 private:
-    const std::vector<bool> _null_pages {false};
+    const std::vector<bool> _null_pages;
     const std::vector<std::string> _encoded_values;
-    const std::vector<int64_t> _null_counts {0};
-    const std::vector<int32_t> _non_null_page_indices {0};
+    const std::vector<int64_t> _null_counts;
+    std::vector<int32_t> _non_null_page_indices;
     const std::vector<NativeType> _min_values;
     const std::vector<NativeType> _max_values;
 };
@@ -517,7 +530,7 @@ TEST(ParquetStatisticsTransformTest, IgnoresNaNFloatAndDoubleColumnIndexMinMax) 
     auto float_index = std::make_shared<TestColumnIndex<::parquet::FloatType>>(
             1.0F, std::numeric_limits<float>::quiet_NaN());
     format::parquet::ParquetColumnStatistics float_page_stats;
-    EXPECT_FALSE(format::parquet::ParquetStatisticsUtils::TransformColumnIndexStatistics(
+    EXPECT_TRUE(format::parquet::ParquetStatisticsUtils::TransformColumnIndexStatistics(
             float_index, *schema[0], 0, &float_page_stats));
     EXPECT_FALSE(float_page_stats.has_min_max);
     EXPECT_TRUE(float_page_stats.has_not_null);
@@ -525,7 +538,7 @@ TEST(ParquetStatisticsTransformTest, IgnoresNaNFloatAndDoubleColumnIndexMinMax) 
     auto double_index = std::make_shared<TestColumnIndex<::parquet::DoubleType>>(
             std::numeric_limits<double>::quiet_NaN(), 2.0);
     format::parquet::ParquetColumnStatistics double_page_stats;
-    EXPECT_FALSE(format::parquet::ParquetStatisticsUtils::TransformColumnIndexStatistics(
+    EXPECT_TRUE(format::parquet::ParquetStatisticsUtils::TransformColumnIndexStatistics(
             double_index, *schema[1], 0, &double_page_stats));
     EXPECT_FALSE(double_page_stats.has_min_max);
     EXPECT_TRUE(double_page_stats.has_not_null);
@@ -535,6 +548,21 @@ TEST(ParquetStatisticsTransformTest, IgnoresNaNFloatAndDoubleColumnIndexMinMax) 
     EXPECT_TRUE(format::parquet::ParquetStatisticsUtils::TransformColumnIndexStatistics(
             finite_index, *schema[1], 0, &finite_page_stats));
     EXPECT_TRUE(finite_page_stats.has_min_max);
+
+    auto mixed_index = std::make_shared<TestColumnIndex<::parquet::DoubleType>>(
+            std::vector<double> {std::numeric_limits<double>::quiet_NaN(), 1.0},
+            std::vector<double> {std::numeric_limits<double>::quiet_NaN(), 2.0});
+    format::parquet::ParquetColumnStatistics nan_page_stats;
+    EXPECT_TRUE(format::parquet::ParquetStatisticsUtils::TransformColumnIndexStatistics(
+            mixed_index, *schema[1], 0, &nan_page_stats));
+    EXPECT_FALSE(nan_page_stats.has_min_max);
+
+    format::parquet::ParquetColumnStatistics following_page_stats;
+    EXPECT_TRUE(format::parquet::ParquetStatisticsUtils::TransformColumnIndexStatistics(
+            mixed_index, *schema[1], 1, &following_page_stats));
+    EXPECT_TRUE(following_page_stats.has_min_max);
+    EXPECT_EQ(following_page_stats.min_value.get<TYPE_DOUBLE>(), 1.0);
+    EXPECT_EQ(following_page_stats.max_value.get<TYPE_DOUBLE>(), 2.0);
 }
 
 TEST(ParquetStatisticsPruningTest, ExprZonemapPredicatesAndNullPredicatesPruneRowGroups) {
