@@ -32,14 +32,6 @@ namespace doris::format {
 Status JniTableReader::init(TableReadOptions&& options) {
     RETURN_IF_ERROR(TableReader::init(std::move(options)));
     _init_profile();
-
-    // JNI readers do not go through TableReader::open_reader(), where file-local filters are
-    // prepared for file readers. They execute table-level conjuncts directly on the JNI block.
-    RowDescriptor row_desc;
-    for (const auto& conjunct : _conjuncts) {
-        RETURN_IF_ERROR(conjunct->prepare(_runtime_state, row_desc));
-        RETURN_IF_ERROR(conjunct->open(_runtime_state));
-    }
     return Status::OK();
 }
 
@@ -54,6 +46,13 @@ Status JniTableReader::prepare_split(const SplitReadOptions& options) {
     DORIS_CHECK(!_scanner_opened);
     if (_is_table_level_count_active()) {
         return Status::OK();
+    }
+    // JNI readers do not go through TableReader::open_reader(), where native readers prepare
+    // file-local filters. Prepare the fresh per-split snapshot before it filters JNI blocks.
+    RowDescriptor row_desc;
+    for (const auto& conjunct : _conjuncts) {
+        RETURN_IF_ERROR(conjunct->prepare(_runtime_state, row_desc));
+        RETURN_IF_ERROR(conjunct->open(_runtime_state));
     }
     // Subclasses populate split-specific scanner params before calling this method, so the Java
     // scanner can be opened here instead of being lazily opened by the first get_block() call.
