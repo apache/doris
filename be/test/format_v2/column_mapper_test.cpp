@@ -3486,6 +3486,44 @@ TEST_F(ColumnMapperCastTest, ColumnMapperCastsLiteralForLiteralSlotPredicateType
     file_request.conjuncts[0]->close();
 }
 
+// Scenario: a fractional table literal cannot be localized to an integral file type without
+// changing the predicate boundary, so the mapper must cast the file slot instead.
+TEST_F(ColumnMapperCastTest, ColumnMapperRejectsLossyBinaryLiteralConversion) {
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_NAME});
+    auto table_column = name_col("value", f64());
+    std::vector<ColumnDefinition> projected_columns {table_column};
+
+    auto file_field = name_col("value", i32(), 0);
+    std::vector<ColumnDefinition> file_schema {file_field};
+
+    auto status = mapper.create_mapping(projected_columns, {}, file_schema);
+    ASSERT_TRUE(status.ok()) << status;
+
+    auto predicate = binary_predicate(
+            TExprOpcode::LT, VSlotRef::create_shared(0, 0, -1, table_column.type, "value"),
+            VLiteral::create_shared(table_column.type, Field::create_field<TYPE_DOUBLE>(1.5)));
+    TableFilter table_filter;
+    table_filter.conjunct = VExprContext::create_shared(predicate);
+    table_filter.global_indices = {GlobalIndex(0)};
+
+    FileScanRequest file_request;
+    ASSERT_TRUE(mapper.create_scan_request({table_filter}, projected_columns, &file_request, &state)
+                        .ok());
+    ASSERT_EQ(file_request.conjuncts.size(), 1);
+    const auto& localized_expr = file_request.conjuncts[0]->root();
+    ASSERT_EQ(localized_expr->get_num_children(), 2);
+    const auto& localized_slot_cast = localized_expr->children()[0];
+    ASSERT_NE(dynamic_cast<const Cast*>(localized_slot_cast.get()), nullptr);
+    EXPECT_TRUE(localized_slot_cast->data_type()->equals(*table_column.type));
+    ASSERT_EQ(localized_slot_cast->get_num_children(), 1);
+    const auto* localized_slot =
+            assert_cast<const VSlotRef*>(localized_slot_cast->children()[0].get());
+    EXPECT_EQ(localized_slot->column_id(), 0);
+    EXPECT_TRUE(localized_slot->data_type()->equals(*file_field.type));
+    EXPECT_TRUE(localized_expr->children()[1]->is_literal());
+    EXPECT_TRUE(localized_expr->children()[1]->data_type()->equals(*table_column.type));
+}
+
 // Scenario: IN predicate literals are all rewritten to file type when every literal conversion is safe.
 TEST_F(ColumnMapperCastTest, ColumnMapperCastsInPredicateLiteralsForTypeMismatch) {
     TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_NAME});
@@ -3522,6 +3560,48 @@ TEST_F(ColumnMapperCastTest, ColumnMapperCastsInPredicateLiteralsForTypeMismatch
     EXPECT_TRUE(localized_expr->children()[1]->data_type()->equals(*file_field.type));
     EXPECT_TRUE(localized_expr->children()[2]->is_literal());
     EXPECT_TRUE(localized_expr->children()[2]->data_type()->equals(*file_field.type));
+}
+
+// Scenario: one lossy IN literal prevents the entire predicate from being localized to file type.
+TEST_F(ColumnMapperCastTest, ColumnMapperRejectsLossyInPredicateLiteralConversion) {
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_NAME});
+    auto table_column = name_col("value", f64());
+    std::vector<ColumnDefinition> projected_columns {table_column};
+
+    auto file_field = name_col("value", i32(), 0);
+    std::vector<ColumnDefinition> file_schema {file_field};
+
+    auto status = mapper.create_mapping(projected_columns, {}, file_schema);
+    ASSERT_TRUE(status.ok()) << status;
+
+    auto predicate = create_in_predicate();
+    predicate->add_child(VSlotRef::create_shared(0, 0, -1, table_column.type, "value"));
+    predicate->add_child(
+            VLiteral::create_shared(table_column.type, Field::create_field<TYPE_DOUBLE>(1.0)));
+    predicate->add_child(
+            VLiteral::create_shared(table_column.type, Field::create_field<TYPE_DOUBLE>(1.5)));
+    TableFilter table_filter;
+    table_filter.conjunct = VExprContext::create_shared(predicate);
+    table_filter.global_indices = {GlobalIndex(0)};
+
+    FileScanRequest file_request;
+    ASSERT_TRUE(mapper.create_scan_request({table_filter}, projected_columns, &file_request, &state)
+                        .ok());
+    ASSERT_EQ(file_request.conjuncts.size(), 1);
+    const auto& localized_expr = file_request.conjuncts[0]->root();
+    ASSERT_EQ(localized_expr->get_num_children(), 3);
+    const auto& localized_slot_cast = localized_expr->children()[0];
+    ASSERT_NE(dynamic_cast<const Cast*>(localized_slot_cast.get()), nullptr);
+    EXPECT_TRUE(localized_slot_cast->data_type()->equals(*table_column.type));
+    ASSERT_EQ(localized_slot_cast->get_num_children(), 1);
+    const auto* localized_slot =
+            assert_cast<const VSlotRef*>(localized_slot_cast->children()[0].get());
+    EXPECT_EQ(localized_slot->column_id(), 0);
+    EXPECT_TRUE(localized_slot->data_type()->equals(*file_field.type));
+    EXPECT_TRUE(localized_expr->children()[1]->is_literal());
+    EXPECT_TRUE(localized_expr->children()[1]->data_type()->equals(*table_column.type));
+    EXPECT_TRUE(localized_expr->children()[2]->is_literal());
+    EXPECT_TRUE(localized_expr->children()[2]->data_type()->equals(*table_column.type));
 }
 
 // Scenario: IN predicate falls back to casting the file slot when any literal cannot be converted safely.
