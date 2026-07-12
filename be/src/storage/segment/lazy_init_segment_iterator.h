@@ -40,7 +40,9 @@ public:
     Status next_batch(Block* block) override {
         if (UNLIKELY(_need_lazy_init)) {
             RETURN_IF_ERROR(init(_read_options));
-            DCHECK(_inner_iterator != nullptr);
+        }
+        if (_inner_iterator == nullptr) {
+            return Status::EndOfFile("segment not found, skipped");
         }
 
         return _inner_iterator->next_batch(block);
@@ -49,6 +51,9 @@ public:
     const Schema& schema() const override { return *_schema; }
 
     Status current_block_row_locations(std::vector<RowLocation>* locations) override {
+        if (_inner_iterator == nullptr) {
+            return Status::EndOfFile("no segment loaded");
+        }
         return _inner_iterator->current_block_row_locations(locations);
     }
 

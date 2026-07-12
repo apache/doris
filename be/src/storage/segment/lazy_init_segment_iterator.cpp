@@ -17,6 +17,7 @@
 
 #include "storage/segment/lazy_init_segment_iterator.h"
 
+#include "storage/rowset/beta_rowset.h"
 #include "storage/segment/segment_loader.h"
 
 namespace doris::segment_v2 {
@@ -40,8 +41,16 @@ Status LazyInitSegmentIterator::init(const StorageReadOptions& opts) {
     std::shared_ptr<Segment> segment;
     {
         SegmentCacheHandle segment_cache_handle;
-        RETURN_IF_ERROR(SegmentLoader::instance()->load_segment(
-                _rowset, _segment_id, &segment_cache_handle, _should_use_cache, false, opts.stats));
+        auto st = SegmentLoader::instance()->load_segment(
+                _rowset, _segment_id, &segment_cache_handle, _should_use_cache, false, opts.stats);
+        if ((st.is<ErrorCode::NOT_FOUND>() || st.is<ErrorCode::IO_ERROR>()) &&
+            config::ignore_not_found_segment) {
+            LOG(WARNING) << "segment io error, skip it. rowset_id=" << _rowset->rowset_id()
+                         << ", seg_id=" << _segment_id << ", status=" << st;
+            // _inner_iterator remains nullptr, next_batch() will return EOF
+            return Status::OK();
+        }
+        RETURN_IF_ERROR(st);
         const auto& tmp_segments = segment_cache_handle.get_segments();
         segment = tmp_segments[0];
     }
