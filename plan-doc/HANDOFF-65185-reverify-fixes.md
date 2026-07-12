@@ -36,7 +36,7 @@ HMS 翻闸（catalog 类型 `hms` 从旧代码切到插件 SPI）后，第三方
 | 批次 1 | M5/M7/M6/M4/M2 中危（连接器局部：iceberg×3 + mc + hive） | ✅ 全 DONE + 最终复核 CLEAN |
 | 批次 2 | M3→M1 中危(fe-core 通用节点) | ✅ 全 DONE |
 | **批次 3** | **L1(import 门禁) + M8(发布工具/文档)** | **✅ L1 DONE;M8 ⏸ 用户跳过(07-12)** |
-| 批次 4 | 低危连接器 L3–L20（trino/kerberos/mc/paimon/iceberg） | 🔄 trino L3-L6 ✅ · kerberos L7/L8 ✅;**← 续 mc L9** |
+| 批次 4 | 低危连接器 L3–L20（trino/kerberos/mc/paimon/iceberg） | 🔄 trino L3-L6 ✅ · kerberos L7/L8 ✅ · mc L9 ✅;**← 续 paimon L11/L13/L14** |
 | 决策类 | L2 / L10 / L12 / L20 | ⏸ 先用中文讲清背景问用户再动 |
 | 设计债 | D-系列 | ⏸ 择机 / 随 P8 |
 
