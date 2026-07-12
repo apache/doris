@@ -5,12 +5,14 @@
 
 ---
 
-# 🆕 本 session（hudi s3a BE-scan 读）= 2 fix DONE，e2e 待用户自跑
+# 🆕 本 session（对象存储读修复）= hudi 2 fix + hive 1 fix DONE，e2e 待用户自跑
 
 > 用户按最新代码重跑 = **14 个 hudi p2 suite 全失败**（唯 `test_hudi_meta` 过）。两类错误签名、同一主题：新 fe-connector hudi BE-scan 路径**没把 catalog 的 S3 storageProperties 接到 BE**（相对 legacy `HudiScanNode` 的 parity gap，**非环境/非文案**）。两个独立接线缺口，各独立 commit：
 > - **native `Invalid S3 URI: s3a://` (10 suite)** = `a26eaf46b9f`：BE `S3URI` 只认 `s3/http/https`，连接器把原始 `s3a://` 直发 `TFileRangeDesc.path`。修=连接器侧 `context.normalizeStorageUri` 归一化**native** range `.path()`（镜像 iceberg/paimon），**三处** native emitter：`collectCowSplits`/`buildMorRange`/**`COWIncrementalRelation.collectSplits`(COW @incr，红队补的第三处)**；JNI `THudiFileDesc` 路径留原始 `s3a://`。
 > - **JNI `NoAuthWithAWSException` (4 suite)** = `19a8098b3e7`：`getScanNodeProperties` 只发 AWS_*(native)+s3. 别名，漏发翻译后的 `fs.s3a.*`。修=补 `storageHadoopConfig(context)` 以 `location.` 前缀下发。
 > **验证**：fe-connector-hudi 全模块 **175/175 UT 绿、0 checkstyle**（含 3 个新 RED-then-GREEN 单测）。设计+摘要 `designs/FIX-hudi-s3a-{native-scheme,jni-creds}-{design,summary}.md`、task-list、红队 `wf_67162858-b79`(RCA)+`wf_4e4ec1d7-d4f`(设计对抗 GO_WITH_FIXES)。**e2e 待用户自跑（须先重编/重部署 FE 连接器 jar）**：14 个 `external_table_p2/hudi/` suite 全绿门；`test_hudi_catalog` 等含 `force_jni_scanner=true` 子查询者两条路径都要过。
+>
+> **hive 同类隐患一并修（用户点单）** = `f22f8223033`：**plain-hive 对象存储读**两个缺口(红队顺带发现)：① native `.path()` 不归一化(`splitFile`/`newRangeBuilder`+ACID 路径)→`Invalid S3 URI`;② `getScanNodeProperties` 只发原始 `s3.` 别名、**漏发 legacy 的 canonical `AWS_*`**(`getBackendStorageProperties`,BE `s3_util.cpp:146-148` 只认 AWS_*)→私有桶 403。修=`normalizeNativeUri`(镜像 hive 自己的写路径+hudi)+补发 canonical creds。hive **无 JNI**故无 fs.s3a 那半。**本地测不到**(hive docker=HDFS;hive-s3 套件是 p2 真云)→**仅单测验证**(fe-connector-hive **328/328 绿**、2 新 RED-able 单测)。设计+摘要 `designs/FIX-hive-s3a-read-{design,summary}.md`。**e2e 待用户自跑**：真实 s3/oss hive 表(native 不再 Invalid S3 URI、私有桶不再 403);**HDFS hive 套件是 creds 改动的 parity 回归守卫**(canonical 发的正是 legacy 所发)。
 
 ---
 
