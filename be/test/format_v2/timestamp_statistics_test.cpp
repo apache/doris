@@ -37,6 +37,9 @@ TEST(TimestampStatisticsTest, DetectsBackwardTimezoneTransitionsInUtcRange) {
 
     // The 2021 spring transition at 07:00 UTC skips civil values but preserves ordering.
     EXPECT_TRUE(utc_timestamp_range_is_monotonic(1615703400, 1615707000, new_york));
+
+    // Corrupt external statistics must disable pruning instead of asserting in the BE.
+    EXPECT_FALSE(utc_timestamp_range_is_monotonic(2, 1, new_york));
 }
 
 TEST(TimestampStatisticsTest, FloorsNegativeEpochFractions) {

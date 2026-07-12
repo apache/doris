@@ -39,7 +39,12 @@ inline int64_t floor_epoch_seconds(int64_t value, int64_t units_per_second) {
 // safely form a ZoneMap: the true civil minimum or maximum may occur inside the UTC interval.
 inline bool utc_timestamp_range_is_monotonic(int64_t min_seconds, int64_t max_seconds,
                                              const cctz::time_zone& timezone) {
-    DORIS_CHECK(min_seconds <= max_seconds);
+    // These endpoints come from external file metadata. An inverted range is corrupt rather than
+    // a valid precondition violation, so report it as unusable statistics and let every caller
+    // take its conservative scan/fallback path instead of terminating the BE.
+    if (min_seconds > max_seconds) {
+        return false;
+    }
     auto current = cctz::time_point<cctz::seconds>(cctz::seconds(min_seconds));
     const auto range_end = cctz::time_point<cctz::seconds>(cctz::seconds(max_seconds));
     cctz::time_zone::civil_transition transition;

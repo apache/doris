@@ -422,17 +422,17 @@ protected:
 
     Status _evaluate_constant_filters(bool* can_filter_all) {
         DORIS_CHECK(can_filter_all != nullptr);
+        DORIS_CHECK_LE(_constant_pruning_safe_filter_count, _table_filters.size());
         *can_filter_all = false;
-        for (const auto& table_filter : _table_filters) {
+        // The bound was derived from the original `_conjuncts` order, which includes slotless
+        // expressions omitted from `_table_filters`. Iterating only this prefix therefore cannot
+        // skip an unsafe row-level predicate and pre-execute a later constant predicate.
+        for (size_t i = 0; i < _constant_pruning_safe_filter_count; ++i) {
+            const auto& table_filter = _table_filters[i];
             if (table_filter.conjunct == nullptr) {
                 continue;
             }
-            // Constant pruning must preserve a safe prefix of the row-level conjunct order. Once
-            // an unsafe predicate is reached, evaluating any later constant predicate could hide
-            // its error or other row-level behavior by pruning the split first.
-            if (!_is_safe_to_pre_execute(table_filter.conjunct)) {
-                break;
-            }
+            DORIS_CHECK(_is_safe_to_pre_execute(table_filter.conjunct));
             // RuntimeFilterExpr does not implement execute_column_impl(); it is evaluated by the
             // row-level filter path through execute_filter(). Constant split pruning uses
             // VExprContext::execute() on a one-row synthetic block, so runtime filters must not be
@@ -619,6 +619,7 @@ protected:
             _data_reader.column_mapper.reset();
         }
         _table_filters.clear();
+        _constant_pruning_safe_filter_count = 0;
         _data_reader.file_schema.clear();
         _data_reader.file_block_layout.clear();
         _data_reader.block_template.clear();
@@ -1525,6 +1526,10 @@ protected:
     std::map<std::string, Field> _partition_values;
     // Predicates built from scan conjuncts before file-level localization.
     std::vector<TableFilter> _table_filters;
+    // Number of localized filters before the first unsafe conjunct in the original row-level
+    // order. This differs from scanning `_table_filters` for safety because slotless predicates are
+    // intentionally absent from that vector but must still act as ordering barriers.
+    size_t _constant_pruning_safe_filter_count = 0;
     VExprContextSPtrs _conjuncts;
     ReadProfile _profile;
     // Parsed from row-position based delete files, including position delete and deletion vector.

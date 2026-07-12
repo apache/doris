@@ -1328,6 +1328,56 @@ TEST(TableReaderTest, ConstantPruningStopsAtUnsafePredicate) {
     ASSERT_TRUE(reader.close().ok());
 }
 
+TEST(TableReaderTest, ConstantPruningStopsAtUnsafeSlotlessPredicate) {
+    std::vector<ColumnDefinition> projected_columns;
+    auto partition_column = make_table_column(0, "part", std::make_shared<DataTypeInt32>());
+    partition_column.is_partition_key = true;
+    projected_columns.push_back(std::move(partition_column));
+    set_name_identifiers(&projected_columns);
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    bool predicate_executed = false;
+    auto unsafe_slotless_predicate =
+            std::make_shared<NonDeterministicPartitionPredicate>(&predicate_executed);
+    auto fake_state = std::make_shared<FakeFileReaderState>();
+    FakeTableReader reader({}, fake_state);
+    ASSERT_TRUE(
+            reader
+                    .init({
+                            .projected_columns = projected_columns,
+                            .conjuncts =
+                                    {
+                                            prepared_conjunct(&state, unsafe_slotless_predicate),
+                                            prepared_conjunct(&state, table_int32_greater_than_expr(
+                                                                              0, 0, 10)),
+                                    },
+                            .format = FileFormat::PARQUET,
+                            .scan_params = nullptr,
+                            .io_ctx = nullptr,
+                            .runtime_state = &state,
+                            .scanner_profile = nullptr,
+                    })
+                    .ok());
+
+    SplitReadOptions split;
+    split.current_range.__set_path("fake-table-reader-input");
+    split.partition_values.emplace("part", Field::create_field<TYPE_INT>(7));
+    ASSERT_TRUE(reader.prepare_split(split).ok());
+
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    // The unsafe expression must reach normal row-level evaluation; it must not be hidden by the
+    // later false constant predicate pruning the split first.
+    EXPECT_TRUE(predicate_executed);
+    EXPECT_FALSE(eos);
+    // The later partition predicate is false for part=7. Opening the file proves constant pruning
+    // stopped at the earlier unsafe expression even though that expression had no slot and thus no
+    // entry in `_table_filters`.
+    EXPECT_EQ(fake_state->open_count, 1);
+    ASSERT_TRUE(reader.close().ok());
+}
+
 TEST(TableReaderTest, CanUseInjectedFileReaderForStandaloneUnitTest) {
     std::vector<ColumnDefinition> file_schema;
     file_schema.push_back(make_file_column(0, "id", std::make_shared<DataTypeInt32>()));

@@ -523,9 +523,23 @@ Status TableReader::init(TableReadOptions&& options) {
 
 Status TableReader::_build_table_filters_from_conjuncts() {
     _table_filters.clear();
+    _constant_pruning_safe_filter_count = 0;
+    bool in_safe_prefix = true;
     for (const auto& conjunct : _conjuncts) {
+        DORIS_CHECK(conjunct != nullptr);
+        DORIS_CHECK(conjunct->root() != nullptr);
+        // `_table_filters` omits expressions without slot references, but such an expression still
+        // occupies a position in the row-level conjunct order. Record how many localized filters
+        // precede the first unsafe original conjunct so constant pruning cannot jump over a
+        // slotless non-deterministic/error-preserving barrier.
+        if (in_safe_prefix && !_is_safe_to_pre_execute(conjunct)) {
+            in_safe_prefix = false;
+        }
         RETURN_IF_ERROR(
                 build_table_filters_from_conjunct(conjunct, _runtime_state, &_table_filters));
+        if (in_safe_prefix) {
+            _constant_pruning_safe_filter_count = _table_filters.size();
+        }
     }
     return Status::OK();
 }
