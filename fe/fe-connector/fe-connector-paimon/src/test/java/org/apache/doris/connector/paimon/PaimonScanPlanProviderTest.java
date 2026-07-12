@@ -962,6 +962,87 @@ public class PaimonScanPlanProviderTest {
         }
     }
 
+    @Test
+    public void jniAndCountRangesUseFileSuffixNotAlteredTableDefault(@TempDir Path warehouse) throws Exception {
+        // FIX-L11: the JNI-serialized split (default reader path) and the COUNT(*) collapse range must derive
+        // file_format from the split's FIRST data-file SUFFIX (legacy PaimonScanNode.getFileFormat(getPathString)
+        // -> dataSplitFileFormat), NOT the table-level file.format option. These DIVERGE for an altered /
+        // mixed-format table: the option is changed to parquet while historical data files remain .orc. HEAD
+        // regressed to emitting the bare table default, so BE's paimon_cpp_reader would backfill the WRONG
+        // format for those files. WHY it matters: unlike jniAndCountRangesCarryRealFileFormatNotJni (where the
+        // table default == the .orc suffix, so it cannot distinguish default from suffix), this test forces a
+        // mismatch and thus is the one that actually goes RED if the emission points revert to defaultFileFormat.
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            Identifier id = Identifier.create("db", "t");
+            catalog.createTable(id, Schema.newBuilder()
+                    .column("pt", DataTypes.INT())
+                    .column("id", DataTypes.INT())
+                    .column("val", DataTypes.BIGINT())
+                    .partitionKeys("pt")
+                    .primaryKey("pt", "id")
+                    .option("bucket", "1")
+                    .option("file.format", "orc")   // on-disk data files are written as .orc
+                    .build(), false);
+            Table table = catalog.getTable(id);
+            BatchWriteBuilder wb = table.newBatchWriteBuilder();
+            try (BatchTableWrite write = wb.newWrite()) {
+                write.write(GenericRow.of(1, 1, 100L));
+                write.write(GenericRow.of(1, 2, 200L));
+                List<CommitMessage> messages = write.prepareCommit();
+                try (BatchTableCommit commit = wb.newCommit()) {
+                    commit.commit(messages);
+                }
+            }
+
+            // Overlay file.format=parquet as a dynamic option: the table now REPORTS parquet as its default
+            // (the connector reads table.options().file.format at plan time), while the committed data files
+            // stay .orc. copy() overlays read-time options only; it does NOT rewrite the on-disk files, and
+            // reads still decode each file by its own recorded format.
+            Table altered = table.copy(Collections.singletonMap("file.format", "parquet"));
+            Assertions.assertEquals("parquet", altered.options().get("file.format"),
+                    "precondition: the altered table default must be parquet (distinct from the .orc files)");
+
+            RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+            ops.table = altered;
+            PaimonScanPlanProvider provider = new PaimonScanPlanProvider(Collections.emptyMap(), ops);
+            PaimonTableHandle handle = new PaimonTableHandle(
+                    "db", "t", Collections.emptyList(), Collections.emptyList());
+            List<ConnectorColumnHandle> noColumns = Collections.emptyList();
+
+            // (a) JNI data range: force_jni routes the .orc split to buildJniScanRange. Its file_format must be
+            // "orc" (the real data-file suffix), NOT "parquet" (the altered table default).
+            ConnectorSession forceJni = sessionWithProps(
+                    Collections.singletonMap("force_jni_scanner", "true"));
+            List<ConnectorScanRange> jniRanges = provider.planScan(
+                    forceJni, handle, noColumns, Optional.empty(), -1, null, /*countPushdown*/ false);
+            Assertions.assertFalse(jniRanges.isEmpty(), "force_jni scan must emit >=1 JNI range");
+            for (ConnectorScanRange r : jniRanges) {
+                Assertions.assertTrue(r.getProperties().containsKey("paimon.split"),
+                        "force_jni_scanner=true must route the split to the JNI path");
+                // MUTATION: buildJniScanRange .fileFormat(defaultFileFormat) -> "parquet" -> red.
+                Assertions.assertEquals("orc", ((PaimonScanRange) r).getFileFormat(),
+                        "a JNI range must carry the real data-file suffix (orc), not the altered table default");
+            }
+
+            // (b) COUNT(*) collapse range (buildCountRange): same suffix-over-default requirement.
+            ConnectorSession plain = sessionWithProps(Collections.emptyMap());
+            List<ConnectorScanRange> countRanges = provider.planScan(
+                    plain, handle, noColumns, Optional.empty(), -1, null, /*countPushdown*/ true);
+            PaimonScanRange countRange = null;
+            for (ConnectorScanRange r : countRanges) {
+                if (r.getProperties().containsKey("paimon.row_count")) {
+                    countRange = (PaimonScanRange) r;
+                }
+            }
+            Assertions.assertNotNull(countRange, "count pushdown must emit a collapsed count range");
+            // MUTATION: buildCountRange .fileFormat(defaultFileFormat) -> "parquet" -> red.
+            Assertions.assertEquals("orc", countRange.getFileFormat(),
+                    "the COUNT(*) collapse range must carry the real data-file suffix (orc), not the altered default");
+        }
+    }
+
     // ---- FIX-NATIVE-SUBSPLIT (M-3) ----
 
     private static final long MB = 1024L * 1024L;

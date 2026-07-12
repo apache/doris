@@ -804,13 +804,18 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
 
         String serializedSplit = encodeSplit(split, cppReader);
 
-        // FIX-JNI-FILE-FORMAT (P7-1): emit the real data-file format (orc/parquet), NOT "jni". JNI routing
-        // is gated by the paimon.split property (PaimonScanRange.populateRangeParams), so this string only
-        // feeds fileDesc.file_format, which BE's paimon_cpp_reader backfills into FILE_FORMAT/MANIFEST_FORMAT
-        // (an invalid "jni" breaks the manifest read). Mirrors legacy PaimonScanNode.setPaimonParams's
-        // fileDesc.setFileFormat(getFileFormat(...)).
+        // FIX-JNI-FILE-FORMAT (P7-1) + FIX-L11: emit the real data-file format (orc/parquet/avro), NOT "jni".
+        // JNI routing is gated by the paimon.split property (PaimonScanRange.populateRangeParams), so this
+        // string only feeds fileDesc.file_format, which BE's paimon_cpp_reader backfills into
+        // FILE_FORMAT/MANIFEST_FORMAT (an invalid "jni" breaks the manifest read). Mirrors legacy
+        // PaimonScanNode.setPaimonParams's fileDesc.setFileFormat(getFileFormat(getPathString())): for a
+        // DataSplit the format is the FIRST data-file suffix (falling back to the table default); a
+        // non-DataSplit has no data file and falls back to the table default (legacy DUMMY_PATH -> orElse).
+        String fileFormat = isDataSplit
+                ? dataSplitFileFormat((DataSplit) split, defaultFileFormat)
+                : defaultFileFormat;
         return new PaimonScanRange.Builder()
-                .fileFormat(defaultFileFormat)
+                .fileFormat(fileFormat)
                 .paimonSplit(serializedSplit)
                 // FIX-READER-TYPE (3645dc94306): lockstep with encodeSplit above — PAIMON_CPP iff we
                 // native-serialized a DataSplit for the paimon-cpp reader, else PAIMON_JNI.
@@ -844,9 +849,10 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             String defaultFileFormat, Map<String, String> partitionValues, boolean cppReader, long rowCount,
             long weightDenominator) {
         String serializedSplit = encodeSplit(dataSplit, cppReader);
-        // FIX-JNI-FILE-FORMAT (P7-1): real data-file format, not "jni" (see buildJniScanRange).
+        // FIX-JNI-FILE-FORMAT (P7-1) + FIX-L11: real data-file format from the first data-file suffix, not
+        // "jni" and not the bare table default (see buildJniScanRange / dataSplitFileFormat).
         return new PaimonScanRange.Builder()
-                .fileFormat(defaultFileFormat)
+                .fileFormat(dataSplitFileFormat(dataSplit, defaultFileFormat))
                 .paimonSplit(serializedSplit)
                 // FIX-READER-TYPE (3645dc94306): dataSplit is always a DataSplit here, so cpp-reader
                 // serialization (hence PAIMON_CPP) is chosen iff the flag is on — matches encodeSplit above.
@@ -1179,12 +1185,31 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         return options;
     }
 
+    /**
+     * The real data-file format of a {@link DataSplit}: the suffix of its FIRST data file (legacy
+     * {@code PaimonSplit} path = {@code "/" + dataFiles().get(0).fileName()}), falling back to the table
+     * default when the suffix is unrecognized or the split carries no data file. Ports legacy
+     * {@code PaimonScanNode.getFileFormat(getPathString())} for the JNI/COUNT arms, where HEAD had regressed
+     * to the bare table-level {@code file.format} default (wrong when the option differs from the on-disk
+     * files, e.g. an altered/mixed-format table). Package-private static so the suffix-over-default decision
+     * is unit-testable, like {@link #isCountPushdownSplit} / {@link #computeFileSplitOffsets}.
+     */
+    static String dataSplitFileFormat(DataSplit dataSplit, String defaultFileFormat) {
+        List<DataFileMeta> files = dataSplit.dataFiles();
+        if (files == null || files.isEmpty()) {
+            return defaultFileFormat;
+        }
+        return getFileFormatBySuffix("/" + files.get(0).fileName()).orElse(defaultFileFormat);
+    }
+
     private static Optional<String> getFileFormatBySuffix(String path) {
         if (path == null) {
             return Optional.empty();
         }
         String lower = path.toLowerCase();
-        if (lower.endsWith(".orc")) {
+        if (lower.endsWith(".avro")) {
+            return Optional.of("avro");
+        } else if (lower.endsWith(".orc")) {
             return Optional.of("orc");
         } else if (lower.endsWith(".parquet") || lower.endsWith(".parq")) {
             return Optional.of("parquet");
