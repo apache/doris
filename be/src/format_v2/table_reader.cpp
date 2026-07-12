@@ -605,6 +605,9 @@ Status TableReader::_init_reader_condition_cache(const FileScanRequest& file_req
         _condition_cache_ctx = std::make_shared<ConditionCacheContext>();
         _condition_cache_ctx->is_hit = condition_cache_hit;
         _condition_cache_ctx->filter_result = _condition_cache;
+        if (condition_cache_hit) {
+            _condition_cache_ctx->base_granule = handle.get_base_granule();
+        }
         _data_reader.reader->set_condition_cache_context(_condition_cache_ctx);
     }
     return Status::OK();
@@ -624,8 +627,8 @@ void TableReader::_finalize_reader_condition_cache() {
         _condition_cache_ctx = nullptr;
         return;
     }
-    segment_v2::ConditionCache::instance()->insert(_condition_cache_key,
-                                                   std::move(_condition_cache));
+    segment_v2::ConditionCache::instance()->insert(
+            _condition_cache_key, std::move(_condition_cache), _condition_cache_ctx->base_granule);
     _condition_cache = nullptr;
     _condition_cache_ctx = nullptr;
 }

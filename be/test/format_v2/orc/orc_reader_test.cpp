@@ -5455,6 +5455,7 @@ TEST_F(NewOrcReaderTest, ConditionCacheHitUsesSplitBaseGranule) {
     auto ctx = std::make_shared<ConditionCacheContext>();
     ctx->is_hit = true;
     const auto base_granule = stripe_first_row / ConditionCacheContext::GRANULE_SIZE;
+    ctx->base_granule = static_cast<int64_t>(base_granule);
     const auto last_granule = (stripe_first_row + layout[stripe_index].rows - 1) /
                               ConditionCacheContext::GRANULE_SIZE;
     ctx->filter_result = std::make_shared<std::vector<bool>>(last_granule - base_granule + 1, true);

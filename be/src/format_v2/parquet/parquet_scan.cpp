@@ -605,9 +605,9 @@ void ParquetScanScheduler::set_condition_cache_context(std::shared_ptr<Condition
         return;
     }
 
-    _condition_cache_ctx->base_granule =
-            _row_group_plans.front().first_file_row / ConditionCacheContext::GRANULE_SIZE;
     if (!_condition_cache_ctx->is_hit) {
+        _condition_cache_ctx->base_granule =
+                _row_group_plans.front().first_file_row / ConditionCacheContext::GRANULE_SIZE;
         return;
     }
 

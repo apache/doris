@@ -975,6 +975,7 @@ struct FakeFileReaderState {
     int close_count = 0;
     int64_t total_rows = 2;
     int64_t aggregate_count = -1;
+    int64_t condition_cache_base_granule = 0;
     bool eof_with_first_batch = true;
     bool inject_delete_conjunct = false;
     bool stop_during_aggregate = false;
@@ -1105,6 +1106,9 @@ public:
 
     void set_condition_cache_context(std::shared_ptr<ConditionCacheContext> ctx) override {
         _state->condition_cache_ctx = std::move(ctx);
+        if (_state->condition_cache_ctx != nullptr && !_state->condition_cache_ctx->is_hit) {
+            _state->condition_cache_ctx->base_granule = _state->condition_cache_base_granule;
+        }
     }
 
     int64_t get_total_rows() const override { return _state->total_rows; }
@@ -1843,6 +1847,7 @@ TEST(TableReaderTest, ConditionCacheMissPublishesBitmapAfterReaderEof) {
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     auto fake_state = std::make_shared<FakeFileReaderState>();
     fake_state->total_rows = ConditionCacheContext::GRANULE_SIZE;
+    fake_state->condition_cache_base_granule = 7;
     FakeTableReader reader(file_schema, fake_state);
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
@@ -1874,6 +1879,7 @@ TEST(TableReaderTest, ConditionCacheMissPublishesBitmapAfterReaderEof) {
     ASSERT_NE(cached_bitmap, nullptr);
     ASSERT_FALSE(cached_bitmap->empty());
     EXPECT_TRUE((*cached_bitmap)[0]);
+    EXPECT_EQ(handle.get_base_granule(), 7);
 
     ASSERT_TRUE(reader.close().ok());
 }

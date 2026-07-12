@@ -80,6 +80,9 @@ public:
     class CacheValue : public LRUCacheValueBase {
     public:
         std::shared_ptr<std::vector<bool>> filter_result;
+        // The bitmap coordinate system is part of the cached result. A later scan may prune a
+        // different first row group, so it must not derive this origin from its current plan.
+        int64_t base_granule = 0;
     };
 
     // Cache key for external tables (Hive ORC/Parquet)
@@ -135,7 +138,8 @@ public:
     bool lookup(const KeyType& key, ConditionCacheHandle* handle);
 
     template <typename KeyType>
-    void insert(const KeyType& key, std::shared_ptr<std::vector<bool>> filter_result);
+    void insert(const KeyType& key, std::shared_ptr<std::vector<bool>> filter_result,
+                int64_t base_granule = 0);
 };
 
 class ConditionCacheHandle {
@@ -170,6 +174,11 @@ public:
             return nullptr;
         }
         return ((ConditionCache::CacheValue*)_cache->value(_handle))->filter_result;
+    }
+
+    int64_t get_base_granule() const {
+        DORIS_CHECK(_cache != nullptr);
+        return ((ConditionCache::CacheValue*)_cache->value(_handle))->base_granule;
     }
 
 private:

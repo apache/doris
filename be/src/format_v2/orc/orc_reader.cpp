@@ -889,7 +889,8 @@ void OrcReader::set_condition_cache_context(std::shared_ptr<ConditionCacheContex
     DORIS_CHECK(_state != nullptr);
     _state->condition_cache_ctx = std::move(ctx);
     if (_state->condition_cache_ctx != nullptr &&
-        _state->condition_cache_ctx->filter_result != nullptr) {
+        _state->condition_cache_ctx->filter_result != nullptr &&
+        !_state->condition_cache_ctx->is_hit) {
         _state->condition_cache_ctx->base_granule = static_cast<int64_t>(
                 _state->row_reader_range_first_row / ConditionCacheContext::GRANULE_SIZE);
     }

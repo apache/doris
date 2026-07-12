@@ -537,6 +537,28 @@ TEST_F(ParquetScanTest, PlanRowGroupsSelectsAllRowGroupsWithoutFilters) {
     }
 }
 
+TEST(ParquetScanConditionCacheTest, HitKeepsCachedBaseWhenCurrentPlanStartsLater) {
+    format::parquet::RowGroupScanPlan plan;
+    plan.row_groups.push_back(
+            {.row_group_id = 1,
+             .first_file_row = ConditionCacheContext::GRANULE_SIZE,
+             .row_group_rows = ConditionCacheContext::GRANULE_SIZE,
+             .selected_ranges = {{.start = 0, .length = ConditionCacheContext::GRANULE_SIZE}},
+             .page_skip_plans = {}});
+
+    format::parquet::ParquetScanScheduler scheduler;
+    scheduler.set_plan(std::move(plan));
+    auto ctx = std::make_shared<ConditionCacheContext>();
+    ctx->is_hit = true;
+    ctx->base_granule = 0;
+    ctx->filter_result = std::make_shared<std::vector<bool>>(std::vector<bool> {false, true});
+    scheduler.set_condition_cache_context(ctx);
+
+    EXPECT_FALSE(scheduler.empty());
+    EXPECT_EQ(scheduler.condition_cache_filtered_rows(), 0);
+    EXPECT_EQ(ctx->base_granule, 0);
+}
+
 TEST_F(ParquetScanTest, PageIndexIntersectsMultipleFiltersAndBuildsSkipPlan) {
     write_page_index_pair_parquet_file(_file_path);
     auto parquet_file_reader = ::parquet::ParquetFileReader::OpenFile(_file_path, false);
