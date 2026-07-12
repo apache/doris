@@ -255,9 +255,14 @@ suite("test_paimon_mtmv", "p0,external,mtmv,external_docker,external_docker_dori
         """
     def showNullPartitionsResult = sql """show partitions from ${mvName}"""
     logger.info("showNullPartitionsResult: " + showNullPartitionsResult.toString())
+    // null_partition holds four region variants that must stay four distinct MV partitions:
+    //   'bj' -> p_bj, 'null' -> p_null, 'NULL' -> p_NULL (literal strings), and the genuine-NULL region
+    //   (paimon variant B) -> pn_NULL. The real NULL and the literal 'NULL' string both stripped to the name
+    //   p_NULL before, colliding on CREATE; the pn_ prefix (see MTMVPartitionUtil) keeps them distinct.
     assertTrue(showNullPartitionsResult.toString().contains("p_null"))
     assertTrue(showNullPartitionsResult.toString().contains("p_NULL"))
     assertTrue(showNullPartitionsResult.toString().contains("p_bj"))
+    assertTrue(showNullPartitionsResult.toString().contains("pn_NULL"))
     sql """
             REFRESH MATERIALIZED VIEW ${mvName} auto;
         """
