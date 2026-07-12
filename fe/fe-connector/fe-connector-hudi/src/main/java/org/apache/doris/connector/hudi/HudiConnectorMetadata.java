@@ -91,6 +91,12 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
     // Catalog property gating the partition-name source (mirrors legacy HMSExternalTable.USE_HIVE_SYNC_PARTITION).
     private static final String USE_HIVE_SYNC_PARTITION = "use_hive_sync_partition";
 
+    // fe-core SPI schema property marking which emitted columns are partition columns (CSV of RAW partition-key
+    // names, in declaration order). Mirrors HiveConnectorMetadata.PARTITION_COLUMNS_PROPERTY; fe-core derives the
+    // partition-column set SOLELY from this key (PluginDrivenExternalTable.toSchemaCacheValue). Without it every
+    // partitioned Hudi table is read as UNPARTITIONED -> wrong pruning/row-count and MTMV "not partition table".
+    private static final String PARTITION_COLUMNS_PROPERTY = "partition_columns";
+
     // Hive-canonical partition text for a DATETIME/TIMESTAMP literal: space separator, full seconds. See
     // hiveDateTimeString / extractLiteralValue (H2: String.valueOf(LocalDateTime) would yield ISO "…T…" and drop
     // zero seconds, never matching the stored Hive partition value).
@@ -349,8 +355,16 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
             columns = getSchemaFromHms(hudiHandle.getDbName(), hudiHandle.getTableName());
         }
 
-        Map<String, String> tableProperties = Collections.singletonMap(
-                "hudi.table.type", hudiHandle.getHudiTableType());
+        Map<String, String> tableProperties = new HashMap<>();
+        tableProperties.put("hudi.table.type", hudiHandle.getHudiTableType());
+        // Stamp the partition-column marker fe-core needs to model the table as partitioned (parity with the OLD
+        // HMSExternalTable/HudiDlaTable path, which read the HMS partition keys). The keys already live on the
+        // handle (getTableHandle -> tableInfo.getPartitionKeys()); emit them as the RAW-name CSV, matching the
+        // schema column names (the partition columns are appended to `columns` by both schema sources).
+        List<String> partitionKeyNames = hudiHandle.getPartitionKeyNames();
+        if (partitionKeyNames != null && !partitionKeyNames.isEmpty()) {
+            tableProperties.put(PARTITION_COLUMNS_PROPERTY, String.join(",", partitionKeyNames));
+        }
         return new ConnectorTableSchema(
                 hudiHandle.getTableName(), columns, "HUDI", tableProperties);
     }
