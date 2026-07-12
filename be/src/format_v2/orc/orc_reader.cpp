@@ -525,10 +525,10 @@ bool set_timestamp_zone_map(const ::orc::ColumnStatistics& statistics,
         !timestamp_statistics->hasMaximum()) {
         return false;
     }
-    const auto min_endpoint = std::pair(timestamp_statistics->getMinimum(),
-                                        timestamp_statistics->getMinimumNanos());
-    const auto max_endpoint = std::pair(timestamp_statistics->getMaximum(),
-                                        timestamp_statistics->getMaximumNanos());
+    const auto min_endpoint =
+            std::pair(timestamp_statistics->getMinimum(), timestamp_statistics->getMinimumNanos());
+    const auto max_endpoint =
+            std::pair(timestamp_statistics->getMaximum(), timestamp_statistics->getMaximumNanos());
     if (min_endpoint > max_endpoint) {
         return false;
     }

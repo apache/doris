@@ -652,10 +652,10 @@ TEST(ParquetStatisticsTransformTest, IgnoresNaNFloatAndDoubleColumnIndexMinMax) 
 
 TEST(ParquetStatisticsTransformTest, IgnoresInvertedFooterAndColumnIndexMinMax) {
     auto table = arrow::Table::Make(
-            arrow::schema({arrow::field("i", arrow::int32(), false),
-                           arrow::field("s", arrow::utf8(), false),
-                           arrow::field("ts", arrow::timestamp(arrow::TimeUnit::MICRO, "UTC"),
-                                        false)}),
+            arrow::schema(
+                    {arrow::field("i", arrow::int32(), false),
+                     arrow::field("s", arrow::utf8(), false),
+                     arrow::field("ts", arrow::timestamp(arrow::TimeUnit::MICRO, "UTC"), false)}),
             {int32_array({1, 2}), string_array({"a", "z"}), timestamp_array({1000000, 2000000})});
     auto reader = make_reader(table, 2, false, true);
     auto schema = build_file_schema(*reader);
@@ -681,8 +681,8 @@ TEST(ParquetStatisticsTransformTest, IgnoresInvertedFooterAndColumnIndexMinMax) 
     EXPECT_TRUE(converted_string.has_not_null);
     EXPECT_FALSE(converted_string.has_min_max);
 
-    auto int_index = std::make_shared<TestColumnIndex<::parquet::Int32Type>>(inverted_min,
-                                                                            inverted_max);
+    auto int_index =
+            std::make_shared<TestColumnIndex<::parquet::Int32Type>>(inverted_min, inverted_max);
     format::parquet::ParquetColumnStatistics page_stats;
     EXPECT_TRUE(format::parquet::ParquetStatisticsUtils::TransformColumnIndexStatistics(
             int_index, *schema[0], 0, &page_stats));
@@ -694,8 +694,8 @@ TEST(ParquetStatisticsTransformTest, IgnoresInvertedFooterAndColumnIndexMinMax) 
     constexpr int64_t timestamp_min = 1500000;
     constexpr int64_t timestamp_max = 1000000;
     auto timestamp_stats = ::parquet::MakeStatistics<::parquet::Int64Type>(
-            schema[2]->descriptor, encoded_value(timestamp_min), encoded_value(timestamp_max), 2,
-            0, 0, true, true, false);
+            schema[2]->descriptor, encoded_value(timestamp_min), encoded_value(timestamp_max), 2, 0,
+            0, true, true, false);
     auto utc = cctz::utc_time_zone();
     const auto converted_timestamp =
             format::parquet::ParquetStatisticsUtils::TransformColumnStatistics(
