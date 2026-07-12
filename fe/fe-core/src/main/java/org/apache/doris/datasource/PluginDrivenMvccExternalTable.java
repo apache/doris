@@ -273,7 +273,8 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
                 // The connector already renders values (incl. dates) into getPartitionName(), so
                 // building from the rendered name is byte-parity with legacy. Partition values may be
                 // malformed; catch to avoid affecting the query (parity generatePartitionInfo).
-                nameToPartitionItem.put(partitionName, toListPartitionItem(partitionName, types));
+                nameToPartitionItem.put(partitionName,
+                        toListPartitionItem(partitionName, types, part.getPartitionValueNullFlags()));
             } catch (Exception e) {
                 LOG.warn("toListPartitionItem failed, partitionColumns: {}, partitionName: {}",
                         partitionColumns, partitionName, e);
@@ -286,28 +287,36 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
     }
 
     /**
-     * Builds a {@link ListPartitionItem} from a RENDERED partition name (e.g. {@code "dt=2024-01-01"}).
-     * Copied verbatim from legacy {@code PaimonUtil.toListPartitionItem}; it is source-agnostic.
+     * Builds a {@link ListPartitionItem} from a RENDERED partition name (e.g. {@code "dt=2024-01-01"}) and the
+     * connector-supplied per-value SQL-NULL flags. Source-agnostic: the connector — not fe-core — decides which
+     * values are genuine NULL.
+     *
+     * <p>Each parsed value {@code i} builds {@code new PartitionValue(value, nullFlags.get(i))}. A connector that
+     * renders a genuine-NULL partition value (hive's {@code __HIVE_DEFAULT_PARTITION__}, paimon's
+     * {@code partition.default-name}) supplies {@code true} for that position, so
+     * {@link PartitionKey#createListPartitionKeyWithTypes} emits a typed {@code NullLiteral} instead of parsing
+     * the sentinel string into the column type — which for a non-string column (INT/DATE/...) would throw and
+     * silently drop the partition (table then mis-reported UNPARTITIONED, {@code partition=0/0}). The genuine-null
+     * partition then prunes on {@code col IS NULL} and an MTMV refresh materializes its null rows. A connector
+     * that supplies no flags ({@code nullFlags} empty) treats every value as non-null — unchanged behavior for
+     * connectors that do not opt in. {@code fe-core} never string-compares a sentinel (iron rule): hive and paimon
+     * render the identical {@code __HIVE_DEFAULT_PARTITION__} string with connector-specific NULL semantics, so
+     * nullness must be connector-supplied.
      */
-    private static ListPartitionItem toListPartitionItem(String partitionName, List<Type> types)
-            throws AnalysisException {
+    private static ListPartitionItem toListPartitionItem(String partitionName, List<Type> types,
+            List<Boolean> nullFlags) throws AnalysisException {
         // Partition name will be in format: nation=cn/city=beijing
         // parse it to get values "cn" and "beijing"
         List<String> partitionValues = HiveUtil.toPartitionValues(partitionName);
         Preconditions.checkState(partitionValues.size() == types.size(), partitionName + " vs. " + types);
+        // Fail loud: a connector that opts in MUST supply one flag per value; a short list would silently
+        // default the tail to isNull=false and re-introduce the drop bug. Empty = not opted in = OK.
+        Preconditions.checkState(nullFlags.isEmpty() || nullFlags.size() == types.size(),
+                "nullFlags " + nullFlags + " vs. " + types);
         List<PartitionValue> values = Lists.newArrayListWithExpectedSize(types.size());
-        for (String partitionValue : partitionValues) {
-            // Master parity (PaimonUtil.toListPartitionItem: `new PartitionValue(value, false)`): every
-            // partition value — including a genuine-NULL value the connector rendered via its sentinel
-            // (e.g. paimon's partition.default-name normalized to __HIVE_DEFAULT_PARTITION__) — builds a
-            // NON-null (isNull=false) partition value. So the genuine-null partition is a plain
-            // StringLiteral; an MTMV refresh emits `col IN ('<sentinel>')` which the scan's genuine SQL-NULL
-            // rows never match (the null rows are dropped from the MV, like master), and its MTMV name is
-            // derived from the sentinel (distinct from a literal 'NULL' partition — no p_NULL collision).
-            // `col IS NULL` still returns the genuine-null rows: the paimon scan is predicate-driven and the
-            // connector opts out of the FE prune-to-zero short-circuit (see Connector capability consulted by
-            // PluginDrivenScanNode.resolveRequiredPartitions), so the SDK re-plans with the pushed predicate.
-            values.add(new PartitionValue(partitionValue, false));
+        for (int i = 0; i < partitionValues.size(); i++) {
+            boolean isNull = i < nullFlags.size() && nullFlags.get(i);
+            values.add(new PartitionValue(partitionValues.get(i), isNull));
         }
         PartitionKey key = PartitionKey.createListPartitionKeyWithTypes(values, types, true);
         return new ListPartitionItem(Lists.newArrayList(key));

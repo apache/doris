@@ -17,7 +17,9 @@
 
 package org.apache.doris.connector.api;
 
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
@@ -36,6 +38,16 @@ public final class ConnectorPartitionInfo {
     private final long sizeBytes;
     private final long lastModifiedMillis;
     private final long fileCount;
+    /**
+     * Per-partition-value SQL-NULL flags, positionally aligned to the values parsed out of
+     * {@link #partitionName} (i.e. flag {@code i} describes the {@code i}-th {@code key=value} segment).
+     * Empty means "no value is NULL" — a connector that does not opt in leaves it empty and the
+     * fe-core partition-item builder treats every value as non-null (unchanged behavior). A connector
+     * that renders a genuine-NULL partition value (e.g. hive's {@code __HIVE_DEFAULT_PARTITION__} or
+     * paimon's {@code partition.default-name}) sets the corresponding flag {@code true} so fe-core builds
+     * a typed {@code NullLiteral} instead of parsing the sentinel string into the column type.
+     */
+    private final List<Boolean> partitionValueNullFlags;
 
     /**
      * Backward-compatible constructor. Numeric stats fields are set to
@@ -48,10 +60,31 @@ public final class ConnectorPartitionInfo {
                 UNKNOWN, UNKNOWN, UNKNOWN, UNKNOWN);
     }
 
+    /**
+     * Convenience constructor for a partition with unknown numeric stats but connector-supplied
+     * per-value NULL flags (e.g. hive, which lists names only).
+     */
+    public ConnectorPartitionInfo(String partitionName,
+            Map<String, String> partitionValues,
+            Map<String, String> properties,
+            List<Boolean> partitionValueNullFlags) {
+        this(partitionName, partitionValues, properties,
+                UNKNOWN, UNKNOWN, UNKNOWN, UNKNOWN, partitionValueNullFlags);
+    }
+
     public ConnectorPartitionInfo(String partitionName,
             Map<String, String> partitionValues,
             Map<String, String> properties,
             long rowCount, long sizeBytes, long lastModifiedMillis, long fileCount) {
+        this(partitionName, partitionValues, properties,
+                rowCount, sizeBytes, lastModifiedMillis, fileCount, Collections.emptyList());
+    }
+
+    public ConnectorPartitionInfo(String partitionName,
+            Map<String, String> partitionValues,
+            Map<String, String> properties,
+            long rowCount, long sizeBytes, long lastModifiedMillis, long fileCount,
+            List<Boolean> partitionValueNullFlags) {
         this.partitionName = Objects.requireNonNull(
                 partitionName, "partitionName");
         this.partitionValues = partitionValues == null
@@ -64,6 +97,9 @@ public final class ConnectorPartitionInfo {
         this.sizeBytes = sizeBytes;
         this.lastModifiedMillis = lastModifiedMillis;
         this.fileCount = fileCount;
+        this.partitionValueNullFlags = partitionValueNullFlags == null
+                ? Collections.emptyList()
+                : Collections.unmodifiableList(new ArrayList<>(partitionValueNullFlags));
     }
 
     public String getPartitionName() {
@@ -98,6 +134,14 @@ public final class ConnectorPartitionInfo {
         return fileCount;
     }
 
+    /**
+     * @return per-value SQL-NULL flags positionally aligned to the {@link #partitionName} value parse;
+     *     empty when the connector did not opt in (no value is NULL). Unmodifiable.
+     */
+    public List<Boolean> getPartitionValueNullFlags() {
+        return partitionValueNullFlags;
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) {
@@ -113,13 +157,14 @@ public final class ConnectorPartitionInfo {
                 && fileCount == that.fileCount
                 && partitionName.equals(that.partitionName)
                 && partitionValues.equals(that.partitionValues)
-                && properties.equals(that.properties);
+                && properties.equals(that.properties)
+                && partitionValueNullFlags.equals(that.partitionValueNullFlags);
     }
 
     @Override
     public int hashCode() {
         return Objects.hash(partitionName, partitionValues, properties,
-                rowCount, sizeBytes, lastModifiedMillis, fileCount);
+                rowCount, sizeBytes, lastModifiedMillis, fileCount, partitionValueNullFlags);
     }
 
     @Override
@@ -128,6 +173,7 @@ public final class ConnectorPartitionInfo {
                 + "', values=" + partitionValues
                 + ", rowCount=" + rowCount
                 + ", sizeBytes=" + sizeBytes
-                + ", fileCount=" + fileCount + "}";
+                + ", fileCount=" + fileCount
+                + ", nullFlags=" + partitionValueNullFlags + "}";
     }
 }

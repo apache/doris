@@ -162,6 +162,38 @@ public class HiveConnectorMetadataPartitionListTest {
                 "an unpartitioned table must not call the metastore");
     }
 
+    @Test
+    public void listPartitionsMarksHiveDefaultSentinelNull() {
+        // A genuine-NULL partition on the `year` column: HMS renders it as year=__HIVE_DEFAULT_PARTITION__.
+        // The connector must supply isNull=true for that value (byte-parity with legacy
+        // HiveExternalMetaCache:309) and false for the ordinary `month` value, positionally aligned to the
+        // name parse fe-core re-runs -> fe-core builds a typed NullLiteral for `year` (INT/DATE-safe).
+        FakeHmsClient client = new FakeHmsClient(Collections.singletonList(
+                "year=__HIVE_DEFAULT_PARTITION__/month=01"));
+        List<ConnectorPartitionInfo> parts =
+                metadata(client).listPartitions(null, partitionedHandle(), Optional.empty());
+        // MUTATION: dropping the flag (empty list) or marking the wrong position -> red.
+        Assertions.assertEquals(Arrays.asList(true, false),
+                parts.get(0).getPartitionValueNullFlags(),
+                "year (sentinel) -> null flag true; month -> false");
+        // The raw value string is still carried (the flag, not the string, drives nullness downstream).
+        Assertions.assertEquals("__HIVE_DEFAULT_PARTITION__", parts.get(0).getPartitionValues().get("year"));
+        // Stats stay UNKNOWN — the opt-in flag must not perturb the names-only contract.
+        Assertions.assertEquals(ConnectorPartitionInfo.UNKNOWN, parts.get(0).getLastModifiedMillis());
+    }
+
+    @Test
+    public void listPartitionsMarksNoNullForOrdinaryValues() {
+        // Regression floor: ordinary partitions get all-false flags (no value is the sentinel), so fe-core
+        // builds plain typed literals exactly as before this fix.
+        FakeHmsClient client = new FakeHmsClient(PARTITIONS);
+        List<ConnectorPartitionInfo> parts =
+                metadata(client).listPartitions(null, partitionedHandle(), Optional.empty());
+        for (ConnectorPartitionInfo part : parts) {
+            Assertions.assertEquals(Arrays.asList(false, false), part.getPartitionValueNullFlags());
+        }
+    }
+
     /**
      * Minimal {@link HmsClient} double: {@code listPartitionNames} returns a fixed list and records the
      * requested {@code maxParts}; {@code getPartitions} fails loud (the per-partition round-trip this path

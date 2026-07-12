@@ -20,6 +20,7 @@ package org.apache.doris.connector.api;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.Arrays;
 import java.util.Collections;
 
 /**
@@ -73,5 +74,58 @@ public class ConnectorPartitionInfoTest {
         // file count would be (wrongly) treated as equal. MUTATION: omitting fileCount from
         // equals()/hashCode() -> a.equals(differByFileCount) -> red.
         Assertions.assertNotEquals(a, differByFileCount);
+    }
+
+    @Test
+    public void nullFlagsCtorsCarryPerValueNullFlags() {
+        // 4-arg convenience ctor (hive: UNKNOWN stats + connector-supplied per-value NULL flags).
+        ConnectorPartitionInfo hive = new ConnectorPartitionInfo(
+                "year=__HIVE_DEFAULT_PARTITION__/month=01", Collections.emptyMap(), Collections.emptyMap(),
+                Arrays.asList(true, false));
+        // WHY: fe-core zips getPartitionValueNullFlags() index-for-index with the parsed values to decide
+        // NullLiteral vs typed literal, so the order and values must round-trip. MUTATION: dropping the
+        // flags assignment (-> empty) or reordering -> red.
+        Assertions.assertEquals(Arrays.asList(true, false), hive.getPartitionValueNullFlags());
+        Assertions.assertEquals(ConnectorPartitionInfo.UNKNOWN, hive.getRowCount());
+
+        // 8-arg ctor (paimon: real stats + NULL flags).
+        ConnectorPartitionInfo paimon = new ConnectorPartitionInfo(
+                "region=__HIVE_DEFAULT_PARTITION__", Collections.emptyMap(), Collections.emptyMap(),
+                1L, 2L, 3L, 4L, Collections.singletonList(true));
+        Assertions.assertEquals(Collections.singletonList(true), paimon.getPartitionValueNullFlags());
+        Assertions.assertEquals(4L, paimon.getFileCount());
+    }
+
+    @Test
+    public void backwardCompatCtorsDefaultNullFlagsEmpty() {
+        // WHY: connectors that do not opt in (3-arg MaxCompute/iceberg, 7-arg hudi) must default the flags
+        // to empty so fe-core treats every value as non-null (unchanged behavior). MUTATION: defaulting to
+        // a non-empty list -> red. A null flags arg must normalize to empty (not NPE).
+        ConnectorPartitionInfo threeArg = new ConnectorPartitionInfo(
+                "p1", Collections.emptyMap(), Collections.emptyMap());
+        ConnectorPartitionInfo sevenArg = new ConnectorPartitionInfo(
+                "p1", Collections.emptyMap(), Collections.emptyMap(), 1L, 2L, 3L, 4L);
+        ConnectorPartitionInfo nullArg = new ConnectorPartitionInfo(
+                "p1", Collections.emptyMap(), Collections.emptyMap(), null);
+        Assertions.assertTrue(threeArg.getPartitionValueNullFlags().isEmpty());
+        Assertions.assertTrue(sevenArg.getPartitionValueNullFlags().isEmpty());
+        Assertions.assertTrue(nullArg.getPartitionValueNullFlags().isEmpty());
+    }
+
+    @Test
+    public void equalsAndHashCodeIncludeNullFlags() {
+        ConnectorPartitionInfo a = new ConnectorPartitionInfo(
+                "p1", Collections.emptyMap(), Collections.emptyMap(), Arrays.asList(true, false));
+        ConnectorPartitionInfo b = new ConnectorPartitionInfo(
+                "p1", Collections.emptyMap(), Collections.emptyMap(), Arrays.asList(true, false));
+        ConnectorPartitionInfo differByFlags = new ConnectorPartitionInfo(
+                "p1", Collections.emptyMap(), Collections.emptyMap(), Arrays.asList(false, false));
+
+        Assertions.assertEquals(a, b);
+        Assertions.assertEquals(a.hashCode(), b.hashCode());
+        // WHY: two partitions differing only in per-value nullness (a genuine-NULL value vs a literal
+        // value that happens to render the same string) must not compare equal. MUTATION: omitting
+        // nullFlags from equals()/hashCode() -> a.equals(differByFlags) -> red.
+        Assertions.assertNotEquals(a, differByFlags);
     }
 }

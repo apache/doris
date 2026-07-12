@@ -1044,16 +1044,22 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
         for (Partition partition : paimonPartitions) {
             Map<String, String> spec = partition.spec();
             StringBuilder sb = new StringBuilder();
+            // Per-value SQL-NULL flags, built in this SAME loop so flag i aligns with name segment i (which is
+            // how fe-core re-parses the rendered name positionally at PluginDrivenMvccExternalTable).
+            List<Boolean> nullFlags = new ArrayList<>(spec.size());
             for (Map.Entry<String, String> entry : spec.entrySet()) {
                 sb.append(entry.getKey()).append("=");
                 String value = entry.getValue();
-                if (defaultPartitionName.equals(value)) {
-                    // Genuine NULL partition value. Normalize the paimon sentinel to the Doris-canonical
-                    // null sentinel so the FE prune bridge (PluginDrivenMvccExternalTable.toListPartitionItem)
-                    // marks the partition isNull and `col IS NULL` selects it — aligning prune with the
-                    // native scan path, which already materializes it as SQL NULL from the typed Java-null.
-                    // Handled before the DATE branch so a null DATE partition renders the sentinel instead
-                    // of crashing on Integer.parseInt("__DEFAULT_PARTITION__").
+                boolean isNull = defaultPartitionName.equals(value);
+                nullFlags.add(isNull);
+                if (isNull) {
+                    // Genuine NULL partition value. Supply isNull=true so the FE bridge
+                    // (PluginDrivenMvccExternalTable.toListPartitionItem) builds a typed NullLiteral and
+                    // `col IS NULL` selects it (MTMV refresh materializes the null rows) — aligning prune with
+                    // the native scan path, which already materializes it as SQL NULL from the typed Java-null.
+                    // The name is still normalized to the Doris-canonical sentinel (partition-name identity is
+                    // preserved; the value string is ignored once the flag marks it null). Handled before the
+                    // DATE branch so a null DATE partition does not crash on Integer.parseInt("__DEFAULT_PARTITION__").
                     sb.append(ConnectorPartitionValues.HIVE_DEFAULT_PARTITION).append("/");
                 } else if (legacyName && dateColumns.contains(entry.getKey())) {
                     // When partition.legacy-name = true (default), Paimon stores DATE as days since
@@ -1076,7 +1082,8 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
                     partition.recordCount(),
                     partition.fileSizeInBytes(),
                     partition.lastFileCreationTime(),
-                    partition.fileCount()));
+                    partition.fileCount(),
+                    nullFlags));
         }
         return result;
     }

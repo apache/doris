@@ -54,6 +54,7 @@ import org.apache.doris.connector.api.pushdown.ConnectorFilterConstraint;
 import org.apache.doris.connector.api.pushdown.ConnectorIn;
 import org.apache.doris.connector.api.pushdown.ConnectorLiteral;
 import org.apache.doris.connector.api.pushdown.FilterApplicationResult;
+import org.apache.doris.connector.api.scan.ConnectorPartitionValues;
 import org.apache.doris.connector.hms.HiveShowCreateTableRenderer;
 import org.apache.doris.connector.hms.HmsClient;
 import org.apache.doris.connector.hms.HmsClientConfig;
@@ -1105,9 +1106,29 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
         for (String partitionName : partitionNames) {
             result.add(new ConnectorPartitionInfo(partitionName,
                     toPartitionValueMap(partitionName, partKeyNames),
-                    Collections.emptyMap()));
+                    Collections.emptyMap(),
+                    toPartitionValueNullFlags(partitionName)));
         }
         return result;
+    }
+
+    /**
+     * Per-value SQL-NULL flags for a rendered partition name, positionally aligned to
+     * {@link HiveWriteUtils#toPartitionValues} — the SAME parse fe-core re-runs at
+     * {@code PluginDrivenMvccExternalTable.toListPartitionItem}, so flag {@code i} zips to value {@code i}
+     * regardless of column casing/order (do NOT derive the order from the value map / partition-key names).
+     * A value equal to the HMS default-partition sentinel {@code __HIVE_DEFAULT_PARTITION__} is a genuine
+     * SQL NULL — byte-parity with legacy {@code HiveExternalMetaCache.toListPartitionItem}, which marks the
+     * sentinel (and only the sentinel) null; the broader {@code isNullPartitionValue} (which also treats
+     * {@code \N}/null as null) is deliberately not used (HMS partition names never carry {@code \N}).
+     */
+    private static List<Boolean> toPartitionValueNullFlags(String partitionName) {
+        List<String> values = HiveWriteUtils.toPartitionValues(partitionName);
+        List<Boolean> flags = new ArrayList<>(values.size());
+        for (String value : values) {
+            flags.add(ConnectorPartitionValues.HIVE_DEFAULT_PARTITION.equals(value));
+        }
+        return flags;
     }
 
     /**

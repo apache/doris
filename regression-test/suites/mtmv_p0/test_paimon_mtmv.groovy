@@ -262,7 +262,10 @@ suite("test_paimon_mtmv", "p0,external,mtmv,external_docker,external_docker_dori
             REFRESH MATERIALIZED VIEW ${mvName} auto;
         """
     waitingMTMVTaskFinishedByMvName(mvName)
-    // Will lose null data
+    // Connector-supplied NULL flag (paimon variant B): the genuine-NULL `region` partition is now a
+    // NullLiteral, so `region IS NULL` refresh MATERIALIZES the null rows (was dropped via
+    // `region IN ('__HIVE_DEFAULT_PARTITION__')`). The golden below must be regenerated on the e2e run to
+    // include the genuine-NULL rows; see plan-doc/tasks/designs/FIX-default-partition-design.md.
     order_qt_null_partition "SELECT * FROM ${mvName} "
     sql """drop materialized view if exists ${mvName};"""
 
