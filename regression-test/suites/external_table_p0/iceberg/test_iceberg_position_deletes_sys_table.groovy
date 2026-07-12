@@ -154,6 +154,36 @@ suite("test_iceberg_position_deletes_sys_table", "p0,external") {
             (5, 'e', 10),
             (6, 'f', 10) AS t(id, name, p);
         DELETE FROM demo.${dbName}.pd_partition_evolution WHERE id = 6;
+        DROP TABLE IF EXISTS demo.${dbName}.pd_partition_rename;
+        CREATE TABLE demo.${dbName}.pd_partition_rename (
+            id INT,
+            name STRING,
+            p INT
+        ) USING iceberg
+        PARTITIONED BY (p)
+        TBLPROPERTIES (
+            'format-version'='2',
+            'write.delete.mode'='merge-on-read',
+            'write.update.mode'='merge-on-read',
+            'write.merge.mode'='merge-on-read',
+            'write.distribution-mode'='none',
+            'write.target-file-size-bytes'='134217728'
+        );
+        INSERT INTO demo.${dbName}.pd_partition_rename
+        SELECT /*+ COALESCE(1) */ id, name, p FROM VALUES
+            (1, 'a', 10),
+            (2, 'b', 10),
+            (3, 'c', 20),
+            (4, 'd', 20) AS t(id, name, p);
+        DELETE FROM demo.${dbName}.pd_partition_rename WHERE id = 2;
+        -- Replacing an identity transform with the same transform and an alias renames the
+        -- partition field while preserving its Iceberg field ID.
+        ALTER TABLE demo.${dbName}.pd_partition_rename REPLACE PARTITION FIELD p WITH p AS p2;
+        INSERT INTO demo.${dbName}.pd_partition_rename
+        SELECT /*+ COALESCE(1) */ id, name, p FROM VALUES
+            (5, 'e', 10),
+            (6, 'f', 10) AS t(id, name, p);
+        DELETE FROM demo.${dbName}.pd_partition_rename WHERE id = 6;
         DROP TABLE IF EXISTS demo.${dbName}.pd_v3_unpartitioned;
         CREATE TABLE demo.${dbName}.pd_v3_unpartitioned (
             id INT,
@@ -388,6 +418,29 @@ suite("test_iceberg_position_deletes_sys_table", "p0,external") {
     assertEquals([[1, "a", 10], [3, "c", 20], [4, "d", 20], [5, "e", 10]],
             sql("""select * from pd_partition_evolution order by id"""))
 
+    assertPositionDeletesSchema("pd_partition_rename", true)
+    long partitionRenameCount = countRows("""select count(*) from pd_partition_rename\$position_deletes""")
+    order_qt_partition_rename_field """
+            select spec_id, struct_element(`partition`, 'p2')
+            from pd_partition_rename\$position_deletes
+            order by spec_id
+            """
+    List<List<Object>> sparkPartitionRenameRows = spark_iceberg """
+            select spec_id, partition.p2
+            from demo.${dbName}.pd_partition_rename.position_deletes
+            order by spec_id
+            """
+    List<List<Object>> dorisPartitionRenameRows = sql """
+            select spec_id, struct_element(`partition`, 'p2')
+            from pd_partition_rename\$position_deletes
+            order by spec_id
+            """
+    assertSparkDorisResultEquals(sparkPartitionRenameRows, dorisPartitionRenameRows)
+    assertEquals(partitionRenameCount, countRows("""
+            select count(*) from pd_partition_rename\$position_deletes
+            where struct_element(`partition`, 'p2') = 10
+            """))
+
     assertPositionDeletesSchema("pd_v3_unpartitioned", false, v3ExtraColumns)
     long v3UnpartitionedCount = countRows("""select count(*) from pd_v3_unpartitioned\$position_deletes""")
     assertEquals(1L, v3UnpartitionedCount)
@@ -493,6 +546,9 @@ suite("test_iceberg_position_deletes_sys_table", "p0,external") {
                 """select count(*) from pd_unpartitioned\$position_deletes where pos >= 0"""))
         assertEquals(partitionedCount, countRows(
                 """select count(*) from pd_partitioned\$position_deletes where `partition` is not null"""))
+        assertEquals(partitionRenameCount, countRows(
+                """select count(*) from pd_partition_rename\$position_deletes
+                        where struct_element(`partition`, 'p2') is not null"""))
         assertEquals(v3UnpartitionedCount, countRows(
                 """select count(*) from pd_v3_unpartitioned\$position_deletes
                         where content_offset >= 0 and content_size_in_bytes > 0"""))

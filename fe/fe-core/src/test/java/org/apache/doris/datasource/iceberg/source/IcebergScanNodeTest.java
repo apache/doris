@@ -28,16 +28,23 @@ import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TIcebergDeleteFileDesc;
 
 import org.apache.iceberg.DataFile;
+import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.FileScanTask;
+import org.apache.iceberg.PartitionData;
+import org.apache.iceberg.PartitionSpec;
+import org.apache.iceberg.Schema;
+import org.apache.iceberg.types.Types;
 import org.apache.iceberg.util.ScanTaskUtil;
 import org.junit.Assert;
 import org.junit.Test;
 import org.mockito.Mockito;
 
 import java.lang.reflect.Field;
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.List;
 
 public class IcebergScanNodeTest {
     private static final long MB = 1024L * 1024L;
@@ -142,5 +149,42 @@ public class IcebergScanNodeTest {
                 .getDeleteFiles()
                 .get(0);
         Assert.assertEquals(org.apache.doris.thrift.TFileFormatType.FORMAT_ORC, deleteFileDesc.getFileFormat());
+    }
+
+    @Test
+    public void testPartitionDataJsonMatchesRenamedFieldById() throws Exception {
+        SessionVariable sv = new SessionVariable();
+        TestIcebergScanNode node = new TestIcebergScanNode(sv);
+
+        Schema schema = new Schema(Types.NestedField.required(1, "p", Types.IntegerType.get()));
+        PartitionSpec oldSpec = PartitionSpec.builderFor(schema).identity("p").build();
+        PartitionData partitionData = new PartitionData(oldSpec.partitionType());
+        partitionData.set(0, 10);
+        int partitionFieldId = oldSpec.fields().get(0).fieldId();
+        List<Types.NestedField> outputPartitionFields = Collections.singletonList(
+                Types.NestedField.optional(partitionFieldId, "p2", Types.IntegerType.get()));
+
+        Method method = IcebergScanNode.class.getDeclaredMethod("getPartitionDataObjectJson",
+                PartitionData.class, PartitionSpec.class, List.class);
+        method.setAccessible(true);
+
+        Assert.assertEquals("{\"p2\":10}", method.invoke(node, partitionData, oldSpec, outputPartitionFields));
+    }
+
+    @Test
+    public void testRejectUnsupportedPositionDeleteFileFormat() throws Exception {
+        TestIcebergScanNode node = new TestIcebergScanNode(new SessionVariable());
+        Method method = IcebergScanNode.class.getDeclaredMethod(
+                "getNativePositionDeleteFileFormat", FileFormat.class);
+        method.setAccessible(true);
+
+        try {
+            method.invoke(node, FileFormat.AVRO);
+            Assert.fail("AVRO position delete files should be rejected explicitly");
+        } catch (InvocationTargetException e) {
+            Assert.assertTrue(e.getCause() instanceof UnsupportedOperationException);
+            Assert.assertEquals("Unsupported Iceberg position delete file format: AVRO",
+                    e.getCause().getMessage());
+        }
     }
 }

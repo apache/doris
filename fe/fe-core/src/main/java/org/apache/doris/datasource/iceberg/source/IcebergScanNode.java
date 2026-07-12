@@ -1034,16 +1034,16 @@ public class IcebergScanNode extends FileQueryScanNode {
         List<String> partitionValues = IcebergUtils.getPartitionValues(
                 partitionData, partitionSpec, sessionVariable.getTimeZone());
         List<NestedField> partitionTypes = partitionData.getPartitionType().asNestedType().fields();
-        Map<String, Object> partitionValueByName = new HashMap<>();
+        Map<Integer, Object> partitionValueByFieldId = new HashMap<>();
         List<PartitionField> fields = partitionSpec.fields();
         for (int i = 0; i < fields.size(); i++) {
-            partitionValueByName.put(fields.get(i).name(),
+            partitionValueByFieldId.put(fields.get(i).fieldId(),
                     getPartitionJsonValue(partitionTypes.get(i).type(), partitionValues.get(i)));
         }
         JsonObject partitionJson = new JsonObject();
         for (NestedField outputPartitionField : outputPartitionFields) {
             partitionJson.add(outputPartitionField.name(),
-                    GsonUtils.GSON.toJsonTree(partitionValueByName.get(outputPartitionField.name())));
+                    GsonUtils.GSON.toJsonTree(partitionValueByFieldId.get(outputPartitionField.fieldId())));
         }
         return GsonUtils.GSON.toJson(partitionJson);
     }
