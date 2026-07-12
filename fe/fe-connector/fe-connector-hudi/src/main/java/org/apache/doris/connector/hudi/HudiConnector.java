@@ -87,7 +87,8 @@ public class HudiConnector implements Connector {
 
     @Override
     public ConnectorMetadata getMetadata(ConnectorSession session) {
-        return new HudiConnectorMetadata(getOrCreateClient(), properties, metaClientExecutor());
+        return new HudiConnectorMetadata(getOrCreateClient(), properties, metaClientExecutor(),
+                HudiScanPlanProvider.storageHadoopConfig(context));
     }
 
     /**

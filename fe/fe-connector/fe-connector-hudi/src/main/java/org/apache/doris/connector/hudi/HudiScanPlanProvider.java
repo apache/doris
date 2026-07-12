@@ -56,6 +56,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -881,6 +882,11 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
 
     private Configuration buildHadoopConf() {
         Configuration conf = new Configuration();
+        // Overlay the catalog's bound fe-filesystem storage config (s3.access_key -> fs.s3a.access.key, etc.)
+        // FIRST so an inline user fs./dfs./hadoop. key still wins in the loop below. Without this the FE-side
+        // HoodieTableMetaClient's S3AFileSystem gets no object-store credentials and cannot read
+        // .hoodie/hoodie.properties (NoAuthWithAWSException). Mirrors iceberg/paimon buildStorageHadoopConfig.
+        storageHadoopConfig(context).forEach(conf::set);
         for (Map.Entry<String, String> entry : properties.entrySet()) {
             String key = entry.getKey();
             if (key.startsWith("hadoop.") || key.startsWith("fs.")
@@ -889,5 +895,21 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
             }
         }
         return conf;
+    }
+
+    /**
+     * The canonical object-store/HDFS Hadoop config (fs.s3a.* / fs.oss.* / hadoop.* …) translated from the
+     * catalog's bound fe-filesystem {@code StorageProperties}. This is the ONLY source of the S3/OSS credentials
+     * the FE-side {@link HoodieTableMetaClient} needs — the raw catalog aliases (s3.access_key, …) are NOT Hadoop
+     * keys and S3AFileSystem never reads them. Empty for a null context (offline unit tests) or a catalog with no
+     * typed storage. Mirrors {@code IcebergConnector.buildStorageHadoopConfig} / {@code PaimonConnector}.
+     */
+    static Map<String, String> storageHadoopConfig(ConnectorContext context) {
+        Map<String, String> merged = new HashMap<>();
+        if (context != null) {
+            context.getStorageProperties().forEach(sp ->
+                    sp.toHadoopProperties().ifPresent(h -> merged.putAll(h.toHadoopConfigurationMap())));
+        }
+        return merged;
     }
 }

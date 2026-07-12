@@ -150,12 +150,23 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
     private final Map<String, String> properties;
     // Runs the metaClient-touching partition/snapshot work under the plugin UGI doAs + TCCL pin (see R4).
     private final HudiMetaClientExecutor metaClientExecutor;
+    // Canonical fs.s3a.*/hadoop.* storage config translated from the catalog's fe-filesystem StorageProperties,
+    // overlaid into the FE-side metaClient's Hadoop conf so its S3AFileSystem has object-store credentials (the
+    // raw s3.access_key/… aliases are not Hadoop keys). Empty in same-loader unit tests (which override
+    // getSchemaFromMetaClient or never touch S3). See HudiScanPlanProvider#storageHadoopConfig.
+    private final Map<String, String> storageHadoopConfig;
 
     public HudiConnectorMetadata(HmsClient hmsClient, Map<String, String> properties,
             HudiMetaClientExecutor metaClientExecutor) {
+        this(hmsClient, properties, metaClientExecutor, Collections.emptyMap());
+    }
+
+    public HudiConnectorMetadata(HmsClient hmsClient, Map<String, String> properties,
+            HudiMetaClientExecutor metaClientExecutor, Map<String, String> storageHadoopConfig) {
         this.hmsClient = hmsClient;
         this.properties = properties;
         this.metaClientExecutor = metaClientExecutor;
+        this.storageHadoopConfig = storageHadoopConfig;
     }
 
     // ========== ConnectorSchemaOps ==========
@@ -985,6 +996,9 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
 
     private Configuration buildHadoopConf() {
         Configuration conf = new Configuration();
+        // Storage credentials (fs.s3a.* …) first so an inline user fs./dfs./hadoop. key still wins below; see
+        // storageHadoopConfig field. Without it the metaClient's S3AFileSystem cannot read hoodie.properties.
+        storageHadoopConfig.forEach(conf::set);
         for (Map.Entry<String, String> entry : properties.entrySet()) {
             String key = entry.getKey();
             if (key.startsWith("hadoop.") || key.startsWith("fs.")
