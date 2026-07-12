@@ -90,6 +90,7 @@ suite("test_aggregate_all_functions2") {
     qt_select_percentile_reservoir4 """ select percentile_reservoir(k8,0.99) from baseall group by k6 order by 1; """ 
     qt_select_percentile_reservoir4 """ select percentile_reservoir(k1,1) from baseall; """ 
     qt_select_percentile_reservoir5 """ select percentile_reservoir(k1,0.5) over(partition by k6) from baseall order by k1; """
+    qt_select_percentile_reservoir_distinct_const_arg """ select count(*) from (select percentile_reservoir(distinct k8,cast('0.5' as double)) from baseall) t; """
     sql """
         select percentile_reservoir(cast(number as double), 0.5)
         from numbers("number" = "200000")

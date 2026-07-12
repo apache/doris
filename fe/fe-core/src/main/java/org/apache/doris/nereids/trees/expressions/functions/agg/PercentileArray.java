@@ -122,6 +122,11 @@ public class PercentileArray extends NotNullableAggregateFunction
     }
 
     @Override
+    public List<Expression> getDistinctArguments() {
+        return distinct ? ImmutableList.of(getArgument(0)) : ImmutableList.of();
+    }
+
+    @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitPercentileArray(this, context);
     }

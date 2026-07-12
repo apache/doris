@@ -41,6 +41,9 @@
 -- !percentile_double --
 2.718281828
 
+-- !percentile_distinct_const_arg --
+2.718281828
+
 -- !percentile_const_expr_materialized --
 2.718281828
 

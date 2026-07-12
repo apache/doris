@@ -109,6 +109,11 @@ public class Percentile extends NullableAggregateFunction
     }
 
     @Override
+    public List<Expression> getDistinctArguments() {
+        return distinct ? ImmutableList.of(getArgument(0)) : ImmutableList.of();
+    }
+
+    @Override
     public NullableAggregateFunction withAlwaysNullable(boolean alwaysNullable) {
         return new Percentile(getAlwaysNullableFunctionParams(alwaysNullable));
     }

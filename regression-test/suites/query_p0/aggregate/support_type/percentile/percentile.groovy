@@ -62,6 +62,7 @@ suite("percentile") {
     qt_percentile_largeint """select percentile(col_largeint, 0.5) from d_table;"""
     qt_percentile_float """select percentile(col_float, 0.5) from d_table;"""
     qt_percentile_double """select percentile(col_double, 0.5) from d_table;"""
+    qt_percentile_distinct_const_arg """select percentile(distinct col_double, cast('0.5' as double)) from d_table;"""
     sql """set debug_skip_fold_constant=true;"""
     qt_percentile_const_expr_materialized """select percentile(col_double, coalesce(cast(null as double), cast(0.5 as double))) from d_table;"""
     sql """set enable_aggregate_function_null_v2=false;"""
