@@ -183,8 +183,8 @@ Legend：⬜ todo / 🔄 in progress / ✅ done / ⏸ 挂起(需决策/live)
 - [x] **L4** DONE `e27602d4ab6`(设计 `FIX-L4-design.md`;并发对抗复审 `agent a28dc47095` SOUND）· `TrinoBootstrap` 存 pluginDir,`getInstance` 不同 dir fail-loud 抛(canonicalize best-effort 兜同物理目录异拼写)。UT 受重构造墙阻,登记。
 - [x] **L5** DONE `be96adf76ba`(设计 `FIX-L5-design.md`）· `listTableNames` 加 `.distinct()` 复原 legacy LinkedHashSet 保序去重;不复原冗余 prefix 过滤。
 - [x] **L6** DONE `18048f7f217`(设计 `FIX-L6-design.md`;并发对抗复审同上 SOUND）· `doInitialize` guard 字段 `trinoConnector` 移到最后赋值(安全发布,闭合半初始化瞬时 NPE 窗口);全字段已 volatile,重排即足。
-- [ ] **L7** kerberos UGI.setConfiguration 无 guard · `HadoopKerberosAuthenticator.java:53-59,83,115`:port master first-writer-wins(仅首次 setConfiguration,进程锁序列化,已匹配则 skip+WARN);refresh 分支不重跑 initializeAuthConfig。注:metastore 路 parity,仅 fe-filesystem HDFS 数据路是真变。
-- [ ] **L8** kerberos doAs 吞 interrupt · `HadoopAuthenticator.java:34`:`throw new IOException(e)` 前加 `Thread.currentThread().interrupt();`。一行。
+- [x] **L7** DONE `9e4f2992382`(设计 `FIX-L7-design.md`;对抗复审 `agent a3e2a8a6` SOUND，对照 hadoop-common 3.4.2 字节码验证）· `initializeAuthConfig` 恢复 first-writer-wins(静态字段记首个 auth 方式,首写者设全局、后续+刷票跳过、真不匹配才 WARN)。**刻意不用 master 的 `getLoginUser()`**(会建进程级 login user,Doris 有意规避;本类是唯一非测 setConfiguration 调用者故静态字段=真全局)。刷票跳过=恢复 master parity。
+- [x] **L8** DONE `59697ce3fc7`(设计 `FIX-L8-design.md`）· `doAs` catch(InterruptedException) 内 `throw` 前加 `Thread.currentThread().interrupt();`(恢复中断标志)。
 - [ ] **L9** MC 谓词下推全有全无 · `MaxComputePredicateConverter.java:87-97,117-123`:`convertFilter` 若根是 `ConnectorAnd` 则逐 top-level conjunct 独立 try/catch(丢+log 失败)再 AND 幸存者;**不**对 OR/嵌套 AND 逐子容错。
 - [ ] **L10** ⏸ EXPLAIN 节点名 · `PluginDrivenScanNode.java:170,320`。**需决策**:登记 display-only 验收偏差(cheapest,`CONNECTOR:` 行已披露)**vs** 加连接器声明的 legacy `*_SCAN_NODE` 名(连 `Connector.getLegacyEngineName` 一起,见 D-ENGINE)。注:报告的 `connectorType.toUpperCase()+"_SCAN_NODE"` 一行修法**不够**(hms 会出 `VHMS_SCAN_NODE` 非 `VHIVE_/VICEBERG_`)。
 - [ ] **L11** paimon file_format · `PaimonScanPlanProvider.java:812-813,848-849`:JNI DataSplit + COUNT 路按首数据文件后缀 `getFileFormatBySuffix("/"+dataFiles().get(0).fileName()).orElse(defaultFileFormat)`(仿 native 臂 `:540`/legacy)。注:默认 JNI reader 不消费 file_format,影响窄(仅 opt-in cpp reader)。
@@ -278,4 +278,9 @@ Legend：⬜ todo / 🔄 in progress / ✅ done / ⏸ 挂起(需决策/live)
 - **L6** `18048f7f217` — guard 字段最后发布,闭合并发瞬时 NPE。并发对抗复审 `a28dc47095` SOUND。
 - **L4** `e27602d4ab6` — plugin.dir 不同 fail-loud(canonicalize 兜异拼写)。同上复审 SOUND(折入 canonicalize minor)。
 - **共性**:trino UT 受 `io.trino.Session`/重构造墙阻,均 build-compile + 对抗复审 + e2e live-gated 兜底(非静默;显式登记 UT-wall)。
-- **下一步 = kerberos 子群 L7/L8,再 mc L9**。
+
+**⭐ 批次 4·kerberos 子群(L7/L8)全 DONE**（`fe-kerberos` 独立模块,非连接器,import 门禁不适用;各独立 commit）：
+- **L7** `9e4f2992382` — `UGI.setConfiguration` first-writer-wins guard(恢复 #64655 删掉的 master guard 意图,静态字段跟踪首个 auth 方式,避 `getLoginUser` 进程级登录副作用)。对抗复审 `a3e2a8a6` SOUND(对照 hadoop 字节码)。
+- **L8** `59697ce3fc7` — `doAs` 恢复中断标志(一行)。
+- fe-kerberos UT 11/11 绿(含 AuthenticationTest);L7 e2e live-gated(双 kerberos HDFS 目录)。
+- **下一步 = mc L9(谓词下推全有全无),再 paimon L11/L13/L14,iceberg/杂项 L15–L19**。
