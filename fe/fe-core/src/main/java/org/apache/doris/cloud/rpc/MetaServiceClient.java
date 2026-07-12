@@ -182,6 +182,19 @@ public class MetaServiceClient {
                 TimeUnit.MILLISECONDS).getTtSchemaAtTime(request);
     }
 
+    public Cloud.ShowTimeTravelResponse showTimeTravel(Cloud.ShowTimeTravelRequest request) {
+        if (!request.hasCloudUniqueId()) {
+            Cloud.ShowTimeTravelRequest.Builder builder =
+                    Cloud.ShowTimeTravelRequest.newBuilder();
+            builder.mergeFrom(request);
+            return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms,
+                    TimeUnit.MILLISECONDS)
+                    .showTimeTravel(builder.setCloudUniqueId(Config.cloud_unique_id).build());
+        }
+        return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms,
+                TimeUnit.MILLISECONDS).showTimeTravel(request);
+    }
+
     public Cloud.CreateTabletsResponse createTablets(Cloud.CreateTabletsRequest request) {
         if (!request.hasCloudUniqueId()) {
             Cloud.CreateTabletsRequest.Builder builder = Cloud.CreateTabletsRequest.newBuilder();

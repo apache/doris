@@ -1330,6 +1330,33 @@ message TtSchemaHistoryPB {
     optional bytes schema_pb      = 3; // serialized TabletSchemaPB (FE column resolution)
 };
 
+// SHOW TIME TRAVEL ON <table> [BETWEEN T1 AND T2]
+// Returns the list of distinct commit snapshots within the retention window.
+message ShowTimeTravelRequest {
+    optional string cloud_unique_id = 1;
+    optional int64  table_id        = 2;
+    repeated int64  partition_ids   = 3;
+    optional int64  start_ms        = 4;
+    optional int64  end_ms          = 5;
+    optional int32  limit           = 6;
+    optional string request_ip      = 7;
+    optional int32  retention_days  = 8;  // table's time_travel_retention_days, from FE
+};
+
+// One distinct commit snapshot (same commit touches all partitions at the same ms).
+message TtSnapshotInfo {
+    optional int64 commit_time_ms = 1;
+    optional int64 version        = 2;
+};
+
+message ShowTimeTravelResponse {
+    optional MetaServiceResponseStatus status        = 1;
+    optional int64                     earliest_ms   = 2;
+    optional int64                     first_data_ms = 3;
+    optional int64                     total_count   = 4;
+    repeated TtSnapshotInfo            snapshots     = 5;  // newest first, up to limit+1
+};
+
 // Returns the tablet schema active at timestamp_ms for a TT-enabled table.
 // Empty schema_pb in the response means no schema change before T; FE uses current schema.
 message GetTtSchemaAtTimeRequest {
@@ -2447,6 +2474,7 @@ service MetaService {
     rpc get_version_at_time(GetVersionAtTimeRequest) returns (GetVersionAtTimeResponse);
     rpc disable_time_travel_table(DisableTimeTravelTableRequest) returns (DisableTimeTravelTableResponse);
     rpc get_tt_schema_at_time(GetTtSchemaAtTimeRequest) returns (GetTtSchemaAtTimeResponse);
+    rpc show_time_travel(ShowTimeTravelRequest) returns (ShowTimeTravelResponse);
     rpc create_tablets(CreateTabletsRequest) returns (CreateTabletsResponse);
     rpc update_tablet(UpdateTabletRequest) returns (UpdateTabletResponse);
 

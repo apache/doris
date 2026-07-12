@@ -941,6 +941,51 @@ public class CloudInternalCatalog extends InternalCatalog {
     }
 
     /**
+     * Override dropPartitionWithoutCheck to eagerly write TT lifecycle keys for TT-enabled tables.
+     * Normal DROP PARTITION (isForceDrop=false) puts the partition in the FE recycle bin;
+     * dropCloudPartition is only called ~1 day later when the recycle bin expires. During that
+     * window, TT queries at timestamps before the drop cannot find the dropped partition because
+     * no lifecycle key exists yet. By calling dropCloudPartition eagerly here we write the
+     * lifecycle key immediately so TT queries work right away.
+     * For isForceDrop=true, erasePartitionDropBackendReplicas already calls dropCloudPartition
+     * synchronously, so we skip to avoid a duplicate RPC.
+     */
+    @Override
+    public void dropPartitionWithoutCheck(Database db, OlapTable olapTable, String partitionName,
+            boolean isTempPartition, boolean isForceDrop) throws DdlException {
+        // Collect partition info BEFORE the base class removes it from the catalog.
+        // Only needed for non-force drops going to the FE recycle bin.
+        long partitionId = -1;
+        java.util.List<Long> allIndexIds = new java.util.ArrayList<>();
+        boolean needEagerDrop = !isTempPartition && !isForceDrop && olapTable.isEnableTimeTravel();
+        if (needEagerDrop) {
+            org.apache.doris.catalog.Partition part = olapTable.getPartition(partitionName);
+            if (part != null) {
+                partitionId = part.getId();
+                part.getMaterializedIndices(
+                        org.apache.doris.catalog.MaterializedIndex.IndexExtState.ALL)
+                        .forEach(idx -> allIndexIds.add(idx.getId()));
+            }
+        }
+
+        // Run the base class logic (moves partition to FE recycle bin or force-drops it).
+        super.dropPartitionWithoutCheck(db, olapTable, partitionName, isTempPartition, isForceDrop);
+
+        // Eagerly write lifecycle key so TT queries find the dropped partition immediately.
+        // Skipped for isForceDrop=true because erasePartitionDropBackendReplicas handles it.
+        if (needEagerDrop && partitionId > 0 && !allIndexIds.isEmpty()) {
+            try {
+                dropCloudPartition(db.getId(), olapTable.getId(),
+                        java.util.Collections.singletonList(partitionId),
+                        allIndexIds, /*needUpdateTableVersion=*/false);
+            } catch (Exception e) {
+                LOG.warn("failed to write TT lifecycle key for dropped partition {} of table {}: {}",
+                        partitionName, olapTable.getName(), e);
+            }
+        }
+    }
+
+    /**
      * Override truncateTable to write TT partition lifecycle keys for TT-enabled tables.
      * The base class calls dropPartitionForTruncate → dropPartitionCommon which goes to the
      * FE recycle bin and never calls the drop_partition meta-service RPC. That means
@@ -1001,7 +1046,7 @@ public class CloudInternalCatalog extends InternalCatalog {
             } catch (Exception e) {
                 LOG.warn("failed to write TT lifecycle keys for truncated table {} — "
                         + "time travel across this truncation will not be queryable: {}",
-                        tableName, e.getMessage());
+                        tableName, e);
             }
         }
     }

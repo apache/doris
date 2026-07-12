@@ -176,6 +176,10 @@ public:
                                GetTtSchemaAtTimeResponse* response,
                                ::google::protobuf::Closure* done) override;
 
+    void show_time_travel(::google::protobuf::RpcController* controller,
+                          const ShowTimeTravelRequest* request, ShowTimeTravelResponse* response,
+                          ::google::protobuf::Closure* done) override;
+
     void batch_get_version(::google::protobuf::RpcController* controller,
                            const GetVersionRequest* request, GetVersionResponse* response,
                            ::google::protobuf::Closure* done);
@@ -668,6 +672,12 @@ public:
                                GetTtSchemaAtTimeResponse* response,
                                ::google::protobuf::Closure* done) override {
         call_impl(&cloud::MetaService::get_tt_schema_at_time, controller, request, response, done);
+    }
+
+    void show_time_travel(::google::protobuf::RpcController* controller,
+                          const ShowTimeTravelRequest* request, ShowTimeTravelResponse* response,
+                          ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::show_time_travel, controller, request, response, done);
     }
 
     void create_tablets(::google::protobuf::RpcController* controller,

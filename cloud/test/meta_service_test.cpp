@@ -13673,4 +13673,129 @@ TEST(MetaServiceTest, DisableTimeTravelTable_MissingTableId) {
             << "missing table_id must be rejected";
 }
 
+// ── SHOW TIME TRAVEL ───────────────────────────────────────────────────────
+
+TEST(MetaServiceTest, ShowTimeTravel_Basic) {
+    // Two commits at t1 (100s ago) and t2 (50s ago), query without BETWEEN.
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    const std::string instance_id = mock_instance;
+    const int64_t partition_id = 55551;
+    const int64_t table_id = 77771;
+
+    int64_t now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                             std::chrono::system_clock::now().time_since_epoch())
+                             .count();
+    int64_t t1 = now_ms - 100'000; // 100s ago, version 2
+    int64_t t2 = now_ms - 50'000;  // 50s ago,  version 3
+
+    write_versioned_partition_version(txn_kv.get(), instance_id, partition_id, 2, t1);
+    write_versioned_partition_version(txn_kv.get(), instance_id, partition_id, 3, t2);
+
+    // Write a tablet meta so the RPC can resolve retention_days.
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        doris::TabletMetaCloudPB meta;
+        meta.set_table_id(table_id);
+        meta.set_time_travel_retention_days(7);
+        std::string val;
+        ASSERT_TRUE(meta.SerializeToString(&val));
+        txn->put(meta_tablet_key({instance_id, table_id, 0, partition_id, 1}), val);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    auto rs = std::make_shared<MockResourceManager>(txn_kv);
+    auto rl = std::make_shared<RateLimiter>();
+    auto snapshot = std::make_shared<SnapshotManager>(txn_kv);
+    auto ms = std::make_unique<MetaServiceImpl>(txn_kv, rs, rl, snapshot);
+    auto proxy = std::make_unique<MetaServiceProxy>(std::move(ms));
+
+    brpc::Controller cntl;
+    ShowTimeTravelRequest req;
+    req.set_cloud_unique_id("test");
+    req.set_table_id(table_id);
+    req.add_partition_ids(partition_id);
+    ShowTimeTravelResponse resp;
+    proxy->show_time_travel(&cntl, &req, &resp, nullptr);
+
+    ASSERT_EQ(resp.status().code(), MetaServiceCode::OK) << resp.status().msg();
+    ASSERT_EQ(resp.snapshots_size(), 2) << "expect 2 snapshots";
+    // newest first
+    ASSERT_EQ(resp.snapshots(0).version(), 3);
+    ASSERT_EQ(resp.snapshots(1).version(), 2);
+    ASSERT_EQ(resp.total_count(), 2);
+    ASSERT_TRUE(resp.has_earliest_ms()) << "earliest_ms must be set";
+    ASSERT_EQ(resp.first_data_ms(), t1) << "first data is the older commit";
+}
+
+TEST(MetaServiceTest, ShowTimeTravel_BetweenFilter) {
+    // Three commits; BETWEEN filter should return only the middle one.
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    const std::string instance_id = mock_instance;
+    const int64_t partition_id = 55552;
+    const int64_t table_id = 77772;
+
+    int64_t now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                             std::chrono::system_clock::now().time_since_epoch())
+                             .count();
+    int64_t t1 = now_ms - 180'000; // 3 min ago, version 2
+    int64_t t2 = now_ms - 120'000; // 2 min ago, version 3
+    int64_t t3 = now_ms - 60'000;  // 1 min ago, version 4
+
+    write_versioned_partition_version(txn_kv.get(), instance_id, partition_id, 2, t1);
+    write_versioned_partition_version(txn_kv.get(), instance_id, partition_id, 3, t2);
+    write_versioned_partition_version(txn_kv.get(), instance_id, partition_id, 4, t3);
+
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        doris::TabletMetaCloudPB meta;
+        meta.set_table_id(table_id);
+        meta.set_time_travel_retention_days(7);
+        std::string val;
+        ASSERT_TRUE(meta.SerializeToString(&val));
+        txn->put(meta_tablet_key({instance_id, table_id, 0, partition_id, 1}), val);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    auto rs = std::make_shared<MockResourceManager>(txn_kv);
+    auto rl = std::make_shared<RateLimiter>();
+    auto snapshot = std::make_shared<SnapshotManager>(txn_kv);
+    auto ms = std::make_unique<MetaServiceImpl>(txn_kv, rs, rl, snapshot);
+    auto proxy = std::make_unique<MetaServiceProxy>(std::move(ms));
+
+    brpc::Controller cntl;
+    ShowTimeTravelRequest req;
+    req.set_cloud_unique_id("test");
+    req.set_table_id(table_id);
+    req.add_partition_ids(partition_id);
+    // BETWEEN: only t2 falls in [t1+1ms, t3-1ms]
+    req.set_start_ms(t1 + 1);
+    req.set_end_ms(t3 - 1);
+    ShowTimeTravelResponse resp;
+    proxy->show_time_travel(&cntl, &req, &resp, nullptr);
+
+    ASSERT_EQ(resp.status().code(), MetaServiceCode::OK) << resp.status().msg();
+    ASSERT_EQ(resp.snapshots_size(), 1) << "BETWEEN filter must return only the middle snapshot";
+    ASSERT_EQ(resp.snapshots(0).version(), 3);
+}
+
+TEST(MetaServiceTest, ShowTimeTravel_MissingFields) {
+    brpc::Controller cntl;
+    auto meta_service = get_meta_service();
+
+    // No table_id
+    ShowTimeTravelRequest req;
+    req.set_cloud_unique_id("test");
+    // no partition_ids either
+    ShowTimeTravelResponse resp;
+    meta_service->show_time_travel(&cntl, &req, &resp, nullptr);
+    ASSERT_EQ(resp.status().code(), MetaServiceCode::INVALID_ARGUMENT)
+            << "missing table_id and partition_ids must be rejected";
+}
+
 } // namespace doris::cloud

@@ -439,6 +439,7 @@ import org.apache.doris.nereids.DorisParser.ShowTableCreationContext;
 import org.apache.doris.nereids.DorisParser.ShowTableIdContext;
 import org.apache.doris.nereids.DorisParser.ShowTabletStorageFormatContext;
 import org.apache.doris.nereids.DorisParser.ShowTabletsBelongContext;
+import org.apache.doris.nereids.DorisParser.ShowTimeTravelContext;
 import org.apache.doris.nereids.DorisParser.ShowTrashContext;
 import org.apache.doris.nereids.DorisParser.ShowTriggersContext;
 import org.apache.doris.nereids.DorisParser.ShowUserPropertiesContext;
@@ -887,6 +888,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowTabletIdCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTabletStorageFormatCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTabletsBelongCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTabletsFromTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowTimeTravelCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTransactionCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTrashCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTriggersCommand;
@@ -6662,6 +6664,14 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             ruleName = ctx.ruleName.getText();
         }
         return new ShowSqlBlockRuleCommand(ruleName);
+    }
+
+    @Override
+    public LogicalPlan visitShowTimeTravel(ShowTimeTravelContext ctx) {
+        java.util.List<String> name = visitMultipartIdentifier(ctx.name);
+        String start = ctx.start != null ? stripQuotes(ctx.start.getText()) : null;
+        String end = ctx.end != null ? stripQuotes(ctx.end.getText()) : null;
+        return new ShowTimeTravelCommand(name, start, end);
     }
 
     @Override

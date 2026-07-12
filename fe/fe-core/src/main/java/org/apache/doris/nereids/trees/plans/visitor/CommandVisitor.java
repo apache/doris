@@ -1028,6 +1028,12 @@ public interface CommandVisitor<R, C> {
         return visitCommand(showTableIdCommand, context);
     }
 
+    default R visitShowTimeTravelCommand(
+            org.apache.doris.nereids.trees.plans.commands.ShowTimeTravelCommand command,
+            C context) {
+        return visitCommand(command, context);
+    }
+
     default R visitCreateWorkloadGroupCommand(CreateWorkloadGroupCommand createWorkloadGroupCommand, C context) {
         return visitCommand(createWorkloadGroupCommand, context);
     }

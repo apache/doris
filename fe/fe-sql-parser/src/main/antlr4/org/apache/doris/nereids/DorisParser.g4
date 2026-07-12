@@ -409,6 +409,8 @@ supportedShowStatement
     | SHOW GRANTS FOR userIdentify                                                  #showGrantsForUser
     | SHOW CREATE USER userIdentify                                                 #showCreateUser
     | SHOW SNAPSHOT ON repo=identifier wildWhere?                                   #showSnapshot
+    | SHOW TIME travel=TRAVEL ON name=multipartIdentifier
+        (BETWEEN start=STRING_LITERAL AND end=STRING_LITERAL)?                      #showTimeTravel
     | SHOW LOAD PROFILE loadIdPath=STRING_LITERAL? limitClause?                     #showLoadProfile
     | SHOW CREATE REPOSITORY FOR identifier                                         #showCreateRepository
     | SHOW VIEW
@@ -2356,6 +2358,7 @@ nonReserved
     | TIMESTAMP
     | TIMESTAMPTZ
     | TRANSACTION
+    | TRAVEL
     | TREE
     | TRIGGERS
     | TRUNCATE

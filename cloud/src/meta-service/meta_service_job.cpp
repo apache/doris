@@ -1254,9 +1254,11 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
         }
     };
 
-    // Write the compaction checkpoint before the cleanup transaction commits.
+    // Write the compaction checkpoint BEFORE the cleanup transaction commits.
     // This ordering guarantees that if the cleanup succeeds, the checkpoint exists in FDB.
-    // Failure is non-fatal — compaction proceeds without TT support for this version range.
+    // If the checkpoint write fails after retries we abort the compaction so that the BE
+    // retries later — it is better to skip a compaction cycle than to silently destroy the
+    // time travel window for this version range.
     if (tt_retention_days > 0) {
         if (input_rowsets_snapshot.empty()) {
             LOG(WARNING) << "TT checkpoint skipped: no input rowsets found, tablet_id=" << tablet_id
@@ -1278,27 +1280,40 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
             }
             checkpoint.set_created_ms(min_created_ms);
 
-            std::unique_ptr<Transaction> ck_txn;
-            TxnErrorCode p1_err = txn_kv->create_txn(&ck_txn);
-            if (p1_err == TxnErrorCode::TXN_OK) {
-                std::string ck_key = tt_compaction_key({instance_id, tablet_id, start, end});
-                std::string ck_val;
-                if (checkpoint.SerializeToString(&ck_val)) {
-                    ck_txn->put(ck_key, ck_val);
-                    p1_err = ck_txn->commit();
-                } else {
-                    p1_err = TxnErrorCode::TXN_INVALID_DATA;
-                }
+            std::string ck_key = tt_compaction_key({instance_id, tablet_id, start, end});
+            std::string ck_val;
+            if (!checkpoint.SerializeToString(&ck_val)) {
+                code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+                msg = fmt::format("TT checkpoint serialization failed, tablet_id={}", tablet_id);
+                return;
             }
-            if (p1_err != TxnErrorCode::TXN_OK) {
-                LOG(WARNING) << "TT checkpoint commit failed (non-fatal), tablet_id=" << tablet_id
-                             << " err=" << p1_err;
-                // Fall through — compaction cleanup still runs.
-            } else {
-                LOG(INFO) << "TT checkpoint written tablet_id=" << tablet_id << " [" << start << ","
-                          << end << "]"
-                          << " entries=" << checkpoint.entries_size();
+
+            constexpr int kMaxRetries = 3;
+            TxnErrorCode ck_err = TxnErrorCode::TXN_INVALID_DATA;
+            for (int attempt = 0; attempt < kMaxRetries; ++attempt) {
+                std::unique_ptr<Transaction> ck_txn;
+                ck_err = txn_kv->create_txn(&ck_txn);
+                if (ck_err != TxnErrorCode::TXN_OK) break;
+                ck_txn->put(ck_key, ck_val);
+                ck_err = ck_txn->commit();
+                if (ck_err == TxnErrorCode::TXN_OK) break;
+                LOG(WARNING) << "TT checkpoint commit attempt " << (attempt + 1) << "/"
+                             << kMaxRetries << " failed, tablet_id=" << tablet_id
+                             << " err=" << ck_err;
             }
+            if (ck_err != TxnErrorCode::TXN_OK) {
+                // Abort the compaction — the BE will retry. Better to delay compaction
+                // than to permanently lose time travel history for this version range.
+                code = MetaServiceCode::KV_TXN_COMMIT_ERR;
+                msg = fmt::format(
+                        "TT checkpoint write failed after {} retries, tablet_id={}, "
+                        "aborting compaction to preserve time travel history",
+                        kMaxRetries, tablet_id);
+                return;
+            }
+            LOG(INFO) << "TT checkpoint written tablet_id=" << tablet_id << " [" << start << ","
+                      << end << "]"
+                      << " entries=" << checkpoint.entries_size();
         }
     }
 

@@ -372,19 +372,29 @@ public class MetaServiceProxy {
      */
     public Cloud.GetVersionAtTimeResponse getVersionAtTime(Cloud.GetVersionAtTimeRequest request)
             throws RpcException {
-        return executeWithMetrics("getVersionAtTime", (client) -> client.getVersionAtTime(request));
+        return executeWithMetrics("getVersionAtTime", (client) -> client.getVersionAtTime(request),
+                Cloud.GetVersionAtTimeResponse::getStatus);
     }
 
     public Cloud.DisableTimeTravelTableResponse disableTimeTravelTable(
             Cloud.DisableTimeTravelTableRequest request) throws RpcException {
         return executeWithMetrics("disableTimeTravelTable",
-                (client) -> client.disableTimeTravelTable(request));
+                (client) -> client.disableTimeTravelTable(request),
+                Cloud.DisableTimeTravelTableResponse::getStatus);
     }
 
     public Cloud.GetTtSchemaAtTimeResponse getTtSchemaAtTime(
             Cloud.GetTtSchemaAtTimeRequest request) throws RpcException {
         return executeWithMetrics("getTtSchemaAtTime",
-                (client) -> client.getTtSchemaAtTime(request));
+                (client) -> client.getTtSchemaAtTime(request),
+                Cloud.GetTtSchemaAtTimeResponse::getStatus);
+    }
+
+    public Cloud.ShowTimeTravelResponse showTimeTravel(
+            Cloud.ShowTimeTravelRequest request) throws RpcException {
+        return executeWithMetrics("showTimeTravel",
+                (client) -> client.showTimeTravel(request),
+                Cloud.ShowTimeTravelResponse::getStatus);
     }
 
     public Cloud.CreateTabletsResponse createTablets(Cloud.CreateTabletsRequest request) throws RpcException {

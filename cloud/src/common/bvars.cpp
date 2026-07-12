@@ -50,6 +50,7 @@ BvarLatencyRecorderWithTag g_bvar_ms_get_version("ms", "get_version");
 BvarLatencyRecorderWithTag g_bvar_ms_get_version_at_time("ms", "get_version_at_time");
 BvarLatencyRecorderWithTag g_bvar_ms_disable_time_travel_table("ms", "disable_time_travel_table");
 BvarLatencyRecorderWithTag g_bvar_ms_get_tt_schema_at_time("ms", "get_tt_schema_at_time");
+BvarLatencyRecorderWithTag g_bvar_ms_show_time_travel("ms", "show_time_travel");
 BvarLatencyRecorderWithTag g_bvar_ms_batch_get_version("ms", "batch_get_version");
 BvarLatencyRecorderWithTag g_bvar_ms_create_tablets("ms", "create_tablets");
 BvarLatencyRecorderWithTag g_bvar_ms_update_tablet("ms", "update_tablet");
@@ -330,6 +331,8 @@ mBvarInt64Adder g_bvar_rpc_kv_disable_time_travel_table_get_counter("rpc_kv_disa
 mBvarInt64Adder g_bvar_rpc_kv_disable_time_travel_table_del_counter("rpc_kv_disable_time_travel_table_del_counter",{"instance_id"});
 // get_tt_schema_at_time
 mBvarInt64Adder g_bvar_rpc_kv_get_tt_schema_at_time_get_counter("rpc_kv_get_tt_schema_at_time_get_counter",{"instance_id"});
+// show_time_travel
+mBvarInt64Adder g_bvar_rpc_kv_show_time_travel_get_counter("rpc_kv_show_time_travel_get_counter",{"instance_id"});
 // get_schema_dict
 mBvarInt64Adder g_bvar_rpc_kv_get_schema_dict_get_counter("rpc_kv_get_schema_dict_get_counter",{"instance_id"});
 // create_tablets
@@ -543,6 +546,8 @@ mBvarInt64Adder g_bvar_rpc_kv_disable_time_travel_table_get_bytes("rpc_kv_disabl
 mBvarInt64Adder g_bvar_rpc_kv_disable_time_travel_table_del_bytes("rpc_kv_disable_time_travel_table_del_bytes",{"instance_id"});
 // get_tt_schema_at_time
 mBvarInt64Adder g_bvar_rpc_kv_get_tt_schema_at_time_get_bytes("rpc_kv_get_tt_schema_at_time_get_bytes",{"instance_id"});
+// show_time_travel
+mBvarInt64Adder g_bvar_rpc_kv_show_time_travel_get_bytes("rpc_kv_show_time_travel_get_bytes",{"instance_id"});
 // get_schema_dict
 mBvarInt64Adder g_bvar_rpc_kv_get_schema_dict_get_bytes("rpc_kv_get_schema_dict_get_bytes",{"instance_id"});
 // create_tablets

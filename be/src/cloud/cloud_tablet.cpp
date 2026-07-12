@@ -309,15 +309,23 @@ Status CloudTablet::sync_rowsets(const SyncOptions& options, SyncRowsetStats* st
                 _max_version = stale_version;
             }
         });
-        auto lock_start = std::chrono::steady_clock::now();
-        std::shared_lock rlock(_meta_lock);
-        if (stats) {
-            stats->meta_lock_wait_ns += std::chrono::duration_cast<std::chrono::nanoseconds>(
-                                                std::chrono::steady_clock::now() - lock_start)
-                                                .count();
-        }
-        if (_max_version >= options.query_version) {
-            return Status::OK();
+        // For time-travel queries we must NOT short-circuit even when
+        // _max_version >= query_version.  The hot-cache rowset chain was built
+        // for the CURRENT version and may be missing the initial base rowset
+        // needed to form a complete [0, tt_version] chain.  Skipping the sync
+        // causes capture_read_source({0, tt_version}) to return no rowsets and
+        // the query returns 0 rows from the affected tablets.
+        if (options.delete_bitmap_max_version < 0) {
+            auto lock_start = std::chrono::steady_clock::now();
+            std::shared_lock rlock(_meta_lock);
+            if (stats) {
+                stats->meta_lock_wait_ns += std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                                    std::chrono::steady_clock::now() - lock_start)
+                                                    .count();
+            }
+            if (_max_version >= options.query_version) {
+                return Status::OK();
+            }
         }
     }
 
@@ -329,7 +337,7 @@ Status CloudTablet::sync_rowsets(const SyncOptions& options, SyncRowsetStats* st
                                                  std::chrono::steady_clock::now() - sync_lock_start)
                                                  .count();
     }
-    if (options.query_version > 0) {
+    if (options.query_version > 0 && options.delete_bitmap_max_version < 0) {
         auto lock_start = std::chrono::steady_clock::now();
         std::shared_lock rlock(_meta_lock);
         if (stats) {

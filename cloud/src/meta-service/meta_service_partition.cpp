@@ -435,6 +435,9 @@ void MetaServiceImpl::drop_index(::google::protobuf::RpcController* controller,
     }
 
     std::string to_save_val;
+    // Check TT once — avoids extra FDB GET; result reused if TT lifecycle key write is needed.
+    bool tt_enabled_idx =
+            resource_mgr_->is_table_time_travel_enabled(instance_id, request->table_id());
     {
         RecycleIndexPB pb;
         pb.set_db_id(request->db_id());
@@ -442,10 +445,7 @@ void MetaServiceImpl::drop_index(::google::protobuf::RpcController* controller,
         pb.set_creation_time(::time(nullptr));
         pb.set_expiration(request->expiration());
         pb.set_state(RecycleIndexPB::DROPPED);
-        // Check TT via the existing txn (snapshot read) to avoid an extra FDB transaction.
-        std::string tt_key = time_travel_table_key({instance_id, request->table_id()});
-        std::string tt_val;
-        if (txn->get(tt_key, &tt_val, /*snapshot=*/true) == TxnErrorCode::TXN_OK) {
+        if (tt_enabled_idx) {
             using namespace std::chrono;
             int64_t now_ms =
                     duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
@@ -969,6 +969,8 @@ void MetaServiceImpl::drop_partition(::google::protobuf::RpcController* controll
         return;
     }
     std::string to_save_val;
+    // Check TT once here — result reused for both dropped_ms and lifecycle key write below.
+    bool tt_enabled = resource_mgr_->is_table_time_travel_enabled(instance_id, request->table_id());
     {
         RecyclePartitionPB pb;
         if (request->db_id() > 0) pb.set_db_id(request->db_id());
@@ -977,10 +979,7 @@ void MetaServiceImpl::drop_partition(::google::protobuf::RpcController* controll
         pb.set_creation_time(::time(nullptr));
         pb.set_expiration(request->expiration());
         pb.set_state(RecyclePartitionPB::DROPPED);
-        // Check TT via the existing txn (snapshot read) to avoid an extra FDB transaction.
-        std::string tt_key = time_travel_table_key({instance_id, request->table_id()});
-        std::string tt_val;
-        if (txn->get(tt_key, &tt_val, /*snapshot=*/true) == TxnErrorCode::TXN_OK) {
+        if (tt_enabled) {
             using namespace std::chrono;
             int64_t now_ms =
                     duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
@@ -1127,7 +1126,7 @@ void MetaServiceImpl::drop_partition(::google::protobuf::RpcController* controll
     // Write TT partition lifecycle key in a separate non-fatal transaction.
     // This lets the recycler defer tablet deletion and the meta service return
     // dropped-partition info during time travel queries.
-    if (resource_mgr_->is_table_time_travel_enabled(instance_id, request->table_id())) {
+    if (tt_enabled) {
         using namespace std::chrono;
         int64_t now_ms =
                 duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();

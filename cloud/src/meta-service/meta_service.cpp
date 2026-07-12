@@ -800,6 +800,168 @@ void MetaServiceImpl::get_tt_schema_at_time(::google::protobuf::RpcController* c
     // If no matching entry: OK with no schema_pb → FE uses current schema.
 }
 
+void MetaServiceImpl::show_time_travel(::google::protobuf::RpcController* controller,
+                                       const ShowTimeTravelRequest* request,
+                                       ShowTimeTravelResponse* response,
+                                       ::google::protobuf::Closure* done) {
+    RPC_PREPROCESS(show_time_travel, get);
+
+    instance_id = get_instance_id(resource_mgr_, request->cloud_unique_id());
+    if (instance_id.empty()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "empty instance_id";
+        return;
+    }
+    if (!request->has_table_id() || request->partition_ids_size() == 0) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "table_id and partition_ids are required";
+        return;
+    }
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        code = MetaServiceCode::KV_TXN_CREATE_ERR;
+        msg = fmt::format("failed to create txn, err={}", err);
+        return;
+    }
+
+    using namespace std::chrono;
+    int64_t now_ms = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+    // Use retention_days sent by FE (from table.getTimeTravelRetentionDays()).
+    // This is the correct per-table value — no FDB read needed.
+    int64_t retention_days = (request->has_retention_days() && request->retention_days() > 0 &&
+                              request->retention_days() <= 90)
+                                     ? request->retention_days()
+                                     : 7;
+
+    int64_t earliest_ms = now_ms - retention_days * 86400LL * 1000LL;
+    response->set_earliest_ms(earliest_ms);
+
+    int64_t scan_start_ms = request->has_start_ms() ? request->start_ms() : earliest_ms;
+    int64_t scan_end_ms = request->has_end_ms() ? request->end_ms() : now_ms;
+    int32_t limit = request->has_limit() && request->limit() > 0 ? request->limit() : 20;
+    // Collect all {update_time_ms, version} pairs across all partitions.
+    // For each partition, step backwards through commits using resolve_version_at_time.
+    // Collect limit+1 to detect whether more exist beyond the display window.
+    std::map<int64_t, int64_t, std::greater<int64_t>> snapshot_map;
+
+    for (int64_t partition_id : request->partition_ids()) {
+        int64_t scan_end = scan_end_ms;
+        while ((int32_t)snapshot_map.size() <= limit) { // collect up to limit+1
+            int64_t update_ms = -1;
+            int64_t ver = resolve_version_at_time(txn.get(), instance_id, partition_id, scan_end,
+                                                  &update_ms);
+            if (ver <= 0 || update_ms < 0) break;
+            if (update_ms < scan_start_ms) break;
+
+            auto it = snapshot_map.find(update_ms);
+            if (it == snapshot_map.end() || ver > it->second) {
+                snapshot_map[update_ms] = ver;
+            }
+            scan_end = update_ms - 1; // step back before this commit
+        }
+    }
+
+    bool has_more = (int32_t)snapshot_map.size() > limit;
+
+    int64_t total =
+            static_cast<int64_t>(has_more ? limit : static_cast<int32_t>(snapshot_map.size()));
+    response->set_total_count(total);
+    // Signal "has more" by returning limit+1 snapshots in the repeated field.
+    // FE detects: if snapshots_size() > requested_limit → has_more.
+
+    // Emit newest-first up to limit. If has_more, also emit the (limit+1)th entry
+    // so the FE can detect truncation via getSnapshotsCount() > limit.
+    // first_data_ms tracks oldest of the displayed (first limit) entries.
+    int64_t first_ms = -1;
+    int32_t emitted = 0;
+    for (auto& [t, ver] : snapshot_map) {
+        auto* snap = response->add_snapshots();
+        snap->set_commit_time_ms(t);
+        snap->set_version(ver);
+        ++emitted;
+        if (emitted <= limit && (first_ms < 0 || t < first_ms)) first_ms = t;
+        if (emitted > limit) break; // emitted limit+1, FE detects has_more
+    }
+    if (first_ms >= 0) response->set_first_data_ms(first_ms);
+
+    // Phase A: collect historical partition IDs from lifecycle keys.
+    // Fully exhaust the iterator and destroy lc_txn before any version resolution.
+    if (request->has_table_id() && request->table_id() > 0) {
+        std::string lc_begin, lc_end;
+        tt_partition_lifecycle_key({instance_id, request->table_id(), 0}, &lc_begin);
+        tt_partition_lifecycle_key(
+                {instance_id, request->table_id(), std::numeric_limits<int64_t>::max()}, &lc_end);
+        lc_end.push_back('\xff');
+
+        std::vector<int64_t> hist_partition_ids;
+        {
+            std::unique_ptr<Transaction> lc_txn;
+            if (txn_kv_->create_txn(&lc_txn) == TxnErrorCode::TXN_OK) {
+                std::unique_ptr<RangeGetIterator> lc_iter;
+                if (lc_txn->get(lc_begin, lc_end, &lc_iter) == TxnErrorCode::TXN_OK && lc_iter) {
+                    while (lc_iter->has_next()) {
+                        auto [k, v] = lc_iter->next();
+                        TtPartitionLifecyclePB lc;
+                        if (!lc.ParseFromArray(v.data(), v.size())) continue;
+                        if (!lc.has_dropped_ms() || lc.dropped_ms() == 0) continue;
+                        if (k.size() < 9) continue;
+                        std::string_view pid_sv = k.substr(k.size() - 9);
+                        int64_t partition_id = 0;
+                        if (decode_int64(&pid_sv, &partition_id) != 0 || partition_id == 0)
+                            continue;
+                        hist_partition_ids.push_back(partition_id);
+                    }
+                }
+            }
+        } // lc_txn and lc_iter fully destroyed here
+
+        // Phase B: for each historical partition, step backwards through commits.
+        // Each partition gets its own fresh transaction — no shared state.
+        bool updated = false;
+        for (int64_t partition_id : hist_partition_ids) {
+            std::unique_ptr<Transaction> ver_txn;
+            if (txn_kv_->create_txn(&ver_txn) != TxnErrorCode::TXN_OK) continue;
+
+            int64_t scan_end = scan_end_ms;
+            while ((int32_t)snapshot_map.size() <= limit) {
+                int64_t update_ms = -1;
+                int64_t ver = resolve_version_at_time(ver_txn.get(), instance_id, partition_id,
+                                                      scan_end, &update_ms);
+                if (ver <= 0 || update_ms < 0) break;
+                if (update_ms < scan_start_ms) break;
+
+                auto it = snapshot_map.find(update_ms);
+                if (it == snapshot_map.end() || ver > it->second) {
+                    snapshot_map[update_ms] = ver;
+                    updated = true;
+                }
+                scan_end = update_ms - 1;
+            }
+        } // each ver_txn destroyed after its partition loop
+
+        // Re-emit response if historical scan added new snapshots.
+        if (updated) {
+            response->clear_snapshots();
+            bool new_has_more = (int32_t)snapshot_map.size() > limit;
+            response->set_total_count(new_has_more ? limit
+                                                   : static_cast<int64_t>(snapshot_map.size()));
+            int64_t new_first_ms = -1;
+            int32_t new_emitted = 0;
+            for (auto& [t, ver] : snapshot_map) {
+                auto* snap = response->add_snapshots();
+                snap->set_commit_time_ms(t);
+                snap->set_version(ver);
+                ++new_emitted;
+                if (new_emitted <= limit && (new_first_ms < 0 || t < new_first_ms)) {
+                    new_first_ms = t;
+                }
+                if (new_emitted > limit) break;
+            }
+            if (new_first_ms >= 0) response->set_first_data_ms(new_first_ms);
+        }
+    }
+}
+
 void MetaServiceImpl::disable_time_travel_table(::google::protobuf::RpcController* controller,
                                                 const DisableTimeTravelTableRequest* request,
                                                 DisableTimeTravelTableResponse* response,

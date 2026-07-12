@@ -363,7 +363,14 @@ public class OlapScanNode extends ScanNode {
                 scanTabletIds.add(tabletId);
             }
 
-            // Register compaction manifests for tablets in this dropped partition.
+            // Register manifests for tablets in this dropped partition.
+            // Register empty manifest entry so BE uses capture_rs_readers_with_tt_rowsets.
+            // Empty list = rowsets still in active FDB chain (no post-drop compaction).
+            for (long tabletId : dp.getTabletIdsList()) {
+                if (!extraManifests.containsKey(tabletId)) {
+                    extraManifests.put(tabletId, new java.util.ArrayList<>());
+                }
+            }
             for (org.apache.doris.cloud.proto.Cloud.TtTabletRowsetsPB tabletRowsets
                     : dp.getTabletRowsetsList()) {
                 List<byte[]> bytesList = new java.util.ArrayList<>();
