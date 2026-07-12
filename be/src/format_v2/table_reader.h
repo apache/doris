@@ -909,6 +909,14 @@ protected:
         if (agg_type != TPushAggOp::type::COUNT && agg_type != TPushAggOp::type::MINMAX) {
             return false;
         }
+        // Aggregate pushdown returns reduced synthetic rows and may close the physical reader
+        // before the next scheduler turn. If a runtime filter is still pending, those rows could
+        // escape before the filter arrives and cannot later be reconstructed from real file rows.
+        // This is the same irreversibility constraint as table-level metadata COUNT, and applies
+        // to COUNT and MIN/MAX for Parquet/ORC as well as COUNT for text readers.
+        if (!_all_runtime_filters_applied_for_split) {
+            return false;
+        }
         // Only support aggregate pushdown when there is no delete or filter, so
         // the reduced rows consumed by the upper aggregate remain semantically equivalent to a
         // normal scan.
@@ -1545,6 +1553,9 @@ protected:
     int64_t _condition_cache_hit_count = 0;
     bool _current_reader_reached_eof = false;
     int64_t _remaining_table_level_count = -1;
+    // Snapshot supplied by FileScannerV2 for the active split. It gates every shortcut that emits
+    // irreversible aggregate rows, not only the table-level row-count shortcut in prepare_split().
+    bool _all_runtime_filters_applied_for_split = true;
     std::optional<GlobalRowIdContext> _global_rowid_context;
     bool _aggregate_pushdown_tried = false;
     bool _current_split_pruned = false;

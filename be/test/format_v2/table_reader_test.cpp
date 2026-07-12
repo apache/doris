@@ -1362,6 +1362,7 @@ TEST(TableReaderTest, PendingRuntimeFilterDisablesTableLevelCount) {
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     auto fake_state = std::make_shared<FakeFileReaderState>();
+    fake_state->aggregate_count = state.batch_size() + 5;
     FakeTableReader reader(file_schema, fake_state);
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
@@ -1390,6 +1391,61 @@ TEST(TableReaderTest, PendingRuntimeFilterDisablesTableLevelCount) {
     EXPECT_EQ(fake_state->open_count, 1);
     EXPECT_EQ(block.rows(), 2);
     ASSERT_TRUE(reader.close().ok());
+}
+
+TEST(TableReaderTest, PendingRuntimeFilterDisablesMinMaxPushdown) {
+    const auto test_dir =
+            std::filesystem::temp_directory_path() / "doris_table_reader_pending_rf_minmax_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+    const auto file_path = (test_dir / "split.parquet").string();
+    write_int_pair_parquet_file(file_path, {3, 1, 5, 2}, {30, 10, 50, 20},
+                                {"three", "one", "five", "two"}, 2);
+
+    std::vector<ColumnDefinition> projected_columns;
+    projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+    projected_columns.push_back(make_table_column(1, "score", std::make_shared<DataTypeInt32>()));
+    set_name_identifiers(&projected_columns);
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    TableReader reader;
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .conjuncts = {},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                                    .push_down_agg_type = TPushAggOp::type::MINMAX,
+                            })
+                        .ok());
+    auto split_options = build_split_options(file_path);
+    split_options.all_runtime_filters_applied = false;
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+
+    bool eos = false;
+    size_t total_rows = 0;
+    bool checked_first_batch = false;
+    while (!eos) {
+        Block block = build_table_block(projected_columns);
+        ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+        total_rows += block.rows();
+        if (!checked_first_batch && block.rows() > 0) {
+            const auto& ids =
+                    assert_cast<const ColumnInt32&>(expect_not_null_table_column(block, 0));
+            ASSERT_EQ(ids.size(), 2);
+            EXPECT_EQ(ids.get_element(0), 3);
+            EXPECT_EQ(ids.get_element(1), 1);
+            checked_first_batch = true;
+        }
+    }
+    // MIN/MAX pushdown would return the two synthetic extrema [1, 5]. Reading the original first
+    // row group [3, 1] and all four rows proves a pending RF kept the physical reader active.
+    EXPECT_TRUE(checked_first_batch);
+    EXPECT_EQ(total_rows, 4);
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
 }
 
 TEST(TableReaderTest, AbortSplitClearsReaderAfterIgnorableNotFound) {

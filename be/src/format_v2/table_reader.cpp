@@ -750,6 +750,7 @@ std::unique_ptr<io::FileDescription> create_file_description(const TFileRangeDes
 Status TableReader::prepare_split(const SplitReadOptions& options) {
     SCOPED_TIMER(_profile.prepare_split_timer);
     _current_split_pruned = false;
+    _all_runtime_filters_applied_for_split = options.all_runtime_filters_applied;
     if (options.conjuncts.has_value()) {
         _conjuncts = *options.conjuncts;
     }
