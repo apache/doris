@@ -52,9 +52,10 @@ suite("test_create_mv_and_mtmv") {
                  dt;
 
     """)
+    // The MTMV must read the sync MV to cover partition-column resolution through the rollup.
     explain {
         sql("""
-                    SELECT dt,advertiser,
+                    SELECT /*+ use_mv(${tableName}.${mvName}) */ dt,advertiser,
                           count(DISTINCT user_id)
                     FROM ${tableName}
                     GROUP BY dt,advertiser""")
@@ -68,7 +69,7 @@ suite("test_create_mv_and_mtmv") {
             DISTRIBUTED BY RANDOM BUCKETS 1
             PROPERTIES ('replication_num' = '1') 
             AS 
-            select dt, advertiser, count(distinct user_id)
+            select /*+ use_mv(${tableName}.${mvName}) */ dt, advertiser, count(distinct user_id)
                 from ${tableName}
                 group by dt, advertiser;
     """
