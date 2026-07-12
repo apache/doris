@@ -15,6 +15,7 @@
 
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <map>
 #include <memory>
@@ -30,6 +31,7 @@
 
 namespace parquet {
 class BloomFilter;
+class ColumnIndex;
 class FileMetaData;
 class ParquetFileReader;
 class Statistics;
@@ -123,6 +125,11 @@ struct ParquetStatisticsUtils {
             const ParquetColumnSchema& column_schema,
             const std::shared_ptr<::parquet::Statistics>& statistics,
             const cctz::time_zone* timezone = nullptr);
+
+    static bool TransformColumnIndexStatistics(
+            const std::shared_ptr<::parquet::ColumnIndex>& column_index,
+            const ParquetColumnSchema& column_schema, size_t page_idx,
+            ParquetColumnStatistics* page_statistics, const cctz::time_zone* timezone = nullptr);
 
     static bool BloomFilterExcludes(const ParquetColumnSchema& column_schema, int slot_index,
                                     const VExprContextSPtrs& conjuncts,

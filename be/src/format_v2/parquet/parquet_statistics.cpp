@@ -25,6 +25,7 @@
 #include <parquet/types.h>
 
 #include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <cstring>
 #include <exception>
@@ -34,6 +35,7 @@
 #include <optional>
 #include <set>
 #include <string>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -118,6 +120,15 @@ bool set_decoded_field(const ParquetColumnSchema& column_schema, DecodedValueKin
     return read_decoded_field(column_schema, view, field, timezone).ok();
 }
 
+template <typename NativeType>
+bool valid_min_max(const NativeType& min_value, const NativeType& max_value) {
+    if constexpr (std::is_floating_point_v<NativeType>) {
+        // Parquet requires readers to ignore min/max statistics if either bound is NaN.
+        return !std::isnan(min_value) && !std::isnan(max_value);
+    }
+    return true;
+}
+
 template <typename ParquetDType>
 bool set_decoded_min_max(const std::shared_ptr<::parquet::Statistics>& statistics,
                          const ParquetColumnSchema& column_schema, DecodedValueKind value_kind,
@@ -125,10 +136,13 @@ bool set_decoded_min_max(const std::shared_ptr<::parquet::Statistics>& statistic
                          const cctz::time_zone* timezone) {
     auto typed_statistics =
             std::static_pointer_cast<::parquet::TypedStatistics<ParquetDType>>(statistics);
-    if (!set_decoded_field(column_schema, value_kind, typed_statistics->min(),
-                           &column_statistics->min_value, timezone) ||
-        !set_decoded_field(column_schema, value_kind, typed_statistics->max(),
-                           &column_statistics->max_value, timezone)) {
+    const auto& min_value = typed_statistics->min();
+    const auto& max_value = typed_statistics->max();
+    if (!valid_min_max(min_value, max_value) ||
+        !set_decoded_field(column_schema, value_kind, min_value, &column_statistics->min_value,
+                           timezone) ||
+        !set_decoded_field(column_schema, value_kind, max_value, &column_statistics->max_value,
+                           timezone)) {
         return false;
     }
     return true;
@@ -969,10 +983,13 @@ bool set_page_decoded_min_max(const std::shared_ptr<::parquet::ColumnIndex>& col
         page_idx >= typed_index->max_values().size()) {
         return false;
     }
-    if (!set_decoded_field(column_schema, value_kind, typed_index->min_values()[page_idx],
-                           &page_statistics->min_value, timezone) ||
-        !set_decoded_field(column_schema, value_kind, typed_index->max_values()[page_idx],
-                           &page_statistics->max_value, timezone)) {
+    const auto& min_value = typed_index->min_values()[page_idx];
+    const auto& max_value = typed_index->max_values()[page_idx];
+    if (!valid_min_max(min_value, max_value) ||
+        !set_decoded_field(column_schema, value_kind, min_value, &page_statistics->min_value,
+                           timezone) ||
+        !set_decoded_field(column_schema, value_kind, max_value, &page_statistics->max_value,
+                           timezone)) {
         return false;
     }
     page_statistics->has_min_max = true;
@@ -1206,8 +1223,8 @@ bool select_ranges_for_expr_zonemap(
     const auto page_count = offset_index->page_locations().size();
     for (size_t page_idx = 0; page_idx < page_count; ++page_idx) {
         ParquetColumnStatistics page_statistics;
-        if (!build_page_statistics(column_index, *column_schema, page_idx, &page_statistics,
-                                   timezone)) {
+        if (!ParquetStatisticsUtils::TransformColumnIndexStatistics(
+                    column_index, *column_schema, page_idx, &page_statistics, timezone)) {
             ranges->clear();
             return false;
         }
@@ -1355,6 +1372,13 @@ void build_page_skip_plans(const std::shared_ptr<::parquet::RowGroupPageIndexRea
 }
 
 } // namespace
+
+bool ParquetStatisticsUtils::TransformColumnIndexStatistics(
+        const std::shared_ptr<::parquet::ColumnIndex>& column_index,
+        const ParquetColumnSchema& column_schema, size_t page_idx,
+        ParquetColumnStatistics* page_statistics, const cctz::time_zone* timezone) {
+    return build_page_statistics(column_index, column_schema, page_idx, page_statistics, timezone);
+}
 
 Status select_row_group_ranges_by_page_index(
         ::parquet::ParquetFileReader* file_reader,
