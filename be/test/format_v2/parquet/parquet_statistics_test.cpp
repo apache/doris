@@ -25,6 +25,7 @@
 #include <parquet/arrow/writer.h>
 #include <parquet/bloom_filter.h>
 #include <parquet/bloom_filter_reader.h>
+#include <parquet/page_index.h>
 
 #include <cstdint>
 #include <cstring>
@@ -75,6 +76,27 @@ std::shared_ptr<arrow::Array> uint32_array(const std::vector<uint32_t>& values) 
         EXPECT_TRUE(builder.Append(value).ok());
     }
     return finish_array(&builder);
+}
+
+std::shared_ptr<arrow::Array> float_array(const std::vector<float>& values) {
+    arrow::FloatBuilder builder;
+    for (const auto value : values) {
+        EXPECT_TRUE(builder.Append(value).ok());
+    }
+    return finish_array(&builder);
+}
+
+std::shared_ptr<arrow::Array> double_array(const std::vector<double>& values) {
+    arrow::DoubleBuilder builder;
+    for (const auto value : values) {
+        EXPECT_TRUE(builder.Append(value).ok());
+    }
+    return finish_array(&builder);
+}
+
+template <typename NativeType>
+std::string encoded_value(const NativeType& value) {
+    return {reinterpret_cast<const char*>(&value), sizeof(value)};
 }
 
 std::shared_ptr<arrow::Array> string_array(const std::vector<std::string>& values) {
@@ -129,6 +151,37 @@ std::vector<std::unique_ptr<format::parquet::ParquetColumnSchema>> build_file_sc
                     .ok());
     return file_schema;
 }
+
+template <typename ParquetDType>
+class TestColumnIndex final : public ::parquet::TypedColumnIndex<ParquetDType> {
+public:
+    using NativeType = typename ParquetDType::c_type;
+
+    TestColumnIndex(NativeType min_value, NativeType max_value)
+            : _min_values {min_value}, _max_values {max_value} {}
+
+    const std::vector<bool>& null_pages() const override { return _null_pages; }
+    const std::vector<std::string>& encoded_min_values() const override { return _encoded_values; }
+    const std::vector<std::string>& encoded_max_values() const override { return _encoded_values; }
+    ::parquet::BoundaryOrder::type boundary_order() const override {
+        return ::parquet::BoundaryOrder::Unordered;
+    }
+    bool has_null_counts() const override { return true; }
+    const std::vector<int64_t>& null_counts() const override { return _null_counts; }
+    const std::vector<int32_t>& non_null_page_indices() const override {
+        return _non_null_page_indices;
+    }
+    const std::vector<NativeType>& min_values() const override { return _min_values; }
+    const std::vector<NativeType>& max_values() const override { return _max_values; }
+
+private:
+    const std::vector<bool> _null_pages {false};
+    const std::vector<std::string> _encoded_values;
+    const std::vector<int64_t> _null_counts {0};
+    const std::vector<int32_t> _non_null_page_indices {0};
+    const std::vector<NativeType> _min_values;
+    const std::vector<NativeType> _max_values;
+};
 
 class Int32ZoneMapExpr final : public VExpr {
 public:
@@ -498,6 +551,74 @@ TEST(ParquetStatisticsTransformTest, MissingNullCountConservativelyReportsPossib
     EXPECT_TRUE(statistics.has_min_max);
     EXPECT_EQ(statistics.min_value.get<TYPE_INT>(), 1);
     EXPECT_EQ(statistics.max_value.get<TYPE_INT>(), 3);
+}
+
+TEST(ParquetStatisticsTransformTest, IgnoresNaNFloatAndDoubleMinMax) {
+    auto table = arrow::Table::Make(arrow::schema({arrow::field("f", arrow::float32(), false),
+                                                   arrow::field("d", arrow::float64(), false)}),
+                                    {float_array({1.0F, 2.0F}), double_array({1.0, 2.0})});
+    auto reader = make_reader(table, 2, false, true);
+    auto schema = build_file_schema(*reader);
+
+    const float float_nan = std::numeric_limits<float>::quiet_NaN();
+    const float float_max = 2.0F;
+    auto float_stats = ::parquet::MakeStatistics<::parquet::FloatType>(
+            schema[0]->descriptor, encoded_value(float_nan), encoded_value(float_max), 2, 0, 0,
+            true, true, false);
+    const auto converted_float = format::parquet::ParquetStatisticsUtils::TransformColumnStatistics(
+            *schema[0], float_stats);
+    EXPECT_FALSE(converted_float.has_min_max);
+    EXPECT_TRUE(converted_float.has_not_null);
+
+    const double double_nan = std::numeric_limits<double>::quiet_NaN();
+    const double double_min = 1.0;
+    auto double_stats = ::parquet::MakeStatistics<::parquet::DoubleType>(
+            schema[1]->descriptor, encoded_value(double_min), encoded_value(double_nan), 2, 0, 0,
+            true, true, false);
+    const auto converted_double =
+            format::parquet::ParquetStatisticsUtils::TransformColumnStatistics(*schema[1],
+                                                                               double_stats);
+    EXPECT_FALSE(converted_double.has_min_max);
+    EXPECT_TRUE(converted_double.has_not_null);
+
+    const double double_max = 2.0;
+    auto finite_stats = ::parquet::MakeStatistics<::parquet::DoubleType>(
+            schema[1]->descriptor, encoded_value(double_min), encoded_value(double_max), 2, 0, 0,
+            true, true, false);
+    const auto converted_finite =
+            format::parquet::ParquetStatisticsUtils::TransformColumnStatistics(*schema[1],
+                                                                               finite_stats);
+    EXPECT_TRUE(converted_finite.has_min_max);
+}
+
+TEST(ParquetStatisticsTransformTest, IgnoresNaNFloatAndDoubleColumnIndexMinMax) {
+    auto table = arrow::Table::Make(arrow::schema({arrow::field("f", arrow::float32(), false),
+                                                   arrow::field("d", arrow::float64(), false)}),
+                                    {float_array({1.0F, 2.0F}), double_array({1.0, 2.0})});
+    auto reader = make_reader(table, 2, false, true);
+    auto schema = build_file_schema(*reader);
+
+    auto float_index = std::make_shared<TestColumnIndex<::parquet::FloatType>>(
+            1.0F, std::numeric_limits<float>::quiet_NaN());
+    format::parquet::ParquetColumnStatistics float_page_stats;
+    EXPECT_FALSE(format::parquet::ParquetStatisticsUtils::TransformColumnIndexStatistics(
+            float_index, *schema[0], 0, &float_page_stats));
+    EXPECT_FALSE(float_page_stats.has_min_max);
+    EXPECT_TRUE(float_page_stats.has_not_null);
+
+    auto double_index = std::make_shared<TestColumnIndex<::parquet::DoubleType>>(
+            std::numeric_limits<double>::quiet_NaN(), 2.0);
+    format::parquet::ParquetColumnStatistics double_page_stats;
+    EXPECT_FALSE(format::parquet::ParquetStatisticsUtils::TransformColumnIndexStatistics(
+            double_index, *schema[1], 0, &double_page_stats));
+    EXPECT_FALSE(double_page_stats.has_min_max);
+    EXPECT_TRUE(double_page_stats.has_not_null);
+
+    auto finite_index = std::make_shared<TestColumnIndex<::parquet::DoubleType>>(1.0, 2.0);
+    format::parquet::ParquetColumnStatistics finite_page_stats;
+    EXPECT_TRUE(format::parquet::ParquetStatisticsUtils::TransformColumnIndexStatistics(
+            finite_index, *schema[1], 0, &finite_page_stats));
+    EXPECT_TRUE(finite_page_stats.has_min_max);
 }
 
 TEST(ParquetStatisticsPruningTest, ExprZonemapPredicatesAndNullPredicatesPruneRowGroups) {
