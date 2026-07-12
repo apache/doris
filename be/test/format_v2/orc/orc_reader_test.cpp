@@ -74,6 +74,7 @@
 #include "runtime/runtime_state.h"
 #include "storage/segment/condition_cache.h"
 #include "storage/utils.h"
+#include "util/timezone_utils.h"
 
 namespace doris {
 namespace {
@@ -2456,6 +2457,49 @@ private:
 };
 
 template <PrimitiveType Primitive>
+class NullableEqualsExpr final : public VExpr {
+public:
+    using ColumnType = typename PrimitiveTypeTraits<Primitive>::ColumnType;
+    using ValueType = typename PrimitiveTypeTraits<Primitive>::CppType;
+
+    NullableEqualsExpr(int column_id, DataTypePtr type, const Field& value, std::string column_name)
+            : VExpr(std::make_shared<DataTypeUInt8>(), false),
+              _column_id(column_id),
+              _value(value.get<Primitive>()),
+              _expr_name("NullableEqualsExpr") {
+        _node_type = TExprNodeType::BINARY_PRED;
+        _opcode = TExprOpcode::EQ;
+        add_child(TableSlotRef::create_shared(column_id, column_id, -1, make_nullable(type),
+                                              std::move(column_name)));
+        add_child(TableLiteral::create_shared(std::move(type), value));
+    }
+
+    Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
+                               size_t count, ColumnPtr& result_column) const override {
+        const auto& nullable_column =
+                assert_cast<const ColumnNullable&>(*block->get_by_position(_column_id).column);
+        const auto& input = assert_cast<const ColumnType&>(nullable_column.get_nested_column());
+        auto result = ColumnUInt8::create();
+        auto& result_data = result->get_data();
+        result_data.resize(count);
+        for (size_t row = 0; row < count; ++row) {
+            const size_t input_row = selector == nullptr ? row : (*selector)[row];
+            result_data[row] = !nullable_column.is_null_at(input_row) &&
+                               input.get_element(input_row) == _value;
+        }
+        result_column = std::move(result);
+        return Status::OK();
+    }
+
+    const std::string& expr_name() const override { return _expr_name; }
+
+private:
+    const int _column_id;
+    const ValueType _value;
+    const std::string _expr_name;
+};
+
+template <PrimitiveType Primitive>
 class NullableInExpr final : public VExpr {
 public:
     using ColumnType = typename PrimitiveTypeTraits<Primitive>::ColumnType;
@@ -4036,7 +4080,9 @@ void write_multi_stripe_orc_sarg_types_file(const std::string& file_path) {
     out.write(memory_stream.getData(), static_cast<std::streamsize>(memory_stream.getLength()));
 }
 
-void write_multi_stripe_orc_timestamp_instant_sarg_file(const std::string& file_path) {
+void write_multi_stripe_orc_timestamp_instant_sarg_file(
+        const std::string& file_path, int64_t first_timestamp_second = 0,
+        int64_t second_timestamp_second = 1609459200) {
     auto type = std::unique_ptr<::orc::Type>(::orc::Type::buildTypeFromString(
             "struct<timestamp_instant_col:timestamp with local time zone,payload:string>"));
 
@@ -4068,8 +4114,8 @@ void write_multi_stripe_orc_timestamp_instant_sarg_file(const std::string& file_
         writer->add(*batch);
     };
 
-    add_batch(0);
-    add_batch(1609459200);
+    add_batch(first_timestamp_second);
+    add_batch(second_timestamp_second);
     writer->close();
 
     std::ofstream out(file_path, std::ios::binary);
@@ -8325,6 +8371,49 @@ TEST_F(NewOrcReaderTest, SargTimestampInstantConjunctUsesSessionTimezone) {
     EXPECT_EQ(reader->reader_statistics().filtered_row_groups, 1);
     EXPECT_EQ(reader->reader_statistics().filtered_row_groups_by_min_max, 1);
     EXPECT_EQ(reader->reader_statistics().filtered_group_rows, 200);
+}
+
+TEST_F(NewOrcReaderTest, SargTimestampInstantRepeatedCivilTimeDoesNotPruneStripes) {
+    const auto multi_stripe_file_path =
+            (_test_dir / "sarg_timestamp_instant_dst_rollback.orc").string();
+    // These UTC instants both decode to 2021-11-07 01:30:00.123 in America/New_York,
+    // once before and once after the UTC-04:00 to UTC-05:00 rollback.
+    write_multi_stripe_orc_timestamp_instant_sarg_file(multi_stripe_file_path, 1636263000,
+                                                       1636266600);
+    ASSERT_EQ(get_orc_stripe_count(multi_stripe_file_path), 2);
+
+    auto reader = create_reader_for_path(multi_stripe_file_path);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    TimezoneUtils::load_timezones_to_cache();
+    state.set_timezone("America/New_York");
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    ASSERT_EQ(schema.size(), 2);
+
+    const auto literal =
+            Field::create_field<TYPE_DATETIMEV2>(make_datetime_v2(2021, 11, 7, 1, 30, 0, 123000));
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->predicate_columns = {field_projection(0)};
+    request->conjuncts.push_back(
+            VExprContext::create_shared(std::make_shared<NullableEqualsExpr<TYPE_DATETIMEV2>>(
+                    0, remove_nullable(schema[0].type), literal, "timestamp_instant_col")));
+    ASSERT_TRUE(reader->open(request).ok());
+
+    bool eof = false;
+    size_t result_rows = 0;
+    while (!eof) {
+        Block block = build_file_block({schema[0]});
+        size_t rows = 0;
+        ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+        result_rows += rows;
+    }
+
+    EXPECT_EQ(result_rows, 2);
+    EXPECT_EQ(reader->reader_statistics().filtered_row_groups, 0);
+    EXPECT_EQ(reader->reader_statistics().filtered_row_groups_by_min_max, 0);
+    EXPECT_EQ(reader->reader_statistics().filtered_group_rows, 0);
 }
 
 TEST_F(NewOrcReaderTest, SargTimestampLowerPrecisionCastDoesNotPruneStripes) {

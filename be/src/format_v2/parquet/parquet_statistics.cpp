@@ -141,7 +141,10 @@ int64_t floor_timestamp_seconds(int64_t value, ParquetTimeUnit time_unit) {
 bool timestamp_min_max_is_safe(const ParquetColumnSchema& column_schema, int64_t min_value,
                                int64_t max_value, const cctz::time_zone* timezone) {
     if (!column_schema.type_descriptor.is_timestamp ||
-        !column_schema.type_descriptor.timestamp_is_adjusted_to_utc || timezone == nullptr) {
+        !column_schema.type_descriptor.timestamp_is_adjusted_to_utc || timezone == nullptr ||
+        remove_nullable(column_schema.type)->get_primitive_type() == TYPE_TIMESTAMPTZ) {
+        // TIMESTAMPTZ keeps the original UTC ordering, so local civil-time rollback does not make
+        // its converted min/max non-monotonic.
         return true;
     }
     return format::utc_timestamp_range_is_monotonic(

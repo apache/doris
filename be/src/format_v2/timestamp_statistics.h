@@ -51,7 +51,10 @@ inline bool utc_timestamp_range_is_monotonic(int64_t min_seconds, int64_t max_se
         if (transition.to < transition.from) {
             return false;
         }
-        current = transition_time;
+        // Move past the transition that was just inspected. Some cctz implementations return the
+        // same transition again when queried at its exact instant, which would otherwise prevent
+        // us from seeing a later rollback in the requested range.
+        current = transition_time + cctz::seconds(1);
     }
     return true;
 }

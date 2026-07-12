@@ -31,6 +31,10 @@ TEST(TimestampStatisticsTest, DetectsBackwardTimezoneTransitionsInUtcRange) {
     EXPECT_FALSE(utc_timestamp_range_is_monotonic(1636263000, 1636264800, new_york));
     EXPECT_TRUE(utc_timestamp_range_is_monotonic(1636264800, 1636266600, new_york));
 
+    // A range beginning before the spring-forward transition must continue scanning and find the
+    // later rollback in the same year.
+    EXPECT_FALSE(utc_timestamp_range_is_monotonic(1609477200, 1641013200, new_york));
+
     // The 2021 spring transition at 07:00 UTC skips civil values but preserves ordering.
     EXPECT_TRUE(utc_timestamp_range_is_monotonic(1615703400, 1615707000, new_york));
 }
