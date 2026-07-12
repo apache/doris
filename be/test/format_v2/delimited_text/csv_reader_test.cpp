@@ -24,6 +24,7 @@
 #include <fstream>
 #include <memory>
 
+#include "common/config.h"
 #include "common/consts.h"
 #include "common/object_pool.h"
 #include "core/assert_cast.h"
@@ -45,6 +46,8 @@
 #include "runtime/runtime_profile.h"
 #include "testutil/desc_tbl_builder.h"
 #include "testutil/mock/mock_runtime_state.h"
+#include "util/debug_points.h"
+#include "util/defer_op.h"
 
 namespace doris::format::csv {
 namespace {
@@ -845,6 +848,87 @@ TEST_F(CsvV2ReaderTest, MatchingEscapeAndEncloseStillSplitQuotedFields) {
     EXPECT_EQ(nullable_int_at(*block.get_by_position(0).column, 0), 1);
     EXPECT_EQ(nullable_string_at(*block.get_by_position(1).column, 0), "alice");
     EXPECT_EQ(nullable_int_at(*block.get_by_position(2).column, 0), 10);
+}
+
+// A column separator that overlaps the line delimiter must not be recorded because CsvReader
+// splits a Slice that excludes the line delimiter bytes.
+TEST_F(CsvV2ReaderTest, ColumnSeparatorOverlappingLineDelimiterStaysOutsideReturnedLine) {
+    const auto overlap_path = (_test_dir / "overlapping_delimiters.csv").string();
+    std::ofstream output(overlap_path, std::ios::binary);
+    output << "value|\n";
+    output.close();
+
+    auto value_slot = make_test_slot(&_pool, 10, 0,
+                                     make_nullable(std::make_shared<DataTypeString>()), "value");
+    std::vector<SlotDescriptor*> slots {value_slot};
+    _params.__set_column_idxs({0});
+    _params.file_attributes.__isset.header_type = false;
+    _params.file_attributes.text_params.__set_column_separator("|\n");
+    _params.file_attributes.text_params.__set_enclose('"');
+    _params.file_attributes.text_params.__set_escape('\\');
+    auto reader = create_reader(overlap_path, &_params, slots, &_state, &_profile);
+    std::vector<ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+
+    auto request = std::make_shared<FileScanRequest>();
+    request->non_predicate_columns = {LocalColumnIndex::top_level(LocalColumnId(0))};
+    request->local_positions.emplace(LocalColumnId(0), LocalIndex(0));
+    ASSERT_TRUE(reader->open(request).ok());
+
+    auto block = make_block(schema, {0});
+    size_t rows = 0;
+    bool eof = false;
+    ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+    ASSERT_EQ(rows, 1);
+    EXPECT_EQ(nullable_string_at(*block.get_by_position(0).column, 0), "value|");
+}
+
+// When a logical row is refilled, partial-separator backtracking must not cross the end of a
+// separator that was already accepted from the previous buffer contents.
+TEST_F(CsvV2ReaderTest, MultiCharacterSeparatorAcrossOutputBufferRefill) {
+    const auto refill_path = (_test_dir / "separator_refill.csv").string();
+    std::ofstream output(refill_path, std::ios::binary);
+    output << std::string(28, 'a') << "|||||b\n";
+    output.close();
+
+    auto first_slot = make_test_slot(&_pool, 10, 0,
+                                     make_nullable(std::make_shared<DataTypeString>()), "first");
+    auto second_slot = make_test_slot(&_pool, 11, 1,
+                                      make_nullable(std::make_shared<DataTypeString>()), "second");
+    std::vector<SlotDescriptor*> slots {first_slot, second_slot};
+    _params.__set_column_idxs({0, 1});
+    _params.file_attributes.__isset.header_type = false;
+    _params.file_attributes.text_params.__set_column_separator("|||");
+    _params.file_attributes.text_params.__set_enclose('"');
+    _params.file_attributes.text_params.__set_escape('\\');
+
+    const bool enable_debug_points = config::enable_debug_points;
+    config::enable_debug_points = true;
+    DebugPoints::instance()->add_with_params("NewPlainTextLineReader.shrink_output_buf",
+                                             {{"output_buf_size", "32"}});
+    Defer restore_debug_point([enable_debug_points]() {
+        DebugPoints::instance()->remove("NewPlainTextLineReader.shrink_output_buf");
+        config::enable_debug_points = enable_debug_points;
+    });
+
+    auto reader = create_reader(refill_path, &_params, slots, &_state, &_profile);
+    std::vector<ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+
+    auto request = std::make_shared<FileScanRequest>();
+    request->non_predicate_columns = {LocalColumnIndex::top_level(LocalColumnId(0)),
+                                      LocalColumnIndex::top_level(LocalColumnId(1))};
+    request->local_positions.emplace(LocalColumnId(0), LocalIndex(0));
+    request->local_positions.emplace(LocalColumnId(1), LocalIndex(1));
+    ASSERT_TRUE(reader->open(request).ok());
+
+    auto block = make_block(schema, {0, 1});
+    size_t rows = 0;
+    bool eof = false;
+    ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+    ASSERT_EQ(rows, 1);
+    EXPECT_EQ(nullable_string_at(*block.get_by_position(0).column, 0), std::string(28, 'a'));
+    EXPECT_EQ(nullable_string_at(*block.get_by_position(1).column, 0), "||b");
 }
 
 // Scenario: when the CSV row has fewer fields than the FE-provided file slot list, v2 fills the

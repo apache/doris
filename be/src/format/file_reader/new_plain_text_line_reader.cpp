@@ -67,7 +67,10 @@ const uint8_t* EncloseCsvLineReaderCtx::read_line_impl(const uint8_t* start, con
     // causing parse column separator error.
     if (_state.curr_state == ReaderState::NORMAL ||
         _state.curr_state == ReaderState::MATCH_ENCLOSE) {
-        _idx -= std::min(_column_sep_len - 1, _idx);
+        const size_t last_column_sep_end =
+                _column_sep_positions.empty() ? 0 : _column_sep_positions.back() + _column_sep_len;
+        DORIS_CHECK_LE(last_column_sep_end, _idx);
+        _idx -= std::min(_column_sep_len - 1, _idx - last_column_sep_end);
     }
     _total_len = length;
     size_t bound = update_reading_bound(start);
@@ -151,7 +154,8 @@ void EncloseCsvLineReaderCtx::_on_start(const uint8_t* start, size_t& len) {
 
 void EncloseCsvLineReaderCtx::_on_normal(const uint8_t* start, size_t& len) {
     const uint8_t* curr_start = start + _idx;
-    size_t curr_len = len - _idx;
+    const size_t field_search_bound = _result == nullptr ? len : _result - start;
+    const size_t curr_len = field_search_bound - _idx;
     const uint8_t* col_sep_pos =
             find_col_sep_func(curr_start, curr_len, _column_sep.c_str(), _column_sep_len);
 
@@ -207,7 +211,8 @@ void EncloseCsvLineReaderCtx::_on_pre_match_enclose(const uint8_t* start, size_t
 
 void EncloseCsvLineReaderCtx::_on_match_enclose(const uint8_t* start, size_t& len) {
     const uint8_t* curr_start = start + _idx;
-    size_t curr_len = len - _idx;
+    const size_t field_search_bound = _result == nullptr ? len : _result - start;
+    const size_t curr_len = field_search_bound - _idx;
     const uint8_t* delim_pos =
             find_col_sep_func(curr_start, curr_len, _column_sep.c_str(), _column_sep_len);
 

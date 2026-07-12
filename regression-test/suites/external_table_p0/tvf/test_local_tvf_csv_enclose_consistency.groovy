@@ -20,19 +20,16 @@ suite("test_local_tvf_csv_enclose_consistency", "p0,external") {
     assertTrue(backends.size() > 0)
     def beId = backends[0][0]
     def dataPath = context.config.dataPath + "/external_table_p0/tvf"
-    def filePath = dataPath
+    def filePath = "/"
 
     def files = [
         "csv_enclose_state.csv",
         "csv_matching_escape_enclose.csv",
         "csv_quoted_null.csv"
     ]
-    if (backends.size() > 1) {
-        filePath = "/"
-        for (def backend : backends) {
-            for (def file : files) {
-                scpFiles("root", backend[1], "${dataPath}/${file}", filePath, false)
-            }
+    for (def backend : backends) {
+        for (def file : files) {
+            scpFiles("root", backend[1], "${dataPath}/${file}", filePath, false)
         }
     }
 
