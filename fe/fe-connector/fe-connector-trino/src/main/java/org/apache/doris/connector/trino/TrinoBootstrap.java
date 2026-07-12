@@ -69,6 +69,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.File;
+import java.io.IOException;
 import java.time.ZoneId;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -104,8 +105,12 @@ public class TrinoBootstrap {
     private final HandleResolver handleResolver;
     private final TypeRegistry typeRegistry;
     private final TrinoPluginManager pluginManager;
+    // The plugin dir this singleton was initialized with, retained so a later getInstance() with a
+    // different dir fails loudly instead of silently reusing the first dir's plugins.
+    private final String pluginDir;
 
     private TrinoBootstrap(String pluginDir) {
+        this.pluginDir = pluginDir;
         System.setProperty("jdk.attach.allowAttachSelf", "true");
         String osName = System.getProperty("os.name").toLowerCase(Locale.ENGLISH);
         if (osName.contains("mac") || osName.contains("darwin")) {
@@ -141,7 +146,29 @@ public class TrinoBootstrap {
                 }
             }
         }
+        if (!Objects.equals(canonicalize(instance.pluginDir), canonicalize(pluginDir))) {
+            throw new IllegalStateException(String.format(
+                    "TrinoBootstrap already initialized with plugin dir '%s'; cannot reuse it for a "
+                    + "different plugin dir '%s'. All trino-connector catalogs in one FE must share a "
+                    + "single plugin dir.", instance.pluginDir, pluginDir));
+        }
         return instance;
+    }
+
+    /**
+     * Best-effort canonicalization so two spellings of the same physical directory (trailing slash,
+     * relative vs absolute, symlink) are treated as equal and do not trip the mismatch guard above.
+     * Falls back to the raw string if the path cannot be resolved.
+     */
+    private static String canonicalize(String dir) {
+        if (dir == null) {
+            return null;
+        }
+        try {
+            return new File(dir).getCanonicalPath();
+        } catch (IOException e) {
+            return dir;
+        }
     }
 
     /**
