@@ -24,6 +24,7 @@
 #include <parquet/api/reader.h>
 #include <parquet/arrow/writer.h>
 #include <parquet/bloom_filter.h>
+#include <parquet/bloom_filter_reader.h>
 
 #include <cstdint>
 #include <cstring>
@@ -269,6 +270,14 @@ format::FileScanRequest request_with_dictionary_conjunct(std::vector<std::string
 VExprContextSPtrs bloom_conjuncts(DataTypePtr data_type, std::vector<Field> values) {
     return {VExprContext::create_shared(
             std::make_shared<BloomInExpr>(0, std::move(data_type), std::move(values)))};
+}
+
+format::FileScanRequest request_with_bloom_conjunct(DataTypePtr data_type,
+                                                    std::vector<Field> values) {
+    format::FileScanRequest request;
+    request.local_positions.emplace(format::LocalColumnId(0), format::LocalIndex(0));
+    request.conjuncts = bloom_conjuncts(std::move(data_type), std::move(values));
+    return request;
 }
 
 void add_bloom_field(segment_v2::BlockSplitBloomFilter* bloom_filter, const Field& value,
@@ -595,6 +604,41 @@ TEST(ParquetStatisticsPruningTest, VExprUsesDictionaryAndMissingBloomKeepsRows) 
                         .ok());
     EXPECT_EQ(selected, std::vector<int>({0, 1}));
     EXPECT_EQ(pruning_stats.filtered_row_groups_by_bloom_filter, 0);
+}
+
+TEST(ParquetStatisticsPruningTest, BloomFilterCacheIsScopedToRowGroupAndColumn) {
+    auto input = arrow::io::ReadableFile::Open(
+            "./be/test/exec/test_data/parquet_scanner/multi_row_group_bloom_filter.parquet");
+    ASSERT_TRUE(input.ok());
+    auto reader = ::parquet::ParquetFileReader::Open(*input);
+    ASSERT_EQ(reader->metadata()->num_row_groups(), 2);
+    auto& bloom_filter_reader = reader->GetBloomFilterReader();
+    for (int row_group_idx = 0; row_group_idx < 2; ++row_group_idx) {
+        auto row_group_reader = bloom_filter_reader.RowGroup(row_group_idx);
+        ASSERT_NE(row_group_reader, nullptr);
+        ASSERT_NE(row_group_reader->GetColumnBloomFilter(0), nullptr);
+    }
+    auto schema = build_file_schema(*reader);
+
+    std::vector<int> selected;
+    format::parquet::ParquetPruningStats pruning_stats;
+    auto request = request_with_bloom_conjunct(std::make_shared<DataTypeInt32>(),
+                                               {Field::create_field<TYPE_INT>(12345)});
+    ASSERT_TRUE(format::parquet::select_row_groups_by_metadata(*reader->metadata(), reader.get(),
+                                                               schema, request, nullptr, &selected,
+                                                               false, &pruning_stats)
+                        .ok());
+    EXPECT_EQ(selected, std::vector<int>({0, 1}));
+    EXPECT_EQ(pruning_stats.filtered_row_groups_by_bloom_filter, 0);
+
+    selected.clear();
+    pruning_stats = {};
+    ASSERT_TRUE(format::parquet::select_row_groups_by_metadata(*reader->metadata(), reader.get(),
+                                                               schema, request, nullptr, &selected,
+                                                               true, &pruning_stats)
+                        .ok());
+    EXPECT_EQ(selected, std::vector<int>({1}));
+    EXPECT_EQ(pruning_stats.filtered_row_groups_by_bloom_filter, 1);
 }
 
 TEST(ParquetBloomFilterPruningTest, VExprEqPrunesAbsentIntValue) {
