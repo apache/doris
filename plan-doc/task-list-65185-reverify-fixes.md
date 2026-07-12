@@ -39,13 +39,13 @@ Legend：⬜ todo / 🔄 in progress / ✅ done / ⏸ 挂起(需决策/live)
 | 12 | **M8** | 🟠中(运营) | build/docs | 升级只换 lib 不部署 plugins→首访抛 | ⬜ | ⬜ | ⬜ | ⏸ 跳过(用户 07-12;侦察见下) |
 | 13 | **L1** | 🟡低 | tools | import-gate 三洞**+第4洞** | ✅ | ✅ | ✅ | ✅ |
 | 14 | **L2** | 🟡低 | fe-core | 翻闸 hive 丢 SQL 缓存资格 + COUNTER 停增 | ⬜ | ⬜ | ⬜ | ⏸ 需决策 |
-| 15 | **L3** | 🟡低 | trino | 元数据事务从不 commit/close | ⬜ | ⬜ | ⬜ | ⬜ |
-| 16 | **L4** | 🟡低 | trino | plugin.dir 首胜单例(fail-loud) | ⬜ | ⬜ | ⬜ | ⬜ |
-| 17 | **L5** | 🟡低 | trino | listTableNames 丢去重 | ⬜ | ⬜ | ⬜ | ⬜ |
-| 18 | **L6** | 🟡低 | trino | guard 字段发布顺序→瞬时 NPE | ⬜ | ⬜ | ⬜ | ⬜ |
-| 19 | **L7** | 🟡低 | kerberos | UGI.setConfiguration 无 guard(丢 first-writer) | ⬜ | ⬜ | ⬜ | ⬜ |
-| 20 | **L8** | 🟡低 | kerberos | doAs 吞 interrupt 不 restore | ⬜ | ⬜ | ⬜ | ⬜ |
-| 21 | **L9** | 🟡低 | maxcompute | 谓词下推全有全无 | ⬜ | ⬜ | ⬜ | ⬜ |
+| 15 | **L3** | 🟡低 | trino | 元数据事务从不 commit/close | ✅ | ✅ | ✅ | ✅ |
+| 16 | **L4** | 🟡低 | trino | plugin.dir 首胜单例(fail-loud) | ✅ | ✅ | ✅ | ✅ |
+| 17 | **L5** | 🟡低 | trino | listTableNames 丢去重 | ✅ | ✅ | ✅ | ✅ |
+| 18 | **L6** | 🟡低 | trino | guard 字段发布顺序→瞬时 NPE | ✅ | ✅ | ✅ | ✅ |
+| 19 | **L7** | 🟡低 | kerberos | UGI.setConfiguration 无 guard(丢 first-writer) | ✅ | ✅ | ✅ | ✅ |
+| 20 | **L8** | 🟡低 | kerberos | doAs 吞 interrupt 不 restore | ✅ | ✅ | ✅ | ✅ |
+| 21 | **L9** | 🟡低 | maxcompute | 谓词下推全有全无 | ✅ | ✅ | ✅ | ✅ |
 | 22 | **L10** | 🟡低 | fe-core | EXPLAIN 节点名 VPluginDrivenScanNode | ⬜ | ⬜ | ⬜ | ⏸ 需决策 |
 | 23 | **L11** | 🟡低 | paimon | JNI/COUNT file_format 用表级默认 | ✅ | ✅ | ✅ | ✅ |
 | 24 | **L12** | 🟡低 | fe-core/paimon | selectedPartitionNum 语义(登记或对齐) | ⬜ | ⬜ | ⬜ | ⏸ 需决策 |
