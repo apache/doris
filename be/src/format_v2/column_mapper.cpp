@@ -553,6 +553,21 @@ static VExprSPtr rewrite_literal_to_file_type(const VExprSPtr& literal_expr,
     if (file_field.get_type() != remove_nullable(rewrite_info.file_type)->get_primitive_type()) {
         return nullptr;
     }
+    Field round_trip_field;
+    try {
+        convert_field_to_type(file_field, *original_literal->data_type(), &round_trip_field,
+                              rewrite_info.file_type.get());
+    } catch (const Exception&) {
+        return nullptr;
+    }
+    // Only localize a literal when converting it to the file type is lossless. For example,
+    // BIGINT 1 -> INT 1 -> BIGINT 1 succeeds. However, for a table predicate `value < 1.5`
+    // with DOUBLE table type and INT file type, rewriting 1.5 to INT 1 would make a file value
+    // of 1 fail `value < 1` and silently drop a matching row. Its round trip
+    // DOUBLE 1.5 -> INT 1 -> DOUBLE 1.0 fails here and keeps the table-typed predicate instead.
+    if (round_trip_field != original_field) {
+        return nullptr;
+    }
     auto literal = std::make_shared<SplitLocalFileLiteral>(
             rewrite_info.file_type, file_field, original_literal->data_type(), original_field);
     rewrite_context->add_created_expr(literal);
