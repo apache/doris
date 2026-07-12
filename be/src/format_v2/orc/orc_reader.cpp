@@ -908,6 +908,9 @@ void OrcReader::set_condition_cache_context(std::shared_ptr<ConditionCacheContex
 
 int64_t OrcReader::get_total_rows() const {
     DORIS_CHECK(_state != nullptr);
+    if (_state->stripe_pruning_applied && _state->selected_stripe_ranges.empty()) {
+        return 0;
+    }
     if (_state->row_reader != nullptr) {
         return cast_set<int64_t>(_state->row_reader_range_rows);
     }

@@ -8743,6 +8743,9 @@ TEST_F(NewOrcReaderTest, SargConjunctReturnsEofWhenAllStripesArePruned) {
     request->conjuncts.push_back(
             VExprContext::create_shared(std::make_shared<NullableInt32GreaterThanExpr>(0, 5000)));
     ASSERT_TRUE(reader->open(request).ok());
+    // TableReader uses this value to decide whether a condition-cache MISS bitmap should be
+    // created. When SARG pruning removes every stripe, there is no row-reader range to cache.
+    EXPECT_EQ(reader->get_total_rows(), 0);
 
     Block block = build_file_block(schema);
     size_t rows = 0;
