@@ -680,7 +680,11 @@ std::shared_ptr<segment_v2::ZoneMap> make_zonemap_from_statistics(
         return std::make_shared<segment_v2::ZoneMap>(std::move(zone_map));
     }
     if (!statistics.has_min_max) {
-        return nullptr;
+        // Null counts remain trustworthy when min/max decoding fails (for example, because a
+        // floating-point bound is NaN). pass_all prevents range pruning without discarding the
+        // has_null/has_not_null flags needed by IS NULL and IS NOT NULL predicates.
+        zone_map.pass_all = true;
+        return std::make_shared<segment_v2::ZoneMap>(std::move(zone_map));
     }
     zone_map.min_value = statistics.min_value;
     zone_map.max_value = statistics.max_value;
@@ -706,6 +710,11 @@ void accumulate_zonemap_stats(const ZoneMapEvalContext& ctx, ParquetPruningStats
 }
 
 } // namespace
+
+std::shared_ptr<segment_v2::ZoneMap> ParquetStatisticsUtils::MakeZoneMap(
+        const ParquetColumnStatistics& statistics) {
+    return make_zonemap_from_statistics(statistics);
+}
 
 ParquetColumnStatistics ParquetStatisticsUtils::TransformColumnStatistics(
         const ParquetColumnSchema& column_schema,
@@ -875,8 +884,8 @@ bool check_statistics(const ::parquet::RowGroupMetaData& row_group,
         DCHECK_LT(column_schema->leaf_column_id, row_group.num_columns());
         auto column_chunk = row_group.ColumnChunk(column_schema->leaf_column_id);
         if (column_chunk != nullptr) {
-            zone_map =
-                    make_zonemap_from_statistics(ParquetStatisticsUtils::TransformColumnStatistics(
+            zone_map = ParquetStatisticsUtils::MakeZoneMap(
+                    ParquetStatisticsUtils::TransformColumnStatistics(
                             *column_schema, column_chunk->statistics(), timezone));
         }
         add_slot_zonemap(&ctx, slot_index, column_schema->type, std::move(zone_map));
@@ -1236,7 +1245,7 @@ bool select_ranges_for_expr_zonemap(
 
         ZoneMapEvalContext ctx;
         add_slot_zonemap(&ctx, slot_index, column_schema->type,
-                         make_zonemap_from_statistics(page_statistics));
+                         ParquetStatisticsUtils::MakeZoneMap(page_statistics));
         const auto result = VExprContext::evaluate_zonemap_filter(conjuncts, ctx);
         page_stats.merge_page_eval_stats(ctx.stats);
         if (result == ZoneMapFilterResult::kNoMatch) {

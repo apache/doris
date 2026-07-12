@@ -43,6 +43,9 @@ class time_zone;
 
 namespace doris {
 class RuntimeState;
+namespace segment_v2 {
+struct ZoneMap;
+} // namespace segment_v2
 } // namespace doris
 
 namespace doris::format::parquet {
@@ -121,6 +124,9 @@ struct ParquetColumnStatistics {
 //     -> bloom filter(evaluate_bloom_filter)
 // ============================================================================
 struct ParquetStatisticsUtils {
+    static std::shared_ptr<segment_v2::ZoneMap> MakeZoneMap(
+            const ParquetColumnStatistics& statistics);
+
     static ParquetColumnStatistics TransformColumnStatistics(
             const ParquetColumnSchema& column_schema,
             const std::shared_ptr<::parquet::Statistics>& statistics,

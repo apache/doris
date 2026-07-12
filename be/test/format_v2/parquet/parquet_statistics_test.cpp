@@ -39,6 +39,7 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/field.h"
+#include "exprs/expr_zonemap_filter.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vslot_ref.h"
@@ -563,6 +564,50 @@ TEST(ParquetStatisticsTransformTest, IgnoresNaNFloatAndDoubleColumnIndexMinMax) 
     EXPECT_TRUE(following_page_stats.has_min_max);
     EXPECT_EQ(following_page_stats.min_value.get<TYPE_DOUBLE>(), 1.0);
     EXPECT_EQ(following_page_stats.max_value.get<TYPE_DOUBLE>(), 2.0);
+}
+
+TEST(ParquetStatisticsTransformTest, PreservesNullCountWhenNaNInvalidatesMinMax) {
+    auto table = arrow::Table::Make(arrow::schema({arrow::field("f", arrow::float64(), false)}),
+                                    {double_array({1.0, 2.0})});
+    auto reader = make_reader(table, 2, false, true);
+    auto schema = build_file_schema(*reader);
+
+    const double nan = std::numeric_limits<double>::quiet_NaN();
+    const double max_value = 2.0;
+    auto footer_stats = ::parquet::MakeStatistics<::parquet::DoubleType>(
+            schema[0]->descriptor, encoded_value(nan), encoded_value(max_value), 2, 0, 0, true,
+            true, false);
+    const auto converted_footer =
+            format::parquet::ParquetStatisticsUtils::TransformColumnStatistics(*schema[0],
+                                                                               footer_stats);
+    auto footer_zone_map = format::parquet::ParquetStatisticsUtils::MakeZoneMap(converted_footer);
+    ASSERT_NE(footer_zone_map, nullptr);
+    EXPECT_TRUE(footer_zone_map->pass_all);
+    EXPECT_FALSE(footer_zone_map->has_null);
+    EXPECT_TRUE(footer_zone_map->has_not_null);
+    EXPECT_FALSE(expr_zonemap::range_stats_usable_for_zonemap(*footer_zone_map, schema[0]->type));
+
+    ZoneMapEvalContext footer_ctx;
+    footer_ctx.slots.emplace(0, ZoneMapEvalContext::SlotZoneMap {.data_type = schema[0]->type,
+                                                                 .zone_map = footer_zone_map});
+    Int32ZoneMapExpr is_null_expr(0, Int32ZoneMapExpr::Op::IS_NULL);
+    EXPECT_EQ(is_null_expr.evaluate_zonemap_filter(footer_ctx), ZoneMapFilterResult::kNoMatch);
+
+    auto column_index = std::make_shared<TestColumnIndex<::parquet::DoubleType>>(nan, max_value);
+    format::parquet::ParquetColumnStatistics page_stats;
+    ASSERT_TRUE(format::parquet::ParquetStatisticsUtils::TransformColumnIndexStatistics(
+            column_index, *schema[0], 0, &page_stats));
+    auto page_zone_map = format::parquet::ParquetStatisticsUtils::MakeZoneMap(page_stats);
+    ASSERT_NE(page_zone_map, nullptr);
+    EXPECT_TRUE(page_zone_map->pass_all);
+    EXPECT_FALSE(page_zone_map->has_null);
+    EXPECT_TRUE(page_zone_map->has_not_null);
+    EXPECT_FALSE(expr_zonemap::range_stats_usable_for_zonemap(*page_zone_map, schema[0]->type));
+
+    ZoneMapEvalContext page_ctx;
+    page_ctx.slots.emplace(0, ZoneMapEvalContext::SlotZoneMap {.data_type = schema[0]->type,
+                                                               .zone_map = page_zone_map});
+    EXPECT_EQ(is_null_expr.evaluate_zonemap_filter(page_ctx), ZoneMapFilterResult::kNoMatch);
 }
 
 TEST(ParquetStatisticsPruningTest, ExprZonemapPredicatesAndNullPredicatesPruneRowGroups) {
