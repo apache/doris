@@ -330,6 +330,15 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
         if (context != null) {
             context.getBackendStorageProperties().forEach((k, v) -> props.put("location." + k, v));
         }
+        //  (1b) Hadoop-canonical object-store config (fs.s3a.* / fs.oss.* / resolved hadoop.*/dfs.*) TRANSLATED
+        //      from the catalog's typed StorageProperties, for the Hudi JNI reader's own Hadoop FileSystem.
+        //      S3AFileSystem reads ONLY fs.s3a.* — never the AWS_* canonical keys (1) nor the s3. aliases (2) — so
+        //      without this a private s3a warehouse configured with the Doris s3. aliases throws
+        //      NoAuthWithAWSException in the JNI scanner. This is the "hadoopProperties" half of legacy
+        //      getLocationProperties' merge that the raw passthrough (2) alone does not reconstruct (the catalog
+        //      carries s3. aliases, not fs.s3a. keys). Emitted BEFORE (2) so a user-inline fs./hadoop. key still
+        //      wins (mirrors buildHadoopConf precedence); null context yields an empty map (offline / HDFS-only).
+        storageHadoopConfig(context).forEach((k, v) -> props.put("location." + k, v));
         //  (2) Hadoop-format passthrough for the Hudi JNI reader (its own Hadoop FileSystem: fs.s3a.* etc).
         //      Emitted AFTER the canonical set so an overlapping hadoop key resolves to the catalog's explicit
         //      value (legacy putAll order: backendStorageProperties then hadoopProperties). The s3./oss./cos./obs.

@@ -18,6 +18,10 @@
 package org.apache.doris.connector.hudi;
 
 import org.apache.doris.connector.spi.ConnectorContext;
+import org.apache.doris.filesystem.FileSystemType;
+import org.apache.doris.filesystem.properties.HadoopStorageProperties;
+import org.apache.doris.filesystem.properties.StorageKind;
+import org.apache.doris.filesystem.properties.StorageProperties;
 import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
@@ -27,6 +31,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -93,6 +98,27 @@ public class HudiBackendDescriptorTest {
     }
 
     @Test
+    public void scanNodePropertiesEmitsTranslatedFsS3aFromTypedStorageForJniReader() {
+        // The real failing scenario (FIX-hudi-s3a-jni-creds): the catalog carries Doris s3. aliases
+        // (s3.access_key/...), NOT inline fs.s3a.* keys. The Hudi JNI reader's S3AFileSystem reads ONLY fs.s3a.*,
+        // so getScanNodeProperties must emit the TRANSLATED fs.s3a.* from the context's typed StorageProperties
+        // (storageHadoopConfig). Without it the JNI scanner throws NoAuthWithAWSException. Kills a mutation that
+        // drops the storageHadoopConfig emission (the pre-fix behavior: only s3. aliases were emitted, useless to
+        // S3AFileSystem).
+        Map<String, String> catalogProps = new HashMap<>();  // s3. aliases only; NO inline fs.s3a.* key
+        catalogProps.put("s3.access_key", "aliasAK");
+        HudiScanPlanProvider provider = new HudiScanPlanProvider(catalogProps,
+                contextWithHadoopStorage(Collections.singletonMap("fs.s3a.access.key", "translatedAK")));
+
+        Map<String, String> result = provider.getScanNodeProperties(
+                null, new HudiTableHandle("db", "t", "s3a://b/t", "COPY_ON_WRITE"),
+                Collections.emptyList(), Optional.empty());
+
+        Assertions.assertEquals("translatedAK", result.get("location.fs.s3a.access.key"),
+                "translated fs.s3a.* from the catalog's typed StorageProperties must be emitted for the JNI reader");
+    }
+
+    @Test
     public void adjustFileCompressTypeRemapsLz4FrameLikeLegacyInheritance() {
         // Legacy HudiScanNode extended HiveScanNode and INHERITED its LZ4FRAME -> LZ4BLOCK remap (hadoop writes
         // .lz4 as the LZ4 block codec). The new HudiScanPlanProvider does not extend the hive provider, so it
@@ -121,6 +147,57 @@ public class HudiBackendDescriptorTest {
             @Override
             public Map<String, String> getBackendStorageProperties() {
                 return backendProps;
+            }
+        };
+    }
+
+    /** A context whose typed StorageProperties translate to the given Hadoop config (fs.s3a.* etc). */
+    private static ConnectorContext contextWithHadoopStorage(Map<String, String> hadoopConf) {
+        StorageProperties sp = new StorageProperties() {
+            @Override
+            public String providerName() {
+                return "s3";
+            }
+
+            @Override
+            public StorageKind kind() {
+                return null;
+            }
+
+            @Override
+            public FileSystemType type() {
+                return null;
+            }
+
+            @Override
+            public Map<String, String> rawProperties() {
+                return Collections.emptyMap();
+            }
+
+            @Override
+            public Map<String, String> matchedProperties() {
+                return Collections.emptyMap();
+            }
+
+            @Override
+            public Optional<HadoopStorageProperties> toHadoopProperties() {
+                return Optional.of(() -> hadoopConf);
+            }
+        };
+        return new ConnectorContext() {
+            @Override
+            public String getCatalogName() {
+                return "c";
+            }
+
+            @Override
+            public long getCatalogId() {
+                return 0;
+            }
+
+            @Override
+            public List<StorageProperties> getStorageProperties() {
+                return Collections.singletonList(sp);
             }
         };
     }
