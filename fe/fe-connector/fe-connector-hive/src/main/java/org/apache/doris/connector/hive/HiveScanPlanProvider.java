@@ -42,6 +42,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 
@@ -128,7 +129,12 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
                 hiveHandle.getInputFormat(), hiveHandle.getSerializationLib(),
                 readHiveJsonInOneColumn(session), hiveHandle.isFirstColumnString());
         long targetSplitSize = getTargetSplitSize(session);
-        boolean splittable = fileFormat.isSplittable();
+        boolean isLzo = isLzoInputFormat(hiveHandle.getInputFormat());
+        // LZO text is NOT splittable: a .lzo stream cannot be decompressed from an arbitrary byte offset.
+        // Legacy HiveUtil.isSplittable returned false for LZO; HiveFileFormat maps LZO text to TEXT (which
+        // reports splittable), so the LZO case must be masked out here. ACID is never LZO, so this leaves the
+        // transactional branch unchanged.
+        boolean splittable = fileFormat.isSplittable() && !isLzo;
 
         List<ConnectorScanRange> ranges = new ArrayList<>();
 
@@ -145,7 +151,7 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
                 HiveFileFormat partFormat = partition.fileFormat != null
                         ? partition.fileFormat : fileFormat;
                 listAndSplitFiles(dbName, tableName, partition, partFormat,
-                        splittable, targetSplitSize, fs, ranges);
+                        splittable, isLzo, targetSplitSize, fs, ranges);
             }
         }
 
@@ -236,7 +242,9 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
                 hiveHandle.getInputFormat(), hiveHandle.getSerializationLib(),
                 readHiveJsonInOneColumn(session), hiveHandle.isFirstColumnString());
         long targetSplitSize = getTargetSplitSize(session);
-        boolean splittable = fileFormat.isSplittable();
+        boolean isLzo = isLzoInputFormat(hiveHandle.getInputFormat());
+        // LZO text is not splittable (see planScan); mask it out of the TEXT-derived splittable flag.
+        boolean splittable = fileFormat.isSplittable() && !isLzo;
         // Only the non-ACID path is reachable here (supportsBatchScan excludes transactional tables), so this
         // borrows the engine's per-catalog Doris FileSystem to list — no Hadoop Configuration is needed.
         FileSystem fs = context.getFileSystem(session);
@@ -246,7 +254,7 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
             HiveFileFormat partFormat = partition.fileFormat != null
                     ? partition.fileFormat : fileFormat;
             listAndSplitFiles(dbName, tableName, partition, partFormat,
-                    splittable, targetSplitSize, fs, ranges);
+                    splittable, isLzo, targetSplitSize, fs, ranges);
         }
         return ranges;
     }
@@ -467,7 +475,7 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
      */
     private void listAndSplitFiles(String dbName, String tableName,
             PartitionScanInfo partition, HiveFileFormat fileFormat,
-            boolean splittable, long targetSplitSize, FileSystem fs,
+            boolean splittable, boolean isLzo, long targetSplitSize, FileSystem fs,
             List<ConnectorScanRange> ranges) {
         List<HiveFileStatus> files;
         try {
@@ -486,6 +494,13 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
             return;
         }
         for (HiveFileStatus file : files) {
+            // LZO text tables: only *.lzo files are data. Exclude *.lzo.index sidecars (and any other
+            // non-*.lzo entry), mirroring Hive's LzoTextInputFormat.listStatus() and legacy
+            // HiveExternalMetaCache's HiveUtil.isLzoDataFile filter. HiveFileListingCache strips only
+            // _/.-prefixed hidden files, so without this a *.lzo.index sidecar is read as an extra text row.
+            if (isLzo && !isLzoDataFile(file.getPath())) {
+                continue;
+            }
             splitFile(file.getPath(), file.getLength(), file.getModificationTime(),
                     partition, fileFormat, splittable, targetSplitSize, null, null, ranges);
         }
@@ -504,6 +519,34 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
             }
         }
         return false;
+    }
+
+    /**
+     * Whether {@code inputFormat} is one of the hadoop-lzo text InputFormat variants (the twitter
+     * {@code com.hadoop.compression.lzo.LzoTextInputFormat}, the anarres {@code com.hadoop.mapreduce.
+     * LzoTextInputFormat}, and the legacy {@code com.hadoop.mapred.DeprecatedLzoTextInputFormat}). Such tables
+     * read only {@code *.lzo} data files and must exclude {@code *.lzo.index} sidecars. Ports legacy
+     * {@code HiveUtil.isLzoInputFormat}; the {@code contains("lzo")} match (rather than exact class names)
+     * mirrors legacy and covers all variants alike. The connector cannot import fe-core, hence the local copy.
+     * Package-private for unit testing.
+     */
+    static boolean isLzoInputFormat(String inputFormat) {
+        return inputFormat != null && inputFormat.toLowerCase(Locale.ROOT).contains("lzo");
+    }
+
+    /**
+     * For an LZO text InputFormat, only {@code *.lzo} files are data files; {@code *.lzo.index} sidecars and any
+     * other extension are metadata to exclude, mirroring Hive's {@code LzoTextInputFormat.listStatus()}. Ports
+     * legacy {@code HiveUtil.isLzoDataFile}. Package-private for unit testing.
+     */
+    static boolean isLzoDataFile(String filePath) {
+        // Strip any object-store query string/fragment before matching the extension.
+        String path = filePath;
+        int q = path.indexOf('?');
+        if (q >= 0) {
+            path = path.substring(0, q);
+        }
+        return path.toLowerCase(Locale.ROOT).endsWith(".lzo");
     }
 
     /**
