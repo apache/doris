@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableStreamScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 
@@ -81,6 +82,12 @@ class IvmDeltaRewriteVisitor extends PlanVisitor<IvmDeltaRewriteResult, IvmRefre
     public IvmDeltaRewriteResult visitLogicalFilter(LogicalFilter<? extends Plan> filter,
             IvmRefreshContext ctx) {
         return linearHandler.rewriteFilter(filter, this, ctx);
+    }
+
+    @Override
+    public IvmDeltaRewriteResult visitLogicalSubQueryAlias(LogicalSubQueryAlias<? extends Plan> alias,
+            IvmRefreshContext ctx) {
+        return linearHandler.rewriteSubQueryAlias(alias, this, ctx);
     }
 
     @Override

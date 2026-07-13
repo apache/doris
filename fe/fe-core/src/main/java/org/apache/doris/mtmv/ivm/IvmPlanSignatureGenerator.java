@@ -39,6 +39,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 
@@ -422,6 +423,11 @@ public class IvmPlanSignatureGenerator {
         @Override
         public CanonicalNode visitLogicalProject(LogicalProject<? extends Plan> project, Void context) {
             return canonicalProject(project);
+        }
+
+        @Override
+        public CanonicalNode visitLogicalSubQueryAlias(LogicalSubQueryAlias<? extends Plan> alias, Void context) {
+            return alias.child().accept(this, context);
         }
 
         @Override
