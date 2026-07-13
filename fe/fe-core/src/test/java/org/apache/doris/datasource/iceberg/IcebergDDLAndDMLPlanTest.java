@@ -197,6 +197,10 @@ public class IcebergDDLAndDMLPlanTest extends TestWithFeService {
         Mockito.doReturn(mockedTableScan).when(mockedTableScan).filter(ArgumentMatchers.<org.apache.iceberg.expressions.Expression>any());
         Mockito.doReturn(mockedTableScan).when(mockedTableScan).planWith(ArgumentMatchers.any());
         Mockito.doReturn(null).when(mockedTableScan).snapshot();
+        // Keep the scan schema aligned with the mocked table schema. IcebergScanNode reads the
+        // selected scan schema when serializing initial defaults, and several tests temporarily
+        // replace the table schema to exercise partition transforms.
+        Mockito.doAnswer(invocation -> mockedIcebergTable.schema()).when(mockedTableScan).schema();
         Mockito.doReturn(CloseableIterable.withNoopClose(java.util.Collections.emptyList()))
                 .when(mockedTableScan).planFiles();
 

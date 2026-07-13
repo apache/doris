@@ -4086,6 +4086,63 @@ TEST(TableReaderTest, ReusedBlockClearsProjectedStructWithNullableChild) {
     std::filesystem::remove_all(test_dir);
 }
 
+TEST(TableReaderTest, ProjectedRenamedStructPreservesParentDeclaredChildNullability) {
+    const auto test_dir = std::filesystem::temp_directory_path() /
+                          "doris_table_reader_struct_parent_child_nullability_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+
+    const auto file_path = (test_dir / "split.parquet").string();
+    write_struct_with_nullable_child_parquet_file(file_path);
+
+    const auto string_type = std::make_shared<DataTypeString>();
+    const auto nullable_string_type = make_nullable(string_type);
+    auto renamed_note = make_table_column(1, "renamed_note", nullable_string_type);
+    renamed_note.name_mapping = {"note"};
+    // Iceberg nested schema metadata can omit nullability on this child while the parent DataType
+    // remains authoritative and declares it nullable.
+    renamed_note.type = string_type;
+    auto struct_type = std::make_shared<DataTypeStruct>(DataTypes {nullable_string_type},
+                                                        Strings {"renamed_note"});
+    auto struct_column = make_table_column(100, "s", struct_type);
+    struct_column.children = {renamed_note};
+    std::vector<ColumnDefinition> projected_columns = {struct_column};
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    set_name_identifiers(&projected_columns);
+    TableReader reader;
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .conjuncts = {},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                            })
+                        .ok());
+
+    ASSERT_TRUE(reader.prepare_split(build_split_options(file_path)).ok());
+
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    const auto status = reader.get_block(&block, &eos);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    ASSERT_FALSE(eos);
+
+    const auto& struct_result =
+            assert_cast<const ColumnStruct&>(expect_not_null_table_column(block, 0));
+    ASSERT_EQ(struct_result.get_columns().size(), 1);
+    const auto& notes = assert_cast<const ColumnNullable&>(struct_result.get_column(0));
+    EXPECT_FALSE(notes.is_null_at(0));
+    EXPECT_EQ(notes.get_data_at(0).to_string(), "seven");
+    EXPECT_TRUE(notes.is_null_at(1));
+    ASSERT_TRUE(block.get_by_position(0).check_type_and_column_match().ok());
+
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
 TEST(TableReaderTest, ProjectedPartitionColumnUsesSplitPartitionValue) {
     const auto test_dir =
             std::filesystem::temp_directory_path() / "doris_table_reader_partition_value_test";

@@ -26,6 +26,7 @@
 
 #include <iostream>
 #include <memory>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -40,11 +41,13 @@
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_date_or_datetime_v2.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
+#include "core/data_type/data_type_varbinary.h"
 #include "format/parquet/vparquet_column_chunk_reader.h"
 #include "format/parquet/vparquet_reader.h"
 #include "io/fs/file_meta_cache.h"
@@ -916,6 +919,177 @@ TEST_F(IcebergReaderTest, read_iceberg_orc_file) {
 
     // Verify test results using helper function
     verify_test_results(block, read_rows);
+}
+
+TEST_F(IcebergReaderTest, materializes_missing_equality_delete_initial_defaults) {
+    auto make_field = [](const std::string& name, int32_t id, TPrimitiveType::type primitive_type,
+                         const std::string& default_value, int32_t len, int32_t scale,
+                         bool default_is_base64) {
+        auto field = std::make_shared<schema::external::TField>();
+        field->__set_name(name);
+        field->__set_id(id);
+        field->__set_initial_default_value(default_value);
+        if (default_is_base64) {
+            field->__set_initial_default_value_is_base64(true);
+        }
+        TColumnType type;
+        type.__set_type(primitive_type);
+        if (len >= 0) {
+            type.__set_len(len);
+        }
+        if (scale >= 0) {
+            type.__set_scale(scale);
+        }
+        field->__set_type(type);
+        schema::external::TFieldPtr field_ptr;
+        field_ptr.field_ptr = std::move(field);
+        field_ptr.__isset.field_ptr = true;
+        return field_ptr;
+    };
+
+    schema::external::TStructField root_field;
+    root_field.__set_fields(
+            {make_field("added_timestamp", 1, TPrimitiveType::DATETIMEV2,
+                        "2024-01-01 00:00:00.123456", -1, 6, false),
+             make_field("added_binary", 2, TPrimitiveType::VARBINARY, "AAEC/w==", 4, -1, true),
+             make_field("added_string_binary", 3, TPrimitiveType::STRING, "AAEC/w==", -1, -1,
+                        true)});
+    schema::external::TSchema current_schema;
+    current_schema.__set_schema_id(100);
+    current_schema.__set_root_field(root_field);
+
+    TFileScanRangeParams scan_params;
+    scan_params.__set_current_schema_id(100);
+    scan_params.__set_history_schema_info({std::move(current_schema)});
+    TFileRangeDesc scan_range;
+    RuntimeProfile profile("test_profile");
+    RuntimeState runtime_state {TQueryOptions(), TQueryGlobals()};
+    io::IOContext io_ctx;
+    ShardedKVCache kv_cache(8);
+    IcebergParquetReader reader(nullptr, &profile, &runtime_state, scan_params, scan_range,
+                                &kv_cache, &io_ctx, cache.get());
+
+    const auto timestamp_type = make_nullable(std::make_shared<DataTypeDateTimeV2>(6));
+    const auto varbinary_type = make_nullable(std::make_shared<DataTypeVarbinary>(4));
+    const auto string_type = make_nullable(std::make_shared<DataTypeString>());
+    Block block;
+    block.insert({timestamp_type->create_column(), timestamp_type, "added_timestamp"});
+    block.insert({varbinary_type->create_column(), varbinary_type, "added_binary"});
+    block.insert({string_type->create_column(), string_type, "added_string_binary"});
+    std::unordered_map<std::string, uint32_t> positions = {
+            {"added_timestamp", 0}, {"added_binary", 1}, {"added_string_binary", 2}};
+    reader.TEST_set_column_name_to_block_index(&positions);
+    ASSERT_TRUE(reader.TEST_register_missing_equality_delete_column(1, "added_timestamp",
+                                                                    timestamp_type)
+                        .ok());
+    ASSERT_TRUE(
+            reader.TEST_register_missing_equality_delete_column(2, "added_binary", varbinary_type)
+                    .ok());
+    ASSERT_TRUE(reader.TEST_register_missing_equality_delete_column(3, "added_string_binary",
+                                                                    string_type)
+                        .ok());
+    ASSERT_TRUE(reader.TEST_materialize_missing_equality_delete_columns(&block, 3).ok());
+
+    ASSERT_EQ(block.rows(), 3);
+    EXPECT_EQ(timestamp_type->to_string(*block.get_by_position(0).column, 0),
+              "2024-01-01 00:00:00.123456");
+    EXPECT_EQ(varbinary_type->to_string(*block.get_by_position(1).column, 0),
+              std::string("\x00\x01\x02\xff", 4));
+    EXPECT_EQ(string_type->to_string(*block.get_by_position(2).column, 0),
+              std::string("\x00\x01\x02\xff", 4));
+    EXPECT_FALSE(is_column_const(*block.get_by_position(0).column));
+    EXPECT_FALSE(is_column_const(*block.get_by_position(1).column));
+    EXPECT_FALSE(is_column_const(*block.get_by_position(2).column));
+}
+
+TEST_F(IcebergReaderTest, multi_equality_delete_hashes_materialized_missing_default) {
+    auto make_int_field = [](const std::string& name, int32_t id,
+                             const std::optional<std::string>& initial_default) {
+        auto field = std::make_shared<schema::external::TField>();
+        field->__set_name(name);
+        field->__set_id(id);
+        TColumnType type;
+        type.__set_type(TPrimitiveType::INT);
+        field->__set_type(type);
+        if (initial_default.has_value()) {
+            field->__set_initial_default_value(*initial_default);
+        }
+        schema::external::TFieldPtr field_ptr;
+        field_ptr.field_ptr = std::move(field);
+        field_ptr.__isset.field_ptr = true;
+        return field_ptr;
+    };
+
+    schema::external::TStructField root_field;
+    root_field.__set_fields(
+            {make_int_field("id", 0, std::nullopt), make_int_field("added_column", 1, "7")});
+    schema::external::TSchema current_schema;
+    current_schema.__set_schema_id(100);
+    current_schema.__set_root_field(root_field);
+
+    TFileScanRangeParams scan_params;
+    scan_params.__set_current_schema_id(100);
+    scan_params.__set_history_schema_info({current_schema});
+    TFileRangeDesc scan_range;
+    RuntimeProfile profile("test_profile");
+    RuntimeState runtime_state {TQueryOptions(), TQueryGlobals()};
+    io::IOContext io_ctx;
+    ShardedKVCache kv_cache(8);
+    IcebergParquetReader reader(nullptr, &profile, &runtime_state, scan_params, scan_range,
+                                &kv_cache, &io_ctx, cache.get());
+
+    const auto int_type = make_nullable(std::make_shared<DataTypeInt32>());
+    auto id_column = int_type->create_column();
+    id_column->insert(Field::create_field<TYPE_INT>(1));
+    id_column->insert(Field::create_field<TYPE_INT>(2));
+    id_column->insert(Field::create_field<TYPE_INT>(3));
+    Block data_block;
+    data_block.insert({std::move(id_column), int_type, "id"});
+    data_block.insert({int_type->create_column(), int_type, "added_column"});
+    std::unordered_map<std::string, uint32_t> positions = {{"id", 0}, {"added_column", 1}};
+    reader.TEST_set_column_name_to_block_index(&positions);
+    ASSERT_TRUE(
+            reader.TEST_register_missing_equality_delete_column(1, "added_column", int_type).ok());
+    ASSERT_TRUE(reader.TEST_materialize_missing_equality_delete_columns(&data_block, 3).ok());
+    ASSERT_EQ(data_block.rows(), 3);
+    ASSERT_FALSE(is_column_const(*data_block.get_by_position(1).column));
+
+    auto delete_id_column = int_type->create_column();
+    delete_id_column->insert(Field::create_field<TYPE_INT>(2));
+    auto delete_default_column = int_type->create_column();
+    delete_default_column->insert(Field::create_field<TYPE_INT>(7));
+    Block delete_block;
+    delete_block.insert({std::move(delete_id_column), int_type, "id"});
+    delete_block.insert({std::move(delete_default_column), int_type, "added_column"});
+    MultiEqualityDelete equality_delete(&delete_block, {0, 1});
+    ASSERT_TRUE(equality_delete.init(&profile).ok());
+
+    std::unordered_map<int, std::string> id_to_name = {{0, "id"}, {1, "added_column"}};
+    IColumn::Filter filter(3, 1);
+    ASSERT_TRUE(
+            equality_delete.filter_data_block(&data_block, &positions, id_to_name, filter).ok());
+    EXPECT_EQ(filter, IColumn::Filter({1, 0, 1}));
+}
+
+TEST_F(IcebergReaderTest, missing_equality_key_rejects_pruned_schema_metadata) {
+    schema::external::TSchema current_schema;
+    current_schema.__set_schema_id(100);
+    current_schema.__set_root_field(schema::external::TStructField {});
+    TFileScanRangeParams scan_params;
+    scan_params.__set_current_schema_id(100);
+    scan_params.__set_history_schema_info({current_schema});
+    TFileRangeDesc scan_range;
+    RuntimeProfile profile("test_profile");
+    RuntimeState runtime_state {TQueryOptions(), TQueryGlobals()};
+    io::IOContext io_ctx;
+    ShardedKVCache kv_cache(8);
+    IcebergParquetReader reader(nullptr, &profile, &runtime_state, scan_params, scan_range,
+                                &kv_cache, &io_ctx, cache.get());
+    const auto int_type = make_nullable(std::make_shared<DataTypeInt32>());
+    const auto status =
+            reader.TEST_register_missing_equality_delete_column(1, "hidden_key", int_type);
+    ASSERT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("field id 1"), std::string::npos);
 }
 
 } // namespace doris

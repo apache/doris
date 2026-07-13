@@ -18,6 +18,7 @@
 #include "format/table/iceberg_reader.h"
 
 #include <gen_cpp/Descriptors_types.h>
+#include <gen_cpp/ExternalTableSchema_types.h>
 #include <gen_cpp/Metrics_types.h>
 #include <gen_cpp/PlanNodes_types.h>
 #include <gen_cpp/parquet_types.h>
@@ -29,6 +30,7 @@
 #include <cstring>
 #include <functional>
 #include <memory>
+#include <ranges>
 #include <set>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
@@ -38,6 +40,7 @@
 #include "core/block/column_with_type_and_name.h"
 #include "core/column/column.h"
 #include "core/data_type/data_type_factory.hpp"
+#include "core/data_type/primitive_type.h"
 #include "exprs/aggregate/aggregate_function.h"
 #include "format/format_common.h"
 #include "format/generic_reader.h"
@@ -52,6 +55,7 @@
 #include "format/table/table_format_reader.h"
 #include "runtime/runtime_state.h"
 #include "util/coding.h"
+#include "util/url_coding.h"
 
 namespace cctz {
 #include "common/compile_check_begin.h"
@@ -194,6 +198,8 @@ Status IcebergTableReader::get_next_block_inner(Block* block, size_t* read_rows,
 
     RETURN_IF_ERROR(_file_format_reader->get_next_block(block, read_rows, eof));
 
+    RETURN_IF_ERROR(_materialize_missing_equality_delete_columns(block, block->rows()));
+
     if (_equality_delete_impls.size() > 0) {
         std::unique_ptr<IColumn::Filter> filter =
                 std::make_unique<IColumn::Filter>(block->rows(), 1);
@@ -317,6 +323,11 @@ Status IcebergTableReader::_expand_block_if_need(Block* block) {
     auto block_names = block->get_names();
     names.insert(block_names.begin(), block_names.end());
     for (auto& col : _expand_columns) {
+        if (_missing_equality_delete_values.contains(col.name)) {
+            // Missing equality keys are logical columns. Add them after the file reader has
+            // established the batch row count instead of presenting them as physical columns.
+            continue;
+        }
         auto mutable_column = IColumn::mutate(std::move(col.column));
         mutable_column->clear();
         col.column = std::move(mutable_column);
@@ -326,6 +337,108 @@ Status IcebergTableReader::_expand_block_if_need(Block* block) {
         names.insert(col.name);
         (*_col_name_to_block_idx)[col.name] = static_cast<uint32_t>(block->columns());
         block->insert(col);
+    }
+    return Status::OK();
+}
+
+const schema::external::TSchema* IcebergTableReader::_current_table_schema() const {
+    if (!_params.__isset.history_schema_info || _params.history_schema_info.empty()) {
+        return nullptr;
+    }
+    if (_params.__isset.current_schema_id) {
+        const auto schema_it = std::ranges::find_if(
+                _params.history_schema_info, [&](const schema::external::TSchema& schema) {
+                    return schema.__isset.schema_id &&
+                           schema.schema_id == _params.current_schema_id;
+                });
+        if (schema_it != _params.history_schema_info.end()) {
+            return &*schema_it;
+        }
+        return nullptr;
+    }
+    return &_params.history_schema_info.front();
+}
+
+const schema::external::TField* IcebergTableReader::_find_current_table_field(
+        int32_t field_id) const {
+    const auto* schema = _current_table_schema();
+    if (schema == nullptr || !schema->__isset.root_field) {
+        return nullptr;
+    }
+    for (const auto& field_ptr : schema->root_field.fields) {
+        if (field_ptr.__isset.field_ptr && field_ptr.field_ptr != nullptr &&
+            field_ptr.field_ptr->__isset.id && field_ptr.field_ptr->id == field_id) {
+            return field_ptr.field_ptr.get();
+        }
+    }
+    return nullptr;
+}
+
+Status IcebergTableReader::_register_missing_equality_delete_column(
+        int32_t field_id, const std::string& name, const DataTypePtr& delete_key_type) {
+    DORIS_CHECK(delete_key_type != nullptr);
+    const auto* table_field = _find_current_table_field(field_id);
+    if (table_field == nullptr) {
+        return Status::InternalError(
+                "Missing Iceberg schema metadata for equality-delete field id {}", field_id);
+    }
+
+    Field value;
+    if (table_field->__isset.initial_default_value) {
+        const auto nested_type = remove_nullable(delete_key_type);
+        const bool default_is_base64 = (table_field->__isset.initial_default_value_is_base64 &&
+                                        table_field->initial_default_value_is_base64) ||
+                                       (table_field->__isset.type &&
+                                        thrift_to_type(table_field->type.type) == TYPE_VARBINARY);
+        if (default_is_base64) {
+            std::string decoded_default;
+            if (!base64_decode(table_field->initial_default_value, &decoded_default)) {
+                return Status::InvalidArgument(
+                        "Invalid Base64 Iceberg initial default for field {}", table_field->name);
+            }
+            if (nested_type->get_primitive_type() == TYPE_VARBINARY) {
+                value = Field::create_field<TYPE_VARBINARY>(StringView(decoded_default));
+            } else {
+                DORIS_CHECK(is_string_type(nested_type->get_primitive_type()));
+                value = Field::create_field<TYPE_STRING>(decoded_default);
+            }
+        } else {
+            RETURN_IF_ERROR(nested_type->get_serde()->from_fe_string(
+                    table_field->initial_default_value, value));
+        }
+    }
+    const bool inserted = _missing_equality_delete_values
+                                  .emplace(name, delete_key_type->create_column_const(1, value))
+                                  .second;
+    DORIS_CHECK(inserted);
+    return Status::OK();
+}
+
+Status IcebergTableReader::_materialize_missing_equality_delete_column(Block* block,
+                                                                       const std::string& name,
+                                                                       const ColumnPtr& value,
+                                                                       size_t rows) {
+    if (!_col_name_to_block_idx->contains(name)) {
+        const auto expand_col = std::ranges::find_if(
+                _expand_columns,
+                [&](const ColumnWithTypeAndName& col) { return col.name == name; });
+        DORIS_CHECK(expand_col != _expand_columns.end());
+        (*_col_name_to_block_idx)[name] = static_cast<uint32_t>(block->columns());
+        block->insert({value->clone_resized(rows)->convert_to_full_column_if_const(),
+                       expand_col->type, name});
+        return Status::OK();
+    }
+    const auto position = _col_name_to_block_idx->at(name);
+    DORIS_CHECK(position < block->columns());
+    DORIS_CHECK(block->get_by_position(position).column->empty());
+    block->get_by_position(position).column =
+            value->clone_resized(rows)->convert_to_full_column_if_const();
+    return Status::OK();
+}
+
+Status IcebergTableReader::_materialize_missing_equality_delete_columns(Block* block, size_t rows) {
+    for (const auto& [name, value] : _missing_equality_delete_values) {
+        RETURN_IF_ERROR(_materialize_missing_equality_delete_column(block, name, value, rows));
     }
     return Status::OK();
 }
@@ -497,11 +610,9 @@ Status IcebergParquetReader::init_reader(
         parquet_reader->set_row_lineage_columns(_row_lineage_columns);
     }
 
-    auto column_id_result = _create_column_ids(_data_file_field_desc, tuple_descriptor);
-    auto& column_ids = column_id_result.column_ids;
-    const auto& filter_column_ids = column_id_result.filter_column_ids;
-
     RETURN_IF_ERROR(init_row_filters());
+    std::set<uint64_t> column_ids;
+    std::set<uint64_t> filter_column_ids;
     _all_required_col_names = file_col_names;
 
     if (!_params.__isset.history_schema_info || _params.history_schema_info.empty()) [[unlikely]] {
@@ -518,7 +629,12 @@ Status IcebergParquetReader::init_reader(
                 break;
             }
         }
-        const auto& table_schema = _params.history_schema_info.front().root_field;
+        const auto* current_schema = _current_table_schema();
+        if (current_schema == nullptr || !current_schema->__isset.root_field) {
+            return Status::InternalError("Can not find current Iceberg schema id {}",
+                                         _params.current_schema_id);
+        }
+        const auto& table_schema = current_schema->root_field;
 
         table_info_node_ptr = std::make_shared<TableSchemaChangeHelper::StructNode>();
         if (exist_field_id) {
@@ -571,18 +687,51 @@ Status IcebergParquetReader::init_reader(
                     column_ids.insert(data_file_field->get_column_id());
                 }
             }
+            for (const int field_id : _equality_delete_col_ids) {
+                if (_id_to_block_column_name.contains(field_id)) {
+                    continue;
+                }
+                const auto* table_field = _find_current_table_field(field_id);
+                if (table_field == nullptr || !_equality_delete_col_types.contains(field_id)) {
+                    return Status::InternalError(
+                            "Missing Iceberg schema metadata for equality-delete field id {}",
+                            field_id);
+                }
+                const std::string table_column_name =
+                        "__equality_delete_column__" + table_field->name;
+                const auto& expand_data_type = _equality_delete_col_types.at(field_id);
+                _id_to_block_column_name.emplace(field_id, table_column_name);
+                _expand_col_names.emplace_back(table_column_name);
+                _expand_columns.emplace_back(ColumnWithTypeAndName {
+                        expand_data_type->create_column(), expand_data_type, table_column_name});
+                RETURN_IF_ERROR(_register_missing_equality_delete_column(
+                        field_id, table_column_name, expand_data_type));
+            }
             for (const auto& [id, table_field] : id_to_table_field) {
                 table_info_node_ptr->add_not_exist_children(table_field->name);
             }
         } else {
-            if (!_equality_delete_col_ids.empty()) [[unlikely]] {
-                return Status::InternalError(
-                        "Can not read missing field id data file when have equality delete");
-            }
             std::map<std::string, size_t> file_column_idx_map;
             for (size_t idx = 0; idx < _data_file_field_desc->size(); idx++) {
                 file_column_idx_map.emplace(_data_file_field_desc->get_column(idx)->name, idx);
             }
+
+            auto find_file_column =
+                    [&](const schema::external::TField& field) -> std::optional<size_t> {
+                const auto current_name_it = file_column_idx_map.find(field.name);
+                if (current_name_it != file_column_idx_map.end()) {
+                    return current_name_it->second;
+                }
+                if (field.__isset.name_mapping) {
+                    for (const auto& mapped_name : field.name_mapping) {
+                        const auto mapped_it = file_column_idx_map.find(mapped_name);
+                        if (mapped_it != file_column_idx_map.end()) {
+                            return mapped_it->second;
+                        }
+                    }
+                }
+                return std::nullopt;
+            };
 
             for (const auto& table_field : table_schema.fields) {
                 DCHECK(table_field.__isset.field_ptr);
@@ -591,31 +740,68 @@ Status IcebergParquetReader::init_reader(
                 if (!read_col_name_set.contains(table_column_name)) {
                     continue;
                 }
-                if (!table_field.field_ptr->__isset.name_mapping ||
-                    table_field.field_ptr->name_mapping.size() == 0) {
-                    return Status::DataQualityError(
-                            "name_mapping must be set when read missing field id data file.");
-                }
-                bool have_mapping = false;
-                for (const auto& mapped_name : table_field.field_ptr->name_mapping) {
-                    if (file_column_idx_map.contains(mapped_name)) {
-                        std::shared_ptr<TableSchemaChangeHelper::Node> field_node = nullptr;
-                        const auto& file_field = _data_file_field_desc->get_column(
-                                file_column_idx_map.at(mapped_name));
-                        RETURN_IF_ERROR(BuildTableInfoUtil::by_parquet_field_id(
-                                *table_field.field_ptr, *file_field, exist_field_id, field_node));
-                        table_info_node_ptr->add_children(table_column_name, file_field->name,
-                                                          field_node);
-                        have_mapping = true;
-                        break;
-                    }
-                }
-                if (!have_mapping) {
+                const auto file_column_idx = find_file_column(*table_field.field_ptr);
+                if (!file_column_idx.has_value()) {
                     table_info_node_ptr->add_not_exist_children(table_column_name);
+                    if (_equality_delete_col_ids.contains(table_field.field_ptr->id)) {
+                        _id_to_block_column_name.emplace(table_field.field_ptr->id,
+                                                         table_column_name);
+                        RETURN_IF_ERROR(_register_missing_equality_delete_column(
+                                table_field.field_ptr->id, table_column_name,
+                                _equality_delete_col_types.at(table_field.field_ptr->id)));
+                    }
+                    continue;
+                }
+                std::shared_ptr<TableSchemaChangeHelper::Node> field_node = nullptr;
+                const auto& file_field = _data_file_field_desc->get_column(*file_column_idx);
+                RETURN_IF_ERROR(BuildTableInfoUtil::by_parquet_field_id(
+                        *table_field.field_ptr, *file_field, exist_field_id, field_node));
+                table_info_node_ptr->add_children(table_column_name, file_field->name, field_node);
+                _id_to_block_column_name.emplace(table_field.field_ptr->id, table_column_name);
+            }
+
+            for (const int field_id : _equality_delete_col_ids) {
+                if (_id_to_block_column_name.contains(field_id)) {
+                    continue;
+                }
+                const auto* table_field = _find_current_table_field(field_id);
+                if (table_field == nullptr || !_equality_delete_col_types.contains(field_id)) {
+                    return Status::InternalError(
+                            "Missing Iceberg schema metadata for equality-delete field id {}",
+                            field_id);
+                }
+                const auto file_column_idx = find_file_column(*table_field);
+                const auto& expand_data_type = _equality_delete_col_types.at(field_id);
+                const std::string file_column_name =
+                        file_column_idx.has_value()
+                                ? _data_file_field_desc->get_column(*file_column_idx)->name
+                                : table_field->name;
+                const std::string table_column_name =
+                        "__equality_delete_column__" + file_column_name;
+                _id_to_block_column_name.emplace(field_id, table_column_name);
+                _expand_col_names.emplace_back(table_column_name);
+                _expand_columns.emplace_back(ColumnWithTypeAndName {
+                        expand_data_type->create_column(), expand_data_type, table_column_name});
+                if (file_column_idx.has_value()) {
+                    const auto* file_field = _data_file_field_desc->get_column(*file_column_idx);
+                    table_info_node_ptr->add_children(
+                            table_column_name, file_field->name,
+                            TableSchemaChangeHelper::ConstNode::get_instance());
+                    _all_required_col_names.emplace_back(table_column_name);
+                    column_ids.insert(file_field->get_column_id());
+                } else {
+                    RETURN_IF_ERROR(_register_missing_equality_delete_column(
+                            field_id, table_column_name, expand_data_type));
                 }
             }
         }
     }
+
+    auto column_id_result =
+            _create_column_ids(_data_file_field_desc, tuple_descriptor, table_info_node_ptr);
+    column_ids.insert(column_id_result.column_ids.begin(), column_id_result.column_ids.end());
+    filter_column_ids.insert(column_id_result.filter_column_ids.begin(),
+                             column_id_result.filter_column_ids.end());
 
     return parquet_reader->init_reader(
             _all_required_col_names, _col_name_to_block_idx, conjuncts, slot_id_to_predicates,
@@ -623,8 +809,9 @@ Status IcebergParquetReader::init_reader(
             slot_id_to_filter_conjuncts, table_info_node_ptr, true, column_ids, filter_column_ids);
 }
 
-ColumnIdResult IcebergParquetReader::_create_column_ids(const FieldDescriptor* field_desc,
-                                                        const TupleDescriptor* tuple_descriptor) {
+ColumnIdResult IcebergParquetReader::_create_column_ids(
+        const FieldDescriptor* field_desc, const TupleDescriptor* tuple_descriptor,
+        const std::shared_ptr<TableSchemaChangeHelper::Node>& table_info_node) {
     // First, assign column IDs to the field descriptor
     auto* mutable_field_desc = const_cast<FieldDescriptor*>(field_desc);
     mutable_field_desc->assign_ids();
@@ -654,13 +841,30 @@ ColumnIdResult IcebergParquetReader::_create_column_ids(const FieldDescriptor* f
                 IcebergParquetNestedColumnUtils::extract_nested_column_ids);
     };
 
+    const auto struct_node =
+            std::dynamic_pointer_cast<TableSchemaChangeHelper::StructNode>(table_info_node);
     for (const auto* slot : tuple_descriptor->slots()) {
-        auto it = iceberg_id_to_field_schema_map.find(slot->col_unique_id());
-        if (it == iceberg_id_to_field_schema_map.end()) {
-            // Column not found in file (e.g., partition column, added column)
+        const FieldSchema* field_schema = nullptr;
+        if (struct_node != nullptr && struct_node->get_children().contains(slot->col_name()) &&
+            struct_node->children_column_exists(slot->col_name())) {
+            const auto& file_column_name = struct_node->children_file_column_name(slot->col_name());
+            for (int i = 0; i < field_desc->size(); ++i) {
+                const auto* candidate = field_desc->get_column(i);
+                if (candidate != nullptr && candidate->name == file_column_name) {
+                    field_schema = candidate;
+                    break;
+                }
+            }
+            DORIS_CHECK(field_schema != nullptr);
+        } else if (table_info_node == nullptr) {
+            auto it = iceberg_id_to_field_schema_map.find(slot->col_unique_id());
+            if (it != iceberg_id_to_field_schema_map.end()) {
+                field_schema = it->second;
+            }
+        }
+        if (field_schema == nullptr) {
             continue;
         }
-        auto field_schema = it->second;
 
         // primitive (non-nested) types: direct mapping by name
         if ((slot->col_type() != TYPE_STRUCT && slot->col_type() != TYPE_ARRAY &&
@@ -682,7 +886,7 @@ ColumnIdResult IcebergParquetReader::_create_column_ids(const FieldDescriptor* f
             process_access_paths(field_schema, predicate_access_paths, filter_column_ids);
         }
     }
-    return ColumnIdResult(std::move(column_ids), std::move(filter_column_ids));
+    return {std::move(column_ids), std::move(filter_column_ids)};
 }
 
 Status IcebergOrcReader::init_reader(
@@ -711,11 +915,9 @@ Status IcebergOrcReader::init_reader(
         orc_reader->set_row_lineage_columns(_row_lineage_columns);
     }
 
-    auto column_id_result = _create_column_ids(_data_file_type_desc, tuple_descriptor);
-    auto& column_ids = column_id_result.column_ids;
-    const auto& filter_column_ids = column_id_result.filter_column_ids;
-
     RETURN_IF_ERROR(init_row_filters());
+    std::set<uint64_t> column_ids;
+    std::set<uint64_t> filter_column_ids;
 
     _all_required_col_names = file_col_names;
     if (!_params.__isset.history_schema_info || _params.history_schema_info.empty()) [[unlikely]] {
@@ -732,7 +934,12 @@ Status IcebergOrcReader::init_reader(
             }
         }
 
-        const auto& table_schema = _params.history_schema_info.front().root_field;
+        const auto* current_schema = _current_table_schema();
+        if (current_schema == nullptr || !current_schema->__isset.root_field) {
+            return Status::InternalError("Can not find current Iceberg schema id {}",
+                                         _params.current_schema_id);
+        }
+        const auto& table_schema = current_schema->root_field;
         table_info_node_ptr = std::make_shared<TableSchemaChangeHelper::StructNode>();
         if (exist_field_id) {
             // id -> table column name. columns that need read data file.
@@ -789,19 +996,52 @@ Status IcebergOrcReader::init_reader(
                     column_ids.insert(data_file_field->getColumnId());
                 }
             }
+            for (const int field_id : _equality_delete_col_ids) {
+                if (_id_to_block_column_name.contains(field_id)) {
+                    continue;
+                }
+                const auto* table_field = _find_current_table_field(field_id);
+                if (table_field == nullptr || !_equality_delete_col_types.contains(field_id)) {
+                    return Status::InternalError(
+                            "Missing Iceberg schema metadata for equality-delete field id {}",
+                            field_id);
+                }
+                const std::string table_column_name =
+                        "__equality_delete_column__" + table_field->name;
+                const auto& expand_data_type = _equality_delete_col_types.at(field_id);
+                _id_to_block_column_name.emplace(field_id, table_column_name);
+                _expand_col_names.emplace_back(table_column_name);
+                _expand_columns.emplace_back(ColumnWithTypeAndName {
+                        expand_data_type->create_column(), expand_data_type, table_column_name});
+                RETURN_IF_ERROR(_register_missing_equality_delete_column(
+                        field_id, table_column_name, expand_data_type));
+            }
             for (const auto& [id, table_field] : id_to_table_field) {
                 table_info_node_ptr->add_not_exist_children(table_field->name);
             }
         } else {
-            if (!_equality_delete_col_ids.empty()) [[unlikely]] {
-                return Status::InternalError(
-                        "Can not read missing field id data file when have equality delete");
-            }
             std::map<std::string, size_t> file_column_idx_map;
             for (int idx = 0; idx < _data_file_type_desc->getSubtypeCount(); idx++) {
                 auto const& file_column_name = _data_file_type_desc->getFieldName(idx);
                 file_column_idx_map.emplace(file_column_name, idx);
             }
+
+            auto find_file_column =
+                    [&](const schema::external::TField& field) -> std::optional<size_t> {
+                const auto current_name_it = file_column_idx_map.find(field.name);
+                if (current_name_it != file_column_idx_map.end()) {
+                    return current_name_it->second;
+                }
+                if (field.__isset.name_mapping) {
+                    for (const auto& mapped_name : field.name_mapping) {
+                        const auto mapped_it = file_column_idx_map.find(mapped_name);
+                        if (mapped_it != file_column_idx_map.end()) {
+                            return mapped_it->second;
+                        }
+                    }
+                }
+                return std::nullopt;
+            };
 
             for (const auto& table_field : table_schema.fields) {
                 DCHECK(table_field.__isset.field_ptr);
@@ -810,33 +1050,71 @@ Status IcebergOrcReader::init_reader(
                 if (!read_col_name_set.contains(table_column_name)) {
                     continue;
                 }
-                if (!table_field.field_ptr->__isset.name_mapping ||
-                    table_field.field_ptr->name_mapping.size() == 0) {
-                    return Status::DataQualityError(
-                            "name_mapping must be set when read missing field id data file.");
-                }
-                auto have_mapping = false;
-                for (const auto& mapped_name : table_field.field_ptr->name_mapping) {
-                    if (file_column_idx_map.contains(mapped_name)) {
-                        auto file_column_idx = file_column_idx_map.at(mapped_name);
-                        std::shared_ptr<TableSchemaChangeHelper::Node> field_node = nullptr;
-                        const auto& file_field = _data_file_type_desc->getSubtype(file_column_idx);
-                        RETURN_IF_ERROR(BuildTableInfoUtil::by_orc_field_id(
-                                *table_field.field_ptr, file_field, ICEBERG_ORC_ATTRIBUTE,
-                                exist_field_id, field_node));
-                        table_info_node_ptr->add_children(
-                                table_column_name,
-                                _data_file_type_desc->getFieldName(file_column_idx), field_node);
-                        have_mapping = true;
-                        break;
-                    }
-                }
-                if (!have_mapping) {
+                const auto file_column_idx = find_file_column(*table_field.field_ptr);
+                if (!file_column_idx.has_value()) {
                     table_info_node_ptr->add_not_exist_children(table_column_name);
+                    if (_equality_delete_col_ids.contains(table_field.field_ptr->id)) {
+                        _id_to_block_column_name.emplace(table_field.field_ptr->id,
+                                                         table_column_name);
+                        RETURN_IF_ERROR(_register_missing_equality_delete_column(
+                                table_field.field_ptr->id, table_column_name,
+                                _equality_delete_col_types.at(table_field.field_ptr->id)));
+                    }
+                    continue;
+                }
+                std::shared_ptr<TableSchemaChangeHelper::Node> field_node = nullptr;
+                const auto* file_field = _data_file_type_desc->getSubtype(*file_column_idx);
+                RETURN_IF_ERROR(BuildTableInfoUtil::by_orc_field_id(
+                        *table_field.field_ptr, file_field, ICEBERG_ORC_ATTRIBUTE, exist_field_id,
+                        field_node));
+                table_info_node_ptr->add_children(
+                        table_column_name, _data_file_type_desc->getFieldName(*file_column_idx),
+                        field_node);
+                _id_to_block_column_name.emplace(table_field.field_ptr->id, table_column_name);
+            }
+
+            for (const int field_id : _equality_delete_col_ids) {
+                if (_id_to_block_column_name.contains(field_id)) {
+                    continue;
+                }
+                const auto* table_field = _find_current_table_field(field_id);
+                if (table_field == nullptr || !_equality_delete_col_types.contains(field_id)) {
+                    return Status::InternalError(
+                            "Missing Iceberg schema metadata for equality-delete field id {}",
+                            field_id);
+                }
+                const auto file_column_idx = find_file_column(*table_field);
+                const auto& expand_data_type = _equality_delete_col_types.at(field_id);
+                const std::string file_column_name =
+                        file_column_idx.has_value()
+                                ? _data_file_type_desc->getFieldName(*file_column_idx)
+                                : table_field->name;
+                const std::string table_column_name =
+                        "__equality_delete_column__" + file_column_name;
+                _id_to_block_column_name.emplace(field_id, table_column_name);
+                _expand_col_names.emplace_back(table_column_name);
+                _expand_columns.emplace_back(ColumnWithTypeAndName {
+                        expand_data_type->create_column(), expand_data_type, table_column_name});
+                if (file_column_idx.has_value()) {
+                    const auto* file_field = _data_file_type_desc->getSubtype(*file_column_idx);
+                    table_info_node_ptr->add_children(
+                            table_column_name, file_column_name,
+                            TableSchemaChangeHelper::ConstNode::get_instance());
+                    _all_required_col_names.emplace_back(table_column_name);
+                    column_ids.insert(file_field->getColumnId());
+                } else {
+                    RETURN_IF_ERROR(_register_missing_equality_delete_column(
+                            field_id, table_column_name, expand_data_type));
                 }
             }
         }
     }
+
+    auto column_id_result =
+            _create_column_ids(_data_file_type_desc, tuple_descriptor, table_info_node_ptr);
+    column_ids.insert(column_id_result.column_ids.begin(), column_id_result.column_ids.end());
+    filter_column_ids.insert(column_id_result.filter_column_ids.begin(),
+                             column_id_result.filter_column_ids.end());
 
     return orc_reader->init_reader(&_all_required_col_names, _col_name_to_block_idx, conjuncts,
                                    false, tuple_descriptor, row_descriptor,
@@ -844,8 +1122,9 @@ Status IcebergOrcReader::init_reader(
                                    table_info_node_ptr, column_ids, filter_column_ids);
 }
 
-ColumnIdResult IcebergOrcReader::_create_column_ids(const orc::Type* orc_type,
-                                                    const TupleDescriptor* tuple_descriptor) {
+ColumnIdResult IcebergOrcReader::_create_column_ids(
+        const orc::Type* orc_type, const TupleDescriptor* tuple_descriptor,
+        const std::shared_ptr<TableSchemaChangeHelper::Node>& table_info_node) {
     // map top-level table column iceberg_id -> orc::Type*
     std::unordered_map<int, const orc::Type*> iceberg_id_to_orc_type_map;
     for (uint64_t i = 0; i < orc_type->getSubtypeCount(); ++i) {
@@ -873,13 +1152,29 @@ ColumnIdResult IcebergOrcReader::_create_column_ids(const orc::Type* orc_type,
                 IcebergOrcNestedColumnUtils::extract_nested_column_ids);
     };
 
+    const auto struct_node =
+            std::dynamic_pointer_cast<TableSchemaChangeHelper::StructNode>(table_info_node);
     for (const auto* slot : tuple_descriptor->slots()) {
-        auto it = iceberg_id_to_orc_type_map.find(slot->col_unique_id());
-        if (it == iceberg_id_to_orc_type_map.end()) {
-            // Column not found in file
+        const orc::Type* orc_field = nullptr;
+        if (struct_node != nullptr && struct_node->get_children().contains(slot->col_name()) &&
+            struct_node->children_column_exists(slot->col_name())) {
+            const auto& file_column_name = struct_node->children_file_column_name(slot->col_name());
+            for (uint64_t i = 0; i < orc_type->getSubtypeCount(); ++i) {
+                if (orc_type->getFieldName(i) == file_column_name) {
+                    orc_field = orc_type->getSubtype(i);
+                    break;
+                }
+            }
+            DORIS_CHECK(orc_field != nullptr);
+        } else if (table_info_node == nullptr) {
+            auto it = iceberg_id_to_orc_type_map.find(slot->col_unique_id());
+            if (it != iceberg_id_to_orc_type_map.end()) {
+                orc_field = it->second;
+            }
+        }
+        if (orc_field == nullptr) {
             continue;
         }
-        const orc::Type* orc_field = it->second;
 
         // primitive (non-nested) types
         if ((slot->col_type() != TYPE_STRUCT && slot->col_type() != TYPE_ARRAY &&
@@ -901,7 +1196,7 @@ ColumnIdResult IcebergOrcReader::_create_column_ids(const orc::Type* orc_type,
         }
     }
 
-    return ColumnIdResult(std::move(column_ids), std::move(filter_column_ids));
+    return {std::move(column_ids), std::move(filter_column_ids)};
 }
 
 // Directly read the deletion vector using the `content_offset` and
@@ -1017,13 +1312,17 @@ Status IcebergParquetReader::_process_equality_delete(
     std::unordered_map<std::string, VExprContextSPtr> missing_columns;
 
     std::map<int, const FieldSchema*> data_file_id_to_field_schema;
+    bool all_data_file_columns_have_field_ids = true;
     for (int idx = 0; idx < _data_file_field_desc->size(); ++idx) {
         auto field_schema = _data_file_field_desc->get_column(idx);
-        if (_data_file_field_desc->get_column(idx)->field_id == -1) {
-            return Status::DataQualityError("Iceberg equality delete data file missing field id.");
+        if (field_schema->field_id >= 0) {
+            data_file_id_to_field_schema[field_schema->field_id] = field_schema;
+        } else {
+            all_data_file_columns_have_field_ids = false;
         }
-        data_file_id_to_field_schema[_data_file_field_desc->get_column(idx)->field_id] =
-                field_schema;
+    }
+    if (!all_data_file_columns_have_field_ids) {
+        data_file_id_to_field_schema.clear();
     }
 
     for (const auto& delete_file : delete_files) {
@@ -1074,20 +1373,17 @@ Status IcebergParquetReader::_process_equality_delete(
                 if (delete_file_field.children.size() > 0) [[unlikely]] { // complex column
                     return Status::InternalError(
                             "can not support read complex column in equality delete file");
-                } else if (!data_file_id_to_field_schema.contains(delete_file_field.field_id))
-                        [[unlikely]] {
-                    return Status::DataQualityError(
-                            "can not find delete field id in data file schema when reading "
-                            "equality delete file");
                 }
-                auto data_file_field = data_file_id_to_field_schema[delete_file_field.field_id];
-                if (data_file_field->data_type->get_primitive_type() !=
-                    delete_file_field.data_type->get_primitive_type()) [[unlikely]] {
+                const auto data_file_it =
+                        data_file_id_to_field_schema.find(delete_file_field.field_id);
+                if (data_file_it != data_file_id_to_field_schema.end() &&
+                    data_file_it->second->data_type->get_primitive_type() !=
+                            delete_file_field.data_type->get_primitive_type()) [[unlikely]] {
                     return Status::NotSupported(
                             "Not Support type change in equality delete, field: {}, delete "
                             "file type: {}, data file type: {}",
                             delete_file_field.field_id, delete_file_field.data_type->get_name(),
-                            data_file_field->data_type->get_name());
+                            data_file_it->second->data_type->get_name());
                 }
 
                 std::string filed_lower_name = to_lower(delete_file_field.name);
@@ -1097,6 +1393,8 @@ Status IcebergParquetReader::_process_equality_delete(
                 delete_col_ids.emplace_back(delete_file_field.field_id);
                 delete_col_names.emplace_back(filed_lower_name);
                 delete_col_types.emplace_back(make_nullable(delete_file_field.data_type));
+                _equality_delete_col_types.emplace(delete_file_field.field_id,
+                                                   make_nullable(delete_file_field.data_type));
 
                 read_column_field_ids_set.erase(delete_file_field.field_id);
             } else {
@@ -1153,13 +1451,18 @@ Status IcebergOrcReader::_process_equality_delete(
     std::unordered_map<std::string, VExprContextSPtr> missing_columns;
 
     std::map<int, int> data_file_id_to_field_idx;
+    bool all_data_file_columns_have_field_ids = true;
     for (int idx = 0; idx < _data_file_type_desc->getSubtypeCount(); ++idx) {
-        if (!_data_file_type_desc->getSubtype(idx)->hasAttributeKey(ICEBERG_ORC_ATTRIBUTE)) {
-            return Status::DataQualityError("Iceberg equality delete data file missing field id.");
+        if (_data_file_type_desc->getSubtype(idx)->hasAttributeKey(ICEBERG_ORC_ATTRIBUTE)) {
+            auto field_id = std::stoi(_data_file_type_desc->getSubtype(idx)->getAttributeValue(
+                    ICEBERG_ORC_ATTRIBUTE));
+            data_file_id_to_field_idx[field_id] = idx;
+        } else {
+            all_data_file_columns_have_field_ids = false;
         }
-        auto field_id = std::stoi(
-                _data_file_type_desc->getSubtype(idx)->getAttributeValue(ICEBERG_ORC_ATTRIBUTE));
-        data_file_id_to_field_idx[field_id] = idx;
+    }
+    if (!all_data_file_columns_have_field_ids) {
+        data_file_id_to_field_idx.clear();
     }
 
     for (const auto& delete_file : delete_files) {
@@ -1222,21 +1525,18 @@ Status IcebergOrcReader::_process_equality_delete(
                             [[unlikely]] {
                         return Status::InternalError(
                                 "can not support read complex column in equality delete file.");
-                    } else if (!data_file_id_to_field_idx.contains(delete_field_id)) [[unlikely]] {
-                        return Status::DataQualityError(
-                                "can not find delete field id in data file schema when reading "
-                                "equality delete file");
                     }
 
-                    auto data_file_field = _data_file_type_desc->getSubtype(
-                            data_file_id_to_field_idx[delete_field_id]);
-
-                    if (delete_file_field->getKind() != data_file_field->getKind()) [[unlikely]] {
+                    const auto data_file_it = data_file_id_to_field_idx.find(delete_field_id);
+                    if (data_file_it != data_file_id_to_field_idx.end() &&
+                        delete_file_field->getKind() !=
+                                _data_file_type_desc->getSubtype(data_file_it->second)->getKind())
+                            [[unlikely]] {
                         return Status::NotSupported(
                                 "Not Support type change in equality delete, field: {}, delete "
                                 "file type: {}, data file type: {}",
                                 delete_field_id, delete_file_field->getKind(),
-                                data_file_field->getKind());
+                                _data_file_type_desc->getSubtype(data_file_it->second)->getKind());
                     }
                     std::string filed_lower_name = to_lower(delete_field_desc->getFieldName(idx));
                     eq_file_node->add_children(
@@ -1246,6 +1546,8 @@ Status IcebergOrcReader::_process_equality_delete(
                     delete_col_ids.emplace_back(delete_field_id);
                     delete_col_names.emplace_back(filed_lower_name);
                     delete_col_types.emplace_back(make_nullable(delete_file_col_types[idx]));
+                    _equality_delete_col_types.emplace(delete_field_id,
+                                                       make_nullable(delete_file_col_types[idx]));
                     read_column_field_ids_set.erase(delete_field_id);
                 }
             }

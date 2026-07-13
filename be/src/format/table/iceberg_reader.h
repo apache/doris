@@ -100,6 +100,20 @@ public:
     Status read_deletion_vector(const std::string& data_file_path,
                                 const TIcebergDeleteFileDesc& delete_file_desc);
 
+    void TEST_set_column_name_to_block_index(
+            std::unordered_map<std::string, uint32_t>* column_name_to_block_index) {
+        _col_name_to_block_idx = column_name_to_block_index;
+    }
+
+    Status TEST_register_missing_equality_delete_column(int32_t field_id, const std::string& name,
+                                                        const DataTypePtr& delete_key_type) {
+        return _register_missing_equality_delete_column(field_id, name, delete_key_type);
+    }
+
+    Status TEST_materialize_missing_equality_delete_columns(Block* block, size_t rows) {
+        return _materialize_missing_equality_delete_columns(block, rows);
+    }
+
     void set_row_lineage_columns(std::shared_ptr<RowLineageColumns> row_lineage_columns) {
         _row_lineage_columns = std::move(row_lineage_columns);
     }
@@ -150,6 +164,13 @@ protected:
     Status _expand_block_if_need(Block* block);
     // Remove the added delete columns
     Status _shrink_block_if_need(Block* block);
+    Status _register_missing_equality_delete_column(int32_t field_id, const std::string& name,
+                                                    const DataTypePtr& delete_key_type);
+    Status _materialize_missing_equality_delete_column(Block* block, const std::string& name,
+                                                       const ColumnPtr& value, size_t rows);
+    Status _materialize_missing_equality_delete_columns(Block* block, size_t rows);
+    const schema::external::TSchema* _current_table_schema() const;
+    const schema::external::TField* _find_current_table_field(int32_t field_id) const;
 
     // owned by scan node
     ShardedKVCache* _kv_cache;
@@ -176,9 +197,11 @@ protected:
     // extra equality delete name and type
     std::vector<std::string> _expand_col_names;
     std::vector<ColumnWithTypeAndName> _expand_columns;
+    std::unordered_map<std::string, ColumnPtr> _missing_equality_delete_values;
 
     // all ids that need read for eq delete (from all qe delte file.)
     std::set<int> _equality_delete_col_ids;
+    std::unordered_map<int, DataTypePtr> _equality_delete_col_types;
     // eq delete column ids -> location of _equality_delete_blocks / _equality_delete_impls
     std::map<std::vector<int>, int> _equality_delete_block_map;
     // EqualityDeleteBase stores raw pointers to these blocks, so do not modify this vector after
@@ -224,8 +247,9 @@ public:
     }
 
 private:
-    static ColumnIdResult _create_column_ids(const FieldDescriptor* field_desc,
-                                             const TupleDescriptor* tuple_descriptor);
+    static ColumnIdResult _create_column_ids(
+            const FieldDescriptor* field_desc, const TupleDescriptor* tuple_descriptor,
+            const std::shared_ptr<TableSchemaChangeHelper::Node>& table_info_node = nullptr);
     Status _process_equality_delete(const std::vector<TIcebergDeleteFileDesc>& delete_files) final;
 
     const FieldDescriptor* _data_file_field_desc = nullptr;
@@ -263,8 +287,9 @@ public:
 private:
     Status _process_equality_delete(const std::vector<TIcebergDeleteFileDesc>& delete_files) final;
 
-    static ColumnIdResult _create_column_ids(const orc::Type* orc_type,
-                                             const TupleDescriptor* tuple_descriptor);
+    static ColumnIdResult _create_column_ids(
+            const orc::Type* orc_type, const TupleDescriptor* tuple_descriptor,
+            const std::shared_ptr<TableSchemaChangeHelper::Node>& table_info_node = nullptr);
 
 private:
     static const std::string ICEBERG_ORC_ATTRIBUTE;

@@ -230,6 +230,11 @@ std::string join_debug_strings(const std::vector<T>& values, Formatter formatter
 
 } // namespace
 
+const ColumnDefinition* find_column_by_name(const ColumnDefinition& table_column,
+                                            const std::vector<ColumnDefinition>& file_schema) {
+    return matcher_for_mode(TableColumnMappingMode::BY_NAME).find(table_column, file_schema);
+}
+
 const Field* find_partition_value(const ColumnDefinition& table_column,
                                   const std::map<std::string, Field>& partition_values) {
     const auto find_by_name = [&](const std::string& name) -> const Field* {
@@ -1237,6 +1242,26 @@ static std::vector<ColumnDefinition> synthesize_complex_children_from_type(
     return children;
 }
 
+static void align_struct_child_types_with_parent(const DataTypePtr& parent_type,
+                                                 std::vector<ColumnDefinition>& children) {
+    const auto nested_parent_type = remove_nullable(parent_type);
+    DORIS_CHECK(nested_parent_type->get_primitive_type() == TYPE_STRUCT);
+    const auto type_children = synthesize_complex_children_from_type(parent_type);
+    for (auto& child : children) {
+        const auto type_child = std::ranges::find_if(
+                type_children, [&](const auto& candidate) { return candidate.name == child.name; });
+        DORIS_CHECK(type_child != type_children.end())
+                << "Complex child '" << child.name
+                << "' is absent from its parent table type: " << parent_type->get_name();
+        // The parent DataType is the authoritative output contract. Nested schema descriptors can
+        // omit child nullability even though the parent struct still declares Nullable(String).
+        // For example, the Iceberg full-schema-change case maps nullable `location` to `city`, but
+        // its child descriptor carries String. Keeping String here makes rematerialization strip
+        // the child's null map and creates Struct(String) under a Struct(Nullable(String)) type.
+        child.type = type_child->type;
+    }
+}
+
 static bool has_table_child_named(const std::vector<ColumnDefinition>& children,
                                   std::string_view name) {
     return std::ranges::any_of(children, [&](const ColumnDefinition& child) {
@@ -1245,8 +1270,7 @@ static bool has_table_child_named(const std::vector<ColumnDefinition>& children,
 }
 
 static void complete_required_complex_children_from_type(const DataTypePtr& type,
-                                                         std::vector<ColumnDefinition>* children) {
-    DORIS_CHECK(children != nullptr);
+                                                         std::vector<ColumnDefinition>& children) {
     if (type == nullptr) {
         return;
     }
@@ -1261,8 +1285,8 @@ static void complete_required_complex_children_from_type(const DataTypePtr& type
         // In that shape the scanner keeps the value stream readable, but the table projection can
         // carry only the key child. Add the missing value child so recursive mapping can evolve the
         // value type instead of letting TableReader cast old/new value structs directly.
-        if (has_table_child_named(*children, "key") && !has_table_child_named(*children, "value")) {
-            children->push_back(synthetic_child_definition("value", map_type->get_value_type(), 1));
+        if (has_table_child_named(children, "key") && !has_table_child_named(children, "value")) {
+            children.push_back(synthetic_child_definition("value", map_type->get_value_type(), 1));
         }
         break;
     }
@@ -1277,6 +1301,37 @@ static void complete_required_complex_children_from_type(const DataTypePtr& type
     default:
         break;
     }
+}
+
+struct PreparedTableChildren {
+    std::vector<ColumnDefinition> children;
+    bool synthesized_from_type = false;
+};
+
+static PreparedTableChildren prepare_table_children_for_mapping(
+        const ColumnDefinition& table_column, const DataTypePtr& file_type) {
+    PreparedTableChildren prepared {.children = table_column.children};
+    const auto nested_table_type = remove_nullable(table_column.type);
+
+    // Some scan paths, especially SELECT *, only carry the complete complex DataType for a table
+    // column and leave ColumnDefinition::children empty. Synthesize the hierarchy so recursive
+    // mapping can evolve nested fields instead of falling back to an invalid whole-column cast.
+    prepared.synthesized_from_type = prepared.children.empty() &&
+                                     is_complex_type(nested_table_type->get_primitive_type()) &&
+                                     !table_column.type->equals(*file_type);
+    if (prepared.synthesized_from_type) {
+        prepared.children = synthesize_complex_children_from_type(table_column.type);
+    } else if (!prepared.children.empty() && !table_column.type->equals(*file_type)) {
+        complete_required_complex_children_from_type(table_column.type, prepared.children);
+    }
+
+    if (!prepared.children.empty() && nested_table_type->get_primitive_type() == TYPE_STRUCT) {
+        // Struct children are table fields, so the parent Struct type is authoritative for their
+        // nullability. ARRAY and MAP children are format-level structural wrappers and keep the
+        // descriptor types used by their recursive mappings.
+        align_struct_child_types_with_parent(table_column.type, prepared.children);
+    }
+    return prepared;
 }
 
 static Status validate_file_schema_children(const ColumnDefinition& file_field) {
@@ -2016,29 +2071,8 @@ Status TableColumnMapper::_create_direct_mapping(const ColumnDefinition& table_c
     mapping->filter_conversion = direct_filter_conversion(*mapping);
     mapping->child_mappings.clear();
 
-    auto table_children = table_column.children;
-    const auto nested_table_type = remove_nullable(mapping->table_type);
-    // Some scan paths, especially SELECT *, only carry the complete complex DataType for a table
-    // column and leave ColumnDefinition::children empty. If the file type is an older complex
-    // schema, treating this as a leaf mapping would make TableReader fall back to a plain CAST.
-    // That is invalid for evolved structs with different field counts.
-    //
-    // Example:
-    //   table column type: Map(String, Struct(age, full_name, gender))
-    //   old file type:    Map(String, Struct(age, name))
-    //   table children:   empty
-    //
-    // Synthesize key/value/struct-field children from the table type so the normal recursive
-    // mapping path can rematerialize `name -> full_name` and fill missing `gender` with defaults,
-    // instead of trying to CAST Struct(age, name) to Struct(age, full_name, gender).
-    const bool synthesized_table_children =
-            table_children.empty() && is_complex_type(nested_table_type->get_primitive_type()) &&
-            !mapping->table_type->equals(*mapping->file_type);
-    if (synthesized_table_children) {
-        table_children = synthesize_complex_children_from_type(mapping->table_type);
-    } else if (!table_children.empty() && !mapping->table_type->equals(*mapping->file_type)) {
-        complete_required_complex_children_from_type(mapping->table_type, &table_children);
-    }
+    auto [table_children, synthesized_table_children] =
+            prepare_table_children_for_mapping(table_column, mapping->file_type);
 
     if (!table_children.empty()) {
         if (!is_complex_type(remove_nullable(mapping->file_type)->get_primitive_type())) {
