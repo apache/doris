@@ -702,11 +702,11 @@ public class SchemaTable extends Table {
                                     .column("LAG", ScalarType.createStringType())
                                     .column("REASON_OF_STATE_CHANGED", ScalarType.createStringType())
                                     .column("ERROR_LOG_URLS", ScalarType.createStringType())
-                                    .column("FIRST_ERROR_MSG", ScalarType.createStringType())
                                     .column("USER_NAME", ScalarType.createStringType())
                                     .column("CURRENT_ABORT_TASK_NUM", ScalarType.createType(PrimitiveType.INT))
                                     .column("IS_ABNORMAL_PAUSE", ScalarType.createType(PrimitiveType.BOOLEAN))
                                     .column("COMPUTE_GROUP", ScalarType.createStringType())
+                                    .column("FIRST_ERROR_MSG", ScalarType.createStringType())
                                     .build())
             )
             .put("load_jobs",

@@ -907,6 +907,7 @@ public abstract class RoutineLoadJob
         this.jobStatistic.unselectedRows = attachment.getUnselectedRows();
         this.jobStatistic.receivedBytes = attachment.getReceivedBytes();
         this.jobStatistic.totalTaskExcutionTimeMs = System.currentTimeMillis() - createTimestamp;
+        updateFirstErrorMsg(attachment);
     }
 
     private void updateNumOfData(long numOfTotalRows, long numOfErrorRows, long unselectedRows, long receivedBytes,
@@ -1204,7 +1205,9 @@ public abstract class RoutineLoadJob
     @Override
     public void replayOnCommitted(TransactionState txnState) {
         Preconditions.checkNotNull(txnState.getTxnCommitAttachment(), txnState);
-        replayUpdateProgress((RLTaskTxnCommitAttachment) txnState.getTxnCommitAttachment());
+        RLTaskTxnCommitAttachment attachment = (RLTaskTxnCommitAttachment) txnState.getTxnCommitAttachment();
+        replayUpdateProgress(attachment);
+        updateJobInfoFromAttachment(attachment);
         this.jobStatistic.committedTaskNum++;
         if (LOG.isDebugEnabled()) {
             LOG.debug("replay on committed: {}", txnState);
@@ -1379,11 +1382,13 @@ public abstract class RoutineLoadJob
         // it need check commit info before update progress
         // for follower FE node progress may exceed correct progress
         // the data will lost if FE leader change at this moment
-        if (txnState.getTxnCommitAttachment() != null
-                && checkCommitInfo((RLTaskTxnCommitAttachment) txnState.getTxnCommitAttachment(),
-                        txnState,
-                        TransactionState.TxnStatusChangeReason.fromString(txnState.getReason()))) {
-            replayUpdateProgress((RLTaskTxnCommitAttachment) txnState.getTxnCommitAttachment());
+        if (txnState.getTxnCommitAttachment() != null) {
+            RLTaskTxnCommitAttachment attachment = (RLTaskTxnCommitAttachment) txnState.getTxnCommitAttachment();
+            if (checkCommitInfo(attachment, txnState,
+                    TransactionState.TxnStatusChangeReason.fromString(txnState.getReason()))) {
+                replayUpdateProgress(attachment);
+            }
+            updateJobInfoFromAttachment(attachment);
         }
         this.jobStatistic.abortedTaskNum++;
         if (LOG.isDebugEnabled()) {
@@ -1414,14 +1419,8 @@ public abstract class RoutineLoadJob
             routineLoadTaskInfo.handleTaskByTxnCommitAttachment(rlTaskTxnCommitAttachment);
         }
 
-        if (rlTaskTxnCommitAttachment != null
-                && !Strings.isNullOrEmpty(rlTaskTxnCommitAttachment.getFirstErrorMsg())) {
-            firstErrorMsg = StringUtils.abbreviate(
-                    rlTaskTxnCommitAttachment.getFirstErrorMsg(), Config.first_error_msg_max_length);
-        }
-
-        if (rlTaskTxnCommitAttachment != null && !Strings.isNullOrEmpty(rlTaskTxnCommitAttachment.getErrorLogUrl())) {
-            errorLogUrls.add(rlTaskTxnCommitAttachment.getErrorLogUrl());
+        if (rlTaskTxnCommitAttachment != null) {
+            updateJobInfoFromAttachment(rlTaskTxnCommitAttachment);
         }
 
         routineLoadTaskInfo.setTxnStatus(txnStatus);
@@ -1435,6 +1434,20 @@ public abstract class RoutineLoadJob
                 // or if publish version task has some error,
                 // there will be lots of COMMITTED txns in GlobalTransactionMgr
             }
+        }
+    }
+
+    private void updateJobInfoFromAttachment(RLTaskTxnCommitAttachment attachment) {
+        updateFirstErrorMsg(attachment);
+        if (!Strings.isNullOrEmpty(attachment.getErrorLogUrl())) {
+            errorLogUrls.add(attachment.getErrorLogUrl());
+        }
+    }
+
+    private void updateFirstErrorMsg(RLTaskTxnCommitAttachment attachment) {
+        if (!Strings.isNullOrEmpty(attachment.getFirstErrorMsg())) {
+            firstErrorMsg = StringUtils.abbreviate(
+                    attachment.getFirstErrorMsg(), Config.first_error_msg_max_length);
         }
     }
 

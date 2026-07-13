@@ -41,6 +41,7 @@ import org.apache.doris.thrift.TUniqueKeyUpdateMode;
 import org.apache.doris.transaction.GlobalTransactionMgrIface;
 import org.apache.doris.transaction.TransactionException;
 import org.apache.doris.transaction.TransactionState;
+import org.apache.doris.transaction.TransactionStatus;
 import org.apache.doris.transaction.TxnStateCallbackFactory;
 
 import com.google.common.base.Strings;
@@ -74,6 +75,47 @@ public class RoutineLoadJobTest {
                 TxnUtil.rlTaskTxnCommitAttachmentToPb(attachment));
         Assert.assertEquals("http://127.0.0.1/error_log", cloudAttachment.getErrorLogUrl());
         Assert.assertEquals("invalid source row", cloudAttachment.getFirstErrorMsg());
+    }
+
+    @Test
+    public void testFirstErrorMsgOnReplay() {
+        TKafkaRLTaskProgress thriftProgress = new TKafkaRLTaskProgress(Maps.newHashMap());
+        RLTaskTxnCommitAttachment attachment = new RLTaskTxnCommitAttachment();
+        Deencapsulation.setField(attachment, "progress", new KafkaProgress(thriftProgress));
+        Deencapsulation.setField(attachment, "errorLogUrl", "http://127.0.0.1/error_log");
+        Deencapsulation.setField(attachment, "firstErrorMsg", "invalid source row");
+
+        TransactionState committedTxnState = Mockito.mock(TransactionState.class);
+        Mockito.doReturn(attachment).when(committedTxnState).getTxnCommitAttachment();
+        Mockito.when(committedTxnState.getTransactionStatus()).thenReturn(TransactionStatus.COMMITTED);
+        RoutineLoadJob committedJob = new KafkaRoutineLoadJob();
+        Deencapsulation.setField(committedJob, "progress", new KafkaProgress(thriftProgress));
+        committedJob.replayOnCommitted(committedTxnState);
+        Assert.assertEquals("http://127.0.0.1/error_log", committedJob.getErrorLogUrls().peek());
+        Assert.assertEquals("invalid source row", committedJob.getFirstErrorMsg());
+
+        TransactionState abortedTxnState = Mockito.mock(TransactionState.class);
+        Mockito.doReturn(attachment).when(abortedTxnState).getTxnCommitAttachment();
+        Mockito.when(abortedTxnState.getTransactionStatus()).thenReturn(TransactionStatus.ABORTED);
+        Mockito.when(abortedTxnState.getReason()).thenReturn("test abort");
+        RoutineLoadJob abortedJob = new KafkaRoutineLoadJob();
+        abortedJob.replayOnAborted(abortedTxnState);
+        Assert.assertEquals("http://127.0.0.1/error_log", abortedJob.getErrorLogUrls().peek());
+        Assert.assertEquals("invalid source row", abortedJob.getFirstErrorMsg());
+    }
+
+    @Test
+    public void testFirstErrorMsgFromCloudProgress() {
+        TKafkaRLTaskProgress thriftProgress = new TKafkaRLTaskProgress(Maps.newHashMap());
+        RLTaskTxnCommitAttachment attachment = new RLTaskTxnCommitAttachment();
+        Deencapsulation.setField(attachment, "progress", new KafkaProgress(thriftProgress));
+        Deencapsulation.setField(attachment, "firstErrorMsg", "invalid source row");
+
+        RoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob();
+        Deencapsulation.setField(routineLoadJob, "progress", new KafkaProgress(thriftProgress));
+        routineLoadJob.updateCloudProgress(attachment);
+
+        Assert.assertEquals("invalid source row", routineLoadJob.getFirstErrorMsg());
     }
 
     @Test

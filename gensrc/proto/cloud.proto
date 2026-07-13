@@ -394,6 +394,7 @@ message TxnCoordinatorPB {
 message RoutineLoadProgressPB {
     map<int32, int64> partition_to_offset = 1;
     optional RoutineLoadJobStatisticPB stat = 2;
+    optional string first_error_msg = 3;
 }
 
 message RLTaskTxnCommitAttachmentPB {

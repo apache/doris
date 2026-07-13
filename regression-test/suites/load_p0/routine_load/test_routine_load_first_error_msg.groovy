@@ -29,7 +29,6 @@ suite("test_routine_load_first_error_msg", "p0") {
     def kafkaBroker = RoutineLoadTestUtils.getKafkaBroker(context)
     def kafkaTopic = "test_routine_load_first_error_msg_${System.currentTimeMillis()}"
     def jobName = "test_routine_load_first_error_msg"
-    def tableName = "test_routine_load_first_error_msg"
 
     def adminProps = new Properties()
     adminProps.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, kafkaBroker)
@@ -41,9 +40,9 @@ suite("test_routine_load_first_error_msg", "p0") {
     }
 
     try {
-        sql "DROP TABLE IF EXISTS ${tableName}"
+        sql "DROP TABLE IF EXISTS test_routine_load_first_error_msg"
         sql """
-            CREATE TABLE ${tableName} (
+            CREATE TABLE test_routine_load_first_error_msg (
                 id INT,
                 name STRING
             )
@@ -55,7 +54,7 @@ suite("test_routine_load_first_error_msg", "p0") {
         """
 
         sql """
-            CREATE ROUTINE LOAD ${jobName} ON ${tableName}
+            CREATE ROUTINE LOAD ${jobName} ON test_routine_load_first_error_msg
             COLUMNS TERMINATED BY "|"
             PROPERTIES (
                 "max_error_number" = "10",
@@ -98,7 +97,7 @@ suite("test_routine_load_first_error_msg", "p0") {
                 WHERE JOB_NAME = '${jobName}'
             """
             def showResult = sql "SHOW ROUTINE LOAD FOR ${jobName}"
-            def loadedRows = sql "SELECT COUNT(*) FROM ${tableName}"
+            def loadedRows = sql "SELECT COUNT(*) FROM test_routine_load_first_error_msg"
             def informationSchemaErrorLogUrls = jobInfo[0][0].toString()
             def firstErrorMsg = jobInfo[0][1]
             def showErrorLogUrls = showResult[0][18].toString()
@@ -124,6 +123,5 @@ suite("test_routine_load_first_error_msg", "p0") {
         }
     } finally {
         try_sql "STOP ROUTINE LOAD FOR ${jobName}"
-        try_sql "DROP TABLE IF EXISTS ${tableName}"
     }
 }
