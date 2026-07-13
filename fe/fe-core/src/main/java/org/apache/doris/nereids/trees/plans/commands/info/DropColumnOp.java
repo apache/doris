@@ -52,7 +52,7 @@ public class DropColumnOp extends AlterTableOp {
      * DropColumnOp
      */
     public DropColumnOp(String colName, String rollupName, Map<String, String> properties) {
-        this(ColumnPath.fromDotName(colName), rollupName, properties);
+        this(ColumnPath.of(colName), rollupName, properties);
     }
 
     public DropColumnOp(ColumnPath columnPath, String rollupName, Map<String, String> properties) {

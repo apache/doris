@@ -36,7 +36,7 @@ public class ModifyColumnCommentOp extends AlterTableOp {
     private String comment;
 
     public ModifyColumnCommentOp(String colName, String comment) {
-        this(ColumnPath.fromDotName(colName), comment);
+        this(ColumnPath.of(colName), comment);
     }
 
     public ModifyColumnCommentOp(ColumnPath columnPath, String comment) {

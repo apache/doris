@@ -94,6 +94,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
+import java.util.TreeSet;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -824,10 +826,13 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
             throws UserException {
         validateCommonColumnInfo(column);
         Table icebergTable = IcebergUtils.getIcebergTable(dorisTable);
+        Schema schema = icebergTable.schema();
+        validateNoCaseInsensitiveSiblingCollision(
+                schema.asStruct(), "", column.getName(), null, "add");
         UpdateSchema updateSchema = icebergTable.updateSchema();
         addOneColumn(updateSchema, column);
         if (position != null) {
-            applyPosition(updateSchema, position, ColumnPath.of(column.getName()), icebergTable.schema(), "add");
+            applyPosition(updateSchema, position, ColumnPath.of(column.getName()), schema, "add");
         }
         try {
             executionAuthenticator.execute(() -> updateSchema.commit());
@@ -879,9 +884,13 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     @Override
     public void addColumns(ExternalTable dorisTable, List<Column> columns, long updateTime) throws UserException {
         Table icebergTable = IcebergUtils.getIcebergTable(dorisTable);
-        UpdateSchema updateSchema = icebergTable.updateSchema();
         for (Column column : columns) {
             validateCommonColumnInfo(column);
+        }
+        validateNoCaseInsensitiveTopLevelCollisions(icebergTable.schema(), columns);
+
+        UpdateSchema updateSchema = icebergTable.updateSchema();
+        for (Column column : columns) {
             addOneColumn(updateSchema, column);
         }
         try {
@@ -932,7 +941,10 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     public void renameColumn(ExternalTable dorisTable, String oldName, String newName, long updateTime)
             throws UserException {
         Table icebergTable = IcebergUtils.getIcebergTable(dorisTable);
-        ResolvedColumnPath oldPath = resolveColumnPath(icebergTable.schema(), ColumnPath.of(oldName), "rename");
+        Schema schema = icebergTable.schema();
+        ResolvedColumnPath oldPath = resolveColumnPath(schema, ColumnPath.of(oldName), "rename");
+        validateNoCaseInsensitiveSiblingCollision(
+                schema.asStruct(), "", newName, oldPath.getField(), "rename");
         UpdateSchema updateSchema = icebergTable.updateSchema();
         updateSchema.renameColumn(oldPath.getFullPath(), newName);
         try {
@@ -1025,7 +1037,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         }
 
         Table icebergTable = IcebergUtils.getIcebergTable(dorisTable);
-        ResolvedColumnPath resolvedPath = validateNestedStructFieldPath(icebergTable.schema(), columnPath, "modify");
+        ResolvedColumnPath resolvedPath = resolveColumnPath(icebergTable.schema(), columnPath, "modify");
         NestedField currentCol = resolvedPath.getField();
 
         validateCommonColumnInfo(column);
@@ -1229,13 +1241,34 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     @VisibleForTesting
     void validateNoCaseInsensitiveSiblingCollision(Types.StructType parentType, ColumnPath parentPath,
             String targetName, NestedField sourceField, String operation) throws UserException {
+        validateNoCaseInsensitiveSiblingCollision(
+                parentType, parentPath.getFullPath(), targetName, sourceField, operation);
+    }
+
+    private void validateNoCaseInsensitiveSiblingCollision(Types.StructType parentType, String parentPath,
+            String targetName, NestedField sourceField, String operation) throws UserException {
         NestedField conflictingField = parentType.caseInsensitiveField(targetName);
         if (conflictingField != null
                 && (sourceField == null || conflictingField.fieldId() != sourceField.fieldId())) {
-            String targetPath = childPath(parentPath, targetName).getFullPath();
-            String conflictingPath = childPath(parentPath, conflictingField.name()).getFullPath();
-            throw new UserException("Cannot " + operation + " nested column '" + targetPath
+            String targetPath = parentPath.isEmpty() ? targetName : parentPath + "." + targetName;
+            String conflictingPath = parentPath.isEmpty()
+                    ? conflictingField.name() : parentPath + "." + conflictingField.name();
+            String columnDescription = parentPath.isEmpty() ? "column" : "nested column";
+            throw new UserException("Cannot " + operation + " " + columnDescription + " '" + targetPath
                     + "': conflicts with existing Iceberg field '" + conflictingPath + "' (case-insensitive)");
+        }
+    }
+
+    private void validateNoCaseInsensitiveTopLevelCollisions(Schema schema, List<Column> columns)
+            throws UserException {
+        Set<String> requestedNames = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+        for (Column column : columns) {
+            validateNoCaseInsensitiveSiblingCollision(
+                    schema.asStruct(), "", column.getName(), null, "add");
+            if (!requestedNames.add(column.getName())) {
+                throw new UserException("Cannot add column '" + column.getName()
+                        + "': conflicts with another requested column (case-insensitive)");
+            }
         }
     }
 

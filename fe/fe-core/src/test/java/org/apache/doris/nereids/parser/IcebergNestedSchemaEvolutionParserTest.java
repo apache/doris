@@ -29,6 +29,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.RenameColumnOp;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.Collections;
 import java.util.List;
 
 public class IcebergNestedSchemaEvolutionParserTest {
@@ -55,6 +56,10 @@ public class IcebergNestedSchemaEvolutionParserTest {
                 ModifyColumnOp.class, "s.a");
         assertSingleClausePath("ALTER TABLE t MODIFY COLUMN s.a BIGINT AFTER b",
                 ModifyColumnOp.class, "s.a");
+        assertSingleClausePath("ALTER TABLE t MODIFY COLUMN arr.element BIGINT",
+                ModifyColumnOp.class, "arr.element");
+        assertSingleClausePath("ALTER TABLE t MODIFY COLUMN m.value BIGINT",
+                ModifyColumnOp.class, "m.value");
         assertSingleClausePath("ALTER TABLE t MODIFY COLUMN s.a COMMENT 'nested comment'",
                 ModifyColumnCommentOp.class, "s.a");
         assertSingleClausePath("ALTER TABLE t DROP COLUMN s.c",
@@ -69,6 +74,20 @@ public class IcebergNestedSchemaEvolutionParserTest {
                 RenameColumnOp.class, "arr.element.y");
         assertSingleClausePath("ALTER TABLE t RENAME COLUMN m.value.y TO y2",
                 RenameColumnOp.class, "m.value.y");
+    }
+
+    @Test
+    public void testLegacyStringConstructorsKeepDottedTopLevelNames() {
+        DropColumnOp drop = new DropColumnOp("top.level", null, Collections.emptyMap());
+        RenameColumnOp rename = new RenameColumnOp("top.level", "renamed");
+        ModifyColumnCommentOp comment = new ModifyColumnCommentOp("top.level", "comment");
+
+        Assertions.assertFalse(drop.getColumnPath().isNested());
+        Assertions.assertFalse(rename.getColumnPath().isNested());
+        Assertions.assertFalse(comment.getColumnPath().isNested());
+        Assertions.assertEquals("top.level", drop.getColumnPath().getFullPath());
+        Assertions.assertEquals("top.level", rename.getColumnPath().getFullPath());
+        Assertions.assertEquals("top.level", comment.getColumnPath().getFullPath());
     }
 
     private <T extends AlterTableOp> void assertSingleClausePath(String sql, Class<T> clauseClass,

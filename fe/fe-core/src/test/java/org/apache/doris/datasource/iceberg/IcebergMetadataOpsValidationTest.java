@@ -29,8 +29,11 @@ import org.apache.doris.catalog.info.ColumnPosition;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.datasource.ExternalCatalog;
+import org.apache.doris.datasource.ExternalTable;
 
 import org.apache.iceberg.Schema;
+import org.apache.iceberg.Table;
+import org.apache.iceberg.UpdateSchema;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.SupportsNamespaces;
 import org.apache.iceberg.types.Types;
@@ -38,26 +41,31 @@ import org.apache.iceberg.types.Types.NestedField;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.util.Arrays;
 import java.util.Collections;
+import java.util.Optional;
 
 public class IcebergMetadataOpsValidationTest {
 
     private IcebergMetadataOps ops;
+    private ExternalCatalog dorisCatalog;
     private Method validateForModifyColumnMethod;
     private Method validateForModifyComplexColumnMethod;
 
     @Before
     public void setUp() throws Exception {
-        ExternalCatalog dorisCatalog = Mockito.mock(ExternalCatalog.class);
+        dorisCatalog = Mockito.mock(ExternalCatalog.class);
         Catalog icebergCatalog = Mockito.mock(Catalog.class,
                 Mockito.withSettings().extraInterfaces(SupportsNamespaces.class));
         Mockito.when(dorisCatalog.getExecutionAuthenticator()).thenReturn(new ExecutionAuthenticator() {
         });
         Mockito.when(dorisCatalog.getProperties()).thenReturn(Collections.emptyMap());
+        Mockito.doReturn(Optional.empty()).when(dorisCatalog).getDbForReplay(Mockito.anyString());
         ops = new IcebergMetadataOps(dorisCatalog, icebergCatalog);
 
         validateForModifyColumnMethod = IcebergMetadataOps.class.getDeclaredMethod(
@@ -229,6 +237,69 @@ public class IcebergMetadataOpsValidationTest {
     }
 
     @Test
+    public void testTopLevelCaseInsensitiveCollisionsAndCaseOnlyRename() throws Throwable {
+        Schema schema = new Schema(
+                Types.NestedField.optional(1, "Id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "Label", Types.StringType.get()));
+        ExternalTable dorisTable = Mockito.mock(ExternalTable.class);
+        Table icebergTable = Mockito.mock(Table.class);
+        UpdateSchema updateSchema = Mockito.mock(UpdateSchema.class);
+        Mockito.when(dorisTable.getRemoteDbName()).thenReturn("db");
+        Mockito.when(icebergTable.schema()).thenReturn(schema);
+        Mockito.when(icebergTable.updateSchema()).thenReturn(updateSchema);
+
+        try (MockedStatic<IcebergUtils> mockedIcebergUtils =
+                Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
+            mockedIcebergUtils.when(() -> IcebergUtils.getIcebergTable(dorisTable)).thenReturn(icebergTable);
+
+            assertUserException(() -> ops.addColumn(
+                            dorisTable, new Column("id", Type.STRING, true), null, 1L),
+                    "Cannot add column 'id': conflicts with existing Iceberg field 'Id'");
+            assertUserException(() -> ops.addColumns(dorisTable,
+                            Collections.singletonList(new Column("id", Type.STRING, true)), 1L),
+                    "Cannot add column 'id': conflicts with existing Iceberg field 'Id'");
+            assertUserException(() -> ops.addColumns(dorisTable, Arrays.asList(
+                            new Column("new_field", Type.STRING, true),
+                            new Column("NEW_FIELD", Type.STRING, true)), 1L),
+                    "conflicts with another requested column (case-insensitive)");
+            assertUserException(() -> ops.renameColumn(dorisTable, "label", "id", 1L),
+                    "Cannot rename column 'id': conflicts with existing Iceberg field 'Id'");
+
+            ops.renameColumn(dorisTable, "id", "id", 1L);
+        }
+
+        Mockito.verify(updateSchema).renameColumn("Id", "id");
+        Mockito.verify(updateSchema).commit();
+    }
+
+    @Test
+    public void testModifyColumnSupportsDirectArrayElementAndMapValue() throws Throwable {
+        Schema schema = primitiveContainerSchema();
+        ExternalTable dorisTable = Mockito.mock(ExternalTable.class);
+        Table icebergTable = Mockito.mock(Table.class);
+        UpdateSchema updateSchema = Mockito.mock(UpdateSchema.class);
+        Mockito.when(dorisTable.getRemoteDbName()).thenReturn("db");
+        Mockito.when(icebergTable.schema()).thenReturn(schema);
+        Mockito.when(icebergTable.updateSchema()).thenReturn(updateSchema);
+
+        try (MockedStatic<IcebergUtils> mockedIcebergUtils =
+                Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
+            mockedIcebergUtils.when(() -> IcebergUtils.getIcebergTable(dorisTable)).thenReturn(icebergTable);
+
+            ops.modifyColumn(dorisTable, ColumnPath.fromDotName("arr.element"),
+                    new Column("element", Type.BIGINT, true), null, 1L);
+            ops.modifyColumn(dorisTable, ColumnPath.fromDotName("m.value"),
+                    new Column("value", Type.BIGINT, true), null, 1L);
+        }
+
+        Mockito.verify(updateSchema).updateColumn("arr.element", Types.LongType.get(), "");
+        Mockito.verify(updateSchema).updateColumn("m.value", Types.LongType.get(), "");
+        Mockito.verify(updateSchema).makeColumnOptional("arr.element");
+        Mockito.verify(updateSchema).makeColumnOptional("m.value");
+        Mockito.verify(updateSchema, Mockito.times(2)).commit();
+    }
+
+    @Test
     public void testResolveNestedColumnPathRejectsMapKey() {
         assertUserException(() -> ops.resolveNestedColumnPath(nestedSchema(), ColumnPath.fromDotName("m.key.x"),
                         "modify"),
@@ -339,5 +410,13 @@ public class IcebergMetadataOpsValidationTest {
                 Types.NestedField.optional(8, "Attrs", Types.MapType.ofOptional(9, 10,
                         Types.StringType.get(),
                         Types.StructType.of(Types.NestedField.optional(11, "Code", Types.IntegerType.get())))));
+    }
+
+    private Schema primitiveContainerSchema() {
+        return new Schema(
+                Types.NestedField.optional(1, "arr",
+                        Types.ListType.ofOptional(2, Types.IntegerType.get())),
+                Types.NestedField.optional(3, "m", Types.MapType.ofOptional(
+                        4, 5, Types.StringType.get(), Types.IntegerType.get())));
     }
 }

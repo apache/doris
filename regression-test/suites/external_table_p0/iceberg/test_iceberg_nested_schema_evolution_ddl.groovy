@@ -55,7 +55,9 @@ suite("test_iceberg_nested_schema_evolution_ddl", "p0,external,doris,external_do
         id INT NOT NULL,
         s STRUCT<a:INT, b:STRING>,
         arr ARRAY<STRUCT<x:INT>>,
-        m MAP<STRING, STRUCT<v:INT>>
+        m MAP<STRING, STRUCT<v:INT>>,
+        arr_scalar ARRAY<INT>,
+        m_scalar MAP<STRING, INT>
     );
     """
 
@@ -64,7 +66,9 @@ suite("test_iceberg_nested_schema_evolution_ddl", "p0,external,doris,external_do
         1,
         STRUCT(10, 'old'),
         ARRAY(STRUCT(100)),
-        MAP('k', STRUCT(1000))
+        MAP('k', STRUCT(1000)),
+        ARRAY(7),
+        MAP('k', 70)
     )
     """
 
@@ -87,6 +91,12 @@ suite("test_iceberg_nested_schema_evolution_ddl", "p0,external,doris,external_do
     sql """ALTER TABLE ${tableName} MODIFY COLUMN s.a BIGINT"""
     sql """ALTER TABLE ${tableName} MODIFY COLUMN arr.element.x BIGINT"""
     sql """ALTER TABLE ${tableName} MODIFY COLUMN m.value.v BIGINT"""
+    sql """ALTER TABLE ${tableName} MODIFY COLUMN arr_scalar.element BIGINT"""
+    sql """ALTER TABLE ${tableName} MODIFY COLUMN m_scalar.value BIGINT"""
+    test {
+        sql """ALTER TABLE ${tableName} MODIFY COLUMN m_scalar.`key` BIGINT"""
+        exception "Cannot modify MAP key nested column"
+    }
 
     sql """ALTER TABLE ${tableName} RENAME COLUMN s.c TO c2"""
     sql """ALTER TABLE ${tableName} RENAME COLUMN arr.element.y TO y2"""
@@ -103,38 +113,18 @@ suite("test_iceberg_nested_schema_evolution_ddl", "p0,external,doris,external_do
         2,
         STRUCT('first', 20, 'after_a', 'new', 'c2'),
         ARRAY(STRUCT(200, 202, 201)),
-        MAP('k', STRUCT(2000, 2002, 2001))
+        MAP('k', STRUCT(2000, 2002, 2001)),
+        ARRAY(8),
+        MAP('k', 80)
     )
     """
 
-    qt_desc """DESC ${tableName}"""
-
-    def descRows = sql """DESC ${tableName}"""
-    def normalizeType = { String s -> s.toLowerCase().replaceAll("\\s+", "") }
-    def typeOf = { String name ->
-        def row = descRows.find { it[0].toString().equalsIgnoreCase(name) }
-        assertTrue(row != null, "column not found: ${name}")
-        return normalizeType(row[1].toString())
-    }
-
-    def sType = typeOf("s")
-    assertTrue(sType.contains("first_pos:text"), sType)
-    assertTrue(sType.contains("a:bigint"), sType)
-    assertTrue(sType.contains("after_a:text"), sType)
-    assertTrue(sType.contains("c2:text"), sType)
-    assertTrue(!sType.contains("drop_me"), sType)
-
-    def arrType = typeOf("arr")
-    assertTrue(arrType.contains("x:bigint"), arrType)
-    assertTrue(arrType.contains("after_x:int"), arrType)
-    assertTrue(arrType.contains("y2:int"), arrType)
-    assertTrue(!arrType.contains("drop_me"), arrType)
-
-    def mType = typeOf("m")
-    assertTrue(mType.contains("v:bigint"), mType)
-    assertTrue(mType.contains("after_v:int"), mType)
-    assertTrue(mType.contains("y2:int"), mType)
-    assertTrue(!mType.contains("drop_me"), mType)
+    qt_desc """
+        SELECT COLUMN_NAME, COLUMN_TYPE
+        FROM ${catalogName}.information_schema.columns
+        WHERE TABLE_SCHEMA = '${dbName}' AND TABLE_NAME = '${tableName}'
+        ORDER BY ORDINAL_POSITION
+    """
 
     order_qt_query_rows """
         SELECT id,
@@ -147,12 +137,10 @@ suite("test_iceberg_nested_schema_evolution_ddl", "p0,external,doris,external_do
                element_at(arr[1], 'y2'),
                element_at(m['k'], 'v'),
                element_at(m['k'], 'after_v'),
-               element_at(m['k'], 'y2')
+               element_at(m['k'], 'y2'),
+               arr_scalar[1],
+               m_scalar['k']
         FROM ${tableName}
         ORDER BY id
     """
-
-    sql """drop table if exists ${tableName}"""
-    sql """drop database if exists ${dbName} force"""
-    sql """drop catalog if exists ${catalogName}"""
 }

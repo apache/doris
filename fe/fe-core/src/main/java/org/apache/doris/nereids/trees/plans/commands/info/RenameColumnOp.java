@@ -38,7 +38,7 @@ public class RenameColumnOp extends AlterTableOp {
     private String newColName;
 
     public RenameColumnOp(String colName, String newColName) {
-        this(ColumnPath.fromDotName(colName), newColName);
+        this(ColumnPath.of(colName), newColName);
     }
 
     public RenameColumnOp(ColumnPath columnPath, String newColName) {
