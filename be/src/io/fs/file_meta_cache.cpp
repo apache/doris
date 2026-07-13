@@ -80,7 +80,7 @@ bool FileMetaCache::is_persistent_cache_enabled() {
 bool FileMetaCache::is_persistent_cache_payload_size_allowed(uint64_t payload_size) {
     const int64_t max_entry_bytes = config::external_file_meta_disk_cache_max_entry_bytes;
     return config::enable_external_file_meta_disk_cache && max_entry_bytes > 0 &&
-           payload_size > 0 && payload_size <= static_cast<uint64_t>(max_entry_bytes);
+           payload_size != 0 && std::cmp_less_equal(payload_size, max_entry_bytes);
 }
 
 FileMetaCacheLookupResult FileMetaCache::lookup(const FileMetaCacheContext& context,
@@ -89,6 +89,7 @@ FileMetaCacheLookupResult FileMetaCache::lookup(const FileMetaCacheContext& cont
                                                 FileMetaCacheProfile* profile) {
     DCHECK(handle != nullptr);
     DCHECK(serialized_meta != nullptr);
+    *handle = ObjLRUCache::CacheHandle();
     if (context.enable_memory_cache && lookup(get_memory_cache_key(context), handle)) {
         serialized_meta->clear();
         if (profile != nullptr) {
@@ -140,6 +141,11 @@ bool FileMetaCache::lookup_persistent_cache(const FileMetaCacheContext& context,
     if (!status.ok()) {
         payload->clear();
         VLOG_DEBUG << "lookup file meta persistent cache failed: " << status;
+        return false;
+    }
+    if (!is_persistent_cache_payload_size_allowed(static_cast<uint64_t>(payload->size()))) {
+        payload->clear();
+        _persistent_cache->remove(context.format, context.key);
         return false;
     }
     return true;
