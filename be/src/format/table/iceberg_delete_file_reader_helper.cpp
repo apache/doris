@@ -255,9 +255,9 @@ Status read_iceberg_position_delete_file(const TIcebergDeleteFileDesc& delete_fi
         while (!eof) {
             Block block;
             if (dictionary_coded) {
-                block.insert(ColumnWithTypeAndName(
-                        ColumnDictI32::create(FieldType::OLAP_FIELD_TYPE_VARCHAR),
-                        std::make_shared<DataTypeString>(), ICEBERG_FILE_PATH));
+                block.insert(ColumnWithTypeAndName(ColumnDictI32::create(),
+                                                   std::make_shared<DataTypeString>(),
+                                                   ICEBERG_FILE_PATH));
             } else {
                 block.insert(ColumnWithTypeAndName(ColumnString::create(),
                                                    std::make_shared<DataTypeString>(),

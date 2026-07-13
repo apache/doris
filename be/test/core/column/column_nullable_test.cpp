@@ -28,7 +28,7 @@
 #include "core/block/block.h"
 #include "core/column/column_decimal.h"
 #include "core/column/column_nullable_test.h"
-#include "core/column/predicate_column.h"
+#include "core/column/column_vector.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
@@ -98,8 +98,7 @@ TEST(ColumnNullableTest, CreateRejectsMismatchedNestedAndNullMapSizes) {
 }
 
 TEST(ColumnNullableTest, PredicateTest) {
-    auto nullable_pred =
-            ColumnNullable::create(PredicateColumnType<TYPE_DATE>::create(), ColumnUInt8::create());
+    auto nullable_pred = ColumnNullable::create(ColumnDate::create(), ColumnUInt8::create());
     nullable_pred->insert_many_defaults(3);
     EXPECT_TRUE(nullable_pred->has_null());
     nullable_pred->insert_many_defaults(10);
