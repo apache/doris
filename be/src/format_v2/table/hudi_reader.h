@@ -58,6 +58,8 @@ public:
     Status init(format::TableReadOptions&& options) override;
     Status prepare_split(const format::SplitReadOptions& options) override;
     Status get_block(Block* block, bool* eos) override;
+    bool current_split_pruned() const override;
+    Status abort_split() override;
     Status close() override;
 
 private:

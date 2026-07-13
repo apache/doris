@@ -193,6 +193,9 @@ Status IcebergTableReader::prepare_split(const format::SplitReadOptions& options
         }
     }
     RETURN_IF_ERROR(TableReader::prepare_split(options));
+    if (current_split_pruned()) {
+        return Status::OK();
+    }
     if (_is_table_level_count_active()) {
         return Status::OK();
     }
@@ -371,11 +374,10 @@ Status IcebergTableReader::_init_delete_predicates(const TTableFormatFileDesc& t
             equality_delete_files.push_back(delete_file);
         }
     }
-    // `_delete_rows != nullptr` means a deletion vector is parsed. Per Iceberg scan planning,
-    // position delete files apply only when there is no deletion vector for the data file.
-    if (_delete_rows != nullptr) {
-        _position_delete_rows_storage = *_delete_rows;
-        _delete_rows = &_position_delete_rows_storage;
+    // Per Iceberg scan planning, position delete files apply only when there is no deletion vector
+    // for the data file. DVs and position deletes now intentionally use different in-memory
+    // representations, so use the Roaring pointer as the DV sentinel.
+    if (_deletion_vector != nullptr) {
         position_delete_files.clear();
     }
     // Initialize position and equality delete predicates. Position delete files contain row

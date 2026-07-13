@@ -90,19 +90,7 @@ Status StructColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t*
 }
 
 Status StructColumnReader::skip(int64_t rows) {
-    if (rows <= 0) {
-        return Status::OK();
-    }
-    auto scratch_column = _type->create_column();
-    RETURN_IF_ERROR(load_nested_batch(rows));
-    int64_t rows_read = 0;
-    RETURN_IF_ERROR(build_nested_column(rows, scratch_column, &rows_read));
-    if (rows_read != rows) {
-        return Status::Corruption("Failed to skip parquet STRUCT column {}: skipped {} of {} rows",
-                                  _name, rows_read, rows);
-    }
-    update_reader_skip_rows(rows);
-    return Status::OK();
+    return skip_nested_rows(rows);
 }
 
 Status StructColumnReader::load_nested_batch(int64_t rows) {
@@ -114,20 +102,50 @@ Status StructColumnReader::load_nested_batch(int64_t rows) {
     return Status::OK();
 }
 
+Status StructColumnReader::load_nested_levels_batch(int64_t rows) {
+    reset_nested_build_level_cursor();
+    for (auto& child_reader : _children) {
+        DORIS_CHECK(child_reader != nullptr);
+        RETURN_IF_ERROR(child_reader->load_nested_levels_batch(rows));
+    }
+    return Status::OK();
+}
+
 Status StructColumnReader::build_nested_column(int64_t length_upper_bound, MutableColumnPtr& column,
                                                int64_t* values_read) {
-    if (column.get() == nullptr || values_read == nullptr) {
+    if (column.get() == nullptr) {
         return Status::InvalidArgument("Invalid parquet struct build result pointer for column {}",
                                        _name);
     }
+    return _consume_or_build_nested_column(length_upper_bound, &column, values_read);
+}
+
+Status StructColumnReader::consume_nested_column(int64_t length_upper_bound,
+                                                 int64_t* values_consumed) {
+    return _consume_or_build_nested_column(length_upper_bound, nullptr, values_consumed);
+}
+
+Status StructColumnReader::_consume_or_build_nested_column(int64_t length_upper_bound,
+                                                           MutableColumnPtr* column,
+                                                           int64_t* values_processed) {
+    if (values_processed == nullptr) {
+        return Status::InvalidArgument(
+                "Invalid parquet struct process result pointer for column {}", _name);
+    }
     if (_children.empty()) {
-        column->resize(column->size() + static_cast<size_t>(length_upper_bound));
-        *values_read = length_upper_bound;
+        if (column != nullptr) {
+            (*column)->resize((*column)->size() + static_cast<size_t>(length_upper_bound));
+        }
+        *values_processed = length_upper_bound;
         return Status::OK();
     }
-    auto* struct_column = struct_column_from_output(column);
-    DORIS_CHECK(struct_column != nullptr);
-    auto* parent_null_map = null_map_from_nullable_output(column);
+    ColumnStruct* struct_column = nullptr;
+    NullMap* parent_null_map = nullptr;
+    if (column != nullptr) {
+        struct_column = struct_column_from_output(*column);
+        DORIS_CHECK(struct_column != nullptr);
+        parent_null_map = null_map_from_nullable_output(*column);
+    }
     auto* shape_reader = shape_source_reader();
     DORIS_CHECK(shape_reader != nullptr);
     const auto& def_levels = shape_reader->nested_definition_levels();
@@ -136,7 +154,7 @@ Status StructColumnReader::build_nested_column(int64_t length_upper_bound, Mutab
 
     NullMap parent_nulls;
     std::vector<int64_t> parent_level_indices;
-    *values_read = 0;
+    *values_processed = 0;
     int64_t level_idx = nested_build_level_cursor();
     while (level_idx < levels_written) {
         const int64_t current_level_idx = level_idx;
@@ -144,7 +162,7 @@ Status StructColumnReader::build_nested_column(int64_t length_upper_bound, Mutab
         const int16_t rep_level = rep_levels[level_idx];
         const bool starts_parent =
                 !shape_reader->is_or_has_repeated_child() || rep_level <= _repetition_level;
-        if (starts_parent && *values_read >= length_upper_bound) {
+        if (starts_parent && *values_processed >= length_upper_bound) {
             break;
         }
         ++level_idx;
@@ -155,24 +173,26 @@ Status StructColumnReader::build_nested_column(int64_t length_upper_bound, Mutab
             continue;
         }
         const bool parent_is_null = def_level < _nullable_definition_level;
-        if (parent_is_null && parent_null_map == nullptr) {
+        if (parent_is_null && !_type->is_nullable()) {
             return Status::Corruption(
                     "Parquet STRUCT column {} contains null for non-nullable struct", _name);
         }
         parent_nulls.push_back(parent_is_null);
         parent_level_indices.push_back(current_level_idx);
-        ++*values_read;
+        ++*values_processed;
     }
     set_nested_build_level_cursor(level_idx);
 
     std::vector<MutableColumnPtr> child_columns;
-    child_columns.reserve(struct_column->get_columns().size());
-    for (size_t child_idx = 0; child_idx < struct_column->get_columns().size(); ++child_idx) {
-        child_columns.push_back(struct_column->get_column_ptr(child_idx)->assert_mutable());
+    if (column != nullptr) {
+        child_columns.reserve(struct_column->get_columns().size());
+        for (size_t child_idx = 0; child_idx < struct_column->get_columns().size(); ++child_idx) {
+            child_columns.push_back(struct_column->get_column_ptr(child_idx)->assert_mutable());
+        }
     }
     for (size_t child_idx = 0; child_idx < _children.size(); ++child_idx) {
         const int output_idx = _child_output_indices[child_idx];
-        if (output_idx < 0) {
+        if (column != nullptr && output_idx < 0) {
             continue;
         }
         // STRUCT owns row alignment. Child readers consume only present parent rows from their
@@ -186,8 +206,13 @@ Status StructColumnReader::build_nested_column(int64_t length_upper_bound, Mutab
                 return Status::OK();
             }
             int64_t child_rows = 0;
-            RETURN_IF_ERROR(_children[child_idx]->build_nested_column(
-                    pending_present_rows, child_columns[output_idx], &child_rows));
+            if (column != nullptr) {
+                RETURN_IF_ERROR(_children[child_idx]->build_nested_column(
+                        pending_present_rows, child_columns[output_idx], &child_rows));
+            } else {
+                RETURN_IF_ERROR(_children[child_idx]->consume_nested_column(pending_present_rows,
+                                                                            &child_rows));
+            }
             if (child_rows != pending_present_rows) {
                 return Status::Corruption(
                         "Parquet STRUCT child {} built {} rows, expected {} for column {}",
@@ -204,22 +229,26 @@ Status StructColumnReader::build_nested_column(int64_t length_upper_bound, Mutab
                 continue;
             }
             RETURN_IF_ERROR(flush_present_rows());
-            child_columns[output_idx]->insert_default();
+            if (column != nullptr) {
+                child_columns[output_idx]->insert_default();
+            }
             RETURN_IF_ERROR(advance_child_past_null_parent(_children[child_idx].get(),
                                                            parent_level_indices[parent_idx]));
             ++total_child_rows;
         }
         RETURN_IF_ERROR(flush_present_rows());
-        if (total_child_rows != *values_read) {
+        if (total_child_rows != *values_processed) {
             return Status::Corruption(
                     "Parquet STRUCT child {} built {} rows, expected {} for column {}",
-                    _children[child_idx]->name(), total_child_rows, *values_read, _name);
+                    _children[child_idx]->name(), total_child_rows, *values_processed, _name);
         }
     }
-    for (size_t child_idx = 0; child_idx < child_columns.size(); ++child_idx) {
-        struct_column->get_column_ptr(child_idx) = std::move(child_columns[child_idx]);
+    if (column != nullptr) {
+        for (size_t child_idx = 0; child_idx < child_columns.size(); ++child_idx) {
+            struct_column->get_column_ptr(child_idx) = std::move(child_columns[child_idx]);
+        }
+        append_parent_nulls(parent_null_map, parent_nulls);
     }
-    append_parent_nulls(parent_null_map, parent_nulls);
     return Status::OK();
 }
 

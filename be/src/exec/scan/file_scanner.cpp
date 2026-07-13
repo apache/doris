@@ -82,9 +82,6 @@
 #include "format/table/transactional_hive_reader.h"
 #include "format/table/trino_connector_jni_reader.h"
 #include "format/text/text_reader.h"
-#ifdef BUILD_RUST_READERS
-#include "format/lance/lance_rust_reader.h"
-#endif
 #include "io/cache/block_file_cache_profile.h"
 #include "load/group_commit/wal/wal_reader.h"
 #include "runtime/descriptors.h"
@@ -355,6 +352,11 @@ void FileScanner::_init_runtime_filter_partition_prune_ctxs() {
         auto impl = conjunct->root()->get_impl();
         // If impl is not null, which means this a conjuncts from runtime filter.
         auto expr = impl ? impl : conjunct->root();
+        // Preserve a safe prefix of the row-level conjunct order. Considering later predicates
+        // after an unsafe one could prune the split before the unsafe predicate is evaluated.
+        if (!expr->is_safe_to_execute_on_selected_rows()) {
+            break;
+        }
         if (_check_partition_prune_expr(expr)) {
             _runtime_filter_partition_prune_ctxs.emplace_back(conjunct);
         }
@@ -1269,16 +1271,6 @@ Status FileScanner::_get_next_reader() {
             }
             break;
         }
-#ifdef BUILD_RUST_READERS
-        case TFileFormatType::FORMAT_LANCE: {
-            auto lance_reader = LanceRustReader::create_unique(_file_slot_descs, _state, _profile,
-                                                               range, _params);
-            init_status = lance_reader->init_reader();
-            _cur_reader = std::move(lance_reader);
-            need_to_get_parsed_schema = true;
-            break;
-        }
-#endif
         case TFileFormatType::FORMAT_ES_HTTP: {
             _cur_reader = EsHttpReader::create_unique(_file_slot_descs, _state, _profile, range,
                                                       *_params, _real_tuple_desc);
