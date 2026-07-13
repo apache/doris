@@ -120,6 +120,16 @@ suite("test_iceberg_system_table_projection", "p0,external,iceberg") {
         assertTrue(readableMetrics.contains("\"name\""))
         assertTrue(readableMetrics.contains("\"lower_bound\""))
         assertTrue(readableMetrics.contains("\"upper_bound\""))
+
+        // `name` is not the first field of readable_metrics. Keep nested column pruning enabled
+        // to verify that the system table reader preserves the SDK struct field ordinals.
+        List<List<Object>> nameUpperBound = sql """
+            SELECT /*+ SET_VAR(enable_prune_nested_column=true) */ readable_metrics.name.upper_bound
+            FROM ${tableName}\$files
+            ORDER BY file_path;
+        """
+        assertEquals(1, nameUpperBound.size())
+        assertEquals("bob", nameUpperBound[0][0])
     }
 
     verifySystemTableProjection("test_iceberg_system_table_projection_orc", "orc")

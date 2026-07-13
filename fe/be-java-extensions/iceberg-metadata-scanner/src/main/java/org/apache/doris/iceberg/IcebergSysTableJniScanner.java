@@ -25,18 +25,14 @@ import org.apache.doris.common.security.authentication.PreExecutionAuthenticator
 import org.apache.doris.common.security.authentication.PreExecutionAuthenticatorCache;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableList;
 import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.StructLike;
 import org.apache.iceberg.io.CloseableIterator;
-import org.apache.iceberg.types.Types.NestedField;
-import org.apache.iceberg.types.Types.StructType;
 import org.apache.iceberg.util.SerializationUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
-import java.util.List;
 import java.util.Map;
 import java.util.TimeZone;
 import java.util.stream.Collectors;
@@ -50,7 +46,7 @@ public class IcebergSysTableJniScanner extends JniScanner {
     private final ClassLoader classLoader;
     private final PreExecutionAuthenticator preExecutionAuthenticator;
     private final FileScanTask scanTask;
-    private final List<SelectedField> fields;
+    private final int requiredFieldCount;
     private final String timezone;
     private CloseableIterator<StructLike> reader;
 
@@ -61,7 +57,7 @@ public class IcebergSysTableJniScanner extends JniScanner {
                 "serialized_split should not be empty");
         this.scanTask = SerializationUtil.deserializeFromBase64(serializedSplitParams);
         String[] requiredFields = splitParam(params.get("required_fields"), ",");
-        this.fields = selectSchema(scanTask.schema().asStruct(), requiredFields);
+        this.requiredFieldCount = requiredFields.length;
         this.timezone = params.getOrDefault("time_zone", TimeZone.getDefault().getID());
         Map<String, String> hadoopOptionParams = params.entrySet().stream()
                 .filter(kv -> kv.getKey().startsWith(HADOOP_OPTION_PREFIX))
@@ -107,10 +103,10 @@ public class IcebergSysTableJniScanner extends JniScanner {
                     break;
                 }
                 StructLike row = reader.next();
-                for (int i = 0; i < fields.size(); i++) {
-                    SelectedField field = fields.get(i);
-                    Object value = row.get(
-                            field.projectedIndex, field.field.type().typeId().javaClass());
+                for (int i = 0; i < requiredFieldCount; i++) {
+                    // FE keeps the fields requested by BE at the start of the Iceberg projection.
+                    // FileScanTask.schema() is not the row schema for every DataTask implementation.
+                    Object value = row.get(i, Object.class);
                     ColumnValue columnValue = new IcebergSysTableColumnValue(value, timezone);
                     appendData(i, columnValue);
                 }
@@ -128,31 +124,6 @@ public class IcebergSysTableJniScanner extends JniScanner {
                 // Close the iterator to release resources
                 reader.close();
             }
-        }
-    }
-
-    private static List<SelectedField> selectSchema(StructType schema, String[] requiredFields) {
-        ImmutableList.Builder<SelectedField> selectedFields = ImmutableList.builder();
-        for (int i = 0; i < requiredFields.length; i++) {
-            String requiredField = requiredFields[i];
-            NestedField field = schema.field(requiredField);
-            if (field == null) {
-                throw new IllegalArgumentException("RequiredField " + requiredField + " not found in schema");
-            }
-            // FE keeps Doris required columns as the projected schema prefix. Some DataTask implementations,
-            // for example StaticDataTask, still expose the full table schema from FileScanTask.schema().
-            selectedFields.add(new SelectedField(i, field));
-        }
-        return selectedFields.build();
-    }
-
-    private static final class SelectedField {
-        private final int projectedIndex;
-        private final NestedField field;
-
-        private SelectedField(int projectedIndex, NestedField field) {
-            this.projectedIndex = projectedIndex;
-            this.field = field;
         }
     }
 
