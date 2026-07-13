@@ -48,7 +48,6 @@ struct ProcessHashTableProbe {
 
     void probe_side_output_column(MutableColumns& mcol);
     bool can_zero_copy_probe_side_all_match_one(bool all_match_one) const;
-    void replace_probe_side_output_columns(Block* output_block);
 
     // Only process the join with no other join conjunct, because of no other join conjunt
     // the output block struct is same with mutable block. we can do more opt on it and simplify

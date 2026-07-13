@@ -166,26 +166,12 @@ bool ProcessHashTableProbe<JoinOpType>::can_zero_copy_probe_side_all_match_one(
         return false;
     }
 
+    // Only transfer ownership after the whole probe block has been consumed and there is no
+    // pending build-side match that will need the original probe columns in a later pull.
     return all_match_one && _probe_indexs.get_element(0) == 0 &&
-           _probe_indexs.size() == _parent->_probe_block.rows() && !_have_other_join_conjunct &&
-           _parent->_mark_join_conjuncts.empty() && _parent->conjuncts().empty() &&
+           _probe_indexs.size() == _parent->_probe_block.rows() &&
+           _parent->_probe_index == _parent->_probe_block.rows() && _parent->_build_index == 0 &&
            !_parent_operator->need_finalize_variant_column();
-}
-
-template <int JoinOpType>
-void ProcessHashTableProbe<JoinOpType>::replace_probe_side_output_columns(Block* output_block) {
-    if (!_probe_side_output_zero_copy) {
-        return;
-    }
-
-    auto& probe_block = _parent->_probe_block;
-    constexpr bool is_asof_join = is_asof_join_op_v<JoinOpType>;
-    for (int i = 0; i < _left_output_slot_flags.size(); ++i) {
-        if (_left_output_slot_flags[i] &&
-            (is_asof_join || !_parent_operator->is_lazy_materialized_column(i))) {
-            output_block->replace_by_position(i, probe_block.get_by_position(i).column);
-        }
-    }
 }
 
 template <int JoinOpType>
@@ -212,7 +198,13 @@ void ProcessHashTableProbe<JoinOpType>::probe_side_output_column(MutableColumns&
                              (is_asof_join || !_parent_operator->is_lazy_materialized_column(i));
         if (should_output) {
             if (_probe_side_output_zero_copy) {
+                // Keep the live probe block row-sized for lazy materialization and state checks,
+                // while transferring its original column owner into the mutable output block.
                 mock_column_size(mcol[i], _probe_indexs.size());
+                auto& probe_column = probe_block.get_by_position(i).column;
+                auto mutable_probe_column = IColumn::mutate(std::move(probe_column));
+                probe_column = std::move(mcol[i]);
+                mcol[i] = std::move(mutable_probe_column);
             } else {
                 auto& column = probe_block.get_by_position(i).column;
                 insert_with_indexs(mcol[i], column, _probe_indexs.get_data(), all_match_one);
@@ -504,10 +496,9 @@ void ProcessHashTableProbe<JoinOpType>::process_direct_return(HashTableType& has
         probe_indexs_data[i] = i;
     }
     auto& mcol = mutable_block.mutable_columns();
+    _parent->_probe_index = probe_rows;
     probe_side_output_column(mcol);
     output_block->swap(mutable_block.to_block());
-    replace_probe_side_output_columns(output_block);
-    _parent->_probe_index = probe_rows;
 }
 
 template <int JoinOpType>
@@ -601,7 +592,6 @@ Status ProcessHashTableProbe<JoinOpType>::process(HashTableType& hash_table_ctx,
     }
 
     output_block->swap(mutable_block.to_block());
-    replace_probe_side_output_columns(output_block);
     DCHECK_EQ(current_offset, output_block->rows());
     COUNTER_UPDATE(_parent->_intermediate_rows_counter, current_offset);
 
