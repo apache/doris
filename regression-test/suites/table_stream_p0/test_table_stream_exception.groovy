@@ -28,6 +28,7 @@
 //   3. schema change on binlog<Row> tables (allowed ops keep working, rejected
 //      ops fail cleanly)
 //   4. stream / @incr query boundary (consume after drop, incr without binlog)
+//   5. duplicate CREATE STREAM: IF NOT EXISTS idempotent; bare duplicate rejected
 //
 // Error texts are sourced from:
 //   - InternalCatalog.createOlapTable (binlog model / create-time column checks)
@@ -326,8 +327,57 @@ suite("test_table_stream_exception", "nonConcurrent") {
             """
             exception "MIN_DELTA INCR query requires base table to enable binlog.need_historical_value=true"
         }
+
+        // ================================================================
+        // 6. duplicate CREATE STREAM: IF NOT EXISTS idempotent; bare
+        //    duplicate rejected.
+        //    Source: InternalCatalog.createTableStream — when the stream
+        //    name already exists as a table/stream in the db namespace,
+        //    IF NOT EXISTS silently returns, otherwise
+        //    ERR_TABLE_EXISTS_ERROR "Table 'xxx' already exists".
+        // ================================================================
+
+        // set up a base table with binlog<Row> for a valid stream
+        sql "DROP TABLE IF EXISTS base_dup_stream FORCE"
+        sql """
+            CREATE TABLE base_dup_stream (
+                k1 INT, v1 INT
+            )
+            DUPLICATE KEY(k1)
+            DISTRIBUTED BY HASH(k1) BUCKETS 1
+            PROPERTIES (
+                "replication_num" = "1",
+                "binlog.enable" = "true",
+                "binlog.format" = "ROW"
+            )
+        """
+
+        // 6.1 create the stream for the first time — should succeed.
+        sql """
+            CREATE STREAM s_dup_stream ON TABLE base_dup_stream
+            PROPERTIES ("type" = "append_only")
+        """
+
+        // 6.2 CREATE STREAM IF NOT EXISTS with the same name — should
+        //     silently succeed (idempotent, no error).
+        sql """
+            CREATE STREAM IF NOT EXISTS s_dup_stream ON TABLE base_dup_stream
+            PROPERTIES ("type" = "append_only")
+        """
+
+        // 6.3 bare CREATE STREAM with the same name (no IF NOT EXISTS)
+        //     — should be rejected.
+        test {
+            sql """
+                CREATE STREAM s_dup_stream ON TABLE base_dup_stream
+                PROPERTIES ("type" = "append_only")
+            """
+            exception "already exists"
+        }
+
     } finally {
         // cleanup. ORDER MATTERS: drop streams/views before base tables.
+        sql "DROP STREAM IF EXISTS s_dup_stream"
         sql "DROP STREAM IF EXISTS s_no_binlog"
         sql "DROP STREAM IF EXISTS s_min_delta_no_hist"
         sql "DROP STREAM IF EXISTS s_on_view"
