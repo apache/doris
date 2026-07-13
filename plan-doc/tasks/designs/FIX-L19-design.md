@@ -1,5 +1,12 @@
 # FIX-L19 — `partition_columns` reserved magic-key collision with source properties
 
+> **⚠ SUPERSEDED.** The producer-side silent `remove()` approach below (commit `01668779fd9`) was rejected by
+> the user (silent deletion discards user data with no signal). It is replaced by
+> **`DESIGN-reserved-connector-keys-framework.md`** (commit `2c58d8342c1`): namespace every reserved control
+> key under `__internal.` so collision is impossible by construction and a user's bare `partition_columns`
+> flows through untouched. This doc is kept for the problem analysis (mechanism / FE-only / three-connector
+> scope) which the rename builds on.
+
 ## Problem (HEAD-verified)
 The SPI carries partition info from connector → fe-core through a stringly-typed reserved key
 `"partition_columns"` **inside the same properties map** that also carries the source table's own
