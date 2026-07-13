@@ -106,7 +106,6 @@ import org.apache.doris.datasource.PluginDrivenExternalTable;
 import org.apache.doris.datasource.PluginDrivenSysExternalTable;
 import org.apache.doris.datasource.SplitSourceManager;
 import org.apache.doris.datasource.hive.HiveTransactionMgr;
-import org.apache.doris.datasource.hive.event.MetastoreEventsProcessor;
 import org.apache.doris.deploy.DeployManager;
 import org.apache.doris.deploy.impl.LocalFileDeployManager;
 import org.apache.doris.dictionary.DictionaryManager;
@@ -408,7 +407,6 @@ public class Env {
     private PartitionInfoCollector partitionInfoCollector;
     private CooldownConfHandler cooldownConfHandler;
     private ExternalMetaIdMgr externalMetaIdMgr;
-    private MetastoreEventsProcessor metastoreEventsProcessor;
     // Connector-agnostic incremental metastore-event sync driver (Model B). Dormant until an HMS catalog is
     // served by a PluginDrivenExternalCatalog whose connector exposes an event source.
     private MetastoreEventSyncDriver metastoreEventSyncDriver;
@@ -766,7 +764,6 @@ public class Env {
             this.cooldownConfHandler = new CooldownConfHandler();
         }
         this.externalMetaIdMgr = new ExternalMetaIdMgr();
-        this.metastoreEventsProcessor = new MetastoreEventsProcessor();
         this.metastoreEventSyncDriver = new MetastoreEventSyncDriver();
         this.jobManager = new JobManager<>();
         this.labelProcessor = new LabelProcessor();
@@ -1042,10 +1039,6 @@ public class Env {
 
     public ExternalMetaIdMgr getExternalMetaIdMgr() {
         return externalMetaIdMgr;
-    }
-
-    public MetastoreEventsProcessor getMetastoreEventsProcessor() {
-        return metastoreEventsProcessor;
     }
 
     public MetastoreEventSyncDriver getMetastoreEventSyncDriver() {
@@ -2087,7 +2080,6 @@ public class Env {
         // fe disk updater
         feDiskUpdater.start();
 
-        metastoreEventsProcessor.start();
         // Dormant pre-flip: only drives PluginDrivenExternalCatalogs whose connector exposes an event source.
         metastoreEventSyncDriver.start();
 

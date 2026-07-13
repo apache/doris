@@ -18,7 +18,6 @@
 package org.apache.doris.datasource;
 
 import org.apache.doris.catalog.Env;
-import org.apache.doris.datasource.hive.event.MetastoreEventsProcessor;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -80,10 +79,10 @@ public class ExternalMetaIdMgrTest {
 
     /**
      * An HMS-event id-mapping log carries the master's synced-event-id cursor and is replayed on
-     * every FE. Once an HMS catalog is served by a generic (non-{@code HMSExternalCatalog}) catalog
-     * class, replay must still propagate that cursor keyed by {@code catalogId} without casting the
-     * live catalog to {@code HMSExternalCatalog} — that cast would throw {@link ClassCastException}
-     * and abort edit-log replay, wedging FE startup.
+     * every FE. A flipped HMS catalog is served by a generic {@link PluginDrivenExternalCatalog}, so
+     * replay must propagate that cursor keyed by {@code catalogId} through {@link MetastoreEventSyncDriver}
+     * without casting the live catalog to {@code HMSExternalCatalog} — that cast would throw
+     * {@link ClassCastException} and abort edit-log replay, wedging FE startup.
      */
     @Test
     public void testReplayHmsEventCursorDoesNotRequireHmsCatalogType() {
@@ -91,11 +90,11 @@ public class ExternalMetaIdMgrTest {
         final long lastSyncedEventId = 42L;
 
         CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
-        // A live catalog that is NOT an HMSExternalCatalog (mirrors the post-cutover generic catalog);
+        // The live post-cutover catalog is a generic PluginDrivenExternalCatalog (never HMSExternalCatalog);
         // doReturn avoids stubbing the wildcard-generic return type of getCatalog(long).
-        Mockito.doReturn(Mockito.mock(CatalogIf.class)).when(catalogMgr).getCatalog(catalogId);
-        MetastoreEventsProcessor processor = Mockito.mock(MetastoreEventsProcessor.class);
-        Env env = new TestingEnv(catalogMgr, processor);
+        Mockito.doReturn(Mockito.mock(PluginDrivenExternalCatalog.class)).when(catalogMgr).getCatalog(catalogId);
+        MetastoreEventSyncDriver syncDriver = Mockito.mock(MetastoreEventSyncDriver.class);
+        Env env = new TestingEnv(catalogMgr, syncDriver);
 
         MetaIdMappingsLog log = new MetaIdMappingsLog();
         log.setCatalogId(catalogId);
@@ -105,22 +104,22 @@ public class ExternalMetaIdMgrTest {
         try (MockedStatic<Env> envMockedStatic = Mockito.mockStatic(Env.class)) {
             envMockedStatic.when(Env::getCurrentEnv).thenReturn(env);
 
-            // Before the fix this threw ClassCastException on the (HMSExternalCatalog) cast.
+            // A (HMSExternalCatalog) cast here would throw ClassCastException on the generic catalog.
             Assertions.assertDoesNotThrow(() -> new ExternalMetaIdMgr().replayMetaIdMappingsLog(log));
 
-            // The cursor is propagated keyed by catalogId, not by casting the live catalog.
-            Mockito.verify(processor).updateMasterLastSyncedEventId(catalogId, lastSyncedEventId);
+            // The cursor is propagated keyed by catalogId, via the sync driver, not by casting the catalog.
+            Mockito.verify(syncDriver).updateMasterLastSyncedEventId(catalogId, lastSyncedEventId);
         }
     }
 
     private static final class TestingEnv extends Env {
         private final CatalogMgr catalogMgr;
-        private final MetastoreEventsProcessor metastoreEventsProcessor;
+        private final MetastoreEventSyncDriver metastoreEventSyncDriver;
 
-        private TestingEnv(CatalogMgr catalogMgr, MetastoreEventsProcessor metastoreEventsProcessor) {
+        private TestingEnv(CatalogMgr catalogMgr, MetastoreEventSyncDriver metastoreEventSyncDriver) {
             super(true);
             this.catalogMgr = catalogMgr;
-            this.metastoreEventsProcessor = metastoreEventsProcessor;
+            this.metastoreEventSyncDriver = metastoreEventSyncDriver;
         }
 
         @Override
@@ -129,8 +128,8 @@ public class ExternalMetaIdMgrTest {
         }
 
         @Override
-        public MetastoreEventsProcessor getMetastoreEventsProcessor() {
-            return metastoreEventsProcessor;
+        public MetastoreEventSyncDriver getMetastoreEventSyncDriver() {
+            return metastoreEventSyncDriver;
         }
     }
 

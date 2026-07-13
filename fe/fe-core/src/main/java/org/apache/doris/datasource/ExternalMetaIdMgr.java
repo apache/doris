@@ -114,18 +114,14 @@ public class ExternalMetaIdMgr {
         }
         if (log.isFromHmsEvent()) {
             // Propagate the master's synced-event-id cursor to this FE, keyed by catalogId only (the log
-            // already carries it). Route to the driver that actually owns this catalog's event sync: a flipped
-            // hms catalog is a generic PluginDrivenExternalCatalog driven by MetastoreEventSyncDriver, whose
-            // follower cursor map must be fed here (otherwise its masterUpperBound stays -1 and followers stop
-            // receiving incremental updates); a not-yet-flipped legacy HMS catalog is still driven by the legacy
-            // MetastoreEventsProcessor. Both branches key by catalogId only — never cast to HMSExternalCatalog
-            // (that cast would ClassCastException for a PluginDrivenExternalCatalog and abort replay).
+            // already carries it). A flipped hms catalog is a generic PluginDrivenExternalCatalog driven by
+            // MetastoreEventSyncDriver, whose follower cursor map must be fed here (otherwise its
+            // masterUpperBound stays -1 and followers stop receiving incremental updates). Never cast to
+            // HMSExternalCatalog (that cast would ClassCastException for a PluginDrivenExternalCatalog and
+            // abort replay).
             CatalogIf<?> catalogIf = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogId);
             if (catalogIf instanceof PluginDrivenExternalCatalog) {
                 Env.getCurrentEnv().getMetastoreEventSyncDriver()
-                        .updateMasterLastSyncedEventId(catalogId, log.getLastSyncedEventId());
-            } else if (catalogIf != null) {
-                Env.getCurrentEnv().getMetastoreEventsProcessor()
                         .updateMasterLastSyncedEventId(catalogId, log.getLastSyncedEventId());
             }
         }
