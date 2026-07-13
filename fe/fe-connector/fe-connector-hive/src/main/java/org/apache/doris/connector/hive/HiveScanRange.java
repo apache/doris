@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector.hive;
 
+import org.apache.doris.connector.api.scan.ConnectorPartitionValues;
 import org.apache.doris.connector.api.scan.ConnectorScanRange;
 import org.apache.doris.connector.api.scan.ConnectorScanRangeType;
 import org.apache.doris.thrift.TFileRangeDesc;
@@ -146,6 +147,38 @@ public class HiveScanRange implements ConnectorScanRange {
             populateTransactionalHiveParams(formatDesc);
         }
         // Non-transactional hive needs no per-split TTableFormatFileDesc fields.
+
+        // Rewrite columns-from-path from the connector's partition values, mirroring
+        // IcebergScanRange/PaimonScanRange. This connector now OWNS the Hive default-partition
+        // sentinel (__HIVE_DEFAULT_PARTITION__ -> SQL NULL) mapping that fe-core's
+        // FilePartitionUtils.normalizeColumnsFromPath used to do — hive was the last connector
+        // relying on that engine-side string match. The parent (FileQueryScanNode) has pre-filled a
+        // path-parsed columns-from-path; unset it, then re-set from partitionValues so BE receives the
+        // authoritative keys/values/is_null. partitionValues keys are the partition column names (same
+        // order as path_partition_keys, both from HiveTableHandle.getPartitionKeyNames), so the emitted
+        // bytes are unchanged from the legacy path. Use the NARROW HIVE_DEFAULT_PARTITION.equals (NOT
+        // ConnectorPartitionValues.normalize, which would also null a literal "\N"): an HMS partition
+        // value is either a real value or the __HIVE_DEFAULT_PARTITION__ directory sentinel, never a
+        // Java null; matching legacy normalizeColumnsFromPath, a null value maps to SQL NULL defensively.
+        rangeDesc.unsetColumnsFromPath();
+        rangeDesc.unsetColumnsFromPathKeys();
+        rangeDesc.unsetColumnsFromPathIsNull();
+        if (!partitionValues.isEmpty()) {
+            List<String> keys = new ArrayList<>(partitionValues.size());
+            List<String> values = new ArrayList<>(partitionValues.size());
+            List<Boolean> isNull = new ArrayList<>(partitionValues.size());
+            for (Map.Entry<String, String> entry : partitionValues.entrySet()) {
+                String value = entry.getValue();
+                boolean nullValue = value == null
+                        || ConnectorPartitionValues.HIVE_DEFAULT_PARTITION.equals(value);
+                keys.add(entry.getKey());
+                values.add(nullValue ? "" : value);
+                isNull.add(nullValue);
+            }
+            rangeDesc.setColumnsFromPathKeys(keys);
+            rangeDesc.setColumnsFromPath(values);
+            rangeDesc.setColumnsFromPathIsNull(isNull);
+        }
     }
 
     private void populateTransactionalHiveParams(TTableFormatFileDesc formatDesc) {
