@@ -21,6 +21,6 @@ PhysicalResultSink
 --------------------------------filter((date_dim.d_date <= '2002-07-18') and (date_dim.d_date >= '2002-06-18'))
 ----------------------------------PhysicalOlapScan[date_dim]
 --------------------------PhysicalProject
-----------------------------filter(i_category IN ('Books', 'Music', 'Sports'))
+----------------------------filter(item.i_category IN ('Books', 'Music', 'Sports'))
 ------------------------------PhysicalOlapScan[item]
 
