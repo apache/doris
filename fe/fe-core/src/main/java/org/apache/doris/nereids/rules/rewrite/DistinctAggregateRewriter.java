@@ -120,13 +120,16 @@ public class DistinctAggregateRewriter implements RewriteRuleFactory {
         if (mustSplit && mustUseMulti) {
             throw new AnalysisException(errorString);
         }
+        ConnectContext ctx = ConnectContext.get();
         if (mustSplit) {
+            if (ctx.getSessionVariable().aggPhase == 3 || ctx.getSessionVariable().aggPhase == 4) {
+                return Strategy.SPLIT_IN_CASCADES;
+            }
             return Strategy.SPLIT_IN_REWRITE;
         }
         if (mustUseMulti) {
             return Strategy.MULTI_STRATEGY;
         }
-        ConnectContext ctx = ConnectContext.get();
         if (ctx.getSessionVariable().aggPhase == 1 || ctx.getSessionVariable().aggPhase == 2) {
             return Strategy.MULTI_STRATEGY;
         }
