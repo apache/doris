@@ -15,31 +15,33 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_oceanbase_jdbc_catalog", "p0,external,oceanbase,external_docker,external_docker_oceanbase") {
-    String enabled = context.config.otherConfigs.get("enableJdbcTest");
+suite("test_sqlserver_all_types_select", "p2,external") {
+    String enabled = context.config.otherConfigs.get("enableJdbcTest")
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
     String s3_endpoint = getS3Endpoint()
     String bucket = getS3BucketName()
-    String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/oceanbase-client-2.4.8.jar"
+    String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mssql-jdbc-11.2.3.jre8.jar"
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
-        String catalog_name = "oceanbase_catalog";
-        String ex_db_name = "doris_test";
-        String oceanbase_port = context.config.otherConfigs.get("oceanbase_port");
+        String sqlserver_port = context.config.otherConfigs.get("sqlserver_2022_port");
 
-
-        sql """ drop catalog if exists ${catalog_name} """
-
-        sql """ create catalog if not exists ${catalog_name} properties(
+        sql """drop catalog if exists sqlserver_all_type_test """
+        sql """create catalog if not exists sqlserver_all_type_test properties(
                     "type"="jdbc",
-                    "user"="root@test",
-                    "password"="",
-                    "jdbc_url" = "jdbc:oceanbase://${externalEnvIp}:${oceanbase_port}/doris_test",
+                    "user"="sa",
+                    "password"="Doris123456",
+                    "jdbc_url" = "jdbc:sqlserver://${externalEnvIp}:${sqlserver_port};encrypt=false;databaseName=doris_test;",
                     "driver_url" = "${driver_url}",
-                    "driver_class" = "com.oceanbase.jdbc.Driver"
+                    "driver_class" = "com.microsoft.sqlserver.jdbc.SQLServerDriver"
         );"""
 
-        order_qt_query """ select * from ${catalog_name}.doris_test.all_types order by 1; """
+        sql """use sqlserver_all_type_test.dbo"""
 
-        sql """ drop catalog if exists ${catalog_name} """
+        qt_desc_all_types_null """desc dbo.extreme_test;"""
+
+        qt_select_all_types_null """select * from dbo.extreme_test order by 1;"""
+
+        qt_select_all_types_multi_block """select count(*) from dbo.extreme_test_multi_block;"""
+
+        sql """drop catalog if exists sqlserver_all_type_test """
     }
 }

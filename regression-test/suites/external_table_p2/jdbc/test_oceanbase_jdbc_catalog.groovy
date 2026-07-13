@@ -15,27 +15,31 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("sqlserver.md", "p2,external,sqlserver,external_docker,external_docker_sqlserver") {
-    String enabled = context.config.otherConfigs.get("enableJdbcTest")
+suite("test_oceanbase_jdbc_catalog", "p2,external") {
+    String enabled = context.config.otherConfigs.get("enableJdbcTest");
+    String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+    String s3_endpoint = getS3Endpoint()
+    String bucket = getS3BucketName()
+    String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/oceanbase-client-2.4.8.jar"
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
-        String catalog_name = "sqlserver_catalog_md";
-        String sqlserver_port = context.config.otherConfigs.get("sqlserver_2022_port");
-        String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
-        String s3_endpoint = getS3Endpoint()
-        String bucket = getS3BucketName()
-        String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mssql-jdbc-11.2.3.jre8.jar"
+        String catalog_name = "oceanbase_catalog";
+        String ex_db_name = "doris_test";
+        String oceanbase_port = context.config.otherConfigs.get("oceanbase_port");
+
 
         sql """ drop catalog if exists ${catalog_name} """
 
         sql """ create catalog if not exists ${catalog_name} properties(
                     "type"="jdbc",
-                    "user"="sa",
-                    "password"="Doris123456",
-                    "jdbc_url" = "jdbc:sqlserver://${externalEnvIp}:${sqlserver_port};databaseName=doris_test;encrypt=false;",
+                    "user"="root@test",
+                    "password"="",
+                    "jdbc_url" = "jdbc:oceanbase://${externalEnvIp}:${oceanbase_port}/doris_test",
                     "driver_url" = "${driver_url}",
-                    "driver_class" = "com.microsoft.sqlserver.jdbc.SQLServerDriver"
+                    "driver_class" = "com.oceanbase.jdbc.Driver"
         );"""
 
-        sql """drop catalog if exists ${catalog_name} """
+        order_qt_query """ select * from ${catalog_name}.doris_test.all_types order by 1; """
+
+        sql """ drop catalog if exists ${catalog_name} """
     }
 }

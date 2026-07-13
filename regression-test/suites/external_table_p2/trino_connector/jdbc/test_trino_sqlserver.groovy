@@ -15,26 +15,36 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_sqlserver_all_types_select", "p0,external,sqlserver,external_docker,external_docker_sqlserver") {
+suite("test_trino_sqlserver", "p2,external") {
     String enabled = context.config.otherConfigs.get("enableJdbcTest")
+    String enabled_trino_connector = context.config.otherConfigs.get("enableTrinoConnectorTest")
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
-    String s3_endpoint = getS3Endpoint()
-    String bucket = getS3BucketName()
-    String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mssql-jdbc-11.2.3.jre8.jar"
-    if (enabled != null && enabled.equalsIgnoreCase("true")) {
+    if (enabled != null && enabled.equalsIgnoreCase("true")
+            && enabled_trino_connector!= null && enabled_trino_connector.equalsIgnoreCase("true")) {
+        
+        def host_ips = new ArrayList()
+        String[][] backends = sql """ show backends """
+        for (def b in backends) {
+            host_ips.add(b[1])
+        }
+        String [][] frontends = sql """ show frontends """
+        for (def f in frontends) {
+            host_ips.add(f[1])
+        }
+        dispatchTrinoConnectors(host_ips.unique())
+
         String sqlserver_port = context.config.otherConfigs.get("sqlserver_2022_port");
 
-        sql """drop catalog if exists sqlserver_all_type_test """
-        sql """create catalog if not exists sqlserver_all_type_test properties(
-                    "type"="jdbc",
-                    "user"="sa",
-                    "password"="Doris123456",
-                    "jdbc_url" = "jdbc:sqlserver://${externalEnvIp}:${sqlserver_port};encrypt=false;databaseName=doris_test;",
-                    "driver_url" = "${driver_url}",
-                    "driver_class" = "com.microsoft.sqlserver.jdbc.SQLServerDriver"
+        sql """drop catalog if exists trino_sqlserver_test """
+        sql """create catalog if not exists trino_sqlserver_test properties(
+                "type"="trino-connector",
+                "trino.connector.name" = "sqlserver",
+                "trino.connection-user" = "sa",
+                "trino.connection-url" = "jdbc:sqlserver://${externalEnvIp}:${sqlserver_port};encrypt=false;databaseName=doris_test;",
+                "trino.connection-password" = "Doris123456"
         );"""
 
-        sql """use sqlserver_all_type_test.dbo"""
+        sql """use trino_sqlserver_test.dbo"""
 
         qt_desc_all_types_null """desc dbo.extreme_test;"""
 
@@ -42,6 +52,6 @@ suite("test_sqlserver_all_types_select", "p0,external,sqlserver,external_docker,
 
         qt_select_all_types_multi_block """select count(*) from dbo.extreme_test_multi_block;"""
 
-        sql """drop catalog if exists sqlserver_all_type_test """
+        sql """drop catalog if exists trino_sqlserver_test """
     }
 }
