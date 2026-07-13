@@ -331,12 +331,14 @@ TEST_F(GroupRowsetWriterTest, partialUpdateSkipsHiddenNonKeyColumns) {
     ASSERT_EQ(1, output_block.rows());
     ASSERT_EQ(return_columns.size(), output_block.columns());
 
-    EXPECT_EQ(1, output_block.get_by_position(0).column->get_int(0));
-    EXPECT_EQ(1001, output_block.get_by_position(1).column->get_int(0));
-    EXPECT_EQ(20, output_block.get_by_position(2).column->get_int(0));
+    EXPECT_EQ(1, (*output_block.get_by_position(0).column)[0].get<TYPE_INT>());
+    EXPECT_EQ(1001, (*output_block.get_by_position(1).column)[0].get<TYPE_BIGINT>());
+    EXPECT_EQ(20, (*output_block.get_by_position(2).column)[0].get<TYPE_INT>());
     EXPECT_TRUE(output_block.get_by_position(3).column->is_null_at(0));
-    EXPECT_EQ(1000, output_block.get_by_position(4).column->get_int(0));
-    EXPECT_EQ(ROW_BINLOG_APPEND, output_block.get_by_position(5).column->get_int(0));
+    EXPECT_EQ(static_cast<int128_t>(1000),
+              (*output_block.get_by_position(4).column)[0].get<TYPE_LARGEINT>());
+    EXPECT_FALSE(output_block.get_by_position(5).column->is_null_at(0));
+    EXPECT_EQ(ROW_BINLOG_APPEND, (*output_block.get_by_position(5).column)[0].get<TYPE_BIGINT>());
     EXPECT_TRUE(output_block.get_by_position(6).column->is_null_at(0));
 
     Block eof_block = row_binlog_schema->create_block();
