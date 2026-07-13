@@ -111,7 +111,9 @@ enum TFileFormatType {
     FORMAT_WAL = 15,
     FORMAT_ARROW = 16,
     FORMAT_TEXT = 17,
-    FORMAT_NATIVE = 18
+    FORMAT_NATIVE = 18,
+    // Lance dataset, read by the native Lance-C reader.
+    FORMAT_LANCE = 19
 }
 
 // In previous versions, the data compression format and file format were stored together, as TFileFormatType,
@@ -420,6 +422,13 @@ struct TRemoteDorisFileDesc {
     6: optional string password
 }
 
+// A scan range reads a fixed snapshot and one or more disjoint Lance fragments.
+struct TLanceFileDesc {
+    1: optional string dataset_uri
+    2: optional list<i64> fragment_ids
+    3: optional i64 version
+}
+
 struct TTableFormatFileDesc {
     1: optional string table_format_type
     2: optional TIcebergFileDesc iceberg_params
@@ -431,6 +440,7 @@ struct TTableFormatFileDesc {
     8: optional TLakeSoulFileDesc lakesoul_params
     9: optional i64 table_level_row_count = -1
     10: optional TRemoteDorisFileDesc remote_doris_params
+    11: optional TLanceFileDesc lance_params
 }
 
 // Deprecated, hive text talbe is a special format, not a serde type
