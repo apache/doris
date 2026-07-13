@@ -35,6 +35,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableStreamScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 
 import com.google.common.collect.ImmutableList;
@@ -133,9 +134,43 @@ class IvmLinearDeltaHandler {
 
     IvmDeltaRewriteResult rewriteFilter(LogicalFilter<? extends Plan> filter,
             IvmDeltaRewriteVisitor visitor, IvmRefreshContext ctx) {
-        IvmDeltaRewriteResult childResult = filter.child().accept(visitor, ctx);
-        Plan newFilter = filter.withChildren(ImmutableList.of(childResult.plan));
-        return new IvmDeltaRewriteResult(newFilter, childResult.dmlFactorSlot, childResult.baseOpSlot);
+        return rewritePassThroughPlan(filter, visitor, ctx, false);
+    }
+
+    IvmDeltaRewriteResult rewriteSubQueryAlias(LogicalSubQueryAlias<? extends Plan> alias,
+            IvmDeltaRewriteVisitor visitor, IvmRefreshContext ctx) {
+        return rewritePassThroughPlan(alias, visitor, ctx, true);
+    }
+
+    private IvmDeltaRewriteResult rewritePassThroughPlan(Plan plan, IvmDeltaRewriteVisitor visitor,
+            IvmRefreshContext ctx, boolean remapHiddenSlotsFromOutput) {
+        ImmutableList.Builder<Plan> newChildren = ImmutableList.builderWithExpectedSize(plan.children().size());
+        Slot dmlFactorSlot = null;
+        Slot baseOpSlot = null;
+        for (Plan child : plan.children()) {
+            IvmDeltaRewriteResult childResult = child.accept(visitor, ctx);
+            newChildren.add(childResult.plan);
+            if (childResult.dmlFactorSlot == null) {
+                continue;
+            }
+            if (dmlFactorSlot != null) {
+                throw new AnalysisException(
+                        "IVM: multiple pass-through children have dml_factor — expected at most one delta child");
+            }
+            dmlFactorSlot = childResult.dmlFactorSlot;
+            baseOpSlot = childResult.baseOpSlot;
+        }
+
+        Plan newPlan = plan.withChildren(newChildren.build());
+        if (dmlFactorSlot == null) {
+            return new IvmDeltaRewriteResult(newPlan, null, null);
+        }
+        if (!remapHiddenSlotsFromOutput) {
+            return new IvmDeltaRewriteResult(newPlan, dmlFactorSlot, baseOpSlot);
+        }
+        Slot newDmlFactorSlot = helper.findSlotByName(newPlan.getOutput(), Column.IVM_DML_FACTOR_COL);
+        Slot newBaseOpSlot = helper.findSlotByName(newPlan.getOutput(), Column.IVM_BASE_OP_COL);
+        return new IvmDeltaRewriteResult(newPlan, newDmlFactorSlot, newBaseOpSlot);
     }
 
     IvmDeltaRewriteResult rewriteUnion(LogicalUnion union, IvmDeltaRewriteVisitor visitor, IvmRefreshContext ctx) {

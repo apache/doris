@@ -43,6 +43,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.PlanConstructor;
@@ -169,6 +170,42 @@ class IvmNormalizeMTMVJoinTest extends IvmDeltaTestBase {
                 .filter(s -> Column.IVM_ROW_ID_COL.equals(s.getName()))
                 .count();
         Assertions.assertEquals(1, rowIdCount, "Cross join should also have one composed row_id");
+    }
+
+    @Test
+    void testNormalizeInnerJoinWithSubQueryAlias() {
+        LogicalOlapScan scanA = buildMowScan(1, "a");
+        LogicalOlapScan scanB = buildMowScan(2, "b");
+        LogicalSubQueryAlias<LogicalOlapScan> aliasA = new LogicalSubQueryAlias<>("alias_a", scanA);
+        LogicalSubQueryAlias<LogicalOlapScan> aliasB = new LogicalSubQueryAlias<>("alias_b", scanB);
+        LogicalJoin<?, ?> join = new LogicalJoin<>(JoinType.INNER_JOIN,
+                ImmutableList.of(new EqualTo(aliasA.getOutput().get(0), aliasB.getOutput().get(0))),
+                aliasA, aliasB, JoinReorderContext.EMPTY);
+
+        Plan normalized = normalizeJoinPlan(join);
+
+        long rowIdCount = normalized.getOutput().stream()
+                .filter(s -> Column.IVM_ROW_ID_COL.equals(s.getName()))
+                .count();
+        Assertions.assertEquals(1, rowIdCount);
+        Assertions.assertFalse(normalized.collectToList(plan -> plan instanceof LogicalSubQueryAlias).isEmpty());
+    }
+
+    @Test
+    void testNormalizeJoinUnderDerivedAlias() {
+        LogicalOlapScan scanA = buildMowScan(1, "a");
+        LogicalOlapScan scanB = buildMowScan(2, "b");
+        LogicalJoin<?, ?> join = new LogicalJoin<>(JoinType.INNER_JOIN,
+                ImmutableList.of(new EqualTo(scanA.getOutput().get(0), scanB.getOutput().get(0))),
+                scanA, scanB, JoinReorderContext.EMPTY);
+        LogicalSubQueryAlias<LogicalJoin<?, ?>> alias = new LogicalSubQueryAlias<>("joined_ab", join);
+
+        Plan normalized = normalizeJoinPlan(alias);
+
+        Assertions.assertInstanceOf(LogicalResultSink.class, normalized);
+        Assertions.assertFalse(normalized.collectToList(plan -> plan instanceof LogicalSubQueryAlias).isEmpty());
+        Assertions.assertEquals(1, normalized.getOutput().stream()
+                .filter(s -> Column.IVM_ROW_ID_COL.equals(s.getName())).count());
     }
 
     @Test
