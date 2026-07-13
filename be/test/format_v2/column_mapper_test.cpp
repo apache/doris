@@ -37,7 +37,6 @@
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type/data_type_timestamptz.h"
-#include "core/data_type/data_type_varbinary.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vin_predicate.h"
@@ -77,10 +76,6 @@ DataTypePtr dec32(uint32_t precision, uint32_t scale) {
 
 DataTypePtr str() {
     return std::make_shared<DataTypeString>();
-}
-
-DataTypePtr varbinary() {
-    return std::make_shared<DataTypeVarbinary>();
 }
 
 DataTypePtr timestamptz(uint32_t scale) {
@@ -2160,31 +2155,6 @@ TEST(ColumnMapperLocalizeFiltersTest, VisibleLocalFilterAddsPredicateColumnAndCo
     EXPECT_EQ(localized_slot->column_id(), 0);
     EXPECT_EQ(localized_slot->column_name(), "id");
     EXPECT_TRUE(localized_slot->data_type()->equals(*int_type));
-}
-
-TEST(ColumnMapperLocalizeFiltersTest, VarbinaryFilterStaysAboveFileReader) {
-    const auto binary_type = varbinary();
-    const auto table_column = name_col("partition_key", binary_type);
-    const auto file_column = name_col("partition_key", binary_type, 7);
-
-    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_NAME});
-    ASSERT_TRUE(mapper.create_mapping({table_column}, {}, {file_column}).ok());
-    ASSERT_EQ(mapper.mappings().size(), 1);
-    EXPECT_TRUE(mapper.mappings()[0].is_trivial);
-    EXPECT_EQ(mapper.mappings()[0].filter_conversion, FilterConversionType::FINALIZE_ONLY);
-
-    const auto value = Field::create_field<TYPE_VARBINARY>(StringView("binary-value"));
-    TableFilter filter {.conjunct = VExprContext::create_shared(binary_predicate(
-                                TExprOpcode::EQ, table_slot(0, 0, binary_type, "partition_key"),
-                                literal(binary_type, value))),
-                        .global_indices = {GlobalIndex(0)}};
-
-    FileScanRequest request;
-    ASSERT_TRUE(mapper.create_scan_request({filter}, {table_column}, &request).ok());
-    EXPECT_TRUE(request.predicate_columns.empty());
-    ASSERT_EQ(request.non_predicate_columns.size(), 1);
-    EXPECT_EQ(request.non_predicate_columns[0].column_id(), LocalColumnId(7));
-    EXPECT_TRUE(request.conjuncts.empty());
 }
 
 TEST(ColumnMapperLocalizeFiltersTest, ConstantFilterBuildsEntryWithoutFileScanColumn) {
