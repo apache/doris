@@ -57,6 +57,9 @@ public:
     void TEST_set_split_state(bool scanner_opened, bool eof) {
         _scanner_opened = scanner_opened;
         _eof = eof;
+        if (!scanner_opened) {
+            _split_profile_published = false;
+        }
     }
     bool TEST_scanner_opened() const { return _scanner_opened; }
     bool TEST_eof() const { return _eof; }
@@ -79,6 +82,7 @@ protected:
     virtual Status _set_open_scanner_batch_size(size_t batch_size);
     virtual bool supports_batch_size_update_after_open() const { return true; }
     virtual Status _open_jni_scanner();
+    bool _reserve_split_profile_publication();
     const std::vector<JniColumn>& jni_columns() const { return _jni_columns; }
     TFileRangeDesc _current_range;
 
@@ -95,6 +99,7 @@ private:
     Status _fill_jni_block(JniDataBridge::TableMetaAddress& table_meta, size_t num_rows);
     Status _get_statistics(JNIEnv* env, std::map<std::string, std::string>* result);
     void _collect_jni_scanner_profile(JNIEnv* env);
+    void _publish_split_profile(JNIEnv* env);
 
     std::map<std::string, std::string> _scanner_params;
     std::vector<JniColumn> _jni_columns;
@@ -103,6 +108,7 @@ private:
     bool _closed = false;
     bool _scanner_opened = false;
     bool _eof = false;
+    bool _split_profile_published = false;
 
     RuntimeProfile::Counter* _open_scanner_time = nullptr;
     RuntimeProfile::Counter* _java_scan_time = nullptr;

@@ -294,33 +294,21 @@ int64_t JniTableReader::self_split_weight() const {
     return _current_range.__isset.self_split_weight ? _current_range.self_split_weight : -1;
 }
 
-Status JniTableReader::close() {
-    if (_closed) {
-        return Status::OK();
+bool JniTableReader::_reserve_split_profile_publication() {
+    if (_split_profile_published) {
+        return false;
     }
-    auto close_status = _close_jni_scanner();
-    auto table_status = TableReader::close();
-    if (close_status.ok() && !table_status.ok()) {
-        close_status = std::move(table_status);
-    }
-    if (close_status.ok()) {
-        _closed = true;
-    }
-    return close_status;
+    _split_profile_published = true;
+    return true;
 }
 
-Status JniTableReader::_close_jni_scanner() {
-    if (!_scanner_opened) {
-        JNIEnv* env = nullptr;
-        if (!_jni_scanner_obj.uninitialized()) {
-            RETURN_IF_ERROR(Jni::Env::Get(&env));
-        }
-        _reset_split_state(env);
-        return Status::OK();
+void JniTableReader::_publish_split_profile(JNIEnv* env) {
+    // Cleanup can fail while the Java scanner and split watchers must remain available for a
+    // retry. Reserve profile publication separately so a retry only repeats resource cleanup.
+    if (!_reserve_split_profile_publication()) {
+        return;
     }
 
-    JNIEnv* env = nullptr;
-    RETURN_IF_ERROR(Jni::Env::Get(&env));
     if (_scanner_profile != nullptr) {
         COUNTER_UPDATE(_open_scanner_time, _jni_scanner_open_watcher);
         COUNTER_UPDATE(_fill_block_time, _fill_block_watcher);
@@ -352,6 +340,36 @@ Status JniTableReader::_close_jni_scanner() {
                 self_split_weight());
     }
     _collect_jni_scanner_profile(env);
+}
+
+Status JniTableReader::close() {
+    if (_closed) {
+        return Status::OK();
+    }
+    auto close_status = _close_jni_scanner();
+    auto table_status = TableReader::close();
+    if (close_status.ok() && !table_status.ok()) {
+        close_status = std::move(table_status);
+    }
+    if (close_status.ok()) {
+        _closed = true;
+    }
+    return close_status;
+}
+
+Status JniTableReader::_close_jni_scanner() {
+    if (!_scanner_opened) {
+        JNIEnv* env = nullptr;
+        if (!_jni_scanner_obj.uninitialized()) {
+            RETURN_IF_ERROR(Jni::Env::Get(&env));
+        }
+        _reset_split_state(env);
+        return Status::OK();
+    }
+
+    JNIEnv* env = nullptr;
+    RETURN_IF_ERROR(Jni::Env::Get(&env));
+    _publish_split_profile(env);
 
     // _fill_jni_block may fail before releasing the current Java table. JniScanner::releaseTable()
     // is idempotent, so closing the split always releases it. Java close must still run if that
@@ -380,6 +398,7 @@ void JniTableReader::_reset_split_state(JNIEnv* env) {
     _jni_scanner_open_watcher = 0;
     _java_scan_watcher = 0;
     _fill_block_watcher = 0;
+    _split_profile_published = false;
 }
 
 Status JniTableReader::_open_jni_scanner() {

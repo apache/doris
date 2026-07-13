@@ -33,6 +33,8 @@ class FakeJniTableReader final : public JniTableReader {
 public:
     int get_next_calls = 0;
     int close_calls = 0;
+    int64_t close_profile_delta = 0;
+    RuntimeProfile::Counter* close_profile_counter = nullptr;
     std::vector<size_t> open_batch_sizes;
     std::vector<size_t> propagated_batch_sizes;
     std::vector<Status> close_results;
@@ -58,6 +60,9 @@ protected:
             return Status::OK();
         }
         ++close_calls;
+        if (_reserve_split_profile_publication() && close_profile_counter != nullptr) {
+            COUNTER_UPDATE(close_profile_counter, close_profile_delta);
+        }
         Status status = Status::OK();
         if (static_cast<size_t>(close_calls) <= close_results.size()) {
             status = close_results[close_calls - 1];
@@ -80,7 +85,8 @@ protected:
     }
 };
 
-Status init_reader(FakeJniTableReader* reader, const std::shared_ptr<io::IOContext>& io_ctx) {
+Status init_reader(FakeJniTableReader* reader, const std::shared_ptr<io::IOContext>& io_ctx,
+                   RuntimeProfile* scanner_profile = nullptr) {
     return reader->init({
             .projected_columns = {},
             .conjuncts = {},
@@ -88,7 +94,7 @@ Status init_reader(FakeJniTableReader* reader, const std::shared_ptr<io::IOConte
             .scan_params = nullptr,
             .io_ctx = io_ctx,
             .runtime_state = nullptr,
-            .scanner_profile = nullptr,
+            .scanner_profile = scanner_profile,
     });
 }
 
@@ -128,8 +134,11 @@ TEST(JniTableReaderTest, EndOfSplitRemainsIdempotentAfterScannerClose) {
 }
 
 TEST(JniTableReaderTest, FailedCloseCanBeRetried) {
+    RuntimeProfile profile("FailedCloseCanBeRetried");
     FakeJniTableReader reader;
-    ASSERT_TRUE(init_reader(&reader, nullptr).ok());
+    reader.close_profile_counter = profile.add_counter("PublishedCloseProfile", TUnit::UNIT);
+    reader.close_profile_delta = 17;
+    ASSERT_TRUE(init_reader(&reader, nullptr, &profile).ok());
     reader.TEST_set_split_state(true, false);
     reader.close_results = {Status::InternalError("injected close failure"), Status::OK()};
 
@@ -137,10 +146,12 @@ TEST(JniTableReaderTest, FailedCloseCanBeRetried) {
     EXPECT_FALSE(reader.TEST_closed());
     EXPECT_TRUE(reader.TEST_scanner_opened());
     EXPECT_EQ(reader.close_calls, 1);
+    EXPECT_EQ(reader.close_profile_counter->value(), 17);
 
     EXPECT_TRUE(reader.close().ok());
     EXPECT_TRUE(reader.TEST_closed());
     EXPECT_EQ(reader.close_calls, 2);
+    EXPECT_EQ(reader.close_profile_counter->value(), 17);
 }
 
 TEST(JniTableReaderTest, AdaptiveBatchSizeUpdatesAnOpenJavaScanner) {
