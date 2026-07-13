@@ -192,16 +192,16 @@ TEST(FileScannerV2Test, PaimonCppReaderForcesLegacyScanner) {
 
     TFileScanRangeParams params;
     params.__set_format_type(TFileFormatType::FORMAT_JNI);
-    TTableFormatFileDesc table_format_params;
-    table_format_params.__set_table_format_type("paimon");
-    params.__set_table_format_params(std::move(table_format_params));
+    // Match FE-generated Paimon params: the table-format descriptor is stored per range, while
+    // paimon_predicate is stored once at scan level.
+    params.__set_paimon_predicate("serialized-predicate");
 
     EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
 
     // Other JNI table formats and Paimon without the C++ reader remain eligible for V2.
-    params.table_format_params.__set_table_format_type("hudi");
+    params.__isset.paimon_predicate = false;
     EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
-    params.table_format_params.__set_table_format_type("paimon");
+    params.__set_paimon_predicate("serialized-predicate");
     query_options.__set_enable_paimon_cpp_reader(false);
     EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
 }

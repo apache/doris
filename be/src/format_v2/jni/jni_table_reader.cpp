@@ -361,7 +361,10 @@ Status JniTableReader::_close_jni_scanner() {
     if (cleanup_status.ok() && !java_close_status.ok()) {
         cleanup_status = std::move(java_close_status);
     }
-    _reset_split_state(env);
+    if (cleanup_status.ok()) {
+        // Keep the Java object and opened state on failure so close() can retry the cleanup.
+        _reset_split_state(env);
+    }
     return cleanup_status;
 }
 

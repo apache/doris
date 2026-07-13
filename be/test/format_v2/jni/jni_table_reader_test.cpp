@@ -33,6 +33,7 @@ class FakeJniTableReader final : public JniTableReader {
 public:
     int get_next_calls = 0;
     int close_calls = 0;
+    std::vector<size_t> open_batch_sizes;
     std::vector<size_t> propagated_batch_sizes;
     std::vector<Status> close_results;
     bool next_eof = false;
@@ -53,16 +54,28 @@ protected:
     }
 
     Status _close_jni_scanner() override {
-        ++close_calls;
-        TEST_set_split_state(false, TEST_eof());
-        if (static_cast<size_t>(close_calls) <= close_results.size()) {
-            return close_results[close_calls - 1];
+        if (!TEST_scanner_opened()) {
+            return Status::OK();
         }
-        return Status::OK();
+        ++close_calls;
+        Status status = Status::OK();
+        if (static_cast<size_t>(close_calls) <= close_results.size()) {
+            status = close_results[close_calls - 1];
+        }
+        if (status.ok()) {
+            TEST_set_split_state(false, TEST_eof());
+        }
+        return status;
     }
 
     Status _set_open_scanner_batch_size(size_t batch_size) override {
         propagated_batch_sizes.push_back(batch_size);
+        return Status::OK();
+    }
+
+    Status _open_jni_scanner() override {
+        open_batch_sizes.push_back(TEST_batch_size());
+        TEST_set_split_state(true, false);
         return Status::OK();
     }
 };
@@ -122,6 +135,7 @@ TEST(JniTableReaderTest, FailedCloseCanBeRetried) {
 
     EXPECT_FALSE(reader.close().ok());
     EXPECT_FALSE(reader.TEST_closed());
+    EXPECT_TRUE(reader.TEST_scanner_opened());
     EXPECT_EQ(reader.close_calls, 1);
 
     EXPECT_TRUE(reader.close().ok());
@@ -141,6 +155,25 @@ TEST(JniTableReaderTest, AdaptiveBatchSizeUpdatesAnOpenJavaScanner) {
     reader.set_batch_size(33);
     EXPECT_EQ(reader.TEST_batch_size(), 33);
     EXPECT_EQ(reader.propagated_batch_sizes, std::vector<size_t>({33}));
+}
+
+TEST(JniTableReaderTest, AdaptiveProbeSetBeforePrepareControlsFirstJniOpen) {
+    FakeJniTableReader reader;
+    ASSERT_TRUE(init_reader(&reader, nullptr).ok());
+
+    reader.set_batch_size(32);
+    ASSERT_TRUE(reader.prepare_split({
+                                             .partition_values = {},
+                                             .partition_prune_conjuncts = {},
+                                             .cache = nullptr,
+                                             .current_range = {},
+                                             .current_split_format = FileFormat::JNI,
+                                             .global_rowid_context = std::nullopt,
+                                     })
+                        .ok());
+
+    EXPECT_EQ(reader.open_batch_sizes, std::vector<size_t>({32}));
+    EXPECT_TRUE(reader.TEST_scanner_opened());
 }
 
 } // namespace

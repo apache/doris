@@ -407,6 +407,13 @@ Status FileScannerV2::_prepare_next_split(bool* eos) {
         DORIS_CHECK(_table_reader != nullptr);
         _current_range_path = _current_range.path;
 
+        const auto format_type = get_range_format_type(*_params, _current_range);
+        _init_adaptive_batch_size_state(format_type);
+        if (_should_run_adaptive_batch_size()) {
+            // JNI readers open eagerly in prepare_split(). Seed the probe size first so readers
+            // such as Paimon also use it for their first physical read batch.
+            _table_reader->set_batch_size(_predict_reader_batch_rows());
+        }
         std::map<std::string, Field> partition_values;
         RETURN_IF_ERROR(_generate_partition_values(_current_range, &partition_values));
         const auto status =
@@ -422,7 +429,6 @@ Status FileScannerV2::_prepare_next_split(bool* eos) {
             _state->update_num_finished_scan_range(1);
             continue;
         }
-        _init_adaptive_batch_size_state(get_range_format_type(*_params, _current_range));
         COUNTER_UPDATE(_file_counter, 1);
         _has_prepared_split = true;
         *eos = false;

@@ -77,6 +77,7 @@ protected:
     virtual Status _get_next_jni_block(size_t* rows, bool* eof);
     virtual Status _close_jni_scanner();
     virtual Status _set_open_scanner_batch_size(size_t batch_size);
+    virtual Status _open_jni_scanner();
     const std::vector<JniColumn>& jni_columns() const { return _jni_columns; }
     TFileRangeDesc _current_range;
 
@@ -85,7 +86,6 @@ private:
     void _init_profile();
     std::string _connector_name() const;
     // open
-    Status _open_jni_scanner();
     void _reset_split_state(JNIEnv* env);
     void _prepare_jni_scanner_schema();
     Status _register_jni_class_functions_once(JNIEnv* env);

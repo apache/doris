@@ -116,14 +116,12 @@ bool FileScanLocalState::_should_use_file_scanner_v2(const TQueryOptions& query_
     const bool is_transactional_hive =
             scan_params.__isset.table_format_params &&
             scan_params.table_format_params.table_format_type == "transactional_hive";
-    const bool uses_paimon_cpp_reader =
-            scan_params.__isset.table_format_params &&
-            scan_params.table_format_params.table_format_type == "paimon" &&
-            query_options.__isset.enable_paimon_cpp_reader &&
-            query_options.enable_paimon_cpp_reader;
-    // PAIMON_CPP is selected per split by FE, while scanner selection only sees scan-level
-    // parameters. FileScannerV2 cannot dispatch that reader type, so retain the V1 path until the
-    // C++ Paimon reader is supported by the V2 hybrid reader.
+    // FE stores Paimon's table-format descriptor per split, but paimon_predicate is a scan-level
+    // Paimon marker. PAIMON_CPP is also selected per split, and FileScannerV2 cannot dispatch that
+    // reader type, so retain the V1 path until the V2 hybrid reader supports it.
+    const bool uses_paimon_cpp_reader = scan_params.__isset.paimon_predicate &&
+                                        query_options.__isset.enable_paimon_cpp_reader &&
+                                        query_options.enable_paimon_cpp_reader;
     return query_options.__isset.enable_file_scanner_v2 && query_options.enable_file_scanner_v2 &&
            !is_load && scan_params.format_type != TFileFormatType::FORMAT_WAL &&
            scan_params.format_type != TFileFormatType::FORMAT_ES_HTTP &&
