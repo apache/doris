@@ -19,8 +19,12 @@
 >
 > **✅ 用户 2026-07-13 拍板（最高优先级，见批次方案 §5）**：① 总批次序认可；② §4-B 安全直切、不加连接器位、补 ACID e2e；③ **`HiveVersionUtil` + fe-core 补丁版 `HiveMetaStoreClient` 两个都删**（fe-connector-hms 已自带副本，fe-core 两份不再使用，删完为零引用孤儿，随 Batch 3）；④ `getBrokerAddresses`/`PlanType` 孤儿枚举/`StatisticsAutoCollector` 的 hudi-jar `VisibleForTesting` 注解换源 = 随批清理；⑤ **Batch 3 死簇一个大删除提交**；⑥ 拓扑多 commit → 最终 squash。
 >
-> **下一个 = Batch 2（切断所有 live KEEP 文件对删除集的死臂/死方法/死 import，不删任何类）**——见批次方案 §3 Batch2（分 2a datasource内 / 2b planner-statistics / 2c nereids binds-commands / 2d tablefunction）。**每块后 fe-core test-compile 必绿**（删除集类此时仍在，故编译一路绿；`UnusedImports` 会 fail build，切臂后清 import）。Batch 1 已处理的死臂**别重复**：`Env` 的 events 面（hiveTransactionMgr 面仍在 2a）、`ExternalMetaIdMgr` else 臂、`FileQueryScanNode` HiveSplit 臂（已删）。
-> **再下一个 = Batch 3（原子删死簇 ~130 文件+测试）→ Batch 4（守门）**。
+> **✅ Batch 2 datasource 块已完成一 commit**（`1e75d5023e5`，test-compile BUILD SUCCESS + 0 checkstyle 已核）：切 `CatalogMgr` 两分区臂 / `ExternalMetaCacheRouteResolver` HMS 路由臂 / `RefreshManager` 两臂 / `CatalogConnectivityTestCoordinator` Hive-Glue 臂（自包含死臂，均顺清 import）。⚠ `ExternalMetaCacheRouteResolverTest` 现断言已删的 HMS 路由（与 `ExternalMetaCacheMgr` 引擎缓存机制纠缠）→ **随 Batch 3 test-linkage 删**。
+>
+> **🔴 Batch-2/Batch-3 边界铁律（本 session 核出，务必遵守）**：Batch 2 只切「活方法里的死分支」，顺清**仅**被该臂用的 import/local/私有方法；**不得**在 Batch 2 删「使用者含仍存在的待删类」的声明——`ExternalMetaCacheMgr.hive()/hudi()/iceberg()` 访问器+注册+常量+import、`Env.hiveTransactionMgr` field/init/getter/import、`BaseExternalTableDataSink.getTFileFormatType/getTFileCompressType/supportedFileFormatTypes`、`StatisticsUtil.getHiveRowCount/getTotalSizeFromHMS`、`CreateTableInfo.validateIcebergRowLineageColumns(int)`、`PhysicalPlanTranslator` sink-visitor 方法、`SinkVisitor`/`RelationVisitor` 默认方法——**随 Batch 3 与被删类原子一起删**（其使用者是死 `HiveScanNode`/`HiveTableSink` 等，Batch 2 删会编译断）。详见 `datasource-deletion-tasklist.md` 阶段 3 抬头。
+>
+> **下一个 = Batch 2 剩余（nereids + statistics + tvf 死臂，~18 文件，本 session 未做）**：`PlanNode`/`BindRelation`/`BindSink`/`CheckPolicy`/`CreateTableInfo`(仅 387/910 两 HMS 臂)/`PhysicalPlanTranslator`(仅 830-859/933-948 scan 臂)/`InsertIntoTableCommand`/`InsertOverwriteTableCommand`/`InsertUtils`/`LogicalFileScan`/`AnalyzeTableCommand`/`ShowCreateDatabaseCommand`/`ShowCreateTableCommand`/`ShowPartitionsCommand`/`UnboundTableSinkCreator`/`MaterializeProbeVisitor`/`AnalysisManager`/`StatisticsUtil`(仅 instanceof 臂)/`StatisticsAutoCollector`(hudi 注解换源)/`MetadataGenerator`(三 HMS 臂)/`PartitionsTableValuedFunction`/`PartitionValuesTableValuedFunction`。精确 file:line 见批次方案 §3 Batch2（行号=HEAD `0f45c482e58`，这些文件未被 Batch1/2a 触及故仍有效；**动手前 grep 复核**）。分块提交，每块 test-compile 绿。
+> **再下一个 = Batch 3（原子删死簇 ~130 文件 + 上述 Batch-3-coupled 声明 + 测试联动）→ Batch 4（守门）**。
 >
 > **⚠ 动手前重核**：Batch 1 改了 5 个文件（`Env`/`ExternalMetaIdMgr`/`FileQueryScanNode`/`PluginDrivenMvccExternalTable`/`ExternalMetaIdMgrTest`），行号已变；批次方案 §3 的其余文件未被 Batch 1 触及，但仍以 HEAD grep 为准。
 >

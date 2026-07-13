@@ -43,11 +43,14 @@
 - [x] `IcebergMergeCommand` 7 处改（5 处 predicate→`isReservedPassthrough()`；342-343 名产出→按 schema 序遍历保留列 `getName()`）— commit `3364966cdd4`
 - [x] `IcebergUpdateCommand:106` 改读保留标记 — commit `3364966cdd4`
 
-## 阶段 3 — 切死臂 + 清死面
-- [ ] `datasource/` 内 6 处死臂（`CatalogMgr`/`ExternalMetaCacheMgr`/`ExternalMetaCacheRouteResolver`/`CatalogConnectivityTestCoordinator`/`FileQueryScanNode` HiveSplit 臂/`ExternalMetaIdMgr`）
-- [ ] `Env` 两套面（`MetastoreEventsProcessor` + `hiveTransactionMgr`）
-- [ ] `datasource/` 外死臂（`RefreshManager`/`PlanNode`/`BaseExternalTableDataSink`/`PhysicalPlanTranslator`/`BindRelation`/`BindSink`/`CheckPolicy`/`CreateTableInfo`/`Insert*`/`Show*`/统计族/`MetadataGenerator`+TVF）
-- [ ] 切完清 `UnusedImports`（checkstyle 会 fail build）
+## 阶段 3 — 切死臂（= Batch 2「切断死分支，不删类」；每块后 test-compile 必绿）
+> **⚠ Batch-2/Batch-3 边界铁律（本 session 核出）**：只在 Batch 2 切「活方法里的死分支」（`instanceof HMSExternal*`/`case HMS_EXTERNAL_TABLE`/`DLAType` 死臂），切完顺清**仅**被该臂用的 import/local/私有方法。**不得**在 Batch 2 删「使用者含仍存在的待删类」的声明——如 `ExternalMetaCacheMgr.hive()/hudi()/iceberg()` 访问器+注册、`Env.hiveTransactionMgr` field/getter、`BaseExternalTableDataSink.getTFileFormatType/getTFileCompressType/supportedFileFormatTypes`、`StatisticsUtil.getHiveRowCount/getTotalSizeFromHMS`、`CreateTableInfo.validateIcebergRowLineageColumns(int)`、`PhysicalPlanTranslator` 的 sink-visitor 方法、`SinkVisitor`/`RelationVisitor` 默认方法——它们的使用者是待删类（如死 `HiveScanNode`/`HiveTableSink`）或 Batch 3 才删的类，**须随 Batch 3 与被删类原子一起移除**，否则 Batch 2 删会编译断。
+- [x] datasource/ 内自包含死臂（`CatalogMgr` 两分区臂 / `ExternalMetaCacheRouteResolver` HMS 路由 / `CatalogConnectivityTestCoordinator` Hive/Glue 臂 / `RefreshManager` 两臂）— commit `1e75d5023e5`
+- [x] `FileQueryScanNode` HiveSplit 臂 / `ExternalMetaIdMgr` 死 else 臂 / `Env` `MetastoreEventsProcessor` 面 — 已在阶段 1（Batch 1）完成
+- [ ] **nereids 死臂（Batch 2 剩余，本 session 未做）**：`PlanNode`（两 `instanceof IcebergScanNode` 臂 + 死私有 `mergeIcebergAccessPathsWithId`，其唯一调用方=该两臂，可 Batch2 一并删）· `BindRelation`（`case HMS_EXTERNAL_TABLE`）· `BindSink`（hive-sink rule + `bindHiveTableSink` + 死 `bind` 重载）· `CheckPolicy`（hudi 增量臂）· `CreateTableInfo`（两 HMS 臂 387/910；`validateIcebergRowLineageColumns(int)` 留 Batch3）· `PhysicalPlanTranslator`（scan 死臂 830-859/933-948；sink-visitor 方法留 Batch3）· `InsertIntoTableCommand`/`InsertOverwriteTableCommand`/`InsertUtils`（HMS/UnboundHiveTableSink 臂）· `LogicalFileScan`· `AnalyzeTableCommand`· `ShowCreateDatabaseCommand`/`ShowCreateTableCommand`/`ShowPartitionsCommand`· `UnboundTableSinkCreator`· `MaterializeProbeVisitor`
+- [ ] **statistics/tvf 死臂（Batch 2 剩余）**：`AnalysisManager`（1492→`return false`）· `StatisticsUtil`（仅切 instanceof 臂 1007-1012；死方法留 Batch3）· `StatisticsAutoCollector`（hudi-jar `VisibleForTesting` 换源，独立小改）· `MetadataGenerator`（三处 HMS 臂 469/1325/2100，死方法 dealHMSCatalog/forHmsTable 留 Batch3）· `PartitionsTableValuedFunction`· `PartitionValuesTableValuedFunction`
+- [ ] 每块切完清 `UnusedImports`（checkstyle 会 fail build）+ test-compile 绿
+> 精确 file:line 见 `datasource-deletion-batch-plan-2026-07-13.md §3 Batch2`（行号 = HEAD `0f45c482e58`，上列剩余文件未被 Batch1/2a 触及故仍有效；动手前仍 grep 复核）。
 
 ## 阶段 4 — 删 trap-tier + 循环单元
 - [ ] trap-tier 文件（`HiveInsertExecutor`/`LogicalHiveTableSink`/`PhysicalHiveTableSink`/`UnboundHiveTableSink`/`LogicalHudiScan`/`PhysicalHudiScan`/`HiveTableSink`/`HMSAnalysisTask`/`HiveTransactionManager`/`TransactionManagerFactory`）
