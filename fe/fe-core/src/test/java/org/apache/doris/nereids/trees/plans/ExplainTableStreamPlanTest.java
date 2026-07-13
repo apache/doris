@@ -473,12 +473,30 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
     }
 
     @Test
+    public void testAppendOnlyAliasedStreamSnapshotCanBePlanned() throws Exception {
+        ConnectContext ctx = createDefaultCtx();
+        ctx.setDatabase("test_stream");
+        ctx.getSessionVariable().showHiddenColumns = true;
+
+        assertStreamScanCanBePlanned(ctx, "explain select s.* from test_stream.s_dup@snapshot() as s");
+    }
+
+    @Test
     public void testAppendOnlyStreamResetCanBePlanned() throws Exception {
         ConnectContext ctx = createDefaultCtx();
         ctx.setDatabase("test_stream");
         ctx.getSessionVariable().showHiddenColumns = true;
 
         assertStreamScanCanBePlanned(ctx, "explain select * from test_stream.s_dup@reset()");
+    }
+
+    @Test
+    public void testAppendOnlyAliasedStreamResetCanBePlanned() throws Exception {
+        ConnectContext ctx = createDefaultCtx();
+        ctx.setDatabase("test_stream");
+        ctx.getSessionVariable().showHiddenColumns = true;
+
+        assertStreamScanCanBePlanned(ctx, "explain select s.* from test_stream.s_dup@reset() as s");
     }
 
     @Test
