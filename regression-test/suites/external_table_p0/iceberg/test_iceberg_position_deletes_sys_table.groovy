@@ -355,9 +355,9 @@ suite("test_iceberg_position_deletes_sys_table", "p0,external") {
             """select count(*) from pd_orc_unpartitioned\$position_deletes""")
     assertTrue(orcUnpartitionedCount > 0)
     assertSparkDorisPositionDeletes("pd_orc_unpartitioned", commonCompareColumns)
-    assertEquals(orcUnpartitionedCount, (long) sql(
-            """select `row` from pd_orc_unpartitioned\$position_deletes""").size())
-    assertTrue(unpartitionedRows.every { it[0] == null })
+    List<List<Object>> orcUnpartitionedRows = sql """select `row` from pd_orc_unpartitioned\$position_deletes"""
+    assertEquals(orcUnpartitionedCount, (long) orcUnpartitionedRows.size())
+    assertTrue(orcUnpartitionedRows.every { it[0] == null })
     try {
         sql """set file_split_size=1"""
         assertSparkDorisPositionDeletes("pd_unpartitioned", commonCompareColumns)

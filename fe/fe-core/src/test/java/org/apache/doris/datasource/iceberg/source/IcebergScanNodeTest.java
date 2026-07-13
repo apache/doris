@@ -19,11 +19,13 @@ package org.apache.doris.datasource.iceberg.source;
 
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.TableFormatType;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TIcebergDeleteFileDesc;
 
@@ -185,6 +187,27 @@ public class IcebergScanNodeTest {
             Assert.assertTrue(e.getCause() instanceof UnsupportedOperationException);
             Assert.assertEquals("Unsupported Iceberg position delete file format: AVRO",
                     e.getCause().getMessage());
+        }
+    }
+
+    @Test
+    public void testRejectSmoothUpgradeSourceBackendForPositionDeletes() throws Exception {
+        Backend currentBackend = Mockito.mock(Backend.class);
+        Mockito.when(currentBackend.isSmoothUpgradeSrc()).thenReturn(false);
+        IcebergScanNode.checkPositionDeletesBackendCompatibility(Collections.singletonList(currentBackend));
+
+        Backend smoothUpgradeSource = Mockito.mock(Backend.class);
+        Mockito.when(smoothUpgradeSource.isSmoothUpgradeSrc()).thenReturn(true);
+        Mockito.when(smoothUpgradeSource.getId()).thenReturn(10001L);
+        List<Backend> backends = new ArrayList<>();
+        backends.add(currentBackend);
+        backends.add(smoothUpgradeSource);
+
+        try {
+            IcebergScanNode.checkPositionDeletesBackendCompatibility(backends);
+            Assert.fail("smooth upgrade source backend should reject native position_deletes planning");
+        } catch (UserException e) {
+            Assert.assertTrue(e.getMessage().contains("backend 10001 is a smooth upgrade source"));
         }
     }
 }

@@ -55,6 +55,7 @@ import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.spi.Split;
+import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TColumnCategory;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TFileFormatType;
@@ -1170,6 +1171,7 @@ public class IcebergScanNode extends FileQueryScanNode {
     }
 
     private List<Split> doGetPositionDeletesSystemTableSplits() throws UserException {
+        checkPositionDeletesBackendCompatibility(backendPolicy.getBackends());
         List<Split> splits = new ArrayList<>();
         List<PositionDeletesScanTask> positionDeleteTasks = new ArrayList<>();
         BatchScan scan = icebergTable.newBatchScan().metricsReporter(new IcebergMetricsReporter());
@@ -1219,6 +1221,16 @@ public class IcebergScanNode extends FileQueryScanNode {
         }
         selectedPartitionNum = 0;
         return splits;
+    }
+
+    @VisibleForTesting
+    static void checkPositionDeletesBackendCompatibility(Iterable<Backend> backends) throws UserException {
+        for (Backend backend : backends) {
+            if (backend.isSmoothUpgradeSrc()) {
+                throw new UserException("Iceberg position_deletes system table is unavailable while backend "
+                        + backend.getId() + " is a smooth upgrade source");
+            }
+        }
     }
 
     @Override
