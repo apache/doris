@@ -300,6 +300,34 @@ public class IcebergMetadataOpsValidationTest {
     }
 
     @Test
+    public void testModifyColumnCommentUsesCanonicalNestedPaths() throws Throwable {
+        Schema schema = mixedCaseNestedSchema();
+        ExternalTable dorisTable = Mockito.mock(ExternalTable.class);
+        Table icebergTable = Mockito.mock(Table.class);
+        UpdateSchema updateSchema = Mockito.mock(UpdateSchema.class);
+        Mockito.when(dorisTable.getRemoteDbName()).thenReturn("db");
+        Mockito.when(icebergTable.schema()).thenReturn(schema);
+        Mockito.when(icebergTable.updateSchema()).thenReturn(updateSchema);
+
+        try (MockedStatic<IcebergUtils> mockedIcebergUtils =
+                Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
+            mockedIcebergUtils.when(() -> IcebergUtils.getIcebergTable(dorisTable)).thenReturn(icebergTable);
+
+            ops.modifyColumnComment(dorisTable, ColumnPath.fromDotName("info.metric"),
+                    "struct comment", 1L);
+            ops.modifyColumnComment(dorisTable, ColumnPath.fromDotName("events.element.score"),
+                    "array element comment", 1L);
+            ops.modifyColumnComment(dorisTable, ColumnPath.fromDotName("attrs.value.code"),
+                    "map value comment", 1L);
+        }
+
+        Mockito.verify(updateSchema).updateColumnDoc("Info.Metric", "struct comment");
+        Mockito.verify(updateSchema).updateColumnDoc("Events.element.Score", "array element comment");
+        Mockito.verify(updateSchema).updateColumnDoc("Attrs.value.Code", "map value comment");
+        Mockito.verify(updateSchema, Mockito.times(3)).commit();
+    }
+
+    @Test
     public void testResolveNestedColumnPathRejectsMapKey() {
         assertUserException(() -> ops.resolveNestedColumnPath(nestedSchema(), ColumnPath.fromDotName("m.key.x"),
                         "modify"),
