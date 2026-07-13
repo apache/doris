@@ -30,7 +30,6 @@ import org.apache.doris.qe.CoordinatorContext;
 import org.apache.doris.qe.LoadContext;
 import org.apache.doris.thrift.TFragmentInstanceReport;
 import org.apache.doris.thrift.TReportExecStatusParams;
-import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.Lists;
@@ -267,10 +266,8 @@ public class LoadProcessor extends AbstractJobProcessor {
      */
     private boolean checkHealthy() {
         for (SingleFragmentPipelineTask topFragmentTask : topFragmentTasks) {
-            if (!topFragmentTask.isBackendHealthy(jobId)) {
-                long backendId = topFragmentTask.getBackend().getId();
-                Status unhealthyStatus = new Status(
-                        TStatusCode.INTERNAL_ERROR, "backend " + backendId + " is down");
+            Status unhealthyStatus = topFragmentTask.getBackendHealthStatus(jobId);
+            if (!unhealthyStatus.ok()) {
                 coordinatorContext.updateStatusIfOk(unhealthyStatus);
                 return false;
             }

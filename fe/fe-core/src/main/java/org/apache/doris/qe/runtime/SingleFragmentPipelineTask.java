@@ -17,10 +17,12 @@
 
 package org.apache.doris.qe.runtime;
 
+import org.apache.doris.common.Status;
 import org.apache.doris.qe.QueryStatisticsItem.FragmentInstanceInfo;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TReportExecStatusParams;
+import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.Lists;
@@ -38,6 +40,7 @@ public class SingleFragmentPipelineTask extends LeafRuntimeTask {
     private final Backend backend;
     private final int fragmentId;
     private final long lastMissingHeartbeatTime;
+    private final long backendProcessEpoch;
     private final Set<TUniqueId> instanceIds;
 
     // mutate states
@@ -48,6 +51,7 @@ public class SingleFragmentPipelineTask extends LeafRuntimeTask {
         this.fragmentId = fragmentId;
         this.instanceIds = instanceIds;
         this.lastMissingHeartbeatTime = backend.getLastMissingHeartbeatTime();
+        this.backendProcessEpoch = backend.getProcessEpoch();
     }
 
     // update profile.
@@ -62,12 +66,21 @@ public class SingleFragmentPipelineTask extends LeafRuntimeTask {
         return this.done.compareAndSet(false, true);
     }
 
-    public boolean isBackendHealthy(long jobId) {
+    public Status getBackendHealthStatus(long jobId) {
         if (backend.getLastMissingHeartbeatTime() > lastMissingHeartbeatTime && !backend.isAlive()) {
             LOG.warn("backend {} is down while joining the coordinator. job id: {}", backend.getId(), jobId);
-            return false;
+            return new Status(TStatusCode.INTERNAL_ERROR, "backend {} is down", backend.getId());
         }
-        return true;
+
+        long currentProcessEpoch = backend.getProcessEpoch();
+        if (backendProcessEpoch != currentProcessEpoch && currentProcessEpoch != 0) {
+            Status unhealthyStatus = new Status(TStatusCode.INTERNAL_ERROR,
+                    "backend {} process epoch changed from {} to {}, indicating that the backend restarted",
+                    backend.getId(), backendProcessEpoch, currentProcessEpoch);
+            LOG.warn("{} while joining the coordinator. job id: {}", unhealthyStatus.getErrorMsg(), jobId);
+            return unhealthyStatus;
+        }
+        return Status.OK;
     }
 
     public boolean isDone() {
