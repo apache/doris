@@ -5,6 +5,6 @@ PhysicalResultSink
 ----PhysicalDistribute[DistributionSpecGather]
 ------hashAgg[LOCAL]
 --------PhysicalProject
-----------filter((URL like '%google%'))
+----------filter((hits.URL like '%google%'))
 ------------PhysicalOlapScan[hits]
 
