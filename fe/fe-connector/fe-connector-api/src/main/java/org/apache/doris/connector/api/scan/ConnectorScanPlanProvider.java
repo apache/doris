@@ -293,6 +293,26 @@ public interface ConnectorScanPlanProvider {
     }
 
     /**
+     * Connector SDK scan diagnostics harvested during the just-finished {@link #planScan} — manifest cache
+     * hit/miss, scan/planning durations, files and manifests scanned vs skipped — as connector-neutral
+     * {@link ConnectorScanProfile} groups the engine writes into the query's profile execution summary.
+     *
+     * <p>The default returns an empty list (connector reports nothing). A connector that wants scan
+     * diagnostics harvests them from its SDK during {@code planScan} (the paimon SDK exposes a metric
+     * registry, the iceberg SDK a metrics reporter), stashes them keyed by {@link ConnectorSession#getQueryId()},
+     * and drains them here — mirroring the per-query queryId stashes this SPI already uses (read-transaction
+     * release, rewritable-delete supply). The engine calls this immediately after {@code planScan} on the
+     * same thread, so the harvest is complete; the connector must also drop its stash on
+     * {@link #releaseReadTransaction} to reclaim any entry a thrown {@code planScan} left behind.</p>
+     *
+     * @param session the current session (its queryId keys the connector's per-query stash)
+     * @return this scan's diagnostics, or an empty list (the default) to contribute nothing to the profile
+     */
+    default List<ConnectorScanProfile> collectScanProfiles(ConnectorSession session) {
+        return Collections.emptyList();
+    }
+
+    /**
      * Plans the scan for a single batch of partitions (used by batch-mode scans).
      *
      * <p>Called once per partition batch when the engine drives batch-mode split generation

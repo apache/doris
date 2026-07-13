@@ -22,6 +22,7 @@ import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.pushdown.ConnectorExpression;
 import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
+import org.apache.doris.connector.api.scan.ConnectorScanProfile;
 import org.apache.doris.connector.api.scan.ConnectorScanRange;
 import org.apache.doris.connector.metastore.spi.JdbcDriverSupport;
 import org.apache.doris.connector.spi.ConnectorContext;
@@ -59,6 +60,7 @@ import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.source.DataSplit;
 import org.apache.paimon.table.source.DeletionFile;
+import org.apache.paimon.table.source.InnerTableScan;
 import org.apache.paimon.table.source.RawFile;
 import org.apache.paimon.table.source.ReadBuilder;
 import org.apache.paimon.table.source.Split;
@@ -94,6 +96,8 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.stream.Collectors;
 
 /**
@@ -212,6 +216,12 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
     // with the B-MC2 time-travel path). The public 2/3-arg ctors give each provider its OWN fresh memo so
     // the existing construction sites are unchanged (first build = direct read = pre-fix behavior).
     private final PaimonSchemaAtMemo schemaAtMemo;
+
+    // FIX-SCAN-METRICS: per-query stash of the paimon SDK scan diagnostics harvested during planScan, keyed
+    // by session queryId. fe-core drains it (collectScanProfiles) right after planScan on the same thread;
+    // releaseReadTransaction reclaims any entry a thrown planScan left behind. Bounded to the sync planScan
+    // path (paimon never streams), so the CopyOnWriteArrayList value is only ever appended single-threaded.
+    private final ConcurrentHashMap<String, List<ConnectorScanProfile>> scanProfileStash = new ConcurrentHashMap<>();
 
     public PaimonScanPlanProvider(Map<String, String> properties, PaimonCatalogOps catalogOps) {
         this(properties, catalogOps, null);
@@ -378,6 +388,46 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
     }
 
     /**
+     * Harvest the paimon SDK scan metrics recorded into {@code registry} by {@code scan.plan()} and stash
+     * them keyed by the session queryId for fe-core to drain (FIX-SCAN-METRICS). No-op for a blank queryId
+     * (offline/no-session) or a scan the SDK recorded no metrics for.
+     */
+    private void stashScanProfile(ConnectorSession session, Table table, PaimonTableHandle handle,
+            PaimonMetricRegistry registry) {
+        // Guard a null session (offline unit tests) — production planScan always carries one.
+        if (session == null) {
+            return;
+        }
+        String queryId = session.getQueryId();
+        if (queryId == null || queryId.isEmpty()) {
+            return;
+        }
+        String scanLabel = "Table Scan (" + handle.getDatabaseName() + "." + handle.getTableName() + ")";
+        PaimonScanMetrics.harvest(registry, table.name(), scanLabel).ifPresent(profile ->
+                scanProfileStash.computeIfAbsent(queryId, k -> new CopyOnWriteArrayList<>()).add(profile));
+    }
+
+    @Override
+    public List<ConnectorScanProfile> collectScanProfiles(ConnectorSession session) {
+        String queryId = session.getQueryId();
+        if (queryId == null || queryId.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<ConnectorScanProfile> profiles = scanProfileStash.remove(queryId);
+        return profiles == null ? Collections.emptyList() : profiles;
+    }
+
+    @Override
+    public void releaseReadTransaction(String queryId) {
+        // Paimon opens no metastore read transaction (it inherits the SPI no-op); this override only reclaims
+        // the scan-metrics stash for a query whose planScan threw AFTER harvesting (the normal path drains it
+        // via collectScanProfiles). Same queryId fe-core registered the query-finish callback with.
+        if (queryId != null && !queryId.isEmpty()) {
+            scanProfileStash.remove(queryId);
+        }
+    }
+
+    /**
      * COUNT(*)-pushdown-aware scan entry (FIX-COUNT-PUSHDOWN). The generic {@code PluginDrivenScanNode}
      * forwards the no-grouping {@code COUNT(*)} signal here via the SPI's count-pushdown overload.
      * {@code limit} and {@code requiredPartitions} are not consumed by the paimon read path (same as
@@ -459,7 +509,16 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             readBuilder.withProjection(projected);
         }
         TableScan scan = readBuilder.newScan();
+        // FIX-SCAN-METRICS: attach a metric registry so scan.plan() records its ScanMetrics (manifest cache
+        // hit/miss, scan durations, table files skipped/resulted), then harvest them below — restores the
+        // legacy PaimonScanNode scan-metrics profile. InnerTableScan.withMetricRegistry is a real body on the
+        // AbstractDataTableScan a data table returns; other scan types keep the no-op default (no metrics).
+        PaimonMetricRegistry metricRegistry = new PaimonMetricRegistry();
+        if (scan instanceof InnerTableScan) {
+            scan = ((InnerTableScan) scan).withMetricRegistry(metricRegistry);
+        }
         List<Split> paimonSplits = planSplits(scan);
+        stashScanProfile(session, table, paimonHandle, metricRegistry);
 
         // Determine table location
         String tableLocation = getTableLocation(table);

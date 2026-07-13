@@ -24,6 +24,7 @@ import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.pushdown.ConnectorExpression;
 import org.apache.doris.connector.api.scan.ConnectorColumnCategory;
 import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
+import org.apache.doris.connector.api.scan.ConnectorScanProfile;
 import org.apache.doris.connector.api.scan.ConnectorScanRange;
 import org.apache.doris.connector.api.scan.ConnectorSplitSource;
 import org.apache.doris.connector.cache.CacheSpec;
@@ -100,6 +101,7 @@ import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 
 /**
@@ -220,6 +222,13 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     // path; pre-flip the provider never runs at all).
     private final IcebergRewritableDeleteStash rewritableDeleteStash;
 
+    // FIX-SCAN-METRICS: per-query stash of the iceberg SDK scan diagnostics captured by the attached
+    // IcebergScanProfileReporter during planScan, keyed by session queryId. fe-core drains it
+    // (collectScanProfiles) right after planScan on the same thread; releaseReadTransaction reclaims any entry
+    // a thrown planScan left behind. Attached only on the synchronous data/count path (never streaming or
+    // system-table, which fe-core never drains), so the value list is appended single-threaded.
+    private final ConcurrentHashMap<String, List<ConnectorScanProfile>> scanProfileStash = new ConcurrentHashMap<>();
+
     public IcebergScanPlanProvider(Map<String, String> properties, IcebergCatalogOps catalogOps) {
         this(properties, catalogOps, null, null, null);
     }
@@ -296,6 +305,26 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         }
         return distinctPartitions.isEmpty()
                 ? OptionalLong.empty() : OptionalLong.of(distinctPartitions.size());
+    }
+
+    @Override
+    public List<ConnectorScanProfile> collectScanProfiles(ConnectorSession session) {
+        String queryId = session.getQueryId();
+        if (queryId == null || queryId.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<ConnectorScanProfile> profiles = scanProfileStash.remove(queryId);
+        return profiles == null ? Collections.emptyList() : profiles;
+    }
+
+    @Override
+    public void releaseReadTransaction(String queryId) {
+        // Iceberg opens no metastore read transaction (it inherits the SPI no-op); this override only reclaims
+        // the scan-metrics stash for a query whose planScan threw AFTER the reporter fired (the normal path
+        // drains it via collectScanProfiles). Same queryId fe-core registered the query-finish callback with.
+        if (queryId != null && !queryId.isEmpty()) {
+            scanProfileStash.remove(queryId);
+        }
     }
 
     /**
@@ -531,6 +560,16 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         }
         Table table = resolveTable(session, iceHandle);
         TableScan scan = buildScan(table, iceHandle, filter, session);
+        // FIX-SCAN-METRICS: attach a per-scan metrics reporter so the iceberg SDK's ScanReport (planning time,
+        // data/delete files, scanned vs skipped manifests) is captured into the query profile — restores the
+        // legacy IcebergScanNode scan-metrics profile the migration dropped. Attached HERE (the synchronous
+        // data/count path), NOT in buildScan, which is also reached by streamSplits/planSystemTableScan whose
+        // report would stash a queryId entry fe-core never drains (leak). The reporter fires on close of the
+        // planFiles iterable, which the data (try-with-resources) and count paths close on this thread.
+        // Guard a null session (offline unit tests) — production planScan always carries one.
+        if (session != null) {
+            scan = scan.metricsReporter(new IcebergScanProfileReporter(session.getQueryId(), scanProfileStash));
+        }
 
         int formatVersion = getFormatVersion(table);
         List<String> orderedPartitionKeys = IcebergPartitionUtils.getIdentityPartitionColumns(table);

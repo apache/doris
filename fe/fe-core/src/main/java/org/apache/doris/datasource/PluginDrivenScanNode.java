@@ -28,6 +28,8 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.profile.RuntimeProfile;
+import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.connector.api.Connector;
 import org.apache.doris.connector.api.ConnectorMetadata;
 import org.apache.doris.connector.api.ConnectorSession;
@@ -42,6 +44,7 @@ import org.apache.doris.connector.api.pushdown.LimitApplicationResult;
 import org.apache.doris.connector.api.pushdown.ProjectionApplicationResult;
 import org.apache.doris.connector.api.scan.ConnectorColumnCategory;
 import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
+import org.apache.doris.connector.api.scan.ConnectorScanProfile;
 import org.apache.doris.connector.api.scan.ConnectorScanRange;
 import org.apache.doris.connector.api.scan.ConnectorSplitSource;
 import org.apache.doris.connector.api.scan.ScanNodePropertiesResult;
@@ -331,6 +334,48 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             return connectorScannedPartitionCount.getAsLong();
         }
         return nereidsSelectedPartitionNum;
+    }
+
+    /**
+     * Write the connector's SDK scan diagnostics ({@link ConnectorScanProfile}s harvested during planScan)
+     * into this query's profile execution summary. Looks up the query's {@link SummaryProfile} and delegates
+     * the tree-building to the pure {@link #writeScanProfilesInto}. No-op when there is no profile (e.g. a
+     * statement not collecting one) or nothing to write.
+     */
+    private void appendConnectorScanProfiles(List<ConnectorScanProfile> profiles) {
+        if (profiles == null || profiles.isEmpty()) {
+            return;
+        }
+        SummaryProfile summaryProfile = SummaryProfile.getSummaryProfile(ConnectContext.get());
+        if (summaryProfile == null) {
+            return;
+        }
+        writeScanProfilesInto(summaryProfile.getExecutionSummary(), profiles);
+    }
+
+    /**
+     * Transcribe connector-supplied scan profiles into {@code executionSummary}: get-or-create a group named
+     * {@link ConnectorScanProfile#getGroupName()}, add a child named {@link ConnectorScanProfile#getScanLabel()},
+     * and write each metric as an info string. Purely connector-agnostic (no source-type branch) — the engine
+     * only transcribes what the connector produced. Pure and takes a bare {@link RuntimeProfile} so the
+     * tree-building is unit-testable without a {@code ConnectContext}.
+     */
+    static void writeScanProfilesInto(RuntimeProfile executionSummary, List<ConnectorScanProfile> profiles) {
+        if (executionSummary == null || profiles == null || profiles.isEmpty()) {
+            return;
+        }
+        for (ConnectorScanProfile profile : profiles) {
+            RuntimeProfile group = executionSummary.getChildMap().get(profile.getGroupName());
+            if (group == null) {
+                group = new RuntimeProfile(profile.getGroupName());
+                executionSummary.addChild(group, true);
+            }
+            RuntimeProfile scan = new RuntimeProfile(profile.getScanLabel());
+            for (Map.Entry<String, String> entry : profile.getMetrics().entrySet()) {
+                scan.addInfoString(entry.getKey(), entry.getValue());
+            }
+            group.addChild(scan, true);
+        }
     }
 
     @Override
@@ -1104,6 +1149,13 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                 () -> scanProvider.scannedPartitionCount(ranges));
         this.selectedPartitionNum = resolveSelectedPartitionNum(
                 this.selectedPartitionNum, countPushdown, connectorScannedPartitions);
+        // FIX-SCAN-METRICS: drain the connector's SDK scan diagnostics (harvested during planScan, keyed by
+        // queryId) and write them into the query profile. connector-agnostic: the connector supplies the
+        // group/label/metrics, the engine only transcribes them (no source branch). Default empty for
+        // connectors that don't harvest. Same thread as planScan, so the harvest is complete.
+        List<ConnectorScanProfile> scanProfiles = onPluginClassLoader(scanProvider,
+                () -> scanProvider.collectScanProfiles(connectorSession));
+        appendConnectorScanProfiles(scanProfiles);
         long pushDownRowCount = resolvePushDownRowCount(countPushdown, ranges);
         if (pushDownRowCount >= 0) {
             // Only set when a range actually carries a precomputed count (e.g. paimon's collapsed count
