@@ -141,7 +141,7 @@ Status HttpService::start() {
                                       streamload_2pc_action);
 
     // register stream load forward handler
-    auto* forward_handler = _pool.add(new StreamLoadForwardHandler());
+    auto* forward_handler = _pool.add(new StreamLoadForwardHandler(_env));
     _ev_http_server->register_handler(HttpMethod::PUT, "/api/{db}/{table}/_stream_load_forward",
                                       forward_handler);
 

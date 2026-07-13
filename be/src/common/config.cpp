@@ -272,6 +272,8 @@ DEFINE_mInt32(download_low_speed_limit_kbps, "50");
 DEFINE_mInt32(download_low_speed_time, "300");
 // whether to download small files in batch
 DEFINE_mBool(enable_batch_download, "true");
+// whether to enable stream load forward endpoint for cloud group commit
+DEFINE_mBool(enable_group_commit_streamload_be_forward, "false");
 // whether to check md5sum when download
 DEFINE_mBool(enable_download_md5sum_check, "false");
 // download binlog meta timeout, default 30s
