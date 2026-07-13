@@ -345,8 +345,6 @@ Status OperatorXBase::do_projections(RuntimeState* state, Block* origin_block,
 
     scoped_mutable_block.restore();
 
-    auto empty_columns = origin_block->clone_empty_columns();
-    origin_block->set_columns(std::move(empty_columns));
     DCHECK_EQ(output_block->rows(), rows);
 
     return Status::OK();
