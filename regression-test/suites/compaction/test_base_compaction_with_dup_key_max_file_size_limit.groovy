@@ -19,6 +19,8 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("test_base_compaction_with_dup_key_max_file_size_limit", "p2") {
     def tableName = "test_base_compaction_with_dup_key_max_file_size_limit"
+    def originalDisableAutoCompaction = null
+    def originalBaseCompactionFileSizeLimit = null
 
     // use customer table of tpch_sf100
     def rows = 15000000
@@ -70,6 +72,11 @@ suite("test_base_compaction_with_dup_key_max_file_size_limit", "p2") {
         def backendId_to_backendIP = [:]
         def backendId_to_backendHttpPort = [:]
         getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
+
+        originalDisableAutoCompaction = get_be_param("disable_auto_compaction")
+        originalBaseCompactionFileSizeLimit = get_be_param("base_compaction_dup_key_max_file_size_mbytes")
+        set_be_param("disable_auto_compaction", "true")
+        set_be_param("base_compaction_dup_key_max_file_size_mbytes", "512")
 
         backend_id = backendId_to_backendIP.keySet()[0]
         def (code, out, err) = show_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id))
@@ -177,7 +184,7 @@ suite("test_base_compaction_with_dup_key_max_file_size_limit", "p2") {
         // cp: 5
         trigger_and_wait_compaction(tableName, "cumulative")
 
-        // Due to the limit of config::base_compaction_dup_key_max_file_size_mbytes(1G),
+        // Due to the limit of config::base_compaction_dup_key_max_file_size_mbytes,
         // can not do base compaction, return E-808
         // rowsets:
         //      [0-3] 2G nooverlapping
@@ -190,5 +197,11 @@ suite("test_base_compaction_with_dup_key_max_file_size_limit", "p2") {
         def rowCount = sql "select count(*) from ${tableName}"
         assertTrue(rowCount[0][0] != rows)
     } finally {
+        if (originalBaseCompactionFileSizeLimit != null) {
+            set_original_be_param("base_compaction_dup_key_max_file_size_mbytes", originalBaseCompactionFileSizeLimit)
+        }
+        if (originalDisableAutoCompaction != null) {
+            set_original_be_param("disable_auto_compaction", originalDisableAutoCompaction)
+        }
     }
 }
