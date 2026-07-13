@@ -582,9 +582,7 @@ private:
 class CompoundPredicateExpr final : public VExpr {
 public:
     CompoundPredicateExpr(TExprOpcode::type opcode, VExprSPtrs children)
-            : VExpr(std::make_shared<DataTypeUInt8>(), false),
-              _expr_name(opcode == TExprOpcode::COMPOUND_OR ? "CompoundOrPredicateExpr"
-                                                            : "CompoundNotPredicateExpr") {
+            : VExpr(std::make_shared<DataTypeUInt8>(), false), _expr_name("CompoundPredicateExpr") {
         _node_type = TExprNodeType::COMPOUND_PRED;
         _opcode = opcode;
         set_children(std::move(children));
@@ -607,7 +605,7 @@ public:
             return Status::OK();
         }
 
-        DORIS_CHECK(_opcode == TExprOpcode::COMPOUND_OR);
+        DORIS_CHECK(_opcode == TExprOpcode::COMPOUND_AND || _opcode == TExprOpcode::COMPOUND_OR);
         DORIS_CHECK(!_children.empty());
         std::vector<ColumnPtr> child_columns;
         child_columns.reserve(_children.size());
@@ -617,10 +615,15 @@ public:
             child_columns.push_back(std::move(child_column));
         }
         for (size_t row = 0; row < count; ++row) {
-            result_data[row] = 0;
+            result_data[row] = _opcode == TExprOpcode::COMPOUND_AND;
             for (const auto& child_column : child_columns) {
-                if (bool_value(*child_column, row)) {
+                const auto child_value = bool_value(*child_column, row);
+                if (_opcode == TExprOpcode::COMPOUND_OR && child_value) {
                     result_data[row] = 1;
+                    break;
+                }
+                if (_opcode == TExprOpcode::COMPOUND_AND && !child_value) {
+                    result_data[row] = 0;
                     break;
                 }
             }
@@ -6967,6 +6970,113 @@ TEST_F(NewOrcReaderTest, SargSlotToSlotNullSafeEqualDoesNotPruneStripes) {
     EXPECT_EQ(reader->reader_statistics().filtered_row_groups, 0);
     EXPECT_EQ(reader->reader_statistics().filtered_row_groups_by_min_max, 0);
     EXPECT_EQ(reader->reader_statistics().filtered_group_rows, 0);
+}
+
+TEST_F(NewOrcReaderTest, SargPartialAndRespectsNegationContext) {
+    const auto multi_stripe_file_path = (_test_dir / "sarg_partial_and_not.orc").string();
+    write_multi_stripe_orc_int_file(multi_stripe_file_path);
+    ASSERT_EQ(get_orc_stripe_count(multi_stripe_file_path), 2);
+
+    auto partial_and = []() -> VExprSPtr {
+        return std::make_shared<CompoundPredicateExpr>(
+                TExprOpcode::COMPOUND_AND,
+                VExprSPtrs {std::make_shared<NullableInt32GreaterThanExpr>(0, 500),
+                            std::make_shared<NullableInt32CastToFloatGreaterThanExpr>(0, 1100.5F)});
+    };
+    auto verify = [&](const auto& conjunct_factory, const std::vector<int32_t>& expected_ids,
+                      int64_t expected_filtered_row_groups) {
+        std::array<std::vector<int32_t>, 2> result_ids;
+        for (size_t run = 0; run < result_ids.size(); ++run) {
+            const bool enable_filter_by_min_max = run == 0;
+            auto reader = create_reader_for_path(multi_stripe_file_path);
+            TQueryOptions query_options;
+            query_options.__set_enable_orc_filter_by_min_max(enable_filter_by_min_max);
+            RuntimeState state {query_options, TQueryGlobals()};
+            ASSERT_TRUE(reader->init(&state).ok());
+
+            std::vector<format::ColumnDefinition> schema;
+            ASSERT_TRUE(reader->get_schema(&schema).ok());
+            ASSERT_EQ(schema.size(), 2);
+
+            auto request = std::make_shared<format::FileScanRequest>();
+            request->predicate_columns = {field_projection(0)};
+            request->conjuncts.push_back(VExprContext::create_shared(conjunct_factory()));
+            ASSERT_TRUE(reader->open(request).ok());
+
+            bool eof = false;
+            while (!eof) {
+                Block block = build_file_block({schema[0]});
+                size_t rows = 0;
+                ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+                if (eof || rows == 0) {
+                    continue;
+                }
+                const auto& ids_nullable =
+                        assert_cast<const ColumnNullable&>(*block.get_by_position(0).column);
+                const auto& ids = assert_cast<const ColumnInt32&>(ids_nullable.get_nested_column());
+                for (size_t row = 0; row < rows; ++row) {
+                    ASSERT_FALSE(ids_nullable.is_null_at(row));
+                    result_ids[run].push_back(ids.get_element(row));
+                }
+            }
+
+            const auto filtered_row_groups =
+                    enable_filter_by_min_max ? expected_filtered_row_groups : 0;
+            EXPECT_EQ(reader->reader_statistics().filtered_row_groups, filtered_row_groups);
+            EXPECT_EQ(reader->reader_statistics().filtered_row_groups_by_min_max,
+                      filtered_row_groups);
+            EXPECT_EQ(reader->reader_statistics().filtered_group_rows, filtered_row_groups * 200);
+        }
+
+        EXPECT_EQ(result_ids[0], expected_ids);
+        EXPECT_EQ(result_ids[0], result_ids[1]);
+    };
+
+    std::vector<int32_t> expected_not_ids;
+    for (int32_t id = 1; id <= 200; ++id) {
+        expected_not_ids.push_back(id);
+    }
+    for (int32_t id = 1000; id <= 1100; ++id) {
+        expected_not_ids.push_back(id);
+    }
+    verify(
+            [&]() -> VExprSPtr {
+                return std::make_shared<CompoundPredicateExpr>(TExprOpcode::COMPOUND_NOT,
+                                                               VExprSPtrs {partial_and()});
+            },
+            expected_not_ids, 0);
+
+    std::vector<int32_t> expected_and_ids;
+    for (int32_t id = 1101; id <= 1199; ++id) {
+        expected_and_ids.push_back(id);
+    }
+    verify(partial_and, expected_and_ids, 1);
+    verify(
+            [&]() -> VExprSPtr {
+                auto inner_not = std::make_shared<CompoundPredicateExpr>(
+                        TExprOpcode::COMPOUND_NOT, VExprSPtrs {partial_and()});
+                return std::make_shared<CompoundPredicateExpr>(TExprOpcode::COMPOUND_NOT,
+                                                               VExprSPtrs {std::move(inner_not)});
+            },
+            expected_and_ids, 1);
+
+    std::vector<int32_t> expected_nested_ids;
+    expected_nested_ids.insert(expected_nested_ids.end(), expected_not_ids.begin(),
+                               expected_not_ids.begin() + 200);
+    expected_nested_ids.insert(expected_nested_ids.end(), expected_and_ids.begin(),
+                               expected_and_ids.end());
+    verify(
+            [&]() -> VExprSPtr {
+                auto inner_not = std::make_shared<CompoundPredicateExpr>(
+                        TExprOpcode::COMPOUND_NOT, VExprSPtrs {partial_and()});
+                auto outer_and = std::make_shared<CompoundPredicateExpr>(
+                        TExprOpcode::COMPOUND_AND,
+                        VExprSPtrs {std::move(inner_not),
+                                    std::make_shared<NullableInt32GreaterThanExpr>(0, 500)});
+                return std::make_shared<CompoundPredicateExpr>(TExprOpcode::COMPOUND_NOT,
+                                                               VExprSPtrs {std::move(outer_and)});
+            },
+            expected_nested_ids, 0);
 }
 
 TEST_F(NewOrcReaderTest, SargNullSafeEqualInsideOrDoesNotPruneStripes) {

@@ -746,7 +746,8 @@ bool is_null_literal(const VExprSPtr& literal_expr) {
 // Buildability is checked before emission so the builder path can assume the
 // expression shape was validated and use DORIS_CHECK for impossible branches.
 bool can_build_search_argument(const format::FileScanRequest& request, const ::orc::Type& root_type,
-                               const cctz::time_zone& timezone, const VExprSPtr& expr);
+                               const cctz::time_zone& timezone, const VExprSPtr& expr,
+                               bool is_negated);
 
 std::optional<VExprSPtr> expression_for_search_argument(const VExprSPtr& expr) {
     if (expr == nullptr) {
@@ -1193,7 +1194,8 @@ bool contains_null_safe_equal(const VExprSPtr& expr) {
 }
 
 bool can_build_search_argument(const format::FileScanRequest& request, const ::orc::Type& root_type,
-                               const cctz::time_zone& timezone, const VExprSPtr& expr) {
+                               const cctz::time_zone& timezone, const VExprSPtr& expr,
+                               bool is_negated) {
     const auto sarg_expr = expression_for_search_argument(expr);
     if (!sarg_expr.has_value()) {
         return false;
@@ -1202,28 +1204,39 @@ bool can_build_search_argument(const format::FileScanRequest& request, const ::o
         return false;
     }
     if (sarg_expr->get() != expr.get()) {
-        return can_build_search_argument(request, root_type, timezone, *sarg_expr);
+        return can_build_search_argument(request, root_type, timezone, *sarg_expr, is_negated);
     }
 
     switch ((*sarg_expr)->op()) {
-    case TExprOpcode::COMPOUND_AND:
-        return std::ranges::any_of((*sarg_expr)->children(), [&](const auto& child) {
-            return can_build_search_argument(request, root_type, timezone, child);
-        });
+    case TExprOpcode::COMPOUND_AND: {
+        const auto& children = (*sarg_expr)->children();
+        if (children.empty()) {
+            return false;
+        }
+        const auto can_build_child = [&](const auto& child) {
+            return can_build_search_argument(request, root_type, timezone, child, is_negated);
+        };
+        // Omitting an AND child weakens the SARG only in positive context. Under an odd number of
+        // NOTs it would strengthen the SARG and could incorrectly prune matching stripes.
+        return is_negated ? std::ranges::all_of(children, can_build_child)
+                          : std::ranges::any_of(children, can_build_child);
+    }
     case TExprOpcode::COMPOUND_OR:
         if (contains_null_safe_equal(*sarg_expr)) {
             return false;
         }
         return !(*sarg_expr)->children().empty() &&
                std::ranges::all_of((*sarg_expr)->children(), [&](const auto& child) {
-                   return can_build_search_argument(request, root_type, timezone, child);
+                   return can_build_search_argument(request, root_type, timezone, child,
+                                                    is_negated);
                });
     case TExprOpcode::COMPOUND_NOT:
         if (contains_null_safe_equal(*sarg_expr)) {
             return false;
         }
         return (*sarg_expr)->children().size() == 1 &&
-               can_build_search_argument(request, root_type, timezone, (*sarg_expr)->children()[0]);
+               can_build_search_argument(request, root_type, timezone, (*sarg_expr)->children()[0],
+                                         !is_negated);
     case TExprOpcode::GE:
     case TExprOpcode::GT:
     case TExprOpcode::LE:
@@ -1351,15 +1364,16 @@ void build_null_safe_equal(const format::FileScanRequest& request, const ::orc::
 
 bool build_search_argument(const format::FileScanRequest& request, const ::orc::Type& root_type,
                            const cctz::time_zone& timezone, const VExprSPtr& expr,
-                           std::unique_ptr<::orc::SearchArgumentBuilder>& builder) {
+                           std::unique_ptr<::orc::SearchArgumentBuilder>& builder,
+                           bool is_negated) {
     const auto sarg_expr = expression_for_search_argument(expr);
     if (!sarg_expr.has_value() || *sarg_expr == nullptr) {
         return false;
     }
     if (sarg_expr->get() != expr.get()) {
-        return build_search_argument(request, root_type, timezone, *sarg_expr, builder);
+        return build_search_argument(request, root_type, timezone, *sarg_expr, builder, is_negated);
     }
-    if (!can_build_search_argument(request, root_type, timezone, *sarg_expr)) {
+    if (!can_build_search_argument(request, root_type, timezone, *sarg_expr, is_negated)) {
         return false;
     }
 
@@ -1367,14 +1381,17 @@ bool build_search_argument(const format::FileScanRequest& request, const ::orc::
     case TExprOpcode::COMPOUND_AND:
         builder->startAnd();
         for (const auto& child : (*sarg_expr)->children()) {
-            static_cast<void>(build_search_argument(request, root_type, timezone, child, builder));
+            const auto built =
+                    build_search_argument(request, root_type, timezone, child, builder, is_negated);
+            DORIS_CHECK(!is_negated || built);
         }
         builder->end();
         return true;
     case TExprOpcode::COMPOUND_OR:
         builder->startOr();
         for (const auto& child : (*sarg_expr)->children()) {
-            const auto built = build_search_argument(request, root_type, timezone, child, builder);
+            const auto built =
+                    build_search_argument(request, root_type, timezone, child, builder, is_negated);
             DORIS_CHECK(built);
         }
         builder->end();
@@ -1382,7 +1399,7 @@ bool build_search_argument(const format::FileScanRequest& request, const ::orc::
     case TExprOpcode::COMPOUND_NOT:
         builder->startNot();
         DORIS_CHECK(build_search_argument(request, root_type, timezone, (*sarg_expr)->children()[0],
-                                          builder));
+                                          builder, !is_negated));
         builder->end();
         return true;
     case TExprOpcode::GE:
@@ -1426,7 +1443,7 @@ bool build_search_argument(const format::FileScanRequest& request, const ::orc::
 bool build_orc_search_argument(const format::FileScanRequest& request, const ::orc::Type& root_type,
                                const cctz::time_zone& timezone, const VExprSPtr& expr,
                                std::unique_ptr<::orc::SearchArgumentBuilder>& builder) {
-    return build_search_argument(request, root_type, timezone, expr, builder);
+    return build_search_argument(request, root_type, timezone, expr, builder, false);
 }
 
 } // namespace doris::format::orc
