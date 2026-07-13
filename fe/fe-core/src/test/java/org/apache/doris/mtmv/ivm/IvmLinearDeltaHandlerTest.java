@@ -48,6 +48,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableStreamScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.qe.ConnectContext;
 
@@ -163,6 +164,42 @@ class IvmLinearDeltaHandlerTest extends IvmDeltaTestBase {
                 new LogicalFilter<>(com.google.common.collect.ImmutableSet.of(predicate), scan), dummyCtx());
         Assertions.assertInstanceOf(LogicalFilter.class, result.plan);
         Assertions.assertEquals(Column.IVM_DML_FACTOR_COL, result.dmlFactorSlot.getName());
+    }
+
+    @Test
+    void testVisitLogicalSubQueryAliasPropagatesDmlFactor() {
+        LogicalOlapTableStreamScan scan = buildDeltaScan();
+        LogicalSubQueryAlias<LogicalOlapTableStreamScan> alias = new LogicalSubQueryAlias<>("delta_t", scan);
+        TestableIvmLinearDeltaHandler handler = new TestableIvmLinearDeltaHandler();
+
+        IvmDeltaRewriteResult result = handler.exposeRewritePlan(alias, dummyCtx());
+
+        Assertions.assertInstanceOf(LogicalSubQueryAlias.class, result.plan);
+        LogicalSubQueryAlias<?> rewrittenAlias = (LogicalSubQueryAlias<?>) result.plan;
+        Assertions.assertInstanceOf(LogicalProject.class, rewrittenAlias.child());
+        Assertions.assertEquals(Column.IVM_DML_FACTOR_COL, result.dmlFactorSlot.getName());
+        Assertions.assertEquals(Column.IVM_BASE_OP_COL, result.baseOpSlot.getName());
+        Assertions.assertTrue(rewrittenAlias.getOutput().stream()
+                .anyMatch(slot -> Column.IVM_DML_FACTOR_COL.equals(slot.getName())));
+        Assertions.assertTrue(rewrittenAlias.getOutput().stream()
+                .anyMatch(slot -> Column.IVM_BASE_OP_COL.equals(slot.getName())));
+    }
+
+    @Test
+    void testVisitNestedLogicalSubQueryAliasPropagatesDmlFactor() {
+        LogicalOlapTableStreamScan scan = buildDeltaScan();
+        LogicalSubQueryAlias<LogicalOlapTableStreamScan> innerAlias = new LogicalSubQueryAlias<>("inner_t", scan);
+        LogicalSubQueryAlias<LogicalSubQueryAlias<LogicalOlapTableStreamScan>> outerAlias =
+                new LogicalSubQueryAlias<>("outer_t", innerAlias);
+        TestableIvmLinearDeltaHandler handler = new TestableIvmLinearDeltaHandler();
+
+        IvmDeltaRewriteResult result = handler.exposeRewritePlan(outerAlias, dummyCtx());
+
+        Assertions.assertInstanceOf(LogicalSubQueryAlias.class, result.plan);
+        Assertions.assertEquals(Column.IVM_DML_FACTOR_COL, result.dmlFactorSlot.getName());
+        Assertions.assertEquals(Column.IVM_BASE_OP_COL, result.baseOpSlot.getName());
+        Assertions.assertTrue(result.plan.getOutput().stream()
+                .anyMatch(slot -> Column.IVM_DML_FACTOR_COL.equals(slot.getName())));
     }
 
     @Test

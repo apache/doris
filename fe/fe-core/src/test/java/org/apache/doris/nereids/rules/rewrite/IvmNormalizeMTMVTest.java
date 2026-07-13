@@ -42,6 +42,7 @@ import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -64,12 +65,14 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Repeat.RepeatType;
 import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanConstructor;
@@ -407,6 +410,52 @@ class IvmNormalizeMTMVTest {
 
         assertIvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED,
                 () -> new IvmNormalizeMTMV().rewriteRoot(project, newJobContext(true)));
+    }
+
+    @Test
+    void testSubQueryAliasPassesThroughNormalize() {
+        LogicalSubQueryAlias<LogicalOlapScan> alias = new LogicalSubQueryAlias<>("alias_t", scan);
+
+        JobContext jobContext = newJobContextForRoot(alias, true);
+        Plan result = new IvmNormalizeMTMV().rewriteRoot(alias, jobContext);
+
+        Assertions.assertInstanceOf(LogicalSubQueryAlias.class, result);
+        LogicalSubQueryAlias<?> rewrittenAlias = (LogicalSubQueryAlias<?>) result;
+        Assertions.assertEquals("alias_t", rewrittenAlias.getAlias());
+        Assertions.assertInstanceOf(LogicalProject.class, rewrittenAlias.child());
+        Assertions.assertEquals(Column.IVM_ROW_ID_COL, rewrittenAlias.getOutput().get(0).getName());
+
+        IvmRewriteResult rewriteResult = jobContext.getCascadesContext().getIvmRewriteResult().get();
+        Assertions.assertFalse(rewriteResult.isDeterministic(rewrittenAlias.getOutput().get(0)));
+        Assertions.assertFalse(rewriteResult.getRowId(rewrittenAlias.getOutput().get(0)).second);
+    }
+
+    @Test
+    void testNestedSubQueryAliasPassesThroughNormalize() {
+        LogicalSubQueryAlias<LogicalOlapScan> innerAlias = new LogicalSubQueryAlias<>("inner_t", scan);
+        LogicalSubQueryAlias<LogicalSubQueryAlias<LogicalOlapScan>> outerAlias =
+                new LogicalSubQueryAlias<>("outer_t", innerAlias);
+
+        JobContext jobContext = newJobContextForRoot(outerAlias, true);
+        Plan result = new IvmNormalizeMTMV().rewriteRoot(outerAlias, jobContext);
+
+        Assertions.assertInstanceOf(LogicalSubQueryAlias.class, result);
+        LogicalSubQueryAlias<?> rewrittenOuterAlias = (LogicalSubQueryAlias<?>) result;
+        Assertions.assertEquals("outer_t", rewrittenOuterAlias.getAlias());
+        Assertions.assertInstanceOf(LogicalSubQueryAlias.class, rewrittenOuterAlias.child());
+        LogicalSubQueryAlias<?> rewrittenInnerAlias = (LogicalSubQueryAlias<?>) rewrittenOuterAlias.child();
+        Assertions.assertEquals("inner_t", rewrittenInnerAlias.getAlias());
+        Assertions.assertInstanceOf(LogicalProject.class, rewrittenInnerAlias.child());
+        Assertions.assertEquals(Column.IVM_ROW_ID_COL, rewrittenOuterAlias.getOutput().get(0).getName());
+    }
+
+    @Test
+    void testCteConsumerIsNotSupported() {
+        LogicalCTEConsumer consumer = new LogicalCTEConsumer(PlanConstructor.getNextRelationId(), new CTEId(1),
+                "cte", scan);
+
+        assertIvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED,
+                () -> new IvmNormalizeMTMV().rewriteRoot(consumer, newJobContextForRoot(consumer, true)));
     }
 
     @Test
