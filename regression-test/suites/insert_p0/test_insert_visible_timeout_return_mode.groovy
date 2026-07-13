@@ -15,9 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import org.apache.doris.regression.util.DebugPoint
-import org.apache.doris.regression.util.NodeType
-
 suite("test_insert_visible_timeout_return_mode", "nonConcurrent") {
     if (isCloudMode()) {
         return
@@ -25,10 +22,6 @@ suite("test_insert_visible_timeout_return_mode", "nonConcurrent") {
 
     def tableName = "test_insert_visible_timeout_return_mode_tbl"
     def debugPoint = "PublishVersionDaemon.stop_publish"
-    // Use the configured FE HTTP endpoint so the case also works when SHOW FRONTENDS exposes loopback addresses.
-    def feHttpAddress = context.config.feHttpAddress
-    def feHost = feHttpAddress.split(":")[0]
-    def feHttpPort = Integer.parseInt(feHttpAddress.split(":")[1])
 
     // Prepare a single-replica table so publish blocking deterministically drives the visible timeout path.
     sql """ DROP TABLE IF EXISTS ${tableName} FORCE """
@@ -44,8 +37,9 @@ suite("test_insert_visible_timeout_return_mode", "nonConcurrent") {
     """
 
     try {
-        // Block FE publish so inserts can commit but remain non-visible until the debug point is removed.
-        DebugPoint.enableDebugPoint(feHost, feHttpPort, NodeType.FE, debugPoint)
+        // PublishVersionDaemon only runs on the master FE. Enable the debug point on every FE so the
+        // case does not depend on whether the regression runner is connected to a master or follower FE.
+        GetDebugPoint().enableDebugPointForAllFEs(debugPoint)
 
         sql """ SET insert_visible_timeout_ms = 1000 """
 
@@ -61,7 +55,7 @@ suite("test_insert_visible_timeout_return_mode", "nonConcurrent") {
         }
     } finally {
         try {
-            DebugPoint.disableDebugPoint(feHost, feHttpPort, NodeType.FE, debugPoint)
+            GetDebugPoint().disableDebugPointForAllFEs(debugPoint)
         } catch (Throwable e) {
             logger.warn("Failed to disable debug point ${debugPoint}", e)
         }
