@@ -19,18 +19,20 @@
 // receiving hourly loads, a stale cache entry is reused by scanning only the
 // delta rowsets since the cached version and merging them with the cached
 // partial aggregation blocks. Every query below is checked against the same
-// query with the cache disabled, so the suite passes in any environment
-// (including those where incremental merge falls back to a full recompute,
-// e.g. cloud mode) while exercising the incremental path on local storage.
+// query with the cache disabled, so results stay verified even where
+// incremental merge falls back to a full recompute (e.g. cloud mode). On
+// local storage the suite additionally proves through the BE metrics that
+// the incremental path really fires: the early stale queries must increase
+// query_cache_stale_hit_total, and the two designed fallback phases (a
+// delete predicate in the delta, a merge-on-write backfill that rewrites
+// history) must increase query_cache_incremental_fallback_total.
 suite("query_cache_incremental") {
-    def tableName = "test_query_cache_incremental"
-    def uniqueTableName = "test_query_cache_incremental_mow"
     def querySql = """
         SELECT
             url,
             SUM(cost) AS total_cost,
             COUNT(*) AS cnt
-        FROM ${tableName}
+        FROM test_query_cache_incremental
         WHERE dt >= '2026-01-01'
           AND dt < '2026-01-15'
         GROUP BY url
@@ -51,15 +53,66 @@ suite("query_cache_incremental") {
         assertEquals(expected, normalize(sql(sqlText)))
     }
 
+    // Sum a BE counter across all backends via the webserver /metrics text.
+    def sumBeMetric = { String metricName ->
+        def backendIdToIp = [:]
+        def backendIdToHttpPort = [:]
+        getBackendIpHttpPort(backendIdToIp, backendIdToHttpPort)
+        long total = 0
+        backendIdToIp.each { backendId, ip ->
+            def text = new URL("http://${ip}:${backendIdToHttpPort[backendId]}/metrics").getText()
+            for (def line : text.split("\n")) {
+                if (line.startsWith("doris_be_${metricName} ")) {
+                    total += Long.parseLong(line.substring(line.lastIndexOf(' ') + 1).trim())
+                }
+            }
+        }
+        return total
+    }
+
+    // Besides result consistency, prove on local storage that the stale entry
+    // was really merged incrementally (Mode::INCREMENTAL), not recomputed:
+    // only the incremental path increases query_cache_stale_hit_total, and no
+    // concurrent suite touches it because the session switch defaults to off.
+    // Cloud mode always falls back by design, so it only checks consistency.
+    // Residual caveat (here and in checkIncrementalFallback): a
+    // memory-pressure prune evicting the entry inside the tiny fill-to-assert
+    // window surfaces as a plain MISS and would fail the assertion; accepted
+    // as rare, and a rerun re-establishes the counters from fresh deltas.
+    def checkStaleIncremental = { String sqlText ->
+        if (isCloudMode()) {
+            checkConsistency(sqlText)
+            return
+        }
+        def before = sumBeMetric("query_cache_stale_hit_total")
+        checkConsistency(sqlText)
+        def after = sumBeMetric("query_cache_stale_hit_total")
+        assertTrue(after > before,
+                "expected a stale incremental cache hit, but query_cache_stale_hit_total stayed at ${before}")
+    }
+
+    // Prove that a designed fallback phase really took the fallback path.
+    def checkIncrementalFallback = { String sqlText ->
+        if (isCloudMode()) {
+            checkConsistency(sqlText)
+            return
+        }
+        def before = sumBeMetric("query_cache_incremental_fallback_total")
+        checkConsistency(sqlText)
+        def after = sumBeMetric("query_cache_incremental_fallback_total")
+        assertTrue(after > before,
+                "expected an incremental fallback, but query_cache_incremental_fallback_total stayed at ${before}")
+    }
+
     sql "set enable_nereids_distribute_planner=true"
     sql "set enable_query_cache=true"
     sql "set enable_query_cache_incremental=true"
     sql "set parallel_pipeline_task_num=3"
     sql "set enable_sql_cache=false"
 
-    sql "DROP TABLE IF EXISTS ${tableName}"
+    sql "DROP TABLE IF EXISTS test_query_cache_incremental"
     sql """
-        CREATE TABLE ${tableName} (
+        CREATE TABLE test_query_cache_incremental (
             dt DATE,
             user_id INT,
             url STRING,
@@ -81,7 +134,7 @@ suite("query_cache_incremental") {
     """
 
     sql """
-        INSERT INTO ${tableName} VALUES
+        INSERT INTO test_query_cache_incremental VALUES
         ('2026-01-01',1,'/a',10),
         ('2026-01-01',2,'/b',20),
         ('2026-01-02',3,'/c',30),
@@ -99,6 +152,7 @@ suite("query_cache_incremental") {
 
     // Fill the cache, then serve from it.
     checkConsistency(querySql)
+    order_qt_dup_initial "${querySql}"
 
     // Simulate the hourly load pattern: only the latest partition receives new
     // data, so the entries of the older partitions stay valid while the hot
@@ -107,34 +161,43 @@ suite("query_cache_incremental") {
     // exercises the forced full recompute that compacts the entry.
     for (int i = 1; i <= 10; i++) {
         sql """
-            INSERT INTO ${tableName} VALUES
+            INSERT INTO test_query_cache_incremental VALUES
             ('2026-01-13',${i},'/a',${i}),
             ('2026-01-13',${100 + i},'/inc',${10 * i})
         """
-        checkConsistency(querySql)
+        if (i == 1) {
+            // The hot partition holds just two data rowsets here, far from
+            // both the merge-count threshold and any compaction, so on local
+            // storage this stale query must take the incremental path.
+            checkStaleIncremental(querySql)
+        } else {
+            // Later rounds may legitimately recompute in full (merge-count
+            // threshold, background compaction), so assert correctness only.
+            checkConsistency(querySql)
+        }
     }
+    order_qt_dup_after_appends "${querySql}"
 
     // A delete in the delta cannot be merged into the cached partial result;
     // the query must fall back to a full recompute and stay correct.
-    sql "DELETE FROM ${tableName} PARTITION p20260110 WHERE user_id = 1"
-    checkConsistency(querySql)
+    sql "DELETE FROM test_query_cache_incremental PARTITION p20260110 WHERE user_id = 1"
+    checkIncrementalFallback(querySql)
 
     sql """
-        INSERT INTO ${tableName} VALUES
+        INSERT INTO test_query_cache_incremental VALUES
         ('2026-01-14',999,'/after-delete',1)
     """
     checkConsistency(querySql)
-
-    sql "DROP TABLE IF EXISTS ${tableName}"
+    order_qt_dup_final "${querySql}"
 
     // A UNIQUE merge-on-write table takes the incremental path as long as the
     // loads only append new keys (the delete bitmap of the delta window stays
     // empty); a load that rewrites a pre-existing key falls back to one full
     // recompute and re-bases the entry, after which pure appends are
     // incremental again. Results must stay correct in every phase.
-    sql "DROP TABLE IF EXISTS ${uniqueTableName}"
+    sql "DROP TABLE IF EXISTS test_query_cache_incremental_mow"
     sql """
-        CREATE TABLE ${uniqueTableName} (
+        CREATE TABLE test_query_cache_incremental_mow (
             dt DATE,
             user_id INT,
             cost BIGINT
@@ -155,29 +218,39 @@ suite("query_cache_incremental") {
     """
     def uniqueQuerySql = """
         SELECT dt, SUM(cost) AS total_cost
-        FROM ${uniqueTableName}
+        FROM test_query_cache_incremental_mow
         GROUP BY dt
     """
     sql """
-        INSERT INTO ${uniqueTableName} VALUES
+        INSERT INTO test_query_cache_incremental_mow VALUES
         ('2026-01-01',1,10),
         ('2026-01-02',2,20),
         ('2026-01-06',3,30)
     """
     checkConsistency(uniqueQuerySql)
+    order_qt_mow_initial "${uniqueQuerySql}"
     // The hourly-append pattern on a primary-key table: every load only adds
-    // brand-new keys, so the stale entry merges incrementally.
+    // brand-new keys, so the stale entry merges incrementally. The first
+    // round is asserted through the metric (two data rowsets, nothing can
+    // interfere); later rounds approach the compaction threshold, so they
+    // assert correctness only.
     for (int i = 1; i <= 3; i++) {
-        sql "INSERT INTO ${uniqueTableName} VALUES ('2026-01-06',${100 + i},${i})"
-        checkConsistency(uniqueQuerySql)
+        sql "INSERT INTO test_query_cache_incremental_mow VALUES ('2026-01-06',${100 + i},${i})"
+        if (i == 1) {
+            checkStaleIncremental(uniqueQuerySql)
+        } else {
+            checkConsistency(uniqueQuerySql)
+        }
     }
     // A backfill rewrites history through the delete bitmap: user_id 1 gets a
-    // new cost, which forces one full recompute that re-bases the entry.
-    sql "INSERT INTO ${uniqueTableName} VALUES ('2026-01-01',1,100)"
+    // new cost, which must fall back to one full recompute that re-bases the
+    // entry.
+    sql "INSERT INTO test_query_cache_incremental_mow VALUES ('2026-01-01',1,100)"
+    checkIncrementalFallback(uniqueQuerySql)
+    // After the re-base, pure appends take the incremental path again (not
+    // asserted through the metric: by now enough rowsets piled up that a
+    // background compaction could legitimately force a full recompute).
+    sql "INSERT INTO test_query_cache_incremental_mow VALUES ('2026-01-06',200,7)"
     checkConsistency(uniqueQuerySql)
-    // After the re-base, pure appends take the incremental path again.
-    sql "INSERT INTO ${uniqueTableName} VALUES ('2026-01-06',200,7)"
-    checkConsistency(uniqueQuerySql)
-
-    sql "DROP TABLE IF EXISTS ${uniqueTableName}"
+    order_qt_mow_final "${uniqueQuerySql}"
 }

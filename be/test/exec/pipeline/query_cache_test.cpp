@@ -578,18 +578,24 @@ protected:
     static constexpr int64_t kTabletId = 15673;
     static constexpr const char* kTestDir = "/ut_dir/query_cache_incremental_test";
 
+    // Fatal assertions: every test in this fixture dereferences the storage
+    // engine and the data dir, so a failed setup must not fall through to the
+    // test body (TearDown still runs and tolerates the partial state).
     void SetUp() override {
         char buffer[1024];
-        EXPECT_NE(getcwd(buffer, sizeof(buffer)), nullptr);
+        ASSERT_NE(getcwd(buffer, sizeof(buffer)), nullptr);
         _absolute_dir = std::string(buffer) + kTestDir;
-        EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_absolute_dir).ok());
-        EXPECT_TRUE(io::global_local_filesystem()->create_directory(_absolute_dir).ok());
+        Status st = io::global_local_filesystem()->delete_directory(_absolute_dir);
+        ASSERT_TRUE(st.ok()) << st;
+        st = io::global_local_filesystem()->create_directory(_absolute_dir);
+        ASSERT_TRUE(st.ok()) << st;
 
         auto engine = std::make_unique<StorageEngine>(EngineOptions {});
         _engine = engine.get();
         ExecEnv::GetInstance()->set_storage_engine(std::move(engine));
         _data_dir = std::make_unique<DataDir>(*_engine, _absolute_dir);
-        static_cast<void>(_data_dir->init());
+        st = _data_dir->init();
+        ASSERT_TRUE(st.ok()) << st;
         _cache.reset(QueryCache::create_global_cache(1024 * 1024));
     }
 
@@ -598,7 +604,8 @@ protected:
         _data_dir.reset();
         ExecEnv::GetInstance()->set_storage_engine(nullptr);
         _engine = nullptr;
-        EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_absolute_dir).ok());
+        Status st = io::global_local_filesystem()->delete_directory(_absolute_dir);
+        EXPECT_TRUE(st.ok()) << st;
     }
 
     void init_rs_meta(RowsetMetaSharedPtr& rs_meta, const TabletMetaSharedPtr& tablet_meta,
@@ -624,7 +631,7 @@ protected:
             "creation_time": 1553765670
         })";
         RowsetMetaPB rowset_meta_pb;
-        json2pb::JsonToProtoMessage(json_rowset_meta, &rowset_meta_pb);
+        ASSERT_TRUE(json2pb::JsonToProtoMessage(json_rowset_meta, &rowset_meta_pb));
         rowset_meta_pb.set_start_version(start);
         rowset_meta_pb.set_end_version(end);
         // One distinct rowset id per rowset (the json template repeats one id):
@@ -637,7 +644,7 @@ protected:
             delete_predicate->set_version(static_cast<int32_t>(start));
             delete_predicate->add_sub_predicates("k1='1'");
         }
-        rs_meta->init_from_pb(rowset_meta_pb);
+        ASSERT_TRUE(rs_meta->init_from_pb(rowset_meta_pb));
         rs_meta->set_tablet_schema(tablet_meta->tablet_schema());
     }
 
@@ -652,10 +659,18 @@ protected:
         for (auto [start, end] : versions) {
             RowsetMetaSharedPtr rs_meta(new RowsetMeta());
             init_rs_meta(rs_meta, tablet_meta, start, end, start == delete_predicate_start_version);
-            static_cast<void>(tablet_meta->add_rs_meta(rs_meta));
+            Status st = tablet_meta->add_rs_meta(rs_meta);
+            EXPECT_TRUE(st.ok()) << st;
+            if (!st.ok()) {
+                return nullptr;
+            }
         }
         auto tablet = std::make_shared<Tablet>(*_engine, std::move(tablet_meta), _data_dir.get());
-        static_cast<void>(tablet->init());
+        Status st = tablet->init();
+        EXPECT_TRUE(st.ok()) << st;
+        if (!st.ok()) {
+            return nullptr;
+        }
         auto& tablet_map = _engine->tablet_manager()->_get_tablet_map(kTabletId);
         tablet_map[kTabletId] = tablet;
         return tablet;
@@ -778,6 +793,7 @@ TEST_F(QueryCacheIncrementalTest, mow_history_rewrite_falls_back) {
     // deleted (an upsert / backfill hit a pre-existing key): rows already
     // folded into the cached entry cannot be subtracted, so fall back.
     auto tablet = create_tablet(TKeysType::UNIQUE_KEYS, true, {{0, 50}, {51, 100}});
+    ASSERT_NE(tablet, nullptr);
     tablet->tablet_meta()->delete_bitmap().add({rowset_id_for(0), 0, 60}, 7);
     int64_t fallbacks_before =
             DorisMetrics::instance()->query_cache_incremental_fallback_total->value();
@@ -797,6 +813,7 @@ TEST_F(QueryCacheIncrementalTest, mow_irrelevant_bitmap_entries_ignored) {
     // dedup history, a concurrent load newer than the read version, pending
     // entries at TEMP_VERSION_COMMON = 0) and empty bitmaps.
     auto tablet = create_tablet(TKeysType::UNIQUE_KEYS, true, {{0, 50}, {51, 100}});
+    ASSERT_NE(tablet, nullptr);
     auto& delete_bitmap = tablet->tablet_meta()->delete_bitmap();
     delete_bitmap.add({rowset_id_for(51), 0, 90}, 3); // targets the delta itself
     delete_bitmap.add({rowset_id_for(0), 0, 40}, 1);  // version <= cached
