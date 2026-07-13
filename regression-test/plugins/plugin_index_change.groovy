@@ -25,9 +25,14 @@ def delta_time = 1000
 
 Suite.metaClass.wait_for_last_build_index_finish = {table_name, OpTimeout ->
     def finished = false
-    def alter_res = ""
+    def alter_res = []
     for(int t = 0; t <= OpTimeout; t += delta_time){
         alter_res = sql """SHOW BUILD INDEX WHERE TableName = "${table_name}" ORDER BY CreateTime DESC LIMIT 1;"""
+        if (alter_res.isEmpty()) {
+            logger.info(table_name + " has no build index job to wait for")
+            finished = true
+            break
+        }
         alter_res = alter_res.toString()
         if(alter_res.contains("FINISHED")) {
             logger.info(table_name + " latest alter job finished, detail: " + alter_res)
