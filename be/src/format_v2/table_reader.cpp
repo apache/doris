@@ -523,9 +523,24 @@ Status TableReader::init(TableReadOptions&& options) {
 
 Status TableReader::_build_table_filters_from_conjuncts() {
     _table_filters.clear();
+    _constant_pruning_safe_filter_count = 0;
+    bool in_safe_prefix = true;
     for (const auto& conjunct : _conjuncts) {
+        DORIS_CHECK(conjunct != nullptr);
+        DORIS_CHECK(conjunct->root() != nullptr);
+        // `_table_filters` omits expressions without slot references, but such an expression still
+        // occupies a position in the row-level conjunct order. Record how many localized filters
+        // precede the first unsafe original conjunct so constant pruning cannot jump over a
+        // slotless non-deterministic/error-preserving barrier.
+        if (in_safe_prefix && !_is_safe_to_pre_execute(conjunct)) {
+            in_safe_prefix = false;
+        }
+        if (!in_safe_prefix) {
+            continue;
+        }
         RETURN_IF_ERROR(
                 build_table_filters_from_conjunct(conjunct, _runtime_state, &_table_filters));
+        _constant_pruning_safe_filter_count = _table_filters.size();
     }
     return Status::OK();
 }
@@ -757,6 +772,10 @@ std::unique_ptr<io::FileDescription> create_file_description(const TFileRangeDes
 Status TableReader::prepare_split(const SplitReadOptions& options) {
     SCOPED_TIMER(_profile.prepare_split_timer);
     _current_split_pruned = false;
+    _all_runtime_filters_applied_for_split = options.all_runtime_filters_applied;
+    if (options.conjuncts.has_value()) {
+        _conjuncts = *options.conjuncts;
+    }
     // Update to current split format to handle ORC/PARQUET files in one table.
     _format = options.current_split_format;
     _partition_values = std::move(options.partition_values);
@@ -784,8 +803,12 @@ Status TableReader::prepare_split(const SplitReadOptions& options) {
     _current_task = std::make_unique<ScanTask>();
     _current_task->data_file = create_file_description(options.current_range);
     _current_file_description = *_current_task->data_file;
-    if (_push_down_agg_type == TPushAggOp::type::COUNT &&
-        options.current_range.__isset.table_format_params &&
+    // A table-level row count is only equivalent to scanning the split when no row predicate is
+    // active and no predicate can arrive later. The metadata path can return several batches for
+    // one split; after its first synthetic batch there is no way to recover the real rows if a
+    // runtime filter arrives before the next scheduler turn.
+    if (_push_down_agg_type == TPushAggOp::type::COUNT && options.all_runtime_filters_applied &&
+        _conjuncts.empty() && options.current_range.__isset.table_format_params &&
         options.current_range.table_format_params.__isset.table_level_row_count) {
         DORIS_CHECK(options.current_range.table_format_params.table_level_row_count >= -1);
         _remaining_table_level_count =
@@ -810,6 +833,12 @@ Status TableReader::_evaluate_partition_prune_conjuncts(const VExprContextSPtrs&
     for (const auto& conjunct : conjuncts) {
         DORIS_CHECK(conjunct != nullptr);
         DORIS_CHECK(conjunct->root() != nullptr);
+        // Keep only the safe prefix of the original conjunct order. If an unsafe conjunct is
+        // skipped, a later predicate could prune the split before the unsafe one reaches its
+        // normal row-level evaluation point.
+        if (!_is_safe_to_pre_execute(conjunct)) {
+            break;
+        }
         std::set<GlobalIndex> global_indices;
         collect_global_indices(conjunct->root(), &global_indices);
         if (global_indices.empty()) {
@@ -841,6 +870,18 @@ Status TableReader::_evaluate_partition_prune_conjuncts(const VExprContextSPtrs&
     IColumn::Filter result_filter(block.rows(), 1);
     return VExprContext::execute_conjuncts(partition_conjuncts, nullptr, &block, &result_filter,
                                            can_filter_all);
+}
+
+bool TableReader::_is_safe_to_pre_execute(const VExprContextSPtr& conjunct) {
+    DORIS_CHECK(conjunct != nullptr);
+    DORIS_CHECK(conjunct->root() != nullptr);
+    const auto root = conjunct->root();
+    const auto impl = root->get_impl();
+    const auto predicate = impl != nullptr ? impl : root;
+    // Split pruning evaluates a predicate once before any file rows are read. Reordering
+    // non-deterministic or error-preserving expressions can change their row-level semantics,
+    // even when every referenced slot is a partition column or maps to a constant entry.
+    return predicate->is_safe_to_execute_on_selected_rows();
 }
 
 Status TableReader::_build_partition_prune_block(Block* block) const {

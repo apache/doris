@@ -45,6 +45,7 @@
 #include "exprs/vliteral.h"
 #include "exprs/vslot_ref.h"
 #include "exprs/vtopn_pred.h"
+#include "format_v2/timestamp_statistics.h"
 
 namespace doris::format::orc {
 namespace {
@@ -597,20 +598,47 @@ std::optional<DateTimeLiteralParts> date_time_literal_parts(const Field& field) 
 
 std::optional<::orc::Literal> make_timestamp_literal(const Field& field,
                                                      const cctz::time_zone& timezone) {
+    const auto civil_year_is_monotonic = [&](const cctz::civil_second& civil_seconds) {
+        // Localized file predicates may already have selected one side of a repeated civil time.
+        // Checking the whole civil year catches that lossy representation while retaining SARG
+        // pruning for years and zones without a backward transition.
+        const auto year_start =
+                cctz::convert(cctz::civil_second(civil_seconds.year(), 1, 1), timezone);
+        const auto next_year_start =
+                cctz::convert(cctz::civil_second(civil_seconds.year() + 1, 1, 1), timezone);
+        return format::utc_timestamp_range_is_monotonic(year_start.time_since_epoch().count(),
+                                                        next_year_start.time_since_epoch().count(),
+                                                        timezone);
+    };
     switch (field.get_type()) {
     case TYPE_DATETIME: {
         const auto& datetime = field.get<TYPE_DATETIME>();
         const cctz::civil_second civil_seconds(datetime.year(), datetime.month(), datetime.day(),
                                                datetime.hour(), datetime.minute(),
                                                datetime.second());
-        return ::orc::Literal(cctz::convert(civil_seconds, timezone).time_since_epoch().count(), 0);
+        const auto lookup = timezone.lookup(civil_seconds);
+        // ORC SearchArguments accept one UTC timestamp literal. A repeated or skipped local civil
+        // time has no unique UTC representation, so pushing it down could prune a stripe that
+        // contains another valid interpretation. Keep such predicates for row-level evaluation.
+        if (!civil_year_is_monotonic(civil_seconds) ||
+            lookup.kind != cctz::time_zone::civil_lookup::UNIQUE) {
+            return std::nullopt;
+        }
+        return ::orc::Literal(lookup.pre.time_since_epoch().count(), 0);
     }
     case TYPE_DATETIMEV2: {
         const auto& datetime = field.get<TYPE_DATETIMEV2>();
         const cctz::civil_second civil_seconds(datetime.year(), datetime.month(), datetime.day(),
                                                datetime.hour(), datetime.minute(),
                                                datetime.second());
-        const auto seconds = cctz::convert(civil_seconds, timezone).time_since_epoch().count();
+        const auto lookup = timezone.lookup(civil_seconds);
+        // See the DATETIME path above. The fractional part does not disambiguate a civil time
+        // repeated by a backward timezone transition.
+        if (!civil_year_is_monotonic(civil_seconds) ||
+            lookup.kind != cctz::time_zone::civil_lookup::UNIQUE) {
+            return std::nullopt;
+        }
+        const auto seconds = lookup.pre.time_since_epoch().count();
         const auto nanos = cast_set<int32_t>(datetime.microsecond() * 1000);
         return ::orc::Literal(seconds, nanos);
     }
