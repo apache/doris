@@ -58,7 +58,8 @@ suite("regression_test_variant_with_index", "p0"){
 
     build_index_on_table("inv_idx", table_name)
 
-    wait_for_last_schema_change_finish(table_name, timeout)
+    wait_for_last_col_change_finish(table_name, timeout)
+    wait_for_last_build_index_finish(table_name, timeout)
     show_result = sql "show index from ${table_name}"
     assertEquals(show_result.size(), 1)
     sql """insert into var_with_index values(7, '{"a1" : 0, "b1": 3}', 'hello world'), (8, '{"a2" : 123}', 'world'),(9, '{"a3" : 123}', 'hello world')"""

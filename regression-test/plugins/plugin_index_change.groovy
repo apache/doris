@@ -77,7 +77,6 @@ Suite.metaClass.wait_for_last_col_change_finish = { table_name, OpTimeout ->
 
 Suite.metaClass.wait_for_last_schema_change_finish = {table_name, OpTimeout ->
     wait_for_last_col_change_finish(table_name, OpTimeout)
-    wait_for_last_build_index_finish(table_name, OpTimeout)
 }
 
 

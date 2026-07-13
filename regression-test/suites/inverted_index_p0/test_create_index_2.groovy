@@ -160,7 +160,10 @@ suite("test_create_index_2", "inverted_index"){
     if (isCloudMode()) {
         sql "build index on ${indexTbName1}"
     }
-    wait_for_last_schema_change_finish(indexTbName1, timeout)
+    wait_for_last_col_change_finish(indexTbName1, timeout)
+    if (isCloudMode()) {
+        wait_for_last_build_index_finish(indexTbName1, timeout)
+    }
 
     show_result = sql "show index from ${indexTbName1}"
     logger.info("show index from " + indexTbName1 + " result: " + show_result)
