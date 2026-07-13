@@ -5,7 +5,19 @@
 
 ---
 
-# 🆕 本 session（对象存储读修复）= hudi 2 fix + hive 1 fix DONE，e2e 待用户自跑
+# 🆕 本 session（2026-07-13）= #65185 复核修复 L15 + L12 DONE
+
+> `plan-doc/task-list-65185-reverify-fixes.md` 单任务循环续做。**两条全 DONE**：
+> - **L15** `b2cdf971889`(code)+`4e6c08d9bea`(doc) — 删 `SummaryProfile` 三处 `PAIMON_SCAN_METRICS` 死引用(P5 `dbc38a265e5` 删写入方后无 reporter 填充;对照活的 `ICEBERG_SCAN_METRICS` 有 `IcebergMetricsReporter` 保留不动)。零行为变更、无新测、非 live;fe-core BUILD SUCCESS + 0 checkstyle。
+> - **L12** `e5de7aedcd5`(code)+ doc — **用户签字选项 B**:`selectedPartitionNum`(喂 EXPLAIN `partition=N/M`+`sql_block_rule partition_num` 治理)用**连接器 SDK 规划后真实 distinct 分区数**,非迁移后的 Nereids 剪枝数(隐藏/transform 分区高报→治理误拦)。新 opt-in SPI `ConnectorScanPlanProvider.scannedPartitionCount`(默认 empty,仿 `supportsTableSample`)+ fe-core 纯 helper `resolveSelectedPartitionNum`(`!countPushdown && present` 用连接器数,否则 Nereids)+ paimon(distinct `getPartitionValues()`)/iceberg(distinct `specId|partitionDataJson`,新 `IcebergScanRange.getScannedPartitionKey`);hive/MC 不 override 保留 Nereids。**通用节点无源分支**(铁律)。设计 3-lens 对抗红队 `wf_f1524868-4b8` 全 SOUND_WITH_CHANGES,major/minor 全折入。8/8+5/5+4/4 RED-able UT、paimon 356/356+iceberg 978/978 全绿、0 checkstyle、import 门净。memory `catalog-spi-selected-partition-num-sdk-distinct`。
+>
+> **L12 e2e live-gated**(须真集群):隐藏/transform 分区 iceberg 表(**<1024 文件 或 `enable_external_table_batch_mode=false`**,否则走 streaming batch 报 `partition=0/0` 假绿)`WHERE ts` 单日谓词 → `partition=1/M`;paimon 非分区列 manifest 剪枝 → 真实数;各配 sql_block_rule partition_num 门。
+>
+> **下一步**:#65185 复核系列剩余 = `L16`(iceberg 缓存偏斜)、`L17`(iceberg version-blind schema)、`L18`(iceberg 未知类型)、`L19`(partition_columns 撞名);⏸ 决策类**仅余 `L20`**(MC EQ `==`,须先中文讲清问用户)。⏸ `M8`(升级文档)用户 07-12 跳过、`D-系列`设计债随 P8。
+
+---
+
+# 上个 session（对象存储读修复）= hudi 2 fix + hive 1 fix DONE，e2e 待用户自跑
 
 > 用户按最新代码重跑 = **14 个 hudi p2 suite 全失败**（唯 `test_hudi_meta` 过）。两类错误签名、同一主题：新 fe-connector hudi BE-scan 路径**没把 catalog 的 S3 storageProperties 接到 BE**（相对 legacy `HudiScanNode` 的 parity gap，**非环境/非文案**）。两个独立接线缺口，各独立 commit：
 > - **native `Invalid S3 URI: s3a://` (10 suite)** = `a26eaf46b9f`：BE `S3URI` 只认 `s3/http/https`，连接器把原始 `s3a://` 直发 `TFileRangeDesc.path`。修=连接器侧 `context.normalizeStorageUri` 归一化**native** range `.path()`（镜像 iceberg/paimon），**三处** native emitter：`collectCowSplits`/`buildMorRange`/**`COWIncrementalRelation.collectSplits`(COW @incr，红队补的第三处)**；JNI `THudiFileDesc` 路径留原始 `s3a://`。
