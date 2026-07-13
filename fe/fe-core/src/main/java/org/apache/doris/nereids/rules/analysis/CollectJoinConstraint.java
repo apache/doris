@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
-import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.hint.Hint;
 import org.apache.doris.nereids.hint.JoinConstraint;
 import org.apache.doris.nereids.hint.LeadingHint;
@@ -72,8 +71,7 @@ public class CollectJoinConstraint implements RewriteRuleFactory {
                     if (join.getJoinType().isLeftJoin()) {
                         filterBitMap = LongBitmap.or(filterBitMap, rightHand);
                     }
-                    leading.getFilters().add(Pair.of(filterBitMap, expression));
-                    leading.putConditionJoinType(expression, join.getJoinType());
+                    leading.addFilter(filterBitMap, expression, join.getJoinType());
                 }
                 expressions = join.getOtherJoinConjuncts();
                 for (Expression expression : expressions) {
@@ -84,8 +82,7 @@ public class CollectJoinConstraint implements RewriteRuleFactory {
                     if (join.getJoinType().isLeftJoin()) {
                         filterBitMap = LongBitmap.or(filterBitMap, rightHand);
                     }
-                    leading.getFilters().add(Pair.of(filterBitMap, expression));
-                    leading.putConditionJoinType(expression, join.getJoinType());
+                    leading.addFilter(filterBitMap, expression, join.getJoinType());
                 }
                 collectJoinConstraintList(leading, leftHand, rightHand, join, totalFilterBitMap, nonNullableSlotBitMap);
 

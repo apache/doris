@@ -63,9 +63,23 @@ public class LeadingHint extends Hint {
 
     private final Map<ExprId, String> exprIdToTableNameMap = Maps.newLinkedHashMap();
 
-    private final List<Pair<Long, Expression>> filters = new ArrayList<>();
+    /** A filter occurrence with its table bitmap, expression, and the original join type
+     *  from which it was collected. The original type is used to prevent a filter from
+     *  being consumed at the wrong join level (e.g., an inner-join predicate with a
+     *  narrow bitmap being consumed by a lower anti join). */
+    public static class FilterEntry {
+        public final long bitmap;
+        public final Expression expr;
+        public final JoinType originalType;
 
-    private final Map<Expression, Set<JoinType>> conditionJoinType = Maps.newLinkedHashMap();
+        public FilterEntry(long bitmap, Expression expr, JoinType originalType) {
+            this.bitmap = bitmap;
+            this.expr = expr;
+            this.originalType = originalType;
+        }
+    }
+
+    private final List<FilterEntry> filters = new ArrayList<>();
 
     private final List<JoinConstraint> joinConstraintList = new ArrayList<>();
 
@@ -279,57 +293,24 @@ public class LeadingHint extends Hint {
         return exprIdToTableNameMap;
     }
 
-    public List<Pair<Long, Expression>> getFilters() {
+    public List<FilterEntry> getFilters() {
         return filters;
     }
 
-    /**
-     * Record the original join type for a filter expression. The same expression
-     * may appear as a condition in multiple joins with different types (e.g.,
-     * both a LEFT SEMI JOIN and a later INNER JOIN). Using a Set preserves all
-     * types so that isConditionJoinTypeMatched can correctly validate each join.
-     *
-     * Example:
-     *   SELECT ... FROM a1 JOIN a2 ON a2.c1 = a2.c1
-     *   LEFT SEMI JOIN a3 ON a2.c2 = a2.c1
-     *   JOIN a5 ON a2.c2 = a2.c1;
-     * The expression "a2.c2 = a2.c1" is the ON condition for both the
-     * LEFT SEMI JOIN (a3) and the INNER JOIN (a5). When CollectJoinConstraint
-     * processes them bottom-up, it first records LEFT_SEMI_JOIN, then
-     * INNER_JOIN. A plain HashMap.put() would overwrite LEFT_SEMI_JOIN,
-     * disabling the safety check in isConditionJoinTypeMatched.
-     */
-    public void putConditionJoinType(Expression filter, JoinType joinType) {
-        conditionJoinType.computeIfAbsent(filter, k -> new HashSet<>()).add(joinType);
+    /** Add a filter occurrence with its original join type. The type is stored per
+     *  occurrence so that makeJoinPlan can reject conditions whose original type
+     *  is incompatible with the generated join, putting them back for later use. */
+    public void addFilter(long bitmap, Expression expr, JoinType originalType) {
+        filters.add(new FilterEntry(bitmap, expr, originalType));
     }
 
-    /**
-     * find out whether conditions can match original joinType
-     * @param conditions conditions needs to put on this join
-     * @param joinType join type computed by join constraint
-     * @return can conditions matched
-     */
-    public boolean isConditionJoinTypeMatched(List<Expression> conditions, JoinType joinType) {
-        for (Expression condition : conditions) {
-            Set<JoinType> originalJoinTypes = conditionJoinType.get(condition);
-            if (originalJoinTypes == null) {
-                continue;
-            }
-            boolean matched = false;
-            for (JoinType originalJoinType : originalJoinTypes) {
-                if (originalJoinType.equals(joinType)
-                        || originalJoinType.isOneSideOuterJoin() && joinType.isOneSideOuterJoin()
-                        || originalJoinType.isSemiJoin() && joinType.isSemiJoin()
-                        || originalJoinType.isAntiJoin() && joinType.isAntiJoin()) {
-                    matched = true;
-                    break;
-                }
-            }
-            if (!matched) {
-                return false;
-            }
-        }
-        return true;
+    /** Check whether a filter originally collected from a join of {@code filterType}
+     *  can legally be consumed as a condition of a join of {@code joinType}. */
+    public static boolean isJoinTypeCompatible(JoinType filterType, JoinType joinType) {
+        return filterType.equals(joinType)
+                || filterType.isOneSideOuterJoin() && joinType.isOneSideOuterJoin()
+                || filterType.isSemiJoin() && joinType.isSemiJoin()
+                || filterType.isAntiJoin() && joinType.isAntiJoin();
     }
 
     public List<JoinConstraint> getJoinConstraintList() {
@@ -579,23 +560,40 @@ public class LeadingHint extends Hint {
         if (!distributeJoinType.equals("join")) {
             distributeHint = strToHint.get(distributeJoinType);
         }
-        List<Expression> conditions = getJoinConditions(
+        // Collect candidate conditions whose bitmap is covered by this join.
+        // Each entry carries the original join type from CollectJoinConstraint.
+        List<FilterEntry> candidateEntries = collectJoinConditions(
                 getFilters(), leftChild, rightChild);
-        Pair<List<Expression>, List<Expression>> pair = JoinUtils.extractExpressionForHashTable(
-                leftChild.getOutput(), rightChild.getOutput(), conditions);
-        // leading hint would set status inside if not success
+        List<Expression> candidateExprs = new ArrayList<>();
+        for (FilterEntry e : candidateEntries) {
+            candidateExprs.add(e.expr);
+        }
+        // Determine join type using all candidate expressions for constraint matching.
         JoinType joinType = computeJoinType(getBitmap(leftChild),
-                getBitmap(rightChild), conditions);
+                getBitmap(rightChild), candidateExprs);
         if (joinType == null) {
+            // Put back all candidates since we cannot build this join.
+            filters.addAll(candidateEntries);
             this.setStatus(HintStatus.SYNTAX_ERROR);
             this.setErrorMessage("JoinType can not be null");
-        } else if (!isConditionJoinTypeMatched(conditions, joinType)) {
-            this.setStatus(HintStatus.UNUSED);
-            this.setErrorMessage("condition does not matched joinType");
+            return null;
+        }
+        // Keep only entries whose original type is compatible with the generated
+        // join type. Incompatible entries are returned to the global filter list
+        // so they can be consumed at a later (higher) join level.
+        List<Expression> conditions = new ArrayList<>();
+        for (FilterEntry entry : candidateEntries) {
+            if (isJoinTypeCompatible(entry.originalType, joinType)) {
+                conditions.add(entry.expr);
+            } else {
+                filters.add(entry);
+            }
         }
         if (!this.isSuccess()) {
             return null;
         }
+        Pair<List<Expression>, List<Expression>> pair = JoinUtils.extractExpressionForHashTable(
+                leftChild.getOutput(), rightChild.getOutput(), conditions);
         // get joinType
         LogicalJoin logicalJoin = new LogicalJoin<>(joinType, pair.first,
                 pair.second,
@@ -643,27 +641,30 @@ public class LeadingHint extends Hint {
         return finalJoin;
     }
 
-    private List<Expression> getJoinConditions(List<Pair<Long, Expression>> filters,
-                                               LogicalPlan left, LogicalPlan right) {
-        List<Expression> joinConditions = new ArrayList<>();
+    /** Collect filter entries whose bitmap is a subset of the given join's tables.
+     *  Removes them from the global filter list; the caller must put back any entry
+     *  whose original type is incompatible with the final join type. */
+    private List<FilterEntry> collectJoinConditions(List<FilterEntry> filters,
+                                                     LogicalPlan left, LogicalPlan right) {
+        List<FilterEntry> collected = new ArrayList<>();
+        Long tablesBitMap = LongBitmap.or(getBitmap(left), getBitmap(right));
         for (int i = filters.size() - 1; i >= 0; i--) {
-            Pair<Long, Expression> filterPair = filters.get(i);
-            Long tablesBitMap = LongBitmap.or(getBitmap(left), getBitmap(right));
-            // left one is smaller set
-            if (LongBitmap.isSubset(filterPair.first, tablesBitMap)) {
-                joinConditions.add(filterPair.second);
+            FilterEntry entry = filters.get(i);
+            if (LongBitmap.isSubset(entry.bitmap, tablesBitMap)) {
+                collected.add(entry);
                 filters.remove(i);
             }
         }
-        return joinConditions;
+        return collected;
     }
 
-    private LogicalPlan makeFilterPlanIfExist(List<Pair<Long, Expression>> filters, LogicalPlan scan) {
+    private LogicalPlan makeFilterPlanIfExist(List<FilterEntry> filters, LogicalPlan scan) {
         Set<Expression> newConjuncts = new HashSet<>();
+        Long scanBitmap = getBitmap(scan);
         for (int i = filters.size() - 1; i >= 0; i--) {
-            Pair<Long, Expression> filterPair = filters.get(i);
-            if (LongBitmap.isSubset(filterPair.first, getBitmap(scan))) {
-                newConjuncts.add(filterPair.second);
+            FilterEntry entry = filters.get(i);
+            if (LongBitmap.isSubset(entry.bitmap, scanBitmap)) {
+                newConjuncts.add(entry.expr);
                 filters.remove(i);
             }
         }

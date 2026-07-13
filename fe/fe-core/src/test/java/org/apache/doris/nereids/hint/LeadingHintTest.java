@@ -26,9 +26,6 @@ import org.apache.doris.nereids.trees.plans.JoinType;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-import java.util.Arrays;
-import java.util.Collections;
-
 public class LeadingHintTest {
 
     @Test
@@ -144,54 +141,57 @@ public class LeadingHintTest {
     }
 
     @Test
-    public void testConditionJoinTypeMultipleTypes() {
-        // Issue 2: same Expression used in both LEFT_SEMI_JOIN and INNER_JOIN
-        // The conditionJoinType map should preserve both types, not overwrite
+    public void testIsJoinTypeCompatible() {
+        // Exact match
+        Assertions.assertTrue(LeadingHint.isJoinTypeCompatible(JoinType.INNER_JOIN, JoinType.INNER_JOIN));
+        Assertions.assertTrue(LeadingHint.isJoinTypeCompatible(JoinType.LEFT_SEMI_JOIN, JoinType.LEFT_SEMI_JOIN));
+        Assertions.assertTrue(LeadingHint.isJoinTypeCompatible(JoinType.LEFT_ANTI_JOIN, JoinType.LEFT_ANTI_JOIN));
+        Assertions.assertTrue(LeadingHint.isJoinTypeCompatible(JoinType.LEFT_OUTER_JOIN, JoinType.LEFT_OUTER_JOIN));
+
+        // One-side outer joins are interchangeable
+        Assertions.assertTrue(LeadingHint.isJoinTypeCompatible(JoinType.LEFT_OUTER_JOIN, JoinType.RIGHT_OUTER_JOIN));
+        Assertions.assertTrue(LeadingHint.isJoinTypeCompatible(JoinType.RIGHT_OUTER_JOIN, JoinType.LEFT_OUTER_JOIN));
+
+        // Semi joins are compatible with each other
+        Assertions.assertTrue(LeadingHint.isJoinTypeCompatible(JoinType.LEFT_SEMI_JOIN, JoinType.RIGHT_SEMI_JOIN));
+
+        // Anti joins are compatible with each other
+        Assertions.assertTrue(LeadingHint.isJoinTypeCompatible(JoinType.LEFT_ANTI_JOIN, JoinType.RIGHT_ANTI_JOIN));
+
+        // Incompatible pairs
+        Assertions.assertFalse(LeadingHint.isJoinTypeCompatible(JoinType.INNER_JOIN, JoinType.LEFT_SEMI_JOIN));
+        Assertions.assertFalse(LeadingHint.isJoinTypeCompatible(JoinType.INNER_JOIN, JoinType.LEFT_ANTI_JOIN));
+        Assertions.assertFalse(LeadingHint.isJoinTypeCompatible(JoinType.LEFT_SEMI_JOIN, JoinType.INNER_JOIN));
+        Assertions.assertFalse(LeadingHint.isJoinTypeCompatible(JoinType.LEFT_ANTI_JOIN, JoinType.INNER_JOIN));
+        Assertions.assertFalse(LeadingHint.isJoinTypeCompatible(JoinType.LEFT_SEMI_JOIN, JoinType.LEFT_ANTI_JOIN));
+        Assertions.assertFalse(LeadingHint.isJoinTypeCompatible(JoinType.LEFT_OUTER_JOIN, JoinType.INNER_JOIN));
+    }
+
+    @Test
+    public void testFilterEntryKeepsOriginalJoinType() {
+        // Same expression "a.v > 0" collected from two different joins:
+        //   LeftAntiJoin(a,b)  → bitmap={0,1}, type=LEFT_ANTI_JOIN
+        //   InnerJoin(c)       → bitmap={0},   type=INNER_JOIN
+        // The inner-join occurrence should NOT be consumed by the anti join.
         LeadingHint leading = new LeadingHint("Leading");
         Expression expr = new IntegerLiteral(1);
 
-        // Simulate CollectJoinConstraint processing: semi join first, then inner join
-        leading.putConditionJoinType(expr, JoinType.LEFT_SEMI_JOIN);
-        leading.putConditionJoinType(expr, JoinType.INNER_JOIN);
+        long a = LongBitmap.newBitmap(0);
+        long b = LongBitmap.newBitmap(1);
+        long ab = LongBitmap.newBitmapUnion(a, b);
 
-        // LEFT_SEMI_JOIN should match (was added first, should not be overwritten)
-        Assertions.assertTrue(
-                leading.isConditionJoinTypeMatched(Arrays.asList(expr), JoinType.LEFT_SEMI_JOIN),
-                "LEFT_SEMI_JOIN should match the expression's condition type set");
+        // Simulate CollectJoinConstraint bottom-up:
+        // 1. LeftAntiJoin(a,b): records expr with bitmap={a,b}, type=LEFT_ANTI_JOIN
+        leading.addFilter(ab, expr, JoinType.LEFT_ANTI_JOIN);
+        // 2. InnerJoin((a,b),c): records same expr with bitmap={a}, type=INNER_JOIN
+        leading.addFilter(a, expr, JoinType.INNER_JOIN);
 
-        // INNER_JOIN should also match (was also added)
-        Assertions.assertTrue(
-                leading.isConditionJoinTypeMatched(Arrays.asList(expr), JoinType.INNER_JOIN),
-                "INNER_JOIN should also match the expression's condition type set");
-
-        // RIGHT_ANTI_JOIN should NOT match (was never added)
-        Assertions.assertFalse(
-                leading.isConditionJoinTypeMatched(Arrays.asList(expr), JoinType.RIGHT_ANTI_JOIN),
-                "RIGHT_ANTI_JOIN should NOT match (not in the set)");
-
-        // Different expression should be independent
-        Expression expr2 = new IntegerLiteral(2);
-        leading.putConditionJoinType(expr2, JoinType.LEFT_ANTI_JOIN);
-
-        // expr should still match LEFT_SEMI_JOIN (independent of expr2)
-        Assertions.assertTrue(
-                leading.isConditionJoinTypeMatched(Arrays.asList(expr), JoinType.LEFT_SEMI_JOIN),
-                "expr should match LEFT_SEMI_JOIN independently");
-
-        // expr2 should match LEFT_ANTI_JOIN (its own type)
-        Assertions.assertTrue(
-                leading.isConditionJoinTypeMatched(Arrays.asList(expr2), JoinType.LEFT_ANTI_JOIN),
-                "expr2 should match LEFT_ANTI_JOIN (its own type)");
-
-        // Mixing incompatible types should fail: expr2 is ANTI, not SEMI
-        Assertions.assertFalse(
-                leading.isConditionJoinTypeMatched(Arrays.asList(expr, expr2), JoinType.LEFT_SEMI_JOIN),
-                "mixing SEMI (expr) and ANTI (expr2) should fail for SEMI join type");
-
-        // Empty conditions list always passes
-        Assertions.assertTrue(
-                leading.isConditionJoinTypeMatched(Collections.emptyList(), JoinType.INNER_JOIN),
-                "Empty conditions should always pass");
+        // Verify both entries are present with correct types
+        Assertions.assertEquals(2, leading.getFilters().size());
+        Assertions.assertEquals(ab, leading.getFilters().get(0).bitmap);
+        Assertions.assertEquals(JoinType.LEFT_ANTI_JOIN, leading.getFilters().get(0).originalType);
+        Assertions.assertEquals(a, leading.getFilters().get(1).bitmap);
+        Assertions.assertEquals(JoinType.INNER_JOIN, leading.getFilters().get(1).originalType);
     }
 
     @Test
