@@ -407,6 +407,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                     topDown(
                                             new PruneOlapScanPartition(),
                                             new PruneEmptyPartition(),
+                                            new NormalizeOlapTableStreamScan(),
                                             new PruneFileScanPartition(),
                                             new PushDownFilterIntoSchemaScan()
                                     )
