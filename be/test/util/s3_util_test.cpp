@@ -77,6 +77,14 @@ TEST_F(S3UTILTest, hide_access_key_typical_aws_key) {
     EXPECT_EQ("xxxxxxxFODNN7xxxxxxx", result);
 }
 
+TEST_F(S3UTILTest, is_s3_express_context) {
+    EXPECT_TRUE(is_s3_express("bucket--use1-az4--x-s3", ""));
+    EXPECT_TRUE(is_s3_express("", "bucket.s3express-use1-az4.us-east-1.amazonaws.com"));
+    EXPECT_FALSE(is_s3_express("bucket--x-s3-suffix", ""));
+    EXPECT_FALSE(is_s3_express("bucket", "https://example.com/s3express/path"));
+    EXPECT_FALSE(is_s3_express("bucket", "s3.us-east-1.amazonaws.com"));
+}
+
 // Verifies that check_s3_rate_limiter_config_changed() rebuilds the global GET rate
 // limiter when the related configs change. This is the behavior the cloud vault refresh
 // thread relies on to apply dynamically modified s3_get_* rate limiter configs without

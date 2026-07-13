@@ -33,7 +33,7 @@ class ObjClientHolder;
 class S3ObjStorageClient final : public ObjStorageClient {
 public:
     explicit S3ObjStorageClient(std::shared_ptr<Aws::S3::S3Client> client,
-                                const std::string& endpoint = {});
+                                bool is_s3_express = false);
     ~S3ObjStorageClient() override = default;
     ObjectStorageUploadResponse create_multipart_upload(
             const ObjectStoragePathOptions& opts) override;

@@ -532,20 +532,17 @@ std::shared_ptr<io::ObjStorageClient> S3ClientFactory::_create_s3_client(
     // S3 Express buckets are identified by the --x-s3 suffix or an s3express endpoint.
     // Skip endpointOverride for these so the SDK resolves the bucket-specific endpoint
     // and manages CreateSession automatically. For all other buckets, keep the override.
-    const bool is_s3_express = s3_conf.endpoint.find("s3express") != std::string::npos ||
-                               s3_conf.bucket.find("--x-s3") != std::string::npos;
-    if (s3_conf.need_override_endpoint && !is_s3_express) {
+    const bool express = is_s3_express(s3_conf.bucket, s3_conf.endpoint);
+    if (s3_conf.need_override_endpoint && !express) {
         aws_config.endpointOverride = s3_conf.endpoint;
     }
-    aws_config.disableS3ExpressAuth = !is_s3_express;
+    aws_config.disableS3ExpressAuth = !express;
 
     auto new_client = std::make_shared<Aws::S3::S3Client>(
             get_aws_credentials_provider(s3_conf),
-            Aws::MakeShared<Aws::S3::S3EndpointProvider>("S3Client"),
-            aws_config);
+            Aws::MakeShared<Aws::S3::S3EndpointProvider>("S3Client"), aws_config);
 
-    auto obj_client =
-            std::make_shared<io::S3ObjStorageClient>(std::move(new_client), s3_conf.endpoint);
+    auto obj_client = std::make_shared<io::S3ObjStorageClient>(std::move(new_client), express);
     LOG_INFO("create one s3 client with {}", s3_conf.to_string());
     return obj_client;
 }
@@ -805,6 +802,21 @@ std::string hide_access_key(const std::string& ak) {
                     x_count - left_x_count, 'x');
     }
     return key;
+}
+
+bool is_s3_express(std::string_view bucket, std::string_view endpoint) {
+    constexpr std::string_view bucket_suffix = "--x-s3";
+    if (bucket.ends_with(bucket_suffix)) {
+        return true;
+    }
+
+    const auto scheme_pos = endpoint.find("://");
+    if (scheme_pos != std::string_view::npos) {
+        endpoint.remove_prefix(scheme_pos + 3);
+    }
+    endpoint = endpoint.substr(0, endpoint.find('/'));
+    return endpoint.starts_with("s3express-") ||
+           endpoint.find(".s3express-") != std::string_view::npos;
 }
 
 } // end namespace doris

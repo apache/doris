@@ -61,7 +61,6 @@
 #include <aws/s3/model/PutObjectResult.h>
 #include <aws/s3/model/UploadPartRequest.h>
 #include <aws/s3/model/UploadPartResult.h>
-
 #include <crc32c/crc32c.h>
 
 #include <algorithm>
@@ -121,29 +120,20 @@ using namespace Aws::S3::Model;
 static constexpr int S3_REQUEST_THRESHOLD_MS = 5000;
 
 namespace {
-// S3 Express One Zone endpoints follow the pattern
-// "*.s3express-<zone>.<region>.amazonaws.com" — substring match is sufficient
-// for both the gateway and the s3express subdomain forms.
-bool is_s3_express_endpoint(const std::string& endpoint) {
-    return endpoint.find("s3express") != std::string::npos;
-}
-
 // AWS expects the CRC32C value as the big-endian 4-byte representation, base64-encoded.
 Aws::String compute_crc32c_b64(std::string_view data) {
     uint32_t crc = crc32c::Crc32c(reinterpret_cast<const uint8_t*>(data.data()), data.size());
     uint8_t bytes[4] = {static_cast<uint8_t>((crc >> 24) & 0xff),
                         static_cast<uint8_t>((crc >> 16) & 0xff),
-                        static_cast<uint8_t>((crc >> 8) & 0xff),
-                        static_cast<uint8_t>(crc & 0xff)};
+                        static_cast<uint8_t>((crc >> 8) & 0xff), static_cast<uint8_t>(crc & 0xff)};
     return Aws::Utils::HashingUtils::Base64Encode(Aws::Utils::ByteBuffer(bytes, sizeof(bytes)));
 }
 } // namespace
 
 S3ObjStorageClient::S3ObjStorageClient(std::shared_ptr<Aws::S3::S3Client> client,
-                                       const std::string& endpoint)
+                                       bool is_s3_express)
         : _client(std::move(client)),
-          _disable_content_md5(config::s3_disable_content_md5 ||
-                               is_s3_express_endpoint(endpoint)) {}
+          _disable_content_md5(config::s3_disable_content_md5 || is_s3_express) {}
 
 ObjectStorageUploadResponse S3ObjStorageClient::create_multipart_upload(
         const ObjectStoragePathOptions& opts) {
