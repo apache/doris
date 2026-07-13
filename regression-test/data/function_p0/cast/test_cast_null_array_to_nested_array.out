@@ -11,6 +11,12 @@
 -- !cast_nested_null_array_to_deeper_array_fold --
 [[null]]
 
+-- !cast_deeply_nested_null_array_to_deeper_array_fold --
+[[[null]]]
+
+-- !cast_nested_null_array_to_same_dimension_fold --
+[[null]]
+
 -- !cast_empty_array_to_nested_array_be --
 []
 
@@ -21,5 +27,11 @@
 [null, null]
 
 -- !cast_nested_null_array_to_deeper_array_be --
+[[null]]
+
+-- !cast_deeply_nested_null_array_to_deeper_array_be --
+[[[null]]]
+
+-- !cast_nested_null_array_to_same_dimension_be --
 [[null]]
 
