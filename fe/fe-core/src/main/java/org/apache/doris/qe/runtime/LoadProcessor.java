@@ -52,7 +52,6 @@ public class LoadProcessor extends AbstractJobProcessor {
     //  key: fragmentId, value: backendId
     private volatile Optional<MarkedCountDownLatch<Integer, Long>> latch;
     private volatile Optional<MarkedCountDownLatch<Integer, Long>> topFragmentLatch;
-    private volatile List<SingleFragmentPipelineTask> topFragmentTasks;
 
     public LoadProcessor(CoordinatorContext coordinatorContext, long jobId) {
         super(coordinatorContext);
@@ -74,8 +73,6 @@ public class LoadProcessor extends AbstractJobProcessor {
         Env.getCurrentEnv().getProgressManager().addTotalScanNums(
                 String.valueOf(jobId), coordinatorContext.scanRangeNum.get()
         );
-
-        topFragmentTasks = Lists.newArrayList();
 
         LOG.info("dispatch load job: {} to {}",
                 DebugUtil.printId(queryId), coordinatorContext.backends.get().keySet()
@@ -104,8 +101,6 @@ public class LoadProcessor extends AbstractJobProcessor {
                 }
             }
         }
-        this.topFragmentTasks = topFragmentTasks;
-
         // only wait top fragments
         MarkedCountDownLatch<Integer, Long> topFragmentLatch = new MarkedCountDownLatch<>(topFragmentTasks.size());
         for (SingleFragmentPipelineTask topFragmentTask : topFragmentTasks) {
@@ -260,13 +255,13 @@ public class LoadProcessor extends AbstractJobProcessor {
         }
     }
 
-    /*
-     * Check the state of backends in needCheckBackendExecStates.
-     * return true if all of them are OK. Otherwise, return false.
-     */
+    // Check backend health for every unfinished load fragment task.
     private boolean checkHealthy() {
-        for (SingleFragmentPipelineTask topFragmentTask : topFragmentTasks) {
-            Status unhealthyStatus = topFragmentTask.getBackendHealthStatus(jobId);
+        for (SingleFragmentPipelineTask fragmentTask : backendFragmentTasks.get().values()) {
+            if (fragmentTask.isDone()) {
+                continue;
+            }
+            Status unhealthyStatus = fragmentTask.getBackendHealthStatus(jobId);
             if (!unhealthyStatus.ok()) {
                 coordinatorContext.updateStatusIfOk(unhealthyStatus);
                 return false;

@@ -46,8 +46,10 @@ suite("test_insert_fail_fast_after_be_restart", "docker") {
 
             // Hold the load fragment before it can report completion to FE. Restarting the BE
             // at this point drops that report while the replacement process quickly becomes alive.
-            GetDebugPoint().enableDebugPointForAllBEs("VTabletWriter.close.sleep", [sleep_sec: 300])
-            GetDebugPoint().enableDebugPointForAllBEs("VTabletWriterV2.close.sleep", [sleep_sec: 300])
+            def debugPointToken = "insert_restart_${System.nanoTime()}"
+            def debugPointParams = [sleep_sec: 300, token: debugPointToken]
+            GetDebugPoint().enableDebugPointForAllBEs("VTabletWriter.close.sleep", debugPointParams)
+            GetDebugPoint().enableDebugPointForAllBEs("VTabletWriterV2.close.sleep", debugPointParams)
 
             def insertFuture = thread {
                 sql "SET enable_nereids_planner = true"
@@ -65,8 +67,25 @@ suite("test_insert_fail_fast_after_be_restart", "docker") {
                 }
             }
 
-            // The small load reaches the writer close debug point well before this wait ends.
-            sleep(3000)
+            def beLogFile = new File(cluster.getBeByIndex(1).getLogFilePath())
+            def debugPointMarkers = [
+                    "hit debug point VTabletWriter.close.sleep, token=${debugPointToken}",
+                    "hit debug point VTabletWriterV2.close.sleep, token=${debugPointToken}"
+            ]
+            def waitDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(60)
+            def debugPointHit = false
+            while (System.nanoTime() < waitDeadline) {
+                if (beLogFile.exists()) {
+                    def beLog = beLogFile.text
+                    if (debugPointMarkers.any { beLog.contains(it) }) {
+                        debugPointHit = true
+                        break
+                    }
+                }
+                sleep(200)
+            }
+            assertTrue(debugPointHit, "INSERT did not reach the writer close debug point")
+
             cluster.restartBackends()
 
             // LoadProcessor checks backend health every 30 seconds. The restarted BE is alive,

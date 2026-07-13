@@ -61,6 +61,16 @@ class SingleFragmentPipelineTaskTest {
     }
 
     @Test
+    void zeroCapturedProcessEpochIsIgnoredForCompatibility() {
+        Backend backend = createBackend(0L);
+        SingleFragmentPipelineTask task = createTask(backend);
+
+        backend.setLastStartTime(100L);
+
+        Assertions.assertTrue(task.getBackendHealthStatus(-1L).ok());
+    }
+
+    @Test
     void backendDownAfterMissingHeartbeatIsUnhealthy() {
         Backend backend = createBackend(100L);
         SingleFragmentPipelineTask task = createTask(backend);
