@@ -25,8 +25,8 @@
 - [x] iceberg 连接器填有序值（`raw.values`，`String.valueOf` 保 "null" 字节一致）
 - [x] hudi 连接器填有序值（`partKeyNames` render 序，render/parse 互逆）
 
-**hive 默认分区哨兵（查询路径经现有 SPI 委派）**
-- [ ] `HiveScanRange.populateRangeParams` 加 `columnsFromPath{,Keys,IsNull}` 重置（镜像 `IcebergScanRange`，**窄** `HIVE_DEFAULT_PARTITION.equals`，非 `normalize()`）+ 单测
+**hive 默认分区哨兵（查询路径经现有 SPI 委派）** — commit `feddf050190`（连接器+测试）+ `c05bb01798e`（fe-core）
+- [x] `HiveScanRange.populateRangeParams` 加 `columnsFromPath{,Keys,IsNull}` 重置（镜像 `IcebergScanRange`，**窄** `HIVE_DEFAULT_PARTITION.equals`，非 `normalize()`）+ 单测 5/5 绿
 
 **iceberg 行血缘（逐列中立标记 + 建表校验下沉）**
 - [ ] `ConnectorColumn` 加 `reservedPassthrough` 位 + `ConnectorColumnConverter` 跨界重贴进 `Column`
@@ -35,7 +35,7 @@
 
 ## 阶段 2b — fe-core 消费者改委派（连接器侧全绿后）
 - [x] `toListPartitionItem` 改 zip 连接器有序值（先带回退、暂不 fail-loud）— commit `49254f1d429`（fail-loud 留到删 `HiveUtil` 时）
-- [ ] `FilePartitionUtils` 三处改（import 换中立常量 / 加载路径换常量 / 查询路径删哨兵项只留 `value==null`）
+- [x] `FilePartitionUtils` 三处改（import 换中立常量 / 加载路径换常量 / 查询路径删哨兵项只留 `value==null`）— commit `c05bb01798e`（fe-core test-compile 绿 0 checkstyle）
 - [ ] `BindExpression.isIcebergMergeMetaColumn` 改读 `reservedPassthrough`（大小写不敏感）
 - [ ] `CreateTableInfo` 删 iceberg v3 校验方法 + engine gate（校验已下沉连接器）
 - [ ] `IcebergMergeCommand` 7 处改读保留标记 + 按标记枚举列名（176/201/260/336/342/343/369）

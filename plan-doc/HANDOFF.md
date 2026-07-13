@@ -5,7 +5,7 @@
 
 ---
 
-# 🆕 下一个 session = **实现 §3 重分析的合规委派（步 2a 连接器侧先行）**，再续删除
+# 🆕 下一个 session = **实现 §3 组 4（iceberg 逐列 `reservedPassthrough` 位）**，再续删除
 
 > **📋 进度追踪 = `plan-doc/tasks/datasource-deletion-tasklist.md`**（唯一勾选清单，**每完成一项即勾 `[x]` 并随 commit 更新**；用户 2026-07-13 要求）。
 >
@@ -13,9 +13,11 @@
 >
 > **✅ 2026-07-13 用户拍板（最高优先级）**：认可「零 fe-core 源相关新增」的合规重分析取代原「搬中立家」方案。四组处置：① hive 分区名解析 = 2 纯删 + 1 经 `ConnectorPartitionInfo` 加**两并行列表**（有序值 + 现有空标志）委派，4 连接器填值；② hive LZO = **纯删**（消费点全死、连接器早自带）；③ hive 默认分区哨兵 = 查询路径经现有 `ConnectorScanRange.populateRangeParams` 委派（`HiveScanRange` 加 columnsFromPath 重置，**窄** `.equals` 非 `normalize()`）+ 加载路径改指现有中立常量 `ConnectorPartitionValues.HIVE_DEFAULT_PARTITION`；④ iceberg 行血缘 = 常量纯删 + 保留列身份用**逐列中立布尔位 `reservedPassthrough`**（经 `ConnectorColumnConverter:80-90` 跨界重贴，仿现有 invisible/uniqueId）+ 建表校验经现有 `ConnectorTableOps.createTable` 委派（**接受**时机/异常/文案变化，不加前置钩子）。
 >
-> **进度**：步 2a 第一组（**分区有序值委派**）已完成+验证+提交（commit `49254f1d429`，连接器 install 985 测试绿 + fe-core test-compile 绿 0 checkstyle）——`ConnectorPartitionInfo` 加 `orderedPartitionValues` 字段，hive/paimon/iceberg/hudi 四连接器填值，fe-core `toListPartitionItem` 改用（带回退、暂不 fail-loud）。**删 `HiveUtil` 前仍须** fail-loud + 覆盖 e2e（否则 `listLatestPartitions:277` try/catch 静默吞分区）。
+> **进度**：步 2a 已完成**两组**——
+> ① **分区有序值委派**（commit `49254f1d429`，连接器 install 985 测试绿 + fe-core test-compile 绿 0 checkstyle）：`ConnectorPartitionInfo` 加 `orderedPartitionValues` 字段，hive/paimon/iceberg/hudi 四连接器填值，fe-core `toListPartitionItem` 改用（带回退、暂不 fail-loud）。**删 `HiveUtil` 前仍须** fail-loud + 覆盖 e2e（否则 `listLatestPartitions:277` try/catch 静默吞分区）。
+> ② **hive 默认分区哨兵**（commit `feddf050190` 连接器+测试 / `c05bb01798e` fe-core；hive install 绿 + 新测 5/5 + fe-core test-compile 绿 0 checkstyle）：`HiveScanRange.populateRangeParams` 加 unset+从 `partitionValues` 重建 `columnsFromPath{,Keys,IsNull}`（镜像 iceberg，窄 `HIVE_DEFAULT_PARTITION.equals`，非 `normalize()`），hive 现自持哨兵→NULL；fe-core `FilePartitionUtils` 三处改（import 换中立常量 / 加载路径换 `ConnectorPartitionValues.HIVE_DEFAULT_PARTITION` / 查询路径删哨兵项只留 `value==null`）。核实：keys 来自 `path_partition_keys` 与 map 同源同序、字节不变；`normalizeColumnsFromPath` 全部活连接器都在各自 `populateRangeParams` 重建（删哨兵项安全，唯一裸依赖者 `HudiScanNode` 死类）。**删 `HiveExternalMetaCache` 前仍须** hive 真 NULL 分区 e2e（与①的 e2e 一并补）。
 >
-> **下一个 = 步 2a 剩余两组**：① hive 默认分区哨兵查询路径（`HiveScanRange.populateRangeParams` 加 columnsFromPath 重置，镜像 `IcebergScanRange`，窄 `.equals`）+ fe-core `FilePartitionUtils` 三处改；② iceberg 逐列 `reservedPassthrough` 位（`ConnectorColumn`→`ConnectorColumnConverter`→`Column`）+ iceberg override + `IcebergConnectorMetadata.createTable` 吸收 v3 校验 + 4 处 nereids 消费者改读位。另 ⚠ 步 1 前置 ACID `isAcid()` 中立位（与 §3 正交，可穿插）。**每完成一项勾 `datasource-deletion-tasklist.md`**。
+> **下一个 = 步 2a 最后一组（组 4：iceberg 逐列 `reservedPassthrough` 位）**：`ConnectorColumn` 加中立布尔位 → `ConnectorColumnConverter:80-90` 跨界重贴进 `Column`（仿现有 invisible/uniqueId）→ iceberg 连接器给 v3 行血缘列设位；`IcebergConnectorMetadata.createTable` 吸收 v3 格式版本解析 + 保留名冲突拒绝（**接受**时机/异常/文案变化）；fe-core 消费者改读位：`BindExpression.isIcebergMergeMetaColumn`（大小写不敏感）/ `CreateTableInfo` 删 v3 校验+engine gate / `IcebergMergeCommand`（**7** 处 176/201/260/336/342/343/369）/ `IcebergUpdateCommand:106`；`IcebergUtils` 常量+两 `isIcebergRowLineageColumn` 纯删。**动手前须 HEAD-grounded recon + 用中文出方案给用户 review 后再改**。另 ⚠ 步 1 前置 ACID `isAcid()` 中立位（与 §3 正交，可穿插）。**每完成一项勾 `datasource-deletion-tasklist.md`**。
 >
 > **⏭ 单列紧邻后续（用户定，不并入本轮）**：第二处同款哨兵泄漏 `TablePartitionValues.HIVE_DEFAULT_PARTITION:47` ← 活消费者 `MetadataGenerator:2166`（`partition_values` TVF）；须自己的活性判定。**既存债非本轮**：`IcebergMergeCommand`/`IcebergUpdateCommand` 仍 iceberg 命名活类、`Column.ICEBERG_ROWID_COL:63`（勿当 sanctioned 家、勿新铸 `Column._row_id`）。
 >
