@@ -885,18 +885,43 @@ Status OrcReader::init(RuntimeState* state) {
     return Status::OK();
 }
 
+void OrcReader::_extend_condition_cache_context_for_current_range() {
+    if (_state->condition_cache_ctx == nullptr ||
+        _state->condition_cache_ctx->filter_result == nullptr ||
+        _state->condition_cache_ctx->is_hit) {
+        return;
+    }
+    const auto end_granule = (_state->row_reader_range_first_row + _state->row_reader_range_rows +
+                              ConditionCacheContext::GRANULE_SIZE - 1) /
+                             ConditionCacheContext::GRANULE_SIZE;
+    DORIS_CHECK(end_granule > static_cast<uint64_t>(_state->condition_cache_ctx->base_granule));
+    const auto required_granules = static_cast<size_t>(
+            end_granule - static_cast<uint64_t>(_state->condition_cache_ctx->base_granule));
+    if (_state->condition_cache_ctx->filter_result->size() < required_granules) {
+        _state->condition_cache_ctx->filter_result->resize(required_granules, false);
+    }
+    _state->condition_cache_ctx->num_granules =
+            std::max(_state->condition_cache_ctx->num_granules, required_granules);
+}
+
 void OrcReader::set_condition_cache_context(std::shared_ptr<ConditionCacheContext> ctx) {
     DORIS_CHECK(_state != nullptr);
     _state->condition_cache_ctx = std::move(ctx);
     if (_state->condition_cache_ctx != nullptr &&
-        _state->condition_cache_ctx->filter_result != nullptr) {
+        _state->condition_cache_ctx->filter_result != nullptr &&
+        !_state->condition_cache_ctx->is_hit) {
         _state->condition_cache_ctx->base_granule = static_cast<int64_t>(
                 _state->row_reader_range_first_row / ConditionCacheContext::GRANULE_SIZE);
+        _state->condition_cache_ctx->num_granules = 0;
+        _extend_condition_cache_context_for_current_range();
     }
 }
 
 int64_t OrcReader::get_total_rows() const {
     DORIS_CHECK(_state != nullptr);
+    if (_state->stripe_pruning_applied && _state->selected_stripe_ranges.empty()) {
+        return 0;
+    }
     if (_state->row_reader != nullptr) {
         return cast_set<int64_t>(_state->row_reader_range_rows);
     }
@@ -1543,6 +1568,7 @@ Status OrcReader::_create_row_reader() {
         _state->row_reader_range_end_row =
                 _state->row_reader_range_first_row + _state->row_reader_range_rows;
         _state->condition_cache_next_row = _state->row_reader_range_first_row;
+        _extend_condition_cache_context_for_current_range();
         _state->column_to_selected_batch_index.clear();
         size_t physical_read_column_count = 0;
         for (const auto file_column_id : _state->read_columns) {

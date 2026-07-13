@@ -252,9 +252,10 @@ public:
             size_t current_rows = 0;
             RETURN_IF_ERROR(_data_reader.reader->get_block(&_data_reader.block_template,
                                                            &current_rows, &current_eof));
+            const bool stopped_during_read = _io_ctx != nullptr && _io_ctx->should_stop;
             if (current_rows == 0) {
                 if (current_eof) {
-                    _current_reader_reached_eof = true;
+                    _current_reader_reached_eof = !stopped_during_read;
                     RETURN_IF_ERROR(close_current_reader());
                 }
                 continue;
@@ -271,7 +272,7 @@ public:
                     _check_table_block_columns("after finalize_chunk", block, current_rows));
 #endif
             if (current_eof) {
-                _current_reader_reached_eof = true;
+                _current_reader_reached_eof = !stopped_during_read;
                 RETURN_IF_ERROR(close_current_reader());
             }
             return Status::OK();

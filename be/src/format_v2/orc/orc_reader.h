@@ -154,6 +154,7 @@ private:
     bool _filter_has_row_level_predicates() const;
     Status _build_keep_filter(Block* file_block, size_t rows, IColumn::Filter* keep_filter) const;
     Status _filter_block(Block* file_block, size_t* rows) const;
+    void _extend_condition_cache_context_for_current_range();
     void _skip_condition_cache_false_granules(size_t* rows, bool* eof);
     void _mark_condition_cache_surviving_rows(const IColumn::Filter& keep_filter,
                                               size_t rows) const;
