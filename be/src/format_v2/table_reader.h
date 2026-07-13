@@ -176,12 +176,16 @@ public:
     // FileScannerV2 adjusts this before each get_block() using an adaptive bytes-per-row estimate.
     // Store it here as well as forwarding to the current reader so newly opened split readers start
     // with the latest predicted batch size.
-    void set_batch_size(size_t batch_size) {
+    virtual void set_batch_size(size_t batch_size) {
         _batch_size = std::max<size_t>(1, batch_size);
         if (_data_reader.reader != nullptr) {
             _data_reader.reader->set_batch_size(_batch_size);
         }
     }
+
+#ifdef BE_TEST
+    size_t TEST_batch_size() const { return _batch_size; }
+#endif
 
     // Prepare for reading a new split/task.
     // 1. Pass a new split/task to reader, which will be used in subsequent open_reader() to initialize the underlying file reader.

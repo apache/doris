@@ -63,6 +63,44 @@ TFileRangeDesc hudi_range_with_delta_logs() {
     return range;
 }
 
+TFileRangeDesc paimon_cpp_jni_range() {
+    auto range = range_with_format("paimon", TFileFormatType::FORMAT_JNI);
+    TPaimonFileDesc paimon_params;
+    paimon_params.__set_reader_type(TPaimonReaderType::PAIMON_CPP);
+    range.table_format_params.__set_paimon_params(std::move(paimon_params));
+    return range;
+}
+
+TFileRangeDesc legacy_paimon_jni_range_without_reader_type() {
+    auto range = range_with_format("paimon", TFileFormatType::FORMAT_JNI);
+    TPaimonFileDesc paimon_params;
+    paimon_params.__set_paimon_split("legacy-split");
+    paimon_params.__set_paimon_predicate("legacy-predicate");
+    range.table_format_params.__set_paimon_params(std::move(paimon_params));
+    return range;
+}
+
+struct RetryableCloseState {
+    int close_calls = 0;
+};
+
+class RetryableCloseTableReader final : public format::TableReader {
+public:
+    explicit RetryableCloseTableReader(std::shared_ptr<RetryableCloseState> state)
+            : _state(std::move(state)) {}
+
+    Status close() override {
+        ++_state->close_calls;
+        if (_state->close_calls == 1) {
+            return Status::InternalError("injected table reader close failure");
+        }
+        return Status::OK();
+    }
+
+private:
+    std::shared_ptr<RetryableCloseState> _state;
+};
+
 VExprSPtr slot_ref(int slot_id, int column_id, DataTypePtr type, const std::string& name) {
     return VSlotRef::create_shared(slot_id, column_id, -1, std::move(type), name);
 }
@@ -214,6 +252,41 @@ TEST(FileScannerV2Test, FileScanLocalStateSelectsV2ForSupportedQueriesOnly) {
 
     query_options.__set_enable_file_scanner_v2(false);
     EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
+}
+
+TEST(FileScannerV2Test, JniCompatibilityShapesForceLegacyScanner) {
+    TQueryOptions query_options;
+    query_options.__set_enable_file_scanner_v2(true);
+    query_options.__set_enable_paimon_cpp_reader(true);
+
+    TFileScanRangeParams params;
+    params.__set_format_type(TFileFormatType::FORMAT_JNI);
+    // Rolling upgrades may carry the only Paimon marker and reader type on each split. Since the
+    // scan-level selector cannot inspect that split yet, JNI scans conservatively stay on V1.
+    EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
+    EXPECT_FALSE(FileScannerV2::is_supported(params, paimon_cpp_jni_range()));
+
+    // Older FEs can omit reader_type. The legacy scanner interprets this as Paimon JNI when the C++
+    // reader is disabled, so the scan-level choice must still stay on V1.
+    query_options.__set_enable_paimon_cpp_reader(false);
+    EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
+    EXPECT_FALSE(
+            FileScannerV2::is_supported(params, legacy_paimon_jni_range_without_reader_type()));
+}
+
+TEST(FileScannerV2Test, FailedTableReaderCloseCanBeRetriedThroughScanner) {
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    RuntimeProfile profile("file_scanner_v2_close_retry");
+    auto close_state = std::make_shared<RetryableCloseState>();
+    FileScannerV2 scanner(&state, &profile,
+                          std::make_unique<RetryableCloseTableReader>(close_state));
+
+    EXPECT_FALSE(scanner.close(&state).ok());
+    EXPECT_EQ(close_state->close_calls, 1);
+    EXPECT_TRUE(scanner.close(&state).ok());
+    EXPECT_EQ(close_state->close_calls, 2);
+    EXPECT_TRUE(scanner.close(&state).ok());
+    EXPECT_EQ(close_state->close_calls, 2);
 }
 
 // Scenario: Once FileScannerV2 is selected, an unsupported range must fail instead of falling back

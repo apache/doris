@@ -123,5 +123,53 @@ TEST(PaimonJniReaderTest, RejectsMissingPredicateFromBothProtocolLocations) {
     EXPECT_NE(status.to_string().find("missing paimon_predicate"), std::string::npos);
 }
 
+TEST(PaimonJniReaderTest, FallsBackToLegacySplitOptionsAndHadoopConf) {
+    auto range = make_paimon_jni_range();
+    auto& paimon_params = range.table_format_params.paimon_params;
+    paimon_params.__set_paimon_predicate("legacy-predicate");
+    paimon_params.__set_paimon_options({{"legacy-option", "legacy-value"}});
+    paimon_params.__set_hadoop_conf({{"fs.defaultFS", "hdfs://legacy"}});
+
+    auto scan_params = make_scan_params();
+    PaimonJniReader reader;
+    ASSERT_TRUE(init_reader(&reader, &scan_params).ok());
+
+    std::map<std::string, std::string> params;
+    ASSERT_TRUE(build_params(&reader, range, &params).ok());
+    EXPECT_EQ(params["paimon.legacy-option"], "legacy-value");
+    EXPECT_EQ(params["hadoop.fs.defaultFS"], "hdfs://legacy");
+}
+
+TEST(PaimonJniReaderTest, ScanLevelOptionsOverrideLegacySplitFallbacks) {
+    auto range = make_paimon_jni_range();
+    auto& paimon_params = range.table_format_params.paimon_params;
+    paimon_params.__set_paimon_predicate("legacy-predicate");
+    paimon_params.__set_paimon_options({{"source", "legacy"}});
+    paimon_params.__set_hadoop_conf({{"source", "legacy"}});
+
+    auto scan_params = make_scan_params();
+    scan_params.__set_paimon_options({{"source", "scan"}});
+    scan_params.__set_properties({{"source", "scan"}});
+    PaimonJniReader reader;
+    ASSERT_TRUE(init_reader(&reader, &scan_params).ok());
+
+    std::map<std::string, std::string> params;
+    ASSERT_TRUE(build_params(&reader, range, &params).ok());
+    EXPECT_EQ(params["paimon.source"], "scan");
+    EXPECT_EQ(params["hadoop.source"], "scan");
+}
+
+TEST(PaimonJniReaderTest, KeepsInitialPhysicalBatchSizeAfterOpen) {
+    PaimonJniReader reader;
+    reader.set_batch_size(32);
+    EXPECT_EQ(reader.TEST_batch_size(), 32);
+
+    // Paimon copies the constructor size into the RecordReader during Java open. A later predictor
+    // result cannot resize that physical reader, so keep the initial probe size for the split.
+    reader.TEST_set_split_state(true, false);
+    reader.set_batch_size(1);
+    EXPECT_EQ(reader.TEST_batch_size(), 32);
+}
+
 } // namespace
 } // namespace doris::format::paimon

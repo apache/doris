@@ -65,6 +65,8 @@ public:
 
     static bool is_supported(const TFileScanRangeParams& params, const TFileRangeDesc& range);
 #ifdef BE_TEST
+    FileScannerV2(RuntimeState* state, RuntimeProfile* profile,
+                  std::unique_ptr<format::TableReader> table_reader);
     static Status TEST_validate_scan_range(const TFileScanRangeParams& params,
                                            const TFileRangeDesc& range);
     static Status TEST_to_file_format(TFileFormatType::type format_type,

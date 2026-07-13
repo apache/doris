@@ -29,6 +29,7 @@ import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 
 import java.io.File;
+import java.io.IOException;
 import java.lang.reflect.Field;
 import java.lang.reflect.Proxy;
 import java.util.Arrays;
@@ -37,6 +38,8 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class PaimonJniScannerTest {
     @Rule
@@ -160,6 +163,96 @@ public class PaimonJniScannerTest {
         Assert.assertFalse(PaimonJniScanner.parseDataSizeBytes("unknown").isPresent());
     }
 
+    @Test
+    public void testCloseReleasesActiveRecordIterator() throws Exception {
+        PaimonJniScanner scanner = new PaimonJniScanner(128, createBaseParams());
+        AtomicBoolean released = new AtomicBoolean(false);
+        RecordReader.RecordIterator<InternalRow> recordIterator =
+                new RecordReader.RecordIterator<InternalRow>() {
+                    @Override
+                    public InternalRow next() {
+                        return null;
+                    }
+
+                    @Override
+                    public void releaseBatch() {
+                        released.set(true);
+                    }
+                };
+
+        Field recordIteratorField = PaimonJniScanner.class.getDeclaredField("recordIterator");
+        recordIteratorField.setAccessible(true);
+        recordIteratorField.set(scanner, recordIterator);
+
+        scanner.close();
+
+        Assert.assertTrue(released.get());
+        Assert.assertNull(recordIteratorField.get(scanner));
+    }
+
+    @Test
+    public void testFailedCloseRetainsResourcesForRetry() throws Exception {
+        PaimonJniScanner scanner = new PaimonJniScanner(128, createBaseParams());
+        AtomicInteger iteratorCloseCalls = new AtomicInteger();
+        RecordReader.RecordIterator<InternalRow> recordIterator =
+                new RecordReader.RecordIterator<InternalRow>() {
+                    @Override
+                    public InternalRow next() {
+                        return null;
+                    }
+
+                    @Override
+                    public void releaseBatch() {
+                        if (iteratorCloseCalls.incrementAndGet() == 1) {
+                            throw new RuntimeException("injected iterator close failure");
+                        }
+                    }
+                };
+        AtomicInteger readerCloseCalls = new AtomicInteger();
+        RecordReader<InternalRow> reader = new RecordReader<InternalRow>() {
+            @Override
+            public RecordIterator<InternalRow> readBatch() {
+                return null;
+            }
+
+            @Override
+            public void close() throws IOException {
+                if (readerCloseCalls.incrementAndGet() == 1) {
+                    throw new IOException("injected reader close failure");
+                }
+            }
+        };
+        RetryableIOManager ioManager = new RetryableIOManager();
+
+        Field recordIteratorField = PaimonJniScanner.class.getDeclaredField("recordIterator");
+        recordIteratorField.setAccessible(true);
+        recordIteratorField.set(scanner, recordIterator);
+        Field readerField = PaimonJniScanner.class.getDeclaredField("reader");
+        readerField.setAccessible(true);
+        readerField.set(scanner, reader);
+        Field ioManagerField = PaimonJniScanner.class.getDeclaredField("ioManager");
+        ioManagerField.setAccessible(true);
+        ioManagerField.set(scanner, ioManager);
+
+        try {
+            scanner.close();
+            Assert.fail("expected the first close to fail");
+        } catch (IOException expected) {
+            Assert.assertEquals("Failed to release Paimon record iterator", expected.getMessage());
+        }
+        Assert.assertSame(recordIterator, recordIteratorField.get(scanner));
+        Assert.assertSame(reader, readerField.get(scanner));
+        Assert.assertSame(ioManager, ioManagerField.get(scanner));
+
+        scanner.close();
+        Assert.assertNull(recordIteratorField.get(scanner));
+        Assert.assertNull(readerField.get(scanner));
+        Assert.assertNull(ioManagerField.get(scanner));
+        Assert.assertEquals(2, iteratorCloseCalls.get());
+        Assert.assertEquals(2, readerCloseCalls.get());
+        Assert.assertEquals(2, ioManager.closeCalls.get());
+    }
+
     private Map<String, String> createBaseParams() {
         Map<String, String> params = new HashMap<>();
         params.put("required_fields", "");
@@ -224,6 +317,21 @@ public class PaimonJniScannerTest {
 
         @Override
         public void close() {
+        }
+    }
+
+    public static class RetryableIOManager extends TestIOManager {
+        private final AtomicInteger closeCalls = new AtomicInteger();
+
+        public RetryableIOManager() {
+            super(new String[0]);
+        }
+
+        @Override
+        public void close() {
+            if (closeCalls.incrementAndGet() == 1) {
+                throw new RuntimeException("injected IO manager close failure");
+            }
         }
     }
 
