@@ -33,6 +33,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -219,6 +220,33 @@ public class HiveConnectorMetadataSchemaTest {
                 .build();
         ConnectorTableSchema schema = schemaOf(tableInfo);
         Assertions.assertFalse(schema.getProperties().containsKey("partition_columns"));
+    }
+
+    @Test
+    public void testUnpartitionedTableStripsUserPartitionColumnsParameter() {
+        // A user TBLPROPERTY literally named "partition_columns" on a NON-partitioned hive table must not leak
+        // into the emitted schema: the generic fe-core consumer (PluginDrivenExternalTable.toSchemaCacheValue)
+        // treats a non-empty "partition_columns" as the partition-column CSV, so a leaked user value whose CSV
+        // matches a real column would make this unpartitioned table be misdetected as partitioned.
+        // MUTATION: dropping tableProperties.remove(PARTITION_COLUMNS_PROPERTY) -> the parameter leaks -> red.
+        Map<String, String> params = new HashMap<>();
+        params.put("partition_columns", "id");   // a real column — fe-core would match it
+        HmsTableInfo tableInfo = unpartitionedTable(PARQUET_INPUT_FORMAT).parameters(params).build();
+        ConnectorTableSchema schema = schemaOf(tableInfo);
+        Assertions.assertFalse(schema.getProperties().containsKey("partition_columns"),
+                "an unpartitioned hive table must not carry partition_columns even if a parameter is named so");
+    }
+
+    @Test
+    public void testPartitionedTablePartitionColumnsReflectKeysNotCollidingParameter() {
+        // Guard the fix does not over-strip: a genuinely partitioned table whose parameters ALSO carry a
+        // colliding "partition_columns"=id must emit the CONNECTOR's own partition-key CSV (year,region),
+        // never the user's spoofed value. MUTATION: stripping unconditionally after the stamp -> red.
+        Map<String, String> params = new HashMap<>();
+        params.put("partition_columns", "id");
+        ConnectorTableSchema schema = schemaOf(partitionedTable().parameters(params).build());
+        Assertions.assertEquals("year,region", schema.getProperties().get("partition_columns"),
+                "partition_columns must be the connector's partition-key CSV, not the colliding parameter");
     }
 
     @Test

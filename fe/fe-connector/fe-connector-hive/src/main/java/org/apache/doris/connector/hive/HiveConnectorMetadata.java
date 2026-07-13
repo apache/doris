@@ -448,6 +448,13 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
         // mutating the shared tableInfo map.
         Map<String, String> tableProperties = new HashMap<>(
                 tableInfo.getParameters() != null ? tableInfo.getParameters() : Collections.emptyMap());
+        // Strip the FE-internal reserved partition marker that may have leaked in from the copied HMS
+        // parameters above (a user TBLPROPERTY literally named "partition_columns"): the generic fe-core
+        // consumer (PluginDrivenExternalTable.toSchemaCacheValue) treats a non-empty "partition_columns"
+        // as the partition-column CSV, so a leaked user value would make a NON-partitioned table be
+        // misdetected as partitioned. Only this connector's own value (re-stamped below when the table
+        // has partition keys) may reach fe-core.
+        tableProperties.remove(PARTITION_COLUMNS_PROPERTY);
         // Mark which emitted columns are partition columns for the generic fe-core consumer. Without this
         // property every partitioned hive/hudi table is read as unpartitioned (wrong pruning/row count, MTMV
         // breakage). The value is a CSV of the RAW partition-key names in declaration order; hive partition-key

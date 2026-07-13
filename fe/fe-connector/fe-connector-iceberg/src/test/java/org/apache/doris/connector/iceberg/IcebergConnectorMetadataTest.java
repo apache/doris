@@ -656,6 +656,45 @@ public class IcebergConnectorMetadataTest {
     }
 
     @Test
+    public void getTableSchemaStripsUserPartitionColumnsOnUnpartitionedTable() {
+        // A user TBLPROPERTY literally named "partition_columns" on an UNPARTITIONED iceberg table (e.g. set
+        // via ALTER TABLE ... SET TBLPROPERTIES('partition_columns'='id')) must NOT survive into the emitted
+        // schema properties: the generic fe-core consumer (PluginDrivenExternalTable.toSchemaCacheValue)
+        // treats a non-empty "partition_columns" as the partition-column CSV, so a leaked user value whose
+        // CSV matches a real column would make this non-partitioned table be misdetected as partitioned
+        // (wrong pruning / row-count / EXPLAIN partition=N/M). buildTableSchema stamps the key only for a
+        // genuinely partitioned table, so for an unpartitioned table it must be absent.
+        // MUTATION: dropping tableProps.remove("partition_columns") -> the user value leaks via putAll -> red.
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        Map<String, String> userProps = new HashMap<>();
+        userProps.put("partition_columns", "id");   // a real column name — fe-core would match it
+        ops.table = new FakeIcebergTable(
+                "t1", idNameSchema(), PartitionSpec.unpartitioned(), "s3://bucket/db1/t1", userProps);
+        ConnectorTableSchema schema =
+                metadataWith(ops).getTableSchema(null, new IcebergTableHandle("db1", "t1"));
+        Assertions.assertFalse(schema.getProperties().containsKey("partition_columns"),
+                "an unpartitioned iceberg table must not carry partition_columns even if the source props do");
+    }
+
+    @Test
+    public void getTableSchemaPartitionColumnsReflectSpecNotCollidingUserProperty() {
+        // Guard the fix does not over-strip: a genuinely partitioned table (identity on `name`) whose source
+        // properties ALSO carry a colliding "partition_columns"=id must emit the CONNECTOR's spec-derived
+        // value (`name`), never the user's spoofed value — the remove()+re-stamp guarantees the connector wins.
+        // MUTATION: removing the re-stamp, or stripping unconditionally after the stamp -> red.
+        Schema schema = idNameSchema();
+        PartitionSpec identitySpec = PartitionSpec.builderFor(schema).identity("name").build();
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        Map<String, String> userProps = new HashMap<>();
+        userProps.put("partition_columns", "id");   // user tries to spoof partitioning on `id`
+        ops.table = new FakeIcebergTable("t2", schema, identitySpec, "s3://bucket/db1/t2", userProps);
+        ConnectorTableSchema out =
+                metadataWith(ops).getTableSchema(null, new IcebergTableHandle("db1", "t2"));
+        Assertions.assertEquals("name", out.getProperties().get("partition_columns"),
+                "partition_columns must be the spec-derived value, not the colliding user property");
+    }
+
+    @Test
     public void getTableSchemaEmitsShowPartitionClauseWithTransforms() {
         // Unpartitioned: no show.partition-clause (and, byte-faithful, no legacy iceberg.partition-spec).
         RecordingIcebergCatalogOps unpartOps = new RecordingIcebergCatalogOps();

@@ -410,6 +410,13 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
 
         Map<String, String> tableProps = new HashMap<>();
         tableProps.putAll(table.properties());
+        // Strip the FE-internal reserved partition marker that may have leaked in from the source
+        // table.properties() above (e.g. a user ALTER TABLE ... SET TBLPROPERTIES('partition_columns'=...)):
+        // the generic fe-core consumer (PluginDrivenExternalTable.toSchemaCacheValue) treats a non-empty
+        // "partition_columns" as the partition-column CSV, so a leaked user value would make an
+        // UNPARTITIONED table be misdetected as partitioned. Only THIS connector's own spec-derived value
+        // (re-stamped below for a genuinely partitioned table) may reach fe-core.
+        tableProps.remove("partition_columns");
         // SHOW CREATE TABLE render hints under neutral reserved keys (fe-core strips them from the
         // rendered PROPERTIES and emits them as LOCATION / PARTITION BY / ORDER BY). They replace the
         // previously-injected location / iceberg.format-version / iceberg.partition-spec keys: those were
