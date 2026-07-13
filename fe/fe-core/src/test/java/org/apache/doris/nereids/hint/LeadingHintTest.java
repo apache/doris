@@ -165,6 +165,12 @@ public class LeadingHintTest {
         Assertions.assertFalse(LeadingHint.isJoinTypeCompatible(JoinType.LEFT_ANTI_JOIN, JoinType.INNER_JOIN));
         Assertions.assertFalse(LeadingHint.isJoinTypeCompatible(JoinType.LEFT_SEMI_JOIN, JoinType.LEFT_ANTI_JOIN));
         Assertions.assertFalse(LeadingHint.isJoinTypeCompatible(JoinType.LEFT_OUTER_JOIN, JoinType.INNER_JOIN));
+
+        // Full outer join is only compatible with itself
+        Assertions.assertTrue(LeadingHint.isJoinTypeCompatible(JoinType.FULL_OUTER_JOIN, JoinType.FULL_OUTER_JOIN));
+        Assertions.assertFalse(LeadingHint.isJoinTypeCompatible(JoinType.FULL_OUTER_JOIN, JoinType.INNER_JOIN));
+        Assertions.assertFalse(LeadingHint.isJoinTypeCompatible(JoinType.INNER_JOIN, JoinType.FULL_OUTER_JOIN));
+        Assertions.assertFalse(LeadingHint.isJoinTypeCompatible(JoinType.FULL_OUTER_JOIN, JoinType.LEFT_OUTER_JOIN));
     }
 
     @Test
@@ -192,6 +198,41 @@ public class LeadingHintTest {
         Assertions.assertEquals(JoinType.LEFT_ANTI_JOIN, leading.getFilters().get(0).originalType);
         Assertions.assertEquals(a, leading.getFilters().get(1).bitmap);
         Assertions.assertEquals(JoinType.INNER_JOIN, leading.getFilters().get(1).originalType);
+    }
+
+    @Test
+    public void testFullOuterJoinConstraintRequiresExactChildMatch() {
+        // (a FULL OUTER JOIN b ON a.k = b.k) JOIN c
+        // Leading(a c b) → the full outer constraint requires exact child match.
+        // When children don't match exactly (left={a,c}, right={b}), the full
+        // outer constraint continues (no match), and computeJoinType falls back
+        // to INNER_JOIN. The FULL_OUTER_JOIN predicate would then be rejected by
+        // isJoinTypeCompatible and put back, causing a leftover filter failure.
+        //
+        // This test verifies the constraint matching layer: full outer join only
+        // matches when children exactly equal original leftHand/rightHand.
+        LeadingHint leading = new LeadingHint("Leading");
+        long a = LongBitmap.newBitmap(0);
+        long b = LongBitmap.newBitmap(1);
+        long c = LongBitmap.newBitmap(2);
+
+        // Full outer join: leftHand={a}, rightHand={b}
+        addJoinConstraint(leading, a, b, a, b, JoinType.FULL_OUTER_JOIN);
+
+        long ab = LongBitmap.newBitmapUnion(a, b);
+        long ac = LongBitmap.newBitmapUnion(a, c);
+        long abc = LongBitmap.newBitmapUnion(ab, c);
+
+        // Exact children match → constraint matches
+        Pair<JoinConstraint, Boolean> exactMatch = leading.getJoinConstraint(ab, a, b);
+        Assertions.assertTrue(exactMatch.second, "exact children should match full outer constraint");
+
+        // Extra table mixed in left child → constraint does not match,
+        // falls back to (null, true) = inner join (no constraint matched).
+        // The full-outer predicate loss is caught later by the leftover-filter check.
+        Pair<JoinConstraint, Boolean> mixedLeft = leading.getJoinConstraint(abc, ac, b);
+        Assertions.assertNull(mixedLeft.first, "full outer constraint should not match with extra table");
+        Assertions.assertTrue(mixedLeft.second, "no constraint matched → inner join is legal at this level");
     }
 
     @Test

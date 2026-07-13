@@ -32,7 +32,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.util.JoinUtils;
-import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -589,6 +588,11 @@ public class LeadingHint extends Hint {
                 filters.add(entry);
             }
         }
+        // Rejected candidates must not shape the join type: if all compatible
+        // conditions were filtered out, demote INNER_JOIN to CROSS_JOIN.
+        if (conditions.isEmpty() && joinType == JoinType.INNER_JOIN) {
+            joinType = JoinType.CROSS_JOIN;
+        }
         if (!this.isSuccess()) {
             return null;
         }
@@ -629,11 +633,14 @@ public class LeadingHint extends Hint {
         }
 
         LogicalJoin finalJoin = (LogicalJoin) stack.pop();
-        // we want all filters been removed
-        if (Utils.enableAssert && !filters.isEmpty()) {
-            throw new IllegalStateException(
-                    "Leading hint process failed: filter should be empty, but meet: " + filters
-            );
+        // Any filter that was put back due to incompatible join type but never
+        // consumed by a later join means the leading hint cannot preserve the
+        // original semantics. Fail unconditionally.
+        if (!filters.isEmpty()) {
+            this.setStatus(HintStatus.UNUSED);
+            this.setErrorMessage("leading plan cannot consume all join predicates, leftover: "
+                    + filters);
+            return null;
         }
         if (finalJoin != null) {
             this.setStatus(HintStatus.SUCCESS);
