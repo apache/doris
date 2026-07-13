@@ -517,6 +517,17 @@ TEST_F(RowKeyEncoderTest, GoldenDateTimeV2) {
             "020102030405060708", "020102030405060708", "020102030405060708");
 }
 
+TEST_F(RowKeyEncoderTest, GoldenTimestampTz) {
+    // TIMESTAMPTZ stores a raw uint64 (UTC-normalized), plain big-endian.
+    check_golden(
+            single_key_schema(make_key_column(0, FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ, 8, 8)),
+            [](MutableColumns& c) {
+                fill_raw<uint64_t>(c, 0, 0x0102030405060708ULL);
+                fill_int(c, 1, {0});
+            },
+            "020102030405060708", "020102030405060708", "020102030405060708");
+}
+
 TEST_F(RowKeyEncoderTest, GoldenDecimal32) {
     check_golden(
             single_key_schema(make_key_column(0, FieldType::OLAP_FIELD_TYPE_DECIMAL32, 4, 4, 9, 2)),
