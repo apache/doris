@@ -84,7 +84,7 @@ suite("eliminate_gby_key") {
         select t2_c2
         from   temp;
     	""")
-	contains("groupByExpr=[t2_c2#19, c1#13, c3#18], outputExpr=[t2_c2#19, c1#13, c3#18]")
+	contains("groupByExpr=[c1#13, c3#18]")
     }
 
     explain {
