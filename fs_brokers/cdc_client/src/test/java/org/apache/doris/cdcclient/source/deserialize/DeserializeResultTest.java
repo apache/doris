@@ -17,6 +17,8 @@
 
 package org.apache.doris.cdcclient.source.deserialize;
 
+import org.apache.doris.cdcclient.utils.SchemaChangeOperation;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -36,29 +38,36 @@ class DeserializeResultTest {
 
         assertEquals(DeserializeResult.Type.DML, result.getType());
         assertEquals(rows, result.getRecords());
-        assertNull(result.getDdls());
+        assertNull(result.getSchemaChanges());
         assertNull(result.getUpdatedSchemas());
     }
 
     @Test
     void schemaChange_carriesDdlsAndEmptyRecords() {
-        List<String> ddls = List.of("ALTER TABLE t ADD COLUMN c INT");
-        DeserializeResult result = DeserializeResult.schemaChange(ddls, Collections.emptyMap());
+        List<SchemaChangeOperation> schemaChanges =
+                List.of(
+                        SchemaChangeOperation.addColumn(
+                                "t", "c", "ALTER TABLE t ADD COLUMN c INT"));
+        DeserializeResult result =
+                DeserializeResult.schemaChange(schemaChanges, Collections.emptyMap());
 
         assertEquals(DeserializeResult.Type.SCHEMA_CHANGE, result.getType());
-        assertEquals(ddls, result.getDdls());
+        assertEquals(schemaChanges, result.getSchemaChanges());
         assertTrue(result.getRecords().isEmpty());
     }
 
     @Test
     void schemaChange_withRecords_carriesBoth() {
-        List<String> ddls = List.of("ALTER TABLE t ADD COLUMN c INT");
+        List<SchemaChangeOperation> schemaChanges =
+                List.of(
+                        SchemaChangeOperation.addColumn(
+                                "t", "c", "ALTER TABLE t ADD COLUMN c INT"));
         List<String> rows = List.of("{\"id\":1}");
         DeserializeResult result =
-                DeserializeResult.schemaChange(ddls, Collections.emptyMap(), rows);
+                DeserializeResult.schemaChange(schemaChanges, Collections.emptyMap(), rows);
 
         assertEquals(DeserializeResult.Type.SCHEMA_CHANGE, result.getType());
-        assertEquals(ddls, result.getDdls());
+        assertEquals(schemaChanges, result.getSchemaChanges());
         assertEquals(rows, result.getRecords());
     }
 
@@ -68,6 +77,6 @@ class DeserializeResultTest {
 
         assertEquals(DeserializeResult.Type.EMPTY, result.getType());
         assertTrue(result.getRecords().isEmpty());
-        assertNull(result.getDdls());
+        assertNull(result.getSchemaChanges());
     }
 }
