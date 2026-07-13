@@ -42,6 +42,7 @@
 #include "format_v2/parquet/reader/count_column_reader.h"
 #include "io/io_common.h"
 #include "runtime/runtime_state.h"
+#include "util/timezone_utils.h"
 
 namespace doris::format::parquet {
 
@@ -52,6 +53,7 @@ struct ParquetReaderScanState {
     ParquetScanScheduler scheduler;
     const RuntimeState* runtime_state = nullptr;
     const cctz::time_zone* timezone = nullptr;
+    std::optional<cctz::time_zone> int96_timezone;
     bool enable_bloom_filter = false;
     bool enable_page_cache = false;
     bool enable_strict_mode = false;
@@ -321,6 +323,15 @@ Status ParquetReader::init(RuntimeState* state) {
             state != nullptr && state->query_options().enable_parquet_filter_by_bloom_filter;
     _state->enable_page_cache =
             state != nullptr && state->query_options().enable_parquet_file_page_cache;
+    if (!_hive_parquet_time_zone.empty()) {
+        cctz::time_zone int96_timezone;
+        if (!TimezoneUtils::find_cctz_time_zone(_hive_parquet_time_zone, int96_timezone)) {
+            return Status::InvalidArgument("Invalid hive.parquet.time-zone: {}",
+                                           _hive_parquet_time_zone);
+        }
+        _state->int96_timezone = int96_timezone;
+        _state->scheduler.set_int96_timezone(&*_state->int96_timezone);
+    }
     if (state != nullptr) {
         _state->runtime_state = state;
         _state->timezone = &state->timezone_obj();

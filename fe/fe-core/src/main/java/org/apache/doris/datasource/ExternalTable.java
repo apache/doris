@@ -244,6 +244,10 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
         return "default";
     }
 
+    public String getHiveParquetTimeZone() throws UserException {
+        return "";
+    }
+
     @Override
     public String getMysqlType() {
         return getType().toMysqlType();
