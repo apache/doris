@@ -240,6 +240,7 @@ void CloudWarmUpManager::handle_jobs() {
                 std::make_shared<bthread::CountdownEvent>(0);
 
         for (int64_t tablet_id : cur_job->tablet_ids) {
+            VLOG_DEBUG << "Warm up tablet " << tablet_id << " stack: " << get_stack_trace();
             if (_cur_job_id == 0) { // The job is canceled
                 break;
             }
