@@ -40,7 +40,6 @@ import org.apache.doris.connector.api.mvcc.ConnectorMvccPartitionView;
 import org.apache.doris.connector.api.mvcc.ConnectorMvccSnapshot;
 import org.apache.doris.connector.api.mvcc.ConnectorTableFreshness;
 import org.apache.doris.connector.api.mvcc.ConnectorTimeTravelSpec;
-import org.apache.doris.datasource.hive.HiveUtil;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccTable;
 import org.apache.doris.datasource.mvcc.MvccUtil;
@@ -269,13 +268,22 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
         for (ConnectorPartitionInfo part : parts) {
             String partitionName = part.getPartitionName();
             nameToLastModifiedMillis.put(partitionName, part.getLastModifiedMillis());
+            List<String> connectorValues = part.getOrderedPartitionValues();
+            // Fail loud OUTSIDE the tolerant try/catch: the connector MUST supply one already-parsed value
+            // per partition column. fe-core no longer parses the rendered name (the legacy hive name-parser
+            // is deleted), so a mis-wired connector that supplies no/short values is a bug — swallowing it
+            // here would leave the built-item set short of the listed-name set and the table would
+            // mis-report as UNPARTITIONED (partition=0/0) instead of surfacing the error.
+            Preconditions.checkState(connectorValues.size() == types.size(),
+                    "connector supplied %s partition values for '%s' but table has %s partition columns %s",
+                    connectorValues.size(), partitionName, types.size(), partitionColumns);
             try {
-                // The connector already renders values (incl. dates) into getPartitionName(), so
-                // building from the rendered name is byte-parity with legacy. Partition values may be
-                // malformed; catch to avoid affecting the query (parity generatePartitionInfo).
+                // The connector supplies the parsed values in name-segment order; building from them is
+                // byte-parity with legacy. A single value may still be un-representable in its column type;
+                // catch to skip it rather than fail the whole query (parity PaimonUtil.generatePartitionInfo).
                 nameToPartitionItem.put(partitionName,
                         toListPartitionItem(partitionName, types,
-                                part.getOrderedPartitionValues(), part.getPartitionValueNullFlags()));
+                                connectorValues, part.getPartitionValueNullFlags()));
             } catch (Exception e) {
                 LOG.warn("toListPartitionItem failed, partitionColumns: {}, partitionName: {}",
                         partitionColumns, partitionName, e);
@@ -306,11 +314,10 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
      */
     private static ListPartitionItem toListPartitionItem(String partitionName, List<Type> types,
             List<String> connectorValues, List<Boolean> nullFlags) throws AnalysisException {
-        // The connector supplies the already-parsed values in name-segment order (hive/paimon/iceberg/hudi);
-        // fall back to parsing the rendered name (e.g. nation=cn/city=beijing) only when not supplied.
-        List<String> partitionValues = !connectorValues.isEmpty()
-                ? connectorValues
-                : HiveUtil.toPartitionValues(partitionName);
+        // The connector supplies the already-parsed values in name-segment order (hive/paimon/iceberg/hudi).
+        // There is no name-parsing fallback anymore; listLatestPartitions has already fail-loud checked that
+        // one value is supplied per partition column, so this size check is a defensive invariant.
+        List<String> partitionValues = connectorValues;
         Preconditions.checkState(partitionValues.size() == types.size(), partitionName + " vs. " + types);
         // Fail loud: a connector that opts in MUST supply one flag per value; a short list would silently
         // default the tail to isNull=false and re-introduce the drop bug. Empty = not opted in = OK.
