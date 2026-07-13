@@ -64,6 +64,7 @@ suite("test_compaction_uniq_keys_with_delete_ck") {
             UNIQUE KEY(`user_id`, `date`, `datev2`, `datetimev2_1`, `datetimev2_2`, `city`, `age`, `sex`)
             ORDER BY(`sex`, `date`, `cost`)
             DISTRIBUTED BY HASH(`user_id`)
+            BUCKETS 1
             PROPERTIES (
                 "replication_num" = "1",
                 "enable_unique_key_merge_on_write" = "true",

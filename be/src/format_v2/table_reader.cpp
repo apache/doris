@@ -45,6 +45,7 @@
 #include "format_v2/delimited_text/text_reader.h"
 #include "format_v2/json/json_reader.h"
 #include "format_v2/native/native_reader.h"
+#include "format_v2/orc/orc_reader.h"
 #include "format_v2/parquet/parquet_reader.h"
 #include "storage/segment/condition_cache.h"
 #include "util/debug_points.h"
@@ -356,24 +357,18 @@ Status build_table_filters_from_conjunct(const VExprContextSPtr& conjunct, Runti
 }
 
 Status parse_deletion_vector(const char* buf, size_t buffer_size, DeleteFileDesc::Format format,
-                             DeleteRows* delete_rows) {
+                             DeletionVector* deletion_vector) {
     DORIS_CHECK(buf != nullptr);
-    DORIS_CHECK(delete_rows != nullptr);
+    DORIS_CHECK(deletion_vector != nullptr);
     DORIS_CHECK(format == DeleteFileDesc::Format::PAIMON ||
                 format == DeleteFileDesc::Format::ICEBERG);
 
     if (format == DeleteFileDesc::Format::PAIMON) {
-        RETURN_IF_ERROR(decode_paimon_deletion_vector_buffer(buf, buffer_size, delete_rows));
+        RETURN_IF_ERROR(decode_paimon_deletion_vector_buffer(buf, buffer_size, deletion_vector));
         return Status::OK();
     }
 
-    roaring::Roaring64Map bitmap;
-    RETURN_IF_ERROR(decode_iceberg_deletion_vector_buffer(buf, buffer_size, &bitmap));
-    delete_rows->reserve(bitmap.cardinality());
-    for (auto it = bitmap.begin(); it != bitmap.end(); it++) {
-        delete_rows->push_back(cast_set<int64_t>(*it));
-    }
-    return Status::OK();
+    return decode_iceberg_deletion_vector_buffer(buf, buffer_size, deletion_vector);
 }
 
 } // namespace
@@ -405,6 +400,9 @@ std::string TableReader::debug_string() const {
         << ", current_file=" << current_file_debug_string(_current_task)
         << ", has_delete_rows=" << (_delete_rows != nullptr)
         << ", delete_row_count=" << (_delete_rows == nullptr ? 0 : _delete_rows->size())
+        << ", has_deletion_vector=" << (_deletion_vector != nullptr)
+        << ", deletion_vector_cardinality="
+        << (_deletion_vector == nullptr ? 0 : _deletion_vector->cardinality())
         << ", has_system_properties=" << (_system_properties != nullptr) << ", system_type="
         << (_system_properties == nullptr ? static_cast<int>(TFileType::FILE_LOCAL)
                                           : static_cast<int>(_system_properties->system_type))
@@ -489,6 +487,20 @@ Status TableReader::init(TableReadOptions&& options) {
                                                                 TUnit::UNIT, table_profile, 1);
         _profile.parse_delete_file_time = ADD_CHILD_TIMER_WITH_LEVEL(
                 _scanner_profile, "ParseDeleteFileTime", table_profile, 1);
+        _profile.decoded_dv_cache_hit_count =
+                ADD_CHILD_COUNTER_WITH_LEVEL(_scanner_profile, "DeletionVectorDecodedCacheHitCount",
+                                             TUnit::UNIT, table_profile, 1);
+        _profile.decoded_dv_cache_miss_count = ADD_CHILD_COUNTER_WITH_LEVEL(
+                _scanner_profile, "DeletionVectorDecodedCacheMissCount", TUnit::UNIT, table_profile,
+                1);
+        _profile.dv_file_cache_hit_count = ADD_CHILD_COUNTER_WITH_LEVEL(
+                _scanner_profile, "DeletionVectorFileCacheHitCount", TUnit::UNIT, table_profile, 1);
+        _profile.dv_file_cache_miss_count =
+                ADD_CHILD_COUNTER_WITH_LEVEL(_scanner_profile, "DeletionVectorFileCacheMissCount",
+                                             TUnit::UNIT, table_profile, 1);
+        _profile.dv_file_cache_peer_read_count = ADD_CHILD_COUNTER_WITH_LEVEL(
+                _scanner_profile, "DeletionVectorFileCachePeerReadCount", TUnit::UNIT,
+                table_profile, 1);
         _profile.exec_timer =
                 ADD_CHILD_TIMER_WITH_LEVEL(_scanner_profile, "GetBlockTime", table_profile, 1);
         _profile.prepare_split_timer =
@@ -501,6 +513,10 @@ Status TableReader::init(TableReadOptions&& options) {
                 ADD_CHILD_TIMER_WITH_LEVEL(_scanner_profile, "PushDownAggTime", table_profile, 1);
         _profile.open_reader_timer =
                 ADD_CHILD_TIMER_WITH_LEVEL(_scanner_profile, "OpenReaderTime", table_profile, 1);
+        _profile.runtime_filter_partition_prune_timer = ADD_TIMER_WITH_LEVEL(
+                _scanner_profile, "FileScannerRuntimeFilterPartitionPruningTime", 1);
+        _profile.runtime_filter_partition_pruned_range_counter = ADD_COUNTER_WITH_LEVEL(
+                _scanner_profile, "RuntimeFilterPartitionPrunedRangeNum", TUnit::UNIT, 1);
     }
     return Status::OK();
 }
@@ -541,7 +557,8 @@ bool TableReader::_should_enable_condition_cache(const FileScanRequest& file_req
     // Delete files/deletion vectors are table-format state. They may change independently of the
     // data file path/mtime/size used by the external cache key, so caching their result can become
     // stale. Keep delete filtering enabled, but do not read or write condition cache.
-    if (_delete_rows != nullptr || !file_request.delete_conjuncts.empty()) {
+    if (_delete_rows != nullptr || _deletion_vector != nullptr ||
+        !file_request.delete_conjuncts.empty()) {
         return false;
     }
     // Runtime filters can arrive late and their payload is not guaranteed to be represented by the
@@ -564,7 +581,8 @@ Status TableReader::_init_reader_condition_cache(const FileScanRequest& file_req
     const auto& file = *_current_file_description;
     _condition_cache_key = segment_v2::ConditionCache::ExternalCacheKey(
             file.path, file.mtime, file.file_size, _condition_cache_digest, file.range_start_offset,
-            file.range_size);
+            file.range_size,
+            segment_v2::ConditionCache::ExternalCacheKey::BASE_GRANULE_AWARE_VERSION);
 
     segment_v2::ConditionCacheHandle handle;
     const bool condition_cache_hit = cache->lookup(_condition_cache_key, &handle);
@@ -588,6 +606,10 @@ Status TableReader::_init_reader_condition_cache(const FileScanRequest& file_req
         _condition_cache_ctx = std::make_shared<ConditionCacheContext>();
         _condition_cache_ctx->is_hit = condition_cache_hit;
         _condition_cache_ctx->filter_result = _condition_cache;
+        _condition_cache_ctx->num_granules = _condition_cache->size();
+        if (condition_cache_hit) {
+            _condition_cache_ctx->base_granule = handle.get_base_granule();
+        }
         _data_reader.reader->set_condition_cache_context(_condition_cache_ctx);
     }
     return Status::OK();
@@ -607,8 +629,10 @@ void TableReader::_finalize_reader_condition_cache() {
         _condition_cache_ctx = nullptr;
         return;
     }
-    segment_v2::ConditionCache::instance()->insert(_condition_cache_key,
-                                                   std::move(_condition_cache));
+    DORIS_CHECK(_condition_cache_ctx->num_granules <= _condition_cache->size());
+    _condition_cache->resize(_condition_cache_ctx->num_granules);
+    segment_v2::ConditionCache::instance()->insert(
+            _condition_cache_key, std::move(_condition_cache), _condition_cache_ctx->base_granule);
     _condition_cache = nullptr;
     _condition_cache_ctx = nullptr;
 }
@@ -654,11 +678,17 @@ Status TableReader::create_next_reader(bool* eos) {
 
 Status TableReader::create_file_reader(std::unique_ptr<FileReader>* reader) {
     DORIS_CHECK(reader != nullptr);
+    const bool enable_mapping_timestamp_tz = _scan_params != nullptr &&
+                                             _scan_params->__isset.enable_mapping_timestamp_tz &&
+                                             _scan_params->enable_mapping_timestamp_tz;
     if (_format == FileFormat::PARQUET) {
-        const bool enable_mapping_timestamp_tz =
-                _scan_params != nullptr && _scan_params->__isset.enable_mapping_timestamp_tz &&
-                _scan_params->enable_mapping_timestamp_tz;
         *reader = std::make_unique<format::parquet::ParquetReader>(
+                _system_properties, _current_task->data_file, _io_ctx, _scanner_profile,
+                _global_rowid_context, enable_mapping_timestamp_tz);
+        return Status::OK();
+    }
+    if (_format == FileFormat::ORC) {
+        *reader = std::make_unique<format::orc::OrcReader>(
                 _system_properties, _current_task->data_file, _io_ctx, _scanner_profile,
                 _global_rowid_context, enable_mapping_timestamp_tz);
         return Status::OK();
@@ -726,12 +756,12 @@ std::unique_ptr<io::FileDescription> create_file_description(const TFileRangeDes
 
 Status TableReader::prepare_split(const SplitReadOptions& options) {
     SCOPED_TIMER(_profile.prepare_split_timer);
+    _current_split_pruned = false;
     // Update to current split format to handle ORC/PARQUET files in one table.
     _format = options.current_split_format;
     _partition_values = std::move(options.partition_values);
-    _current_task = std::make_unique<ScanTask>();
-    _current_task->data_file = create_file_description(options.current_range);
-    _current_file_description = *_current_task->data_file;
+    _current_task.reset();
+    _current_file_description.reset();
     _current_file_range_desc = options.current_range;
     _current_range_compress_type = options.current_range.__isset.compress_type
                                            ? options.current_range.compress_type
@@ -741,9 +771,19 @@ Status TableReader::prepare_split(const SplitReadOptions& options) {
                                      : std::nullopt;
     _global_rowid_context = options.global_rowid_context;
     _delete_rows = nullptr;
+    _deletion_vector = nullptr;
     _aggregate_pushdown_tried = false;
     _remaining_table_level_count = -1;
     _current_reader_reached_eof = false;
+    RETURN_IF_ERROR(_evaluate_partition_prune_conjuncts(options.partition_prune_conjuncts,
+                                                        &_current_split_pruned));
+    if (_current_split_pruned) {
+        COUNTER_UPDATE(_profile.runtime_filter_partition_pruned_range_counter, 1);
+        return Status::OK();
+    }
+    _current_task = std::make_unique<ScanTask>();
+    _current_task->data_file = create_file_description(options.current_range);
+    _current_file_description = *_current_task->data_file;
     if (_push_down_agg_type == TPushAggOp::type::COUNT &&
         options.current_range.__isset.table_format_params &&
         options.current_range.table_format_params.__isset.table_level_row_count) {
@@ -757,6 +797,70 @@ Status TableReader::prepare_split(const SplitReadOptions& options) {
     return _parse_delete_predicates(options);
 }
 
+Status TableReader::_evaluate_partition_prune_conjuncts(const VExprContextSPtrs& conjuncts,
+                                                        bool* can_filter_all) {
+    DORIS_CHECK(can_filter_all != nullptr);
+    SCOPED_TIMER(_profile.runtime_filter_partition_prune_timer);
+    *can_filter_all = false;
+    if (conjuncts.empty() || _partition_values.empty()) {
+        return Status::OK();
+    }
+
+    VExprContextSPtrs partition_conjuncts;
+    for (const auto& conjunct : conjuncts) {
+        DORIS_CHECK(conjunct != nullptr);
+        DORIS_CHECK(conjunct->root() != nullptr);
+        std::set<GlobalIndex> global_indices;
+        collect_global_indices(conjunct->root(), &global_indices);
+        if (global_indices.empty()) {
+            continue;
+        }
+        const bool partition_only = std::ranges::all_of(global_indices, [&](GlobalIndex index) {
+            if (index.value() >= _projected_columns.size()) {
+                return false;
+            }
+            const auto& column = _projected_columns[index.value()];
+            return column.is_partition_key &&
+                   find_partition_value(column, _partition_values) != nullptr;
+        });
+        if (partition_only) {
+            partition_conjuncts.push_back(conjunct);
+        }
+    }
+    if (partition_conjuncts.empty()) {
+        return Status::OK();
+    }
+
+    Block block;
+    RETURN_IF_ERROR(_build_partition_prune_block(&block));
+    RowDescriptor row_desc;
+    for (const auto& conjunct : partition_conjuncts) {
+        RETURN_IF_ERROR(conjunct->prepare(_runtime_state, row_desc));
+        RETURN_IF_ERROR(conjunct->open(_runtime_state));
+    }
+    IColumn::Filter result_filter(block.rows(), 1);
+    return VExprContext::execute_conjuncts(partition_conjuncts, nullptr, &block, &result_filter,
+                                           can_filter_all);
+}
+
+Status TableReader::_build_partition_prune_block(Block* block) const {
+    DORIS_CHECK(block != nullptr);
+    DORIS_CHECK(!_projected_columns.empty());
+    block->clear();
+    for (const auto& column : _projected_columns) {
+        DORIS_CHECK(column.type != nullptr);
+        ColumnPtr value_column = column.type->create_column_const_with_default_value(1);
+        if (column.is_partition_key) {
+            const auto* partition_value = find_partition_value(column, _partition_values);
+            if (partition_value != nullptr) {
+                value_column = column.type->create_column_const(1, *partition_value);
+            }
+        }
+        block->insert({std::move(value_column), column.type, column.name});
+    }
+    return Status::OK();
+}
+
 Status TableReader::_parse_delete_predicates(const SplitReadOptions& options) {
     DeleteFileDesc desc {.fs_name = options.current_range.fs_name};
     bool has_delete_file = false;
@@ -766,41 +870,58 @@ Status TableReader::_parse_delete_predicates(const SplitReadOptions& options) {
         DORIS_CHECK(options.cache != nullptr);
         Status create_status = Status::OK();
 
-        _delete_rows = options.cache->get<DeleteRows>(desc.key, [&]() -> DeleteRows* {
-            auto delete_rows = std::make_unique<DeleteRows>();
+        bool decoded_cache_hit = false;
+        _deletion_vector = options.cache->get<DeletionVector>(
+                desc.key,
+                [&]() -> DeletionVector* {
+                    auto deletion_vector = std::make_unique<DeletionVector>();
 
-            DeletionVectorReader dv_reader(_runtime_state, _scanner_profile, *_scan_params, desc,
-                                           _io_ctx.get());
-            create_status = dv_reader.open();
-            if (!create_status.ok()) [[unlikely]] {
-                return nullptr;
-            }
+                    DeletionVectorReader dv_reader(_runtime_state, _scanner_profile, *_scan_params,
+                                                   desc, _io_ctx.get());
+                    create_status = dv_reader.open();
+                    if (!create_status.ok()) [[unlikely]] {
+                        return nullptr;
+                    }
 
-            size_t bytes_read = desc.size;
-            std::vector<char> buffer(bytes_read);
-            DBUG_EXECUTE_IF("TableReader.parse_deletion_vector.io_error", {
-                create_status = Status::IOError("injected format v2 deletion vector read failure");
-                return nullptr;
-            });
-            DBUG_EXECUTE_IF("TableReader.parse_deletion_vector.should_stop", {
-                create_status = Status::EndOfFile("stop read.");
-                return nullptr;
-            });
-            create_status = dv_reader.read_at(desc.start_offset, {buffer.data(), bytes_read});
-            if (!create_status.ok()) [[unlikely]] {
-                return nullptr;
-            }
+                    size_t bytes_read = desc.size;
+                    std::vector<char> buffer(bytes_read);
+                    DBUG_EXECUTE_IF("TableReader.parse_deletion_vector.io_error", {
+                        create_status =
+                                Status::IOError("injected format v2 deletion vector read failure");
+                        return nullptr;
+                    });
+                    DBUG_EXECUTE_IF("TableReader.parse_deletion_vector.should_stop", {
+                        create_status = Status::EndOfFile("stop read.");
+                        return nullptr;
+                    });
+                    create_status =
+                            dv_reader.read_at(desc.start_offset, {buffer.data(), bytes_read});
+                    const auto& file_cache_stats = dv_reader.file_cache_statistics();
+                    COUNTER_UPDATE(_profile.dv_file_cache_hit_count,
+                                   file_cache_stats.num_local_io_total);
+                    COUNTER_UPDATE(_profile.dv_file_cache_miss_count,
+                                   file_cache_stats.num_remote_io_total);
+                    COUNTER_UPDATE(_profile.dv_file_cache_peer_read_count,
+                                   file_cache_stats.num_peer_io_total);
+                    if (!create_status.ok()) [[unlikely]] {
+                        return nullptr;
+                    }
 
-            const char* buf = buffer.data();
-            SCOPED_TIMER(_profile.parse_delete_file_time);
-            create_status = parse_deletion_vector(buf, bytes_read, desc.format, delete_rows.get());
-            if (!create_status.ok()) [[unlikely]] {
-                return nullptr;
-            }
-            COUNTER_UPDATE(_profile.num_delete_rows, delete_rows->size());
-            return delete_rows.release();
-        });
+                    const char* buf = buffer.data();
+                    SCOPED_TIMER(_profile.parse_delete_file_time);
+                    create_status = parse_deletion_vector(buf, bytes_read, desc.format,
+                                                          deletion_vector.get());
+                    if (!create_status.ok()) [[unlikely]] {
+                        return nullptr;
+                    }
+                    COUNTER_UPDATE(_profile.num_delete_rows, deletion_vector->cardinality());
+                    return deletion_vector.release();
+                },
+                &decoded_cache_hit);
         RETURN_IF_ERROR(create_status);
+        COUNTER_UPDATE(decoded_cache_hit ? _profile.decoded_dv_cache_hit_count
+                                         : _profile.decoded_dv_cache_miss_count,
+                       1);
     }
 
     return Status::OK();

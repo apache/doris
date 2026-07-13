@@ -73,6 +73,9 @@ public:
     bool read_dense_for_nullable() const { return _read_dense_for_nullable; }
     const int16_t* def_levels() const { return _def_levels; }
     const int16_t* rep_levels() const { return _rep_levels; }
+    const std::vector<std::shared_ptr<::arrow::Array>>& binary_chunks() const {
+        return _binary_chunks;
+    }
 
 private:
     friend class ParquetLeafReader;

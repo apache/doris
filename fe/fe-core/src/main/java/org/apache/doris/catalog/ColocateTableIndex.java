@@ -346,6 +346,9 @@ public class ColocateTableIndex implements Writable {
                 group2Schema.remove(groupId);
                 group2ErrMsgs.remove(groupId);
                 unstableGroups.remove(groupId);
+                if (Config.isCloudMode()) {
+                    Env.getCurrentSystemInfo().invalidateCloudColocatePlacement(groupId);
+                }
                 String fullGroupName = null;
                 for (Map.Entry<String, GroupId> entry : groupName2Id.entrySet()) {
                     if (entry.getValue().equals(groupId)) {

@@ -49,6 +49,7 @@ public:
     Status init(TableReadOptions&& options) override;
     Status prepare_split(const SplitReadOptions& options) override;
     Status get_block(Block* block, bool* eos) override;
+    Status abort_split() override;
     Status close() override;
 
 protected:
