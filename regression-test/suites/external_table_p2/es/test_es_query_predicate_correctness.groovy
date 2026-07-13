@@ -20,7 +20,7 @@
 //   P0-4: REGEXP must generate ES 'regexp' query, not 'wildcard'
 //   P1-3: IS NULL must generate 'must_not exists', not 'term null'
 
-suite("test_es_query_predicate_correctness", "p0,external") {
+suite("test_es_query_predicate_correctness", "p2,external") {
     String enabled = context.config.otherConfigs.get("enableEsTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")

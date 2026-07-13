@@ -20,7 +20,7 @@ import java.sql.Connection
 import java.sql.DriverManager
 import java.net.URL
 
-suite("test_db2_jdbc_catalog", "p0,external") {
+suite("test_db2_jdbc_catalog", "p2,external") {
     qt_sql """select current_catalog()"""
 
     String enabled = context.config.otherConfigs.get("enableJdbcTest")
