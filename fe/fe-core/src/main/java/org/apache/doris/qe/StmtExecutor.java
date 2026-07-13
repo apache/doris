@@ -100,6 +100,7 @@ import org.apache.doris.nereids.trees.plans.commands.DeleteFromUsingCommand;
 import org.apache.doris.nereids.trees.plans.commands.EmptyCommand;
 import org.apache.doris.nereids.trees.plans.commands.Forward;
 import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
+import org.apache.doris.nereids.trees.plans.commands.NeedAuditEncryption;
 import org.apache.doris.nereids.trees.plans.commands.PrepareCommand;
 import org.apache.doris.nereids.trees.plans.commands.Redirect;
 import org.apache.doris.nereids.trees.plans.commands.SupportProfile;
@@ -584,9 +585,25 @@ public class StmtExecutor {
         TUniqueId queryId = UniqueIdUtils.fastUniqueId();
         if (Config.enable_print_request_before_execution) {
             LOG.info("begin to execute query {} {}",
-                    DebugUtil.printId(queryId), originStmt == null ? "null" : originStmt.originStmt);
+                    DebugUtil.printId(queryId), getStmtForExecutionLog(parsedStmt, originStmt));
         }
         queryRetry(queryId);
+    }
+
+    static String getStmtForExecutionLog(StatementBase parsedStmt, OriginStatement originStmt) {
+        String stmt = originStmt == null ? "null" : originStmt.originStmt;
+        if (stmt == null) {
+            return null;
+        }
+        if (parsedStmt instanceof LogicalPlanAdapter) {
+            LogicalPlan logicalPlan = ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
+            if (logicalPlan instanceof NeedAuditEncryption) {
+                return ((NeedAuditEncryption) logicalPlan).geneEncryptionSQL(stmt);
+            }
+        } else if (parsedStmt != null && parsedStmt.needAuditEncryption()) {
+            return "";
+        }
+        return stmt;
     }
 
     public void queryRetry(TUniqueId queryId) throws Exception {

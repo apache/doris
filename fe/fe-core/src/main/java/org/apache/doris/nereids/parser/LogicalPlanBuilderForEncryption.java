@@ -113,6 +113,30 @@ public class LogicalPlanBuilderForEncryption extends LogicalPlanBuilder {
         return super.visitCreateCatalog(ctx);
     }
 
+    // create resource clause
+    @Override
+    public LogicalPlan visitCreateResource(DorisParser.CreateResourceContext ctx) {
+        if (ctx.properties != null && ctx.properties.fileProperties != null) {
+            DorisParser.PropertyClauseContext propertyClauseContext = ctx.properties;
+            encryptProperty(visitPropertyClause(propertyClauseContext),
+                    propertyClauseContext.fileProperties.start.getStartIndex(),
+                    propertyClauseContext.fileProperties.stop.getStopIndex());
+        }
+        return super.visitCreateResource(ctx);
+    }
+
+    // alter resource clause
+    @Override
+    public LogicalPlan visitAlterResource(DorisParser.AlterResourceContext ctx) {
+        if (ctx.propertyClause() != null && ctx.propertyClause().fileProperties != null) {
+            DorisParser.PropertyClauseContext propertyClauseContext = ctx.propertyClause();
+            encryptProperty(visitPropertyClause(propertyClauseContext),
+                    propertyClauseContext.fileProperties.start.getStartIndex(),
+                    propertyClauseContext.fileProperties.stop.getStopIndex());
+        }
+        return super.visitAlterResource(ctx);
+    }
+
     // create repository clause (CREATE [READ ONLY] REPOSITORY ... WITH <backend> ... PROPERTIES(...))
     @Override
     public LogicalPlan visitCreateRepository(DorisParser.CreateRepositoryContext ctx) {

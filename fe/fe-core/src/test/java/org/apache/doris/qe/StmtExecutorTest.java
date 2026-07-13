@@ -24,6 +24,10 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlSerializer;
+import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.glue.LogicalPlanAdapter;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.ResultFileSink;
@@ -97,6 +101,24 @@ public class StmtExecutorTest extends TestWithFeService {
         StmtExecutor stmtExecutor = new StmtExecutor(connectContext, "");
         stmtExecutor.execute();
         Assert.assertEquals(QueryState.MysqlStateType.OK, connectContext.getState().getStateType());
+    }
+
+    @Test
+    public void testExecutionLogStmtMasksNeedAuditEncryptionSql() {
+        String sql = "CREATE RESOURCE IF NOT EXISTS `ai_resource` PROPERTIES ("
+                + "'type' = 'ai', "
+                + "'ai.provider_type' = 'deepseek', "
+                + "'ai.endpoint' = 'https://api.deepseek.com/chat/completions', "
+                + "'ai.model_name' = 'deepseek-chat', "
+                + "'ai.api_key' = 'sk-secret')";
+        LogicalPlan plan = new NereidsParser().parseSingle(sql);
+        LogicalPlanAdapter adapter = new LogicalPlanAdapter(plan, new StatementContext());
+
+        String stmtForLog = StmtExecutor.getStmtForExecutionLog(adapter, new OriginStatement(sql, 0));
+
+        Assertions.assertFalse(stmtForLog.contains("sk-secret"), stmtForLog);
+        Assertions.assertTrue(stmtForLog.contains("*XXX"), stmtForLog);
+        Assertions.assertTrue(stmtForLog.contains("https://api.deepseek.com/chat/completions"), stmtForLog);
     }
 
     @Test

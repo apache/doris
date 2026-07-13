@@ -43,6 +43,7 @@ public class DatasourcePrintableMapTest {
         Assertions.assertTrue(DatasourcePrintableMap.SENSITIVE_KEY.contains("bos_secret_accesskey"));
         Assertions.assertTrue(DatasourcePrintableMap.SENSITIVE_KEY.contains("jdbc.password"));
         Assertions.assertTrue(DatasourcePrintableMap.SENSITIVE_KEY.contains("elasticsearch.password"));
+        Assertions.assertTrue(DatasourcePrintableMap.SENSITIVE_KEY.contains("ai.api_key"));
         Assertions.assertTrue(DatasourcePrintableMap.SENSITIVE_KEY.contains("iceberg.rest.oauth2.credential"));
         Assertions.assertTrue(DatasourcePrintableMap.SENSITIVE_KEY.contains("iceberg.rest.oauth2.token"));
 
@@ -160,6 +161,7 @@ public class DatasourcePrintableMapTest {
         testMap.put("kerberos_keytab_content", "kerberos_content");
         testMap.put("iceberg.rest.oauth2.credential", "iceberg_rest_credential");
         testMap.put("iceberg.rest.oauth2.token", "iceberg_rest_token");
+        testMap.put("AI.API_KEY", "ai_api_key");
 
         DatasourcePrintableMap<String, String> printableMap = new DatasourcePrintableMap<>(testMap, "=", false, false, true);
         String result = printableMap.toString();
@@ -173,6 +175,7 @@ public class DatasourcePrintableMapTest {
                 + DatasourcePrintableMap.PASSWORD_MASK));
         Assertions.assertTrue(result.contains("iceberg.rest.oauth2.token = "
                 + DatasourcePrintableMap.PASSWORD_MASK));
+        Assertions.assertTrue(result.contains("AI.API_KEY = " + DatasourcePrintableMap.PASSWORD_MASK));
     }
 
     @Test

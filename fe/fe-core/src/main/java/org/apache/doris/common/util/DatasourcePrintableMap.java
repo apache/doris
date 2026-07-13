@@ -18,6 +18,7 @@
 package org.apache.doris.common.util;
 
 import org.apache.doris.common.maxcompute.MCProperties;
+import org.apache.doris.datasource.property.constants.AIProperties;
 import org.apache.doris.datasource.property.metastore.AWSGlueMetaStoreBaseProperties;
 import org.apache.doris.datasource.property.metastore.AliyunDLFBaseProperties;
 import org.apache.doris.datasource.property.metastore.IcebergRestProperties;
@@ -55,6 +56,7 @@ public class DatasourcePrintableMap<K, V> extends BasicPrintableMap<K, V> {
         SENSITIVE_KEY.add("bos_secret_accesskey");
         SENSITIVE_KEY.add("jdbc.password");
         SENSITIVE_KEY.add("elasticsearch.password");
+        SENSITIVE_KEY.add(AIProperties.API_KEY);
         SENSITIVE_KEY.addAll(Arrays.asList(
                 MCProperties.SECRET_KEY));
         SENSITIVE_KEY.addAll(ConnectorPropertiesUtils.getSensitiveKeys(S3Properties.class));
