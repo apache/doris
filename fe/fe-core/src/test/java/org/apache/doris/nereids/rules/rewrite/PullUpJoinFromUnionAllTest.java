@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -35,6 +36,7 @@ import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -55,13 +57,23 @@ class PullUpJoinFromUnionAllTest {
     }
 
     @Test
-    void ruleSkipsJoinChildrenWithDifferentCommonSideOutputs() {
+    void comparatorRejectsDifferentFilterChildOutputSizes() {
+        LogicalFilter<LogicalOlapScan> smallFilter = filter(newCachedOutputScan(1, "common_filter", 0));
+        LogicalFilter<LogicalOlapScan> largeFilter = filter(newCachedOutputScan(1, "common_filter", 0, 1));
+
+        PullUpJoinFromUnionAll.LogicalPlanComparator comparator =
+                new PullUpJoinFromUnionAll().new LogicalPlanComparator();
+        Assertions.assertFalse(comparator.isLogicalEqual(largeFilter, smallFilter));
+    }
+
+    @Test
+    void ruleSkipsJoinChildrenWithDifferentFilteredCommonSideOutputs() {
         LogicalOlapScan commonSmallScan = newScan(10, "common_small");
         LogicalOlapScan commonLargeScan = newScan(10, "common_large");
-        LogicalProject<LogicalOlapScan> commonSmall = project(selectSlots(commonSmallScan.getOutput(), 0),
-                commonSmallScan);
-        LogicalProject<LogicalOlapScan> commonLarge = project(selectSlots(commonLargeScan.getOutput(), 0, 1),
-                commonLargeScan);
+        LogicalFilter<LogicalOlapScan> commonSmall = filter(commonSmallScan.withCachedOutput(
+                selectSlotsAsSlots(commonSmallScan.getOutput(), 0)));
+        LogicalFilter<LogicalOlapScan> commonLarge = filter(commonLargeScan.withCachedOutput(
+                selectSlotsAsSlots(commonLargeScan.getOutput(), 0, 1)));
         LogicalOlapScan otherLeft = newScan(20, "other_left");
         LogicalOlapScan otherRight = newScan(30, "other_right");
 
@@ -91,7 +103,17 @@ class PullUpJoinFromUnionAllTest {
         return PlanConstructor.newLogicalOlapScan(tableId, tableName, 0);
     }
 
-    private static LogicalJoin<Plan, LogicalOlapScan> join(LogicalProject<? extends Plan> commonSide,
+    private static LogicalOlapScan newCachedOutputScan(long tableId, String tableName, int... indexes) {
+        LogicalOlapScan scan = newScan(tableId, tableName);
+        return scan.withCachedOutput(selectSlotsAsSlots(scan.getOutput(), indexes));
+    }
+
+    private static LogicalFilter<LogicalOlapScan> filter(LogicalOlapScan child) {
+        return new LogicalFilter<>(ImmutableSet.of(new EqualTo(child.getOutput().get(0), child.getOutput().get(0))),
+                child);
+    }
+
+    private static LogicalJoin<Plan, LogicalOlapScan> join(Plan commonSide,
             LogicalOlapScan otherSide) {
         Expression joinCondition = new EqualTo(commonSide.getOutput().get(0), otherSide.getOutput().get(0));
         return new LogicalJoin<>(JoinType.INNER_JOIN, ImmutableList.of(joinCondition), ImmutableList.of(),
@@ -121,6 +143,14 @@ class PullUpJoinFromUnionAllTest {
 
     private static List<NamedExpression> selectSlots(List<Slot> output, int... indexes) {
         ImmutableList.Builder<NamedExpression> selected = ImmutableList.builder();
+        for (int index : indexes) {
+            selected.add(output.get(index));
+        }
+        return selected.build();
+    }
+
+    private static List<Slot> selectSlotsAsSlots(List<Slot> output, int... indexes) {
+        ImmutableList.Builder<Slot> selected = ImmutableList.builder();
         for (int index : indexes) {
             selected.add(output.get(index));
         }
