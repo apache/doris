@@ -45,16 +45,12 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
-#include "format/column_descriptor.h"
-#include "format/format_common.h"
-#include "format/orc/vorc_reader.h"
 #include "format/parquet/vparquet_column_chunk_reader.h"
 #include "format/parquet/vparquet_reader.h"
 #include "io/fs/file_meta_cache.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/file_system.h"
 #include "io/fs/local_file_system.h"
-#include "io/io_common.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
 #include "storage/olap_scan_common.h"
@@ -785,72 +781,6 @@ TEST_F(IcebergReaderTest, read_iceberg_parquet_file) {
 
     // Verify test results using helper function
     verify_test_results(block, read_rows);
-}
-
-TEST_F(IcebergReaderTest, v1_deletion_vector_read_error_releases_cache_entry) {
-    RuntimeState runtime_state = RuntimeState(TQueryOptions(), TQueryGlobals());
-    TFileScanRangeParams scan_params;
-    scan_params.__set_file_type(TFileType::FILE_LOCAL);
-    scan_params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
-
-    TFileRangeDesc scan_range;
-    scan_range.__set_fs_name("");
-    scan_range.__set_path("data.parquet");
-    scan_range.__set_start_offset(0);
-    scan_range.__set_size(0);
-
-    RuntimeProfile profile("test_profile");
-    cctz::time_zone ctz;
-    TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
-    io::IOContext io_ctx;
-    ShardedKVCache kv_cache(8);
-
-    IcebergParquetReader iceberg_reader(&kv_cache, &profile, scan_params, scan_range, 1024, &ctz,
-                                        &io_ctx, &runtime_state, cache.get());
-
-    TIcebergDeleteFileDesc delete_file;
-    delete_file.__set_content(IcebergReaderMixin<ParquetReader>::DELETION_VECTOR);
-    delete_file.__set_path("./be/test/exec/test_data/missing_iceberg_v1_delete_vector.bin");
-    delete_file.__set_content_offset(0);
-    delete_file.__set_content_size_in_bytes(16);
-
-    const auto status =
-            iceberg_reader.TEST_read_deletion_vector("file:///tmp/data.parquet", delete_file);
-
-    ASSERT_FALSE(status.ok());
-    EXPECT_NE(status.to_string().find(delete_file.path), std::string::npos);
-}
-
-TEST_F(IcebergReaderTest, v1_position_delete_read_error_releases_cache_entry) {
-    RuntimeState runtime_state = RuntimeState(TQueryOptions(), TQueryGlobals());
-    TFileScanRangeParams scan_params;
-    scan_params.__set_file_type(TFileType::FILE_LOCAL);
-    scan_params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
-
-    TFileRangeDesc scan_range;
-    scan_range.__set_fs_name("");
-    scan_range.__set_path("data.parquet");
-    scan_range.__set_start_offset(0);
-    scan_range.__set_size(0);
-
-    RuntimeProfile profile("test_profile");
-    cctz::time_zone ctz;
-    TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
-    io::IOContext io_ctx;
-    ShardedKVCache kv_cache(8);
-
-    IcebergParquetReader iceberg_reader(&kv_cache, &profile, scan_params, scan_range, 1024, &ctz,
-                                        &io_ctx, &runtime_state, cache.get());
-
-    TIcebergDeleteFileDesc delete_file;
-    delete_file.__set_content(IcebergReaderMixin<ParquetReader>::POSITION_DELETE);
-    delete_file.__set_path("./be/test/exec/test_data/missing_iceberg_v1_position_delete.parquet");
-
-    const auto status =
-            iceberg_reader.TEST_position_delete_base("file:///tmp/data.parquet", {delete_file});
-
-    ASSERT_FALSE(status.ok());
-    EXPECT_NE(status.to_string().find(delete_file.path), std::string::npos);
 }
 
 // Test reading real Iceberg Orc file using IcebergTableReader

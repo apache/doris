@@ -42,6 +42,7 @@
 #include "format/column_type_convert.h"
 #include "format/format_common.h"
 #include "format/generic_reader.h"
+#include "format/table/deletion_vector.h"
 #include "format/table/table_format_reader.h"
 #include "format/table/transactional_hive_reader.h"
 #include "io/file_factory.h"
@@ -53,7 +54,6 @@
 #include "orc/Type.hh"
 #include "orc/Vector.hh"
 #include "orc/sargs/Literal.hh"
-#include "roaring/roaring64map.hh"
 #include "runtime/runtime_profile.h"
 #include "storage/olap_common.h"
 
@@ -200,11 +200,13 @@ public:
         _position_delete_ordered_rowids = delete_rows;
     }
 
-    void set_deletion_vector(const roaring::Roaring64Map* deletion_vector) {
+    void set_deletion_vector(const DeletionVector* deletion_vector) {
         _deletion_vector = deletion_vector;
     }
 
-    void set_delete_rows(const AcidRowIDSet* delete_rows) { _delete_rows = delete_rows; }
+    void set_delete_rows(const TransactionalHiveReader::AcidRowIDSet* delete_rows) {
+        _delete_rows = delete_rows;
+    }
 
     Status filter(orc::ColumnVectorBatch& data, uint16_t* sel, uint16_t size, void* arg);
 
@@ -243,27 +245,7 @@ public:
 
     bool count_read_rows() override { return true; }
 
-    void set_condition_cache_context(std::shared_ptr<ConditionCacheContext> ctx) override {
-        _condition_cache_ctx = std::move(ctx);
-    }
-
-    bool supports_count_pushdown() const override { return true; }
-
-    int64_t get_total_rows() const override {
-        return _row_reader ? _row_reader->getNumberOfRows() : 0;
-    }
-
-    bool has_delete_operations() const override {
-        return (_position_delete_ordered_rowids != nullptr &&
-                !_position_delete_ordered_rowids->empty()) ||
-               (_deletion_vector != nullptr && !_deletion_vector->isEmpty()) ||
-               (_delete_rows != nullptr && !_delete_rows->empty());
-    }
-
-    // RowPositionProvider implementation
-    const std::vector<rowid_t>& current_batch_row_positions() const override {
-        return _current_batch_row_positions;
-    }
+    size_t get_batch_size() const override { return _batch_size; }
 
 protected:
     void _collect_profile_before_close() override;
@@ -778,7 +760,7 @@ private:
 
     //support iceberg position delete .
     const std::vector<int64_t>* _position_delete_ordered_rowids = nullptr;
-    const roaring::Roaring64Map* _deletion_vector = nullptr;
+    const DeletionVector* _deletion_vector = nullptr;
     std::unordered_map<const VSlotRef*, orc::PredicateDataType>
             _vslot_ref_to_orc_predicate_data_type;
     std::unordered_map<const VLiteral*, orc::Literal> _vliteral_to_orc_literal;

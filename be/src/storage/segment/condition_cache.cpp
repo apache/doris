@@ -23,7 +23,8 @@
 
 namespace doris::segment_v2 {
 
-bool ConditionCache::lookup(const CacheKey& key, ConditionCacheHandle* handle) {
+template <typename KeyType>
+bool ConditionCache::lookup(const KeyType& key, ConditionCacheHandle* handle) {
     if (key.encode().empty()) {
         return false;
     }

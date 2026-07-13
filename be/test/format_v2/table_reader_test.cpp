@@ -48,7 +48,7 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
-#include "exprs/runtime_filter_expr.h"
+#include "exprs/vruntimefilter_wrapper.h"
 #include "exprs/vectorized_fn_call.h"
 #include "exprs/vexpr.h"
 #include "exprs/vliteral.h"
@@ -262,7 +262,8 @@ VExprSPtr runtime_filter_wrapper_expr(VExprSPtr impl) {
     node.__set_node_type(TExprNodeType::SLOT_REF);
     node.__set_type(std::make_shared<DataTypeUInt8>()->to_thrift());
     node.__set_num_children(1);
-    return RuntimeFilterExpr::create_shared(node, std::move(impl), 0, false, /*filter_id=*/1);
+    return VRuntimeFilterWrapper::create_shared(node, std::move(impl), 0, false,
+                                                /*filter_id=*/1);
 }
 
 class NonDeterministicPartitionPredicate final : public VExpr {

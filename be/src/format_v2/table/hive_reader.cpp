@@ -60,7 +60,7 @@ bool is_file_column_position_slot(const TFileScanSlotInfo& slot_info,
     if (slot_info.__isset.is_file_slot) {
         return slot_info.is_file_slot;
     }
-    return !slot_info.__isset.category || slot_info.category != TColumnCategory::PARTITION_KEY;
+    return true;
 }
 
 bool is_hive1_orc_column_name(std::string_view name) {

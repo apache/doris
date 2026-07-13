@@ -897,6 +897,8 @@ template Status DataTypeNumberSerDe<TYPE_IPV4>::read_column_from_orc(
         IColumn& column, const OrcDecodedColumnView& view) const;
 template Status DataTypeNumberSerDe<TYPE_IPV6>::read_column_from_orc(
         IColumn& column, const OrcDecodedColumnView& view) const;
+template Status DataTypeNumberSerDe<TYPE_TIME>::read_column_from_orc(
+        IColumn& column, const OrcDecodedColumnView& view) const;
 template Status DataTypeNumberSerDe<TYPE_TIMEV2>::read_column_from_orc(
         IColumn& column, const OrcDecodedColumnView& view) const;
 template Status DataTypeNumberSerDe<TYPE_TIMESTAMPTZ>::read_column_from_orc(

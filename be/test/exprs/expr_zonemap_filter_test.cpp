@@ -731,7 +731,7 @@ TEST(ExprZonemapFilterTest, VInPredicateDictionaryAndBloomUseMaterializedValues)
 
     RuntimeState runtime_state;
     runtime_state.set_desc_tbl(desc_tbl);
-    RowDescriptor row_desc(runtime_state.desc_tbl(), {0});
+    RowDescriptor row_desc(runtime_state.desc_tbl(), {0}, {false});
 
     auto in_predicate = std::make_shared<VInPredicate>(make_in_predicate_node(false, 3));
     auto in_slot = make_slot(0, type);

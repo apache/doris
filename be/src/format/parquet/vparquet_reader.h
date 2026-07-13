@@ -35,12 +35,12 @@
 #include "format/parquet/parquet_predicate.h"
 #include "format/parquet/vparquet_column_reader.h"
 #include "format/parquet/vparquet_group_reader.h"
+#include "format/table/deletion_vector.h"
 #include "format/table/table_format_reader.h"
 #include "io/file_factory.h"
 #include "io/fs/file_meta_cache.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_reader_writer_fwd.h"
-#include "roaring/roaring64map.hh"
 #include "runtime/runtime_profile.h"
 #include "storage/olap_scan_common.h"
 #include "util/obj_lru_cache.h"
@@ -155,9 +155,9 @@ public:
     // set the delete rows in current parquet file
     void set_delete_rows(const std::vector<int64_t>* delete_rows) { _delete_rows = delete_rows; }
 
-    // DVs stay compressed in the query cache. Only row ids belonging to the row group being opened
-    // are materialized for the legacy RowGroupReader position-delete interface.
-    void set_deletion_vector(const roaring::Roaring64Map* deletion_vector) {
+    // Keep DVs compressed in the query cache and expand only the current row group's row ids for
+    // the legacy RowGroupReader position-delete interface.
+    void set_deletion_vector(const DeletionVector* deletion_vector) {
         _deletion_vector = deletion_vector;
     }
 
@@ -197,21 +197,6 @@ public:
     }
 
     bool count_read_rows() override { return true; }
-
-    void set_condition_cache_context(std::shared_ptr<ConditionCacheContext> ctx) override;
-
-    bool supports_count_pushdown() const override { return true; }
-
-    int64_t get_total_rows() const override;
-
-    bool has_delete_operations() const override {
-        return (_delete_rows != nullptr && !_delete_rows->empty()) ||
-               (_deletion_vector != nullptr && !_deletion_vector->isEmpty());
-    }
-
-    /// Disable row-group range filtering (needed when reading delete files
-    /// whose TFileRangeDesc has size=-1).
-    void set_filter_groups(bool v) { _filter_groups = v; }
 
 protected:
     void _collect_profile_before_close() override;
@@ -366,7 +351,7 @@ private:
     // Deleted rows will be marked by Iceberg/Paimon. So we should filter deleted rows when reading it.
     const std::vector<int64_t>* _delete_rows = nullptr;
     int64_t _delete_rows_index = 0;
-    const roaring::Roaring64Map* _deletion_vector = nullptr;
+    const DeletionVector* _deletion_vector = nullptr;
     std::vector<int64_t> _row_group_deletion_vector_rows;
 
     // Used for column lazy read.

@@ -138,7 +138,7 @@ static std::string iceberg_params_debug_string(const std::optional<TIcebergFileD
         << (iceberg_params.__isset.delete_files
                     ? iceberg_delete_files_debug_string(iceberg_params.delete_files)
                     : "[]")
-        << ", has_serialized_split=" << iceberg_params.__isset.serialized_split << "}";
+        << "}";
     return out.str();
 }
 

@@ -160,7 +160,15 @@ public:
     // which rows in the block should be evaluated.
     // If expr is executing constant expressions, then block should be nullptr.
     virtual Status execute_column(VExprContext* context, const Block* block, Selector* selector,
-                                  size_t count, ColumnPtr& result_column) const = 0;
+                                  size_t count, ColumnPtr& result_column) const {
+        return execute_column_impl(context, block, selector, count, result_column);
+    }
+
+    virtual Status execute_column_impl(VExprContext* context, const Block* block,
+                                       const Selector* selector, size_t count,
+                                       ColumnPtr& result_column) const {
+        return execute_column(context, block, const_cast<Selector*>(selector), count, result_column);
+    }
 
     // Currently, due to fe planning issues, for slot-ref expressions the type of the returned Column may not match data_type.
     // Therefore we need a function like this to return the actual type produced by execution.

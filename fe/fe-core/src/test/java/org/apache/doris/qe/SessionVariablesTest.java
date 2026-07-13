@@ -193,28 +193,6 @@ public class SessionVariablesTest extends TestWithFeService {
     }
 
     @Test
-    public void testForceEagerAggHintParseWhenSetSessionVariable() throws Exception {
-        SessionVariable sessionVar = new SessionVariable();
-
-        VariableMgr.setVar(sessionVar, new SetVar(SetType.SESSION,
-                "force_eager_agg_hint", new StringLiteral("sum:t1.a=push; count:*=nopush")));
-        Assertions.assertEquals("sum:t1.a=push; count:*=nopush", sessionVar.forceEagerAggHint);
-        Assertions.assertEquals(Action.PUSH, sessionVar.getForceEagerAggHintMap().get("sum:t1.a"));
-        Assertions.assertEquals(Action.NOPUSH, sessionVar.getForceEagerAggHintMap().get("count:*"));
-
-        ExceptionChecker.expectThrowsWithMsg(DdlException.class,
-                "Invalid force_eager_agg_hint",
-                () -> VariableMgr.setVar(sessionVar, new SetVar(SetType.SESSION,
-                        "force_eager_agg_hint", new StringLiteral("sum:t1.a=unknown"))));
-        Assertions.assertEquals("sum:t1.a=push; count:*=nopush", sessionVar.forceEagerAggHint);
-        Assertions.assertEquals(Action.PUSH, sessionVar.getForceEagerAggHintMap().get("sum:t1.a"));
-
-        SessionVariable restored = new SessionVariable();
-        restored.readFromJson("{\"force_eager_agg_hint\":\"sum:t2.b=no_push\"}");
-        Assertions.assertEquals(Action.NOPUSH, restored.getForceEagerAggHintMap().get("sum:t2.b"));
-    }
-
-    @Test
     public void testSetVarInHint() {
         String sql = "insert into test_t1 select /*+ set_var(enable_nereids_dml_with_pipeline=false)*/ * from test_t1 where enable_nereids_dml_with_pipeline=true";
         new NereidsParser().parseSQL(sql);

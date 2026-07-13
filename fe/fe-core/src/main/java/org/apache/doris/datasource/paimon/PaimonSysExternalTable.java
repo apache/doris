@@ -254,44 +254,4 @@ public class PaimonSysExternalTable extends ExternalTable {
         return "Paimon system table: " + sysTableType + " for " + sourceTable.getName();
     }
 
-    private SchemaCacheValue getOrCreateSchemaCacheValue() {
-        if (schemaCacheValue == null) {
-            synchronized (this) {
-                if (schemaCacheValue == null) {
-                    if (fullSchema == null) {
-                        fullSchema = buildFullSchema();
-                    }
-                    schemaCacheValue = new SchemaCacheValue(fullSchema);
-                }
-            }
-        }
-        return schemaCacheValue;
-    }
-
-    private List<Column> buildFullSchema() {
-        Table sysTable = getSysPaimonTable();
-        List<DataField> fields = sysTable.rowType().getFields();
-        List<Column> columns = Lists.newArrayListWithCapacity(fields.size());
-
-        for (DataField field : fields) {
-            Column column = new Column(
-                    field.name(),
-                    PaimonUtil.paimonTypeToDorisType(
-                            field.type(),
-                            getCatalog().getEnableMappingVarbinary(),
-                            getCatalog().getEnableMappingTimestampTz()),
-                    true,
-                    null,
-                    true,
-                    field.description(),
-                    true,
-                    field.id());
-            PaimonUtil.updatePaimonColumnUniqueId(column, field);
-            if (field.type().getTypeRoot() == DataTypeRoot.TIMESTAMP_WITH_LOCAL_TIME_ZONE) {
-                column.setWithTZExtraInfo();
-            }
-            columns.add(column);
-        }
-        return columns;
-    }
 }

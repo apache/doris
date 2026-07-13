@@ -456,8 +456,8 @@ Status NewJsonReader::_open_file_reader(bool need_schema) {
                                                         need_schema));
     } else {
         _file_description.mtime = _range.__isset.modification_time ? _range.modification_time : 0;
-        io::FileReaderOptions reader_options = FileFactory::get_reader_options(
-                _state ? _state->query_options() : _default_query_options, _file_description);
+        io::FileReaderOptions reader_options =
+                FileFactory::get_reader_options(_state->query_options(), _file_description);
         io::FileReaderSPtr file_reader;
         if (_io_ctx_holder) {
             file_reader = DORIS_TRY(io::DelegateReader::create_file_reader(

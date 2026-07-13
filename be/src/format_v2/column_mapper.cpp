@@ -36,7 +36,7 @@
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type/primitive_type.h"
-#include "exprs/runtime_filter_expr.h"
+#include "exprs/vruntimefilter_wrapper.h"
 #include "exprs/short_circuit_evaluation_expr.h"
 #include "exprs/vcase_expr.h"
 #include "exprs/vcast_expr.h"
@@ -848,7 +848,7 @@ static VExprSPtr rewrite_table_expr_to_file_expr(
     }
     DORIS_CHECK(rewrite_context != nullptr);
     DORIS_CHECK(can_localize != nullptr);
-    if (auto* runtime_filter = dynamic_cast<RuntimeFilterExpr*>(expr.get());
+    if (auto* runtime_filter = dynamic_cast<VRuntimeFilterWrapper*>(expr.get());
         runtime_filter != nullptr) {
         auto impl = runtime_filter->get_impl();
         if (impl == nullptr) {

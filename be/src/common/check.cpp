@@ -15,22 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.common;
+#include "common/check.h"
 
-import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.Test;
+#include "common/exception.h"
+#include "common/status.h"
 
-class CheckedMathTest {
+namespace doris {
 
-    @Test
-    void checkedMultiply() {
-        double a = 12.91;
-        double b = 21.44;
-        double res = CheckedMath.checkedMultiply(a, b);
-        Assertions.assertEquals(a * b, res, 0.01);
-        a = Double.MAX_VALUE;
-        b = 5;
-        res = CheckedMath.checkedMultiply(a, b);
-        Assertions.assertEquals(Double.MAX_VALUE, res, 0.01);
-    }
+void doris_check_fail(std::string_view message) {
+    throw Exception(Status::FatalError("{}", message));
 }
+
+} // namespace doris

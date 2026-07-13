@@ -95,6 +95,8 @@ private:
     // KVCache<std::string> _kv_cache;
     std::unique_ptr<ShardedKVCache> _kv_cache;
     TupleId _output_tuple_id = -1;
+    RuntimeProfile::Counter* _condition_cache_hit_counter = nullptr;
+    RuntimeProfile::Counter* _condition_cache_filtered_rows_counter = nullptr;
 };
 
 class FileScanOperatorX final : public ScanOperatorX<FileScanLocalState> {

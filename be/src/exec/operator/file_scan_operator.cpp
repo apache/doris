@@ -55,6 +55,18 @@ PushDownType FileScanLocalState::_should_push_down_binary_predicate(
     }
 }
 
+bool FileScanLocalState::_push_down_topn(const RuntimePredicate& predicate) {
+    if (!predicate.target_is_slot(_parent->node_id())) {
+        return false;
+    }
+    auto& p = _parent->cast<FileScanOperatorX>();
+    const auto slot_id = predicate.get_texpr(_parent->node_id()).nodes[0].slot_ref.slot_id;
+    auto* slot = p._slot_id_to_slot_desc[slot_id];
+    DCHECK(slot != nullptr);
+    // External readers do not fully support VARBINARY column predicates yet.
+    return slot->type()->get_primitive_type() != TYPE_VARBINARY;
+}
+
 int FileScanLocalState::max_scanners_concurrency(RuntimeState* state) const {
     // For select * from table limit 10; should just use one thread.
     if (should_run_serial()) {
@@ -111,8 +123,6 @@ bool FileScanLocalState::_should_use_file_scanner_v2(const TQueryOptions& query_
     // so keep JNI scans on V1 until scanner selection can distinguish every compatibility shape.
     return query_options.__isset.enable_file_scanner_v2 && query_options.enable_file_scanner_v2 &&
            !is_load && scan_params.format_type != TFileFormatType::FORMAT_WAL &&
-           scan_params.format_type != TFileFormatType::FORMAT_ES_HTTP &&
-           scan_params.format_type != TFileFormatType::FORMAT_LANCE &&
            scan_params.format_type != TFileFormatType::FORMAT_JNI && !is_transactional_hive;
 }
 
@@ -227,6 +237,10 @@ Status FileScanLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     SCOPED_TIMER(_init_timer);
     auto& p = _parent->cast<FileScanOperatorX>();
     _output_tuple_id = p._output_tuple_id;
+    _condition_cache_hit_counter =
+            ADD_COUNTER(custom_profile(), "ConditionCacheHit", TUnit::UNIT);
+    _condition_cache_filtered_rows_counter =
+            ADD_COUNTER(custom_profile(), "ConditionCacheFilteredRows", TUnit::UNIT);
     return Status::OK();
 }
 

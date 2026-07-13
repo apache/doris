@@ -141,7 +141,8 @@ public:
                              /*element_count_capacity*/ 0, /*enable_prune*/ true,
                              /*is_lru_k*/ false) {}
 
-    bool lookup(const CacheKey& key, ConditionCacheHandle* handle);
+    template <typename KeyType>
+    bool lookup(const KeyType& key, ConditionCacheHandle* handle);
 
     template <typename KeyType>
     void insert(const KeyType& key, std::shared_ptr<std::vector<bool>> filter_result,

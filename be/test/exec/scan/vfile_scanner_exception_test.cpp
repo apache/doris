@@ -344,7 +344,8 @@ TEST_F(VfileScannerExceptionTest, process_late_arrival_conjuncts_retain) {
 TEST(HiveReaderPositionMappingTest, PositionMappingUsesColumnIdxsForFileSlots) {
     TQueryOptions query_options;
     query_options.hive_parquet_use_column_names = false;
-    RuntimeState runtime_state(query_options, TQueryGlobals());
+    RuntimeState runtime_state;
+    runtime_state.set_query_options(query_options);
     TFileScanRangeParams params;
     params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
     params.__set_column_idxs({2, 0});
@@ -385,7 +386,8 @@ TEST(HiveReaderPositionMappingTest, PositionMappingUsesColumnIdxsForFileSlots) {
 TEST(HiveReaderPositionMappingTest, PositionMappingDoesNotConsumePartitionSlots) {
     TQueryOptions query_options;
     query_options.hive_parquet_use_column_names = false;
-    RuntimeState runtime_state(query_options, TQueryGlobals());
+    RuntimeState runtime_state;
+    runtime_state.set_query_options(query_options);
     TFileScanRangeParams params;
     params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
     params.__set_column_idxs({3});
@@ -397,7 +399,6 @@ TEST(HiveReaderPositionMappingTest, PositionMappingDoesNotConsumePartitionSlots)
 
     TFileScanSlotInfo partition_slot;
     partition_slot.__set_is_file_slot(false);
-    partition_slot.__set_category(TColumnCategory::PARTITION_KEY);
     format::ColumnDefinition partition_column {
             .identifier = Field::create_field<TYPE_STRING>("year"),
             .name = "year",
@@ -427,7 +428,8 @@ TEST(HiveReaderPositionMappingTest, PositionMappingDoesNotConsumePartitionSlots)
 TEST(HiveReaderPositionMappingTest, PositionMappingFailsWhenColumnIdxsMissing) {
     TQueryOptions query_options;
     query_options.hive_parquet_use_column_names = false;
-    RuntimeState runtime_state(query_options, TQueryGlobals());
+    RuntimeState runtime_state;
+    runtime_state.set_query_options(query_options);
     TFileScanRangeParams params;
     params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
     format::ProjectedColumnBuildContext context {

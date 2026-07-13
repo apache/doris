@@ -52,7 +52,7 @@
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
 #include "exec/common/endian.h"
-#include "exprs/runtime_filter_expr.h"
+#include "exprs/vruntimefilter_wrapper.h"
 #include "exprs/vectorized_fn_call.h"
 #include "exprs/vexpr.h"
 #include "exprs/vliteral.h"

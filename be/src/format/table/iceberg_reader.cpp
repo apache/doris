@@ -43,6 +43,7 @@
 #include "format/generic_reader.h"
 #include "format/orc/vorc_reader.h"
 #include "format/parquet/schema_desc.h"
+#include "format/table/iceberg_delete_file_reader_helper.h"
 #include "format/parquet/vparquet_column_chunk_reader.h"
 #include "format/table/deletion_vector_reader.h"
 #include "format/table/iceberg/iceberg_orc_nested_column_utils.h"
@@ -177,6 +178,16 @@ IcebergTableReader::IcebergTableReader(std::unique_ptr<GenericReader> file_forma
             ADD_CHILD_TIMER(_profile, "DeleteRowsSortTime", iceberg_profile);
     _iceberg_profile.parse_delete_file_time =
             ADD_CHILD_TIMER(_profile, "ParseDeleteFileTime", iceberg_profile);
+    _iceberg_profile.decoded_cache_hit_count = ADD_CHILD_COUNTER(
+            _profile, "DeletionVectorDecodedCacheHitCount", TUnit::UNIT, iceberg_profile);
+    _iceberg_profile.decoded_cache_miss_count = ADD_CHILD_COUNTER(
+            _profile, "DeletionVectorDecodedCacheMissCount", TUnit::UNIT, iceberg_profile);
+    _iceberg_profile.file_cache_hit_count = ADD_CHILD_COUNTER(
+            _profile, "DeletionVectorFileCacheHitCount", TUnit::UNIT, iceberg_profile);
+    _iceberg_profile.file_cache_miss_count = ADD_CHILD_COUNTER(
+            _profile, "DeletionVectorFileCacheMissCount", TUnit::UNIT, iceberg_profile);
+    _iceberg_profile.file_cache_peer_read_count = ADD_CHILD_COUNTER(
+            _profile, "DeletionVectorFileCachePeerReadCount", TUnit::UNIT, iceberg_profile);
 }
 
 Status IcebergTableReader::get_next_block_inner(Block* block, size_t* read_rows, bool* eof) {
@@ -903,8 +914,11 @@ Status IcebergTableReader::read_deletion_vector(const std::string& data_file_pat
                                                 const TIcebergDeleteFileDesc& delete_file_desc) {
     Status create_status = Status::OK();
     SCOPED_TIMER(_iceberg_profile.delete_files_read_time);
-    _iceberg_delete_rows = _kv_cache->get<DeleteRows>(data_file_path, [&]() -> DeleteRows* {
-        auto* delete_rows = new DeleteRows;
+    bool decoded_cache_hit = false;
+    _iceberg_deletion_vector = _kv_cache->get<DeletionVector>(
+            build_iceberg_deletion_vector_cache_key(data_file_path, delete_file_desc),
+            [&]() -> DeletionVector* {
+        auto deletion_vector = std::make_unique<DeletionVector>();
 
         TFileRangeDesc delete_range;
         // must use __set() method to make sure __isset is true
@@ -934,6 +948,13 @@ Status IcebergTableReader::read_deletion_vector(const std::string& data_file_pat
         }
 
         create_status = dv_reader.read_at(delete_range.start_offset, {buf.data(), buffer_size});
+        const auto& file_cache_stats = dv_reader.file_cache_statistics();
+        COUNTER_UPDATE(_iceberg_profile.file_cache_hit_count,
+                       file_cache_stats.num_local_io_total);
+        COUNTER_UPDATE(_iceberg_profile.file_cache_miss_count,
+                       file_cache_stats.num_remote_io_total);
+        COUNTER_UPDATE(_iceberg_profile.file_cache_peer_read_count,
+                       file_cache_stats.num_peer_io_total);
         if (!create_status) [[unlikely]] {
             return nullptr;
         }
@@ -968,17 +989,17 @@ Status IcebergTableReader::read_deletion_vector(const std::string& data_file_pat
         }
         // skip CRC-32 checksum
 
-        delete_rows->reserve(bitmap.cardinality());
-        for (auto it = bitmap.begin(); it != bitmap.end(); it++) {
-            delete_rows->push_back(*it);
-        }
-        COUNTER_UPDATE(_iceberg_profile.num_delete_rows, delete_rows->size());
-        return delete_rows;
-    });
+        *deletion_vector |= std::move(bitmap);
+        COUNTER_UPDATE(_iceberg_profile.num_delete_rows, deletion_vector->cardinality());
+        return deletion_vector.release();
+    }, &decoded_cache_hit);
 
     RETURN_IF_ERROR(create_status);
-    if (!_iceberg_delete_rows->empty()) [[likely]] {
-        set_delete_rows();
+    COUNTER_UPDATE(decoded_cache_hit ? _iceberg_profile.decoded_cache_hit_count
+                                     : _iceberg_profile.decoded_cache_miss_count,
+                   1);
+    if (!_iceberg_deletion_vector->isEmpty()) [[likely]] {
+        set_deletion_vector();
     }
     return Status::OK();
 }

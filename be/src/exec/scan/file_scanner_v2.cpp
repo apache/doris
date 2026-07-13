@@ -42,7 +42,7 @@
 #include "exec/common/util.hpp"
 #include "exec/operator/scan_operator.h"
 #include "exec/scan/access_path_parser.h"
-#include "exprs/runtime_filter_expr.h"
+#include "exprs/vruntimefilter_wrapper.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vslot_ref.h"
@@ -144,8 +144,7 @@ bool is_partition_slot(const TFileScanSlotInfo& slot_info, const std::string& co
         column_name == BeConsts::ICEBERG_ROWID_COL) {
         return false;
     }
-    return slot_info.__isset.category ? slot_info.category == TColumnCategory::PARTITION_KEY
-                                      : !slot_info.is_file_slot;
+    return !slot_info.is_file_slot;
 }
 
 bool is_data_file_slot(const TFileScanSlotInfo& slot_info, const std::string& column_name) {
@@ -157,10 +156,6 @@ bool is_data_file_slot(const TFileScanSlotInfo& slot_info, const std::string& co
     // are physically read from the file. Partition/default/virtual columns stay in TableReader's
     // mapping layer and are materialized after the file-local block is read. New FE provides an
     // explicit category; old FE falls back to `is_file_slot`.
-    if (slot_info.__isset.category) {
-        return slot_info.category == TColumnCategory::REGULAR ||
-               slot_info.category == TColumnCategory::GENERATED;
-    }
     return slot_info.is_file_slot;
 }
 
@@ -171,7 +166,7 @@ Status rewrite_slot_refs_to_global_index(
     if (*expr == nullptr) {
         return Status::OK();
     }
-    if (auto* runtime_filter = dynamic_cast<RuntimeFilterExpr*>(expr->get());
+    if (auto* runtime_filter = dynamic_cast<VRuntimeFilterWrapper*>(expr->get());
         runtime_filter != nullptr) {
         auto impl = runtime_filter->get_impl();
         DORIS_CHECK(impl != nullptr);
@@ -663,10 +658,6 @@ Status FileScannerV2::_build_projected_columns(const format::TableReader& table_
 Status FileScannerV2::_build_default_expr(const TFileScanSlotInfo& slot_info,
                                           VExprContextSPtr* ctx) const {
     DORIS_CHECK(ctx != nullptr);
-    if (slot_info.__isset.default_value_expr && !slot_info.default_value_expr.nodes.empty()) {
-        return VExpr::create_expr_tree(slot_info.default_value_expr, *ctx);
-    }
-
     if (_params->__isset.default_value_of_src_slot) {
         const auto it = _params->default_value_of_src_slot.find(slot_info.slot_id);
         if (it != _params->default_value_of_src_slot.end() && !it->second.nodes.empty()) {
@@ -830,15 +821,12 @@ void FileScannerV2::_update_adaptive_batch_size(const Block& block) {
 }
 
 Status FileScannerV2::close(RuntimeState* state) {
-    if (!_try_close()) {
+    if (_is_closed) {
         return Status::OK();
     }
     if (_table_reader != nullptr) {
         const auto close_status = _table_reader->close();
         if (!close_status.ok()) {
-            // Reserve the close attempt with _try_close(), but commit the scanner-level closed
-            // state only after the retained table reader has completed its retryable cleanup.
-            _is_closed.store(false);
             return close_status;
         }
         _report_condition_cache_profile();

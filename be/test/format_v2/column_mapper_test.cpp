@@ -474,7 +474,7 @@ public:
                                size_t count, ColumnPtr& result_column) const override {
         ColumnPtr child_column;
         RETURN_IF_ERROR(
-                get_child(0)->execute_column(context, block, selector, count, child_column));
+                get_child(0)->execute_column_impl(context, block, selector, count, child_column));
         const auto& input = assert_cast<const ColumnInt64&>(*child_column);
         auto result = ColumnUInt8::create();
         auto& result_data = result->get_data();
@@ -510,10 +510,11 @@ public:
     Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
                                size_t count, ColumnPtr& result_column) const override {
         ColumnPtr left_column;
-        RETURN_IF_ERROR(get_child(0)->execute_column(context, block, selector, count, left_column));
+        RETURN_IF_ERROR(
+                get_child(0)->execute_column_impl(context, block, selector, count, left_column));
         ColumnPtr right_column;
         RETURN_IF_ERROR(
-                get_child(1)->execute_column(context, block, selector, count, right_column));
+                get_child(1)->execute_column_impl(context, block, selector, count, right_column));
 
         auto result = ColumnUInt8::create();
         auto& result_data = result->get_data();

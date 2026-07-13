@@ -667,6 +667,10 @@ public class PaimonScanNodeTest {
         Mockito.doReturn(false).when(spyNode).supportNativeReader(ArgumentMatchers.any(Optional.class));
     }
 
+    private PaimonScanNode newTestNode(PlanNodeId id, TupleId tupleId, SessionVariable sessionVariable) {
+        return new PaimonScanNode(id, new TupleDescriptor(tupleId), false, sessionVariable, ScanContext.EMPTY);
+    }
+
     private void mockNativeReader(PaimonScanNode spyNode) {
         Mockito.doReturn(true).when(spyNode).supportNativeReader(ArgumentMatchers.any(Optional.class));
     }

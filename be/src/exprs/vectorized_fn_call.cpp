@@ -243,7 +243,7 @@ bool VectorizedFnCall::can_evaluate_bloom_filter() const {
 }
 
 Status VectorizedFnCall::_do_execute(VExprContext* context, const Block* block,
-                                     const Selector* selector, size_t count,
+                                     Selector* selector, size_t count,
                                      ColumnPtr& result_column, ColumnPtr* arg_column) const {
     if (is_const_and_have_executed()) { // const have executed in open function
         result_column = get_result_from_const(count);

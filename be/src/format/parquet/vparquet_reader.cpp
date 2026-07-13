@@ -322,20 +322,12 @@ Status ParquetReader::_open_file() {
         ++_reader_statistics.open_file_num;
         _file_description.mtime =
                 _scan_range.__isset.modification_time ? _scan_range.modification_time : 0;
-        io::FileReaderOptions reader_options = FileFactory::get_reader_options(
-                _state ? _state->query_options() : _default_query_options, _file_description);
-        if (_io_ctx_holder) {
-            _file_reader = DORIS_TRY(io::DelegateReader::create_file_reader(
-                    _profile, _system_properties, _file_description, reader_options,
-                    io::DelegateReader::AccessMode::RANDOM,
-                    std::static_pointer_cast<const io::IOContext>(_io_ctx_holder)));
-        } else {
-            _file_reader = DORIS_TRY(io::DelegateReader::create_file_reader(
-                    _profile, _system_properties, _file_description, reader_options,
-                    io::DelegateReader::AccessMode::RANDOM, _io_ctx));
-        }
-        _tracing_file_reader = _io_ctx && _io_ctx->file_reader_stats
-                                       ? std::make_shared<io::TracingFileReader>(
+        io::FileReaderOptions reader_options =
+                FileFactory::get_reader_options(_state->query_options(), _file_description);
+        _file_reader = DORIS_TRY(io::DelegateReader::create_file_reader(
+                _profile, _system_properties, _file_description, reader_options,
+                io::DelegateReader::AccessMode::RANDOM, _io_ctx));
+        _tracing_file_reader = _io_ctx ? std::make_shared<io::TracingFileReader>(
                                                  _file_reader, _io_ctx->file_reader_stats)
                                        : _file_reader;
     }

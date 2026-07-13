@@ -95,8 +95,8 @@ public:
         *cloned_expr = ShortCircuitCaseExpr::create_shared(node);
         return Status::OK();
     }
-    Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
-                               size_t count, ColumnPtr& result_column) const override;
+    Status execute_column(VExprContext* context, const Block* block, Selector* selector,
+                          size_t count, ColumnPtr& result_column) const override;
 
 private:
     const bool _has_else_expr;
@@ -117,8 +117,8 @@ public:
         *cloned_expr = ShortCircuitIfNullExpr::create_shared(node);
         return Status::OK();
     }
-    Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
-                               size_t count, ColumnPtr& result_column) const override;
+    Status execute_column(VExprContext* context, const Block* block, Selector* selector,
+                          size_t count, ColumnPtr& result_column) const override;
 
 private:
     inline static const std::string IFNULL_NAME = "ifnull";
@@ -137,8 +137,8 @@ public:
         *cloned_expr = ShortCircuitCoalesceExpr::create_shared(node);
         return Status::OK();
     }
-    Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
-                               size_t count, ColumnPtr& result_column) const override;
+    Status execute_column(VExprContext* context, const Block* block, Selector* selector,
+                          size_t count, ColumnPtr& result_column) const override;
 
 private:
     inline static const std::string COALESCE_NAME = "coalesce";

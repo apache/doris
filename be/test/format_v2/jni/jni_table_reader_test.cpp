@@ -175,6 +175,7 @@ TEST(JniTableReaderTest, AdaptiveProbeSetBeforePrepareControlsFirstJniOpen) {
     reader.set_batch_size(32);
     ASSERT_TRUE(reader.prepare_split({
                                              .partition_values = {},
+                                             .conjuncts = std::nullopt,
                                              .partition_prune_conjuncts = {},
                                              .cache = nullptr,
                                              .current_range = {},

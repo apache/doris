@@ -135,6 +135,7 @@ import java.time.temporal.TemporalAccessor;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -548,35 +549,35 @@ public class IcebergUtils {
                     case "bucket":
                         builder.bucket(
                                 getIcebergColumnName(schema,
-                                        params.get(1).accept(ExprToExprNameVisitor.INSTANCE, null)),
+                                        params.get(1).getExprName()),
                                 Integer.parseInt(params.get(0).getStringValue()));
                         break;
                     case "year":
                     case "years":
                         builder.year(getIcebergColumnName(schema,
-                                params.get(0).accept(ExprToExprNameVisitor.INSTANCE, null)));
+                                params.get(0).getExprName()));
                         break;
                     case "month":
                     case "months":
                         builder.month(getIcebergColumnName(schema,
-                                params.get(0).accept(ExprToExprNameVisitor.INSTANCE, null)));
+                                params.get(0).getExprName()));
                         break;
                     case "date":
                     case "day":
                     case "days":
                         builder.day(getIcebergColumnName(schema,
-                                params.get(0).accept(ExprToExprNameVisitor.INSTANCE, null)));
+                                params.get(0).getExprName()));
                         break;
                     case "date_hour":
                     case "hour":
                     case "hours":
                         builder.hour(getIcebergColumnName(schema,
-                                params.get(0).accept(ExprToExprNameVisitor.INSTANCE, null)));
+                                params.get(0).getExprName()));
                         break;
                     case "truncate":
                         builder.truncate(
                                 getIcebergColumnName(schema,
-                                        params.get(1).accept(ExprToExprNameVisitor.INSTANCE, null)),
+                                        params.get(1).getExprName()),
                                 Integer.parseInt(params.get(0).getStringValue()));
                         break;
                     default:

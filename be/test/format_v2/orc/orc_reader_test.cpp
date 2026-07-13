@@ -59,7 +59,7 @@
 #include "core/data_type/primitive_type.h"
 #include "core/value/timestamptz_value.h"
 #include "exprs/create_predicate_function.h"
-#include "exprs/runtime_filter_expr.h"
+#include "exprs/vruntimefilter_wrapper.h"
 #include "exprs/vdirect_in_predicate.h"
 #include "exprs/vectorized_fn_call.h"
 #include "exprs/vexpr.h"
@@ -599,7 +599,8 @@ public:
             DORIS_CHECK(_children.size() == 1);
             ColumnPtr child_column;
             RETURN_IF_ERROR(
-                    _children[0]->execute_column(context, block, selector, count, child_column));
+                    _children[0]->execute_column_impl(context, block, selector, count,
+                                                      child_column));
             for (size_t row = 0; row < count; ++row) {
                 result_data[row] = !bool_value(*child_column, row);
             }
@@ -613,7 +614,8 @@ public:
         child_columns.reserve(_children.size());
         for (const auto& child : _children) {
             ColumnPtr child_column;
-            RETURN_IF_ERROR(child->execute_column(context, block, selector, count, child_column));
+            RETURN_IF_ERROR(
+                    child->execute_column_impl(context, block, selector, count, child_column));
             child_columns.push_back(std::move(child_column));
         }
         for (size_t row = 0; row < count; ++row) {
@@ -664,7 +666,7 @@ public:
 
     Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
                                size_t count, ColumnPtr& result_column) const override {
-        return _impl->execute_column(context, block, selector, count, result_column);
+        return _impl->execute_column_impl(context, block, selector, count, result_column);
     }
 
     const std::string& expr_name() const override { return _expr_name; }
@@ -6652,7 +6654,7 @@ TEST_F(NewOrcReaderTest, SargNullAwareRuntimeFilterDoesNotPruneNullStripe) {
     auto node = make_filter_in_node(TExprNodeType::NULL_AWARE_IN_PRED);
     auto direct_in = VDirectInPredicate::create_shared(node, filter, true);
     direct_in->add_child(TableSlotRef::create_shared(0, 0, -1, schema[0].type, "id"));
-    auto runtime_filter = RuntimeFilterExpr::create_shared(node, direct_in, 0.0, true, 7);
+    auto runtime_filter = VRuntimeFilterWrapper::create_shared(node, direct_in, 0.0, true, 7);
     auto runtime_filter_context = VExprContext::create_shared(std::move(runtime_filter));
     ASSERT_TRUE(runtime_filter_context->prepare(&state, RowDescriptor()).ok());
     ASSERT_TRUE(runtime_filter_context->open(&state).ok());

@@ -24,7 +24,6 @@
 #include <memory>
 #include <set>
 #include <string>
-#include <utility>
 
 #include "common/config.h"
 #include "common/status.h"
@@ -105,6 +104,9 @@ public:
     }
 
     bool is_rf_wrapper() const override { return true; }
+    bool is_slot_ref() const override { return false; }
+    bool is_virtual_slot_ref() const override { return false; }
+    bool is_column_ref() const override { return false; }
 
     ZoneMapFilterResult evaluate_zonemap_filter(const ZoneMapEvalContext& ctx) const override;
     bool can_evaluate_zonemap_filter() const override;
@@ -121,9 +123,6 @@ public:
     std::shared_ptr<RuntimeProfile::Counter> predicate_always_true_rows_counter() const {
         return _always_true_filter_rows;
     }
-    bool is_slot_ref() const override { return false; }
-    bool is_virtual_slot_ref() const override { return false; }
-    bool is_column_ref() const override { return false; }
 
 private:
     VExprSPtr _impl;

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "exec/connector/jni_connector.h"
+#include "jni_data_bridge.h"
 
 #include <glog/logging.h>
 
@@ -38,14 +38,6 @@
 #include "core/data_type/primitive_type.h"
 #include "core/types.h"
 #include "core/value/decimalv2_value.h"
-#include "jni.h"
-#include "runtime/runtime_state.h"
-#include "util/jni-util.h"
-
-namespace doris {
-#include "common/compile_check_begin.h"
-class RuntimeProfile;
-} // namespace doris
 
 namespace doris {
 
@@ -70,177 +62,7 @@ namespace doris {
     M(PrimitiveType::TYPE_IPV4, ColumnIPv4, IPv4)                  \
     M(PrimitiveType::TYPE_IPV6, ColumnIPv6, IPv6)
 
-Status JniConnector::open(RuntimeState* state, RuntimeProfile* profile) {
-    _state = state;
-    _profile = profile;
-    ADD_TIMER(_profile, _connector_name.c_str());
-    _open_scanner_time = ADD_CHILD_TIMER(_profile, "OpenScannerTime", _connector_name.c_str());
-    _java_scan_time = ADD_CHILD_TIMER(_profile, "JavaScanTime", _connector_name.c_str());
-    _java_append_data_time =
-            ADD_CHILD_TIMER(_profile, "JavaAppendDataTime", _connector_name.c_str());
-    _java_create_vector_table_time =
-            ADD_CHILD_TIMER(_profile, "JavaCreateVectorTableTime", _connector_name.c_str());
-    _fill_block_time = ADD_CHILD_TIMER(_profile, "FillBlockTime", _connector_name.c_str());
-    _max_time_split_weight_counter = _profile->add_conditition_counter(
-            "MaxTimeSplitWeight", TUnit::UNIT, [](int64_t _c, int64_t c) { return c > _c; },
-            _connector_name.c_str());
-    _java_scan_watcher = 0;
-    // cannot put the env into fields, because frames in an env object is limited
-    // to avoid limited frames in a thread, we should get local env in a method instead of in whole object.
-    JNIEnv* env = nullptr;
-    int batch_size = 0;
-    if (!_is_table_schema) {
-        batch_size = _state->batch_size();
-    }
-    RETURN_IF_ERROR(Jni::Env::Get(&env));
-    SCOPED_RAW_TIMER(&_jni_scanner_open_watcher);
-    if (_state) { // maybe nullptr when init_fetch_table_schema_reader
-        _scanner_params.emplace("time_zone", _state->timezone());
-    }
-    RETURN_IF_ERROR(_init_jni_scanner(env, batch_size));
-    // Call org.apache.doris.common.jni.JniScanner#open
-    RETURN_IF_ERROR(_jni_scanner_obj.call_void_method(env, _jni_scanner_open).call());
-
-    RETURN_ERROR_IF_EXC(env);
-    _scanner_opened = true;
-    return Status::OK();
-}
-
-Status JniConnector::init() {
-    return Status::OK();
-}
-
-Status JniConnector::get_next_block(Block* block, size_t* read_rows, bool* eof) {
-    // Call org.apache.doris.common.jni.JniScanner#getNextBatchMeta
-    // return the address of meta information
-    JNIEnv* env = nullptr;
-    RETURN_IF_ERROR(Jni::Env::Get(&env));
-    long meta_address = 0;
-    {
-        SCOPED_RAW_TIMER(&_java_scan_watcher);
-        RETURN_IF_ERROR(_jni_scanner_obj.call_long_method(env, _jni_scanner_get_next_batch)
-                                .call(&meta_address));
-    }
-    if (meta_address == 0) {
-        // Address == 0 when there's no data in scanner
-        *read_rows = 0;
-        *eof = true;
-        return Status::OK();
-    }
-    _set_meta(meta_address);
-    long num_rows = _table_meta.next_meta_as_long();
-    if (num_rows == 0) {
-        *read_rows = 0;
-        *eof = true;
-        return Status::OK();
-    }
-    RETURN_IF_ERROR(_fill_block(block, num_rows));
-    *read_rows = num_rows;
-    *eof = false;
-    RETURN_IF_ERROR(_jni_scanner_obj.call_void_method(env, _jni_scanner_release_table).call());
-    _has_read += num_rows;
-    return Status::OK();
-}
-
-Status JniConnector::get_table_schema(std::string& table_schema_str) {
-    JNIEnv* env = nullptr;
-    RETURN_IF_ERROR(Jni::Env::Get(&env));
-
-    Jni::LocalString jstr;
-    RETURN_IF_ERROR(
-            _jni_scanner_obj.call_object_method(env, _jni_scanner_get_table_schema).call(&jstr));
-    Jni::LocalStringBufferGuard cstr;
-    RETURN_IF_ERROR(jstr.get_string_chars(env, &cstr));
-    table_schema_str = std::string {cstr.get()}; // copy to std::string
-    return Status::OK();
-}
-
-Status JniConnector::get_statistics(JNIEnv* env, std::map<std::string, std::string>* result) {
-    result->clear();
-    Jni::LocalObject metrics;
-    RETURN_IF_ERROR(
-            _jni_scanner_obj.call_object_method(env, _jni_scanner_get_statistics).call(&metrics));
-
-    RETURN_IF_ERROR(Jni::Util::convert_to_cpp_map(env, metrics, result));
-    return Status::OK();
-}
-
-Status JniConnector::close() {
-    if (!_closed) {
-        JNIEnv* env = nullptr;
-        RETURN_IF_ERROR(Jni::Env::Get(&env));
-        if (_scanner_opened) {
-            COUNTER_UPDATE(_open_scanner_time, _jni_scanner_open_watcher);
-            COUNTER_UPDATE(_fill_block_time, _fill_block_watcher);
-
-            RETURN_ERROR_IF_EXC(env);
-            int64_t _append = 0;
-            RETURN_IF_ERROR(
-                    _jni_scanner_obj.call_long_method(env, _jni_scanner_get_append_data_time)
-                            .call(&_append));
-
-            COUNTER_UPDATE(_java_append_data_time, _append);
-
-            int64_t _create = 0;
-            RETURN_IF_ERROR(
-                    _jni_scanner_obj
-                            .call_long_method(env, _jni_scanner_get_create_vector_table_time)
-                            .call(&_create));
-
-            COUNTER_UPDATE(_java_create_vector_table_time, _create);
-
-            COUNTER_UPDATE(_java_scan_time, _java_scan_watcher - _append - _create);
-
-            _max_time_split_weight_counter->conditional_update(
-                    _jni_scanner_open_watcher + _fill_block_watcher + _java_scan_watcher,
-                    _self_split_weight);
-
-            // _fill_block may be failed and returned, we should release table in close.
-            // org.apache.doris.common.jni.JniScanner#releaseTable is idempotent
-            RETURN_IF_ERROR(
-                    _jni_scanner_obj.call_void_method(env, _jni_scanner_release_table).call());
-            RETURN_IF_ERROR(_jni_scanner_obj.call_void_method(env, _jni_scanner_close).call());
-        }
-    }
-    return Status::OK();
-}
-
-Status JniConnector::_init_jni_scanner(JNIEnv* env, int batch_size) {
-    RETURN_IF_ERROR(
-            Jni::Util::get_jni_scanner_class(env, _connector_class.c_str(), &_jni_scanner_cls));
-
-    Jni::MethodId scanner_constructor;
-    RETURN_IF_ERROR(_jni_scanner_cls.get_method(env, "<init>", "(ILjava/util/Map;)V",
-                                                &scanner_constructor));
-
-    // prepare constructor parameters
-    Jni::LocalObject hashmap_object;
-    RETURN_IF_ERROR(Jni::Util::convert_to_java_map(env, _scanner_params, &hashmap_object));
-    RETURN_IF_ERROR(_jni_scanner_cls.new_object(env, scanner_constructor)
-                            .with_arg(batch_size)
-                            .with_arg(hashmap_object)
-                            .call(&_jni_scanner_obj));
-
-    RETURN_IF_ERROR(_jni_scanner_cls.get_method(env, "open", "()V", &_jni_scanner_open));
-    RETURN_IF_ERROR(_jni_scanner_cls.get_method(env, "getNextBatchMeta", "()J",
-                                                &_jni_scanner_get_next_batch));
-    RETURN_IF_ERROR(_jni_scanner_cls.get_method(env, "getAppendDataTime", "()J",
-                                                &_jni_scanner_get_append_data_time));
-    RETURN_IF_ERROR(_jni_scanner_cls.get_method(env, "getCreateVectorTableTime", "()J",
-                                                &_jni_scanner_get_create_vector_table_time));
-    RETURN_IF_ERROR(_jni_scanner_cls.get_method(env, "getTableSchema", "()Ljava/lang/String;",
-                                                &_jni_scanner_get_table_schema));
-    RETURN_IF_ERROR(_jni_scanner_cls.get_method(env, "close", "()V", &_jni_scanner_close));
-    RETURN_IF_ERROR(_jni_scanner_cls.get_method(env, "releaseColumn", "(I)V",
-                                                &_jni_scanner_release_column));
-    RETURN_IF_ERROR(
-            _jni_scanner_cls.get_method(env, "releaseTable", "()V", &_jni_scanner_release_table));
-    RETURN_IF_ERROR(_jni_scanner_cls.get_method(env, "getStatistics", "()Ljava/util/Map;",
-                                                &_jni_scanner_get_statistics));
-    return Status::OK();
-}
-
-Status JniConnector::fill_block(Block* block, const ColumnNumbers& arguments, long table_address) {
+Status JniDataBridge::fill_block(Block* block, const ColumnNumbers& arguments, long table_address) {
     if (table_address == 0) {
         return Status::InternalError("table_address is 0");
     }
@@ -270,32 +92,13 @@ Status JniConnector::fill_block(Block* block, const ColumnNumbers& arguments, lo
         auto& column_with_type_and_name = block->get_by_position(i);
         auto& column_ptr = column_with_type_and_name.column;
         auto& column_type = column_with_type_and_name.type;
-        RETURN_IF_ERROR(_fill_column(table_meta, column_ptr, column_type, num_rows));
+        RETURN_IF_ERROR(fill_column(table_meta, column_ptr, column_type, num_rows));
     }
     return Status::OK();
 }
 
-Status JniConnector::_fill_block(Block* block, size_t num_rows) {
-    SCOPED_RAW_TIMER(&_fill_block_watcher);
-    JNIEnv* env = nullptr;
-    RETURN_IF_ERROR(Jni::Env::Get(&env));
-    for (int i = 0; i < _column_names.size(); ++i) {
-        auto& column_with_type_and_name =
-                block->get_by_position(_col_name_to_block_idx->at(_column_names[i]));
-        auto& column_ptr = column_with_type_and_name.column;
-        auto& column_type = column_with_type_and_name.type;
-        RETURN_IF_ERROR(_fill_column(_table_meta, column_ptr, column_type, num_rows));
-        // Column is not released when _fill_column failed. It will be released when releasing table.
-        RETURN_IF_ERROR(_jni_scanner_obj.call_void_method(env, _jni_scanner_release_column)
-                                .with_arg(i)
-                                .call());
-        RETURN_ERROR_IF_EXC(env);
-    }
-    return Status::OK();
-}
-
-Status JniConnector::_fill_column(TableMetaAddress& address, ColumnPtr& doris_column,
-                                  DataTypePtr& data_type, size_t num_rows) {
+Status JniDataBridge::fill_column(TableMetaAddress& address, ColumnPtr& doris_column,
+                                  const DataTypePtr& data_type, size_t num_rows) {
     auto logical_type = data_type->get_primitive_type();
     void* null_map_ptr = address.next_meta_as_ptr();
     if (null_map_ptr == nullptr) {
@@ -304,8 +107,7 @@ Status JniConnector::_fill_column(TableMetaAddress& address, ColumnPtr& doris_co
     }
     auto mutable_doris_column = IColumn::mutate(std::move(doris_column));
     MutableColumnPtr data_column;
-    if (mutable_doris_column->is_nullable()) {
-        auto* nullable_column = assert_cast<ColumnNullable*>(mutable_doris_column.get());
+    if (auto* nullable_column = check_and_get_column<ColumnNullable>(mutable_doris_column.get())) {
         data_column = nullable_column->get_nested_column_ptr();
         NullMap& null_map = nullable_column->get_null_map_data();
         size_t origin_size = null_map.size();
@@ -317,8 +119,6 @@ Status JniConnector::_fill_column(TableMetaAddress& address, ColumnPtr& doris_co
     // Date and DateTime are deprecated and not supported.
     Status status = Status::OK();
     switch (logical_type) {
-        //FIXME: in Doris we check data then insert. jdbc external table may have some data invalid for doris.
-        // should add check otherwise it may break some of our assumption now.
 #define DISPATCH(TYPE_INDEX, COLUMN_TYPE, CPP_TYPE)                                             \
     case TYPE_INDEX: {                                                                          \
         auto* data = reinterpret_cast<CPP_TYPE*>(address.next_meta_as_ptr());                   \
@@ -355,8 +155,8 @@ Status JniConnector::_fill_column(TableMetaAddress& address, ColumnPtr& doris_co
     return status;
 }
 
-Status JniConnector::_fill_varbinary_column(TableMetaAddress& address,
-                                            MutableColumnPtr& doris_column, size_t num_rows) {
+Status JniDataBridge::_fill_varbinary_column(TableMetaAddress& address,
+                                             MutableColumnPtr& doris_column, size_t num_rows) {
     auto* meta_base = reinterpret_cast<char*>(address.next_meta_as_ptr());
     auto& varbinary_col = assert_cast<ColumnVarbinary&>(*doris_column);
     // Java side writes per-row metadata as 16 bytes: [len: long][addr: long]
@@ -377,11 +177,11 @@ Status JniConnector::_fill_varbinary_column(TableMetaAddress& address,
     return Status::OK();
 }
 
-Status JniConnector::_fill_string_column(TableMetaAddress& address, MutableColumnPtr& doris_column,
-                                         size_t num_rows) {
-    const auto& string_col = static_cast<const ColumnString&>(*doris_column);
-    auto& string_chars = const_cast<ColumnString::Chars&>(string_col.get_chars());
-    auto& string_offsets = const_cast<ColumnString::Offsets&>(string_col.get_offsets());
+Status JniDataBridge::_fill_string_column(TableMetaAddress& address, MutableColumnPtr& doris_column,
+                                          size_t num_rows) {
+    auto& string_col = static_cast<ColumnString&>(*doris_column);
+    ColumnString::Chars& string_chars = string_col.get_chars();
+    ColumnString::Offsets& string_offsets = string_col.get_offsets();
     int* offsets = reinterpret_cast<int*>(address.next_meta_as_ptr());
     char* chars = reinterpret_cast<char*>(address.next_meta_as_ptr());
 
@@ -406,12 +206,12 @@ Status JniConnector::_fill_string_column(TableMetaAddress& address, MutableColum
     return Status::OK();
 }
 
-Status JniConnector::_fill_array_column(TableMetaAddress& address, MutableColumnPtr& doris_column,
-                                        DataTypePtr& data_type, size_t num_rows) {
+Status JniDataBridge::_fill_array_column(TableMetaAddress& address, MutableColumnPtr& doris_column,
+                                         const DataTypePtr& data_type, size_t num_rows) {
     ColumnPtr& element_column = static_cast<ColumnArray&>(*doris_column).get_data_ptr();
-    DataTypePtr& element_type = const_cast<DataTypePtr&>(
+    const DataTypePtr& element_type =
             (assert_cast<const DataTypeArray*>(remove_nullable(data_type).get()))
-                    ->get_nested_type());
+                    ->get_nested_type();
     ColumnArray::Offsets64& offsets_data = static_cast<ColumnArray&>(*doris_column).get_offsets();
 
     int64_t* offsets = reinterpret_cast<int64_t*>(address.next_meta_as_ptr());
@@ -422,20 +222,18 @@ Status JniConnector::_fill_array_column(TableMetaAddress& address, MutableColumn
         offsets_data[origin_size + i] = offsets[i] + start_offset;
     }
 
-    // offsets[num_rows - 1] == offsets_data[origin_size + num_rows - 1] - start_offset
-    // but num_row equals 0 when there are all empty arrays
-    return _fill_column(address, element_column, element_type,
-                        offsets_data[origin_size + num_rows - 1] - start_offset);
+    return fill_column(address, element_column, element_type,
+                       offsets_data[origin_size + num_rows - 1] - start_offset);
 }
 
-Status JniConnector::_fill_map_column(TableMetaAddress& address, MutableColumnPtr& doris_column,
-                                      DataTypePtr& data_type, size_t num_rows) {
+Status JniDataBridge::_fill_map_column(TableMetaAddress& address, MutableColumnPtr& doris_column,
+                                       const DataTypePtr& data_type, size_t num_rows) {
     auto& map = static_cast<ColumnMap&>(*doris_column);
-    DataTypePtr& key_type = const_cast<DataTypePtr&>(
-            reinterpret_cast<const DataTypeMap*>(remove_nullable(data_type).get())->get_key_type());
-    DataTypePtr& value_type = const_cast<DataTypePtr&>(
+    const DataTypePtr& key_type =
+            reinterpret_cast<const DataTypeMap*>(remove_nullable(data_type).get())->get_key_type();
+    const DataTypePtr& value_type =
             reinterpret_cast<const DataTypeMap*>(remove_nullable(data_type).get())
-                    ->get_value_type());
+                    ->get_value_type();
     ColumnPtr& key_column = map.get_keys_ptr();
     ColumnPtr& value_column = map.get_values_ptr();
     ColumnArray::Offsets64& map_offsets = map.get_offsets();
@@ -448,27 +246,27 @@ Status JniConnector::_fill_map_column(TableMetaAddress& address, MutableColumnPt
         map_offsets[origin_size + i] = offsets[i] + start_offset;
     }
 
-    RETURN_IF_ERROR(_fill_column(address, key_column, key_type,
-                                 map_offsets[origin_size + num_rows - 1] - start_offset));
-    RETURN_IF_ERROR(_fill_column(address, value_column, value_type,
-                                 map_offsets[origin_size + num_rows - 1] - start_offset));
+    RETURN_IF_ERROR(fill_column(address, key_column, key_type,
+                                map_offsets[origin_size + num_rows - 1] - start_offset));
+    RETURN_IF_ERROR(fill_column(address, value_column, value_type,
+                                map_offsets[origin_size + num_rows - 1] - start_offset));
     return Status::OK();
 }
 
-Status JniConnector::_fill_struct_column(TableMetaAddress& address, MutableColumnPtr& doris_column,
-                                         DataTypePtr& data_type, size_t num_rows) {
+Status JniDataBridge::_fill_struct_column(TableMetaAddress& address, MutableColumnPtr& doris_column,
+                                          const DataTypePtr& data_type, size_t num_rows) {
     auto& doris_struct = static_cast<ColumnStruct&>(*doris_column);
     const DataTypeStruct* doris_struct_type =
             reinterpret_cast<const DataTypeStruct*>(remove_nullable(data_type).get());
     for (int i = 0; i < doris_struct.tuple_size(); ++i) {
         ColumnPtr& struct_field = doris_struct.get_column_ptr(i);
-        DataTypePtr& field_type = const_cast<DataTypePtr&>(doris_struct_type->get_element(i));
-        RETURN_IF_ERROR(_fill_column(address, struct_field, field_type, num_rows));
+        const DataTypePtr& field_type = doris_struct_type->get_element(i);
+        RETURN_IF_ERROR(fill_column(address, struct_field, field_type, num_rows));
     }
     return Status::OK();
 }
 
-std::string JniConnector::get_jni_type(const DataTypePtr& data_type) {
+std::string JniDataBridge::get_jni_type(const DataTypePtr& data_type) {
     DataTypePtr type = remove_nullable(data_type);
     std::ostringstream buffer;
     switch (type->get_primitive_type()) {
@@ -558,12 +356,21 @@ std::string JniConnector::get_jni_type(const DataTypePtr& data_type) {
     }
     case TYPE_VARBINARY:
         return "varbinary";
+    // bitmap, hll, quantile_state, jsonb are transferred as strings via JNI
+    case TYPE_BITMAP:
+        [[fallthrough]];
+    case TYPE_HLL:
+        [[fallthrough]];
+    case TYPE_QUANTILE_STATE:
+        [[fallthrough]];
+    case TYPE_JSONB:
+        return "string";
     default:
         return "unsupported";
     }
 }
 
-std::string JniConnector::get_jni_type_with_different_string(const DataTypePtr& data_type) {
+std::string JniDataBridge::get_jni_type_with_different_string(const DataTypePtr& data_type) {
     DataTypePtr type = remove_nullable(data_type);
     std::ostringstream buffer;
     switch (data_type->get_primitive_type()) {
@@ -669,13 +476,22 @@ std::string JniConnector::get_jni_type_with_different_string(const DataTypePtr& 
                << get_jni_type_with_different_string(type_map->get_value_type()) << ">";
         return buffer.str();
     }
+    // bitmap, hll, quantile_state, jsonb are transferred as strings via JNI
+    case TYPE_BITMAP:
+        [[fallthrough]];
+    case TYPE_HLL:
+        [[fallthrough]];
+    case TYPE_QUANTILE_STATE:
+        [[fallthrough]];
+    case TYPE_JSONB:
+        return "string";
     default:
         return "unsupported";
     }
 }
 
-Status JniConnector::_fill_column_meta(const ColumnPtr& doris_column, const DataTypePtr& data_type,
-                                       std::vector<long>& meta_data) {
+Status JniDataBridge::_fill_column_meta(const ColumnPtr& doris_column, const DataTypePtr& data_type,
+                                        std::vector<long>& meta_data) {
     auto logical_type = data_type->get_primitive_type();
     const IColumn* column = nullptr;
     // insert const flag
@@ -690,10 +506,9 @@ Status JniConnector::_fill_column_meta(const ColumnPtr& doris_column, const Data
 
     // insert null map address
     const IColumn* data_column = nullptr;
-    if (column->is_nullable()) {
-        const auto& nullable_column = assert_cast<const ColumnNullable&>(*column);
-        data_column = &(nullable_column.get_nested_column());
-        const auto& null_map = nullable_column.get_null_map_data();
+    if (const auto* nullable_column = check_and_get_column<ColumnNullable>(column)) {
+        data_column = &(nullable_column->get_nested_column());
+        const auto& null_map = nullable_column->get_null_map_data();
         meta_data.emplace_back((long)null_map.data());
     } else {
         meta_data.emplace_back(0);
@@ -713,7 +528,7 @@ Status JniConnector::_fill_column_meta(const ColumnPtr& doris_column, const Data
         [[fallthrough]];
     case PrimitiveType::TYPE_VARCHAR: {
         const auto& string_column = assert_cast<const ColumnString&>(*data_column);
-        // inert offsets
+        // insert offsets
         meta_data.emplace_back((long)string_column.get_offsets().data());
         meta_data.emplace_back((long)string_column.get_chars().data());
         break;
@@ -763,7 +578,7 @@ Status JniConnector::_fill_column_meta(const ColumnPtr& doris_column, const Data
     return Status::OK();
 }
 
-Status JniConnector::to_java_table(Block* block, std::unique_ptr<long[]>& meta) {
+Status JniDataBridge::to_java_table(Block* block, std::unique_ptr<long[]>& meta) {
     ColumnNumbers arguments;
     for (size_t i = 0; i < block->columns(); ++i) {
         arguments.emplace_back(i);
@@ -771,8 +586,8 @@ Status JniConnector::to_java_table(Block* block, std::unique_ptr<long[]>& meta) 
     return to_java_table(block, block->rows(), arguments, meta);
 }
 
-Status JniConnector::to_java_table(Block* block, size_t num_rows, const ColumnNumbers& arguments,
-                                   std::unique_ptr<long[]>& meta) {
+Status JniDataBridge::to_java_table(Block* block, size_t num_rows, const ColumnNumbers& arguments,
+                                    std::unique_ptr<long[]>& meta) {
     std::vector<long> meta_data;
     // insert number of rows
     meta_data.emplace_back(num_rows);
@@ -787,16 +602,13 @@ Status JniConnector::to_java_table(Block* block, size_t num_rows, const ColumnNu
     return Status::OK();
 }
 
-std::pair<std::string, std::string> JniConnector::parse_table_schema(Block* block,
-                                                                     const ColumnNumbers& arguments,
-                                                                     bool ignore_column_name) {
+std::pair<std::string, std::string> JniDataBridge::parse_table_schema(
+        Block* block, const ColumnNumbers& arguments, bool ignore_column_name) {
     // prepare table schema
     std::ostringstream required_fields;
     std::ostringstream columns_types;
     for (int i = 0; i < arguments.size(); ++i) {
-        // column name maybe empty or has special characters
-        // std::string field = block->get_by_position(i).name;
-        std::string type = JniConnector::get_jni_type(block->get_by_position(arguments[i]).type);
+        std::string type = JniDataBridge::get_jni_type(block->get_by_position(arguments[i]).type);
         if (i == 0) {
             if (ignore_column_name) {
                 required_fields << "_col_" << arguments[i];
@@ -817,7 +629,7 @@ std::pair<std::string, std::string> JniConnector::parse_table_schema(Block* bloc
     return std::make_pair(required_fields.str(), columns_types.str());
 }
 
-std::pair<std::string, std::string> JniConnector::parse_table_schema(Block* block) {
+std::pair<std::string, std::string> JniDataBridge::parse_table_schema(Block* block) {
     ColumnNumbers arguments;
     for (size_t i = 0; i < block->columns(); ++i) {
         arguments.emplace_back(i);
@@ -825,77 +637,4 @@ std::pair<std::string, std::string> JniConnector::parse_table_schema(Block* bloc
     return parse_table_schema(block, arguments, true);
 }
 
-void JniConnector::_collect_profile_before_close() {
-    if (_scanner_opened && _profile != nullptr) {
-        JNIEnv* env = nullptr;
-        Status st = Jni::Env::Get(&env);
-        if (!st) {
-            LOG(WARNING) << "failed to get jni env when collect profile: " << st;
-            return;
-        }
-        // update scanner metrics
-        std::map<std::string, std::string> statistics_result;
-        st = get_statistics(env, &statistics_result);
-        if (!st) {
-            LOG(WARNING) << "failed to get_statistics when collect profile: " << st;
-            return;
-        }
-
-        const auto update_peak = [](int64_t previous, int64_t current) {
-            return current > previous;
-        };
-        for (const auto& metric : statistics_result) {
-            std::vector<std::string> type_and_name = split(metric.first, ":");
-            if (type_and_name.size() != 2) {
-                LOG(WARNING) << "Name of JNI Scanner metric should be pattern like "
-                             << "'metricType:metricName'";
-                continue;
-            }
-            int64_t metric_value = std::stoll(metric.second);
-            RuntimeProfile::Counter* scanner_counter;
-            if (type_and_name[0] == "timer") {
-                scanner_counter =
-                        ADD_CHILD_TIMER(_profile, type_and_name[1], _connector_name.c_str());
-                COUNTER_UPDATE(scanner_counter, metric_value);
-            } else if (type_and_name[0] == "counter") {
-                scanner_counter = ADD_CHILD_COUNTER(_profile, type_and_name[1], TUnit::UNIT,
-                                                    _connector_name.c_str());
-                COUNTER_UPDATE(scanner_counter, metric_value);
-            } else if (type_and_name[0] == "bytes") {
-                scanner_counter = ADD_CHILD_COUNTER(_profile, type_and_name[1], TUnit::BYTES,
-                                                    _connector_name.c_str());
-                COUNTER_UPDATE(scanner_counter, metric_value);
-            } else if (type_and_name[0] == "timer_gauge") {
-                scanner_counter =
-                        ADD_CHILD_TIMER(_profile, type_and_name[1], _connector_name.c_str());
-                COUNTER_SET(scanner_counter, metric_value);
-            } else if (type_and_name[0] == "gauge") {
-                scanner_counter = ADD_CHILD_COUNTER(_profile, type_and_name[1], TUnit::UNIT,
-                                                    _connector_name.c_str());
-                COUNTER_SET(scanner_counter, metric_value);
-            } else if (type_and_name[0] == "bytes_gauge") {
-                scanner_counter = ADD_CHILD_COUNTER(_profile, type_and_name[1], TUnit::BYTES,
-                                                    _connector_name.c_str());
-                COUNTER_SET(scanner_counter, metric_value);
-            } else if (type_and_name[0] == "timer_peak") {
-                auto* scanner_peak_counter = _profile->add_conditition_counter(
-                        type_and_name[1], TUnit::TIME_NS, update_peak, _connector_name.c_str());
-                scanner_peak_counter->conditional_update(metric_value, metric_value);
-            } else if (type_and_name[0] == "peak") {
-                auto* scanner_peak_counter = _profile->add_conditition_counter(
-                        type_and_name[1], TUnit::UNIT, update_peak, _connector_name.c_str());
-                scanner_peak_counter->conditional_update(metric_value, metric_value);
-            } else if (type_and_name[0] == "bytes_peak") {
-                auto* scanner_peak_counter = _profile->add_conditition_counter(
-                        type_and_name[1], TUnit::BYTES, update_peak, _connector_name.c_str());
-                scanner_peak_counter->conditional_update(metric_value, metric_value);
-            } else {
-                LOG(WARNING) << "Type of JNI Scanner metric should be timer, counter, bytes, "
-                             << "timer_gauge, gauge, bytes_gauge, timer_peak, peak or bytes_peak";
-                continue;
-            }
-        }
-    }
-}
-#include "common/compile_check_end.h"
 } // namespace doris

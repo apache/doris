@@ -23,10 +23,6 @@
 #include <tuple>
 #include <vector>
 
-#include "core/assert_cast.h"
-#include "core/block/block.h"
-#include "core/column/column_nullable.h"
-#include "core/column/column_vector.h"
 #include "core/data_type/define_primitive_type.h"
 #include "exec/common/util.hpp"
 #include "exprs/vexpr_context.h"
@@ -36,7 +32,6 @@
 #include "io/fs/file_meta_cache.h"
 #include "orc/sargs/SearchArgument.hh"
 #include "runtime/exec_env.h"
-#include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
 #include "testutil/desc_tbl_builder.h"
 namespace doris {
@@ -178,138 +173,6 @@ TEST_F(OrcReaderTest, test_build_search_argument) {
         auto search_argument = build_search_argument(exprs[i]);
         ASSERT_EQ(search_argument, result_search_arguments[i]);
     }
-}
-
-TEST_F(OrcReaderTest, set_batch_size_rebuilds_batch_when_size_changes) {
-    std::vector<std::string> column_names = {"o_orderkey"};
-    std::unordered_map<std::string, uint32_t> col_name_to_block_idx = {{"o_orderkey", 0}};
-    ObjectPool object_pool;
-    DescriptorTblBuilder builder(&object_pool);
-    builder.declare_tuple() << std::make_tuple(
-            DataTypeFactory::instance().create_data_type(TYPE_INT, false), "o_orderkey");
-    DescriptorTbl* desc_tbl = builder.build();
-    auto* tuple_desc = const_cast<TupleDescriptor*>(desc_tbl->get_tuple_descriptor(0));
-    RowDescriptor row_desc(tuple_desc);
-
-    TFileScanRangeParams params;
-    TFileRangeDesc range;
-    range.path = "./be/test/exec/test_data/orc_scanner/orders.orc";
-    range.start_offset = 0;
-    range.size = 1293;
-
-    auto reader = std::make_unique<OrcReader>(nullptr, nullptr, params, range, 64, "UTC",
-                                              static_cast<io::IOContext*>(nullptr), &cache, true);
-    OrcInitContext orc_ctx;
-    orc_ctx.column_names = column_names;
-    orc_ctx.col_name_to_block_idx = &col_name_to_block_idx;
-    orc_ctx.tuple_descriptor = tuple_desc;
-    orc_ctx.row_descriptor = &row_desc;
-    orc_ctx.params = &params;
-    orc_ctx.range = &range;
-
-    auto status = reader->init_reader(&orc_ctx);
-    ASSERT_TRUE(status.ok()) << status.to_string();
-    ASSERT_NE(reader->_row_reader, nullptr);
-    ASSERT_NE(reader->_batch, nullptr);
-
-    auto* original_batch = reader->_batch.get();
-    const uint64_t original_capacity = reader->_batch->capacity;
-    reader->set_batch_size(reader->_batch_size);
-
-    EXPECT_EQ(reader->_batch.get(), original_batch);
-    EXPECT_EQ(reader->_batch->capacity, original_capacity);
-
-    constexpr size_t new_batch_size = 128;
-    reader->set_batch_size(new_batch_size);
-
-    EXPECT_EQ(reader->_batch_size, new_batch_size);
-    EXPECT_NE(reader->_batch.get(), nullptr);
-    EXPECT_EQ(reader->_batch->capacity, new_batch_size);
-}
-
-TEST_F(OrcReaderTest, set_batch_size_without_row_reader_is_safe) {
-    TFileScanRangeParams params;
-    TFileRangeDesc range;
-    range.path = "./be/test/exec/test_data/orc_scanner/orders.orc";
-    range.start_offset = 0;
-    range.size = 1293;
-
-    auto reader = std::make_unique<OrcReader>(nullptr, nullptr, params, range, 64, "UTC",
-                                              static_cast<io::IOContext*>(nullptr), &cache, true);
-    ASSERT_EQ(reader->_row_reader, nullptr);
-    ASSERT_EQ(reader->_batch, nullptr);
-
-    reader->set_batch_size(128);
-
-    EXPECT_EQ(reader->_batch_size, 128u);
-    EXPECT_EQ(reader->_batch, nullptr);
-}
-
-TEST_F(OrcReaderTest, deletion_vector_filters_rows_without_query_conjuncts) {
-    auto read_order_keys = [&](const roaring::Roaring64Map* deletion_vector,
-                               std::vector<int32_t>* order_keys) -> Status {
-        ObjectPool object_pool;
-        DescriptorTblBuilder builder(&object_pool);
-        builder.declare_tuple() << std::make_tuple(
-                DataTypeFactory::instance().create_data_type(TYPE_INT, false), "o_orderkey");
-        DescriptorTbl* desc_tbl = builder.build();
-        auto* tuple_desc = const_cast<TupleDescriptor*>(desc_tbl->get_tuple_descriptor(0));
-        RowDescriptor row_desc(tuple_desc);
-
-        TFileScanRangeParams params;
-        params.__set_file_type(TFileType::FILE_LOCAL);
-        params.__set_format_type(TFileFormatType::FORMAT_ORC);
-        TFileRangeDesc range;
-        range.__set_path("./be/test/exec/test_data/orc_scanner/orders.orc");
-        range.__set_start_offset(0);
-        range.__set_size(1293);
-
-        RuntimeState state;
-        state.set_desc_tbl(desc_tbl);
-        RuntimeProfile profile("deletion_vector_without_conjuncts");
-        io::IOContext io_ctx;
-        auto reader = std::make_unique<OrcReader>(&profile, &state, params, range, 2, "UTC",
-                                                  &io_ctx, &cache, true);
-        std::vector<std::string> column_names = {"o_orderkey"};
-        std::unordered_map<std::string, uint32_t> col_name_to_block_idx = {{"o_orderkey", 0}};
-        OrcInitContext orc_ctx;
-        orc_ctx.column_names = column_names;
-        orc_ctx.col_name_to_block_idx = &col_name_to_block_idx;
-        orc_ctx.tuple_descriptor = tuple_desc;
-        orc_ctx.row_descriptor = &row_desc;
-        orc_ctx.params = &params;
-        orc_ctx.range = &range;
-        RETURN_IF_ERROR(reader->init_reader(&orc_ctx));
-        reader->set_deletion_vector(deletion_vector);
-
-        const auto data_type = tuple_desc->slots()[0]->type();
-        Block block;
-        block.insert({data_type->create_column(), data_type, "o_orderkey"});
-        bool eof = false;
-        while (!eof) {
-            block.clear_column_data();
-            size_t read_rows = 0;
-            RETURN_IF_ERROR(reader->get_next_block(&block, &read_rows, &eof));
-            const auto values_column = remove_nullable(block.get_by_position(0).column);
-            const auto& values = assert_cast<const ColumnInt32&>(*values_column).get_data();
-            order_keys->insert(order_keys->end(), values.begin(), values.end());
-        }
-        return Status::OK();
-    };
-
-    std::vector<int32_t> all_order_keys;
-    ASSERT_TRUE(read_order_keys(nullptr, &all_order_keys).ok());
-    ASSERT_FALSE(all_order_keys.empty());
-
-    // No conjuncts are installed in OrcInitContext. A DV-only split must still enter the
-    // position-delete filtering branch and remove the row at the requested absolute position.
-    roaring::Roaring64Map deletion_vector {0};
-    std::vector<int32_t> filtered_order_keys;
-    ASSERT_TRUE(read_order_keys(&deletion_vector, &filtered_order_keys).ok());
-
-    auto expected = all_order_keys;
-    expected.erase(expected.begin());
-    EXPECT_EQ(filtered_order_keys, expected);
 }
 
 } // namespace doris

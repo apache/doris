@@ -36,8 +36,8 @@
 #include "exec/operator/file_scan_operator.h"
 #include "exec/scan/file_scanner.h"
 #include "exec/scan/split_source_connector.h"
-#include "exprs/runtime_filter_expr.h"
 #include "exprs/vdirect_in_predicate.h"
+#include "exprs/vruntimefilter_wrapper.h"
 #include "exprs/vslot_ref.h"
 #include "format_v2/expr/cast.h"
 
@@ -129,7 +129,7 @@ private:
 VExprContextSPtr runtime_filter_context(VExprSPtr impl, int filter_id) {
     const auto node = bool_in_pred_node();
     return VExprContext::create_shared(
-            RuntimeFilterExpr::create_shared(node, std::move(impl), 0.4, false, filter_id));
+            VRuntimeFilterWrapper::create_shared(node, std::move(impl), 0.4, false, filter_id));
 }
 
 TExprNode bool_in_pred_node() {
@@ -196,8 +196,6 @@ TEST(FileScannerV2Test, SupportedFormatMatrix) {
             {"hive", TFileFormatType::FORMAT_ARROW, std::nullopt, false},
             {"", TFileFormatType::FORMAT_ARROW, std::nullopt, false},
             {"", TFileFormatType::FORMAT_WAL, std::nullopt, false},
-            {"", TFileFormatType::FORMAT_ES_HTTP, std::nullopt, false},
-            {"", TFileFormatType::FORMAT_LANCE, std::nullopt, false},
     };
 
     for (const auto& test_case : cases) {
@@ -232,8 +230,6 @@ TEST(FileScannerV2Test, FileScanLocalStateSelectsV2ForSupportedQueriesOnly) {
 
     const std::vector<TFileFormatType::type> unsupported_formats {
             TFileFormatType::FORMAT_WAL,
-            TFileFormatType::FORMAT_ES_HTTP,
-            TFileFormatType::FORMAT_LANCE,
     };
     for (const auto format : unsupported_formats) {
         params.__set_format_type(format);
@@ -275,7 +271,7 @@ TEST(FileScannerV2Test, JniCompatibilityShapesForceLegacyScanner) {
 }
 
 TEST(FileScannerV2Test, FailedTableReaderCloseCanBeRetriedThroughScanner) {
-    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    RuntimeState state;
     RuntimeProfile profile("file_scanner_v2_close_retry");
     auto close_state = std::make_shared<RetryableCloseState>();
     FileScannerV2 scanner(&state, &profile,
@@ -469,7 +465,6 @@ TEST(FileScannerV2Test, FileCacheStatisticsArePublishedToScannerProfile) {
     file_cache_statistics.bytes_read_from_remote = 13;
     file_cache_statistics.bytes_read_from_peer = 17;
     file_cache_statistics.bytes_write_into_cache = 19;
-    file_cache_statistics.peer_hosts = {"peer-a", "peer-b"};
 
     FileScannerV2::TEST_report_file_cache_profile(&profile, file_cache_statistics);
 
@@ -481,8 +476,6 @@ TEST(FileScannerV2Test, FileCacheStatisticsArePublishedToScannerProfile) {
     EXPECT_EQ(profile.get_counter("BytesScannedFromRemote")->value(), 13);
     EXPECT_EQ(profile.get_counter("BytesScannedFromPeer")->value(), 17);
     EXPECT_EQ(profile.get_counter("BytesWriteIntoCache")->value(), 19);
-    ASSERT_NE(profile.get_info_string("PeerCacheNodes"), nullptr);
-    EXPECT_EQ(*profile.get_info_string("PeerCacheNodes"), "peer-a, peer-b");
 }
 
 TEST(FileScannerV2Test, NotFoundIsSkippedOnlyWhenConfigured) {
@@ -506,16 +499,6 @@ TEST(FileScannerV2Test, PartitionSlotClassificationMatrix) {
     legacy_file.__set_is_file_slot(true);
     EXPECT_FALSE(FileScannerV2::TEST_is_partition_slot(legacy_file, "value"));
 
-    TFileScanSlotInfo categorized_partition;
-    categorized_partition.__set_is_file_slot(true);
-    categorized_partition.__set_category(TColumnCategory::PARTITION_KEY);
-    EXPECT_TRUE(FileScannerV2::TEST_is_partition_slot(categorized_partition, "p"));
-
-    TFileScanSlotInfo categorized_regular;
-    categorized_regular.__set_is_file_slot(false);
-    categorized_regular.__set_category(TColumnCategory::REGULAR);
-    EXPECT_FALSE(FileScannerV2::TEST_is_partition_slot(categorized_regular, "regular_col"));
-
     EXPECT_FALSE(
             FileScannerV2::TEST_is_partition_slot(legacy_partition, BeConsts::GLOBAL_ROWID_COL));
     EXPECT_FALSE(
@@ -533,26 +516,6 @@ TEST(FileScannerV2Test, DataFileSlotClassificationMatrix) {
     TFileScanSlotInfo legacy_partition;
     legacy_partition.__set_is_file_slot(false);
     EXPECT_FALSE(FileScannerV2::TEST_is_data_file_slot(legacy_partition, "dt"));
-
-    TFileScanSlotInfo categorized_regular;
-    categorized_regular.__set_is_file_slot(false);
-    categorized_regular.__set_category(TColumnCategory::REGULAR);
-    EXPECT_TRUE(FileScannerV2::TEST_is_data_file_slot(categorized_regular, "regular_col"));
-
-    TFileScanSlotInfo categorized_generated;
-    categorized_generated.__set_is_file_slot(false);
-    categorized_generated.__set_category(TColumnCategory::GENERATED);
-    EXPECT_TRUE(FileScannerV2::TEST_is_data_file_slot(categorized_generated, "generated_col"));
-
-    TFileScanSlotInfo categorized_partition;
-    categorized_partition.__set_is_file_slot(true);
-    categorized_partition.__set_category(TColumnCategory::PARTITION_KEY);
-    EXPECT_FALSE(FileScannerV2::TEST_is_data_file_slot(categorized_partition, "p"));
-
-    TFileScanSlotInfo categorized_synthesized;
-    categorized_synthesized.__set_is_file_slot(true);
-    categorized_synthesized.__set_category(TColumnCategory::SYNTHESIZED);
-    EXPECT_FALSE(FileScannerV2::TEST_is_data_file_slot(categorized_synthesized, "virtual_col"));
 
     EXPECT_FALSE(FileScannerV2::TEST_is_data_file_slot(legacy_file, BeConsts::GLOBAL_ROWID_COL));
     EXPECT_FALSE(FileScannerV2::TEST_is_data_file_slot(legacy_file, BeConsts::ICEBERG_ROWID_COL));
@@ -599,12 +562,12 @@ TEST(FileScannerV2Test, RewriteSlotRefsToGlobalIndexMatrix) {
         const auto node = bool_in_pred_node();
         auto impl = VDirectInPredicate::create_shared(node, nullptr);
         impl->add_child(slot_ref(11, 11, int_type, "rf_value"));
-        VExprSPtr expr = RuntimeFilterExpr::create_shared(node, impl, 0.4, false, 7);
+        VExprSPtr expr = VRuntimeFilterWrapper::create_shared(node, impl, 0.4, false, 7);
         const auto status = FileScannerV2::TEST_rewrite_slot_refs_to_global_index(
                 &expr, {{11, format::GlobalIndex(2)}});
         ASSERT_TRUE(status.ok()) << status;
 
-        auto* runtime_filter = assert_cast<RuntimeFilterExpr*>(expr.get());
+        auto* runtime_filter = assert_cast<VRuntimeFilterWrapper*>(expr.get());
         auto rewritten_impl = runtime_filter->get_impl();
         ASSERT_NE(rewritten_impl, nullptr);
         ASSERT_EQ(rewritten_impl->get_num_children(), 1);
@@ -626,7 +589,7 @@ TEST(FileScannerTest, PartitionPruningStopsAtUnsafePredicate) {
             runtime_filter_context(slot_ref(1, 0, bool_type, "part"), 3),
     };
 
-    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    RuntimeState state;
     RuntimeProfile profile("file_scanner");
     FileScanner scanner(&state, &profile, nullptr, nullptr, nullptr);
     scanner.TEST_init_runtime_filter_partition_prune_ctxs(conjuncts, {{1, 0}});

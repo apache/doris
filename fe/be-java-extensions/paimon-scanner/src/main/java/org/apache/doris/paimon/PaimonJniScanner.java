@@ -98,8 +98,11 @@ public class PaimonJniScanner extends JniScanner {
             LOG.debug("params:{}", params);
         }
         this.params = params;
-        String[] requiredFields = params.get("required_fields").split(",");
-        String[] requiredTypes = params.get("columns_types").split("#");
+        String[] requiredFields = splitParam(params.get("required_fields"), ",");
+        String[] requiredTypes = splitParam(params.get("columns_types"), "#");
+        Preconditions.checkArgument(requiredFields.length == requiredTypes.length,
+                "required_fields size %s does not match columns_types size %s",
+                requiredFields.length, requiredTypes.length);
         ColumnType[] columnTypes = new ColumnType[requiredTypes.length];
         for (int i = 0; i < requiredTypes.length; i++) {
             columnTypes[i] = ColumnType.parseType(requiredFields[i], requiredTypes[i]);
@@ -302,6 +305,11 @@ public class PaimonJniScanner extends JniScanner {
     public void close() throws IOException {
         IOException exception = null;
         try {
+            try {
+                releaseRecordIterator();
+            } catch (RuntimeException e) {
+                exception = new IOException("Failed to release Paimon record iterator", e);
+            }
             if (reader != null) {
                 try {
                     reader.close();
@@ -361,6 +369,9 @@ public class PaimonJniScanner extends JniScanner {
                         appendData(i, columnValue);
                     }
                     if (rows >= batchSize) {
+                        if (fields.length == 0) {
+                            vectorTable.appendVirtualData(rows);
+                        }
                         appendDataTime += System.nanoTime() - startTime;
                         rowsRead += rows;
                         return rows;
@@ -368,7 +379,7 @@ public class PaimonJniScanner extends JniScanner {
                 }
                 appendDataTime += System.nanoTime() - startTime;
 
-                recordIterator.releaseBatch();
+                releaseRecordIterator();
                 recordIterator = readBatchWithMetrics();
             }
             if (fields.length == 0 && rows > 0) {
@@ -565,6 +576,13 @@ public class PaimonJniScanner extends JniScanner {
         if (LOG.isDebugEnabled()) {
             LOG.debug("paimonAllFieldNames:{}", paimonAllFieldNames);
         }
+    }
+
+    private static String[] splitParam(String value, String delimiter) {
+        if (value == null || value.isEmpty()) {
+            return new String[0];
+        }
+        return value.split(delimiter);
     }
 
 }

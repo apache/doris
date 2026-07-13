@@ -17,21 +17,22 @@
 
 #pragma once
 
-#include <gen_cpp/PlanNodes_types.h>
-
 #include <memory>
-#include <string>
-#include <utility>
 #include <vector>
 
-#include "common/status.h"
 #include "format/orc/vorc_reader.h"
 #include "format/parquet/vparquet_reader.h"
+#include "common/status.h"
 #include "format/table/deletion_vector.h"
-#include "format/table/table_schema_change_helper.h"
+#include "format/table/table_format_reader.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
+std::string build_paimon_deletion_vector_cache_key(const TPaimonDeletionFileDesc& deletion_file);
+
+Status decode_paimon_deletion_vector_buffer(const char* buf, size_t buffer_size,
+                                            DeletionVector* deletion_vector);
+
 class PaimonReader : public TableFormatReader, public TableSchemaChangeHelper {
 public:
     PaimonReader(std::unique_ptr<GenericReader> file_format_reader, RuntimeProfile* profile,
@@ -39,14 +40,33 @@ public:
                  const TFileRangeDesc& range, ShardedKVCache* kv_cache, io::IOContext* io_ctx,
                  FileMetaCache* meta_cache);
 
-std::string build_paimon_deletion_vector_cache_key(const TPaimonDeletionFileDesc& deletion_file);
+    ~PaimonReader() override = default;
 
-Status decode_paimon_deletion_vector_buffer(const char* buf, size_t buffer_size,
-                                            DeletionVector* deletion_vector);
+    Status init_row_filters() final;
 
-// PaimonOrcReader: directly inherits OrcReader (no composition wrapping).
-// Schema mapping in on_before_init_reader, deletion vector reading in on_after_init_reader.
-class PaimonOrcReader final : public OrcReader, public TableSchemaChangeHelper {
+    Status get_next_block_inner(Block* block, size_t* read_rows, bool* eof) final;
+
+protected:
+    struct PaimonProfile {
+        RuntimeProfile::Counter* num_delete_rows;
+        RuntimeProfile::Counter* delete_files_read_time;
+        RuntimeProfile::Counter* parse_deletion_vector_time;
+        RuntimeProfile::Counter* decoded_cache_hit_count;
+        RuntimeProfile::Counter* decoded_cache_miss_count;
+        RuntimeProfile::Counter* file_cache_hit_count;
+        RuntimeProfile::Counter* file_cache_miss_count;
+        RuntimeProfile::Counter* file_cache_peer_read_count;
+    };
+    // Deletion vector retained in compressed form by the query-local cache.
+    const DeletionVector* _deletion_vector = nullptr;
+    // owned by scan node
+    ShardedKVCache* _kv_cache;
+    PaimonProfile _paimon_profile;
+
+    virtual void set_deletion_vector() = 0;
+};
+
+class PaimonOrcReader final : public PaimonReader {
 public:
     ENABLE_FACTORY_CREATOR(PaimonOrcReader);
     PaimonOrcReader(std::unique_ptr<GenericReader> file_format_reader, RuntimeProfile* profile,
@@ -57,10 +77,10 @@ public:
                            io_ctx, meta_cache) {};
     ~PaimonOrcReader() final = default;
 
-    Status TEST_init_deletion_vector() { return _init_deletion_vector(); }
-
-protected:
-    Status on_before_init_reader(ReaderInitContext* ctx) override;
+    void set_deletion_vector() final {
+        (reinterpret_cast<OrcReader*>(_file_format_reader.get()))
+                ->set_deletion_vector(_deletion_vector);
+    }
 
     Status init_reader(
             const std::vector<std::string>& read_table_col_names,
@@ -76,24 +96,11 @@ protected:
                 _params, _range.table_format_params.paimon_params.schema_id, tuple_descriptor,
                 orc_type_ptr));
 
-private:
-    void _init_paimon_profile();
-    Status _init_deletion_vector();
-
-    struct PaimonProfile {
-        RuntimeProfile::Counter* num_delete_rows = nullptr;
-        RuntimeProfile::Counter* delete_files_read_time = nullptr;
-        RuntimeProfile::Counter* parse_deletion_vector_time = nullptr;
-        RuntimeProfile::Counter* decoded_cache_hit_count = nullptr;
-        RuntimeProfile::Counter* decoded_cache_miss_count = nullptr;
-        RuntimeProfile::Counter* file_cache_hit_count = nullptr;
-        RuntimeProfile::Counter* file_cache_miss_count = nullptr;
-        RuntimeProfile::Counter* file_cache_peer_read_count = nullptr;
-    };
-
-    const DeletionVector* _deletion_vector = nullptr;
-    ShardedKVCache* _kv_cache;
-    PaimonProfile _paimon_profile;
+        return orc_reader->init_reader(&read_table_col_names, col_name_to_block_idx, conjuncts,
+                                       false, tuple_descriptor, row_descriptor,
+                                       not_single_slot_filter_conjuncts,
+                                       slot_id_to_filter_conjuncts, table_info_node_ptr);
+    }
 };
 
 class PaimonParquetReader final : public PaimonReader {
@@ -107,10 +114,10 @@ public:
                            io_ctx, meta_cache) {};
     ~PaimonParquetReader() final = default;
 
-    Status TEST_init_deletion_vector() { return _init_deletion_vector(); }
-
-protected:
-    Status on_before_init_reader(ReaderInitContext* ctx) override;
+    void set_deletion_vector() final {
+        (reinterpret_cast<ParquetReader*>(_file_format_reader.get()))
+                ->set_deletion_vector(_deletion_vector);
+    }
 
     Status init_reader(
             const std::vector<std::string>& read_table_col_names,
@@ -128,20 +135,15 @@ protected:
         RETURN_IF_ERROR(parquet_reader->get_file_metadata_schema(&field_desc));
         DCHECK(field_desc != nullptr);
 
-    struct PaimonProfile {
-        RuntimeProfile::Counter* num_delete_rows = nullptr;
-        RuntimeProfile::Counter* delete_files_read_time = nullptr;
-        RuntimeProfile::Counter* parse_deletion_vector_time = nullptr;
-        RuntimeProfile::Counter* decoded_cache_hit_count = nullptr;
-        RuntimeProfile::Counter* decoded_cache_miss_count = nullptr;
-        RuntimeProfile::Counter* file_cache_hit_count = nullptr;
-        RuntimeProfile::Counter* file_cache_miss_count = nullptr;
-        RuntimeProfile::Counter* file_cache_peer_read_count = nullptr;
-    };
+        RETURN_IF_ERROR(gen_table_info_node_by_field_id(
+                _params, _range.table_format_params.paimon_params.schema_id, tuple_descriptor,
+                *field_desc));
 
-    const DeletionVector* _deletion_vector = nullptr;
-    ShardedKVCache* _kv_cache;
-    PaimonProfile _paimon_profile;
+        return parquet_reader->init_reader(read_table_col_names, col_name_to_block_idx, conjuncts,
+                                           slot_id_to_predicates, tuple_descriptor, row_descriptor,
+                                           colname_to_slot_id, not_single_slot_filter_conjuncts,
+                                           slot_id_to_filter_conjuncts, table_info_node_ptr);
+    }
 };
 #include "common/compile_check_end.h"
 } // namespace doris

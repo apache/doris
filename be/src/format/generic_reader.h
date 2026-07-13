@@ -23,8 +23,6 @@
 #include "exprs/vexpr_fwd.h"
 #include "runtime/descriptors.h"
 #include "storage/predicate/block_column_predicate.h"
-#include "storage/segment/common.h"
-#include "storage/segment/condition_cache.h"
 #include "util/profile_collector.h"
 
 namespace doris {
@@ -36,55 +34,9 @@ namespace doris {
 
 class Block;
 class VSlotRef;
-
-/// Base context for the unified init_reader(ReaderInitContext*) template method.
-/// Contains fields shared by ALL reader types. Format-specific readers define
-/// subclasses (ParquetInitContext, OrcInitContext, etc.) with extra fields.
-/// FileScanner allocates the appropriate subclass and populates the shared fields
-/// before calling init_reader().
-struct ReaderInitContext {
-    virtual ~ReaderInitContext() = default;
-
-    // ---- Owned by FileScanner, shared by all readers ----
-    const std::vector<ColumnDescriptor>* column_descs = nullptr;
-    std::unordered_map<std::string, uint32_t>* col_name_to_block_idx = nullptr;
-    RuntimeState* state = nullptr;
-    const TupleDescriptor* tuple_descriptor = nullptr;
-    const RowDescriptor* row_descriptor = nullptr;
-    const TFileScanRangeParams* params = nullptr;
-    const TFileRangeDesc* range = nullptr;
-    TPushAggOp::type push_down_agg_type = TPushAggOp::type::NONE;
-
-    // ---- Output slots (populated by on_before_init_reader, consumed by _do_init_reader) ----
-    // column_names: the list of file columns to read. Populated by on_before_init_reader
-    // from column_descs (slot→name mapping). _do_init_reader uses this to configure the
-    // format-specific parsing engine. For standalone readers (column_descs==nullptr),
-    // callers populate column_names directly before calling init_reader.
-    std::vector<std::string> column_names;
-    std::shared_ptr<TableSchemaChangeHelper::Node> table_info_node =
-            TableSchemaChangeHelper::ConstNode::get_instance();
-    std::set<uint64_t> column_ids;
-    std::set<uint64_t> filter_column_ids;
-};
-
-/// Safe downcast for ReaderInitContext subclasses.
-/// Uses dynamic_cast + DORIS_CHECK: crashes on type mismatch (per Doris coding standards).
-template <typename To, typename From>
-To* checked_context_cast(From* ptr) {
-    auto* result = dynamic_cast<To*>(ptr);
-    DORIS_CHECK(result != nullptr);
-    return result;
-}
-
-/// Base reader interface for all file readers.
-/// A GenericReader is responsible for reading a file and returning
-/// a set of blocks with specified schema.
-///
-/// Provides hook virtual methods that implement the Template Method pattern:
-///   init_reader:      _open_file_reader → on_before_init_reader → _do_init_reader → on_after_init_reader
-///   get_next_block:   on_before_read_block → _do_get_next_block → on_after_read_block
-///
-/// Column-filling logic (partition/missing/synthesized) lives in TableFormatReader.
+// This a reader interface for all file readers.
+// A GenericReader is responsible for reading a file and return
+// a set of blocks with specified schema,
 class GenericReader : public ProfileCollector {
 public:
     GenericReader() : _push_down_agg_type(TPushAggOp::type::NONE) {}
@@ -163,22 +115,6 @@ protected:
     // Cache to save some common part such as file footer.
     // Maybe null if not used
     FileMetaCache* _meta_cache = nullptr;
-
-    // ---- Column descriptors (set by init_reader, owned by FileScanner) ----
-    const std::vector<ColumnDescriptor>* _column_descs = nullptr;
-
-    // ---- get_columns cache ----
-    bool _get_columns_cached = false;
-    std::unordered_map<std::string, DataTypePtr> _cached_name_to_type;
-    const TQueryOptions _default_query_options;
-};
-
-/// Provides an accessor for the current batch's row positions within the file.
-/// Implemented by RowGroupReader (Parquet) and OrcReader.
-class RowPositionProvider {
-public:
-    virtual ~RowPositionProvider() = default;
-    virtual const std::vector<segment_v2::rowid_t>& current_batch_row_positions() const = 0;
 };
 
 #include "common/compile_check_end.h"
