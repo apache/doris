@@ -879,7 +879,66 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             // reading latest. Returns empty for every other case, so the normal-table path is unchanged.
             snapshot = resolveSysTableSnapshotPin();
         }
+        // L17 fail-loud guard: this scan reads at its version-aware snapshot (resolved above), but the
+        // table's schema binding (PluginDrivenMvccExternalTable.getSchemaCacheValue) is version-BLIND, so a
+        // same-table multi-version reference (e.g. self-join FOR VERSION AS OF v1 vs v2 across a schema
+        // change, or v1 joined with a latest reference) can carry an FE tuple bound at a DIFFERENT schema
+        // than the version this reference scans -> BE field-id/name-mismatches file columns to tuple slots
+        // (crash / wrong NULLs). Verify every bound tuple column resolves in THIS reference's pinned schema;
+        // throw a clear error instead of silently skewing. Deterministic + per-reference (runs with all pins
+        // loaded, checks this reference's own pin), so it catches the latest-masked / @incr / MTMV-refresh
+        // cases the version-blind analysis-time binding cannot. Per user decision 2026-07-13: throw for now;
+        // the per-reference version-aware schema-binding refactor is tracked as D-MVCC-VERSION-SCHEMA. A
+        // latest / @incr / sys-table / hive scan carries a null pinnedSchema -> no-op.
+        if (snapshot.isPresent() && snapshot.get() instanceof PluginDrivenMvccSnapshot) {
+            List<Column> boundColumns = new ArrayList<>();
+            for (SlotDescriptor slot : desc.getSlots()) {
+                if (slot.getColumn() != null) {
+                    boundColumns.add(slot.getColumn());
+                }
+            }
+            assertBoundColumnsResolveInPinnedSchema(boundColumns,
+                    ((PluginDrivenMvccSnapshot) snapshot.get()).getPinnedSchema(),
+                    getTargetTable().getName());
+        }
         currentHandle = applyMvccSnapshotPin(metadata, connectorSession, currentHandle, snapshot);
+    }
+
+    /**
+     * Fail-loud guard for the version-blind schema-binding gap (reverify #65185 L17). {@code boundColumns}
+     * are the projected tuple-slot columns (what the FE tuple / BE scan slots expect); {@code pinnedSchema}
+     * is the schema AS OF the version THIS reference actually scans. If any bound column cannot be resolved in
+     * the pinned schema, the tuple was bound at a different version than the scan reads and BE would
+     * mismatch — throw instead of silently returning wrong rows.
+     *
+     * <p>Matching keys on whether the column carries a field id (a generic {@link Column} property, NOT a
+     * source-name branch): {@code uniqueId >= 0} (iceberg carries the iceberg field-id) matches by field-id
+     * (BE matches iceberg columns by id, so a rename that keeps the id is fine, a renumber / added column is
+     * caught); {@code uniqueId < 0} (paimon has no top-level field-id) matches by name. A {@code null}
+     * pinnedSchema (latest / {@code @incr} / sys-table / hive reference) is a no-op.</p>
+     */
+    static void assertBoundColumnsResolveInPinnedSchema(List<Column> boundColumns,
+            SchemaCacheValue pinnedSchema, String tableName) throws UserException {
+        if (pinnedSchema == null) {
+            return;
+        }
+        Set<Integer> pinnedFieldIds = new HashSet<>();
+        Set<String> pinnedNames = new HashSet<>();
+        for (Column c : pinnedSchema.getSchema()) {
+            pinnedFieldIds.add(c.getUniqueId());
+            pinnedNames.add(c.getName().toLowerCase());
+        }
+        for (Column bound : boundColumns) {
+            boolean resolved = bound.getUniqueId() >= 0
+                    ? pinnedFieldIds.contains(bound.getUniqueId())
+                    : pinnedNames.contains(bound.getName().toLowerCase());
+            if (!resolved) {
+                throw new UserException("Reading the same table at multiple versions with different schemas "
+                        + "in one statement is not supported yet: column '" + bound.getName() + "' of table '"
+                        + tableName + "' is bound at a different version than the one this reference scans. "
+                        + "Rewrite as separate statements.");
+            }
+        }
     }
 
     /**
