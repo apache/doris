@@ -296,8 +296,7 @@ Suite.metaClass.trigger_and_wait_compaction = { String table_name, String compac
                         compactionFailureNonFatal || baseFailureIgnored ||
                         (!handedOffToBaseCompactionAfterDeleteVersion &&
                                 (!success_time_unchanged ||
-                                        (!cumulative_completion_count_unchanged && statusOk) ||
-                                        cumulativePointChanged))
+                                        (!cumulative_completion_count_unchanged && statusOk)))
                 running = !compactionFinished
                 if (running) {
                     logger.info("compaction is still running, be host: ${be_host}, tablet id: ${tablet.TabletId}, run status: ${compactionStatus.run_status}, old status: ${oldStatus}, new status: ${tabletStatus}")
