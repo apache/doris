@@ -319,7 +319,15 @@ Status CompactionAction::_execute_compaction_callback(TabletSharedPtr tablet,
     Status res = Status::OK();
     auto* tracker = CompactionTaskTracker::instance();
     auto do_compact = [&](Compaction& compaction, CompactionProfileType profile_type) {
-        RETURN_IF_ERROR(compaction.prepare_compact());
+        auto prepare_st = compaction.prepare_compact();
+        if (!prepare_st.ok()) {
+            // The HTTP request may have already returned Success after its two-second wait.
+            // Publish the terminal prepare result so polling can distinguish it from stale state.
+            if (profile_type == CompactionProfileType::CUMULATIVE) {
+                tablet->increment_cumulative_compaction_completed_count();
+            }
+            return prepare_st;
+        }
         // Register task as RUNNING with tracker (manual trigger, direct execution path)
         // Use compaction.compaction_id() which was allocated in constructor.
         int64_t compaction_id = compaction.compaction_id();
