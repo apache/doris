@@ -19,9 +19,12 @@ package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.VariantType;
@@ -36,6 +39,23 @@ import java.util.List;
  * Unit tests for ElementAt scalar function computeSignature behavior on VariantType.
  */
 public class ElementAtTest {
+
+    @Test
+    public void testVariantSelectorKeepsIntegerAndStringSemanticsDistinct() {
+        VariantType variantType = new VariantType(100);
+
+        ElementAt arrayElement = new ElementAt(
+                new MockVariantExpression(variantType), new IntegerLiteral(1));
+        Assertions.assertEquals(BigIntType.INSTANCE, arrayElement.getSignature().getArgType(1));
+
+        ElementAt objectField = new ElementAt(
+                new MockVariantExpression(variantType), new VarcharLiteral("1"));
+        Assertions.assertTrue(objectField.getSignature().getArgType(1) instanceof VarcharType);
+
+        ElementAt booleanIndex = new ElementAt(
+                new MockVariantExpression(variantType), BooleanLiteral.TRUE);
+        Assertions.assertEquals(BigIntType.INSTANCE, booleanIndex.getSignature().getArgType(1));
+    }
 
     @Test
     public void testComputeSignatureSingleVariant() {
@@ -132,5 +152,3 @@ public class ElementAtTest {
         }
     }
 }
-
-

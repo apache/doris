@@ -126,6 +126,14 @@ public class TypeTest {
         fields4.add(new VariantField("a", Type.INT, ""));
         VariantType v4 = new VariantType(fields4);
         Assert.assertFalse(Type.matchExactType(v1, v4, false));
+
+        VariantType differentMaxSubcolumns = new VariantType(fields1, 2048, false, 10000, 1,
+                false, 0L, 64, false);
+        Assert.assertFalse(Type.matchExactType(v1, differentMaxSubcolumns, false));
+
+        VariantType docMode = new VariantType(fields1, 0, false, 10000, 1,
+                true, 0L, 64, false);
+        Assert.assertFalse(Type.matchExactType(v1, docMode, false));
     }
 
     @Test

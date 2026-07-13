@@ -33,6 +33,7 @@
 #include "common/status.h"
 #include "core/assert_cast.h"
 #include "core/column/column_variant.h"
+#include "core/column/column_variant_v2.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/data_type_serde/data_type_serde.h"
@@ -61,6 +62,9 @@ public:
     const std::string get_family_name() const override { return "Variant"; }
 
     Status check_column(const IColumn& column) const override {
+        if (check_and_get_column_with_const<ColumnVariantV2>(column) != nullptr) {
+            return Status::OK();
+        }
         return check_column_non_nested_type<ColumnVariant>(column);
     }
     MutableColumnPtr create_column() const override;

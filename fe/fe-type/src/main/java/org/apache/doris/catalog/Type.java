@@ -1167,8 +1167,14 @@ public abstract class Type {
                 }
                 return true;
             } else if (type1.isVariantType()) {
-                ArrayList<VariantField> fields1 = ((VariantType) type1).getPredefinedFields();
-                ArrayList<VariantField> fields2 = ((VariantType) type2).getPredefinedFields();
+                VariantType variant1 = (VariantType) type1;
+                VariantType variant2 = (VariantType) type2;
+                if (variant1.getVariantMaxSubcolumnsCount() != variant2.getVariantMaxSubcolumnsCount()
+                        || variant1.getEnableVariantDocMode() != variant2.getEnableVariantDocMode()) {
+                    return false;
+                }
+                ArrayList<VariantField> fields1 = variant1.getPredefinedFields();
+                ArrayList<VariantField> fields2 = variant2.getPredefinedFields();
                 if (fields1.size() != fields2.size()) {
                     return false;
                 }

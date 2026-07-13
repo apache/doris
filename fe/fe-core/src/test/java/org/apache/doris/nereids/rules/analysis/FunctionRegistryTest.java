@@ -28,6 +28,8 @@ import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSi
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapAndNotCount;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ParseToVariant;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ParseToVariantErrorToNull;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Substring;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Year;
@@ -106,6 +108,25 @@ public class FunctionRegistryTest implements MemoPatternMatchSupported {
         Expression canonicalFunction = canonicalBuilder.build("bitmap_and_not_count", arguments).first;
         Assertions.assertInstanceOf(BitmapAndNotCount.class, canonicalFunction);
         Assertions.assertFalse(canonicalFunction.nullable());
+    }
+
+    @Test
+    public void testVariantParseFunctions() {
+        PlanChecker.from(connectContext)
+                .analyze("select parse_to_variant('{\"a\":1}'), parse_to_variant_error_to_null('{')")
+                .matches(
+                        logicalOneRowRelation().when(oneRowRelation -> {
+                            Expression fail = oneRowRelation.getProjects().get(0).child(0);
+                            Expression errorToNull = oneRowRelation.getProjects().get(1).child(0);
+                            Assertions.assertInstanceOf(ParseToVariant.class, fail);
+                            Assertions.assertInstanceOf(ParseToVariantErrorToNull.class, errorToNull);
+                            Assertions.assertTrue(fail.getDataType().isVariantType());
+                            Assertions.assertTrue(errorToNull.getDataType().isVariantType());
+                            Assertions.assertFalse(fail.nullable());
+                            Assertions.assertTrue(errorToNull.nullable());
+                            return true;
+                        })
+                );
     }
 
     @Test

@@ -26,7 +26,9 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.StateCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.UnionCombinator;
 import org.apache.doris.nereids.types.ArrayType;
+import org.apache.doris.nereids.types.HllType;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.JsonType;
 import org.apache.doris.nereids.types.VariantType;
 
 import com.google.common.collect.ImmutableList;
@@ -36,23 +38,42 @@ import org.junit.jupiter.api.Test;
 
 class CountTest {
     @Test
-    void testCountDistinctRejectsVariant() {
-        Count count = new Count(true, SlotReference.of("v", VariantType.INSTANCE));
+    void testCountDistinctStillAllowsOrdinaryType() {
+        Count count = new Count(true, SlotReference.of("k", IntegerType.INSTANCE));
 
-        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
-                count::checkLegalityAfterRewrite);
-        Assertions.assertTrue(exception.getMessage().contains("COUNT DISTINCT could not process type"));
-        Assertions.assertTrue(exception.getMessage().contains("count(DISTINCT v)"));
+        Assertions.assertDoesNotThrow(count::checkLegalityAfterRewrite);
     }
 
     @Test
-    void testMultiDistinctCountRejectsVariant() {
+    void testCountDistinctRejectsVariantUntilDedicatedStateExists() {
+        Count count = new Count(true, SlotReference.of("v", VariantType.INSTANCE));
+
+        Assertions.assertThrows(AnalysisException.class, count::checkLegalityAfterRewrite);
+    }
+
+    @Test
+    void testMultiDistinctCountRejectsVariantUntilDedicatedStateExists() {
         MultiDistinctCount count = new MultiDistinctCount(SlotReference.of("v", VariantType.INSTANCE));
 
-        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
-                count::checkLegalityAfterRewrite);
+        Assertions.assertThrows(AnalysisException.class, count::checkLegalityAfterRewrite);
+    }
+
+    @Test
+    void testCountDistinctStillRejectsJson() {
+        Count count = new Count(true, SlotReference.of("j", JsonType.INSTANCE));
+
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class, count::checkLegalityAfterRewrite);
         Assertions.assertTrue(exception.getMessage().contains("COUNT DISTINCT could not process type"));
-        Assertions.assertTrue(exception.getMessage().contains("count(DISTINCT v)"));
+        Assertions.assertTrue(exception.getMessage().contains("count(DISTINCT j)"));
+    }
+
+    @Test
+    void testCountDistinctStillRejectsHll() {
+        Count count = new Count(true, SlotReference.of("h", HllType.INSTANCE));
+
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class, count::checkLegalityAfterRewrite);
+        Assertions.assertTrue(exception.getMessage().contains("COUNT DISTINCT could not process type"));
+        Assertions.assertTrue(exception.getMessage().contains("count(DISTINCT h)"));
     }
 
     @Test

@@ -16,7 +16,9 @@
 // under the License.
 #include <glog/logging.h>
 
+#include "core/column/column_nullable.h"
 #include "core/column/column_variant.h"
+#include "core/column/column_variant_v2.h"
 #include "exec/common/variant_util.h"
 #include "exprs/function/simple_function_factory.h"
 #include "util/string_util.h"
@@ -62,13 +64,21 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
-        const auto& arg_column =
-                assert_cast<const ColumnVariant&>(*block.get_by_position(arguments[0]).column);
+        const ColumnPtr materialized =
+                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        const IColumn* physical = materialized.get();
+        if (const auto* nullable = check_and_get_column<ColumnNullable>(physical)) {
+            physical = &nullable->get_nested_column();
+        }
+        if (check_and_get_column<ColumnVariantV2>(physical) != nullptr) {
+            return Status::NotSupported(
+                    "function variant_type does not support ColumnVariantV2 execution");
+        }
+
+        const auto& arg_column = assert_cast<const ColumnVariant&>(*physical);
         auto result_column = ColumnString::create();
-        auto arg_real_type = arg_column.get_root_type();
 
         for (size_t i = 0; i < input_rows_count; ++i) {
-            const Field& variant_map = arg_column[i];
             auto type_info = get_type_info(arg_column, i);
 
             // Use ColumnString as buffer for JSON serialization

@@ -105,13 +105,6 @@ public class Count extends NotNullableAggregateFunction
         }
     }
 
-    static void checkDistinctVariantArgument(Expression argument, Expression function) {
-        DataType argumentType = argument.getDataType();
-        if (argumentType.isVariantType()) {
-            throwDistinctArgumentException(function);
-        }
-    }
-
     private static boolean isUnsupportedDistinctArgument(DataType argumentType) {
         return argumentType.isComplexType()
                 || argumentType.isObjectType()
