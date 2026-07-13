@@ -1588,7 +1588,10 @@ private:
 
     static bool _can_push_down_minmax_for_mapping(const ColumnMapping& mapping) {
         if (mapping.child_mappings.empty()) {
-            return mapping.is_trivial && mapping.projection == nullptr;
+            // Direct mappings use a slot-ref projection to materialize the file column. The
+            // projection does not transform ordering; casts and other conversions are already
+            // represented by a non-trivial mapping and must fall back to row scanning.
+            return mapping.is_trivial;
         }
         const auto primitive_type = remove_nullable(mapping.file_type)->get_primitive_type();
         if (primitive_type != TYPE_STRUCT) {
