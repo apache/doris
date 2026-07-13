@@ -398,9 +398,11 @@ Status BaseBetaRowsetWriter::_generate_delete_bitmap(int32_t segment_id) {
     // Submit the entire delete bitmap calculation process to thread pool for async execution
     // This avoids blocking memtable flush thread while waiting for file upload to complete
     // The process includes: file_writer->close(), _build_tmp, load_segments, and calc_delete_bitmap
+    const auto submit_time_us = MonotonicMicros();
     return _calc_delete_bitmap_token->submit_func([this, segment_id,
-                                                   specified_rowsets = std::move(
-                                                           specified_rowsets)]() -> Status {
+                                                   specified_rowsets = std::move(specified_rowsets),
+                                                   submit_time_us]() -> Status {
+        const auto queue_time_us = MonotonicMicros() - submit_time_us;
         Status st = Status::OK();
         // Step 1: Close file_writer (must be done before load_segments)
         auto* file_writer = _seg_files.get(segment_id);
@@ -463,6 +465,7 @@ Status BaseBetaRowsetWriter::_generate_delete_bitmap(int32_t segment_id) {
                   << _context.mow_context->delete_bitmap->get_delete_bitmap_count()
                   << ", delete_bitmap_cardinality: "
                   << _context.mow_context->delete_bitmap->cardinality()
+                  << ", queue_time_us: " << queue_time_us
                   << ", cost: " << watch.get_elapse_time_us() << "(us), total rows: " << total_rows;
         return Status::OK();
     });
