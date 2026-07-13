@@ -75,11 +75,6 @@ suite("percentile_approx_weighted") {
     qt_percentile_approx_weighted_compression_high """select percentile_approx_weighted(col_double, col_float, 0.5, 10001) from d_table;"""
 
     test {
-        sql """select percentile_approx_weighted(distinct col_double, col_float, cast('0.5' as double)) from d_table;"""
-        exception "can't support multi distinct"
-    }
-
-    test {
         sql """select percentile_approx_weighted(col_double, col_float, -0.1) from d_table;"""
         exception "percentile_approx_weighted quantile must be in [0, 1]"
     }

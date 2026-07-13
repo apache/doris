@@ -114,6 +114,7 @@ Status AnalyticSinkLocalState::open(RuntimeState* state) {
     _agg_expr_ctxs.resize(_agg_functions_size);
     _agg_functions.resize(_agg_functions_size);
     _agg_input_columns.resize(_agg_functions_size);
+    _agg_input_column_ptrs.resize(_agg_functions_size);
     _offsets_of_aggregate_states.resize(_agg_functions_size);
     _result_column_nullable_flags.resize(_agg_functions_size);
     _result_column_could_resize.resize(_agg_functions_size);
@@ -123,10 +124,20 @@ Status AnalyticSinkLocalState::open(RuntimeState* state) {
     for (int i = 0; i < _agg_functions_size; ++i) {
         _agg_functions[i] = p._agg_functions[i]->clone(state, state->obj_pool());
         _agg_input_columns[i].resize(p._num_agg_input[i]);
+        _agg_input_column_ptrs[i].resize(p._num_agg_input[i]);
         _agg_expr_ctxs[i].resize(p._agg_expr_ctxs[i].size());
+        const auto& always_const_argument_idx = _agg_functions[i]->always_const_argument_idx();
+        const auto& always_const_arguments = _agg_functions[i]->always_const_arguments();
         for (int j = 0; j < p._agg_expr_ctxs[i].size(); ++j) {
             RETURN_IF_ERROR(p._agg_expr_ctxs[i][j]->clone(state, _agg_expr_ctxs[i][j]));
             _agg_input_columns[i][j] = _agg_expr_ctxs[i][j]->root()->data_type()->create_column();
+            if (j < always_const_argument_idx.size() && always_const_argument_idx[j]) {
+                DORIS_CHECK(j < always_const_arguments.size());
+                DORIS_CHECK(always_const_arguments[j].column);
+                _agg_input_column_ptrs[i][j] = always_const_arguments[j].column.get();
+            } else {
+                _agg_input_column_ptrs[i][j] = _agg_input_columns[i][j].get();
+            }
         }
         _offsets_of_aggregate_states[i] = p._offsets_of_aggregate_states[i];
         _result_column_nullable_flags[i] = !_agg_functions[i]->get_return_type()->is_nullable() &&
@@ -182,6 +193,7 @@ Status AnalyticSinkLocalState::close(RuntimeState* state, Status exec_status) {
     _fn_place_ptr = nullptr;
     _result_window_columns.clear();
     _agg_input_columns.clear();
+    _agg_input_column_ptrs.clear();
     _partition_by_columns.clear();
     _order_by_columns.clear();
     _range_result_columns.clear();
@@ -378,18 +390,7 @@ void AnalyticSinkLocalState::_execute_for_function(int64_t partition_start, int6
                                                    int64_t frame_start, int64_t frame_end) {
     // here is the core function, should not add timer
     for (size_t i = 0; i < _agg_functions_size; ++i) {
-        std::vector<const IColumn*> agg_columns;
-        std::vector<ColumnPtr> const_columns;
-        const auto& always_const_argument_idx = _agg_functions[i]->always_const_argument_idx();
-        const_columns.resize(always_const_argument_idx.size());
-        for (size_t j = 0; j < _agg_input_columns[i].size(); ++j) {
-            const IColumn* column = _agg_input_columns[i][j].get();
-            if (j < always_const_argument_idx.size() && always_const_argument_idx[j]) {
-                const_columns[j] = ColumnConst::create(column->cut(0, 1), column->size());
-                column = const_columns[j].get();
-            }
-            agg_columns.push_back(column);
-        }
+        auto& agg_columns = _agg_input_column_ptrs[i];
         if constexpr (incremental) {
             _agg_functions[i]->execute_function_with_incremental(
                     partition_start, partition_end, frame_start, frame_end,
@@ -790,7 +791,12 @@ Status AnalyticSinkOperatorX::_add_input_block(doris::RuntimeState* state, Block
         SCOPED_TIMER(local_state._compute_agg_data_timer);
         //insert _agg_input_columns, execute calculate for its, and those columns maybe could remove have used data
         for (size_t i = 0; i < _agg_functions_size; ++i) {
+            const auto& always_const_argument_idx =
+                    local_state._agg_functions[i]->always_const_argument_idx();
             for (size_t j = 0; j < local_state._agg_expr_ctxs[i].size(); ++j) {
+                if (j < always_const_argument_idx.size() && always_const_argument_idx[j]) {
+                    continue;
+                }
                 RETURN_IF_ERROR(_insert_range_column(input_block, local_state._agg_expr_ctxs[i][j],
                                                      local_state._agg_input_columns[i][j].get(),
                                                      block_rows));
@@ -860,7 +866,11 @@ void AnalyticSinkLocalState::_remove_unused_rows() {
     {
         SCOPED_TIMER(_remove_rows_timer);
         for (size_t i = 0; i < _agg_functions_size; i++) {
+            const auto& always_const_argument_idx = _agg_functions[i]->always_const_argument_idx();
             for (size_t j = 0; j < _agg_expr_ctxs[i].size(); j++) {
+                if (j < always_const_argument_idx.size() && always_const_argument_idx[j]) {
+                    continue;
+                }
                 _agg_input_columns[i][j]->erase(0, remove_rows);
             }
         }

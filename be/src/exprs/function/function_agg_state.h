@@ -24,7 +24,6 @@
 #include "core/block/block.h"
 #include "core/block/columns_with_type_and_name.h"
 #include "core/column/column.h"
-#include "core/column/column_const.h"
 #include "core/column/column_nullable.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_agg_state.h"
@@ -72,6 +71,11 @@ public:
         return _agg_function->get_const_argument_indexes();
     }
 
+    ColumnNumbers get_arguments_that_are_always_constant() const override {
+        const auto& indexes = _agg_function->get_const_argument_indexes();
+        return {indexes.begin(), indexes.end()};
+    }
+
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
         auto col = _agg_function->create_serialize_column();
@@ -81,16 +85,9 @@ public:
         for (size_t i = 0; i < arguments.size(); i++) {
             DataTypePtr signature =
                     assert_cast<const DataTypeAggState*>(_return_type.get())->get_sub_types()[i];
-            ColumnPtr column;
-            if (_always_const_argument_idx[i]) {
-                column = block.get_by_position(arguments[i]).column;
-                if (const auto* const_column = check_and_get_column<ColumnConst>(*column)) {
-                    column = const_column->get_data_column_ptr();
-                }
-                column = ColumnConst::create(std::move(column), input_rows_count);
-            } else {
-                column = block.get_by_position(arguments[i])
-                                 .column->convert_to_full_column_if_const();
+            ColumnPtr column = block.get_by_position(arguments[i]).column;
+            if (!_always_const_argument_idx[i]) {
+                column = column->convert_to_full_column_if_const();
             }
             save_columns.push_back(column);
 

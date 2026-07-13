@@ -44,6 +44,9 @@
 -- !percentile_approx_distinct_const_arg --
 2.718281745910645
 
+-- !percentile_approx_window_const_expr --
+1	2.718281745910645
+
 -- !percentile_approx_compression_low --
 2.718281745910645
 
