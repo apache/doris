@@ -1,0 +1,231 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+#pragma once
+
+#include <memory>
+#include <span>
+#include <string>
+
+#include "core/column/column.h"
+#include "core/custom_allocator.h"
+#include "core/data_type/data_type.h"
+#include "util/variant/variant_field.h"
+
+namespace doris {
+
+class VariantEncodedBlockView;
+
+// ColumnVariantV2 stores a whole column in exactly one state: encoded Variant bytes or one nullable
+// typed scalar column. Mixed operations materialize the typed state as encoded bytes atomically.
+class ColumnVariantV2 final : public COWHelper<IColumn, ColumnVariantV2> {
+public:
+    struct TypedEncodingStats {
+        size_t largeint_string_fallback_rows = 0;
+        size_t decimal256_string_fallback_rows = 0;
+        size_t ip_string_fallback_rows = 0;
+    };
+
+    struct EncodedDataView {
+        StringRef metadata_bytes;
+        std::span<const uint32_t> metadata_offsets;
+        std::span<const uint32_t> meta_ids;
+        StringRef value_bytes;
+        std::span<const uint32_t> value_offsets;
+    };
+
+    // Borrowed immutable adapter for whole-column E/T readers. The source column owns every
+    // referenced column, type, and byte; any structural mutation invalidates this view. Encoded
+    // metadata is validated lazily once per dense id, and values are required to occupy their exact
+    // row boundary. The cache is call-local and uses tracked storage.
+    class ReadView {
+    public:
+        bool is_typed() const noexcept { return _typed_state; }
+        size_t size() const noexcept;
+        size_t metadata_count() const noexcept;
+        uint32_t metadata_id_at(size_t row) const;
+        VariantMetadataRef metadata_at(uint32_t id) const;
+        VariantValueRef value_at(size_t row) const;
+        const IColumn& typed_column() const;
+        const DataTypePtr& typed_type() const;
+
+    private:
+        friend class ColumnVariantV2;
+        ReadView(const IColumn* metadatas, const IColumn* metadata_ids, const IColumn* values);
+        ReadView(const IColumn* typed, const DataTypePtr* typed_type);
+
+        bool _typed_state = false;
+        const IColumn* _metadatas = nullptr;
+        const IColumn* _metadata_ids = nullptr;
+        const IColumn* _values = nullptr;
+        const IColumn* _typed = nullptr;
+        const DataTypePtr* _typed_type = nullptr;
+        mutable DorisVector<uint8_t> _validated_metadata;
+    };
+
+#ifdef BE_TEST
+    // Narrow unit-test seam for deterministic hash-collision and lazy-index coverage.
+    struct TestAccess {
+        static uint32_t find_or_insert_metadata(ColumnVariantV2& column, StringRef metadata) {
+            return column._find_or_insert_metadata(metadata);
+        }
+
+        static uint32_t find_or_insert_metadata(ColumnVariantV2& column, StringRef metadata,
+                                                uint64_t hash) {
+            return column._find_or_insert_metadata(metadata, hash);
+        }
+
+        static void reset_metadata_index(ColumnVariantV2& column);
+
+        static void replace_encoded_subcolumn(ColumnVariantV2& column, size_t index,
+                                              ColumnPtr replacement);
+    };
+#endif
+
+    ~ColumnVariantV2() override;
+
+    // The only typed-state construction points. The input must be an exact, non-Const
+    // ColumnNullable whose nested column matches the non-nullable supported scalar type.
+    static MutablePtr create_typed_from_scan(ColumnPtr column, DataTypePtr scalar_type);
+    static MutablePtr create_typed_from_element_at(ColumnPtr column, DataTypePtr scalar_type);
+    static MutablePtr create_typed_from_cast(ColumnPtr column, DataTypePtr scalar_type);
+    // The exchange decoder is the fourth and final approved typed-state construction point.
+    static MutablePtr create_typed_from_exchange(ColumnPtr column, DataTypePtr scalar_type);
+
+    bool is_typed() const noexcept { return _typed != nullptr; }
+    const IColumn& typed_column() const;
+    const DataTypePtr& typed_type() const;
+    TypedEncodingStats ensure_encoded();
+    ReadView read_view() const;
+
+    std::string get_name() const override;
+    size_t size() const override;
+    size_t byte_size() const override;
+    size_t allocated_bytes() const override;
+    bool has_enough_capacity(const IColumn& src) const override;
+    bool is_variable_length() const override { return true; }
+    bool structure_equals(const IColumn& rhs) const override;
+
+    void sanity_check() const override;
+    void for_each_subcolumn(ColumnCallback callback) const override;
+    void clear() override;
+    void finalize() override {}
+
+    // Cold compatibility adapter for one already-validated VariantField. Batch producers use the
+    // bulk/remap paths added by T2.2 instead of calling this once per row.
+    void insert_variant_field(const VariantField& field);
+
+    // Validates the borrowed buffer/offset/id structure, then appends codec-validated encoded rows
+    // without retaining any input pointer. Offsets use the ColumnString uint32 domain and start at
+    // zero. Empty meta_ids is the compact representation for a batch whose rows all use its single
+    // metadata blob. Input buffers must not alias this column; use insert_range_from for that case.
+    void insert_encoded_rows(const EncodedDataView& data);
+
+    // Direct shared-metadata codec adapter. The block already uses ColumnString-compatible uint32
+    // offsets, so this path borrows its buffers without an O(rows) offset conversion.
+    void insert_encoded_block(VariantEncodedBlockView block);
+
+    // The returned view borrows this column's metadata and value buffers. Any structural mutation,
+    // including insert, clear, COW mutation, or future row transformations, may invalidate it.
+    VariantValueRef get_value_ref(size_t row) const;
+
+    Field operator[](size_t row) const override;
+    void get(size_t row, Field& result) const override;
+    void insert(const Field& field) override;
+    void insert_default() override;
+    void insert_many_defaults(size_t length) override;
+
+    void insert_from(const IColumn& src, size_t row) override;
+    void insert_range_from(const IColumn& src, size_t start, size_t length) override;
+    void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
+                             const uint32_t* indices_end) override;
+    void pop_back(size_t length) override;
+
+    StringRef get_data_at(size_t row) const override;
+    void insert_data(const char* pos, size_t length) override;
+    StringRef serialize_value_into_arena(size_t row, Arena& arena,
+                                         const char*& begin) const override;
+    const char* deserialize_and_insert_from_arena(const char* pos) override;
+    size_t serialize_size_at(size_t row) const override;
+    size_t serialize_impl(char* pos, size_t row) const override;
+    size_t deserialize_impl(const char* pos) override;
+    size_t get_max_row_byte_size() const override;
+    void serialize(StringRef* keys, size_t num_rows) const override;
+    void deserialize(StringRef* keys, size_t num_rows) override;
+
+    void update_hash_with_value(size_t row, SipHash& hash) const override;
+    void update_hashes_with_value(uint64_t* __restrict hashes,
+                                  const uint8_t* __restrict null_data) const override;
+    void update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
+                                  const uint8_t* __restrict null_data) const override;
+    void update_crcs_with_value(uint32_t* __restrict hashes, PrimitiveType type, uint32_t rows,
+                                uint32_t offset,
+                                const uint8_t* __restrict null_data) const override;
+    void update_crc_with_value(size_t start, size_t end, uint32_t& hash,
+                               const uint8_t* __restrict null_data) const override;
+    void update_crc32c_batch(uint32_t* __restrict hashes,
+                             const uint8_t* __restrict null_map) const override;
+    void update_crc32c_single(size_t start, size_t end, uint32_t& hash,
+                              const uint8_t* __restrict null_map) const override;
+    void replace_column_null_data(const uint8_t* __restrict null_map) override;
+
+    ColumnPtr filter(const Filter& filter, ssize_t result_size_hint) const override;
+    size_t filter(const Filter& filter) override;
+    MutableColumnPtr permute(const Permutation& permutation, size_t limit) const override;
+    MutableColumnPtr clone_resized(size_t size) const override;
+    void resize(size_t size) override;
+
+    int compare_at(size_t lhs, size_t rhs, const IColumn& rhs_column,
+                   int nan_direction_hint) const override;
+    void get_permutation(bool reverse, size_t limit, int nan_direction_hint, HybridSorter& sorter,
+                         Permutation& result) const override;
+    void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override;
+
+private:
+    friend class COWHelper<IColumn, ColumnVariantV2>;
+
+    struct MetaDictIndex;
+
+    ColumnVariantV2();
+    ColumnVariantV2(const ColumnVariantV2& other);
+
+    uint32_t _find_or_insert_metadata(StringRef metadata);
+    uint32_t _find_or_insert_metadata(StringRef metadata, uint64_t hash);
+    void _adopt_state_from(ColumnVariantV2& replacement);
+    void _detach_metadata_for_write();
+    void _rollback_metadata(size_t old_count, IColumn::Ptr original_metadata);
+    void _check_invariants() const;
+    void mutate_subcolumns() override;
+
+    // Encoded state: each row owns a value and references one deduplicated metadata blob. The
+    // uint32 id costs four bytes per encoded row, but avoids repeating object-key metadata and
+    // gives canonical comparison, hashing, subpath lookup, and binary SerDe O(1) schema access.
+    // It is required because valid external Variant rows may use different metadata dictionaries.
+    IColumn::WrappedPtr _metadatas;
+    IColumn::WrappedPtr _meta_ids;
+    IColumn::WrappedPtr _values;
+
+    // A non-null _typed always means all encoded buffers are empty and the entire column has the
+    // single type described by _typed_type.
+    IColumn::WrappedPtr _typed;
+    DataTypePtr _typed_type;
+
+    // T2.2 supplies the actual lookup structure. COW copies and structural mutation discard it.
+    std::unique_ptr<MetaDictIndex> _meta_index;
+};
+
+} // namespace doris

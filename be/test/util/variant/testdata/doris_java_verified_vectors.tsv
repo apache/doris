@@ -1,0 +1,50 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+#
+# variant-golden-v1
+# artifact=org.apache.parquet:parquet-variant:1.17.0
+# jar_sha256=daecf8161e7bba63f7ba9fd62c1e8a77730c9a9d76a335191dc9d0a0fcaaec52
+# corpus=doris-to-java
+# columns=name\tprovenance\troot_type\texpected\tmetadata_hex\tvalue_hex
+doris_array	doris-canonical-java-validated	array	array[int8:1;string:78;bool:false]	110000	0303000204050c01057808
+doris_binary	doris-canonical-java-validated	binary	binary:0001ff	110000	3c030000000001ff
+doris_date	doris-canonical-java-validated	date	date:-12345	110000	2cc7cfffff
+doris_decimal16	doris-canonical-java-validated	decimal16	decimal16:12345678901234567891234567890:10	110000	280ad2b673b0b1c9be46321be42700000000
+doris_decimal4	doris-canonical-java-validated	decimal4	decimal4:1234567:2	110000	200287d61200
+doris_decimal8	doris-canonical-java-validated	decimal8	decimal8:123456789012345:5	110000	240579df0d8648700000
+doris_double	doris-canonical-java-validated	double	double:400921fb54442d18	110000	1c182d4454fb210940
+doris_false	doris-canonical-java-validated	boolean	bool:false	110000	08
+doris_float	doris-canonical-java-validated	float	float:3fc00000	110000	380000c03f
+doris_int16	doris-canonical-java-validated	short	int16:128	110000	108000
+doris_int32	doris-canonical-java-validated	int	int32:32768	110000	1400800000
+doris_int64	doris-canonical-java-validated	long	int64:2147483648	110000	180000008000000000
+doris_int8	doris-canonical-java-validated	byte	int8:-7	110000	0cf9
+doris_long_string	doris-canonical-java-validated	string	string:4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c	110000	40400000004c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c
+doris_nested	doris-canonical-java-validated	object	object{617272=array[int8:7;object{696e73696465=bool:false}]}	1102000309617272696e73696465	020100000d03020002080c07020101000108
+doris_null	doris-canonical-java-validated	null	null	110000	00
+doris_object	doris-canonical-java-validated	object	object{61=string:78;7a=int8:1}	1102000102617a	0202000100020405780c01
+doris_short_63	doris-canonical-java-validated	string	string:737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373	110000	fd737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373737373
+doris_short_empty	doris-canonical-java-validated	string	string:	110000	01
+doris_time	doris-canonical-java-validated	time	time:86399999999	110000	44ff5fd71d14000000
+doris_timestamp_nanos_ntz	doris-canonical-java-validated	timestamp_nanos_ntz	timestamp_nanos_ntz:4234567890123	110000	4ccb34eaefd9030000
+doris_timestamp_nanos_tz	doris-canonical-java-validated	timestamp_nanos_tz	timestamp_nanos_tz:-3234567890123	110000	4835dbbae40efdffff
+doris_timestamp_ntz	doris-canonical-java-validated	timestamp_ntz	timestamp_ntz:2234567890123	110000	34cb14a04608020000
+doris_timestamp_tz	doris-canonical-java-validated	timestamp_tz	timestamp_tz:-1234567890123	110000	3035fb048ee0feffff
+doris_true	doris-canonical-java-validated	boolean	bool:true	110000	04
+doris_unicode_object	doris-canonical-java-validated	object	object{c3a9=int8:1;ee8080=int8:2}	1102000205c3a9ee8080	020200010002040c010c02
+doris_unicode_string	doris-canonical-java-validated	string	string:41c3a9e4b8adf0908080	110000	2941c3a9e4b8adf0908080
+doris_uuid	doris-canonical-java-validated	uuid	uuid:00112233-4455-6677-8899-aabbccddeeff	110000	5000112233445566778899aabbccddeeff

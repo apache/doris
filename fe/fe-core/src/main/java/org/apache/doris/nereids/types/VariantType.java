@@ -43,6 +43,9 @@ public class VariantType extends PrimitiveType {
 
     public static final int WIDTH = 24;
 
+    public static final String UNSUPPORTED_ORDERING_COMPARISON_MESSAGE =
+            "Variant does not support ordering/comparison, CAST to a concrete type first";
+
     private final int variantMaxSubcolumnsCount;
 
     private final boolean enableTypedPathsToSparse;

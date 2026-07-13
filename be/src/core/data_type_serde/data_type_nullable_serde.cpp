@@ -261,6 +261,26 @@ Status DataTypeNullableSerDe::deserialize_one_cell_from_json(IColumn& column, Sl
     return Status::OK();
 }
 
+Status DataTypeNullableSerDe::deserialize_one_cell_from_csv(IColumn& column, Slice& slice,
+                                                            const FormatOptions& options) const {
+    auto& null_column = assert_cast<ColumnNullable&>(column);
+    if (options.null_len > 0 && !(options.converted_from_string && slice.trim_double_quotes()) &&
+        slice.compare(Slice(options.null_format, options.null_len)) == 0) {
+        null_column.insert_data(nullptr, 0);
+        return Status::OK();
+    }
+
+    Status st = nested_serde->deserialize_one_cell_from_csv(null_column.get_nested_column(), slice,
+                                                            options);
+    if (!st.ok()) {
+        // Nullable text deserialization converts a rejected nested value to SQL NULL.
+        null_column.insert_data(nullptr, 0);
+        return Status::OK();
+    }
+    null_column.get_null_map_data().push_back(0);
+    return Status::OK();
+}
+
 Status DataTypeNullableSerDe::write_column_to_pb(const IColumn& column, PValues& result,
                                                  int64_t start, int64_t end) const {
     auto row_count = cast_set<int>(end - start);

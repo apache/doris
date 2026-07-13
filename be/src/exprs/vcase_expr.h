@@ -29,10 +29,12 @@
 #include "core/column/column_nullable.h"
 #include "core/column/column_struct.h"
 #include "core/column/column_variant.h"
+#include "core/column/column_variant_v2.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/data_type/primitive_type.h"
 #include "exprs/function/function.h"
 #include "exprs/function_context.h"
+#include "exprs/variant_v2_execution.h"
 #include "exprs/vexpr.h"
 
 namespace doris {
@@ -84,6 +86,7 @@ private:
                       std::is_same_v<ColumnType, ColumnMap> ||
                       std::is_same_v<ColumnType, ColumnStruct> ||
                       std::is_same_v<ColumnType, ColumnVariant> ||
+                      std::is_same_v<ColumnType, ColumnVariantV2> ||
                       std::is_same_v<ColumnType, ColumnHLL> ||
                       std::is_same_v<ColumnType, ColumnQuantileState> ||
                       std::is_same_v<ColumnType, ColumnIPv4> ||
@@ -144,10 +147,16 @@ private:
             CASE_TYPE(TYPE_ARRAY, ColumnArray)
             CASE_TYPE(TYPE_MAP, ColumnMap)
             CASE_TYPE(TYPE_STRUCT, ColumnStruct)
-            CASE_TYPE(TYPE_VARIANT, ColumnVariant)
             CASE_TYPE(TYPE_BITMAP, ColumnBitmap)
             CASE_TYPE(TYPE_HLL, ColumnHLL)
             CASE_TYPE(TYPE_QUANTILE_STATE, ColumnQuantileState)
+        case PrimitiveType::TYPE_VARIANT:
+            if (variant_v2_enabled()) {
+                return _execute_update_result_impl<IndexType, ColumnVariantV2>(
+                        then_idx, then_columns, rows_count);
+            }
+            return _execute_update_result_impl<IndexType, ColumnVariant>(then_idx, then_columns,
+                                                                         rows_count);
         default:
             throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "argument_type {} not supported",
                             data_type()->get_name());

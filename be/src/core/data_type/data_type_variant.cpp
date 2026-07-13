@@ -24,16 +24,24 @@
 #include <string.h>
 
 #include <cassert>
+#include <limits>
 #include <memory>
 #include <utility>
 #include <vector>
 
-#include "agent/be_exec_version_manager.h"
+#include "common/config.h"
+#include "common/exception.h"
 #include "core/assert_cast.h"
 #include "core/column/column.h"
+#include "core/column/column_nullable.h"
+#include "core/column/column_string.h"
 #include "core/column/column_variant.h"
+#include "core/column/column_variant_v2.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_factory.hpp"
+#include "core/data_type/data_type_jsonb.h"
+#include "core/data_type/data_type_nullable.h"
+#include "core/data_type_serde/data_type_variant_v2_serde.h"
 #include "core/typeid_cast.h"
 #include "core/types.h"
 #include "util/json/path_in_data.h"
@@ -61,6 +69,13 @@ bool DataTypeVariant::equals(const IDataType& rhs) const {
 
 int64_t DataTypeVariant::get_uncompressed_serialized_bytes(const IColumn& column,
                                                            int be_exec_version) const {
+    if (check_and_get_column_with_const<ColumnVariantV2>(column) != nullptr) {
+        const Result<size_t> size = DataTypeVariantV2SerDe::serialized_size(column);
+        if (!size.has_value()) {
+            throw Exception(size.error());
+        }
+        return cast_set<int64_t>(*size);
+    }
     const auto* column_variant = assert_cast<const ColumnVariant*>(&column);
     MutableColumnPtr finalized_column;
     if (!column_variant->is_finalized()) {
@@ -105,6 +120,15 @@ int64_t DataTypeVariant::get_uncompressed_serialized_bytes(const IColumn& column
 }
 
 char* DataTypeVariant::serialize(const IColumn& column, char* buf, int be_exec_version) const {
+    if (check_and_get_column_with_const<ColumnVariantV2>(column) != nullptr) {
+        const Result<size_t> size = DataTypeVariantV2SerDe::serialized_size(column);
+        if (!size.has_value()) {
+            throw Exception(size.error());
+        }
+        THROW_IF_ERROR(DataTypeVariantV2SerDe::serialize_binary(
+                column, {reinterpret_cast<uint8_t*>(buf), *size}));
+        return buf + *size;
+    }
     const auto* column_variant = assert_cast<const ColumnVariant*>(&column);
     MutableColumnPtr finalized_column;
     if (!column_variant->is_finalized()) {
@@ -178,6 +202,16 @@ Field DataTypeVariant::get_field(const TExprNode& node) const {
 
 const char* DataTypeVariant::deserialize(const char* buf, MutableColumnPtr* column,
                                          int be_exec_version) const {
+    if (memcmp(buf, "DV2X", 4) == 0) {
+        const auto frame_size = unaligned_load<uint64_t>(buf + 8);
+        if (frame_size < 24 || frame_size > std::numeric_limits<size_t>::max()) {
+            throw Exception(Status::Corruption("Invalid ColumnVariantV2 exchange frame size {}",
+                                               frame_size));
+        }
+        THROW_IF_ERROR(DataTypeVariantV2SerDe::deserialize_binary(
+                {reinterpret_cast<const uint8_t*>(buf), cast_set<size_t>(frame_size)}, column));
+        return buf + frame_size;
+    }
     auto column_variant = assert_cast<ColumnVariant*>(column->get());
 
     // 1. deserialize num of subcolumns
@@ -246,6 +280,9 @@ void DataTypeVariant::to_pb_column_meta(PColumnMeta* col_meta) const {
 }
 
 MutableColumnPtr DataTypeVariant::create_column() const {
+    if (config::enable_variant_v2) {
+        return ColumnVariantV2::create();
+    }
     return ColumnVariant::create(_max_subcolumns_count, _enable_doc_mode);
 }
 

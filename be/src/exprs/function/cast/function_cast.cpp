@@ -27,8 +27,10 @@
 #include "exprs/function/cast/cast_to_map.h"
 #include "exprs/function/cast/cast_to_struct.h"
 #include "exprs/function/cast/cast_to_variant.h"
+#include "exprs/function/cast/cast_variant_v2.h"
 #include "exprs/function/cast/cast_wrapper_decls.h"
 #include "exprs/function/simple_function_factory.h"
+#include "exprs/variant_v2_execution.h"
 
 namespace doris {
 
@@ -232,10 +234,29 @@ WrapperType prepare_impl(FunctionContext* context, const DataTypePtr& origin_fro
 
     // variant needs to be judged first
     if (to_type->get_primitive_type() == PrimitiveType::TYPE_VARIANT) {
+        if (variant_v2_enabled()) {
+            return create_cast_to_variant_v2_wrapper(from_type);
+        }
         return create_cast_to_variant_wrapper(from_type,
                                               static_cast<const DataTypeVariant&>(*to_type));
     }
     if (from_type->get_primitive_type() == PrimitiveType::TYPE_VARIANT) {
+        if (variant_v2_enabled()) {
+            auto wrapper = create_cast_from_variant_v2_wrapper(to_type);
+            return [wrapper = std::move(wrapper)](
+                           FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                           uint32_t result, size_t rows, const NullMap::value_type* null_map) {
+                RETURN_IF_ERROR(wrapper(context, block, arguments, result, rows, null_map));
+                auto& result_column = block.get_by_position(result).column;
+                if (null_map == nullptr) {
+                    const auto* nullable = check_and_get_column<ColumnNullable>(*result_column);
+                    if (nullable != nullptr && !nullable->has_null()) {
+                        result_column = nullable->get_nested_column_ptr();
+                    }
+                }
+                return Status::OK();
+            };
+        }
         return create_cast_from_variant_wrapper(static_cast<const DataTypeVariant&>(*from_type),
                                                 to_type);
     }
