@@ -7,6 +7,8 @@
 
 # 🆕 下一个 session = **实现 §3 重分析的合规委派（步 2a 连接器侧先行）**，再续删除
 
+> **📋 进度追踪 = `plan-doc/tasks/datasource-deletion-tasklist.md`**（唯一勾选清单，**每完成一项即勾 `[x]` 并随 commit 更新**；用户 2026-07-13 要求）。
+>
 > **起步必读（两份）**：① **`plan-doc/tasks/datasource-deletion-extraction-reanalysis-2026-07-13.md`**（§3 抽取的合规重分析，**用户已 review 通过**，14-agent recon run `wf_6b4ce713-04f` + 人工复核）；② `plan-doc/tasks/P7.5-datasource-deletion-plan.md`（施工蓝图，§3 处置列已作废改指重分析、§5 步 2 已改为 2a/2b）。**行号信 HEAD 不信文档**。
 >
 > **✅ 2026-07-13 用户拍板（最高优先级）**：认可「零 fe-core 源相关新增」的合规重分析取代原「搬中立家」方案。四组处置：① hive 分区名解析 = 2 纯删 + 1 经 `ConnectorPartitionInfo` 加**两并行列表**（有序值 + 现有空标志）委派，4 连接器填值；② hive LZO = **纯删**（消费点全死、连接器早自带）；③ hive 默认分区哨兵 = 查询路径经现有 `ConnectorScanRange.populateRangeParams` 委派（`HiveScanRange` 加 columnsFromPath 重置，**窄** `.equals` 非 `normalize()`）+ 加载路径改指现有中立常量 `ConnectorPartitionValues.HIVE_DEFAULT_PARTITION`；④ iceberg 行血缘 = 常量纯删 + 保留列身份用**逐列中立布尔位 `reservedPassthrough`**（经 `ConnectorColumnConverter:80-90` 跨界重贴，仿现有 invisible/uniqueId）+ 建表校验经现有 `ConnectorTableOps.createTable` 委派（**接受**时机/异常/文案变化，不加前置钩子）。
