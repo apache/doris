@@ -187,7 +187,7 @@ public class AggregateUtils {
     public static Set<NamedExpression> getDistinctNamedExpr(LogicalAggregate<? extends Plan> aggregate) {
         return aggregate.getAggregateFunctions().stream()
                 .filter(AggregateFunction::isDistinct)
-                .flatMap(aggFunc -> aggFunc.getArguments().stream())
+                .flatMap(aggFunc -> aggFunc.getDistinctArguments().stream())
                 .filter(NamedExpression.class::isInstance)
                 .map(NamedExpression.class::cast)
                 .collect(ImmutableSet.toImmutableSet());
