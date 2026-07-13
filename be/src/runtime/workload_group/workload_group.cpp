@@ -162,7 +162,9 @@ void WorkloadGroup::check_and_update(const WorkloadGroupInfo& wg_info) {
     }
     {
         std::lock_guard<std::shared_mutex> wl {_mutex};
-        if (wg_info.version > _version) {
+        // In serverless mode, user may modify cgroup's memory limit directly and workload group's config
+        // is not changed. So that we should update workload group's config ignore version.
+        if (wg_info.version > _version || _memory_limit != wg_info.memory_limit) {
             _name = wg_info.name;
             _version = wg_info.version;
             _min_cpu_percent = wg_info.min_cpu_percent;
