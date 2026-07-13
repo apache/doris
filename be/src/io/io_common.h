@@ -72,6 +72,16 @@ struct FileCacheStatistics {
     int64_t inverted_index_remote_io_timer = 0;
     int64_t inverted_index_peer_io_timer = 0;
     int64_t inverted_index_io_timer = 0;
+
+    int64_t segment_footer_index_num_local_io_total = 0;
+    int64_t segment_footer_index_num_remote_io_total = 0;
+    int64_t segment_footer_index_num_peer_io_total = 0;
+    int64_t segment_footer_index_bytes_read_from_local = 0;
+    int64_t segment_footer_index_bytes_read_from_remote = 0;
+    int64_t segment_footer_index_bytes_read_from_peer = 0;
+    int64_t segment_footer_index_local_io_timer = 0;
+    int64_t segment_footer_index_remote_io_timer = 0;
+    int64_t segment_footer_index_peer_io_timer = 0;
 };
 
 struct IOContext {
