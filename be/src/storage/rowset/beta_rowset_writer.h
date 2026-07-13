@@ -209,6 +209,8 @@ private:
     // for this segment
 protected:
     Status _generate_delete_bitmap(int32_t segment_id);
+    bool _is_segment_delete_bitmap_calculated(uint32_t segment_id) const;
+    void _mark_segment_delete_bitmap_calculated(uint32_t segment_id);
     virtual Status _build_rowset_meta(RowsetMeta* rowset_meta, bool check_segment_num = false);
     Status _create_file_writer(const std::string& path, io::FileWriterPtr& file_writer,
                                FileType file_type = FileType::SEGMENT_FILE);
@@ -268,6 +270,8 @@ protected:
 
     std::shared_ptr<MowContext> _mow_context;
     std::unique_ptr<CalcDeleteBitmapToken> _calc_delete_bitmap_token;
+    roaring::Roaring _delete_bitmap_calculated_segments;
+    mutable std::mutex _delete_bitmap_calculated_segments_mutex;
 
     int64_t _delete_bitmap_ns = 0;
     int64_t _segment_writer_ns = 0;
@@ -289,8 +293,9 @@ public:
     Status add_segment(uint32_t segment_id, const SegmentStatistics& segstat) override;
 
     Status flush_segment_writer_for_segcompaction(
-            std::unique_ptr<segment_v2::SegmentWriter>* writer, uint64_t index_size,
-            KeyBoundsPB& key_bounds);
+            std::unique_ptr<segment_v2::SegmentWriter>*
+                    writer, // NOLINT(readability-non-const-parameter): resets the caller-owned writer after finalizing it.
+            uint64_t index_size, KeyBoundsPB& key_bounds);
     Status create_segment_writer_for_segcompaction(
             std::unique_ptr<segment_v2::SegmentWriter>* writer, int64_t begin, int64_t end);
 
@@ -303,6 +308,8 @@ private:
     Status _check_segment_number_limit(size_t segnum) override;
     int64_t _num_seg() const override;
     Status _wait_flying_segcompaction();
+    Status _retry_pending_segcompaction_after_delete_bitmap();
+    Status _finish_flying_segcompaction(bool need_final_segcompaction_retry);
     Status _segcompaction_if_necessary();
     Status _segcompaction_rename_last_segments();
     Status _load_noncompacted_segment(segment_v2::SegmentSharedPtr& segment, int32_t segment_id);

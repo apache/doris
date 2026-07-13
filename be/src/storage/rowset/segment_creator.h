@@ -116,7 +116,6 @@ public:
 
     Status close();
 
-public:
     class Writer {
         friend class SegmentFlusher;
 
@@ -157,7 +156,6 @@ private:
             uint32_t segment_id, const segment_v2::SegmentIndexFileCacheInfo& info);
     Status _preload_segment_indexes_to_file_cache();
 
-private:
     RowsetWriterContext& _context;
     SegmentFileCollection& _seg_files;
     InvertedIndexFileCollection& _idx_files;
