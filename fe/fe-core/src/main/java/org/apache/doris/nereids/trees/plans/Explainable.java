@@ -30,6 +30,10 @@ import java.util.Optional;
 public interface Explainable {
     Plan getExplainPlan(ConnectContext ctx) throws Exception;
 
+    default ConnectContext getExplainConnectContext(ConnectContext ctx) throws Exception {
+        return ctx;
+    }
+
     default Optional<NereidsPlanner> getExplainPlanner(LogicalPlan logicalPlan, StatementContext ctx) throws Exception {
         return Optional.empty();
     }
