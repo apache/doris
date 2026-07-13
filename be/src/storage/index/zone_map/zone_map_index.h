@@ -84,6 +84,11 @@ struct ZoneMap {
 
     static Status from_proto(const ZoneMapPB& zone_map, const DataTypePtr& data_type,
                              ZoneMap& zone_map_info);
+
+    void to_entry_pb_native(ZoneMapEntryPB* dst, const DataTypePtr& data_type) const;
+
+    static Status from_entry_pb_native(const ZoneMapEntryPB& zone_map, const DataTypePtr& data_type,
+                                       ZoneMap& zone_map_info);
 };
 
 class ZoneMapIndexWriter {
@@ -166,8 +171,8 @@ private:
     std::string _page_min_storage;
     std::string _page_max_storage;
 
-    // serialized ZoneMapPB for each data page
-    std::vector<std::string> _values;
+    // ZoneMap for each data page.
+    std::vector<ZoneMap> _page_zone_maps;
     uint64_t _estimated_size = 0;
 };
 
@@ -179,6 +184,17 @@ public:
         _page_zone_maps_meta.reset(new IndexedColumnMetaPB(page_zone_maps));
     }
 
+    explicit ZoneMapIndexReader(io::FileReaderSPtr file_reader,
+                                const ZoneMapIndexPB& zone_map_index, DataTypePtr data_type)
+            : _file_reader(std::move(file_reader)), _data_type(std::move(data_type)) {
+        if (zone_map_index.has_page_zone_maps_v2()) {
+            _page_zone_maps_v2_meta.reset(
+                    new ZoneMapPageIndexPB(zone_map_index.page_zone_maps_v2()));
+        } else if (zone_map_index.has_page_zone_maps()) {
+            _page_zone_maps_meta.reset(new IndexedColumnMetaPB(zone_map_index.page_zone_maps()));
+        }
+    }
+
     virtual ~ZoneMapIndexReader();
 
     // load all page zone maps into memory
@@ -186,13 +202,24 @@ public:
                 OlapReaderStatistics* index_load_stats = nullptr,
                 const io::IOContext* io_ctx = nullptr);
 
-    const std::vector<ZoneMapPB>& page_zone_maps() const { return _page_zone_maps; }
+    const std::vector<ZoneMapPB>& page_zone_maps() const;
 
-    size_t num_pages() const { return _page_zone_maps.size(); }
+    const std::vector<ZoneMap>& page_zone_map_infos() const { return _page_zone_map_infos; }
+
+    size_t num_pages() const { return _num_pages; }
 
 private:
-    Status _load(bool use_page_cache, bool kept_in_memory, std::unique_ptr<IndexedColumnMetaPB>,
+    Status _load(bool use_page_cache, bool kept_in_memory,
+                 std::unique_ptr<IndexedColumnMetaPB> page_zone_maps_meta,
+                 std::unique_ptr<ZoneMapPageIndexPB> page_zone_maps_v2_meta,
                  OlapReaderStatistics* index_load_stats, const io::IOContext* io_ctx);
+
+    Status _load_legacy(bool use_page_cache, bool kept_in_memory,
+                        std::unique_ptr<IndexedColumnMetaPB> page_zone_maps_meta,
+                        OlapReaderStatistics* index_load_stats, const io::IOContext* io_ctx);
+
+    Status _load_v2(std::unique_ptr<ZoneMapPageIndexPB> page_zone_maps_v2_meta,
+                    OlapReaderStatistics* index_load_stats, const io::IOContext* io_ctx);
 
     int64_t get_metadata_size() const override;
 
@@ -200,8 +227,12 @@ private:
     DorisCallOnce<Status> _load_once;
     // TODO: yyq, we shoud remove file_reader from here.
     io::FileReaderSPtr _file_reader;
+    DataTypePtr _data_type;
     std::unique_ptr<IndexedColumnMetaPB> _page_zone_maps_meta;
-    std::vector<ZoneMapPB> _page_zone_maps;
+    std::unique_ptr<ZoneMapPageIndexPB> _page_zone_maps_v2_meta;
+    mutable std::vector<ZoneMapPB> _page_zone_maps;
+    std::vector<ZoneMap> _page_zone_map_infos;
+    size_t _num_pages = 0;
     int64_t _pb_meta_size {0};
 };
 

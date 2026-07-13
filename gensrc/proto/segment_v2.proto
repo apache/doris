@@ -145,6 +145,61 @@ message ZoneMapPB {
     optional bool has_nan = 8;
 }
 
+message ZoneMapEntryPB {
+    // Native binary minimum not-null value, interpreted by column type.
+    optional bytes min = 1;
+    // Native binary maximum not-null value, interpreted by column type.
+    optional bytes max = 2;
+
+    optional bool has_null = 3;
+    optional bool has_not_null = 4;
+    optional bool pass_all = 5 [default = false];
+    optional bool has_positive_inf = 6;
+    optional bool has_negative_inf = 7;
+    optional bool has_nan = 8;
+}
+
+message ZoneMapValueArrayPB {
+    enum Layout {
+        UNKNOWN = 0;
+        FIXED_WIDTH = 1;
+        VAR_BINARY = 2;
+    }
+
+    optional Layout layout = 1;
+
+    // FIXED_WIDTH stores values consecutively for pages whose value is present.
+    optional uint32 fixed_width = 2;
+    optional bytes fixed_values = 3;
+
+    // VAR_BINARY stores offset_width-byte little-endian offsets followed by concatenated bytes.
+    optional uint32 offset_width = 4 [default = 4];
+    optional bytes offsets = 5;
+    optional bytes values = 6;
+}
+
+message ZoneMapPagesPB {
+    optional uint32 num_pages = 1;
+
+    optional bytes has_null_bitmap = 2;
+    optional bytes has_not_null_bitmap = 3;
+    optional bytes pass_all_bitmap = 4;
+    optional bytes has_positive_inf_bitmap = 5;
+    optional bytes has_negative_inf_bitmap = 6;
+    optional bytes has_nan_bitmap = 7;
+
+    optional ZoneMapValueArrayPB min_values = 8;
+    optional ZoneMapValueArrayPB max_values = 9;
+
+    optional uint32 entry_version = 10 [default = 1];
+}
+
+message ZoneMapPageIndexPB {
+    optional PagePointerPB data = 1;
+    optional uint32 num_pages = 2;
+    optional uint32 format_version = 3 [default = 1];
+}
+
 message ColumnPathPartInfo {
     // key represent a part of key in full parts info
     optional string key = 1;
@@ -353,6 +408,10 @@ message ZoneMapIndexPB {
     optional ZoneMapPB segment_zone_map = 1;
     // required: zone map for each data page is stored in an IndexedColumn with ordinal index
     optional IndexedColumnMetaPB page_zone_maps = 2;
+    // Native binary segment-level zone map.
+    optional ZoneMapEntryPB segment_zone_map_v2 = 3;
+    // Native array-oriented page-level zone maps.
+    optional ZoneMapPageIndexPB page_zone_maps_v2 = 4;
 }
 
 message BitmapIndexPB {

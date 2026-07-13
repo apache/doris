@@ -37,10 +37,12 @@
 #include "exprs/function/cast/cast_to_string.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
+#include "storage/index/indexed_column_writer.h"
 #include "storage/olap_common.h"
 #include "storage/predicate/comparison_predicate.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/tablet/tablet_schema_helper.h"
+#include "util/coding.h"
 #include "util/slice.h"
 
 namespace doris {
@@ -58,6 +60,149 @@ public:
         ASSERT_TRUE(st.ok()) << st;
     }
     void TearDown() override { EXPECT_TRUE(_fs->delete_directory(kTestDir).ok()); }
+
+    ZoneMap load_segment_zone_map(const ColumnIndexMetaPB& index_meta,
+                                  const DataTypePtr& data_type) {
+        EXPECT_TRUE(index_meta.zone_map_index().has_segment_zone_map_v2());
+        EXPECT_TRUE(index_meta.zone_map_index().has_page_zone_maps_v2());
+        EXPECT_FALSE(index_meta.zone_map_index().has_segment_zone_map());
+        EXPECT_FALSE(index_meta.zone_map_index().has_page_zone_maps());
+        ZoneMap zone_map;
+        EXPECT_TRUE(ZoneMap::from_entry_pb_native(index_meta.zone_map_index().segment_zone_map_v2(),
+                                                  data_type, zone_map)
+                            .ok());
+        return zone_map;
+    }
+
+    static std::string one_byte_bitmap(uint8_t bits) {
+        return std::string(1, static_cast<char>(bits));
+    }
+
+    static void init_fixed_int_values(ZoneMapValueArrayPB* values) {
+        values->set_layout(ZoneMapValueArrayPB::FIXED_WIDTH);
+        values->set_fixed_width(sizeof(int32_t));
+    }
+
+    static void append_fixed_int_value(ZoneMapValueArrayPB* values, int32_t value) {
+        put_fixed32_le(values->mutable_fixed_values(), static_cast<uint32_t>(value));
+    }
+
+    static TabletColumnPtr create_scalar_key(FieldType type, int32_t length, int32_t precision = 0,
+                                             int32_t scale = 0) {
+        auto column = std::make_shared<TabletColumn>();
+        column->_unique_id = 0;
+        column->_col_name = "0";
+        column->_type = type;
+        column->_is_key = true;
+        column->_is_nullable = true;
+        column->_length = length;
+        column->_index_length = length;
+        column->_precision = precision;
+        column->_frac = scale;
+        column->_is_bf_column = false;
+        return column;
+    }
+
+    static ZoneMapPagesPB one_present_int_page(int32_t min, int32_t max) {
+        ZoneMapPagesPB pages;
+        pages.set_num_pages(1);
+        pages.set_entry_version(1);
+        pages.set_has_null_bitmap(one_byte_bitmap(0));
+        pages.set_has_not_null_bitmap(one_byte_bitmap(1));
+        pages.set_pass_all_bitmap(one_byte_bitmap(0));
+        pages.set_has_positive_inf_bitmap(one_byte_bitmap(0));
+        pages.set_has_negative_inf_bitmap(one_byte_bitmap(0));
+        pages.set_has_nan_bitmap(one_byte_bitmap(0));
+        init_fixed_int_values(pages.mutable_min_values());
+        init_fixed_int_values(pages.mutable_max_values());
+        append_fixed_int_value(pages.mutable_min_values(), min);
+        append_fixed_int_value(pages.mutable_max_values(), max);
+        return pages;
+    }
+
+    Status write_native_pages_payload(const std::string& filename, const ZoneMapPagesPB& pages,
+                                      uint32_t meta_num_pages, ZoneMapIndexPB* zone_map_index,
+                                      io::FileReaderSPtr* file_reader) {
+        std::string payload;
+        if (!pages.SerializeToString(&payload)) {
+            return Status::InternalError("serialize test zone map pages failed");
+        }
+        io::FileWriterPtr file_writer;
+        RETURN_IF_ERROR(_fs->create_file(filename, &file_writer));
+        RETURN_IF_ERROR(file_writer->append(Slice(payload)));
+        RETURN_IF_ERROR(file_writer->close());
+
+        ZoneMapPageIndexPB* page_index = zone_map_index->mutable_page_zone_maps_v2();
+        page_index->mutable_data()->set_offset(0);
+        page_index->mutable_data()->set_size(static_cast<uint32_t>(payload.size()));
+        page_index->set_num_pages(meta_num_pages);
+        page_index->set_format_version(1);
+        return _fs->open_file(filename, file_reader);
+    }
+
+    template <PrimitiveType Type>
+    void test_native_storage_value_round_trip(
+            const std::string& testname, FieldType field_type,
+            typename PrimitiveTypeTraits<Type>::StorageFieldType min_value,
+            typename PrimitiveTypeTraits<Type>::StorageFieldType max_value, int32_t length,
+            int32_t precision = 0, int32_t scale = 0) {
+        auto column = create_scalar_key(field_type, length, precision, scale);
+        auto data_type =
+                DataTypeFactory::instance().create_data_type(Type, false, precision, scale, length);
+
+        std::unique_ptr<ZoneMapIndexWriter> writer;
+        ASSERT_TRUE(ZoneMapIndexWriter::create(data_type, column.get(), writer).ok());
+
+        using StorageType = typename PrimitiveTypeTraits<Type>::StorageFieldType;
+        std::vector<StorageType> page0_values {max_value, min_value};
+        writer->add_values(page0_values.data(), page0_values.size());
+        ASSERT_TRUE(writer->flush().ok());
+
+        writer->add_nulls(1);
+        writer->add_values(&min_value, 1);
+        ASSERT_TRUE(writer->flush().ok());
+
+        writer->add_nulls(2);
+        ASSERT_TRUE(writer->flush().ok());
+
+        std::string filename = kTestDir + "/" + testname;
+        io::FileWriterPtr file_writer;
+        ASSERT_TRUE(_fs->create_file(filename, &file_writer).ok());
+        ColumnIndexMetaPB index_meta;
+        ASSERT_TRUE(writer->finish(file_writer.get(), &index_meta).ok());
+        ASSERT_TRUE(file_writer->close().ok());
+
+        const Field expected_min = Field::create_field_from_olap_value<Type>(min_value);
+        const Field expected_max = Field::create_field_from_olap_value<Type>(max_value);
+        ZoneMap segment_zone_map = load_segment_zone_map(index_meta, data_type);
+        EXPECT_EQ(expected_min, segment_zone_map.min_value);
+        EXPECT_EQ(expected_max, segment_zone_map.max_value);
+        EXPECT_TRUE(segment_zone_map.has_null);
+        EXPECT_TRUE(segment_zone_map.has_not_null);
+
+        io::FileReaderSPtr file_reader;
+        ASSERT_TRUE(_fs->open_file(filename, &file_reader).ok());
+        ZoneMapIndexReader reader(file_reader, index_meta.zone_map_index(), data_type);
+        ASSERT_TRUE(reader.load(true, false).ok());
+        ASSERT_EQ(3, reader.num_pages());
+        ASSERT_EQ(3, reader.page_zone_map_infos().size());
+
+        const auto& page0 = reader.page_zone_map_infos()[0];
+        EXPECT_EQ(expected_min, page0.min_value);
+        EXPECT_EQ(expected_max, page0.max_value);
+        EXPECT_FALSE(page0.has_null);
+        EXPECT_TRUE(page0.has_not_null);
+
+        const auto& page1 = reader.page_zone_map_infos()[1];
+        EXPECT_EQ(expected_min, page1.min_value);
+        EXPECT_EQ(expected_min, page1.max_value);
+        EXPECT_TRUE(page1.has_null);
+        EXPECT_TRUE(page1.has_not_null);
+
+        const auto& page2 = reader.page_zone_map_infos()[2];
+        EXPECT_TRUE(page2.has_null);
+        EXPECT_FALSE(page2.has_not_null);
+    }
 
     void test_string(std::string testname, const TabletColumn* field, DataTypePtr data_type_ptr) {
         std::string filename = kTestDir + "/" + testname;
@@ -94,8 +239,7 @@ public:
 
         io::FileReaderSPtr file_reader;
         EXPECT_TRUE(fs->open_file(filename, &file_reader).ok());
-        ZoneMapIndexReader column_zone_map(file_reader,
-                                           index_meta.zone_map_index().page_zone_maps());
+        ZoneMapIndexReader column_zone_map(file_reader, index_meta.zone_map_index(), data_type_ptr);
         Status status = column_zone_map.load(true, false);
         EXPECT_TRUE(status.ok());
         EXPECT_EQ(3, column_zone_map.num_pages());
@@ -177,16 +321,14 @@ public:
         ASSERT_TRUE(writer->finish(file_writer.get(), &index_meta).ok());
         ASSERT_TRUE(file_writer->close().ok());
 
-        const auto& seg_zm = index_meta.zone_map_index().segment_zone_map();
+        const auto& seg_zm = index_meta.zone_map_index().segment_zone_map_v2();
         // Min/Max should be truncated to MAX_ZONE_MAP_INDEX_SIZE and last byte of Max is incremented
         EXPECT_EQ(seg_zm.min().size(), MAX_ZONE_MAP_INDEX_SIZE);
         EXPECT_EQ(seg_zm.min(), small_long_string1_expect);
         EXPECT_EQ(seg_zm.max().size(), MAX_ZONE_MAP_INDEX_SIZE);
         EXPECT_EQ(seg_zm.max(), big_long_string2_expect);
 
-        // Verify ZoneMap::from_proto can correctly parse the truncated zone map
-        ZoneMap seg_zone_map;
-        ASSERT_TRUE(ZoneMap::from_proto(seg_zm, data_type, seg_zone_map).ok());
+        ZoneMap seg_zone_map = load_segment_zone_map(index_meta, data_type);
         EXPECT_EQ(seg_zone_map.has_null, false);
         EXPECT_EQ(seg_zone_map.has_not_null, true);
         EXPECT_EQ(seg_zone_map.pass_all, false);
@@ -201,8 +343,7 @@ public:
         io::FileReaderSPtr file_reader;
         EXPECT_TRUE(_fs->open_file(file_path, &file_reader).ok());
 
-        ZoneMapIndexReader column_zone_map(file_reader,
-                                           index_meta.zone_map_index().page_zone_maps());
+        ZoneMapIndexReader column_zone_map(file_reader, index_meta.zone_map_index(), data_type);
         Status status = column_zone_map.load(true, false);
         EXPECT_TRUE(status.ok());
         EXPECT_EQ(2, column_zone_map.num_pages());
@@ -273,16 +414,14 @@ public:
         ASSERT_TRUE(writer->finish(file_writer.get(), &index_meta).ok());
         ASSERT_TRUE(file_writer->close().ok());
 
-        const auto& seg_zm = index_meta.zone_map_index().segment_zone_map();
+        const auto& seg_zm = index_meta.zone_map_index().segment_zone_map_v2();
         // On-disk min/max preserve the raw (unpadded) bytes.
         EXPECT_EQ(seg_zm.min().size(), s_less_than_char_len1.size());
         EXPECT_EQ(seg_zm.min(), s_less_than_char_len1);
         EXPECT_EQ(seg_zm.max().size(), s_less_than_char_len2.size());
         EXPECT_EQ(seg_zm.max(), s_less_than_char_len2);
 
-        // Verify ZoneMap::from_proto materializes the unpadded Field.
-        ZoneMap seg_zone_map;
-        ASSERT_TRUE(ZoneMap::from_proto(seg_zm, data_type, seg_zone_map).ok());
+        ZoneMap seg_zone_map = load_segment_zone_map(index_meta, data_type);
         EXPECT_EQ(seg_zone_map.has_null, false);
         EXPECT_EQ(seg_zone_map.has_not_null, true);
         EXPECT_EQ(seg_zone_map.pass_all, false);
@@ -297,8 +436,7 @@ public:
         io::FileReaderSPtr file_reader;
         EXPECT_TRUE(_fs->open_file(file_path, &file_reader).ok());
 
-        ZoneMapIndexReader column_zone_map(file_reader,
-                                           index_meta.zone_map_index().page_zone_maps());
+        ZoneMapIndexReader column_zone_map(file_reader, index_meta.zone_map_index(), data_type);
         Status status = column_zone_map.load(true, false);
         EXPECT_TRUE(status.ok());
         EXPECT_EQ(1, column_zone_map.num_pages());
@@ -368,13 +506,7 @@ public:
         ASSERT_TRUE(writer->finish(file_writer.get(), &index_meta).ok());
         ASSERT_TRUE(file_writer->close().ok());
 
-        const auto& seg_zm = index_meta.zone_map_index().segment_zone_map();
-        EXPECT_EQ(seg_zm.min(), DecimalV2Value(decimal1.integer, decimal1.fraction));
-        EXPECT_EQ(seg_zm.max(), DecimalV2Value(decimal3.integer, decimal3.fraction));
-
-        // Verify ZoneMap::from_proto can correctly parse the truncated zone map
-        ZoneMap seg_zone_map;
-        ASSERT_TRUE(ZoneMap::from_proto(seg_zm, data_type, seg_zone_map).ok());
+        ZoneMap seg_zone_map = load_segment_zone_map(index_meta, data_type);
         EXPECT_EQ(seg_zone_map.has_null, false);
         EXPECT_EQ(seg_zone_map.has_not_null, true);
         EXPECT_EQ(seg_zone_map.pass_all, false);
@@ -389,8 +521,7 @@ public:
         io::FileReaderSPtr file_reader;
         EXPECT_TRUE(_fs->open_file(file_path, &file_reader).ok());
 
-        ZoneMapIndexReader column_zone_map(file_reader,
-                                           index_meta.zone_map_index().page_zone_maps());
+        ZoneMapIndexReader column_zone_map(file_reader, index_meta.zone_map_index(), data_type);
         Status status = column_zone_map.load(true, false);
         EXPECT_TRUE(status.ok());
         EXPECT_EQ(1, column_zone_map.num_pages());
@@ -455,12 +586,7 @@ public:
         ASSERT_TRUE(writer->finish(file_writer.get(), &index_meta).ok());
         ASSERT_TRUE(file_writer->close().ok());
 
-        const auto& seg_zm = index_meta.zone_map_index().segment_zone_map();
-        // EXPECT_EQ(seg_zm.min(), value1);
-        // EXPECT_EQ(seg_zm.max(), value3);
-
-        ZoneMap seg_zone_map;
-        ASSERT_TRUE(ZoneMap::from_proto(seg_zm, data_type, seg_zone_map).ok());
+        ZoneMap seg_zone_map = load_segment_zone_map(index_meta, data_type);
         EXPECT_EQ(seg_zone_map.has_null, false);
         EXPECT_EQ(seg_zone_map.has_not_null, true);
         EXPECT_EQ(seg_zone_map.pass_all, false);
@@ -473,8 +599,7 @@ public:
         io::FileReaderSPtr file_reader;
         EXPECT_TRUE(_fs->open_file(file_path, &file_reader).ok());
 
-        ZoneMapIndexReader column_zone_map(file_reader,
-                                           index_meta.zone_map_index().page_zone_maps());
+        ZoneMapIndexReader column_zone_map(file_reader, index_meta.zone_map_index(), data_type);
         Status status = column_zone_map.load(true, false);
         EXPECT_TRUE(status.ok());
         EXPECT_EQ(1, column_zone_map.num_pages());
@@ -537,10 +662,7 @@ public:
         ASSERT_TRUE(writer->finish(file_writer.get(), &index_meta).ok());
         ASSERT_TRUE(file_writer->close().ok());
 
-        const auto& seg_zm = index_meta.zone_map_index().segment_zone_map();
-
-        ZoneMap seg_zone_map;
-        ASSERT_TRUE(ZoneMap::from_proto(seg_zm, data_type, seg_zone_map).ok());
+        ZoneMap seg_zone_map = load_segment_zone_map(index_meta, data_type);
         EXPECT_EQ(seg_zone_map.has_null, false);
         EXPECT_EQ(seg_zone_map.has_not_null, true);
         EXPECT_EQ(seg_zone_map.pass_all, false);
@@ -553,8 +675,7 @@ public:
         io::FileReaderSPtr file_reader;
         EXPECT_TRUE(_fs->open_file(file_path, &file_reader).ok());
 
-        ZoneMapIndexReader column_zone_map(file_reader,
-                                           index_meta.zone_map_index().page_zone_maps());
+        ZoneMapIndexReader column_zone_map(file_reader, index_meta.zone_map_index(), data_type);
         Status status = column_zone_map.load(true, false);
         EXPECT_TRUE(status.ok());
         EXPECT_EQ(1, column_zone_map.num_pages());
@@ -615,7 +736,7 @@ TEST_F(ColumnZoneMapTest, NormalTestIntPage) {
 
     io::FileReaderSPtr file_reader;
     EXPECT_TRUE(fs->open_file(filename, &file_reader).ok());
-    ZoneMapIndexReader column_zone_map(file_reader, index_meta.zone_map_index().page_zone_maps());
+    ZoneMapIndexReader column_zone_map(file_reader, index_meta.zone_map_index(), data_type_ptr);
     Status status = column_zone_map.load(true, false);
     EXPECT_TRUE(status.ok());
     EXPECT_EQ(3, column_zone_map.num_pages());
@@ -677,6 +798,47 @@ TEST_F(ColumnZoneMapTest, CharColumnPadding) {
     test_char_padding(true);
 }
 
+TEST_F(ColumnZoneMapTest, NativeVariableWidthEmptyStringRoundTrip) {
+    std::string filename = kTestDir + "/NativeVariableWidthEmptyStringRoundTrip";
+    auto column = create_string_key(0);
+    auto data_type = DataTypeFactory::instance().create_data_type(TYPE_STRING, false);
+
+    std::unique_ptr<ZoneMapIndexWriter> writer;
+    ASSERT_TRUE(ZoneMapIndexWriter::create(data_type, column.get(), writer).ok());
+    std::string empty;
+    std::string z = "z";
+    std::vector<StringRef> page0_values {StringRef(empty.data(), empty.size()),
+                                         StringRef(z.data(), z.size())};
+    writer->add_values(page0_values.data(), page0_values.size());
+    ASSERT_TRUE(writer->flush().ok());
+
+    writer->add_nulls(1);
+    writer->add_values(&page0_values[0], 1);
+    ASSERT_TRUE(writer->flush().ok());
+
+    io::FileWriterPtr file_writer;
+    ASSERT_TRUE(_fs->create_file(filename, &file_writer).ok());
+    ColumnIndexMetaPB index_meta;
+    ASSERT_TRUE(writer->finish(file_writer.get(), &index_meta).ok());
+    ASSERT_TRUE(file_writer->close().ok());
+
+    ZoneMap segment_zone_map = load_segment_zone_map(index_meta, data_type);
+    EXPECT_EQ("", segment_zone_map.min_value.get<TYPE_STRING>());
+    EXPECT_EQ("z", segment_zone_map.max_value.get<TYPE_STRING>());
+
+    io::FileReaderSPtr file_reader;
+    ASSERT_TRUE(_fs->open_file(filename, &file_reader).ok());
+    ZoneMapIndexReader reader(file_reader, index_meta.zone_map_index(), data_type);
+    ASSERT_TRUE(reader.load(true, false).ok());
+    ASSERT_EQ(2, reader.page_zone_map_infos().size());
+    EXPECT_EQ("", reader.page_zone_map_infos()[0].min_value.get<TYPE_STRING>());
+    EXPECT_EQ("z", reader.page_zone_map_infos()[0].max_value.get<TYPE_STRING>());
+    EXPECT_EQ("", reader.page_zone_map_infos()[1].min_value.get<TYPE_STRING>());
+    EXPECT_EQ("", reader.page_zone_map_infos()[1].max_value.get<TYPE_STRING>());
+    EXPECT_TRUE(reader.page_zone_map_infos()[1].has_null);
+    EXPECT_TRUE(reader.page_zone_map_infos()[1].has_not_null);
+}
+
 TEST_F(ColumnZoneMapTest, DecimalV2) {
     test_decimalv2(false);
     test_decimalv2(true);
@@ -690,6 +852,61 @@ TEST_F(ColumnZoneMapTest, DateV1) {
 TEST_F(ColumnZoneMapTest, DateTimeV1) {
     test_datetimev1(false);
     test_datetimev1(true);
+}
+
+TEST_F(ColumnZoneMapTest, NativeFixedWidthTypeRoundTrip) {
+    test_native_storage_value_round_trip<TYPE_BOOLEAN>(
+            "native_bool_round_trip", FieldType::OLAP_FIELD_TYPE_BOOL, UInt8(0), UInt8(1), 1);
+    test_native_storage_value_round_trip<TYPE_TINYINT>("native_tinyint_round_trip",
+                                                       FieldType::OLAP_FIELD_TYPE_TINYINT,
+                                                       int8_t(-12), int8_t(42), 1);
+    test_native_storage_value_round_trip<TYPE_SMALLINT>("native_smallint_round_trip",
+                                                        FieldType::OLAP_FIELD_TYPE_SMALLINT,
+                                                        int16_t(-1234), int16_t(2345), 2);
+    test_native_storage_value_round_trip<TYPE_BIGINT>(
+            "native_bigint_round_trip", FieldType::OLAP_FIELD_TYPE_BIGINT, int64_t(-1234567890123),
+            int64_t(4567890123456), 8);
+    test_native_storage_value_round_trip<TYPE_LARGEINT>(
+            "native_largeint_round_trip", FieldType::OLAP_FIELD_TYPE_LARGEINT,
+            static_cast<Int128>(-123456789012345678LL), static_cast<Int128>(456789012345678901LL),
+            16);
+
+    DateV2Value<DateV2ValueType> date_min;
+    DateV2Value<DateV2ValueType> date_max;
+    ASSERT_TRUE(date_min.from_date_int64(20200102));
+    ASSERT_TRUE(date_max.from_date_int64(20251231));
+    test_native_storage_value_round_trip<TYPE_DATEV2>(
+            "native_datev2_round_trip", FieldType::OLAP_FIELD_TYPE_DATEV2,
+            date_min.to_date_int_val(), date_max.to_date_int_val(), 4);
+
+    DateV2Value<DateTimeV2ValueType> datetime_min;
+    DateV2Value<DateTimeV2ValueType> datetime_max;
+    ASSERT_TRUE(datetime_min.from_date_int64(20200102030405));
+    ASSERT_TRUE(datetime_max.from_date_int64(20251231235959));
+    test_native_storage_value_round_trip<TYPE_DATETIMEV2>(
+            "native_datetimev2_round_trip", FieldType::OLAP_FIELD_TYPE_DATETIMEV2,
+            datetime_min.to_date_int_val(), datetime_max.to_date_int_val(), 8, 0, 6);
+
+    test_native_storage_value_round_trip<TYPE_DECIMAL32>("native_decimal32_round_trip",
+                                                         FieldType::OLAP_FIELD_TYPE_DECIMAL32,
+                                                         int32_t(-12345), int32_t(67890), 4, 9, 3);
+    test_native_storage_value_round_trip<TYPE_DECIMAL64>(
+            "native_decimal64_round_trip", FieldType::OLAP_FIELD_TYPE_DECIMAL64,
+            int64_t(-1234567890123), int64_t(6789012345678), 8, 18, 6);
+    test_native_storage_value_round_trip<TYPE_DECIMAL128I>(
+            "native_decimal128_round_trip", FieldType::OLAP_FIELD_TYPE_DECIMAL128I,
+            static_cast<Int128>(-123456789012345678LL), static_cast<Int128>(456789012345678901LL),
+            16, 38, 9);
+    test_native_storage_value_round_trip<TYPE_DECIMAL256>(
+            "native_decimal256_round_trip", FieldType::OLAP_FIELD_TYPE_DECIMAL256,
+            wide::Int256(-123456789012345678LL), wide::Int256(456789012345678901LL), 32, 76, 18);
+
+    test_native_storage_value_round_trip<TYPE_IPV4>("native_ipv4_round_trip",
+                                                    FieldType::OLAP_FIELD_TYPE_IPV4,
+                                                    IPv4(0x01020304), IPv4(0x7F000001), 4);
+    test_native_storage_value_round_trip<TYPE_IPV6>("native_ipv6_round_trip",
+                                                    FieldType::OLAP_FIELD_TYPE_IPV6, IPv6(1),
+                                                    (static_cast<IPv6>(1) << 80) + IPv6(42), 16);
 }
 
 // Test for float/double
@@ -761,25 +978,41 @@ TEST_F(ColumnZoneMapTest, NormalTestFloatPage) {
     io::FileReaderSPtr file_reader;
     EXPECT_TRUE(fs->open_file(filename, &file_reader).ok());
 
-    auto segment_zone_map = index_meta.zone_map_index().segment_zone_map();
-    EXPECT_EQ(CastToString::from_number(std::numeric_limits<float>::lowest()),
-              segment_zone_map.min());
-    EXPECT_EQ(CastToString::from_number(std::numeric_limits<float>::max()), segment_zone_map.max());
-    EXPECT_EQ(true, segment_zone_map.has_null());
-    EXPECT_EQ(true, segment_zone_map.has_not_null());
-    EXPECT_EQ(true, segment_zone_map.has_positive_inf());
-    EXPECT_EQ(true, segment_zone_map.has_negative_inf());
-    EXPECT_EQ(true, segment_zone_map.has_nan());
+    auto segment_zone_map = load_segment_zone_map(index_meta, data_type_ptr);
+    EXPECT_EQ(-std::numeric_limits<float>::infinity(),
+              segment_zone_map.min_value.get<TYPE_FLOAT>());
+    EXPECT_TRUE(std::isnan(segment_zone_map.max_value.get<TYPE_FLOAT>()));
+    EXPECT_EQ(true, segment_zone_map.has_null);
+    EXPECT_EQ(true, segment_zone_map.has_not_null);
+    EXPECT_EQ(true, segment_zone_map.has_positive_inf);
+    EXPECT_EQ(true, segment_zone_map.has_negative_inf);
+    EXPECT_EQ(true, segment_zone_map.has_nan);
 
-    ZoneMapIndexReader column_zone_map(file_reader, index_meta.zone_map_index().page_zone_maps());
+    ZoneMapIndexReader column_zone_map(file_reader, index_meta.zone_map_index(), data_type_ptr);
     Status status = column_zone_map.load(true, false);
     EXPECT_TRUE(status.ok());
     EXPECT_EQ(3, column_zone_map.num_pages());
+    const std::vector<ZoneMap>& zone_map_infos = column_zone_map.page_zone_map_infos();
+    ASSERT_EQ(3, zone_map_infos.size());
+    EXPECT_EQ(-std::numeric_limits<float>::infinity(),
+              zone_map_infos[0].min_value.get<TYPE_FLOAT>());
+    EXPECT_TRUE(std::isnan(zone_map_infos[0].max_value.get<TYPE_FLOAT>()));
+    EXPECT_EQ(false, zone_map_infos[0].has_null);
+    EXPECT_EQ(true, zone_map_infos[0].has_not_null);
+    EXPECT_EQ(true, zone_map_infos[0].has_positive_inf);
+    EXPECT_EQ(true, zone_map_infos[0].has_negative_inf);
+    EXPECT_EQ(true, zone_map_infos[0].has_nan);
+
+    EXPECT_EQ(-1234.56F, zone_map_infos[1].min_value.get<TYPE_FLOAT>());
+    EXPECT_EQ(1234.56F, zone_map_infos[1].max_value.get<TYPE_FLOAT>());
+    EXPECT_EQ(true, zone_map_infos[1].has_null);
+    EXPECT_EQ(true, zone_map_infos[1].has_not_null);
+
+    EXPECT_EQ(true, zone_map_infos[2].has_null);
+    EXPECT_EQ(false, zone_map_infos[2].has_not_null);
+
     const std::vector<ZoneMapPB>& zone_maps = column_zone_map.page_zone_maps();
     EXPECT_EQ(3, zone_maps.size());
-
-    EXPECT_EQ(CastToString::from_number(std::numeric_limits<float>::lowest()), zone_maps[0].min());
-    EXPECT_EQ(CastToString::from_number(std::numeric_limits<float>::max()), zone_maps[0].max());
     EXPECT_EQ(false, zone_maps[0].has_null());
     EXPECT_EQ(true, zone_maps[0].has_not_null());
     EXPECT_EQ(true, zone_maps[0].has_positive_inf());
@@ -850,26 +1083,41 @@ TEST_F(ColumnZoneMapTest, NormalTestDoublePage) {
     io::FileReaderSPtr file_reader;
     EXPECT_TRUE(fs->open_file(filename, &file_reader).ok());
 
-    auto segment_zone_map = index_meta.zone_map_index().segment_zone_map();
-    EXPECT_EQ(CastToString::from_number(std::numeric_limits<double>::lowest()),
-              segment_zone_map.min());
-    EXPECT_EQ(CastToString::from_number(std::numeric_limits<double>::max()),
-              segment_zone_map.max());
-    EXPECT_EQ(true, segment_zone_map.has_null());
-    EXPECT_EQ(true, segment_zone_map.has_not_null());
-    EXPECT_EQ(true, segment_zone_map.has_positive_inf());
-    EXPECT_EQ(true, segment_zone_map.has_negative_inf());
-    EXPECT_EQ(true, segment_zone_map.has_nan());
+    auto segment_zone_map = load_segment_zone_map(index_meta, data_type_ptr);
+    EXPECT_EQ(-std::numeric_limits<double>::infinity(),
+              segment_zone_map.min_value.get<TYPE_DOUBLE>());
+    EXPECT_TRUE(std::isnan(segment_zone_map.max_value.get<TYPE_DOUBLE>()));
+    EXPECT_EQ(true, segment_zone_map.has_null);
+    EXPECT_EQ(true, segment_zone_map.has_not_null);
+    EXPECT_EQ(true, segment_zone_map.has_positive_inf);
+    EXPECT_EQ(true, segment_zone_map.has_negative_inf);
+    EXPECT_EQ(true, segment_zone_map.has_nan);
 
-    ZoneMapIndexReader column_zone_map(file_reader, index_meta.zone_map_index().page_zone_maps());
+    ZoneMapIndexReader column_zone_map(file_reader, index_meta.zone_map_index(), data_type_ptr);
     Status status = column_zone_map.load(true, false);
     EXPECT_TRUE(status.ok());
     EXPECT_EQ(3, column_zone_map.num_pages());
+    const std::vector<ZoneMap>& zone_map_infos = column_zone_map.page_zone_map_infos();
+    ASSERT_EQ(3, zone_map_infos.size());
+    EXPECT_EQ(-std::numeric_limits<double>::infinity(),
+              zone_map_infos[0].min_value.get<TYPE_DOUBLE>());
+    EXPECT_TRUE(std::isnan(zone_map_infos[0].max_value.get<TYPE_DOUBLE>()));
+    EXPECT_EQ(false, zone_map_infos[0].has_null);
+    EXPECT_EQ(true, zone_map_infos[0].has_not_null);
+    EXPECT_EQ(true, zone_map_infos[0].has_positive_inf);
+    EXPECT_EQ(true, zone_map_infos[0].has_negative_inf);
+    EXPECT_EQ(true, zone_map_infos[0].has_nan);
+
+    EXPECT_EQ(-1234.56789012345, zone_map_infos[1].min_value.get<TYPE_DOUBLE>());
+    EXPECT_EQ(1234.56789012345, zone_map_infos[1].max_value.get<TYPE_DOUBLE>());
+    EXPECT_EQ(true, zone_map_infos[1].has_null);
+    EXPECT_EQ(true, zone_map_infos[1].has_not_null);
+
+    EXPECT_EQ(true, zone_map_infos[2].has_null);
+    EXPECT_EQ(false, zone_map_infos[2].has_not_null);
+
     const std::vector<ZoneMapPB>& zone_maps = column_zone_map.page_zone_maps();
     EXPECT_EQ(3, zone_maps.size());
-
-    EXPECT_EQ(CastToString::from_number(std::numeric_limits<double>::lowest()), zone_maps[0].min());
-    EXPECT_EQ(CastToString::from_number(std::numeric_limits<double>::max()), zone_maps[0].max());
     EXPECT_EQ(false, zone_maps[0].has_null());
     EXPECT_EQ(true, zone_maps[0].has_not_null());
     EXPECT_EQ(true, zone_maps[0].has_positive_inf());
@@ -993,17 +1241,17 @@ TEST_F(ColumnZoneMapTest, TimestamptzPage) {
     EXPECT_TRUE(fs->open_file(filename, &file_reader).ok());
 
     UInt32 scale = 6;
-    auto segment_zone_map = index_meta.zone_map_index().segment_zone_map();
-    EXPECT_EQ(CastToString::from_timestamptz(type_limit<TimestampTzValue>::min(), scale),
-              segment_zone_map.min());
+    auto segment_zone_map = load_segment_zone_map(index_meta, data_type_ptr);
+    EXPECT_EQ(type_limit<TimestampTzValue>::min(),
+              segment_zone_map.min_value.get<TYPE_TIMESTAMPTZ>());
     std::string max_str = "9999-12-31 23:59:59";
     TimestampTzValue tz_max {};
     EXPECT_TRUE(tz_max.from_string(StringRef {max_str}, &time_zone, params, 0));
-    EXPECT_EQ(CastToString::from_timestamptz(tz_max, scale), segment_zone_map.max());
-    EXPECT_EQ(true, segment_zone_map.has_null());
-    EXPECT_EQ(true, segment_zone_map.has_not_null());
+    EXPECT_EQ(tz_max, segment_zone_map.max_value.get<TYPE_TIMESTAMPTZ>());
+    EXPECT_EQ(true, segment_zone_map.has_null);
+    EXPECT_EQ(true, segment_zone_map.has_not_null);
 
-    ZoneMapIndexReader column_zone_map(file_reader, index_meta.zone_map_index().page_zone_maps());
+    ZoneMapIndexReader column_zone_map(file_reader, index_meta.zone_map_index(), data_type_ptr);
     Status status = column_zone_map.load(true, false);
     EXPECT_TRUE(status.ok());
     EXPECT_EQ(5, column_zone_map.num_pages());
@@ -1096,11 +1344,11 @@ TEST_F(ColumnZoneMapTest, AllNullPageAfterIntValues_SegmentMinMaxPreserved) {
     ASSERT_TRUE(writer->finish(file_writer.get(), &index_meta).ok());
     ASSERT_TRUE(file_writer->close().ok());
 
-    const auto& seg_zm = index_meta.zone_map_index().segment_zone_map();
-    EXPECT_TRUE(seg_zm.has_null());
-    EXPECT_TRUE(seg_zm.has_not_null());
-    EXPECT_EQ(std::to_string(100), seg_zm.min());
-    EXPECT_EQ(std::to_string(200), seg_zm.max());
+    ZoneMap seg_zm = load_segment_zone_map(index_meta, data_type_ptr);
+    EXPECT_TRUE(seg_zm.has_null);
+    EXPECT_TRUE(seg_zm.has_not_null);
+    EXPECT_EQ(100, seg_zm.min_value.get<TYPE_INT>());
+    EXPECT_EQ(200, seg_zm.max_value.get<TYPE_INT>());
 }
 
 // Demonstrates the actual bug fixed by the `if (_page_has_minmax)` guard.
@@ -1147,9 +1395,10 @@ TEST_F(ColumnZoneMapTest, AllNullPageAfterMaxLenStringPage_NoSegmentMaxDoubleInc
     ASSERT_TRUE(writer->finish(file_writer.get(), &index_meta).ok());
     ASSERT_TRUE(file_writer->close().ok());
 
-    const auto& seg_zm = index_meta.zone_map_index().segment_zone_map();
-    EXPECT_TRUE(seg_zm.has_null());
-    EXPECT_TRUE(seg_zm.has_not_null());
+    const auto& seg_zm = index_meta.zone_map_index().segment_zone_map_v2();
+    ZoneMap decoded_seg_zm = load_segment_zone_map(index_meta, data_type);
+    EXPECT_TRUE(decoded_seg_zm.has_null);
+    EXPECT_TRUE(decoded_seg_zm.has_not_null);
 
     ASSERT_EQ(seg_zm.min().size(), MAX_ZONE_MAP_INDEX_SIZE);
     EXPECT_EQ(seg_zm.min(), long_x);
@@ -1164,6 +1413,182 @@ TEST_F(ColumnZoneMapTest, AllNullPageAfterMaxLenStringPage_NoSegmentMaxDoubleInc
                "_page_zone_map.max_value into _segment_zone_map.max_value, "
                "causing finish() to increment the last byte a second time.";
     EXPECT_EQ(static_cast<unsigned char>(seg_zm.max().back()), static_cast<unsigned char>('y'));
+}
+
+TEST_F(ColumnZoneMapTest, NativePagePayloadRoundTrip) {
+    ZoneMapPagesPB pages = one_present_int_page(10, 20);
+    ZoneMapIndexPB zone_map_index;
+    io::FileReaderSPtr file_reader;
+    ASSERT_TRUE(write_native_pages_payload(kTestDir + "/native_page_payload_round_trip", pages, 1,
+                                           &zone_map_index, &file_reader)
+                        .ok());
+
+    auto data_type = DataTypeFactory::instance().create_data_type(TYPE_INT, false);
+    ZoneMapIndexReader reader(file_reader, zone_map_index, data_type);
+    ASSERT_TRUE(reader.load(true, false).ok());
+
+    EXPECT_EQ(1, reader.num_pages());
+    ASSERT_EQ(1, reader.page_zone_map_infos().size());
+    const ZoneMap& zone_map = reader.page_zone_map_infos()[0];
+    EXPECT_FALSE(zone_map.has_null);
+    EXPECT_TRUE(zone_map.has_not_null);
+    EXPECT_EQ(10, zone_map.min_value.get<TYPE_INT>());
+    EXPECT_EQ(20, zone_map.max_value.get<TYPE_INT>());
+
+    const std::vector<ZoneMapPB>& legacy_view = reader.page_zone_maps();
+    ASSERT_EQ(1, legacy_view.size());
+    EXPECT_EQ("10", legacy_view[0].min());
+    EXPECT_EQ("20", legacy_view[0].max());
+}
+
+TEST_F(ColumnZoneMapTest, NativePagePayloadRejectsPageCountMismatch) {
+    ZoneMapPagesPB pages = one_present_int_page(10, 20);
+    ZoneMapIndexPB zone_map_index;
+    io::FileReaderSPtr file_reader;
+    ASSERT_TRUE(write_native_pages_payload(kTestDir + "/native_page_count_mismatch", pages, 2,
+                                           &zone_map_index, &file_reader)
+                        .ok());
+
+    auto data_type = DataTypeFactory::instance().create_data_type(TYPE_INT, false);
+    ZoneMapIndexReader reader(file_reader, zone_map_index, data_type);
+    Status status = reader.load(true, false);
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(std::string::npos, status.to_string().find("page count mismatch"));
+}
+
+TEST_F(ColumnZoneMapTest, NativePagePayloadRejectsShortBitmap) {
+    ZoneMapPagesPB pages;
+    pages.set_num_pages(9);
+    pages.set_entry_version(1);
+    pages.set_has_null_bitmap(one_byte_bitmap(0));
+    pages.set_has_not_null_bitmap(one_byte_bitmap(0));
+    pages.set_pass_all_bitmap(one_byte_bitmap(0));
+    pages.set_has_positive_inf_bitmap(one_byte_bitmap(0));
+    pages.set_has_negative_inf_bitmap(one_byte_bitmap(0));
+    pages.set_has_nan_bitmap(one_byte_bitmap(0));
+    init_fixed_int_values(pages.mutable_min_values());
+    init_fixed_int_values(pages.mutable_max_values());
+
+    ZoneMapIndexPB zone_map_index;
+    io::FileReaderSPtr file_reader;
+    ASSERT_TRUE(write_native_pages_payload(kTestDir + "/native_short_bitmap", pages, 9,
+                                           &zone_map_index, &file_reader)
+                        .ok());
+
+    auto data_type = DataTypeFactory::instance().create_data_type(TYPE_INT, false);
+    ZoneMapIndexReader reader(file_reader, zone_map_index, data_type);
+    Status status = reader.load(true, false);
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(std::string::npos, status.to_string().find("bitmap too small"));
+}
+
+TEST_F(ColumnZoneMapTest, NativePagePayloadRejectsInvalidFixedValues) {
+    ZoneMapPagesPB pages = one_present_int_page(10, 20);
+    pages.mutable_min_values()->set_fixed_values(std::string(sizeof(int16_t), '\0'));
+
+    ZoneMapIndexPB zone_map_index;
+    io::FileReaderSPtr file_reader;
+    ASSERT_TRUE(write_native_pages_payload(kTestDir + "/native_invalid_fixed_values", pages, 1,
+                                           &zone_map_index, &file_reader)
+                        .ok());
+
+    auto data_type = DataTypeFactory::instance().create_data_type(TYPE_INT, false);
+    ZoneMapIndexReader reader(file_reader, zone_map_index, data_type);
+    Status status = reader.load(true, false);
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(std::string::npos, status.to_string().find("fixed values size"));
+}
+
+TEST_F(ColumnZoneMapTest, NativeStringPagePayloadRejectsInvalidOffsets) {
+    ZoneMapPagesPB pages;
+    pages.set_num_pages(1);
+    pages.set_entry_version(1);
+    pages.set_has_null_bitmap(one_byte_bitmap(0));
+    pages.set_has_not_null_bitmap(one_byte_bitmap(1));
+    pages.set_pass_all_bitmap(one_byte_bitmap(0));
+    pages.set_has_positive_inf_bitmap(one_byte_bitmap(0));
+    pages.set_has_negative_inf_bitmap(one_byte_bitmap(0));
+    pages.set_has_nan_bitmap(one_byte_bitmap(0));
+
+    pages.mutable_min_values()->set_layout(ZoneMapValueArrayPB::VAR_BINARY);
+    pages.mutable_min_values()->set_offset_width(4);
+    put_fixed32_le(pages.mutable_min_values()->mutable_offsets(), 1);
+    put_fixed32_le(pages.mutable_min_values()->mutable_offsets(), 1);
+
+    pages.mutable_max_values()->set_layout(ZoneMapValueArrayPB::VAR_BINARY);
+    pages.mutable_max_values()->set_offset_width(4);
+    put_fixed32_le(pages.mutable_max_values()->mutable_offsets(), 0);
+    put_fixed32_le(pages.mutable_max_values()->mutable_offsets(), 1);
+    pages.mutable_max_values()->set_values("z");
+
+    ZoneMapIndexPB zone_map_index;
+    io::FileReaderSPtr file_reader;
+    ASSERT_TRUE(write_native_pages_payload(kTestDir + "/native_invalid_string_offsets", pages, 1,
+                                           &zone_map_index, &file_reader)
+                        .ok());
+
+    auto data_type = DataTypeFactory::instance().create_data_type(TYPE_STRING, false);
+    ZoneMapIndexReader reader(file_reader, zone_map_index, data_type);
+    Status status = reader.load(true, false);
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(std::string::npos, status.to_string().find("first offset must be zero"));
+}
+
+TEST_F(ColumnZoneMapTest, NativeSegmentEntryRejectsMissingPresentValue) {
+    ZoneMapEntryPB entry;
+    entry.set_has_not_null(true);
+    entry.set_has_null(false);
+    entry.set_pass_all(false);
+    put_fixed32_le(entry.mutable_max(), 20);
+
+    auto data_type = DataTypeFactory::instance().create_data_type(TYPE_INT, false);
+    ZoneMap zone_map;
+    Status status = ZoneMap::from_entry_pb_native(entry, data_type, zone_map);
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(std::string::npos, status.to_string().find("min is missing"));
+}
+
+TEST_F(ColumnZoneMapTest, LegacyPageZoneMapsFallbackPopulatesDecodedInfos) {
+    std::string filename = kTestDir + "/legacy_page_zone_maps_fallback";
+    io::FileWriterPtr file_writer;
+    ASSERT_TRUE(_fs->create_file(filename, &file_writer).ok());
+
+    IndexedColumnWriterOptions options;
+    options.write_ordinal_index = true;
+    options.write_value_index = false;
+    options.encoding = PLAIN_ENCODING;
+    IndexedColumnWriter legacy_writer(options, FieldType::OLAP_FIELD_TYPE_VARCHAR,
+                                      file_writer.get());
+    ASSERT_TRUE(legacy_writer.init().ok());
+
+    ZoneMapPB legacy_page;
+    legacy_page.set_min("10");
+    legacy_page.set_max("20");
+    legacy_page.set_has_null(false);
+    legacy_page.set_has_not_null(true);
+    std::string serialized_page;
+    ASSERT_TRUE(legacy_page.SerializeToString(&serialized_page));
+    Slice serialized_page_slice(serialized_page);
+    ASSERT_TRUE(legacy_writer.add(&serialized_page_slice).ok());
+
+    ZoneMapIndexPB zone_map_index;
+    ASSERT_TRUE(legacy_writer.finish(zone_map_index.mutable_page_zone_maps()).ok());
+    ASSERT_TRUE(file_writer->close().ok());
+
+    io::FileReaderSPtr file_reader;
+    ASSERT_TRUE(_fs->open_file(filename, &file_reader).ok());
+
+    auto data_type = DataTypeFactory::instance().create_data_type(TYPE_INT, false);
+    ZoneMapIndexReader reader(file_reader, zone_map_index, data_type);
+    ASSERT_TRUE(reader.load(true, false).ok());
+
+    EXPECT_EQ(1, reader.num_pages());
+    ASSERT_EQ(1, reader.page_zone_maps().size());
+    EXPECT_EQ("10", reader.page_zone_maps()[0].min());
+    EXPECT_EQ("20", reader.page_zone_maps()[0].max());
+    ASSERT_EQ(1, reader.page_zone_map_infos().size());
+    EXPECT_EQ(10, reader.page_zone_map_infos()[0].min_value.get<TYPE_INT>());
+    EXPECT_EQ(20, reader.page_zone_map_infos()[0].max_value.get<TYPE_INT>());
 }
 
 } // namespace segment_v2

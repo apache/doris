@@ -225,6 +225,8 @@ public:
     virtual Status get_segment_zone_map(segment_v2::ZoneMap* zone_map) const;
     Status get_page_zone_maps(const ColumnIteratorOptions& iter_opts,
                               const std::vector<ZoneMapPB>** zone_maps);
+    Status get_page_zone_map_infos(const ColumnIteratorOptions& iter_opts,
+                                   const std::vector<segment_v2::ZoneMap>** zone_maps);
     Status get_row_range_for_page(uint32_t page_index, const ColumnIteratorOptions& iter_opts,
                                   RowRange* row_range);
 
@@ -275,6 +277,7 @@ private:
 
     bool _zone_map_match_condition(const segment_v2::ZoneMap& zone_map,
                                    const AndBlockColumnPredicate* col_predicates) const;
+    Status _get_segment_zone_map(segment_v2::ZoneMap* zone_map) const;
 
     Status _get_filtered_pages(
             const AndBlockColumnPredicate* col_predicates,
@@ -310,6 +313,7 @@ private:
 
     // meta for various column indexes (null if the index is absent)
     std::unique_ptr<ZoneMapPB> _segment_zone_map;
+    std::unique_ptr<ZoneMapEntryPB> _segment_zone_map_v2;
 
     mutable std::shared_mutex _load_index_lock;
     std::unique_ptr<ZoneMapIndexReader> _zone_map_index;

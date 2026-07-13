@@ -3427,8 +3427,8 @@ Status SegmentIterator::_apply_expr_zonemap_to_row_ranges(const VExprContextSPtr
         if (reader == nullptr || !reader->has_zone_map()) {
             continue;
         }
-        const std::vector<ZoneMapPB>* page_zone_maps = nullptr;
-        RETURN_IF_ERROR(reader->get_page_zone_maps(iter_opts, &page_zone_maps));
+        const std::vector<ZoneMap>* page_zone_maps = nullptr;
+        RETURN_IF_ERROR(reader->get_page_zone_map_infos(iter_opts, &page_zone_maps));
         if (page_zone_maps == nullptr || page_zone_maps->empty()) {
             continue;
         }
@@ -3448,10 +3448,7 @@ Status SegmentIterator::_apply_expr_zonemap_to_row_ranges(const VExprContextSPtr
             ZoneMapEvalContext ctx;
             ZoneMapEvalContext::SlotZoneMap slot_zone_map;
             slot_zone_map.data_type = data_type;
-            ZoneMap zone_map;
-            RETURN_IF_ERROR(
-                    ZoneMap::from_proto((*page_zone_maps)[page_index], data_type, zone_map));
-            slot_zone_map.zone_map = std::make_shared<ZoneMap>(std::move(zone_map));
+            slot_zone_map.zone_map = std::make_shared<ZoneMap>((*page_zone_maps)[page_index]);
             ctx.slots.emplace(slot_index, std::move(slot_zone_map));
             const auto result = VExprContext::evaluate_zonemap_filter(slot_conjuncts, ctx);
             page_stats.merge_page_eval_stats(ctx.stats);
