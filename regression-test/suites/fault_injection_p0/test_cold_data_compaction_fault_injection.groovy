@@ -39,6 +39,11 @@ suite("test_cold_data_compaction_fault_injection", "nonConcurrent") {
     }
     def tabletName = "test_cold_data_compaction_fault_injection"
 
+    def customBeConfig = [
+        cold_data_compaction_score_threshold : 4
+    ]
+
+    setBeConfigTemporary(customBeConfig) {
     String suffix = UUID.randomUUID().hashCode().abs().toString()
     String s3Prefix = "regression/cold_data_compaction/${suffix}"
     multi_sql """
@@ -131,5 +136,6 @@ suite("test_cold_data_compaction_fault_injection", "nonConcurrent") {
     } finally {
         GetDebugPoint().disableDebugPointForAllBEs("Tablet._calc_cumulative_compaction_score.return")
         GetDebugPoint().clearDebugPointsForAllBEs()
+    }
     }
 }
