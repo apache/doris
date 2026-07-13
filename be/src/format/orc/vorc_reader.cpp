@@ -2706,7 +2706,8 @@ Status OrcReader::_get_next_block_impl(Block* block, size_t* read_rows, bool* eo
                     _execute_filter_position_delete_rowids(*_delete_rows_filter_ptr, start_row);
                     RETURN_IF_CATCH_EXCEPTION(Block::filter_block_internal(
                             block, columns_to_filter, (*_delete_rows_filter_ptr)));
-                } else if (_position_delete_ordered_rowids != nullptr) {
+                } else if (_position_delete_ordered_rowids != nullptr ||
+                           (_deletion_vector != nullptr && !_deletion_vector->isEmpty())) {
                     std::unique_ptr<IColumn::Filter> filter(new IColumn::Filter(block->rows(), 1));
                     _execute_filter_position_delete_rowids(*filter, start_row);
                     RETURN_IF_CATCH_EXCEPTION(
@@ -3492,6 +3493,16 @@ void ORCFileInputStream::_build_large_ranges_input_stripe_streams(
 }
 
 void OrcReader::_execute_filter_position_delete_rowids(IColumn::Filter& filter, int64_t start_row) {
+    if (_deletion_vector != nullptr) {
+        auto it = _deletion_vector->begin();
+        it.move(cast_set<uint64_t>(start_row));
+        const auto end = _deletion_vector->end();
+        const auto end_row = cast_set<uint64_t>(start_row + _batch->numElements);
+        while (it != end && *it < end_row) {
+            filter[cast_set<size_t>(*it - cast_set<uint64_t>(start_row))] = 0;
+            ++it;
+        }
+    }
     if (_position_delete_ordered_rowids == nullptr) {
         return;
     }

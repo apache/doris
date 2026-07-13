@@ -25,6 +25,7 @@
 #include <parquet/types.h>
 
 #include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <cstring>
 #include <exception>
@@ -34,6 +35,7 @@
 #include <optional>
 #include <set>
 #include <string>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -45,6 +47,7 @@
 #include "exprs/expr_zonemap_filter.h"
 #include "exprs/vexpr_context.h"
 #include "format_v2/parquet/parquet_column_schema.h"
+#include "format_v2/timestamp_statistics.h"
 #include "runtime/runtime_profile.h"
 #include "storage/index/zone_map/zone_map_index.h"
 #include "storage/index/zone_map/zonemap_eval_context.h"
@@ -118,6 +121,56 @@ bool set_decoded_field(const ParquetColumnSchema& column_schema, DecodedValueKin
     return read_decoded_field(column_schema, view, field, timezone).ok();
 }
 
+int64_t floor_timestamp_seconds(int64_t value, ParquetTimeUnit time_unit) {
+    int64_t units_per_second = 1;
+    switch (time_unit) {
+    case ParquetTimeUnit::MILLIS:
+        units_per_second = 1000;
+        break;
+    case ParquetTimeUnit::MICROS:
+        units_per_second = 1000000;
+        break;
+    case ParquetTimeUnit::NANOS:
+        units_per_second = 1000000000;
+        break;
+    default:
+        DORIS_CHECK(false);
+    }
+    return format::floor_epoch_seconds(value, units_per_second);
+}
+
+bool timestamp_min_max_is_safe(const ParquetColumnSchema& column_schema, int64_t min_value,
+                               int64_t max_value, const cctz::time_zone* timezone) {
+    if (min_value > max_value) {
+        return false;
+    }
+    if (!column_schema.type_descriptor.is_timestamp ||
+        !column_schema.type_descriptor.timestamp_is_adjusted_to_utc || timezone == nullptr ||
+        remove_nullable(column_schema.type)->get_primitive_type() == TYPE_TIMESTAMPTZ) {
+        // TIMESTAMPTZ keeps the original UTC ordering, so local civil-time rollback does not make
+        // its converted min/max non-monotonic.
+        return true;
+    }
+    return format::utc_timestamp_range_is_monotonic(
+            floor_timestamp_seconds(min_value, column_schema.type_descriptor.time_unit),
+            floor_timestamp_seconds(max_value, column_schema.type_descriptor.time_unit), *timezone);
+}
+
+template <typename NativeType>
+bool valid_min_max(const NativeType& min_value, const NativeType& max_value) {
+    if constexpr (std::is_floating_point_v<NativeType>) {
+        // Parquet requires readers to ignore min/max statistics if either bound is NaN.
+        if (std::isnan(min_value) || std::isnan(max_value)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool decoded_min_max_is_ordered(const ParquetColumnStatistics& column_statistics) {
+    return !(column_statistics.max_value < column_statistics.min_value);
+}
+
 template <typename ParquetDType>
 bool set_decoded_min_max(const std::shared_ptr<::parquet::Statistics>& statistics,
                          const ParquetColumnSchema& column_schema, DecodedValueKind value_kind,
@@ -125,13 +178,21 @@ bool set_decoded_min_max(const std::shared_ptr<::parquet::Statistics>& statistic
                          const cctz::time_zone* timezone) {
     auto typed_statistics =
             std::static_pointer_cast<::parquet::TypedStatistics<ParquetDType>>(statistics);
-    if (!set_decoded_field(column_schema, value_kind, typed_statistics->min(),
-                           &column_statistics->min_value, timezone) ||
-        !set_decoded_field(column_schema, value_kind, typed_statistics->max(),
-                           &column_statistics->max_value, timezone)) {
+    const auto& min_value = typed_statistics->min();
+    const auto& max_value = typed_statistics->max();
+    if constexpr (std::is_same_v<ParquetDType, ::parquet::Int64Type>) {
+        if (!timestamp_min_max_is_safe(column_schema, min_value, max_value, timezone)) {
+            return false;
+        }
+    }
+    if (!valid_min_max(min_value, max_value) ||
+        !set_decoded_field(column_schema, value_kind, min_value, &column_statistics->min_value,
+                           timezone) ||
+        !set_decoded_field(column_schema, value_kind, max_value, &column_statistics->max_value,
+                           timezone)) {
         return false;
     }
-    return true;
+    return decoded_min_max_is_ordered(*column_statistics);
 }
 
 bool set_decoded_binary_field(const ParquetColumnSchema& column_schema, DecodedValueKind value_kind,
@@ -163,7 +224,7 @@ bool set_string_min_max(const std::shared_ptr<::parquet::Statistics>& statistics
                                       &column_statistics->max_value, timezone)) {
             return false;
         }
-        return true;
+        return decoded_min_max_is_ordered(*column_statistics);
     }
     case ::parquet::Type::FIXED_LEN_BYTE_ARRAY: {
         if (column_schema.descriptor == nullptr || column_schema.descriptor->type_length() <= 0) {
@@ -185,7 +246,7 @@ bool set_string_min_max(const std::shared_ptr<::parquet::Statistics>& statistics
                                       &column_statistics->max_value, timezone)) {
             return false;
         }
-        return true;
+        return decoded_min_max_is_ordered(*column_statistics);
     }
     default:
         return false;
@@ -397,30 +458,33 @@ bool bloom_filter_excludes(const ParquetColumnSchema& column_schema, int slot_in
 }
 
 struct RowGroupBloomFilterCache {
+    using CacheKey = std::pair<int, int>;
+
     ::parquet::BloomFilterReader* bloom_filter_reader = nullptr;
-    std::map<int, std::unique_ptr<::parquet::BloomFilter>> column_bloom_filters;
-    std::set<int> loaded_columns;
+    std::map<CacheKey, std::unique_ptr<::parquet::BloomFilter>> column_bloom_filters;
+    std::set<CacheKey> loaded_columns;
 
     ::parquet::BloomFilter* get(int row_group_idx, int leaf_column_id,
                                 ParquetPruningStats* pruning_stats) {
         if (bloom_filter_reader == nullptr || leaf_column_id < 0) {
             return nullptr;
         }
-        if (loaded_columns.find(leaf_column_id) == loaded_columns.end()) {
-            loaded_columns.insert(leaf_column_id);
+        const CacheKey cache_key {row_group_idx, leaf_column_id};
+        if (loaded_columns.find(cache_key) == loaded_columns.end()) {
+            loaded_columns.insert(cache_key);
             try {
                 std::shared_ptr<::parquet::RowGroupBloomFilterReader> row_group_reader;
                 if (pruning_stats != nullptr) {
                     SCOPED_RAW_TIMER(&pruning_stats->bloom_filter_read_time);
                     row_group_reader = bloom_filter_reader->RowGroup(row_group_idx);
                     if (row_group_reader != nullptr) {
-                        column_bloom_filters[leaf_column_id] =
+                        column_bloom_filters[cache_key] =
                                 row_group_reader->GetColumnBloomFilter(leaf_column_id);
                     }
                 } else {
                     row_group_reader = bloom_filter_reader->RowGroup(row_group_idx);
                     if (row_group_reader != nullptr) {
-                        column_bloom_filters[leaf_column_id] =
+                        column_bloom_filters[cache_key] =
                                 row_group_reader->GetColumnBloomFilter(leaf_column_id);
                     }
                 }
@@ -430,7 +494,7 @@ struct RowGroupBloomFilterCache {
                 return nullptr;
             }
         }
-        auto it = column_bloom_filters.find(leaf_column_id);
+        auto it = column_bloom_filters.find(cache_key);
         return it == column_bloom_filters.end() ? nullptr : it->second.get();
     }
 };
@@ -666,7 +730,11 @@ std::shared_ptr<segment_v2::ZoneMap> make_zonemap_from_statistics(
         return std::make_shared<segment_v2::ZoneMap>(std::move(zone_map));
     }
     if (!statistics.has_min_max) {
-        return nullptr;
+        // Null counts remain trustworthy when min/max decoding fails (for example, because a
+        // floating-point bound is NaN). pass_all prevents range pruning without discarding the
+        // has_null/has_not_null flags needed by IS NULL and IS NOT NULL predicates.
+        zone_map.pass_all = true;
+        return std::make_shared<segment_v2::ZoneMap>(std::move(zone_map));
     }
     zone_map.min_value = statistics.min_value;
     zone_map.max_value = statistics.max_value;
@@ -693,6 +761,11 @@ void accumulate_zonemap_stats(const ZoneMapEvalContext& ctx, ParquetPruningStats
 
 } // namespace
 
+std::shared_ptr<segment_v2::ZoneMap> ParquetStatisticsUtils::MakeZoneMap(
+        const ParquetColumnStatistics& statistics) {
+    return make_zonemap_from_statistics(statistics);
+}
+
 ParquetColumnStatistics ParquetStatisticsUtils::TransformColumnStatistics(
         const ParquetColumnSchema& column_schema,
         const std::shared_ptr<::parquet::Statistics>& statistics, const cctz::time_zone* timezone) {
@@ -701,7 +774,7 @@ ParquetColumnStatistics ParquetStatisticsUtils::TransformColumnStatistics(
         return result;
     }
 
-    result.has_null = statistics->HasNullCount() && statistics->null_count() > 0;
+    result.has_null = !statistics->HasNullCount() || statistics->null_count() > 0;
     result.has_not_null = statistics->num_values() > 0 || statistics->HasMinMax();
     result.has_null_count = statistics->HasNullCount();
     if (!result.has_not_null || !statistics->HasMinMax()) {
@@ -861,8 +934,8 @@ bool check_statistics(const ::parquet::RowGroupMetaData& row_group,
         DCHECK_LT(column_schema->leaf_column_id, row_group.num_columns());
         auto column_chunk = row_group.ColumnChunk(column_schema->leaf_column_id);
         if (column_chunk != nullptr) {
-            zone_map =
-                    make_zonemap_from_statistics(ParquetStatisticsUtils::TransformColumnStatistics(
+            zone_map = ParquetStatisticsUtils::MakeZoneMap(
+                    ParquetStatisticsUtils::TransformColumnStatistics(
                             *column_schema, column_chunk->statistics(), timezone));
         }
         add_slot_zonemap(&ctx, slot_index, column_schema->type, std::move(zone_map));
@@ -969,11 +1042,27 @@ bool set_page_decoded_min_max(const std::shared_ptr<::parquet::ColumnIndex>& col
         page_idx >= typed_index->max_values().size()) {
         return false;
     }
-    if (!set_decoded_field(column_schema, value_kind, typed_index->min_values()[page_idx],
-                           &page_statistics->min_value, timezone) ||
-        !set_decoded_field(column_schema, value_kind, typed_index->max_values()[page_idx],
-                           &page_statistics->max_value, timezone)) {
+    const auto& min_value = typed_index->min_values()[page_idx];
+    const auto& max_value = typed_index->max_values()[page_idx];
+    if constexpr (std::is_same_v<ParquetDType, ::parquet::Int64Type>) {
+        if (!timestamp_min_max_is_safe(column_schema, min_value, max_value, timezone)) {
+            return false;
+        }
+    }
+    if (!valid_min_max(min_value, max_value)) {
+        // A NaN invalidates only this page's bounds, not the ColumnIndex itself. Keep the page
+        // conservatively by returning usable null-count statistics with has_min_max=false, while
+        // allowing later pages with finite bounds to remain eligible for pruning.
+        return true;
+    }
+    if (!set_decoded_field(column_schema, value_kind, min_value, &page_statistics->min_value,
+                           timezone) ||
+        !set_decoded_field(column_schema, value_kind, max_value, &page_statistics->max_value,
+                           timezone)) {
         return false;
+    }
+    if (!decoded_min_max_is_ordered(*page_statistics)) {
+        return true;
     }
     page_statistics->has_min_max = true;
     return true;
@@ -1001,6 +1090,9 @@ bool set_page_string_min_max(const std::shared_ptr<::parquet::ColumnIndex>& colu
                                       &page_statistics->max_value, timezone)) {
             return false;
         }
+        if (!decoded_min_max_is_ordered(*page_statistics)) {
+            return true;
+        }
         page_statistics->has_min_max = true;
         return true;
     }
@@ -1027,6 +1119,9 @@ bool set_page_string_min_max(const std::shared_ptr<::parquet::ColumnIndex>& colu
                                       StringRef(max.data(), max.size()),
                                       &page_statistics->max_value, timezone)) {
             return false;
+        }
+        if (!decoded_min_max_is_ordered(*page_statistics)) {
+            return true;
         }
         page_statistics->has_min_max = true;
         return true;
@@ -1206,15 +1301,15 @@ bool select_ranges_for_expr_zonemap(
     const auto page_count = offset_index->page_locations().size();
     for (size_t page_idx = 0; page_idx < page_count; ++page_idx) {
         ParquetColumnStatistics page_statistics;
-        if (!build_page_statistics(column_index, *column_schema, page_idx, &page_statistics,
-                                   timezone)) {
+        if (!ParquetStatisticsUtils::TransformColumnIndexStatistics(
+                    column_index, *column_schema, page_idx, &page_statistics, timezone)) {
             ranges->clear();
             return false;
         }
 
         ZoneMapEvalContext ctx;
         add_slot_zonemap(&ctx, slot_index, column_schema->type,
-                         make_zonemap_from_statistics(page_statistics));
+                         ParquetStatisticsUtils::MakeZoneMap(page_statistics));
         const auto result = VExprContext::evaluate_zonemap_filter(conjuncts, ctx);
         page_stats.merge_page_eval_stats(ctx.stats);
         if (result == ZoneMapFilterResult::kNoMatch) {
@@ -1355,6 +1450,13 @@ void build_page_skip_plans(const std::shared_ptr<::parquet::RowGroupPageIndexRea
 }
 
 } // namespace
+
+bool ParquetStatisticsUtils::TransformColumnIndexStatistics(
+        const std::shared_ptr<::parquet::ColumnIndex>& column_index,
+        const ParquetColumnSchema& column_schema, size_t page_idx,
+        ParquetColumnStatistics* page_statistics, const cctz::time_zone* timezone) {
+    return build_page_statistics(column_index, column_schema, page_idx, page_statistics, timezone);
+}
 
 Status select_row_group_ranges_by_page_index(
         ::parquet::ParquetFileReader* file_reader,

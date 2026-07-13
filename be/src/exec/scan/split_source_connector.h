@@ -17,8 +17,6 @@
 
 #pragma once
 
-#include <functional>
-
 #include "common/config.h"
 #include "core/custom_allocator.h"
 #include "runtime/runtime_state.h"
@@ -46,15 +44,6 @@ public:
     virtual int num_scan_ranges() = 0;
 
     virtual TFileScanRangeParams* get_params() = 0;
-
-    virtual bool all_scan_ranges_match(
-            const TFileScanRangeParams& params,
-            const std::function<bool(const TFileScanRangeParams&, const TFileRangeDesc&)>&
-                    predicate) {
-        (void)params;
-        (void)predicate;
-        return false;
-    }
 
 protected:
     template <typename T, typename V1 = std::vector<T>, typename V2 = std::vector<T>>
@@ -135,24 +124,6 @@ public:
         }
         throw Exception(
                 Status::FatalError("Unreachable, params is got by file_scan_range_params_map"));
-    }
-
-    bool all_scan_ranges_match(
-            const TFileScanRangeParams& params,
-            const std::function<bool(const TFileScanRangeParams&, const TFileRangeDesc&)>&
-                    predicate) override {
-        if (_scan_ranges.empty()) {
-            return false;
-        }
-        for (const auto& scan_range : _scan_ranges) {
-            const auto& file_scan_range = scan_range.scan_range.ext_scan_range.file_scan_range;
-            for (const auto& range : file_scan_range.ranges) {
-                if (!predicate(params, range)) {
-                    return false;
-                }
-            }
-        }
-        return true;
     }
 };
 

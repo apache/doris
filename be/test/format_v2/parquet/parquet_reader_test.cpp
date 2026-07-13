@@ -593,6 +593,48 @@ std::shared_ptr<arrow::Array> build_nullable_string_struct_array() {
     return finish_array(&builder);
 }
 
+std::shared_ptr<arrow::Array> build_nullable_struct_with_list_array(bool list_first) {
+    auto list_type = arrow::list(arrow::field("element", arrow::int32(), false));
+    auto scalar_field = arrow::field("scalar", arrow::int32(), false);
+    auto list_field = arrow::field("items", list_type, true);
+    auto struct_type = arrow::struct_(list_first ? arrow::FieldVector {list_field, scalar_field}
+                                                 : arrow::FieldVector {scalar_field, list_field});
+
+    auto scalar_builder = std::make_shared<arrow::Int32Builder>();
+    auto list_value_builder = std::make_shared<arrow::Int32Builder>();
+    auto list_builder = std::make_shared<arrow::ListBuilder>(arrow::default_memory_pool(),
+                                                             list_value_builder, list_type);
+    std::vector<std::shared_ptr<arrow::ArrayBuilder>> field_builders =
+            list_first ? std::vector<std::shared_ptr<arrow::ArrayBuilder>> {list_builder,
+                                                                            scalar_builder}
+                       : std::vector<std::shared_ptr<arrow::ArrayBuilder>> {scalar_builder,
+                                                                            list_builder};
+    arrow::StructBuilder builder(struct_type, arrow::default_memory_pool(),
+                                 std::move(field_builders));
+
+    EXPECT_TRUE(builder.Append().ok());
+    EXPECT_TRUE(scalar_builder->Append(1).ok());
+    EXPECT_TRUE(list_builder->Append().ok());
+    EXPECT_TRUE(list_value_builder->Append(10).ok());
+    EXPECT_TRUE(list_value_builder->Append(11).ok());
+
+    EXPECT_TRUE(builder.AppendNull().ok());
+
+    EXPECT_TRUE(builder.Append().ok());
+    EXPECT_TRUE(scalar_builder->Append(2).ok());
+    EXPECT_TRUE(list_builder->AppendEmptyValue().ok());
+
+    EXPECT_TRUE(builder.Append().ok());
+    EXPECT_TRUE(scalar_builder->Append(3).ok());
+    EXPECT_TRUE(list_builder->AppendNull().ok());
+
+    EXPECT_TRUE(builder.Append().ok());
+    EXPECT_TRUE(scalar_builder->Append(4).ok());
+    EXPECT_TRUE(list_builder->Append().ok());
+    EXPECT_TRUE(list_value_builder->Append(20).ok());
+    return finish_array(&builder);
+}
+
 void write_nullable_map_parquet_file(const std::string& file_path) {
     auto array = build_nullable_int_string_map_array();
     auto field = arrow::field("arr", array->type(), true);
@@ -631,6 +673,26 @@ void write_nullable_string_struct_parquet_file(const std::string& file_path) {
     auto array = build_nullable_string_struct_array();
     auto field = arrow::field("s", array->type(), true);
     auto table = arrow::Table::Make(arrow::schema({field}), {array});
+
+    auto file_result = arrow::io::FileOutputStream::Open(file_path);
+    ASSERT_TRUE(file_result.ok()) << file_result.status();
+    std::shared_ptr<arrow::io::FileOutputStream> out = *file_result;
+
+    ::parquet::WriterProperties::Builder builder;
+    builder.version(::parquet::ParquetVersion::PARQUET_2_6);
+    builder.data_page_version(::parquet::ParquetDataPageVersion::V2);
+    builder.compression(::parquet::Compression::UNCOMPRESSED);
+    PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), out,
+                                                      ROW_COUNT, builder.build()));
+}
+
+void write_nullable_struct_with_list_parquet_file(const std::string& file_path) {
+    auto scalar_first = build_nullable_struct_with_list_array(false);
+    auto list_first = build_nullable_struct_with_list_array(true);
+    auto table = arrow::Table::Make(
+            arrow::schema({arrow::field("scalar_first", scalar_first->type(), true),
+                           arrow::field("list_first", list_first->type(), true)}),
+            {scalar_first, list_first});
 
     auto file_result = arrow::io::FileOutputStream::Open(file_path);
     ASSERT_TRUE(file_result.ok()) << file_result.status();
@@ -1183,6 +1245,28 @@ TEST_F(NewParquetReaderTest, CountStructColumnUsesLevelsOnlyPath) {
     EXPECT_EQ(result.count, 4);
     ASSERT_NE(profile.get_counter("MaterializationTime"), nullptr);
     EXPECT_EQ(profile.get_counter("MaterializationTime")->value(), 0);
+}
+
+TEST_F(NewParquetReaderTest, CountStructWithRepeatedChildUsesTopLevelRowBoundaries) {
+    write_nullable_struct_with_list_parquet_file(_file_path);
+
+    for (int32_t column_id = 0; column_id < 2; ++column_id) {
+        auto reader = create_reader();
+        RuntimeState state {TQueryOptions(), TQueryGlobals()};
+        ASSERT_TRUE(reader->init(&state).ok());
+        ASSERT_TRUE(reader->open(std::make_shared<format::FileScanRequest>()).ok());
+
+        format::FileAggregateRequest request;
+        request.agg_type = TPushAggOp::type::COUNT;
+        request.columns.push_back({.projection = format::LocalColumnIndex::top_level(
+                                           format::LocalColumnId(column_id))});
+        format::FileAggregateResult result;
+        ASSERT_TRUE(reader->get_aggregate_result(request, &result).ok());
+
+        // Rows are: non-empty ARRAY, NULL STRUCT, empty ARRAY, NULL ARRAY, non-empty ARRAY.
+        // COUNT(struct) excludes only the NULL STRUCT regardless of child field order.
+        EXPECT_EQ(result.count, 4);
+    }
 }
 
 TEST_F(NewParquetReaderTest, GetSchemaReturnsNullableNestedChildren) {

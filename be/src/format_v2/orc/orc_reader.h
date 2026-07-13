@@ -37,6 +37,10 @@ namespace doris::format::orc {
 
 struct OrcReaderScanState;
 
+namespace detail {
+bool valid_statistics_bounds(const Field& min_value, const Field& max_value);
+} // namespace detail
+
 // ORC implementation of the format-v2 FileReader contract. The reader consumes
 // file-local scan requests; table schema mapping is handled before open().
 class OrcReader final : public format::FileReader {
@@ -154,6 +158,7 @@ private:
     bool _filter_has_row_level_predicates() const;
     Status _build_keep_filter(Block* file_block, size_t rows, IColumn::Filter* keep_filter) const;
     Status _filter_block(Block* file_block, size_t* rows) const;
+    void _extend_condition_cache_context_for_current_range();
     void _skip_condition_cache_false_granules(size_t* rows, bool* eof);
     void _mark_condition_cache_surviving_rows(const IColumn::Filter& keep_filter,
                                               size_t rows) const;
