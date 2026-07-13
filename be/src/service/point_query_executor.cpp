@@ -605,6 +605,12 @@ Status PointQueryExecutor::_lookup_row_data() {
                     StorageReadOptions storage_read_options;
                     storage_read_options.stats = &_read_stats;
                     storage_read_options.io_ctx = io_ctx;
+                    // A point lookup bypasses TabletReader, so supply the rowset context here. For
+                    // example, reading __DORIS_VERSION_COL__ from rowset [7-7] must return 7
+                    // instead of its on-disk placeholder 0.
+                    storage_read_options.tablet_schema = _tablet->tablet_schema();
+                    storage_read_options.version = rowset->version();
+                    storage_read_options.commit_tso = rowset->commit_tso();
                     RETURN_IF_ERROR(segment->seek_and_read_by_rowid(*_tablet->tablet_schema(), slot,
                                                                     row_ids, column,
                                                                     storage_read_options, iter));

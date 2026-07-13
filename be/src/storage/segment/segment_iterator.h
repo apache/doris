@@ -197,8 +197,6 @@ private:
 
     [[nodiscard]] Status _read_columns_by_index(const std::vector<ColumnId>& read_ordinals,
                                                 uint32_t nrows_read_limit, uint16_t& nrows_read);
-    void _replace_version_col_if_needed(const std::vector<ColumnId>& ordinals, size_t num_rows);
-    void _update_tso_col_if_needed(const std::vector<ColumnId>& ordinals, size_t num_rows);
     Status _init_current_block(Block* block, std::vector<MutableColumnPtr>& non_pred_vector,
                                uint32_t nrows_read_limit);
     uint16_t _evaluate_vectorization_predicate(uint16_t* sel_rowid_idx, uint16_t selected_size);

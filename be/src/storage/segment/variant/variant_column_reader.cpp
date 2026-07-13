@@ -67,6 +67,18 @@ bool is_compaction_or_checksum_reader(const StorageReadOptions* opts) {
                                opts->io_ctx.reader_type == ReaderType::READER_CHECKSUM);
 }
 
+int32_t variant_root_uid(const TabletColumn& column) {
+    // Extracted paths may have independent schema uids, but all path readers are indexed below
+    // the VARIANT root. For example, `v.user.id` uid=42 must still resolve through root `v` uid=7.
+    const int32_t root_uid =
+            column.has_path_info()
+                    ? column.parent_unique_id()
+                    : (column.unique_id() >= 0 ? column.unique_id() : column.parent_unique_id());
+    DORIS_CHECK_GE(root_uid, 0) << "VARIANT column does not have a root uid: "
+                                << column.debug_string();
+    return root_uid;
+}
+
 void add_variant_search_binding_diagnostic(OlapReaderStatistics* stats,
                                            const std::string& diagnostic) {
     VLOG_DEBUG << diagnostic;
@@ -432,8 +444,7 @@ Status VariantColumnReader::_build_read_plan_flat_leaves(
 
     std::shared_lock<std::shared_mutex> lock(_subcolumns_meta_mutex);
 
-    int32_t col_uid =
-            target_col.unique_id() >= 0 ? target_col.unique_id() : target_col.parent_unique_id();
+    const int32_t col_uid = variant_root_uid(target_col);
     auto relative_path = target_col.path_info_ptr()->copy_pop_front();
     const auto* node = (!relative_path.empty() && target_col.has_path_info())
                                ? _subcolumns_meta_info->find_leaf(relative_path)
@@ -837,10 +848,7 @@ Status VariantColumnReader::_build_read_plan(ReadPlan* plan, const TabletColumn&
                                              const StorageReadOptions* opt,
                                              ColumnReaderCache* column_reader_cache,
                                              PathToBinaryColumnCache* binary_column_cache_ptr) {
-    // root column use unique id, leaf column use parent_unique_id
-    int32_t col_uid =
-            target_col.unique_id() >= 0 ? target_col.unique_id() : target_col.parent_unique_id();
-    // root column use unique id, leaf column use parent_unique_id
+    const int32_t col_uid = variant_root_uid(target_col);
     auto relative_path = target_col.path_info_ptr()->copy_pop_front();
 
     RETURN_IF_ERROR(_validate_access_paths_debug(target_col, opt, col_uid, relative_path));
@@ -1022,11 +1030,10 @@ Status VariantColumnReader::_create_iterator_from_plan(
         // HIERARCHICAL reconstructs the requested object from extracted subcolumns plus sparse
         // state. Reading root `v` through this branch may therefore read regular children such as
         // `v.keep` / `v.owner` and merge them into the final variant result.
-        int32_t col_uid = target_col.unique_id() >= 0 ? target_col.unique_id()
-                                                      : target_col.parent_unique_id();
         RETURN_IF_ERROR(_create_hierarchical_reader(
-                iterator, col_uid, plan.relative_path, plan.node, plan.root, column_reader_cache,
-                opt->stats, HierarchicalDataIterator::ReadType::SUBCOLUMNS_AND_SPARSE,
+                iterator, variant_root_uid(target_col), plan.relative_path, plan.node, plan.root,
+                column_reader_cache, opt->stats,
+                HierarchicalDataIterator::ReadType::SUBCOLUMNS_AND_SPARSE,
                 target_col.variant_is_v2(), &opt->io_ctx));
         return _maybe_wrap_root_merge_iterator(iterator, plan, opt);
     }
@@ -1064,7 +1071,7 @@ Status VariantColumnReader::_create_iterator_from_plan(
         return Status::OK();
     }
     case ReadKind::DEFAULT_FILL: {
-        RETURN_IF_ERROR(Segment::new_default_iterator(target_col, iterator));
+        RETURN_IF_ERROR(Segment::new_constant_iterator(target_col, iterator));
         if (opt && opt->stats) {
             opt->stats->variant_subtree_default_iter_count++;
         }
@@ -1078,12 +1085,11 @@ Status VariantColumnReader::_create_iterator_from_plan(
         return Status::OK();
     }
     case ReadKind::HIERARCHICAL_DOC: {
-        int32_t col_uid = target_col.unique_id() >= 0 ? target_col.unique_id()
-                                                      : target_col.parent_unique_id();
         RETURN_IF_ERROR(_create_hierarchical_reader(
-                iterator, col_uid, plan.relative_path, plan.node, plan.root, column_reader_cache,
-                opt->stats, HierarchicalDataIterator::ReadType::DOC_VALUE_COLUMN,
-                target_col.variant_is_v2(), &opt->io_ctx));
+                iterator, variant_root_uid(target_col), plan.relative_path, plan.node, plan.root,
+                column_reader_cache, opt->stats,
+                HierarchicalDataIterator::ReadType::DOC_VALUE_COLUMN, target_col.variant_is_v2(),
+                &opt->io_ctx));
         if (opt && opt->stats) {
             opt->stats->variant_doc_value_column_iter_count++;
         }
