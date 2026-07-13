@@ -159,5 +159,17 @@ TEST(PaimonJniReaderTest, ScanLevelOptionsOverrideLegacySplitFallbacks) {
     EXPECT_EQ(params["hadoop.source"], "scan");
 }
 
+TEST(PaimonJniReaderTest, KeepsInitialPhysicalBatchSizeAfterOpen) {
+    PaimonJniReader reader;
+    reader.set_batch_size(32);
+    EXPECT_EQ(reader.TEST_batch_size(), 32);
+
+    // Paimon copies the constructor size into the RecordReader during Java open. A later predictor
+    // result cannot resize that physical reader, so keep the initial probe size for the split.
+    reader.TEST_set_split_state(true, false);
+    reader.set_batch_size(1);
+    EXPECT_EQ(reader.TEST_batch_size(), 32);
+}
+
 } // namespace
 } // namespace doris::format::paimon

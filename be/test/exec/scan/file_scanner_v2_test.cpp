@@ -67,6 +67,15 @@ TFileRangeDesc paimon_cpp_jni_range() {
     return range;
 }
 
+TFileRangeDesc legacy_paimon_jni_range_without_reader_type() {
+    auto range = range_with_format("paimon", TFileFormatType::FORMAT_JNI);
+    TPaimonFileDesc paimon_params;
+    paimon_params.__set_paimon_split("legacy-split");
+    paimon_params.__set_paimon_predicate("legacy-predicate");
+    range.table_format_params.__set_paimon_params(std::move(paimon_params));
+    return range;
+}
+
 struct RetryableCloseState {
     int close_calls = 0;
 };
@@ -214,7 +223,7 @@ TEST(FileScannerV2Test, FileScanLocalStateSelectsV2ForSupportedQueriesOnly) {
     EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
 }
 
-TEST(FileScannerV2Test, PaimonCppReaderForcesLegacyScanner) {
+TEST(FileScannerV2Test, JniCompatibilityShapesForceLegacyScanner) {
     TQueryOptions query_options;
     query_options.__set_enable_file_scanner_v2(true);
     query_options.__set_enable_paimon_cpp_reader(true);
@@ -222,14 +231,16 @@ TEST(FileScannerV2Test, PaimonCppReaderForcesLegacyScanner) {
     TFileScanRangeParams params;
     params.__set_format_type(TFileFormatType::FORMAT_JNI);
     // Rolling upgrades may carry the only Paimon marker and reader type on each split. Since the
-    // scan-level selector cannot inspect that split yet, the C++ reader option conservatively keeps
-    // JNI scans on V1 even without a scan-level paimon_predicate.
+    // scan-level selector cannot inspect that split yet, JNI scans conservatively stay on V1.
     EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
     EXPECT_FALSE(FileScannerV2::is_supported(params, paimon_cpp_jni_range()));
 
-    // Disabling the C++ reader restores V2 eligibility for supported JNI implementations.
+    // Older FEs can omit reader_type. The legacy scanner interprets this as Paimon JNI when the C++
+    // reader is disabled, so the scan-level choice must still stay on V1.
     query_options.__set_enable_paimon_cpp_reader(false);
-    EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
+    EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
+    EXPECT_FALSE(
+            FileScannerV2::is_supported(params, legacy_paimon_jni_range_without_reader_type()));
 }
 
 TEST(FileScannerV2Test, FailedTableReaderCloseCanBeRetriedThroughScanner) {

@@ -77,6 +77,7 @@ protected:
     virtual Status _get_next_jni_block(size_t* rows, bool* eof);
     virtual Status _close_jni_scanner();
     virtual Status _set_open_scanner_batch_size(size_t batch_size);
+    virtual bool supports_batch_size_update_after_open() const { return true; }
     virtual Status _open_jni_scanner();
     const std::vector<JniColumn>& jni_columns() const { return _jni_columns; }
     TFileRangeDesc _current_range;

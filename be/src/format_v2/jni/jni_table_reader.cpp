@@ -418,6 +418,11 @@ Status JniTableReader::_open_jni_scanner() {
 }
 
 void JniTableReader::set_batch_size(size_t batch_size) {
+    if (_scanner_opened && !supports_batch_size_update_after_open()) {
+        // Some connectors bake the constructor batch size into an already-open physical reader.
+        // Keep C++ and Java on that initial size instead of pretending a later resize took effect.
+        return;
+    }
     TableReader::set_batch_size(batch_size);
     if (!_scanner_opened) {
         return;
