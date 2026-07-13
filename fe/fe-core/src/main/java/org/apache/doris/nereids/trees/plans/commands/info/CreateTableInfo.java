@@ -795,10 +795,6 @@ public class CreateTableInfo {
                         + "and you can use 'bucket(num, column)' in 'PARTITIONED BY'.");
             }
 
-            if (engineName.equalsIgnoreCase(ENGINE_ICEBERG)) {
-                validateIcebergRowLineageColumns();
-            }
-
             // Validate Iceberg sort order columns
             if (sortOrderFields != null && !sortOrderFields.isEmpty()) {
                 if (!engineName.equalsIgnoreCase(ENGINE_ICEBERG)) {
@@ -1140,7 +1136,12 @@ public class CreateTableInfo {
     }
 
     /**
-     * Validate that Iceberg v3 tables do not define row lineage reserved columns.
+     * Validate that Iceberg v3 tables do not define row-lineage reserved columns.
+     *
+     * <p>DEAD in the LIVE path: the engine-side gate (validate() for engine=iceberg) was removed — the live
+     * iceberg CREATE now validates in the connector ({@code IcebergConnectorMetadata.createTable}). This method
+     * remains ONLY because the legacy {@code IcebergMetadataOps.performCreateTable} (unreachable post-cutover)
+     * still calls it; it is deleted together with that legacy unit in the deletion phase.
      */
     public void validateIcebergRowLineageColumns(int formatVersion) {
         if (formatVersion < IcebergUtils.ICEBERG_ROW_LINEAGE_MIN_VERSION) {
@@ -1152,24 +1153,6 @@ public class CreateTableInfo {
                         + " table with reserved row lineage column: " + columnDef.getName());
             }
         }
-    }
-
-    private void validateIcebergRowLineageColumns() {
-        validateIcebergRowLineageColumns(getEffectiveIcebergFormatVersion());
-    }
-
-    private int getEffectiveIcebergFormatVersion() {
-        CatalogIf catalog = Strings.isNullOrEmpty(ctlName) ? null
-                : Env.getCurrentEnv().getCatalogMgr().getCatalog(ctlName);
-        // A plugin-iceberg catalog (post-cutover an iceberg catalog is a PluginDrivenExternalCatalog) must
-        // consult catalog-level table-default/override.format-version; otherwise the version resolves to 2 and
-        // validateIcebergRowLineageColumns is silently no-op'd while the connector honors the catalog-level
-        // format-version and creates a v3 table.
-        if (catalog instanceof PluginDrivenExternalCatalog
-                && ENGINE_ICEBERG.equals(pluginCatalogTypeToEngine((PluginDrivenExternalCatalog) catalog))) {
-            return IcebergUtils.getEffectiveIcebergFormatVersion(properties, catalog.getProperties());
-        }
-        return IcebergUtils.getEffectiveIcebergFormatVersion(properties, Collections.emptyMap());
     }
 
     /**
