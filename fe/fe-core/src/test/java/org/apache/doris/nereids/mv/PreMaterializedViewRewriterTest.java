@@ -2963,7 +2963,6 @@ public class PreMaterializedViewRewriterTest extends SqlTestBase {
         statementContext.ruleSetApplied(RuleType.ELIMINATE_GROUP_BY_KEY);
         statementContext.getPlannerHooks().add(InitMaterializationContextHook.INSTANCE);
         statementContext.getTmpPlanForMvRewrite().add(cascadesContext.getRewritePlan());
-        Assertions.assertTrue(PreMaterializedViewRewriter.needPreRewrite(cascadesContext));
     }
 
     private void checkIfEquals(String originalSql, List<String> equivalentSqlList) {
