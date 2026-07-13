@@ -5628,6 +5628,9 @@ TEST(RecyclerTest, delete_rowset_data_packed_file_single_rowset) {
     EXPECT_EQ(TxnErrorCode::TXN_KEY_NOT_FOUND, txn->get(merged_key, &updated_val));
 
     EXPECT_EQ(1, accessor->exists(packed_file_path));
+    for (int i = 0; i < rowset.num_segments(); ++i) {
+        EXPECT_EQ(0, accessor->exists(segment_path(rowset.tablet_id(), rowset.rowset_id_v2(), i)));
+    }
 }
 
 TEST(RecyclerTest, delete_rowset_data_packed_file_respects_recycled_tablet) {
@@ -5791,6 +5794,7 @@ TEST(RecyclerTest, delete_rowset_data_packed_file_batch_rowsets) {
     EXPECT_EQ(TxnErrorCode::TXN_KEY_NOT_FOUND, txn->get(merged_key, &updated_val));
 
     EXPECT_EQ(1, accessor->exists(packed_file_path));
+    EXPECT_EQ(0, accessor->exists(small_path));
 }
 
 TEST(RecyclerTest, delete_rowset_data_packed_file_multiple_groups) {
@@ -5909,7 +5913,7 @@ TEST(RecyclerTest, delete_rowset_data_packed_file_multiple_groups) {
     }
 
     for (const auto& path : segment_paths) {
-        EXPECT_EQ(1, accessor->exists(path));
+        EXPECT_EQ(0, accessor->exists(path));
     }
     for (const auto& path : index_paths) {
         EXPECT_EQ(1, accessor->exists(path));
