@@ -46,6 +46,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.IntegerType;
@@ -212,6 +213,37 @@ class IvmPlanSignatureGeneratorTest extends IvmDeltaTestBase {
 
         IvmPlanSignature renamedAliasSignature = signatureForNormalizedPlan(renamedAliasProject);
         Assertions.assertNotEquals(baseSignature.getSha256(), renamedAliasSignature.getSha256());
+    }
+
+    @Test
+    void testSubQueryAliasNameDoesNotChangeSignature() {
+        LogicalOlapScan scan = buildMowScan(1, "t");
+        LogicalProject<?> normalizedProject = buildRowIdProject(scan,
+                ImmutableList.of(scan.getOutput().get(0), scan.getOutput().get(1)));
+
+        IvmPlanSignature baseSignature = signatureForNormalizedPlan(normalizedProject);
+        IvmPlanSignature aliasASignature = signatureForNormalizedPlan(
+                new LogicalSubQueryAlias<>("alias_a", normalizedProject));
+        IvmPlanSignature aliasBSignature = signatureForNormalizedPlan(
+                new LogicalSubQueryAlias<>("alias_b", normalizedProject));
+
+        Assertions.assertEquals(baseSignature.getSha256(), aliasASignature.getSha256());
+        Assertions.assertEquals(aliasASignature.getSha256(), aliasBSignature.getSha256());
+    }
+
+    @Test
+    void testNestedSubQueryAliasNameDoesNotChangeSignature() {
+        LogicalOlapScan scan = buildMowScan(1, "t");
+        LogicalProject<?> normalizedProject = buildRowIdProject(scan,
+                ImmutableList.of(scan.getOutput().get(0), scan.getOutput().get(1)));
+
+        IvmPlanSignature singleAliasSignature = signatureForNormalizedPlan(
+                new LogicalSubQueryAlias<>("alias_a", normalizedProject));
+        IvmPlanSignature nestedAliasSignature = signatureForNormalizedPlan(
+                new LogicalSubQueryAlias<>("alias_outer",
+                        new LogicalSubQueryAlias<>("alias_inner", normalizedProject)));
+
+        Assertions.assertEquals(singleAliasSignature.getSha256(), nestedAliasSignature.getSha256());
     }
 
     @Test

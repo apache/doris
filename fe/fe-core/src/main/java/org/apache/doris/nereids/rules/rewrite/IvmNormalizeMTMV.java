@@ -58,6 +58,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
@@ -255,8 +256,12 @@ public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.Norma
 
     @Override
     public Plan visitLogicalFilter(LogicalFilter<? extends Plan> filter, NormalizeContext context) {
-        Plan newChild = filter.child().accept(this, context.afterNonSink());
-        return newChild == filter.child() ? filter : filter.withChildren(ImmutableList.of(newChild));
+        return filter.withChildren(child -> child.accept(this, context.afterNonSink()));
+    }
+
+    @Override
+    public Plan visitLogicalSubQueryAlias(LogicalSubQueryAlias<? extends Plan> alias, NormalizeContext context) {
+        return alias.withChildren(child -> child.accept(this, context.afterNonSink()));
     }
 
     /**
