@@ -171,16 +171,16 @@ int64_t count_loaded_non_null_values(const ParquetColumnSchema& root_schema,
         return count;
     }
 
-    // For repeated encodings, one top-level row starts when the leaf repetition level moves above
-    // no higher than the top-level container's repeated boundary. Empty MAP/LIST rows have no
-    // entries but still carry a level slot; they are non-NULL and must be counted by count(col).
-    const int16_t non_null_definition_level =
-            static_cast<int16_t>(root_schema.definition_level - 1);
+    // For repeated encodings, repetition level zero starts a top-level row. Empty MAP/LIST rows
+    // have no entries but still carry a level slot; they are non-NULL and must be counted by
+    // count(col). The root nullable level distinguishes a NULL top-level value from a non-NULL
+    // value regardless of which repeated leaf represents its shape.
+    const int16_t non_null_definition_level = root_schema.nullable_definition_level;
     int64_t counted_rows = 0;
     int64_t non_null_rows = 0;
     for (int64_t level_idx = 0; level_idx < levels_written && counted_rows < expected_rows;
          ++level_idx) {
-        if (rep_levels[level_idx] >= root_schema.repetition_level) {
+        if (rep_levels[level_idx] != 0) {
             continue;
         }
         ++counted_rows;
