@@ -44,8 +44,8 @@ bool BinlogCumulativeCompactionPolicy::is_compaction_enough(
 }
 
 void BinlogCumulativeCompactionPolicy::calculate_cumulative_point(
-        Tablet* tablet, const RowsetMetaMapContainer& all_rowsets,
-        int64_t current_cumulative_point, int64_t* cumulative_point) {
+        Tablet* tablet, const RowsetMetaMapContainer& all_rowsets, int64_t current_cumulative_point,
+        int64_t* cumulative_point) {
     *cumulative_point = Tablet::K_INVALID_CUMULATIVE_POINT;
     if (current_cumulative_point != Tablet::K_INVALID_CUMULATIVE_POINT || all_rowsets.empty()) {
         return;
@@ -193,8 +193,8 @@ int BinlogCumulativeCompactionPolicy::pick_input_rowsets(
     return 0;
 }
 
-uint32_t BinlogCumulativeCompactionPolicy::calc_binlog_compaction_level_score(
-        Tablet* tablet, int8_t level) const {
+uint32_t BinlogCumulativeCompactionPolicy::calc_binlog_compaction_level_score(Tablet* tablet,
+                                                                              int8_t level) const {
     uint32_t score = 0;
     const int64_t point = tablet->cumulative_layer_point();
     // Binlog tiered compaction score (L0..LMax)

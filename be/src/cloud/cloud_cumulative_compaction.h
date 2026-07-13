@@ -52,13 +52,13 @@ private:
 
     std::string_view compaction_name() const override { return "CloudCumulativeCompaction"; }
 
+    ReaderType compaction_type() const override { return ReaderType::READER_CUMULATIVE_COMPACTION; }
+
     Status modify_rowsets() override;
 
     Status garbage_collection() override;
 
     void update_cumulative_point();
-
-    ReaderType compaction_type() const override { return ReaderType::READER_CUMULATIVE_COMPACTION; }
 
     int64_t _input_segments = 0;
     int64_t _max_conflict_version = 0;

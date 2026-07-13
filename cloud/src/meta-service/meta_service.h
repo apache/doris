@@ -440,10 +440,9 @@ public:
 
 private:
     void commit_rowset_meta(Transaction* txn, const std::string& instance_id,
-                            const std::string& tablet_job_id,
-                            doris::RowsetMetaCloudPB& rowset_meta,
-                            doris::RowsetMetaCloudPB* existed_rowset_meta,
-                            MetaServiceCode& code, std::string& msg);
+                            const std::string& tablet_job_id, doris::RowsetMetaCloudPB& rowset_meta,
+                            doris::RowsetMetaCloudPB* existed_rowset_meta, MetaServiceCode& code,
+                            std::string& msg);
     void update_tmp_rowset_meta(Transaction* txn, const std::string& instance_id,
                                 doris::RowsetMetaCloudPB& rowset_meta,
                                 doris::RowsetMetaCloudPB* existed_rowset_meta,

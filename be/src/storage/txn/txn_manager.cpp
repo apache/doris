@@ -604,8 +604,8 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
         if (tablet_txn_info->attach_row_binlog.rowset != nullptr) {
             DCHECK(tablet_txn_info->attach_row_binlog.tablet != nullptr);
             if (tablet_txn_info->attach_row_binlog.delete_bitmap != nullptr) {
-                auto binlog_tablet = std::static_pointer_cast<Tablet>(
-                        tablet_txn_info->attach_row_binlog.tablet);
+                auto binlog_tablet =
+                        std::static_pointer_cast<Tablet>(tablet_txn_info->attach_row_binlog.tablet);
                 binlog_tablet->merge_delete_bitmap(
                         *tablet_txn_info->attach_row_binlog.delete_bitmap);
                 RETURN_IF_ERROR(TabletMetaManager::save_delete_bitmap(

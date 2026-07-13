@@ -25,6 +25,7 @@
 #include "storage/rowset/rowset_factory.h"
 #include "storage/rowset/rowset_writer_context.h"
 #include "storage/storage_policy.h"
+#include "storage/tablet_info.h"
 
 namespace doris {
 using namespace ErrorCode;
@@ -43,8 +44,7 @@ CloudGroupRowsetBuilder::CloudGroupRowsetBuilder(CloudStorageEngine& engine,
            sub_data_req.write_req_type == WriteRequestType::DATA &&
            sub_row_binlog_req.write_req_type == WriteRequestType::ROW_BINLOG);
     _data_builder = std::make_shared<CloudRowsetBuilder>(engine, sub_data_req, profile);
-    _row_binlog_builder =
-            std::make_shared<CloudRowsetBuilder>(engine, sub_row_binlog_req, profile);
+    _row_binlog_builder = std::make_shared<CloudRowsetBuilder>(engine, sub_row_binlog_req, profile);
 }
 
 CloudRowsetBuilder::~CloudRowsetBuilder() {
@@ -58,7 +58,7 @@ Status CloudRowsetBuilder::init() {
     _tablet = DORIS_TRY(_engine.get_tablet(_req.tablet_id));
 
     std::shared_ptr<MowContext> mow_context;
-    if (_tablet->enable_unique_key_merge_on_write()) {
+    if (_tablet->enable_unique_key_merge_on_write() && is_data_builder()) {
         if (config::cloud_mow_sync_rowsets_when_load_txn_begin) {
             auto st = std::static_pointer_cast<CloudTablet>(_tablet)->sync_rowsets();
             // sync_rowsets will return INVALID_TABLET_STATE when tablet is under alter
@@ -86,11 +86,14 @@ Status CloudRowsetBuilder::init() {
     context.txn_id = _req.txn_id;
     context.txn_expiration = _req.txn_expiration;
     context.load_id = _req.load_id;
+    context.db_id = _req.table_schema_param->db_id();
+    context.table_id = _req.table_schema_param->table_id();
     context.rowset_state = PREPARED;
     context.segments_overlap = OVERLAPPING;
     context.tablet_schema = _tablet_schema;
     context.newest_write_timestamp = UnixSeconds();
     context.tablet_id = _req.tablet_id;
+    context.tablet_schema_hash = _req.schema_hash;
     context.index_id = _req.index_id;
     context.tablet = _tablet;
     context.enable_segcompaction = true;
@@ -125,7 +128,8 @@ Status CloudRowsetBuilder::init() {
 
 Status CloudGroupRowsetBuilder::init() {
     RETURN_IF_ERROR(_row_binlog_builder->init());
-    RETURN_IF_ERROR(_data_builder->attach_pending_rs_guard_to_txn(_row_binlog_builder->rowset_id()));
+    RETURN_IF_ERROR(
+            _data_builder->attach_pending_rs_guard_to_txn(_row_binlog_builder->rowset_id()));
     RETURN_IF_ERROR(_data_builder->init());
     _tablet = _data_builder->tablet_sptr();
 
@@ -263,7 +267,8 @@ Status CloudRowsetBuilder::set_txn_related_info() {
                 _req.txn_id, _tablet->tablet_id(), _delete_bitmap, *_rowset_ids, _rowset,
                 _req.txn_expiration, _partial_update_info, _attach_row_binlog);
     } else {
-        if (config::enable_cloud_make_rs_visible_on_be) {
+        // TSO-enabled rowsets must become visible from MS rowset meta.
+        if (config::enable_cloud_make_rs_visible_on_be && !_tablet_schema->enable_tso()) {
             if (_skip_writing_rowset_metadata) {
                 _engine.committed_rs_mgr().mark_empty_rowset(_req.txn_id, _tablet->tablet_id(),
                                                              _req.txn_expiration);

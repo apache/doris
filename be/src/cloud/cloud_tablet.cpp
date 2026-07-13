@@ -814,6 +814,9 @@ void CloudTablet::reset_approximate_stats(int64_t num_rowsets, int64_t num_segme
     auto cp = _cumulative_point.load(std::memory_order_relaxed);
     for (auto& [v, r] : _rs_version_map) {
         if (v.second < cp) {
+            if (is_row_binlog_tablet()) {
+                cumu_num_deltas += 1;
+            }
             continue;
         }
         cumu_num_deltas += r->is_segments_overlapping() ? r->num_segments() : 1;
@@ -839,6 +842,10 @@ Result<std::unique_ptr<RowsetWriter>> CloudTablet::create_rowset_writer(
     context.partition_id = partition_id();
     context.enable_unique_key_merge_on_write = enable_unique_key_merge_on_write();
     context.encrypt_algorithm = tablet_meta()->encryption_algorithm();
+    if (context.write_binlog_opt().enable) {
+        context.write_binlog_opt().set_need_before(
+                tablet_meta()->binlog_config().need_historical_value());
+    }
     return RowsetFactory::create_rowset_writer(_engine, context, vertical);
 }
 
@@ -863,6 +870,8 @@ Result<std::unique_ptr<RowsetWriter>> CloudTablet::create_transient_rowset_write
     RowsetWriterContext context;
     context.rowset_state = PREPARED;
     context.segments_overlap = OVERLAPPING;
+    context.db_id = rowset.rowset_meta()->db_id();
+    context.table_id = rowset.rowset_meta()->table_id();
     // During a partial update, the extracted columns of a variant should not be included in the tablet schema.
     // This is because the partial update for a variant needs to ignore the extracted columns.
     // Otherwise, the schema types in different rowsets might be inconsistent. When performing a partial update,
@@ -874,6 +883,11 @@ Result<std::unique_ptr<RowsetWriter>> CloudTablet::create_transient_rowset_write
     context.write_type = DataWriteType::TYPE_DIRECT;
     context.partial_update_info = std::move(partial_update_info);
     context.is_transient_rowset_writer = true;
+    if (rowset.rowset_meta() != nullptr && rowset.rowset_meta()->is_row_binlog()) {
+        context.write_binlog_opt().enable = true;
+        context.write_binlog_opt().set_need_before(
+                tablet_meta()->binlog_config().need_historical_value());
+    }
     context.rowset_id = rowset.rowset_id();
     context.tablet_id = tablet_id();
     context.index_id = index_id();
@@ -1213,7 +1227,7 @@ Status CloudTablet::save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t tx
     RETURN_IF_ERROR(_engine.txn_delete_bitmap_cache().update_tablet_txn_info(
             txn_id, tablet_id(), delete_bitmap, cur_rowset_ids, PublishStatus::PREPARE));
 
-    if (txn_info->partial_update_info && txn_info->partial_update_info->is_partial_update() &&
+    if (txn_info->partial_update_info != nullptr && rowset_writer != nullptr &&
         rowset_writer->num_rows() > 0) {
         DBUG_EXECUTE_IF("CloudTablet::save_delete_bitmap.update_tmp_rowset.error", {
             return Status::InternalError<false>("injected update_tmp_rowset error.");
@@ -1238,8 +1252,7 @@ Status CloudTablet::save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t tx
                         {binlog_rid, std::get<1>(key), cast_set<uint64_t>(cur_version)}, bitmap);
             }
         }
-        auto* binlog_tablet =
-                static_cast<CloudTablet*>(txn_info->attach_row_binlog.tablet.get());
+        auto* binlog_tablet = static_cast<CloudTablet*>(txn_info->attach_row_binlog.tablet.get());
         RETURN_IF_ERROR(binlog_tablet->save_delete_bitmap_to_ms(
                 cur_version, txn_id, txn_info->attach_row_binlog.delete_bitmap, lock_id,
                 next_visible_version, txn_info->attach_row_binlog.rowset));
@@ -2005,7 +2018,11 @@ void CloudTablet::clear_unused_visible_pending_rowsets() {
 
 void CloudTablet::try_make_committed_rs_visible(int64_t txn_id, int64_t visible_version,
                                                 int64_t version_update_time_ms) {
-    if (enable_unique_key_merge_on_write() || is_row_binlog_tablet()) {
+    if (tablet_schema()->enable_tso()) {
+        return;
+    }
+
+    if (enable_unique_key_merge_on_write()) {
         // for mow tablet, we get committed rowset from `CloudTxnDeleteBitmapCache` rather than `CommittedRowsetManager`
         try_make_committed_rs_visible_for_mow(txn_id, visible_version, version_update_time_ms);
         return;

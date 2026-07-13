@@ -33,7 +33,7 @@ bvar::Adder<int64_t> g_cloud_commit_empty_rowset_count("cloud_commit_empty_rowse
 
 CloudDeltaWriter::CloudDeltaWriter(CloudStorageEngine& engine, const WriteRequest& req,
                                    RuntimeProfile* profile, const UniqueId& load_id)
-        : BaseDeltaWriter(req, profile, load_id), _engine(engine) {
+        : BaseDeltaWriter(req, profile, load_id) {
     _rowset_builder = std::make_unique<CloudRowsetBuilder>(engine, req, profile);
     _resource_ctx = thread_context()->resource_ctx();
 }
@@ -42,7 +42,7 @@ CloudDeltaWriter::CloudDeltaWriter(CloudStorageEngine& engine, const WriteReques
                                    const WriteRequest& sub_data_req,
                                    const WriteRequest& sub_row_binlog_req, RuntimeProfile* profile,
                                    const UniqueId& load_id)
-        : BaseDeltaWriter(group_build_req, profile, load_id), _engine(engine) {
+        : BaseDeltaWriter(group_build_req, profile, load_id) {
     DCHECK(group_build_req.write_req_type == WriteRequestType::GROUP &&
            sub_data_req.write_req_type == WriteRequestType::DATA &&
            sub_row_binlog_req.write_req_type == WriteRequestType::ROW_BINLOG);

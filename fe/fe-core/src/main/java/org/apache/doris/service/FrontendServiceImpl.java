@@ -3229,6 +3229,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             result.getPipelineParams().setImportLabel(httpStreamParams.getLabel());
             result.getPipelineParams()
                     .setIsMowTable(((OlapTable) httpStreamParams.getTable()).getEnableUniqueKeyMergeOnWrite());
+            result.getPipelineParams().setEnableTso(((OlapTable) httpStreamParams.getTable()).enableTso());
             result.setDbId(httpStreamParams.getDb().getId());
             result.setTableId(httpStreamParams.getTable().getId());
             result.setBaseSchemaVersion(((OlapTable) httpStreamParams.getTable()).getBaseSchemaVersion());

@@ -53,9 +53,9 @@
 #include "io/io_common.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/thread_context.h"
-#include "storage/compaction/cumulative_compaction_binlog_policy.h"
 #include "storage/compaction/collection_statistics.h"
 #include "storage/compaction/cumulative_compaction.h"
+#include "storage/compaction/cumulative_compaction_binlog_policy.h"
 #include "storage/compaction/cumulative_compaction_policy.h"
 #include "storage/compaction/cumulative_compaction_time_series_policy.h"
 #include "storage/compaction_task_tracker.h"
@@ -608,7 +608,8 @@ bool CompactionMixin::handle_ordered_data_compaction() {
         DCHECK(!_input_rowsets.empty()) << "tablet=" << _tablet->tablet_id();
         auto compaction_level = _input_rowsets.front()->rowset_meta()->compaction_level();
         bool can_quick_merge_binlog =
-                compaction_level == BinlogCumulativeCompactionPolicy::kBinlogCompactionMaxLevel - 1 &&
+                compaction_level ==
+                        BinlogCumulativeCompactionPolicy::kBinlogCompactionMaxLevel - 1 &&
                 _input_rowsets.size() >= 2 && _input_rowsets[0]->start_version() == 0;
         if (!can_quick_merge_binlog) {
             return false;
@@ -729,8 +730,7 @@ Status CompactionMixin::execute_compact_impl(int64_t permits) {
     if (handle_ordered_data_compaction()) {
         _is_ordered_data_compaction = true;
         RETURN_IF_ERROR(modify_rowsets());
-        int64_t input_compaction_level =
-                _input_rowsets.front()->rowset_meta()->compaction_level();
+        int64_t input_compaction_level = _input_rowsets.front()->rowset_meta()->compaction_level();
         LOG(INFO) << "succeed to do ordered data " << compaction_name()
                   << ". tablet=" << _tablet->tablet_id() << ", output_version=" << _output_version
                   << ", disk=" << tablet()->data_dir()->path()

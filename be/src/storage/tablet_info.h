@@ -402,7 +402,8 @@ public:
         }
         if (config::is_cloud_mode()) {
             auto cloud_it = _base_to_binlog_tablet.lower_bound({base_tablet_id, INT64_MIN});
-            if (cloud_it != _base_to_binlog_tablet.end() && cloud_it->first.first == base_tablet_id) {
+            if (cloud_it != _base_to_binlog_tablet.end() &&
+                cloud_it->first.first == base_tablet_id) {
                 return cloud_it->second;
             }
         }

@@ -45,6 +45,7 @@ public:
     void release(int64_t permits);
 
     int64_t usage() const { return _used_permits.load(std::memory_order_relaxed); }
+
 private:
     // sum of "permits" held by executing compaction tasks currently
     std::atomic<int64_t> _used_permits;

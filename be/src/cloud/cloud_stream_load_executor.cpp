@@ -67,7 +67,7 @@ Status CloudStreamLoadExecutor::operate_txn_2pc(StreamLoadContext* ctx) {
     Status st = Status::InternalError<false>("impossible branch reached, " + op_info);
 
     if (ctx->txn_operation.compare("commit") == 0) {
-        if (!config::enable_stream_load_commit_txn_on_be) {
+        if (ctx->enable_tso() || !config::enable_stream_load_commit_txn_on_be) {
             VLOG_DEBUG << "2pc commit stream load txn with FE support: " << op_info;
             st = StreamLoadExecutor::operate_txn_2pc(ctx);
         } else if (topt == TxnOpParamType::WITH_TXN_ID) {
@@ -109,8 +109,8 @@ Status CloudStreamLoadExecutor::commit_txn(StreamLoadContext* ctx) {
         volatile int* p = nullptr;
         *p = 1;
     });
-    // forward to fe to excute commit transaction for MoW table
-    if (ctx->is_mow_table() || !config::enable_stream_load_commit_txn_on_be ||
+    // Forward to FE for tables that need commit ordering metadata.
+    if (ctx->is_mow_table() || ctx->enable_tso() || !config::enable_stream_load_commit_txn_on_be ||
         ctx->load_type == TLoadType::ROUTINE_LOAD) {
         Status st;
         int retry_times = 0;

@@ -41,7 +41,9 @@ public:
 
     virtual Status set_txn_related_info();
 
-    virtual void set_skip_writing_rowset_metadata(bool skip) { _skip_writing_rowset_metadata = skip; }
+    virtual void set_skip_writing_rowset_metadata(bool skip) {
+        _skip_writing_rowset_metadata = skip;
+    }
 
 protected:
     // Convert `_tablet` from `BaseTablet` to `CloudTablet`
@@ -82,7 +84,9 @@ public:
 
     const RowsetSharedPtr& rowset() const override { return _data_builder->rowset(); }
 
-    const TabletSchemaSPtr& tablet_schema() const override { return _data_builder->tablet_schema(); }
+    const TabletSchemaSPtr& tablet_schema() const override {
+        return _data_builder->tablet_schema();
+    }
 
     const std::shared_ptr<PartialUpdateInfo>& get_partial_update_info() const override {
         return _data_builder->get_partial_update_info();

@@ -488,7 +488,6 @@ private:
     std::atomic<int64_t> _last_base_compaction_schedule_millis;
     // timestamp of last full compaction schedule time
     std::atomic<int64_t> _last_full_compaction_schedule_millis;
-
     std::string _last_cumu_compaction_status;
     std::string _last_base_compaction_status;
     std::string _last_full_compaction_status;

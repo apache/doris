@@ -193,10 +193,9 @@ TEST_F(TestBinlogCumulativeCompactionPolicy, calc_lmax_score) {
     int8_t max_level = BinlogCumulativeCompactionPolicy::kBinlogCompactionMaxLevel - 1;
     // before cumulative point: [0-0] -> 1, [1-1] -> 1 (raw score 5 but counted as 1), [2-2] -> 1;
     // after cumulative point: [3-3] -> 1, [4-4] -> 1 (raw score). total = 5.
-    EXPECT_EQ(5,
-              dynamic_cast<BinlogCumulativeCompactionPolicy*>(
-                      _tablet->cumulative_compaction_policy())
-                      ->calc_binlog_compaction_level_score(_tablet.get(), max_level));
+    EXPECT_EQ(5, dynamic_cast<BinlogCumulativeCompactionPolicy*>(
+                         _tablet->cumulative_compaction_policy())
+                         ->calc_binlog_compaction_level_score(_tablet.get(), max_level));
 }
 
 // L0 score always uses the raw compaction score and is independent of cumulative point.
@@ -214,8 +213,7 @@ TEST_F(TestBinlogCumulativeCompactionPolicy, calc_l0_score) {
 
     int8_t prefer_level = -1;
     uint32_t score =
-            dynamic_cast<BinlogCumulativeCompactionPolicy*>(
-                    _tablet->cumulative_compaction_policy())
+            dynamic_cast<BinlogCumulativeCompactionPolicy*>(_tablet->cumulative_compaction_policy())
                     ->calc_binlog_compaction_score(_tablet.get(), &prefer_level);
     // L0 rowsets: [0-0] -> 4 (overlapping), [1-1] -> 1. total = 5.
     EXPECT_EQ(5, score);
@@ -261,8 +259,7 @@ TEST_F(TestBinlogCumulativeCompactionPolicy, pick_level_from_candidate_rowsets) 
     std::vector<RowsetSharedPtr> input_rowsets;
     size_t compaction_score = 0;
     int picked =
-            dynamic_cast<BinlogCumulativeCompactionPolicy*>(
-                    _tablet->cumulative_compaction_policy())
+            dynamic_cast<BinlogCumulativeCompactionPolicy*>(_tablet->cumulative_compaction_policy())
                     ->pick_input_rowsets(_tablet.get(), candidate_rowsets,
                                          config::binlog_level_compaction_max_deltas,
                                          config::cumulative_compaction_min_deltas, &input_rowsets,

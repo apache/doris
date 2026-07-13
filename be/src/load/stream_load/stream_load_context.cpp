@@ -377,4 +377,9 @@ bool StreamLoadContext::is_mow_table() const {
            put_result.pipeline_params.is_mow_table;
 }
 
+bool StreamLoadContext::enable_tso() const {
+    return put_result.__isset.pipeline_params && put_result.pipeline_params.__isset.enable_tso &&
+           put_result.pipeline_params.enable_tso;
+}
+
 } // namespace doris
