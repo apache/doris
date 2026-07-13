@@ -178,5 +178,14 @@ TEST(HudiReaderTest, ResetsSplitSchemaIdBeforePreparingNextSplit) {
     EXPECT_EQ(reader.TEST_mapping_mode(), TableColumnMappingMode::BY_NAME);
 }
 
+TEST(HudiHybridReaderTest, AdaptiveBatchSizeReachesBothChildReaders) {
+    hudi::HudiHybridReader reader;
+    reader.TEST_install_batch_size_children();
+    reader.set_batch_size(123);
+    const auto child_batch_sizes = reader.TEST_child_batch_sizes();
+    EXPECT_EQ(child_batch_sizes.first, 123);
+    EXPECT_EQ(child_batch_sizes.second, 123);
+}
+
 } // namespace
 } // namespace doris::format

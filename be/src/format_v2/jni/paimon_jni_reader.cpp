@@ -99,6 +99,11 @@ Status PaimonJniReader::build_scanner_params(std::map<std::string, std::string>*
         for (const auto& kv : _scan_params->paimon_options) {
             (*params)[std::string(PAIMON_OPTION_PREFIX) + kv.first] = kv.second;
         }
+    } else if (paimon_params.__isset.paimon_options) {
+        // Rolling upgrades can pair this BE with an older FE that only sends options per split.
+        for (const auto& kv : paimon_params.paimon_options) {
+            (*params)[std::string(PAIMON_OPTION_PREFIX) + kv.first] = kv.second;
+        }
     }
     const std::string enable_io_manager_key =
             std::string(PAIMON_OPTION_PREFIX) + std::string(DORIS_ENABLE_JNI_IO_MANAGER);
@@ -118,10 +123,13 @@ Status PaimonJniReader::build_scanner_params(std::map<std::string, std::string>*
         for (const auto& kv : _scan_params->properties) {
             (*params)[std::string(HADOOP_OPTION_PREFIX) + kv.first] = kv.second;
         }
+    } else if (paimon_params.__isset.hadoop_conf) {
+        for (const auto& kv : paimon_params.hadoop_conf) {
+            (*params)[std::string(HADOOP_OPTION_PREFIX) + kv.first] = kv.second;
+        }
     }
     // TODO: Remove legacy split-level paimon_predicate, paimon_options and hadoop_conf from thrift
-    // after all readers stop using them. Predicate keeps the split-level fallback for rolling
-    // upgrade compatibility with old FE paths that did not send scan-level paimon_predicate.
+    // after the minimum supported FE always sends their scan-level replacements.
     return Status::OK();
 }
 

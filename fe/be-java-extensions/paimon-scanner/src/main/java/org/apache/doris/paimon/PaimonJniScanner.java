@@ -314,19 +314,19 @@ public class PaimonJniScanner extends JniScanner {
             if (reader != null) {
                 try {
                     reader.close();
+                    reader = null;
                 } catch (IOException e) {
                     if (exception == null) {
                         exception = e;
                     } else {
                         exception.addSuppressed(e);
                     }
-                } finally {
-                    reader = null;
                 }
             }
             if (ioManager != null) {
                 try {
                     ioManager.close();
+                    ioManager = null;
                 } catch (Exception e) {
                     LOG.warn("Failed to close Paimon JNI IOManager, temp dirs: {}", ioManagerTempDirs, e);
                     if (exception == null) {
@@ -334,8 +334,6 @@ public class PaimonJniScanner extends JniScanner {
                     } else {
                         exception.addSuppressed(e);
                     }
-                } finally {
-                    ioManager = null;
                 }
             }
         } finally {
@@ -348,11 +346,8 @@ public class PaimonJniScanner extends JniScanner {
 
     private void releaseRecordIterator() {
         if (recordIterator != null) {
-            try {
-                recordIterator.releaseBatch();
-            } finally {
-                recordIterator = null;
-            }
+            recordIterator.releaseBatch();
+            recordIterator = null;
         }
     }
 
