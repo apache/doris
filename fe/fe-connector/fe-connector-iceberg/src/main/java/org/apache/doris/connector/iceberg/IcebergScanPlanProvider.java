@@ -982,6 +982,16 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      * The schema AS OF the handle's pinned schema id (for time-travel reads under schema evolution); the latest
      * schema when there is no pinned id or it is absent from {@code table.schemas()} (defensive — legacy
      * {@code IcebergUtils.getSchema} falls back to {@code table.schema()}).
+     *
+     * <p><b>INVARIANT (do not break):</b> this dict-schema selector MUST stay byte-identical — same
+     * {@code getSchemaId()} lookup, same silent fallback to {@code table.schema()} — to the SLOT-schema
+     * selector in {@code IcebergConnectorMetadata.getTableSchema(session, handle, snapshot)}. The field-id
+     * dict's top-level names must equal the BE StructNode scan-slot names; a divergence (e.g. hardening ONE
+     * side to throw-loud on a missing schemaId while the other silently falls back) would make them resolve
+     * DIFFERENT schemas → BE's unconditional {@code children.at(name)} std::out_of_range-SIGABRTs the whole BE
+     * on a schema-evolved time-travel read. Because {@code schemas()} is append-only and the {@code schemaId}
+     * is the atomic pin threaded into both sides, they resolve the same schema by construction TODAY — keep it
+     * that way (reverify #65185 L16).</p>
      */
     private static Schema pinnedSchema(Table table, IcebergTableHandle handle) {
         long schemaId = handle.getSchemaId();

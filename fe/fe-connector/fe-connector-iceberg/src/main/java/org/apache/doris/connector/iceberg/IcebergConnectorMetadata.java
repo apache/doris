@@ -379,6 +379,11 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             schema = table.schemas().get((int) snapshot.getSchemaId());
             if (schema == null) {
                 // Defensive: a pinned id absent from table.schemas() (legacy would NPE) -> latest.
+                // INVARIANT: this SLOT-schema fallback MUST stay identical to the DICT-schema fallback in
+                // IcebergScanPlanProvider.pinnedSchema (same getSchemaId() lookup + same silent -> table.schema()).
+                // If the two diverge, the field-id dict names and the BE scan-slot names resolve DIFFERENT
+                // schemas -> BE children.at() std::out_of_range-SIGABRT on a schema-evolved time-travel read
+                // (reverify #65185 L16). Do not harden ONE side to throw without the other.
                 schema = table.schema();
             }
         }
