@@ -287,6 +287,22 @@ static Status find_projected_minmax_leaf(const ParquetColumnSchema& column_schem
                                    child_projection.local_id(), column_schema.name);
 }
 
+static Status validate_minmax_aggregate_statistics(const ParquetColumnSchema& column_schema) {
+    DORIS_CHECK(column_schema.descriptor != nullptr);
+    switch (column_schema.descriptor->physical_type()) {
+    case ::parquet::Type::BYTE_ARRAY:
+    case ::parquet::Type::FIXED_LEN_BYTE_ARRAY:
+        // Arrow 17 does not expose Parquet's min/max exactness flags. Binary statistics may be
+        // truncated bounds rather than values present in the file, so they are safe for pruning
+        // but cannot be returned as exact aggregate results.
+        return Status::NotSupported(
+                "Parquet MIN/MAX aggregate pushdown requires exact statistics for column {}",
+                column_schema.name);
+    default:
+        return Status::OK();
+    }
+}
+
 void ParquetReader::_fill_column_definition(const ParquetColumnSchema& column_schema,
                                             format::ColumnDefinition* field) const {
     if (column_schema.parquet_field_id >= 0) {
@@ -671,6 +687,7 @@ Status ParquetReader::get_aggregate_result(const format::FileAggregateRequest& r
         RETURN_IF_ERROR(find_projected_minmax_leaf(
                 *column_schema, request.columns[request_column_idx].projection, &leaf_schema));
         DORIS_CHECK(leaf_schema != nullptr);
+        RETURN_IF_ERROR(validate_minmax_aggregate_statistics(*leaf_schema));
 
         auto& aggregate_column = result->columns[request_column_idx];
         aggregate_column.projection = request.columns[request_column_idx].projection;

@@ -265,6 +265,35 @@ VExprSPtr runtime_filter_wrapper_expr(VExprSPtr impl) {
     return RuntimeFilterExpr::create_shared(node, std::move(impl), 0, false, /*filter_id=*/1);
 }
 
+class NonDeterministicPartitionPredicate final : public VExpr {
+public:
+    explicit NonDeterministicPartitionPredicate(bool* executed)
+            : VExpr(std::make_shared<DataTypeUInt8>(), false), _executed(executed) {}
+
+    Status execute_column_impl(VExprContext*, const Block*, const Selector*, size_t count,
+                               ColumnPtr& result_column) const override {
+        DORIS_CHECK(_executed != nullptr);
+        *_executed = true;
+        auto result = ColumnUInt8::create();
+        result->get_data().resize_fill(count, 0);
+        result_column = std::move(result);
+        return Status::OK();
+    }
+
+    const std::string& expr_name() const override { return _expr_name; }
+    bool is_deterministic() const override { return false; }
+
+    Status clone_node(VExprSPtr* cloned_expr) const override {
+        DORIS_CHECK(cloned_expr != nullptr);
+        *cloned_expr = std::make_shared<NonDeterministicPartitionPredicate>(_executed);
+        return Status::OK();
+    }
+
+private:
+    bool* const _executed;
+    const std::string _expr_name = "NonDeterministicPartitionPredicate";
+};
+
 class NullableArrayBigintDefaultExpr final : public VExpr {
 public:
     explicit NullableArrayBigintDefaultExpr(DataTypePtr data_type)
@@ -1228,6 +1257,143 @@ TEST(TableReaderTest, PrepareSplitPrunesPartitionRuntimeFilter) {
     EXPECT_FALSE(reader.current_split_pruned());
 }
 
+TEST(TableReaderTest, PrepareSplitDoesNotEvaluateNonDeterministicPartitionPredicate) {
+    std::vector<ColumnDefinition> projected_columns;
+    auto partition_column = make_table_column(0, "part", std::make_shared<DataTypeInt32>());
+    partition_column.is_partition_key = true;
+    projected_columns.push_back(std::move(partition_column));
+    set_name_identifiers(&projected_columns);
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    RuntimeProfile profile("scanner");
+    TableReader reader;
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .conjuncts = {},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = &profile,
+                            })
+                        .ok());
+
+    bool predicate_executed = false;
+    auto predicate = std::make_shared<NonDeterministicPartitionPredicate>(&predicate_executed);
+    predicate->add_child(table_int32_slot_ref(0, 0, "part"));
+    SplitReadOptions split;
+    split.current_range.__set_path("unused-nondeterministic-file");
+    split.partition_values.emplace("part", Field::create_field<TYPE_INT>(7));
+    split.partition_prune_conjuncts.push_back(
+            VExprContext::create_shared(runtime_filter_wrapper_expr(std::move(predicate))));
+    split.partition_prune_conjuncts.push_back(VExprContext::create_shared(
+            runtime_filter_wrapper_expr(table_int32_greater_than_expr(0, 0, 10))));
+
+    ASSERT_TRUE(reader.prepare_split(split).ok());
+    EXPECT_FALSE(predicate_executed);
+    EXPECT_FALSE(reader.current_split_pruned());
+    ASSERT_NE(profile.get_counter("RuntimeFilterPartitionPrunedRangeNum"), nullptr);
+    EXPECT_EQ(profile.get_counter("RuntimeFilterPartitionPrunedRangeNum")->value(), 0);
+}
+
+TEST(TableReaderTest, ConstantPruningStopsAtUnsafePredicate) {
+    std::vector<ColumnDefinition> projected_columns;
+    auto partition_column = make_table_column(0, "part", std::make_shared<DataTypeInt32>());
+    partition_column.is_partition_key = true;
+    projected_columns.push_back(std::move(partition_column));
+    set_name_identifiers(&projected_columns);
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    bool predicate_executed = false;
+    auto unsafe_predicate =
+            std::make_shared<NonDeterministicPartitionPredicate>(&predicate_executed);
+    unsafe_predicate->add_child(table_int32_slot_ref(0, 0, "part"));
+    auto fake_state = std::make_shared<FakeFileReaderState>();
+    FakeTableReader reader({}, fake_state);
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .conjuncts =
+                                            {
+                                                    prepared_conjunct(&state, unsafe_predicate),
+                                                    prepared_conjunct(&state,
+                                                                      table_int32_greater_than_expr(
+                                                                              0, 0, 10)),
+                                            },
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                            })
+                        .ok());
+
+    SplitReadOptions split;
+    split.current_range.__set_path("fake-table-reader-input");
+    split.partition_values.emplace("part", Field::create_field<TYPE_INT>(7));
+    ASSERT_TRUE(reader.prepare_split(split).ok());
+
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    EXPECT_FALSE(predicate_executed);
+    EXPECT_FALSE(eos);
+    EXPECT_EQ(fake_state->open_count, 1);
+    ASSERT_TRUE(reader.close().ok());
+}
+
+TEST(TableReaderTest, ConstantPruningStopsAtUnsafeSlotlessPredicate) {
+    std::vector<ColumnDefinition> projected_columns;
+    auto partition_column = make_table_column(0, "part", std::make_shared<DataTypeInt32>());
+    partition_column.is_partition_key = true;
+    projected_columns.push_back(std::move(partition_column));
+    set_name_identifiers(&projected_columns);
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    bool predicate_executed = false;
+    auto unsafe_slotless_predicate =
+            std::make_shared<NonDeterministicPartitionPredicate>(&predicate_executed);
+    auto fake_state = std::make_shared<FakeFileReaderState>();
+    FakeTableReader reader({}, fake_state);
+    ASSERT_TRUE(
+            reader
+                    .init({
+                            .projected_columns = projected_columns,
+                            .conjuncts =
+                                    {
+                                            prepared_conjunct(&state, unsafe_slotless_predicate),
+                                            prepared_conjunct(&state, table_int32_greater_than_expr(
+                                                                              0, 0, 10)),
+                                    },
+                            .format = FileFormat::PARQUET,
+                            .scan_params = nullptr,
+                            .io_ctx = nullptr,
+                            .runtime_state = &state,
+                            .scanner_profile = nullptr,
+                    })
+                    .ok());
+
+    SplitReadOptions split;
+    split.current_range.__set_path("fake-table-reader-input");
+    split.partition_values.emplace("part", Field::create_field<TYPE_INT>(7));
+    ASSERT_TRUE(reader.prepare_split(split).ok());
+
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    EXPECT_TRUE(predicate_executed);
+    EXPECT_FALSE(eos);
+    // The later partition predicate is false for part=7. Opening the file proves constant pruning
+    // stopped at the earlier unsafe expression even though that expression had no slot and thus no
+    // entry in `_table_filters`.
+    EXPECT_EQ(fake_state->open_count, 1);
+    ASSERT_NE(fake_state->last_request, nullptr);
+    // A slotless unsafe conjunct is an ordering barrier even though it has no TableFilter entry.
+    // The later predicate must stay on the scanner's row-level path instead of running inside the
+    // file reader before the unsafe conjunct.
+    EXPECT_TRUE(fake_state->last_request->conjuncts.empty());
+    ASSERT_TRUE(reader.close().ok());
+}
+
 TEST(TableReaderTest, CanUseInjectedFileReaderForStandaloneUnitTest) {
     std::vector<ColumnDefinition> file_schema;
     file_schema.push_back(make_file_column(0, "id", std::make_shared<DataTypeInt32>()));
@@ -1284,6 +1450,225 @@ TEST(TableReaderTest, CanUseInjectedFileReaderForStandaloneUnitTest) {
     eos = false;
     ASSERT_TRUE(reader.get_block(&block, &eos).ok());
     EXPECT_TRUE(eos);
+}
+
+TEST(TableReaderTest, PrepareSplitReplacesInitialConjunctSnapshot) {
+    std::vector<ColumnDefinition> file_schema;
+    file_schema.push_back(make_file_column(0, "id", std::make_shared<DataTypeInt32>()));
+
+    std::vector<ColumnDefinition> projected_columns;
+    projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+    set_name_identifiers(&projected_columns);
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto fake_state = std::make_shared<FakeFileReaderState>();
+    FakeTableReader reader(file_schema, fake_state);
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .conjuncts = {VExprContext::create_shared(
+                                            table_int32_greater_than_expr(0, 0, 0))},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                            })
+                        .ok());
+
+    SplitReadOptions split_options;
+    split_options.current_range.__set_path("fake-table-reader-input");
+    split_options.conjuncts = VExprContextSPtrs {VExprContext::create_shared(
+            runtime_filter_wrapper_expr(table_int32_greater_than_expr(0, 0, 1)))};
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    ASSERT_NE(fake_state->last_request, nullptr);
+    ASSERT_EQ(fake_state->last_request->conjuncts.size(), 1);
+    EXPECT_TRUE(fake_state->last_request->conjuncts.front()->root()->is_rf_wrapper());
+    ASSERT_TRUE(reader.close().ok());
+}
+
+TEST(TableReaderTest, RefreshedConjunctDisablesTableLevelCount) {
+    std::vector<ColumnDefinition> file_schema;
+    file_schema.push_back(make_file_column(0, "id", std::make_shared<DataTypeInt32>()));
+
+    std::vector<ColumnDefinition> projected_columns;
+    projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+    set_name_identifiers(&projected_columns);
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto fake_state = std::make_shared<FakeFileReaderState>();
+    FakeTableReader reader(file_schema, fake_state);
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .conjuncts = {},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                                    .push_down_agg_type = TPushAggOp::type::COUNT,
+                            })
+                        .ok());
+
+    SplitReadOptions split_options;
+    split_options.current_range.__set_path("fake-table-reader-input");
+    split_options.conjuncts = VExprContextSPtrs {VExprContext::create_shared(
+            runtime_filter_wrapper_expr(table_int32_greater_than_expr(0, 0, 1)))};
+    set_table_level_row_count(&split_options, 5);
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    // The metadata count advertises five rows, while the fake reader contains two. Opening the
+    // reader and returning its rows proves the fresh runtime filter did not take the synthetic
+    // table-level COUNT path that would bypass all row predicates.
+    EXPECT_EQ(fake_state->open_count, 1);
+    EXPECT_EQ(block.rows(), 2);
+    ASSERT_TRUE(reader.close().ok());
+}
+
+TEST(TableReaderTest, PendingRuntimeFilterDisablesTableLevelCount) {
+    std::vector<ColumnDefinition> file_schema;
+    file_schema.push_back(make_file_column(0, "id", std::make_shared<DataTypeInt32>()));
+
+    std::vector<ColumnDefinition> projected_columns;
+    projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+    set_name_identifiers(&projected_columns);
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto fake_state = std::make_shared<FakeFileReaderState>();
+    fake_state->aggregate_count = state.batch_size() + 5;
+    FakeTableReader reader(file_schema, fake_state);
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .conjuncts = {},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                                    .push_down_agg_type = TPushAggOp::type::COUNT,
+                            })
+                        .ok());
+
+    SplitReadOptions split_options;
+    split_options.current_range.__set_path("fake-table-reader-input");
+    // A pending runtime filter makes metadata COUNT ineligible before its first synthetic batch.
+    // This prevents the filter from arriving between scheduler reads after unfiltered rows have
+    // already escaped.
+    split_options.all_runtime_filters_applied = false;
+    set_table_level_row_count(&split_options, state.batch_size() + 5);
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    EXPECT_EQ(fake_state->open_count, 1);
+    EXPECT_EQ(block.rows(), 2);
+    ASSERT_TRUE(reader.close().ok());
+}
+
+TEST(TableReaderTest, PendingRuntimeFilterDisablesMinMaxPushdown) {
+    const auto test_dir =
+            std::filesystem::temp_directory_path() / "doris_table_reader_pending_rf_minmax_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+    const auto file_path = (test_dir / "split.parquet").string();
+    write_int_pair_parquet_file(file_path, {3, 1, 5, 2}, {30, 10, 50, 20},
+                                {"three", "one", "five", "two"}, 2);
+
+    std::vector<ColumnDefinition> projected_columns;
+    projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+    projected_columns.push_back(make_table_column(1, "score", std::make_shared<DataTypeInt32>()));
+    set_name_identifiers(&projected_columns);
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    TableReader reader;
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .conjuncts = {},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                                    .push_down_agg_type = TPushAggOp::type::MINMAX,
+                            })
+                        .ok());
+    auto split_options = build_split_options(file_path);
+    split_options.all_runtime_filters_applied = false;
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+
+    bool eos = false;
+    size_t total_rows = 0;
+    bool checked_first_batch = false;
+    while (!eos) {
+        Block block = build_table_block(projected_columns);
+        ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+        total_rows += block.rows();
+        if (!checked_first_batch && block.rows() > 0) {
+            const auto& ids =
+                    assert_cast<const ColumnInt32&>(expect_not_null_table_column(block, 0));
+            ASSERT_EQ(ids.size(), 2);
+            EXPECT_EQ(ids.get_element(0), 3);
+            EXPECT_EQ(ids.get_element(1), 1);
+            checked_first_batch = true;
+        }
+    }
+    // MIN/MAX pushdown would return the two synthetic extrema [1, 5]. Reading the original first
+    // row group [3, 1] and all four rows proves a pending RF kept the physical reader active.
+    EXPECT_TRUE(checked_first_batch);
+    EXPECT_EQ(total_rows, 4);
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
+TEST(TableReaderTest, SlotlessConjunctDisablesAggregatePushdown) {
+    std::vector<ColumnDefinition> file_schema;
+    file_schema.push_back(make_file_column(0, "id", std::make_shared<DataTypeInt32>()));
+
+    std::vector<ColumnDefinition> projected_columns;
+    projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+    set_name_identifiers(&projected_columns);
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    bool predicate_executed = false;
+    auto fake_state = std::make_shared<FakeFileReaderState>();
+    fake_state->aggregate_count = 3;
+    FakeTableReader reader(file_schema, fake_state);
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .conjuncts = {prepared_conjunct(
+                                            &state,
+                                            std::make_shared<NonDeterministicPartitionPredicate>(
+                                                    &predicate_executed))},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                                    .push_down_agg_type = TPushAggOp::type::COUNT,
+                            })
+                        .ok());
+
+    SplitReadOptions split_options;
+    split_options.current_range.__set_path("fake-table-reader-input");
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    // The slotless predicate cannot become a TableFilter or a file-reader conjunct, but its
+    // presence still prevents the fake aggregate count (3) from replacing the two physical rows.
+    ASSERT_NE(fake_state->last_request, nullptr);
+    EXPECT_TRUE(fake_state->last_request->conjuncts.empty());
+    EXPECT_EQ(block.rows(), 2);
+    EXPECT_TRUE(predicate_executed);
+    ASSERT_TRUE(reader.close().ok());
 }
 
 TEST(TableReaderTest, AbortSplitClearsReaderAfterIgnorableNotFound) {
@@ -2144,7 +2529,7 @@ TEST(TableReaderTest, PushDownMinMaxFromNewParquetReader) {
     std::filesystem::remove_all(test_dir);
 }
 
-TEST(TableReaderTest, PushDownMinMaxCastsFileValueToTableType) {
+TEST(TableReaderTest, PushDownMinMaxFallsBackForFileToTableCast) {
     const auto test_dir =
             std::filesystem::temp_directory_path() / "doris_table_reader_minmax_cast_test";
     std::filesystem::remove_all(test_dir);
@@ -2180,8 +2565,17 @@ TEST(TableReaderTest, PushDownMinMaxCastsFileValueToTableType) {
     ASSERT_FALSE(eos);
     ASSERT_EQ(block.rows(), 2);
     const auto& id_column = assert_cast<const ColumnInt64&>(expect_not_null_table_column(block, 0));
-    EXPECT_EQ(id_column.get_element(0), 1);
-    EXPECT_EQ(id_column.get_element(1), 5);
+    EXPECT_EQ(id_column.get_element(0), 3);
+    EXPECT_EQ(id_column.get_element(1), 1);
+
+    block = build_table_block(projected_columns);
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    ASSERT_FALSE(eos);
+    ASSERT_EQ(block.rows(), 2);
+    const auto& second_id_column =
+            assert_cast<const ColumnInt64&>(expect_not_null_table_column(block, 0));
+    EXPECT_EQ(second_id_column.get_element(0), 5);
+    EXPECT_EQ(second_id_column.get_element(1), 2);
 
     ASSERT_TRUE(reader.close().ok());
     std::filesystem::remove_all(test_dir);
