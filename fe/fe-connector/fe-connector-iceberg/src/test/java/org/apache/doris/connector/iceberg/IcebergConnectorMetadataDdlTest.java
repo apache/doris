@@ -268,6 +268,80 @@ public class IcebergConnectorMetadataDdlTest {
         Assertions.assertEquals(0, ctx.authCount);
     }
 
+    @Test
+    public void testCreateTableRejectsReservedRowLineageColumnAtV3() {
+        // A v3 table (format-version=3 in the CREATE properties) forbids a user column named after an iceberg
+        // reserved row-lineage column (_row_id / _last_updated_sequence_number, case-insensitive). This check
+        // moved off fe-core CreateTableInfo — the connector owns the iceberg name convention. It runs BEFORE
+        // the auth/remote create, so the seam never fires. MUTATION: dropping the reject lets the create through.
+        for (String reserved : new String[] {"_row_id", "_last_updated_sequence_number", "_ROW_ID"}) {
+            RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+            RecordingConnectorContext ctx = new RecordingConnectorContext();
+            ConnectorCreateTableRequest request = ConnectorCreateTableRequest.builder()
+                    .dbName("db1").tableName("t1")
+                    .columns(Arrays.asList(
+                            new ConnectorColumn("id", ConnectorType.of("BIGINT"), "", true, null, false),
+                            new ConnectorColumn(reserved, ConnectorType.of("BIGINT"), "", true, null, false)))
+                    .properties(Collections.singletonMap(TableProperties.FORMAT_VERSION, "3"))
+                    .build();
+            DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                    () -> metadata(ops, ctx, IcebergConnectorProperties.TYPE_REST).createTable(null, request),
+                    reserved + " must be rejected on a v3 table");
+            Assertions.assertTrue(ex.getMessage().contains("reserved row lineage column"), ex.getMessage());
+            Assertions.assertTrue(ops.log.isEmpty(), "reject must run before the remote seam");
+            Assertions.assertEquals(0, ctx.authCount);
+        }
+    }
+
+    @Test
+    public void testCreateTableAllowsReservedRowLineageNameBelowV3() {
+        // Below v3 (the default v2) row lineage does not exist, so _row_id is a legal user column name and the
+        // create proceeds to the seam. Version-gates the rejection.
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        RecordingConnectorContext ctx = new RecordingConnectorContext();
+        ConnectorCreateTableRequest request = ConnectorCreateTableRequest.builder()
+                .dbName("db1").tableName("t1")
+                .columns(Collections.singletonList(
+                        new ConnectorColumn("_row_id", ConnectorType.of("BIGINT"), "", true, null, false)))
+                .build();
+        metadata(ops, ctx, IcebergConnectorProperties.TYPE_REST).createTable(null, request);
+        Assertions.assertEquals("t1", ops.lastCreateTableName);
+        Assertions.assertNotNull(ops.lastCreateSchema.findField("_row_id"));
+    }
+
+    @Test
+    public void testCreateTableRejectsReservedColumnViaCatalogTableDefaultV3() {
+        // FULL effective-format-version precedence: a catalog-level table-default.format-version=3 with NO
+        // table-level format-version must still trip the rejection (else the version resolves to 2 and a v3
+        // table is created carrying a reserved column). Guards the getEffectiveFormatVersion precedence.
+        assertCatalogLevelV3Rejects("table-default.format-version");
+    }
+
+    @Test
+    public void testCreateTableRejectsReservedColumnViaCatalogTableOverrideV3() {
+        assertCatalogLevelV3Rejects("table-override.format-version");
+    }
+
+    private static void assertCatalogLevelV3Rejects(String catalogFormatVersionKey) {
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        RecordingConnectorContext ctx = new RecordingConnectorContext();
+        Map<String, String> catalogProps = new HashMap<>();
+        catalogProps.put(IcebergConnectorProperties.ICEBERG_CATALOG_TYPE, IcebergConnectorProperties.TYPE_REST);
+        catalogProps.put(catalogFormatVersionKey, "3");
+        IcebergConnectorMetadata md = new IcebergConnectorMetadata(ops, catalogProps, ctx);
+        ConnectorCreateTableRequest request = ConnectorCreateTableRequest.builder()
+                .dbName("db1").tableName("t1")
+                .columns(Collections.singletonList(
+                        new ConnectorColumn("_row_id", ConnectorType.of("BIGINT"), "", true, null, false)))
+                .build();
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                () -> md.createTable(null, request),
+                catalogFormatVersionKey + "=3 must trip the reserved-column rejection");
+        Assertions.assertTrue(ex.getMessage().contains("reserved row lineage column"), ex.getMessage());
+        Assertions.assertTrue(ops.log.isEmpty());
+        Assertions.assertEquals(0, ctx.authCount);
+    }
+
     // ---------- dropTable ----------
 
     @Test

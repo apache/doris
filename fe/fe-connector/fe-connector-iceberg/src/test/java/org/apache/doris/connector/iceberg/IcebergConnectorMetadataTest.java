@@ -956,6 +956,8 @@ public class IcebergConnectorMetadataTest {
         Assertions.assertEquals("BIGINT", rowId.getType().getTypeName(), "_row_id is BIGINT");
         Assertions.assertFalse(rowId.isVisible(), "_row_id must be hidden");
         Assertions.assertEquals(2147483540, rowId.getUniqueId(), "_row_id reserved field id");
+        Assertions.assertTrue(rowId.isReservedPassthrough(),
+                "_row_id must be marked reservedPassthrough so fe-core recognizes it generically");
         Assertions.assertTrue(rowId.isNullable(), "_row_id is nullable (legacy isAllowNull=true)");
         Assertions.assertFalse(rowId.isKey(), "_row_id is not a key (legacy isKey=false)");
 
@@ -966,6 +968,8 @@ public class IcebergConnectorMetadataTest {
         Assertions.assertFalse(seq.isVisible(), "_last_updated_sequence_number must be hidden");
         Assertions.assertEquals(2147483539, seq.getUniqueId(),
                 "_last_updated_sequence_number reserved field id");
+        Assertions.assertTrue(seq.isReservedPassthrough(),
+                "_last_updated_sequence_number must be marked reservedPassthrough");
         Assertions.assertTrue(seq.isNullable());
         Assertions.assertFalse(seq.isKey());
     }

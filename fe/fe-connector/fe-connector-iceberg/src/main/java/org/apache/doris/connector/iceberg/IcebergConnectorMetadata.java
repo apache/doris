@@ -407,10 +407,14 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         // (system) tables report format-version 2 (BaseMetadataTable.properties() is empty), so the gate
         // naturally excludes them — matching legacy, which injects lineage only for data tables.
         if (getFormatVersion(table) >= ICEBERG_ROW_LINEAGE_MIN_VERSION) {
+            // reservedPassthrough() marks these as engine-recognized passthrough columns so fe-core MERGE/UPDATE
+            // and sink binding pass them through generically (via Column.isReservedPassthrough()) instead of
+            // string-matching the iceberg names — the engine no longer knows _row_id / _last_updated_sequence_number.
             columns.add(new ConnectorColumn(ICEBERG_ROW_ID_COL, ConnectorType.of("BIGINT"),
-                    "", true, null, false).invisible().withUniqueId(ICEBERG_ROW_ID_FIELD_ID));
+                    "", true, null, false).invisible().withUniqueId(ICEBERG_ROW_ID_FIELD_ID).reservedPassthrough());
             columns.add(new ConnectorColumn(ICEBERG_LAST_UPDATED_SEQUENCE_NUMBER_COL, ConnectorType.of("BIGINT"),
-                    "", true, null, false).invisible().withUniqueId(ICEBERG_LAST_UPDATED_SEQUENCE_NUMBER_FIELD_ID));
+                    "", true, null, false).invisible().withUniqueId(ICEBERG_LAST_UPDATED_SEQUENCE_NUMBER_FIELD_ID)
+                    .reservedPassthrough());
         }
 
         Map<String, String> tableProps = new HashMap<>();
@@ -817,6 +821,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         if (isDlfCatalog()) {
             throw new DorisConnectorException("iceberg catalog with dlf type not supports 'create table'");
         }
+        rejectReservedRowLineageColumns(request);
         Schema schema = IcebergSchemaBuilder.buildSchema(request.getColumns());
         PartitionSpec partitionSpec = IcebergSchemaBuilder.buildPartitionSpec(request.getPartitionSpec(), schema);
         SortOrder sortOrder = IcebergSchemaBuilder.buildSortOrder(request.getSortOrder(), schema);
@@ -834,6 +839,31 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         } catch (Exception e) {
             throw new DorisConnectorException("Failed to create Iceberg table "
                     + request.getDbName() + "." + request.getTableName() + ": " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Rejects a user-defined column whose name collides with an iceberg v3 reserved row-lineage column
+     * ({@code _row_id} / {@code _last_updated_sequence_number}) on a format-version &ge; 3 table. Moved off
+     * fe-core {@code CreateTableInfo.validateIcebergRowLineageColumns} — the connector owns the iceberg
+     * column-name convention. Uses the full effective-format-version precedence (catalog
+     * {@code table-override} &gt; table request &gt; catalog {@code table-default}). Behavior differs from the
+     * former fe-core analysis-time check: it runs during {@code createTable} (later, and NOT reached when an
+     * {@code IF NOT EXISTS} hits an existing table — accepted relaxation) and throws
+     * {@link DorisConnectorException} rather than an engine {@code AnalysisException}; the message is unchanged.
+     */
+    private void rejectReservedRowLineageColumns(ConnectorCreateTableRequest request) {
+        int formatVersion = IcebergSchemaBuilder.getEffectiveFormatVersion(request.getProperties(), properties);
+        if (formatVersion < ICEBERG_ROW_LINEAGE_MIN_VERSION) {
+            return;
+        }
+        for (ConnectorColumn column : request.getColumns()) {
+            String name = column.getName();
+            if (ICEBERG_ROW_ID_COL.equalsIgnoreCase(name)
+                    || ICEBERG_LAST_UPDATED_SEQUENCE_NUMBER_COL.equalsIgnoreCase(name)) {
+                throw new DorisConnectorException("Cannot create Iceberg v" + formatVersion
+                        + " table with reserved row lineage column: " + name);
+            }
         }
     }
 
