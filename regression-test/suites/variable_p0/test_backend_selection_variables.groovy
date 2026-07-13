@@ -40,7 +40,7 @@ suite("test_backend_selection_variables") {
 
         test {
             sql """ set backend_selection_mode = 'require'; """
-            exception "backend_selection_mode value is invalid"
+            exception "Backend selection provider does not support required backend selection"
         }
         test {
             sql """ set preferred_backend_selection_key = 'bad key'; """

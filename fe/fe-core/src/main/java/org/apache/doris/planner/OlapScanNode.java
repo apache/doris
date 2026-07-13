@@ -232,6 +232,8 @@ public class OlapScanNode extends ScanNode {
 
     private BackendSelection.SelectionHint selectionHint;
     private boolean scanBackendOrderBySelection = false;
+    private long querySelectionPreferredHitTablets;
+    private long querySelectionFallbackTablets;
 
     private boolean isTopnLazyMaterialize = false;
     private List<Column> topnLazyMaterializeOutputColumns = new ArrayList<>();
@@ -605,6 +607,7 @@ public class OlapScanNode extends ScanNode {
                 throw new UserException(sb.toString());
             }
 
+            boolean querySelectionEvaluated = false;
             if (useFixReplica <= -1) {
                 if (skipMissingVersion) {
                     // sort by replica's last success version, higher success version in the front.
@@ -618,6 +621,7 @@ public class OlapScanNode extends ScanNode {
                     }
                     List<Replica> orderedReplicas = BackendSelectionService.orderQueryCandidates(
                             selectionHint, replicas, replica -> getReplicaLocationTag(replica, allBackends));
+                    querySelectionEvaluated = true;
                     if (orderedReplicas != replicas) {
                         replicas = new ArrayList<>(orderedReplicas);
                         scanBackendOrderBySelection = true;
@@ -770,6 +774,11 @@ public class OlapScanNode extends ScanNode {
                 throw new UserException("tablet " + tabletId + " has no queryable replicas. err: "
                         + Joiner.on(", ").join(errs));
             }
+            if (querySelectionEvaluated) {
+                recordQuerySelectionResult(selectionHint, BackendSelectionService.classifyQuerySelection(
+                        selectionHint, locations.getLocations(),
+                        location -> allBackends.get(location.getBackendId()).getLocationTag()));
+            }
             TScanRange scanRange = new TScanRange();
             scanRange.setPaloScanRange(paloRange);
             locations.setScanRange(scanRange);
@@ -845,6 +854,8 @@ public class OlapScanNode extends ScanNode {
     @Override
     protected void createScanRangeLocations() throws UserException {
         scanRangeLocations = Lists.newArrayList();
+        querySelectionPreferredHitTablets = 0;
+        querySelectionFallbackTablets = 0;
         if (selectedPartitionIds.isEmpty()) {
             return;
         }
@@ -1115,6 +1126,36 @@ public class OlapScanNode extends ScanNode {
         }
     }
 
+    @VisibleForTesting
+    void recordQuerySelectionResult(BackendSelection.SelectionHint hint,
+            BackendSelection.QuerySelectionResult result) {
+        switch (result) {
+            case PREFERRED_HIT:
+                selectionHint = hint;
+                querySelectionPreferredHitTablets++;
+                break;
+            case FALLBACK_PREFERRED_UNAVAILABLE:
+                selectionHint = hint;
+                querySelectionFallbackTablets++;
+                break;
+            case DISABLED:
+                break;
+            default:
+                throw new IllegalStateException("Unknown query selection result: " + result);
+        }
+    }
+
+    @VisibleForTesting
+    String getQuerySelectionExplain(String prefix) {
+        if (querySelectionPreferredHitTablets == 0 && querySelectionFallbackTablets == 0) {
+            return "";
+        }
+        return prefix + "QUERY BACKEND SELECTION: preferred=" + selectionHint.getPreferredKey()
+                + ", mode=" + selectionHint.getMode()
+                + ", preferred_hit_tablets=" + querySelectionPreferredHitTablets
+                + ", fallback_preferred_unavailable_tablets=" + querySelectionFallbackTablets + "\n";
+    }
+
     @Override
     public String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
         StringBuilder output = new StringBuilder();
@@ -1144,6 +1185,7 @@ public class OlapScanNode extends ScanNode {
             output.append(", PREAGGREGATION: OFF. Reason: ").append(reasonOfPreAggregation);
         }
         output.append("\n");
+        output.append(getQuerySelectionExplain(prefix));
 
         if (sortColumn != null) {
             output.append(prefix).append("SORT COLUMN: ").append(sortColumn).append("\n");

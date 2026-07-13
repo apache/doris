@@ -242,6 +242,36 @@ class BackendSelectionServiceTest {
     }
 
     @Test
+    void testClassifyQuerySelectionUsesProviderOutcome() {
+        Candidate candidate = new Candidate("candidate");
+        List<Candidate> candidates = ImmutableList.of(candidate);
+        BackendSelection.SelectionHint hint = new BackendSelection.SelectionHint(
+                "key_a", BackendSelection.Mode.PREFER, "test");
+        BackendSelectionPolicy policy = Mockito.mock(BackendSelectionPolicy.class);
+        Mockito.when(policy.hasQuerySelectionPreference(hint)).thenReturn(true);
+        Mockito.when(policy.classifyQuerySelection(hint, candidates, CANDIDATE_TAG))
+                .thenReturn(BackendSelection.QuerySelectionResult.FALLBACK_PREFERRED_UNAVAILABLE);
+
+        try (MockedStatic<BackendSelectionPolicyFactory> mockedFactory =
+                Mockito.mockStatic(BackendSelectionPolicyFactory.class)) {
+            mockedFactory.when(BackendSelectionPolicyFactory::get).thenReturn(policy);
+
+            Assertions.assertEquals(BackendSelection.QuerySelectionResult.FALLBACK_PREFERRED_UNAVAILABLE,
+                    BackendSelectionService.classifyQuerySelection(hint, candidates, CANDIDATE_TAG));
+        }
+    }
+
+    @Test
+    void testClassifyRequiredQuerySelectionAsPreferredHit() {
+        BackendSelection.SelectionHint hint = new BackendSelection.SelectionHint(
+                "key_a", BackendSelection.Mode.REQUIRE, "test");
+
+        Assertions.assertEquals(BackendSelection.QuerySelectionResult.PREFERRED_HIT,
+                BackendSelectionService.classifyQuerySelection(
+                        hint, ImmutableList.of(new Candidate("candidate")), CANDIDATE_TAG));
+    }
+
+    @Test
     void testRequiredSingleReplicaSelectionDoesNotFallBack() throws Exception {
         ConnectContext context = new ConnectContext();
         Backend unavailable = availableBackend(1L);

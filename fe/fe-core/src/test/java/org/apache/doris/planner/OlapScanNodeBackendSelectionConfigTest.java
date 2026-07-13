@@ -24,6 +24,7 @@ import org.apache.doris.resource.computegroup.ComputeGroup;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 class OlapScanNodeBackendSelectionConfigTest {
     @Test
@@ -77,5 +78,22 @@ class OlapScanNodeBackendSelectionConfigTest {
                 () -> OlapScanNode.validateRequiredQuerySelection(false, 0, hint));
         Assertions.assertDoesNotThrow(
                 () -> OlapScanNode.validateRequiredQuerySelection(false, -1, hint));
+    }
+
+    @Test
+    void testQuerySelectionExplainAggregatesTabletOutcomes() {
+        OlapScanNode scanNode = Mockito.mock(OlapScanNode.class, Mockito.CALLS_REAL_METHODS);
+        BackendSelection.SelectionHint hint = new BackendSelection.SelectionHint(
+                "key_a", BackendSelection.Mode.PREFER, "test");
+
+        Assertions.assertEquals("", scanNode.getQuerySelectionExplain("  "));
+        scanNode.recordQuerySelectionResult(hint, BackendSelection.QuerySelectionResult.PREFERRED_HIT);
+        scanNode.recordQuerySelectionResult(hint, BackendSelection.QuerySelectionResult.PREFERRED_HIT);
+        scanNode.recordQuerySelectionResult(
+                hint, BackendSelection.QuerySelectionResult.FALLBACK_PREFERRED_UNAVAILABLE);
+
+        Assertions.assertEquals("  QUERY BACKEND SELECTION: preferred=key_a, mode=PREFER, "
+                        + "preferred_hit_tablets=2, fallback_preferred_unavailable_tablets=1\n",
+                scanNode.getQuerySelectionExplain("  "));
     }
 }

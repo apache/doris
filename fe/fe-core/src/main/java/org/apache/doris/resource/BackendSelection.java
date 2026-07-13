@@ -28,6 +28,13 @@ public final class BackendSelection {
         DEFAULT
     }
 
+    /** Outcome of query backend selection for one scan candidate set. */
+    public enum QuerySelectionResult {
+        DISABLED,
+        PREFERRED_HIT,
+        FALLBACK_PREFERRED_UNAVAILABLE
+    }
+
     /** Provider partition used by the kernel to enforce required backend selection. */
     public static final class CandidateSelection<T> {
         private final List<T> preferredCandidates;

@@ -73,6 +73,15 @@ public interface BackendSelectionPolicy {
         return false;
     }
 
+    /**
+     * Classify query selection after the kernel has applied availability and access filters.
+     * Implementations must not mutate the candidates and must return a non-null result.
+     */
+    default <T> BackendSelection.QuerySelectionResult classifyQuerySelection(
+            BackendSelection.SelectionHint hint, List<T> candidates, Function<T, Tag> beTagOf) {
+        return BackendSelection.QuerySelectionResult.DISABLED;
+    }
+
     /** Whether this provider implements required query and load candidate partitioning. */
     default boolean supportsRequiredSelection() {
         return false;

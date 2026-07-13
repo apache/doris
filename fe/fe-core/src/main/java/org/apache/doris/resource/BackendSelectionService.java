@@ -132,6 +132,19 @@ public final class BackendSelectionService {
         return orderedCandidates;
     }
 
+    /** Classify the query selection outcome after the kernel has applied its candidate filters. */
+    public static <T> BackendSelection.QuerySelectionResult classifyQuerySelection(
+            BackendSelection.SelectionHint hint, List<T> candidates, Function<T, Tag> locationKey) {
+        if (isRequiredSelection(hint)) {
+            return BackendSelection.QuerySelectionResult.PREFERRED_HIT;
+        }
+        BackendSelectionPolicy policy = BackendSelectionPolicyFactory.get();
+        if (hint == null || !policy.hasQuerySelectionPreference(hint)) {
+            return BackendSelection.QuerySelectionResult.DISABLED;
+        }
+        return policy.classifyQuerySelection(hint, candidates, locationKey);
+    }
+
     /** Apply repair-source ordering while requiring the provider to preserve the exact replicas. */
     public static List<Replica> orderRepairSourceCandidates(List<Replica> candidates, long destBackendId)
             throws UserException {
