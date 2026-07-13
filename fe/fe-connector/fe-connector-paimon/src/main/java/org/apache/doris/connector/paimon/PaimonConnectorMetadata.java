@@ -1047,6 +1047,9 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
             // Per-value SQL-NULL flags, built in this SAME loop so flag i aligns with name segment i (which is
             // how fe-core re-parses the rendered name positionally at PluginDrivenMvccExternalTable).
             List<Boolean> nullFlags = new ArrayList<>(spec.size());
+            // Ordered rendered values, collected in this SAME loop so value i == name segment i (exactly what
+            // fe-core used to re-parse out of the rendered name); supplied so fe-core skips the parse.
+            List<String> orderedValues = new ArrayList<>(spec.size());
             for (Map.Entry<String, String> entry : spec.entrySet()) {
                 sb.append(entry.getKey()).append("=");
                 String value = entry.getValue();
@@ -1060,13 +1063,17 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
                     // The name is still normalized to the Doris-canonical sentinel (partition-name identity is
                     // preserved; the value string is ignored once the flag marks it null). Handled before the
                     // DATE branch so a null DATE partition does not crash on Integer.parseInt("__DEFAULT_PARTITION__").
+                    orderedValues.add(ConnectorPartitionValues.HIVE_DEFAULT_PARTITION);
                     sb.append(ConnectorPartitionValues.HIVE_DEFAULT_PARTITION).append("/");
                 } else if (legacyName && dateColumns.contains(entry.getKey())) {
                     // When partition.legacy-name = true (default), Paimon stores DATE as days since
                     // 1970-01-01 (epoch integer), so render it via the Paimon SDK formatDate; when
                     // false the value is already a human-readable date string.
-                    sb.append(DateTimeUtils.formatDate(Integer.parseInt(value))).append("/");
+                    String rendered = DateTimeUtils.formatDate(Integer.parseInt(value));
+                    orderedValues.add(rendered);
+                    sb.append(rendered).append("/");
                 } else {
+                    orderedValues.add(value);
                     sb.append(value).append("/");
                 }
             }
@@ -1083,6 +1090,7 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
                     partition.fileSizeInBytes(),
                     partition.lastFileCreationTime(),
                     partition.fileCount(),
+                    orderedValues,
                     nullFlags));
         }
         return result;

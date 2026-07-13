@@ -731,9 +731,16 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
             // the values map agree by construction (the name re-parses back to these values in fe-core).
             Map<String, String> values = HudiScanPlanProvider.parsePartitionValues(rawPath, partKeyNames);
             String name = HudiScanPlanProvider.renderHiveStylePartitionName(partKeyNames, values);
+            // Ordered values in partKeyNames (render) order; render/parse are exact inverses, so this equals
+            // fe-core's legacy parse of `name`. Supplied so fe-core skips the parse.
+            List<String> orderedValues = new ArrayList<>(partKeyNames.size());
+            for (String col : partKeyNames) {
+                orderedValues.add(values.get(col));
+            }
             result.add(new ConnectorPartitionInfo(name, values, Collections.emptyMap(),
                     ConnectorPartitionInfo.UNKNOWN, ConnectorPartitionInfo.UNKNOWN,
-                    instant, ConnectorPartitionInfo.UNKNOWN));
+                    instant, ConnectorPartitionInfo.UNKNOWN,
+                    orderedValues, Collections.emptyList()));
         }
         return result;
     }

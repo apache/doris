@@ -274,7 +274,8 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
                 // building from the rendered name is byte-parity with legacy. Partition values may be
                 // malformed; catch to avoid affecting the query (parity generatePartitionInfo).
                 nameToPartitionItem.put(partitionName,
-                        toListPartitionItem(partitionName, types, part.getPartitionValueNullFlags()));
+                        toListPartitionItem(partitionName, types,
+                                part.getOrderedPartitionValues(), part.getPartitionValueNullFlags()));
             } catch (Exception e) {
                 LOG.warn("toListPartitionItem failed, partitionColumns: {}, partitionName: {}",
                         partitionColumns, partitionName, e);
@@ -304,10 +305,12 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
      * nullness must be connector-supplied.
      */
     private static ListPartitionItem toListPartitionItem(String partitionName, List<Type> types,
-            List<Boolean> nullFlags) throws AnalysisException {
-        // Partition name will be in format: nation=cn/city=beijing
-        // parse it to get values "cn" and "beijing"
-        List<String> partitionValues = HiveUtil.toPartitionValues(partitionName);
+            List<String> connectorValues, List<Boolean> nullFlags) throws AnalysisException {
+        // The connector supplies the already-parsed values in name-segment order (hive/paimon/iceberg/hudi);
+        // fall back to parsing the rendered name (e.g. nation=cn/city=beijing) only when not supplied.
+        List<String> partitionValues = !connectorValues.isEmpty()
+                ? connectorValues
+                : HiveUtil.toPartitionValues(partitionName);
         Preconditions.checkState(partitionValues.size() == types.size(), partitionName + " vs. " + types);
         // Fail loud: a connector that opts in MUST supply one flag per value; a short list would silently
         // default the tail to isNull=false and re-introduce the drop bug. Empty = not opted in = OK.

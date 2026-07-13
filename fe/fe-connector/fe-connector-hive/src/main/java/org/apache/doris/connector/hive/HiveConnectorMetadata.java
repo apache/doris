@@ -1105,26 +1105,28 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
         List<String> partitionNames = collectPartitionNames(hiveHandle, false);
         List<ConnectorPartitionInfo> result = new ArrayList<>(partitionNames.size());
         for (String partitionName : partitionNames) {
+            // Parse the ordered values ONCE (connector-side); supply them to fe-core so it does not re-run the
+            // hive-style parse, and derive the per-value NULL flags from the SAME list (positional alignment).
+            List<String> orderedValues = HiveWriteUtils.toPartitionValues(partitionName);
             result.add(new ConnectorPartitionInfo(partitionName,
                     toPartitionValueMap(partitionName, partKeyNames),
                     Collections.emptyMap(),
-                    toPartitionValueNullFlags(partitionName)));
+                    orderedValues,
+                    toPartitionValueNullFlags(orderedValues)));
         }
         return result;
     }
 
     /**
-     * Per-value SQL-NULL flags for a rendered partition name, positionally aligned to
-     * {@link HiveWriteUtils#toPartitionValues} — the SAME parse fe-core re-runs at
-     * {@code PluginDrivenMvccExternalTable.toListPartitionItem}, so flag {@code i} zips to value {@code i}
+     * Per-value SQL-NULL flags for the ordered partition values (as produced by
+     * {@link HiveWriteUtils#toPartitionValues}), positionally aligned so flag {@code i} zips to value {@code i}
      * regardless of column casing/order (do NOT derive the order from the value map / partition-key names).
      * A value equal to the HMS default-partition sentinel {@code __HIVE_DEFAULT_PARTITION__} is a genuine
      * SQL NULL — byte-parity with legacy {@code HiveExternalMetaCache.toListPartitionItem}, which marks the
      * sentinel (and only the sentinel) null; the broader {@code isNullPartitionValue} (which also treats
      * {@code \N}/null as null) is deliberately not used (HMS partition names never carry {@code \N}).
      */
-    private static List<Boolean> toPartitionValueNullFlags(String partitionName) {
-        List<String> values = HiveWriteUtils.toPartitionValues(partitionName);
+    private static List<Boolean> toPartitionValueNullFlags(List<String> values) {
         List<Boolean> flags = new ArrayList<>(values.size());
         for (String value : values) {
             flags.add(ConnectorPartitionValues.HIVE_DEFAULT_PARTITION.equals(value));

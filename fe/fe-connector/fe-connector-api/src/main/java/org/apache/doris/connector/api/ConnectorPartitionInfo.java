@@ -50,6 +50,17 @@ public final class ConnectorPartitionInfo {
     private final List<Boolean> partitionValueNullFlags;
 
     /**
+     * The RENDERED partition values in name-segment order, positionally aligned to
+     * {@link #partitionValueNullFlags} — i.e. value {@code i} is the value of the {@code i}-th
+     * {@code key=value} segment of {@link #partitionName}, decoded exactly as fe-core's legacy name parse
+     * would produce it (so the connector supplies what fe-core used to re-parse out of the name).
+     * Empty means "not supplied": fe-core then falls back to parsing {@link #partitionName} itself
+     * (unchanged behavior). A connector that lists partitions for the MVCC partition-item path
+     * (hive/paimon/iceberg/hudi) supplies this so fe-core does not re-run the hive-style parse.
+     */
+    private final List<String> orderedPartitionValues;
+
+    /**
      * Backward-compatible constructor. Numeric stats fields are set to
      * {@link #UNKNOWN}.
      */
@@ -72,6 +83,20 @@ public final class ConnectorPartitionInfo {
                 UNKNOWN, UNKNOWN, UNKNOWN, UNKNOWN, partitionValueNullFlags);
     }
 
+    /**
+     * Convenience constructor for a partition with unknown numeric stats but connector-supplied ordered
+     * partition values (and optional per-value NULL flags). Used by the MVCC partition-item connectors
+     * (hive/paimon/iceberg/hudi) so fe-core zips values instead of re-parsing the rendered name.
+     */
+    public ConnectorPartitionInfo(String partitionName,
+            Map<String, String> partitionValues,
+            Map<String, String> properties,
+            List<String> orderedPartitionValues,
+            List<Boolean> partitionValueNullFlags) {
+        this(partitionName, partitionValues, properties,
+                UNKNOWN, UNKNOWN, UNKNOWN, UNKNOWN, orderedPartitionValues, partitionValueNullFlags);
+    }
+
     public ConnectorPartitionInfo(String partitionName,
             Map<String, String> partitionValues,
             Map<String, String> properties,
@@ -85,6 +110,17 @@ public final class ConnectorPartitionInfo {
             Map<String, String> properties,
             long rowCount, long sizeBytes, long lastModifiedMillis, long fileCount,
             List<Boolean> partitionValueNullFlags) {
+        this(partitionName, partitionValues, properties,
+                rowCount, sizeBytes, lastModifiedMillis, fileCount,
+                Collections.emptyList(), partitionValueNullFlags);
+    }
+
+    public ConnectorPartitionInfo(String partitionName,
+            Map<String, String> partitionValues,
+            Map<String, String> properties,
+            long rowCount, long sizeBytes, long lastModifiedMillis, long fileCount,
+            List<String> orderedPartitionValues,
+            List<Boolean> partitionValueNullFlags) {
         this.partitionName = Objects.requireNonNull(
                 partitionName, "partitionName");
         this.partitionValues = partitionValues == null
@@ -97,6 +133,9 @@ public final class ConnectorPartitionInfo {
         this.sizeBytes = sizeBytes;
         this.lastModifiedMillis = lastModifiedMillis;
         this.fileCount = fileCount;
+        this.orderedPartitionValues = orderedPartitionValues == null
+                ? Collections.emptyList()
+                : Collections.unmodifiableList(new ArrayList<>(orderedPartitionValues));
         this.partitionValueNullFlags = partitionValueNullFlags == null
                 ? Collections.emptyList()
                 : Collections.unmodifiableList(new ArrayList<>(partitionValueNullFlags));
@@ -142,6 +181,15 @@ public final class ConnectorPartitionInfo {
         return partitionValueNullFlags;
     }
 
+    /**
+     * @return the rendered partition values in name-segment order (aligned to
+     *     {@link #getPartitionValueNullFlags()}); empty when the connector did not supply them, in which
+     *     case fe-core parses {@link #getPartitionName()} itself. Unmodifiable.
+     */
+    public List<String> getOrderedPartitionValues() {
+        return orderedPartitionValues;
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) {
@@ -158,13 +206,15 @@ public final class ConnectorPartitionInfo {
                 && partitionName.equals(that.partitionName)
                 && partitionValues.equals(that.partitionValues)
                 && properties.equals(that.properties)
+                && orderedPartitionValues.equals(that.orderedPartitionValues)
                 && partitionValueNullFlags.equals(that.partitionValueNullFlags);
     }
 
     @Override
     public int hashCode() {
         return Objects.hash(partitionName, partitionValues, properties,
-                rowCount, sizeBytes, lastModifiedMillis, fileCount, partitionValueNullFlags);
+                rowCount, sizeBytes, lastModifiedMillis, fileCount,
+                orderedPartitionValues, partitionValueNullFlags);
     }
 
     @Override
@@ -174,6 +224,7 @@ public final class ConnectorPartitionInfo {
                 + ", rowCount=" + rowCount
                 + ", sizeBytes=" + sizeBytes
                 + ", fileCount=" + fileCount
+                + ", orderedValues=" + orderedPartitionValues
                 + ", nullFlags=" + partitionValueNullFlags + "}";
     }
 }
