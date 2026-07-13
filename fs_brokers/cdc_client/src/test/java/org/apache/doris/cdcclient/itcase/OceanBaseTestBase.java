@@ -20,26 +20,28 @@ package org.apache.doris.cdcclient.itcase;
 import static java.util.concurrent.TimeUnit.SECONDS;
 
 import org.awaitility.Awaitility;
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.wait.strategy.LogMessageWaitStrategy;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
 
 import java.sql.Connection;
 import java.sql.DriverManager;
+import java.sql.ResultSet;
 import java.sql.Statement;
 import java.time.Duration;
 
-@Testcontainers
 abstract class OceanBaseTestBase {
 
     protected static final int OCEANBASE_CDC_PORT = 2883;
     protected static final String USER = "root@test";
     protected static final String PASSWORD = "123456";
 
-    @Container
+    private static final String EXTERNAL_HOST = System.getProperty("oceanbase.host");
+    private static final int EXTERNAL_CDC_PORT =
+            Integer.getInteger("oceanbase.cdc.port", OCEANBASE_CDC_PORT);
+
     static final GenericContainer<?> OCEANBASE =
             new GenericContainer<>(
                             DockerImageName.parse("quay.io/oceanbase/obbinlog-ce:4.2.5-test"))
@@ -52,25 +54,42 @@ abstract class OceanBaseTestBase {
                                     .withStartupTimeout(Duration.ofMinutes(6)));
 
     @BeforeAll
-    static void waitUntilJdbcEndpointIsReady() {
+    static void initializeOceanBase() {
+        if (!useExternalOceanBase()) {
+            OCEANBASE.start();
+        }
+
         Awaitility.await()
                 .atMost(60, SECONDS)
                 .pollInterval(1, SECONDS)
                 .ignoreExceptions()
                 .until(
                         () -> {
-                            try (Connection connection = connection("")) {
-                                return connection.isValid(1);
+                            try (Connection connection = connection("");
+                                    Statement statement = connection.createStatement();
+                                    ResultSet resultSet =
+                                            statement.executeQuery("SHOW MASTER STATUS")) {
+                                return connection.isValid(1)
+                                        && resultSet.next()
+                                        && !resultSet.getString("File").isEmpty()
+                                        && resultSet.getLong("Position") >= 4;
                             }
                         });
+    }
+
+    @AfterAll
+    static void stopOceanBase() {
+        if (!useExternalOceanBase()) {
+            OCEANBASE.stop();
+        }
     }
 
     protected static Connection connection(String database) throws Exception {
         String url =
                 "jdbc:mysql://"
-                        + OCEANBASE.getHost()
+                        + oceanBaseHost()
                         + ":"
-                        + OCEANBASE.getMappedPort(OCEANBASE_CDC_PORT)
+                        + oceanBaseCdcPort()
                         + "/"
                         + database
                         + "?serverTimezone=UTC";
@@ -104,8 +123,8 @@ abstract class OceanBaseTestBase {
             MockDorisServer mock) {
         return CdcClientWriteHarness.oceanbase(
                 jobId,
-                OCEANBASE.getHost(),
-                OCEANBASE.getMappedPort(OCEANBASE_CDC_PORT),
+                oceanBaseHost(),
+                oceanBaseCdcPort(),
                 USER,
                 PASSWORD,
                 database,
@@ -113,5 +132,19 @@ abstract class OceanBaseTestBase {
                 offset,
                 "doris_target_db",
                 mock);
+    }
+
+    private static boolean useExternalOceanBase() {
+        return EXTERNAL_HOST != null;
+    }
+
+    private static String oceanBaseHost() {
+        return useExternalOceanBase() ? EXTERNAL_HOST : OCEANBASE.getHost();
+    }
+
+    private static int oceanBaseCdcPort() {
+        return useExternalOceanBase()
+                ? EXTERNAL_CDC_PORT
+                : OCEANBASE.getMappedPort(OCEANBASE_CDC_PORT);
     }
 }

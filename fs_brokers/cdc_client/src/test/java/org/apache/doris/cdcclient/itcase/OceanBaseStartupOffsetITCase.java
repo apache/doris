@@ -61,6 +61,8 @@ class OceanBaseStartupOffsetITCase extends OceanBaseTestBase {
 
     @Test
     void latestReadsOnlyChangesAfterReaderStarts() throws Exception {
+        awaitInitialRowsInBinlog();
+
         try (MockDorisServer mock = new MockDorisServer();
                 CdcClientWriteHarness harness =
                         oceanBaseHarness(jobId, database, "t_user", "latest", mock)) {
@@ -85,6 +87,8 @@ class OceanBaseStartupOffsetITCase extends OceanBaseTestBase {
 
     @Test
     void specificOffsetReplaysChangesAfterRecordedPosition() throws Exception {
+        awaitInitialRowsInBinlog();
+
         String[] position = currentBinlogPosition();
         String offset =
                 String.format(
@@ -97,6 +101,21 @@ class OceanBaseStartupOffsetITCase extends OceanBaseTestBase {
             assertThat(ids(harness.readBinlogFromStartupMode(1, Duration.ofSeconds(90))))
                     .containsExactly(3);
             assertThat(ids(harness.loadedRecords())).doesNotContain(1, 2);
+        }
+    }
+
+    private void awaitInitialRowsInBinlog() throws Exception {
+        String probeJobId = String.valueOf(JOB_ID_SEQ.incrementAndGet());
+
+        try (MockDorisServer mock = new MockDorisServer();
+                CdcClientWriteHarness harness =
+                        oceanBaseHarness(
+                                probeJobId, database, "t_user", "earliest", mock)) {
+            assertThat(
+                            ids(
+                                    harness.readBinlogFromStartupMode(
+                                            2, Duration.ofSeconds(90))))
+                    .containsExactlyInAnyOrder(1, 2);
         }
     }
 
