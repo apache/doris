@@ -259,10 +259,22 @@ TEST(BitmapValueTest, Roaring64Map_iterators) {
     EXPECT_FALSE(iter.move(4294967299));
 
     iter = roaring64_map.begin();
+    EXPECT_TRUE(iter.move_equalorlarger(4294967296));
+    EXPECT_EQ(*iter, 4294967297);
+
+    iter = roaring64_map.begin();
     auto iter2 = roaring64_map.begin();
     iter.move(3);
     iter2.move(3);
     EXPECT_TRUE(iter == iter2);
+
+    iter = roaring64_map.begin();
+    iter2 = roaring64_map.begin();
+    iter2.move(3);
+    EXPECT_TRUE(iter < iter2);
+    EXPECT_TRUE(iter <= iter2);
+    EXPECT_TRUE(iter2 > iter);
+    EXPECT_TRUE(iter2 >= iter);
 }
 
 TEST(BitmapValueTest, set) {
