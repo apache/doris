@@ -751,6 +751,7 @@ struct TPipelineFragmentParams {
 
   // For cloud
   1000: optional bool is_mow_table;
+  1001: optional bool enable_tso;
 }
 
 // pull up runtime filter info from instance level to BE level

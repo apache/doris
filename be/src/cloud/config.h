@@ -90,6 +90,7 @@ DECLARE_mInt32(lease_compaction_interval_seconds);
 DECLARE_mBool(enable_parallel_cumu_compaction);
 DECLARE_mDouble(base_compaction_thread_num_factor);
 DECLARE_mDouble(cumu_compaction_thread_num_factor);
+DECLARE_mDouble(binlog_compaction_thread_num_factor);
 DECLARE_mInt32(check_auto_compaction_interval_seconds);
 DECLARE_mInt32(max_base_compaction_task_num_per_disk);
 DECLARE_mBool(prioritize_query_perf_in_compaction);

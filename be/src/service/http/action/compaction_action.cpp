@@ -298,7 +298,8 @@ Status CompactionAction::_execute_compaction_callback(TabletSharedPtr tablet,
             CumulativeCompactionPolicyFactory::create_cumulative_compaction_policy(
                     tablet->tablet_meta()->compaction_policy());
     if (tablet->get_cumulative_compaction_policy() == nullptr ||
-        tablet->get_cumulative_compaction_policy()->name() != cumulative_compaction_policy->name()) {
+        tablet->get_cumulative_compaction_policy()->name() !=
+                cumulative_compaction_policy->name()) {
         tablet->set_cumulative_compaction_policy(cumulative_compaction_policy);
     }
     Status res = Status::OK();

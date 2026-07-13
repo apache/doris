@@ -64,7 +64,8 @@ static bvar::LatencyRecorder g_remote_fetch_tablet_rowsets_latency("remote_fetch
 [[nodiscard]] Result<std::vector<Version>> BaseTablet::capture_consistent_versions_unlocked(
         const Version& version_range, const CaptureRowsetOps& options) const {
     std::vector<Version> version_path;
-    auto st = _timestamped_version_tracker.capture_consistent_versions(version_range, &version_path);
+    auto st =
+            _timestamped_version_tracker.capture_consistent_versions(version_range, &version_path);
     if (!st && !options.quiet) {
         auto missed_versions = get_missed_versions_unlocked(version_range.second);
         if (missed_versions.empty()) {
@@ -112,8 +113,8 @@ static bvar::LatencyRecorder g_remote_fetch_tablet_rowsets_latency("remote_fetch
                 return it->second;
             } else {
                 VLOG_NOTICE << "fail to find Rowset in rs_version for version. tablet="
-                            << tablet_id() << ", version='"
-                            << version.first << "-" << version.second;
+                            << tablet_id() << ", version='" << version.first << "-"
+                            << version.second;
             }
             if (include_stale) {
                 if (auto it = _stale_rs_version_map.find(version);

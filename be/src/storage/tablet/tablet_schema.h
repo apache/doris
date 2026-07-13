@@ -518,6 +518,7 @@ public:
     int32_t version_col_idx() const { return _version_col_idx; }
     bool has_skip_bitmap_col() const { return _skip_bitmap_col_idx != -1; }
     int32_t skip_bitmap_col_idx() const { return _skip_bitmap_col_idx; }
+    bool enable_tso() const { return _commit_tso_col_idx != -1 || _binlog_tso_col_idx != -1; }
     int32_t commit_tso_col_idx() const { return _commit_tso_col_idx; }
     int32_t binlog_tso_col_idx() const { return _binlog_tso_col_idx; }
     int32_t binlog_lsn_col_idx() const { return _binlog_lsn_col_idx; }

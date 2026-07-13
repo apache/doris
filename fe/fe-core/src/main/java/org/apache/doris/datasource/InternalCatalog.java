@@ -2158,6 +2158,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 clusterKeyUids = OlapTable.getClusterKeyUids(schema);
             }
             KeysType keysType = indexMeta.getKeysType();
+            boolean enableUniqueKeyMergeOnWrite = !isRowBinlogIndex && tbl.getEnableUniqueKeyMergeOnWrite();
             List<Index> indexes = indexId == tbl.getBaseIndexId() ? tbl.getCopiedIndexes() : null;
             int totalTaskNum = index.getTablets().size() * totalReplicaNum;
             MarkedCountDownLatch<Long, Long> countDownLatch = new MarkedCountDownLatch<Long, Long>(totalTaskNum);
@@ -2185,7 +2186,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                             taskMedium, schema, bfColumns, tbl.getBfFpp(), countDownLatch,
                             indexes, tbl.isInMemory(), tabletType,
                             tbl.getDataSortInfo(), tbl.getCompressionType(),
-                            tbl.getEnableUniqueKeyMergeOnWrite(), storagePolicy, tbl.disableAutoCompaction(),
+                            enableUniqueKeyMergeOnWrite, storagePolicy, tbl.disableAutoCompaction(),
                             tbl.skipWriteIndexOnLoad(),
                             tbl.getCompactionPolicy(), tbl.getTimeSeriesCompactionGoalSizeMbytes(),
                             tbl.getTimeSeriesCompactionFileCountThreshold(),
@@ -2851,15 +2852,18 @@ public class InternalCatalog implements CatalogIf<Database> {
             if (binlogConfigMap != null) {
                 BinlogConfig binlogConfig = new BinlogConfig();
                 binlogConfig.mergeFromProperties(binlogConfigMap);
+                if (binlogConfig.isEnableForCCR()) {
+                    if (Config.isCloudMode()) {
+                        throw new AnalysisException("Binlog<CCR> is not supported in cloud mode");
+                    }
+                }
+
                 if (binlogConfig.isEnableForStreaming()) {
                     if (!(keysType == KeysType.DUP_KEYS
                             || (keysType == KeysType.UNIQUE_KEYS && enableUniqueKeyMergeOnWrite))) {
                         throw new AnalysisException("Only duplicate and mow table model support binlog<Row>, "
                                 + "if you want to use mor or aggregate table model, "
                                 + "please use binlog with snapshot");
-                    }
-                    if (Config.isCloudMode()) {
-                        throw new AnalysisException("Binlog<Row> is not supported in the cloud mode yet");
                     }
                     if (keysType == KeysType.DUP_KEYS && binlogConfig.getNeedHistoricalValue()) {
                         throw new AnalysisException("Duplicate table model don't support record historical value");

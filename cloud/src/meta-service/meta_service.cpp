@@ -2721,6 +2721,7 @@ void MetaServiceImpl::commit_rowset_meta(Transaction* txn, const std::string& in
             return;
         }
         if (existed_meta.rowset_id_v2() == rowset_meta.rowset_id_v2()) {
+            // Same request, return OK
             return;
         }
         if (!existed_meta.has_index_id()) {
@@ -2797,7 +2798,8 @@ void MetaServiceImpl::commit_rowset_meta(Transaction* txn, const std::string& in
         } else if (!rowset_meta.has_index_id()) {
             CloneChainReader reader(instance_id, resource_mgr_.get());
             TabletIndexPB tablet_idx;
-            TxnErrorCode idx_err = reader.get_tablet_index(txn, rowset_meta.tablet_id(), &tablet_idx);
+            TxnErrorCode idx_err =
+                    reader.get_tablet_index(txn, rowset_meta.tablet_id(), &tablet_idx);
             if (idx_err != TxnErrorCode::TXN_OK) {
                 code = idx_err == TxnErrorCode::TXN_KEY_NOT_FOUND
                                ? MetaServiceCode::TABLET_NOT_FOUND
@@ -2817,8 +2819,8 @@ void MetaServiceImpl::commit_rowset_meta(Transaction* txn, const std::string& in
             if (code != MetaServiceCode::OK) return;
         }
         bool is_versioned_write = is_version_write_enabled(instance_id);
-        std::string schema_key =
-                meta_schema_key({instance_id, rowset_meta.index_id(), rowset_meta.schema_version()});
+        std::string schema_key = meta_schema_key(
+                {instance_id, rowset_meta.index_id(), rowset_meta.schema_version()});
         put_schema_kv(code, msg, txn, schema_key, rowset_meta.tablet_schema());
         if (code != MetaServiceCode::OK) return;
         if (is_versioned_write) {
@@ -2969,8 +2971,7 @@ void MetaServiceImpl::commit_rowsets(::google::protobuf::RpcController* controll
         std::string commit_msg;
         commit_rowset_meta(txn.get(), instance_id, request->tablet_job_id(), rowset_meta,
                            response->mutable_existed_rowset_meta(), commit_code, commit_msg);
-        if (commit_code != MetaServiceCode::OK &&
-            commit_code != MetaServiceCode::ALREADY_EXISTED) {
+        if (commit_code != MetaServiceCode::OK && commit_code != MetaServiceCode::ALREADY_EXISTED) {
             code = commit_code;
             msg = commit_msg;
             return;
@@ -2987,8 +2988,7 @@ void MetaServiceImpl::commit_rowsets(::google::protobuf::RpcController* controll
         std::string commit_msg;
         commit_rowset_meta(txn.get(), instance_id, request->tablet_job_id(), attach_row_binlog,
                            response->mutable_existed_attach_row_binlog(), commit_code, commit_msg);
-        if (commit_code != MetaServiceCode::OK &&
-            commit_code != MetaServiceCode::ALREADY_EXISTED) {
+        if (commit_code != MetaServiceCode::OK && commit_code != MetaServiceCode::ALREADY_EXISTED) {
             code = commit_code;
             msg = commit_msg;
             return;
@@ -2997,12 +2997,17 @@ void MetaServiceImpl::commit_rowsets(::google::protobuf::RpcController* controll
             response->set_allocated_existed_attach_row_binlog(nullptr);
         }
 
+        // Data rowset and row-binlog rowset are written in the same
+        // transaction. A normal retry should observe both as existing or both
+        // as missing. Mismatch means the paired tmp rowset state is already
+        // inconsistent.
         bool rowset_already_exists = code == MetaServiceCode::ALREADY_EXISTED;
         bool binlog_already_exists = commit_code == MetaServiceCode::ALREADY_EXISTED;
         if (rowset_already_exists != binlog_already_exists) {
-            msg = fmt::format("rowset and attach row binlog existence mismatch, rowset_code={}, "
-                              "binlog_code={}",
-                              MetaServiceCode_Name(code), MetaServiceCode_Name(commit_code));
+            msg = fmt::format(
+                    "rowset and attach row binlog existence mismatch, rowset_code={}, "
+                    "binlog_code={}",
+                    MetaServiceCode_Name(code), MetaServiceCode_Name(commit_code));
             code = MetaServiceCode::INVALID_ARGUMENT;
             return;
         }
@@ -3014,8 +3019,7 @@ void MetaServiceImpl::commit_rowsets(::google::protobuf::RpcController* controll
 
     std::size_t segment_key_bounds_bytes = get_segments_key_bounds_bytes(rowset_meta) +
                                            get_segments_key_bounds_bytes(attach_row_binlog);
-    std::size_t rowsets_meta_bytes =
-            rowset_meta.ByteSizeLong() + attach_row_binlog.ByteSizeLong();
+    std::size_t rowsets_meta_bytes = rowset_meta.ByteSizeLong() + attach_row_binlog.ByteSizeLong();
     err = txn->commit();
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::COMMIT>(err);
@@ -3027,7 +3031,8 @@ void MetaServiceImpl::commit_rowsets(::google::protobuf::RpcController* controll
                          << ", rowset_id=" << rowset_meta.rowset_id_v2()
                          << ", rowsets_meta_bytes=" << rowsets_meta_bytes
                          << ", segment_key_bounds_bytes=" << segment_key_bounds_bytes
-                         << ", num_segments=" << rowset_meta.num_segments() + attach_row_binlog.num_segments()
+                         << ", num_segments="
+                         << rowset_meta.num_segments() + attach_row_binlog.num_segments()
                          << ", attach_row_binlog_tablet_id=" << attach_row_binlog.tablet_id()
                          << ", attach_row_binlog_rowset_id=" << attach_row_binlog.rowset_id_v2();
             ss << ". The key column data is too large, or too many partitions are being loaded "
@@ -3223,7 +3228,8 @@ void MetaServiceImpl::update_tmp_rowsets(::google::protobuf::RpcController* cont
                          << ", rowset_id=" << rowset_meta.rowset_id_v2()
                          << ", rowsets_meta_bytes=" << rowsets_meta_bytes
                          << ", segment_key_bounds_bytes=" << segment_key_bounds_bytes
-                         << ", num_segments=" << rowset_meta.num_segments() + attach_row_binlog.num_segments()
+                         << ", num_segments="
+                         << rowset_meta.num_segments() + attach_row_binlog.num_segments()
                          << ", attach_row_binlog_tablet_id=" << attach_row_binlog.tablet_id()
                          << ", attach_row_binlog_rowset_id=" << attach_row_binlog.rowset_id_v2();
             ss << ". The key column data is too large, or too many partitions are being loaded "

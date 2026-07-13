@@ -122,7 +122,7 @@ Status CloudDeleteTask::execute(CloudStorageEngine& engine, const TPushReq& requ
                 request.transaction_id, tablet->tablet_id(), delete_bitmap, rowset_ids, rowset,
                 request.timeout, nullptr);
     } else {
-        if (config::enable_cloud_make_rs_visible_on_be) {
+        if (config::enable_cloud_make_rs_visible_on_be && !tablet->tablet_schema()->enable_tso()) {
             engine.meta_mgr().cache_committed_rowset(rowset->rowset_meta(), context.txn_expiration);
         }
     }

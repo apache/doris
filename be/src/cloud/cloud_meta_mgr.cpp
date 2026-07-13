@@ -371,6 +371,9 @@ static std::string debug_info(const Request& req) {
         return "";
     } else if constexpr (is_any_v<Request, CreateRowsetRequest>) {
         return fmt::format(" tablet_id={}", req.rowset_meta().tablet_id());
+    } else if constexpr (is_any_v<Request, CreateRowsetsRequest>) {
+        return fmt::format(" tablet_id={}, attach_row_binlog_tablet_id={}",
+                           req.rowset_meta().tablet_id(), req.attach_row_binlog().tablet_id());
     } else if constexpr (is_any_v<Request, RemoveDeleteBitmapRequest>) {
         return fmt::format(" tablet_id={}", req.tablet_id());
     } else if constexpr (is_any_v<Request, RemoveDeleteBitmapUpdateLockRequest>) {
@@ -401,10 +404,8 @@ LoadRelatedRpc to_load_related_rpc(MetaServiceRPC rpc) {
     case MetaServiceRPC::PREPARE_ROWSET:
         return LoadRelatedRpc::PREPARE_ROWSET;
     case MetaServiceRPC::COMMIT_ROWSET:
-    case MetaServiceRPC::COMMIT_ROWSETS:
         return LoadRelatedRpc::COMMIT_ROWSET;
     case MetaServiceRPC::UPDATE_TMP_ROWSET:
-    case MetaServiceRPC::UPDATE_TMP_ROWSETS:
         return LoadRelatedRpc::UPDATE_TMP_ROWSET;
     case MetaServiceRPC::UPDATE_PACKED_FILE_INFO:
         return LoadRelatedRpc::UPDATE_PACKED_FILE_INFO;
@@ -803,9 +804,8 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
             sync_stats->get_remote_rowsets_num += resp.rowset_meta().size();
         }
 
-        // If is mow, the tablet has no delete bitmap in base rowsets.
-        // So dont need to sync it.
-        if (options.sync_delete_bitmap && tablet->enable_unique_key_merge_on_write() &&
+        // MOW and row-binlog tablets need delete bitmap from meta-service.
+        if (options.sync_delete_bitmap && tablet->need_read_delete_bitmap() &&
             tablet->tablet_state() == TABLET_RUNNING) {
             DBUG_EXECUTE_IF("CloudMetaMgr::sync_tablet_rowsets.sync_tablet_delete_bitmap.block",
                             DBUG_BLOCK);
@@ -1553,11 +1553,10 @@ Status CloudMetaMgr::commit_rowsets(RowsetMeta& rs_meta, RowsetMeta& attach_row_
     RowsetMetaPB rs_meta_pb = rs_meta.get_rowset_pb();
     doris_rowset_meta_to_cloud(req.mutable_rowset_meta(), std::move(rs_meta_pb));
     RowsetMetaPB attach_row_binlog_pb = attach_row_binlog.get_rowset_pb();
-    doris_rowset_meta_to_cloud(req.mutable_attach_row_binlog(),
-                               std::move(attach_row_binlog_pb));
+    doris_rowset_meta_to_cloud(req.mutable_attach_row_binlog(), std::move(attach_row_binlog_pb));
 
     Status st =
-            retry_rpc(MetaServiceRPC::COMMIT_ROWSETS, req, &resp, &MetaService_Stub::commit_rowsets,
+            retry_rpc(MetaServiceRPC::COMMIT_ROWSET, req, &resp, &MetaService_Stub::commit_rowsets,
                       {
                               .host_limiters = host_level_ms_rpc_rate_limiters_,
                               .backpressure_handler = ms_backpressure_handler_,
@@ -1650,10 +1649,9 @@ Status CloudMetaMgr::update_tmp_rowsets(const RowsetMeta& rs_meta,
     RowsetMetaPB rs_meta_pb = rs_meta.get_rowset_pb(skip_schema);
     doris_rowset_meta_to_cloud(req.mutable_rowset_meta(), std::move(rs_meta_pb));
     RowsetMetaPB attach_row_binlog_pb = attach_row_binlog.get_rowset_pb(skip_schema);
-    doris_rowset_meta_to_cloud(req.mutable_attach_row_binlog(),
-                               std::move(attach_row_binlog_pb));
+    doris_rowset_meta_to_cloud(req.mutable_attach_row_binlog(), std::move(attach_row_binlog_pb));
 
-    Status st = retry_rpc(MetaServiceRPC::UPDATE_TMP_ROWSETS, req, &resp,
+    Status st = retry_rpc(MetaServiceRPC::UPDATE_TMP_ROWSET, req, &resp,
                           &MetaService_Stub::update_tmp_rowsets,
                           {
                                   .host_limiters = host_level_ms_rpc_rate_limiters_,

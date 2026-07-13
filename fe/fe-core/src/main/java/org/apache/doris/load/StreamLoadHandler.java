@@ -279,6 +279,7 @@ public class StreamLoadHandler {
             result.setTableName(table.getName());
             result.query_options.setFeProcessUuid(ExecuteEnv.getInstance().getProcessUUID());
             result.setIsMowTable(table.getEnableUniqueKeyMergeOnWrite());
+            result.setEnableTso(table.enableTso());
             fragmentParams.add(result);
 
             if (StringUtils.isEmpty(streamLoadTask.getGroupCommit())) {

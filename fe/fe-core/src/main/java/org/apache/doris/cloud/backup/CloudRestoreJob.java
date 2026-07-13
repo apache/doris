@@ -427,8 +427,10 @@ public class CloudRestoreJob extends RestoreJob {
                                     localTbl.getCompressionType(), localTbl.getStorageFormat(),
                                     localTbl.getStoragePolicy(),
                                     localTbl.isInMemory(), false, localTbl.getName(), localTbl.getTTLSeconds(),
-                                    localTbl.getEnableUniqueKeyMergeOnWrite(), localTbl.storeRowColumn(),
-                                    localTbl.getBaseSchemaVersion(), localTbl.getCompactionPolicy(),
+                                    !indexMeta.isRowBinlogIndex() && localTbl.getEnableUniqueKeyMergeOnWrite(),
+                                    localTbl.storeRowColumn(),
+                                    localTbl.getBaseSchemaVersion(), localTbl.getBinlogConfig(),
+                                    localTbl.getCompactionPolicy(),
                                     localTbl.getTimeSeriesCompactionGoalSizeMbytes(),
                                     localTbl.getTimeSeriesCompactionFileCountThreshold(),
                                     localTbl.getTimeSeriesCompactionTimeThresholdSeconds(),
@@ -441,7 +443,8 @@ public class CloudRestoreJob extends RestoreJob {
                                     localTbl.storagePageSize(), localTbl.getTDEAlgorithmPB(),
                                     localTbl.storageDictPageSize(), false,
                                     localTbl.getColumnSeqMapping(),
-                                    localTbl.getVerticalCompactionNumColumnsPerGroup()));
+                                    localTbl.getVerticalCompactionNumColumnsPerGroup(),
+                                    indexMeta.isRowBinlogIndex()));
                         // In cloud mode all storage medium will be saved to HDD.
                         TabletMeta tabletMeta = new TabletMeta(db.getId(), localTbl.getId(), restorePart.getId(),
                                 restoredIdx.getId(), indexMeta.getSchemaHash(), TStorageMedium.HDD);

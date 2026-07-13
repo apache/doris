@@ -28,6 +28,7 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.util.ColumnsUtil;
+import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.policy.Policy;
 import org.apache.doris.policy.PolicyTypeEnum;
 import org.apache.doris.thrift.TColumn;
@@ -449,7 +450,8 @@ public class CreateReplicaTask extends AgentTask {
         createTabletReq.setTabletType(tabletType);
         createTabletReq.setCompressionType(compressionType);
         createTabletReq.setEnableUniqueKeyMergeOnWrite(enableUniqueKeyMergeOnWrite);
-        createTabletReq.setCompactionPolicy(compactionPolicy);
+        createTabletReq.setCompactionPolicy(isRowBinlogTablet
+                ? PropertyAnalyzer.BINLOG_COMPACTION_POLICY : compactionPolicy);
         createTabletReq.setTimeSeriesCompactionGoalSizeMbytes(timeSeriesCompactionGoalSizeMbytes);
         createTabletReq.setTimeSeriesCompactionFileCountThreshold(timeSeriesCompactionFileCountThreshold);
         createTabletReq.setTimeSeriesCompactionTimeThresholdSeconds(timeSeriesCompactionTimeThresholdSeconds);

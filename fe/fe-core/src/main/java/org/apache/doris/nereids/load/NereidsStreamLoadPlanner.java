@@ -338,6 +338,7 @@ public class NereidsStreamLoadPlanner {
         params.setQueryGlobals(queryGlobals);
         params.setTableName(destTable.getName());
         params.setIsMowTable(destTable.getEnableUniqueKeyMergeOnWrite());
+        params.setEnableTso(destTable.enableTso());
         return params;
     }
 }

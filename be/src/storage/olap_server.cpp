@@ -789,8 +789,8 @@ void StorageEngine::_binlog_compaction_tasks_producer_callback() {
                                                check_score);
             for (const auto& tablet_compaction_context : tablet_compaction_contexts) {
                 const auto& tablet = tablet_compaction_context.tablet;
-                Status st = _submit_compaction_task(
-                        tablet, CompactionType::CUMU_BINLOG_COMPACTION, false, 0);
+                Status st = _submit_compaction_task(tablet, CompactionType::CUMU_BINLOG_COMPACTION,
+                                                    false, 0);
                 if (!st.ok()) {
                     LOG(WARNING) << "failed to submit binlog compaction task for tablet: "
                                  << tablet->tablet_id() << ", err: " << st;

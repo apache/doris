@@ -576,8 +576,8 @@ void AsyncTabletPublishTask::handle() {
 
     // the row binlog is published to its own binlog tablet together with the base tablet, acquire
     // both tablets' locks in binlog-first order.
-    auto binlog_tablet = std::static_pointer_cast<Tablet>(
-            txn_info_it->second->attach_row_binlog.tablet);
+    auto binlog_tablet =
+            std::static_pointer_cast<Tablet>(txn_info_it->second->attach_row_binlog.tablet);
     std::shared_lock<std::shared_timed_mutex> binlog_migration_rlock;
     std::shared_lock<std::shared_timed_mutex> migration_rlock;
     if (binlog_tablet != nullptr) {

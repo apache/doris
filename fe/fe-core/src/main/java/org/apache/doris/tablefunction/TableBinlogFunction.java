@@ -28,7 +28,6 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanNodeId;
@@ -71,11 +70,6 @@ public class TableBinlogFunction extends TableValuedFunctionIf {
     private final RowBinlogTableWrapper rowBinlogTableWrapper;
 
     public TableBinlogFunction(Map<String, String> params) throws AnalysisException {
-        // Cloud mode uses a single-version snapshot for scan range versioning and is not supported here.
-        if (Config.isCloudMode()) {
-            throw new AnalysisException("binlog<row> table valued function is not supported in cloud mode");
-        }
-
         Map<String, String> validParams = Maps.newHashMap();
         for (Map.Entry<String, String> e : params.entrySet()) {
             String key = StringUtils.lowerCase(e.getKey());

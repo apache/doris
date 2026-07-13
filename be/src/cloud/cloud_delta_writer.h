@@ -65,7 +65,6 @@ private:
     Status _commit_empty_rowset();
 
     bthread::Mutex _mtx;
-    CloudStorageEngine& _engine;
     std::shared_ptr<ResourceContext> _resource_ctx;
 };
 

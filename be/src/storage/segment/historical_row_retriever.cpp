@@ -42,7 +42,6 @@
 #include "storage/rowset/rowset_writer_context.h"
 #include "storage/segment/segment.h"
 #include "storage/storage_engine.h"
-#include "storage/tablet/tablet.h"
 #include "storage/tablet/tablet_meta.h"
 #include "storage/tablet/tablet_schema.h"
 
@@ -83,7 +82,7 @@ Status PrimaryKeyModelRowRetriever::init(const HistoricalRowRetrieverContext& co
 
 Status PrimaryKeyModelRowRetriever::retrieve_historical_row(const Int8* delete_sign_column_data,
                                                             size_t row_pos, size_t num_rows) {
-    auto* tablet = static_cast<Tablet*>(_context.tablet.get());
+    auto* tablet = _context.tablet.get();
     auto& tablet_schema = _context.tablet_schema;
 
     DCHECK(_context.partial_update_info);

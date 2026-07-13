@@ -3954,6 +3954,12 @@ public class SchemaChangeHandler extends AlterHandler {
                     + olapTable.getName());
         }
 
+        if (newBinlogConfig.isEnableForCCR()) {
+            if (Config.isCloudMode()) {
+                throw new DdlException("Binlog<CCR> is not supported in cloud mode");
+            }
+        }
+
         // check db binlog config, if db binlog config is not same as table binlog config, throw exception
         BinlogConfig dbBinlogConfig;
         db.readLock();

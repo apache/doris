@@ -266,9 +266,8 @@ Status TabletManager::create_tablet(const TCreateTabletReq& request, std::vector
     bool is_colocated_row_binlog =
             has_base_tablet && request.__isset.is_row_binlog_tablet && request.is_row_binlog_tablet;
     bool is_schema_change_or_atomic_restore = has_base_tablet && !is_colocated_row_binlog;
-    bool need_two_lock =
-            has_base_tablet &&
-            ((_tablets_shards_mask & request.base_tablet_id) != (_tablets_shards_mask & tablet_id));
+    bool need_two_lock = has_base_tablet && ((_tablets_shards_mask & request.base_tablet_id) !=
+                                             (_tablets_shards_mask & tablet_id));
     if (need_two_lock) {
         SCOPED_TIMER(ADD_TIMER(profile, "GetTwoTableLock"));
         two_tablet_lock.lock();
@@ -842,8 +841,8 @@ std::vector<TabletCompactionContext> TabletManager::find_best_tablets_to_compact
                       << "compaction_type=" << compaction_type_str
                       << ", tablet_id=" << best_tablet_context.tablet_ptr->tablet_id()
                       << ", path=" << data_dir->path() << ", highest_score=" << highest_score;
-        picked_tablet_contexts.emplace_back(TabletCompactionContext {
-                .tablet = std::move(best_tablet_context.tablet_ptr)});
+        picked_tablet_contexts.emplace_back(
+                TabletCompactionContext {.tablet = std::move(best_tablet_context.tablet_ptr)});
     }
 
     std::vector<TabletScore> reverse_top_tablets;

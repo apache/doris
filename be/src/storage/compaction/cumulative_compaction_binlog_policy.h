@@ -65,9 +65,9 @@ public:
 
     uint32_t calc_binlog_compaction_score(Tablet* tablet,
                                           int8_t* prefer_compaction_level = nullptr) const;
-    uint32_t calc_binlog_compaction_score(
-            Tablet* tablet, const std::vector<RowsetSharedPtr>& candidate_rowsets,
-            int8_t* prefer_compaction_level) const;
+    uint32_t calc_binlog_compaction_score(Tablet* tablet,
+                                          const std::vector<RowsetSharedPtr>& candidate_rowsets,
+                                          int8_t* prefer_compaction_level) const;
     uint32_t calc_binlog_compaction_level_score(Tablet* tablet, int8_t level) const;
     uint32_t calc_binlog_compaction_level_score(
             Tablet* tablet, const std::vector<RowsetSharedPtr>& candidate_rowsets,
