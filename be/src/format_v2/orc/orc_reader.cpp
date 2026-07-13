@@ -30,6 +30,7 @@
 #include <list>
 #include <map>
 #include <memory>
+#include <new>
 #include <optional>
 #include <orc/OrcFile.hh>
 #include <orc/Vector.hh>
@@ -47,6 +48,7 @@
 #include "common/config.h"
 #include "common/consts.h"
 #include "common/exception.h"
+#include "common/logging.h"
 #include "core/block/block.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
@@ -78,6 +80,7 @@
 #include "storage/index/zone_map/zone_map_index.h"
 #include "storage/segment/condition_cache.h"
 #include "storage/utils.h"
+#include "util/debug_points.h"
 #include "util/slice.h"
 #include "util/timezone_utils.h"
 
@@ -137,6 +140,27 @@ uint64_t orc_read_row_count(const ::orc::ReaderMetrics& metrics) {
 
 bool is_orc_stop(const io::IOContext* io_ctx, const std::exception& e) {
     return io_ctx != nullptr && io_ctx->should_stop && std::string_view(e.what()) == "stop";
+}
+
+Status fall_back_without_orc_sarg(const char* operation, const std::string& file_path,
+                                  ::orc::RowReaderOptions* row_reader_options,
+                                  const std::exception& e) {
+    LOG(WARNING) << "Failed to " << operation << " ORC search argument for file " << file_path
+                 << "; falling back to scan without SARG: " << e.what();
+    row_reader_options->searchArgument(nullptr);
+    return Status::OK();
+}
+
+Status handle_orc_sarg_exception(const char* operation, const std::string& file_path,
+                                 ::orc::RowReaderOptions* row_reader_options, const Exception& e) {
+    if (e.code() == ErrorCode::MEM_ALLOC_FAILED) {
+        return Status::MemoryLimitExceeded("Failed to {} ORC search argument: {}", operation,
+                                           e.what());
+    }
+    if (e.code() == ErrorCode::MEM_LIMIT_EXCEEDED) {
+        return e.to_status();
+    }
+    return fall_back_without_orc_sarg(operation, file_path, row_reader_options, e);
 }
 
 bool is_hour_offset_timezone(std::string_view timezone) {
@@ -1363,9 +1387,17 @@ Status OrcReader::_init_search_argument_from_local_filters() {
             return Status::OK();
         }
         builder->end();
+        DBUG_EXECUTE_IF("OrcReader._init_search_argument_from_local_filters.inject_failure",
+                        DBUG_RUN_CALLBACK());
         _state->row_reader_options.searchArgument(builder->build());
+    } catch (const Exception& e) {
+        return handle_orc_sarg_exception("build", _file_description->path,
+                                         &_state->row_reader_options, e);
+    } catch (const std::bad_alloc& e) {
+        return Status::MemoryLimitExceeded("Failed to build ORC search argument: {}", e.what());
     } catch (const std::exception& e) {
-        return Status::InternalError("Failed to build ORC search argument: {}", e.what());
+        return fall_back_without_orc_sarg("build", _file_description->path,
+                                          &_state->row_reader_options, e);
     }
     return Status::OK();
 }
@@ -1425,6 +1457,8 @@ void OrcReader::_apply_split_range() {
 
 // ORC RowReader ranges are continuous, so non-adjacent surviving stripes are
 // compacted into separate ranges.
+// Keep stripe selection and range state transitions atomic.
+// NOLINTNEXTLINE(readability-function-size)
 Status OrcReader::_select_stripe_ranges_by_statistics() {
     _state->selected_stripe_ranges.clear();
     _state->current_stripe_range = 0;
@@ -1443,8 +1477,20 @@ Status OrcReader::_select_stripe_ranges_by_statistics() {
     std::vector<int> sarg_needed_stripes;
     try {
         sarg_needed_stripes = _state->reader->getNeedReadStripes(_state->row_reader_options);
+    } catch (const Exception& e) {
+        if (is_orc_stop(_io_ctx.get(), e)) {
+            return Status::EndOfFile("stop");
+        }
+        return handle_orc_sarg_exception("evaluate", _file_description->path,
+                                         &_state->row_reader_options, e);
+    } catch (const std::bad_alloc& e) {
+        return Status::MemoryLimitExceeded("Failed to evaluate ORC search argument: {}", e.what());
     } catch (const std::exception& e) {
-        return Status::InternalError("Failed to evaluate ORC search argument: {}", e.what());
+        if (is_orc_stop(_io_ctx.get(), e)) {
+            return Status::EndOfFile("stop");
+        }
+        return fall_back_without_orc_sarg("evaluate", _file_description->path,
+                                          &_state->row_reader_options, e);
     }
 
     std::vector<uint64_t> selected_stripes;

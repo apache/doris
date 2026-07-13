@@ -29,17 +29,20 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <limits>
 #include <memory>
 #include <optional>
 #include <orc/OrcFile.hh>
 #include <set>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
 
 #include "common/config.h"
+#include "common/exception.h"
 #include "core/assert_cast.h"
 #include "core/block/block.h"
 #include "core/column/column_array.h"
@@ -77,10 +80,29 @@
 #include "runtime/runtime_state.h"
 #include "storage/segment/condition_cache.h"
 #include "storage/utils.h"
+#include "util/debug_points.h"
 #include "util/timezone_utils.h"
 
 namespace doris {
 namespace {
+
+class ScopedDebugPoint {
+public:
+    ScopedDebugPoint(std::string name, std::function<void()> callback)
+            : _name(std::move(name)), _enable_debug_points(config::enable_debug_points) {
+        config::enable_debug_points = true;
+        DebugPoints::instance()->add_with_callback(_name, std::move(callback));
+    }
+
+    ~ScopedDebugPoint() {
+        DebugPoints::instance()->remove(_name);
+        config::enable_debug_points = _enable_debug_points;
+    }
+
+private:
+    std::string _name;
+    bool _enable_debug_points;
+};
 
 std::filesystem::path unique_test_dir(std::string_view prefix) {
     static std::atomic<uint64_t> next_dir_id {0};
@@ -4362,6 +4384,40 @@ std::vector<OrcStripeLayout> get_orc_stripe_layout(const std::string& file_path)
     return layout;
 }
 
+bool corrupt_orc_stripe_statistics(const std::string& file_path) {
+    std::ifstream in(file_path, std::ios::binary | std::ios::ate);
+    const auto file_size = in.tellg();
+    if (file_size <= 0) {
+        return false;
+    }
+    in.seekg(0);
+    std::vector<char> data(static_cast<size_t>(file_size));
+    in.read(data.data(), static_cast<std::streamsize>(data.size()));
+    if (!in.good()) {
+        return false;
+    }
+
+    ::orc::ReaderOptions options;
+    options.setMemoryPool(*::orc::getDefaultPool());
+    auto input_stream = std::make_unique<MemoryInputStream>(data.data(), data.size());
+    auto reader = ::orc::createReader(std::move(input_stream), options);
+    const auto metadata_length = reader->getStripeStatisticsLength();
+    const auto footer_length = reader->getFileFooterLength();
+    const auto postscript_length = reader->getFilePostscriptLength();
+    const auto orc_file_length = reader->getFileLength();
+    const auto trailing_length = metadata_length + footer_length + postscript_length + 1;
+    if (metadata_length == 0 || orc_file_length != data.size() ||
+        trailing_length > orc_file_length) {
+        return false;
+    }
+
+    const auto metadata_offset = orc_file_length - trailing_length;
+    std::fill_n(data.data() + metadata_offset, metadata_length, static_cast<char>(0xff));
+    std::ofstream out(file_path, std::ios::binary | std::ios::trunc);
+    out.write(data.data(), static_cast<std::streamsize>(data.size()));
+    return out.good();
+}
+
 Block build_file_block(const std::vector<format::ColumnDefinition>& schema) {
     Block block;
     for (const auto& field : schema) {
@@ -7296,6 +7352,138 @@ TEST_F(NewOrcReaderTest, SargBinaryVarbinaryLiteralConjunctPrunesRowGroups) {
     EXPECT_EQ(reader->reader_statistics().filtered_row_groups, 0);
     EXPECT_EQ(reader->reader_statistics().filtered_row_groups_by_min_max, 0);
     EXPECT_EQ(reader->reader_statistics().filtered_group_rows, 0);
+}
+
+TEST_F(NewOrcReaderTest, SargExceptionsFallBackToResidualScan) {
+    const auto valid_file_path = (_test_dir / "sarg_build_exception.orc").string();
+    const auto corrupt_statistics_file_path = (_test_dir / "sarg_corrupt_statistics.orc").string();
+    write_multi_stripe_orc_binary_file(valid_file_path);
+    write_multi_stripe_orc_binary_file(corrupt_statistics_file_path);
+    const auto valid_stripe_layout = get_orc_stripe_layout(valid_file_path);
+    const auto corrupt_statistics_stripe_layout =
+            get_orc_stripe_layout(corrupt_statistics_file_path);
+    ASSERT_EQ(valid_stripe_layout.size(), 2);
+    ASSERT_EQ(corrupt_statistics_stripe_layout.size(), 2);
+    ASSERT_TRUE(corrupt_orc_stripe_statistics(corrupt_statistics_file_path));
+
+    auto scan_first_stripe = [&](const std::string& file_path, const OrcStripeLayout& stripe,
+                                 bool enable_filter_by_min_max, bool add_real_residual_filter,
+                                 std::vector<std::string>* result_values, Status* open_status) {
+        auto reader = create_reader_with_range(file_path, static_cast<int64_t>(stripe.offset),
+                                               static_cast<int64_t>(stripe.length));
+        TQueryOptions query_options;
+        query_options.__set_enable_orc_filter_by_min_max(enable_filter_by_min_max);
+        RuntimeState state {query_options, TQueryGlobals()};
+        ASSERT_TRUE(reader->init(&state).ok());
+
+        std::vector<format::ColumnDefinition> schema;
+        ASSERT_TRUE(reader->get_schema(&schema).ok());
+        ASSERT_EQ(schema.size(), 2);
+
+        auto request = std::make_shared<format::FileScanRequest>();
+        request->predicate_columns = {field_projection(0)};
+        request->conjuncts.push_back(VExprContext::create_shared(
+                std::make_shared<SargOnlyStringEqualsVarbinaryLiteralExpr>(
+                        0, std::make_shared<DataTypeVarbinary>(), "zzz_1000", "value")));
+        if (add_real_residual_filter) {
+            request->conjuncts.push_back(
+                    VExprContext::create_shared(std::make_shared<NullableStringEqualsExpr>(
+                            0, std::make_shared<DataTypeString>(), "aaa_1050", "value")));
+        }
+        *open_status = reader->open(request);
+        if (!open_status->ok()) {
+            return;
+        }
+
+        bool eof = false;
+        while (!eof) {
+            Block block = build_file_block({schema[0]});
+            size_t rows = 0;
+            ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+            if (eof || rows == 0) {
+                continue;
+            }
+            const auto& values_nullable =
+                    assert_cast<const ColumnNullable&>(*block.get_by_position(0).column);
+            const auto& values =
+                    assert_cast<const ColumnString&>(values_nullable.get_nested_column());
+            for (size_t row = 0; row < rows; ++row) {
+                ASSERT_FALSE(values_nullable.is_null_at(row));
+                result_values->push_back(values.get_data_at(row).to_string());
+            }
+        }
+
+        EXPECT_EQ(reader->reader_statistics().filtered_row_groups, 0);
+        EXPECT_EQ(reader->reader_statistics().filtered_row_groups_by_min_max, 0);
+        EXPECT_EQ(reader->reader_statistics().filtered_group_rows, 0);
+        ASSERT_TRUE(reader->close().ok());
+    };
+
+    std::vector<std::string> without_sarg;
+    Status without_sarg_open_status;
+    scan_first_stripe(corrupt_statistics_file_path, corrupt_statistics_stripe_layout[0], false,
+                      false, &without_sarg, &without_sarg_open_status);
+    ASSERT_TRUE(without_sarg_open_status.ok()) << without_sarg_open_status;
+    ASSERT_EQ(without_sarg.size(), 200);
+    EXPECT_EQ(without_sarg.front(), "aaa_1000");
+    EXPECT_EQ(without_sarg.back(), "aaa_1199");
+
+    int injection_count = 0;
+    std::vector<std::string> after_build_failure;
+    Status build_failure_open_status;
+    {
+        ScopedDebugPoint debug_point(
+                "OrcReader._init_search_argument_from_local_filters.inject_failure", [&]() {
+                    ++injection_count;
+                    throw std::runtime_error("injected ORC SARG build failure");
+                });
+        scan_first_stripe(valid_file_path, valid_stripe_layout[0], true, false,
+                          &after_build_failure, &build_failure_open_status);
+    }
+    EXPECT_EQ(injection_count, 1);
+    ASSERT_TRUE(build_failure_open_status.ok()) << build_failure_open_status;
+    EXPECT_EQ(after_build_failure, without_sarg);
+
+    std::vector<std::string> after_evaluation_failure;
+    Status evaluation_failure_open_status;
+    scan_first_stripe(corrupt_statistics_file_path, corrupt_statistics_stripe_layout[0], true,
+                      false, &after_evaluation_failure, &evaluation_failure_open_status);
+    ASSERT_TRUE(evaluation_failure_open_status.ok()) << evaluation_failure_open_status;
+    EXPECT_EQ(after_evaluation_failure, without_sarg);
+
+    std::vector<std::string> residual_without_sarg;
+    Status residual_without_sarg_open_status;
+    scan_first_stripe(corrupt_statistics_file_path, corrupt_statistics_stripe_layout[0], false,
+                      true, &residual_without_sarg, &residual_without_sarg_open_status);
+    ASSERT_TRUE(residual_without_sarg_open_status.ok()) << residual_without_sarg_open_status;
+    const std::vector<std::string> expected_residual_values = {"aaa_1050"};
+    EXPECT_EQ(residual_without_sarg, expected_residual_values);
+
+    std::vector<std::string> residual_after_evaluation_failure;
+    Status residual_evaluation_failure_open_status;
+    scan_first_stripe(corrupt_statistics_file_path, corrupt_statistics_stripe_layout[0], true, true,
+                      &residual_after_evaluation_failure, &residual_evaluation_failure_open_status);
+    ASSERT_TRUE(residual_evaluation_failure_open_status.ok())
+            << residual_evaluation_failure_open_status;
+    EXPECT_EQ(residual_after_evaluation_failure, expected_residual_values);
+
+    int memory_failure_injection_count = 0;
+    std::vector<std::string> after_memory_failure;
+    Status memory_failure_open_status;
+    {
+        ScopedDebugPoint debug_point(
+                "OrcReader._init_search_argument_from_local_filters.inject_failure", [&]() {
+                    ++memory_failure_injection_count;
+                    throw Exception(ErrorCode::MEM_ALLOC_FAILED,
+                                    "injected ORC SARG allocation failure");
+                });
+        scan_first_stripe(valid_file_path, valid_stripe_layout[0], true, false,
+                          &after_memory_failure, &memory_failure_open_status);
+    }
+    EXPECT_EQ(memory_failure_injection_count, 1);
+    EXPECT_TRUE(memory_failure_open_status.is<ErrorCode::MEM_LIMIT_EXCEEDED>())
+            << memory_failure_open_status;
+    EXPECT_TRUE(after_memory_failure.empty());
 }
 
 TEST_F(NewOrcReaderTest, SargBinaryCastFromVarbinaryToStringConjunctPrunesRowGroups) {
