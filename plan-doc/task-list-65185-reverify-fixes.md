@@ -52,10 +52,10 @@ Legend：⬜ todo / 🔄 in progress / ✅ done / ⏸ 挂起(需决策/live)
 | 25 | **L13** | 🟡低 | paimon | to-Paimon 丢嵌套 nullability | ✅ | ✅ | ✅ | ✅ |
 | 26 | **L14** | 🟡低 | paimon | ignore_split_type 静默 no-op | ✅ | ✅ | ✅ | ✅ |
 | 27 | **L15** | 🟡低 | fe-core | PAIMON_SCAN_METRICS 悬空常量 | ✅ | ✅ | ✅ | ✅ |
-| 28 | **L16** | 🟡低 | iceberg | 快照/schema 缓存偏斜(防御性 union) | ⬜ | ⬜ | ⬜ | ⬜ |
-| 29 | **L17** | 🟡低 | fe-core/iceberg | 同表多版本 version-blind schema 绑定 | ⬜ | ⬜ | ⬜ | ⬜ |
-| 30 | **L18** | 🟡低 | iceberg | 未知/v3 类型静默 UNSUPPORTED | ⬜ | ⬜ | ⬜ | ⬜ |
-| 31 | **L19** | 🟡低 | fe-core/iceberg | partition_columns 魔法键撞名→误判分区 | ⬜ | ⬜ | ⬜ | ⬜ |
+| 28 | **L16** | 🟡低 | iceberg | 快照/schema 缓存偏斜(防御性 union) | ✅ | ✅ | ✅ | ✅ 复核 REFUTED+防呆注释 |
+| 29 | **L17** | 🟡低 | fe-core/iceberg | 同表多版本 version-blind schema 绑定 | ✅ | ✅ | ✅ | ✅ 用户签字 fail-loud+TODO |
+| 30 | **L18** | 🟡低 | iceberg | 未知/v3 类型静默 UNSUPPORTED | ✅ | ✅ | ✅ | ✅ 用户签字 accept(DV-051) |
+| 31 | **L19** | 🟡低 | fe-core/iceberg | partition_columns 魔法键撞名→误判分区 | ✅ | ✅ | ✅ | ✅ |
 | 32 | **L20** | 🟡低 | maxcompute | EQ 发 `==`(对齐 `=` 或 live A/B) | ⬜ | ⬜ | ⬜ | ⏸ 或 live |
 | — | **D-系列** | ⚪设计债 | — | 见文末「设计债跟踪」(多为 P8 前置/需一次性重构) | — | — | — | ⏸ |
 
@@ -193,10 +193,10 @@ Legend：⬜ todo / 🔄 in progress / ✅ done / ⏸ 挂起(需决策/live)
 - [x] **L13** DONE `ced4775b844`(设计 `FIX-L13-design.md`;红队 3 lens 全 SOUND）· `toPaimonType` 对 ARRAY 元素/MAP value/STRUCT 字段加 `.copy(type.isChildNullable(i))`(MAP key 保持 `.copy(false)`),恢复 legacy `DorisToPaimonTypeVisitor` 嵌套 nullability parity。**scope=仅 nullability**:comment 丢=DV-035 M10.1 已接受偏差、field-id 顺序 parity 均不动。`.copy(true)` 对默认可空子类型逐字节恒等(既有 parity 测保持绿)。3 新 RED-able 测(经 `.type().isNullable()` 断言,非 DataField equals)。type-mapping+schema-builder 26/26 绿。e2e live-gated(建嵌套 NOT NULL 表 DESCRIBE/SDK 读回)。
 - [x] **L14** DONE `478718aca6f`(设计 `FIX-L14-design.md`;红队 3 lens SOUND/SOUND_WITH_CHANGES）· null-tolerant `resolveIgnoreSplitType(session)`(镜像 `isCppReaderEnabled`,红队 MINOR)+三 legacy `continue` 位:`IGNORE_JNI` drops nonDataSplit+DataSplit-JNI 臂、`IGNORE_NATIVE` drops native 臂、count 臂不检、`IGNORE_PAIMON_CPP` 保持 no-op(=legacy parity,全树 grep 证 legacy 从不引用)。默认 NONE 逐字节不变。3 新 live-planScan RED 测(IGNORE_JNI/IGNORE_NATIVE 各证跳 split+IGNORE_PAIMON_CPP==NONE);nonDataSplit IGNORE_JNI 位离线不可测→留 E2E-only。69/69 绿。e2e live-gated(真集群 SET ignore_split_type 断言跳分片)。
 - [x] **L15 → 被 scan-metrics 功能取代**(用户 2026-07-13 追加要求恢复功能,非删死引用):先删 `b2cdf971889`(判为死引用),后**复核发现是插件迁移丢的真功能**(paimon+iceberg 都丢;iceberg 的 `ICEBERG_SCAN_METRICS` 仅靠死 legacy `IcebergScanNode` 续命,我先前「iceberg 活」判断有误)→ **改为恢复**:`8d4209865a3` 建**连接器中立 scan-metrics SPI**(`ConnectorScanProfile`+`collectScanProfiles`;paimon `PaimonMetricRegistry`+`PaimonScanMetrics` pull、iceberg `IcebergScanProfileReporter` push;fe-core 纯静态 `writeScanProfilesInto` 写 profile;**复活** `PAIMON_SCAN_METRICS` 常量)。设计 3-lens 红队 `wf_0f803c49-7bb` 全 SOUND_WITH_CHANGES(2 blocker=iceberg streaming 泄漏改挂 planScanInternal、DebugUtil 自搬,+ majors 全折入)。设计/summary=`designs/FIX-scan-metrics-spi-{design,summary}.md`。UT fe-core 4/4+paimon 4/4+iceberg 4/4,全模块 paimon 360+iceberg 982+fe-core 94 绿,0 checkstyle,import 门净。e2e live-gated(profile 含 X Scan Metrics 组)。
-- [ ] **L16** iceberg 缓存偏斜(部分已修) · `IcebergScanPlanProvider.java:1077-1108`:hasSnapshotPin 臂把 field-id dict 建成「pinned schema ∪ requested latest columns」超集(传 requestedLowerNames 而非 `emptyList`),两向都超集;或 fe-core 侧 query-begin pin 解析 pinnedSchema 到 pinned schemaId(对齐 time-travel 臂 `:377-387`)。
-- [ ] **L17** iceberg 同表多版本 version-blind 绑定 · `PluginDrivenMvccExternalTable.java:475-485`:per-reference schema 绑定 version-aware(用 `StatementContext.getSnapshot(table, tableSnapshot, scanParams)` 的 pinnedSchema,fallback latest);与 L16 同根,建议一并。窄触发 + fail-loud。
-- [ ] **L18** iceberg 未知/v3 类型静默 UNSUPPORTED · `IcebergTypeMapping.java:91,143`:两 default 臂改 `throw DorisConnectorException("Cannot transform unknown type: "+...)`,保留显式 TIME/VARIANT UNSUPPORTED;或接受更松并登记。
-- [ ] **L19** partition_columns 魔法键撞名 · `PluginDrivenExternalTable.java:512,703-714` + `IcebergConnectorMetadata.java:409-445`:putAll 前从源 `table.properties()` 剔除保留键;iceberg buildTableSchema 在分区/非分区分支前移除已存在的 `partition_columns`,使非分区表不继承用户 `partition_columns`。
+- [x] **L16** DONE `76afd6f2e80`(复核 REFUTED+防呆注释;设计 `designs/FIX-L16-design.md`)· 复核判定**已消除/benign**:`IcebergScanPlanProvider` hasSnapshotPin 臂现已传 `Collections.emptyList()`(全量 pinned schema,非 requestedLowerNames 超集,自首 commit 即如此);残留「快照 id vs schema id 偏斜」构造不出——pin 原子取 `(snapshotId,schemaId)`+iceberg `schemas()` 只增+两条取 schema 路径(`pinnedSchema` dict / `getTableSchema` slot)用同一选择器同一静默回退。**无功能改动**,仅加交叉引用防呆注释锁住「两处回退必须一致」不变量(否则 BE `children.at()` SIGABRT)。残留结构隐患=L17 同根(逐引用版本感知)。
+- [x] **L17** DONE `3627556db34`(设计 `designs/FIX-L17-design.md`;3-lens 红队 `wf_f7b69cf7-ec8` 推翻 analysis-time 方案→改 scan-node)· **用户 2026-07-13 签字:先 fail-loud + 记 TODO 重构**。红队证 analysis-time `getSchemaCacheValue` 守卫**顺序依赖+被 plain-ref/MTMV default pin 遮蔽+@incr 漏**(同一 query 抛或静默 skew 视绑定序)→改**逐引用 scan-node 守卫**:`PluginDrivenScanNode.pinMvccSnapshot` 解析版本感知 pin 后,校验每个 bound tuple 列在**本引用 pinned schema** 可解析(有 field-id 按 id、否则按 name),否则抛。确定性+完整(catch 自连接/latest-遮蔽/@incr/MTMV)+无误报(`t@old JOIN t@latest` 各 tuple 匹配自身版本→不抛)。静态可测 helper,7 RED-able UT。TODO=`D-MVCC-VERSION-SCHEMA`(逐引用版本感知 schema 绑定,仿 Trino 版本作用域 handle)。残余:嵌套 field-id-only 重编号看不见(iceberg id 稳定不触发)。
+- [x] **L18** DONE `1c9c99c7767`(设计 `designs/FIX-L18-design.md`;登记 **DV-051**)· **用户 2026-07-13 签字 accept「统一映射 UNSUPPORTED」**(非抛):`IcebergTypeMapping.fromIcebergType/fromPrimitive` 两 `default` 臂保持把 Doris 无法表示的 iceberg 类型(v3 primitives TIMESTAMP_NANO/GEOMETRY/GEOGRAPHY/UNKNOWN + non-primitive VARIANT)映射 UNSUPPORTED→表能加载、该列 present-but-unqueryable、其它列可用。**背离** legacy(抛 `IllegalArgumentException`)与 Trino(抛 NOT_SUPPORTED),但用户选 graceful degradation。**无功能改动**;加澄清注释+守护测试 `unknownAndV3TypesDegradeToUnsupportedByDesign`(未来改抛→red);写方向 `toIcebergPrimitive` 仍抛(CREATE 不静默接受不可 round-trip 类型)。
+- [x] **L19** DONE `01668779fd9`(设计 `designs/FIX-L19-design.md`)· 连接器侧 `remove` 保留键防撞名。**scope 扩至 iceberg+hive+paimon 三连接器**(复核发现同 bug:三者均 `putAll(源属性)` 后仅有条件盖 `partition_columns`,非分区表漏出用户同名键→误判分区;hudi/maxcompute 用全新 map 免疫)。修=各连接器 `putAll` 后立即 `remove("partition_columns")`(paimon 另 `remove("primary_keys")`),分区表下方 re-stamp 连接器真值→连接器值必胜。fe-core 无法区分连接器发 vs 用户透传(铁律禁解析连接器键义)故必须 producer-side。iceberg+hive 各 2 RED-able UT;paimon `DataTable` coreOptions 路现有 fake 非 DataTable 不可单测→按检视+e2e-gated 登记(非静默略过)。
 - [ ] **L20** ⏸ MC EQ `==` · `MaxComputePredicateConverter.java:145-146`:直接 `case EQ: opDesc = "=";` 对齐 SDK/legacy 消除不确定性(推荐);或 live ODPS A/B 确认容忍。顺带补 IN 方向回归测试(P4-3-IN 已修但缺测)。
 
 ---
@@ -213,7 +213,8 @@ Legend：⬜ todo / 🔄 in progress / ✅ done / ⏸ 挂起(需决策/live)
 - [ ] **D-TCCL** · 抽 `Tccl.pin(loader,Runnable)` 到 fe-connector-spi/support,iceberg/paimon/hive(内联 `HiveConnectorMetadata:798-805,832-845`)共用。
 - [ ] **D-HIVECONF** · 合并 hive 三处 `buildHadoopConf`(`HiveConnector:621`/`HiveScanPlanProvider:444`/`HiveConnectorMetadata:967`)为一私有 helper;长期共享 `HadoopConfBuilder`。
 - [ ] **D-FAKESTUB**(测试) · 加共享 `AbstractFakeHmsClient` 测试夹具,hive/hudi ~11 份桩收敛。
-- [ ] **D-MAGICKEY** · SHOW CREATE 子句换结构化 `ConnectorTableDdl`(transform+sort 作数据,fe-core 单一 altitude 渲染);至少把 `partition_columns`/`primary_keys` 提为声明常量。
+- [ ] **D-MAGICKEY** · SHOW CREATE 子句换结构化 `ConnectorTableDdl`(transform+sort 作数据,fe-core 单一 altitude 渲染);至少把 `partition_columns`/`primary_keys` 提为声明常量。**L19 已在连接器侧(iceberg/hive/paimon)`remove` 保留键防撞名**;此项为长期结构化收口。
+- [ ] **D-MVCC-VERSION-SCHEMA**(承接 L17 用户 TODO,2026-07-13)· 让 schema 绑定端到端**按引用版本感知**(仿 Trino:版本作用域 `ConnectorTableHandle` / 逐引用列句柄解析),使同一 `TableIf` 在一条语句里能带两套 schema——「同表多版本跨结构变更自连接」**能跑通**而非报错,移除 L17 fail-loud 守卫的限制。现状=`getSchemaCacheValue()` 无引用参数、从共享 `TableIf` 版本盲绑定;L17 已在 `PluginDrivenScanNode.pinMvccSnapshot` 加逐引用 fail-loud 守卫(tuple 列须在版本感知 pinned schema 解析,否则抛)。Nereids 层改动,择机。**残余**:嵌套 field-id-only 重编号守卫看不见(iceberg id 稳定,实际不触发)。
 - [ ] **D-SPI-FACET** · 4.2 stringly-typed(transform/bucket enum 化)+ 4.3 连接器专属能力收进 capability-discovered facet;登记为验收架构张力。
 - [ ] **D-D2-MICROS** · `ConnectorMvccPartitionView.getNewestUpdateTimeMillis:113` 重命名 `getNewestUpdateMarker()`(去伪单位,零行为变更)。
 - [ ] **D-D3-PATHCONTRACT** · `applyRewriteFileScope:204`/`applyTopnLazyMaterialization:226` 引 `ConnectorFilePath` token / debug 全 schema 断言;或登记验收。
@@ -320,3 +321,13 @@ Legend：⬜ todo / 🔄 in progress / ✅ done / ⏸ 挂起(需决策/live)
 - **张力(Rule 7)**:task list 原推荐 A(登记 Nereids 数为验收偏差,零代码);但 Trino 与「该数还喂 `sql_block_rule` 治理」角度支持 B(A 在隐藏分区下**高报**实际扫描分区数=治理 false-positive over-block)。已用中文向用户讲清背景+两选项+推荐 → **用户选 B**。
 
 </details>
+
+---
+
+**⭐ L16–L19 全部 DONE(2026-07-13,iceberg 杂项收尾)** — 4 recon agent(`wf_0aee6600-244`)复核 HEAD + 独立读码;两条需用户决策(L17/L18)已用中文讲清背景+Trino 对照+选项问用户。commits:`01668779fd9`(L19 三连接器 remove 保留键)· `1c9c99c7767`(L18 accept UNSUPPORTED+守护测试,DV-051)· `76afd6f2e80`(L16 复核 REFUTED+防呆注释)· `3627556db34`(L17 scan-node fail-loud 守卫,3-lens 红队 `wf_f7b69cf7-ec8` 推翻 analysis-time 方案)。
+- **L19** — partition_columns 撞名:**复核扩 scope 到 iceberg+hive+paimon**(同 bug 三份;hudi/mc 免疫)。producer-side `remove`(fe-core 无法区分连接器发 vs 用户透传,铁律禁解析连接器键义)。iceberg 50/50+hive 23/23 UT 绿(各 2 RED-able)、paimon package 编译绿、import 门净;paimon coreOptions 路现有 fake 非 DataTable 不可单测→检视+e2e-gated 登记。
+- **L18** — 未知/v3 类型:**用户签字 accept graceful degradation**(非抛,登记 DV-051);无功能改动+守护测试锁意图。IcebergTypeMappingReadTest 11/11。
+- **L16** — 缓存偏斜:**复核判 REFUTED/benign**(超集写法已不存在+偏斜构造不出:原子 pin+append-only schemas+对称回退);仅加防呆注释锁不变量。IcebergScanPlanProviderTest 88/88。
+- **L17** — 同表多版本 version-blind:**用户签字 fail-loud + TODO 重构**(`D-MVCC-VERSION-SCHEMA`)。红队证 analysis-time 守卫顺序依赖+default-pin/MTMV/@incr 遮蔽→改**逐引用 scan-node 守卫**(tuple 列须在本引用 pinned schema 可解析,有 id 按 id 否则 name)。确定性+完整+无误报。SchemaGuardTest 7/7 + MvccPin 3/3 + MvccExternalTable 59/59。
+- **e2e 全 live-gated**(真集群):L19 非分区表 SET TBLPROPERTIES('partition_columns'=真列)不误判分区;L18 v3 GEOMETRY 列表可加载、该列查报错、其它列可用;L16 无(纯注释);L17 iceberg `t FOR VERSION AS OF v1 a JOIN t FOR VERSION AS OF v2 b` 跨 ALTER →抛清晰错(非 BE 崩)。
+- **决策类仅余 L20**(MC EQ `==`)。设计文档 `designs/FIX-L16/L17/L18/L19-design.md`。
