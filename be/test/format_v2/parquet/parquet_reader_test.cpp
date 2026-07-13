@@ -1190,7 +1190,7 @@ TEST_F(NewParquetReaderTest, CountComplexColumnUsesShapeOnlyPath) {
     ASSERT_TRUE(reader->open(std::make_shared<format::FileScanRequest>()).ok());
 
     format::FileAggregateRequest request;
-    request.agg_type = TPushAggOp::type::COUNT;
+    request.agg_type = TPushAggOp::type::COUNT_NON_NULL;
     request.columns.push_back(
             {.projection = format::LocalColumnIndex::top_level(format::LocalColumnId(0))});
     format::FileAggregateResult result;
@@ -1199,6 +1199,8 @@ TEST_F(NewParquetReaderTest, CountComplexColumnUsesShapeOnlyPath) {
     // Rows are: non-empty map, NULL map, empty map, non-empty map with large value string,
     // non-empty map with NULL value. COUNT(arr) excludes only the top-level NULL map.
     EXPECT_EQ(result.count, 4);
+    ASSERT_NE(profile.get_counter("ArrowReadRecordsTime"), nullptr);
+    EXPECT_EQ(profile.get_counter("ArrowReadRecordsTime")->value(), 0);
     ASSERT_NE(profile.get_counter("MaterializationTime"), nullptr);
     EXPECT_EQ(profile.get_counter("MaterializationTime")->value(), 0);
 }
@@ -1212,7 +1214,7 @@ TEST_F(NewParquetReaderTest, CountArrayColumnUsesLevelsOnlyPath) {
     ASSERT_TRUE(reader->open(std::make_shared<format::FileScanRequest>()).ok());
 
     format::FileAggregateRequest request;
-    request.agg_type = TPushAggOp::type::COUNT;
+    request.agg_type = TPushAggOp::type::COUNT_NON_NULL;
     request.columns.push_back(
             {.projection = format::LocalColumnIndex::top_level(format::LocalColumnId(0))});
     format::FileAggregateResult result;
@@ -1221,6 +1223,8 @@ TEST_F(NewParquetReaderTest, CountArrayColumnUsesLevelsOnlyPath) {
     // Rows are: non-empty array with a large string, NULL array, empty array, non-empty array
     // with NULL element, non-empty array with a large string. Only the top-level NULL is excluded.
     EXPECT_EQ(result.count, 4);
+    ASSERT_NE(profile.get_counter("ArrowReadRecordsTime"), nullptr);
+    EXPECT_EQ(profile.get_counter("ArrowReadRecordsTime")->value(), 0);
     ASSERT_NE(profile.get_counter("MaterializationTime"), nullptr);
     EXPECT_EQ(profile.get_counter("MaterializationTime")->value(), 0);
 }
@@ -1234,7 +1238,7 @@ TEST_F(NewParquetReaderTest, CountStructColumnUsesLevelsOnlyPath) {
     ASSERT_TRUE(reader->open(std::make_shared<format::FileScanRequest>()).ok());
 
     format::FileAggregateRequest request;
-    request.agg_type = TPushAggOp::type::COUNT;
+    request.agg_type = TPushAggOp::type::COUNT_NON_NULL;
     request.columns.push_back(
             {.projection = format::LocalColumnIndex::top_level(format::LocalColumnId(0))});
     format::FileAggregateResult result;
@@ -1243,6 +1247,8 @@ TEST_F(NewParquetReaderTest, CountStructColumnUsesLevelsOnlyPath) {
     // The representative STRUCT leaf is the first child, a nullable STRING payload. A row with
     // NULL payload but non-NULL struct still counts; only the top-level NULL struct is excluded.
     EXPECT_EQ(result.count, 4);
+    ASSERT_NE(profile.get_counter("ArrowReadRecordsTime"), nullptr);
+    EXPECT_EQ(profile.get_counter("ArrowReadRecordsTime")->value(), 0);
     ASSERT_NE(profile.get_counter("MaterializationTime"), nullptr);
     EXPECT_EQ(profile.get_counter("MaterializationTime")->value(), 0);
 }
@@ -1257,7 +1263,7 @@ TEST_F(NewParquetReaderTest, CountStructWithRepeatedChildUsesTopLevelRowBoundari
         ASSERT_TRUE(reader->open(std::make_shared<format::FileScanRequest>()).ok());
 
         format::FileAggregateRequest request;
-        request.agg_type = TPushAggOp::type::COUNT;
+        request.agg_type = TPushAggOp::type::COUNT_NON_NULL;
         request.columns.push_back({.projection = format::LocalColumnIndex::top_level(
                                            format::LocalColumnId(column_id))});
         format::FileAggregateResult result;

@@ -119,16 +119,15 @@ public:
             ParquetNestedScalarBatch* batch,
             int16_t value_slot_repetition_level = std::numeric_limits<int16_t>::max()) const;
 
-    // COUNT(col) and nested-skip shape-only read path. It still calls Arrow
-    // RecordReader::ReadRecords() to advance the Parquet cursor and obtain def/rep levels, but
-    // Doris only copies levels:
+    // Legacy nested-skip shape-only read path. It calls Arrow RecordReader::ReadRecords() to
+    // advance the Parquet cursor and obtain def/rep levels, but Doris only copies levels:
     // - it does not build value_indices or values_column
     // - it does not enter DataTypeSerde::read_column_from_decoded_values()
     // - for Binary/FLBA, it releases and immediately discards Arrow builder chunks because that is
     //   the RecordReader's required reset operation; it never copies them into a Doris Column
-    // This lets COUNT(col) on MAP/ARRAY/STRUCT evaluate top-level NULL state and lets skip advance
-    // nested shape without Doris-side STRING/BINARY materialization. Arrow RecordReader does not
-    // expose a public levels-only API, so ReadRecords may still perform required page decoding.
+    // This lets nested skip advance shape without Doris-side STRING/BINARY materialization.
+    // COUNT(col) uses CountShapeColumnReader instead, which bypasses RecordReader and therefore
+    // avoids Arrow binary builder materialization as well as Doris value materialization.
     Status read_nested_levels_batch(int64_t batch_rows, ParquetNestedScalarBatch* batch) const;
 
 private:

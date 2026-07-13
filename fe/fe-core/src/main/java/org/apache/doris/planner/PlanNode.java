@@ -771,9 +771,14 @@ public abstract class PlanNode extends TreeNode<PlanNode> {
     }
 
     protected TPushAggOp pushDownAggNoGroupingOp = TPushAggOp.NONE;
+    protected SlotId countNonNullSlotId;
 
     public void setPushDownAggNoGrouping(TPushAggOp pushDownAggNoGroupingOp) {
         this.pushDownAggNoGroupingOp = pushDownAggNoGroupingOp;
+    }
+
+    public void setCountNonNullSlotId(SlotId countNonNullSlotId) {
+        this.countNonNullSlotId = countNonNullSlotId;
     }
 
     public void setChildrenDistributeExprLists(List<List<Expr>> childrenDistributeExprLists) {

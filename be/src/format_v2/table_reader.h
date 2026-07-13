@@ -135,6 +135,8 @@ struct TableReadOptions {
     const std::vector<SlotDescriptor*>* file_slot_descs = nullptr;
     // Push-down aggregate type.
     const TPushAggOp::type push_down_agg_type = TPushAggOp::type::NONE;
+    // Global projected-column index targeted by COUNT_NON_NULL.
+    const std::optional<GlobalIndex> count_non_null_global_index = std::nullopt;
     // Digest of stable pushed-down predicates. A zero digest disables condition cache.
     uint64_t condition_cache_digest = 0;
 };
@@ -542,12 +544,22 @@ protected:
 
     bool _is_table_level_count_active() const { return _remaining_table_level_count >= 0; }
 
-    Status _materialize_count_rows(size_t rows, Block* block) const {
+    Status _materialize_count_rows(
+            size_t rows, Block* block,
+            std::optional<GlobalIndex> non_null_global_index = std::nullopt) const {
         DORIS_CHECK(block != nullptr);
         DORIS_CHECK(block->columns() > 0 || rows == 0);
+        if (non_null_global_index.has_value()) {
+            DORIS_CHECK(non_null_global_index->value() < block->columns());
+        }
         for (size_t column_idx = 0; column_idx < block->columns(); ++column_idx) {
             auto column = block->get_by_position(column_idx).type->create_column();
-            column->resize(rows);
+            if (non_null_global_index.has_value() && column_idx == non_null_global_index->value()) {
+                DORIS_CHECK(column->is_nullable());
+                assert_cast<ColumnNullable&>(*column).insert_not_null_elements(rows);
+            } else {
+                column->insert_many_defaults(rows);
+            }
             block->replace_by_position(column_idx, std::move(column));
         }
         return Status::OK();
@@ -652,15 +664,29 @@ protected:
     // Finalize file-local block to table/global schema block.
     Status finalize_chunk(Block* block, const size_t rows) {
         SCOPED_TIMER(_profile.finalize_timer);
-        size_t idx = 0;
+        std::vector<ColumnPtr> materialized_columns;
+        materialized_columns.reserve(_data_reader.column_mapper->mappings().size());
         for (const auto& mapping : _data_reader.column_mapper->mappings()) {
             ColumnPtr column;
             RETURN_IF_ERROR(_materialize_mapping_column(mapping, &_data_reader.block_template, rows,
                                                         &column));
-            block->replace_by_position(idx, IColumn::mutate(std::move(column)));
-            idx++;
+            materialized_columns.push_back(std::move(column));
         }
+        for (size_t idx = 0; idx < materialized_columns.size(); ++idx) {
+            block->replace_by_position(idx, std::move(materialized_columns[idx]));
+        }
+        // Table-format virtual columns can depend on auxiliary file-local columns such as Iceberg
+        // row positions, so materialize them before releasing the file block.
         RETURN_IF_ERROR(materialize_virtual_columns(block));
+        // Projection results can alias columns owned by the file-local block. Release those
+        // owners before requesting mutable output columns so direct mappings transfer their
+        // payload instead of triggering a COW deep clone.
+        _data_reader.block_template.clear_column_data(
+                cast_set<int64_t>(_data_reader.file_block_layout.size()));
+        for (size_t idx = 0; idx < block->columns(); ++idx) {
+            block->replace_by_position(
+                    idx, IColumn::mutate(std::move(block->get_by_position(idx).column)));
+        }
         // Enforce CHAR/VARCHAR length declared by the table schema after all file-to-table
         // materialization has finished.
         RETURN_IF_ERROR(_truncate_char_or_varchar_columns(block));
@@ -901,6 +927,10 @@ protected:
         block->clear_column_data(_projected_columns.size());
         _aggregate_pushdown_tried = true;
         if (!_supports_aggregate_pushdown(_push_down_agg_type)) {
+            if (_push_down_agg_type == TPushAggOp::type::COUNT_NON_NULL) {
+                return Status::NotSupported(
+                        "COUNT_NON_NULL requires one directly mapped file column without filters");
+            }
             return Status::OK();
         }
 
@@ -909,6 +939,10 @@ protected:
         FileAggregateResult file_result;
         const auto status = _data_reader.reader->get_aggregate_result(file_request, &file_result);
         if (status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) {
+            if (_push_down_agg_type == TPushAggOp::type::COUNT_NON_NULL) {
+                return Status::NotSupported(
+                        "File reader does not support COUNT_NON_NULL aggregate pushdown");
+            }
             return Status::OK();
         }
         RETURN_IF_ERROR(status);
@@ -920,8 +954,9 @@ protected:
     }
 
     virtual bool _supports_aggregate_pushdown(TPushAggOp::type agg_type) const {
-        // Only COUNT and MIN/MAX can be push down.
-        if (agg_type != TPushAggOp::type::COUNT && agg_type != TPushAggOp::type::MINMAX) {
+        // Only COUNT, COUNT_NON_NULL and MIN/MAX can be pushed down.
+        if (agg_type != TPushAggOp::type::COUNT && agg_type != TPushAggOp::type::COUNT_NON_NULL &&
+            agg_type != TPushAggOp::type::MINMAX) {
             return false;
         }
         // Aggregate pushdown returns reduced synthetic rows and may close the physical reader
@@ -950,6 +985,17 @@ protected:
         }
         if (agg_type == TPushAggOp::type::COUNT) {
             return true;
+        }
+        if (agg_type == TPushAggOp::type::COUNT_NON_NULL) {
+            DORIS_CHECK(_count_non_null_global_index.has_value());
+            const auto mapping_it = std::ranges::find_if(
+                    _data_reader.column_mapper->mappings(), [&](const auto& mapping) {
+                        return mapping.global_index == *_count_non_null_global_index;
+                    });
+            DORIS_CHECK(mapping_it != _data_reader.column_mapper->mappings().end());
+            return mapping_it->file_local_id.has_value() &&
+                   mapping_it->virtual_column_type == TableVirtualColumnType::INVALID &&
+                   mapping_it->default_expr == nullptr;
         }
         // For MIN/MAX, only support direct file-to-table column mappings. The two emitted rows
         // must be enough for the upper MIN/MAX aggregate without evaluating default expressions or
@@ -1149,7 +1195,7 @@ protected:
                         rows, st.to_string(), mapping.debug_string());
             }
             ColumnPtr result_column = current_block->get_by_position(res_id).column;
-            *column = _detach_column(std::move(result_column));
+            *column = std::move(result_column);
             return Status::OK();
         }
         if (mapping.default_expr != nullptr) {
@@ -1159,7 +1205,7 @@ protected:
                         mapping.default_expr, current_block, &result));
                 ColumnPtr result_column = result.column;
                 RETURN_IF_ERROR(_align_column_nullability(&result_column, mapping.table_type));
-                *column = _detach_column(std::move(result_column));
+                *column = std::move(result_column);
             } else {
                 DORIS_CHECK(mapping.constant_index.has_value());
                 Block eval_block;
@@ -1170,12 +1216,12 @@ protected:
                         mapping.default_expr, &eval_block, &result));
                 ColumnPtr result_column = result.column;
                 RETURN_IF_ERROR(_align_column_nullability(&result_column, mapping.table_type));
-                *column = _detach_column(std::move(result_column));
+                *column = std::move(result_column);
             }
             return Status::OK();
         }
         ColumnPtr result_column = mapping.table_type->create_column_const_with_default_value(rows);
-        *column = _detach_column(std::move(result_column));
+        *column = std::move(result_column);
         return Status::OK();
     }
 
@@ -1432,25 +1478,18 @@ protected:
         request->agg_type = agg_type;
         request->columns.clear();
         if (agg_type == TPushAggOp::type::COUNT) {
-            // COUNT pushdown historically meant COUNT(*) and therefore carried no columns. For
-            // complex COUNT(col), materializing the full MAP/LIST/STRUCT value only to test the
-            // top-level NULL bit can be extremely expensive. When the scan projects exactly one
-            // directly-mapped complex column, pass that file column to the reader so formats such
-            // as Parquet can count the column shape from metadata/levels without decoding payload
-            // values like MAP value strings. Other COUNT cases stay on the existing row-count path
-            // to avoid changing count(*) semantics.
-            if (_data_reader.column_mapper->mappings().size() == 1) {
-                const auto& mapping = _data_reader.column_mapper->mappings()[0];
-                if (mapping.file_local_id.has_value() && mapping.file_type != nullptr &&
-                    is_complex_type(remove_nullable(mapping.file_type)->get_primitive_type()) &&
-                    mapping.virtual_column_type == TableVirtualColumnType::INVALID &&
-                    mapping.default_expr == nullptr) {
-                    FileAggregateRequest::Column column;
-                    column.projection =
-                            LocalColumnIndex::top_level(LocalColumnId(*mapping.file_local_id));
-                    request->columns.push_back(std::move(column));
-                }
-            }
+            return Status::OK();
+        }
+        if (agg_type == TPushAggOp::type::COUNT_NON_NULL) {
+            DORIS_CHECK(_count_non_null_global_index.has_value());
+            const auto mapping_it = std::ranges::find_if(
+                    _data_reader.column_mapper->mappings(), [&](const auto& mapping) {
+                        return mapping.global_index == *_count_non_null_global_index;
+                    });
+            DORIS_CHECK(mapping_it != _data_reader.column_mapper->mappings().end());
+            DORIS_CHECK(mapping_it->file_local_id.has_value());
+            request->columns.push_back({.projection = LocalColumnIndex::top_level(
+                                                LocalColumnId(*mapping_it->file_local_id))});
             return Status::OK();
         }
         request->columns.reserve(_data_reader.column_mapper->mappings().size());
@@ -1469,11 +1508,15 @@ protected:
     Status _materialize_aggregate_pushdown_rows(TPushAggOp::type agg_type,
                                                 const FileAggregateResult& file_result,
                                                 Block* block) {
-        if (agg_type == TPushAggOp::type::COUNT) {
-            // COUNT pushdown is not a final count value. It emits `count` default rows so the
-            // upper COUNT(*) aggregate can count them and produce the final result, including
-            // zero rows when count is 0.
+        if (agg_type == TPushAggOp::type::COUNT || agg_type == TPushAggOp::type::COUNT_NON_NULL) {
+            // Pushdown emits `count` synthetic rows rather than a final scalar. COUNT_NON_NULL
+            // explicitly makes its target column non-NULL, so the upper COUNT(*) or COUNT(col)
+            // produces the same result, including zero when no synthetic rows are emitted.
             DORIS_CHECK(file_result.count >= 0);
+            if (agg_type == TPushAggOp::type::COUNT_NON_NULL) {
+                return _materialize_count_rows(cast_set<size_t>(file_result.count), block,
+                                               _count_non_null_global_index);
+            }
             return _materialize_count_rows(cast_set<size_t>(file_result.count), block);
         }
         // MIN/MAX pushdown emits two rows, min first and max second, for each projected column.
@@ -1570,6 +1613,7 @@ protected:
     const std::vector<SlotDescriptor*>* _file_slot_descs = nullptr;
     FileFormat _format;
     TPushAggOp::type _push_down_agg_type = TPushAggOp::type::NONE;
+    std::optional<GlobalIndex> _count_non_null_global_index;
     size_t _batch_size = 0;
     uint64_t _condition_cache_digest = 0;
     segment_v2::ConditionCache::ExternalCacheKey _condition_cache_key;

@@ -102,6 +102,8 @@ std::string push_down_agg_to_string(TPushAggOp::type op) {
         return "MIX";
     case TPushAggOp::COUNT_ON_INDEX:
         return "COUNT_ON_INDEX";
+    case TPushAggOp::COUNT_NON_NULL:
+        return "COUNT_NON_NULL";
     }
     return "UNKNOWN";
 }
@@ -472,6 +474,7 @@ Status TableReader::init(TableReadOptions&& options) {
     _scanner_profile = options.scanner_profile;
     _file_slot_descs = options.file_slot_descs;
     _push_down_agg_type = options.push_down_agg_type;
+    _count_non_null_global_index = options.count_non_null_global_index;
     _condition_cache_digest = options.condition_cache_digest;
     _projected_columns = std::move(options.projected_columns);
     _system_properties = create_system_properties(_scan_params);
@@ -560,6 +563,7 @@ Status TableReader::_open_local_filter_exprs(const FileScanRequest& file_request
 
 bool TableReader::_should_enable_condition_cache(const FileScanRequest& file_request) const {
     if (_condition_cache_digest == 0 || _push_down_agg_type == TPushAggOp::type::COUNT ||
+        _push_down_agg_type == TPushAggOp::type::COUNT_NON_NULL ||
         _current_file_description == std::nullopt || _data_reader.reader == nullptr) {
         return false;
     }

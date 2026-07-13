@@ -593,6 +593,7 @@ Status ParquetReader::get_aggregate_result(const format::FileAggregateRequest& r
     result->count = 0;
     result->columns.clear();
     if (request.agg_type != TPushAggOp::type::COUNT &&
+        request.agg_type != TPushAggOp::type::COUNT_NON_NULL &&
         request.agg_type != TPushAggOp::type::MINMAX) {
         return Status::NotSupported("Unsupported parquet aggregate pushdown type {}",
                                     request.agg_type);
@@ -605,8 +606,13 @@ Status ParquetReader::get_aggregate_result(const format::FileAggregateRequest& r
         DORIS_CHECK(row_group_metadata != nullptr);
         result->count += row_group_metadata->num_rows();
     }
-    if (request.agg_type == TPushAggOp::type::COUNT) {
+    if (request.agg_type == TPushAggOp::type::COUNT ||
+        request.agg_type == TPushAggOp::type::COUNT_NON_NULL) {
         if (request.columns.empty()) {
+            if (request.agg_type == TPushAggOp::type::COUNT_NON_NULL) {
+                return Status::InvalidArgument(
+                        "Parquet COUNT_NON_NULL pushdown requires one count column");
+            }
             return Status::OK();
         }
         if (request.columns.size() != 1) {
@@ -654,11 +660,10 @@ Status ParquetReader::get_aggregate_result(const format::FileAggregateRequest& r
                 while (range_rows_read < selected_range.length) {
                     const int64_t batch_rows =
                             std::min<int64_t>(_batch_size, selected_range.length - range_rows_read);
-                    // COUNT(col) only needs the top-level NULL state. The shape reader loads
-                    // def/rep levels from one representative leaf and does not build value_indices
-                    // or values_column. MAP chooses the key leaf; ARRAY/STRUCT may choose a string
-                    // leaf, but the levels-only protocol still avoids Doris-side string
-                    // materialization for that leaf.
+                    // COUNT(col) only needs the top-level NULL state. The shape reader keeps one
+                    // def/rep pair per top-level row and discards physical values. Binary leaves
+                    // use lightweight ByteArray cursors, so neither Arrow binary builders nor
+                    // Doris string columns are materialized.
                     RETURN_IF_ERROR(_stop_status_if_requested(
                             shape_reader->load_nested_levels_batch(batch_rows)));
                     _record_scan_rows(batch_rows);

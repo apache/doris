@@ -18,6 +18,7 @@
 #pragma once
 
 #include <cstdint>
+#include <optional>
 #include <set>
 #include <string>
 
@@ -74,6 +75,7 @@ public:
     virtual void set_scan_ranges(RuntimeState* state,
                                  const std::vector<TScanRangeParams>& scan_ranges) = 0;
     virtual TPushAggOp::type get_push_down_agg_type() = 0;
+    virtual std::optional<int32_t> get_count_non_null_slot_id() = 0;
 
     // If scan operator is serial operator(like topn), its real parallelism is 1.
     // Otherwise, its real parallelism is query_parallel_instance_num.
@@ -252,6 +254,7 @@ class ScanLocalState : public ScanLocalStateBase {
                          const std::vector<TScanRangeParams>& scan_ranges) override {}
 
     TPushAggOp::type get_push_down_agg_type() override;
+    std::optional<int32_t> get_count_non_null_slot_id() override;
 
     std::vector<Dependency*> execution_dependencies() override {
         if (_filter_dependencies.empty()) {
@@ -386,6 +389,7 @@ public:
     }
 
     TPushAggOp::type get_push_down_agg_type() { return _push_down_agg_type; }
+    std::optional<int32_t> get_count_non_null_slot_id() const { return _count_non_null_slot_id; }
 
     DataDistribution required_data_distribution(RuntimeState* /*state*/) const override {
         if (OperatorX<LocalStateType>::is_serial_operator()) {
@@ -451,6 +455,7 @@ protected:
     std::vector<TRuntimeFilterDesc> _runtime_filter_descs;
 
     TPushAggOp::type _push_down_agg_type;
+    std::optional<int32_t> _count_non_null_slot_id;
 
     // Record the value of the aggregate function 'count' from doris's be
     int64_t _push_down_count = -1;

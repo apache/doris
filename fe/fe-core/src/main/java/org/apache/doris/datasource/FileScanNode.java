@@ -95,6 +95,9 @@ public abstract class FileScanNode extends ExternalScanNode {
         if (desc.getTable() != null) {
             fileScanNode.setTableName(desc.getTable().getName());
         }
+        if (countNonNullSlotId != null) {
+            fileScanNode.setCountNonNullSlotId(countNonNullSlotId.asInt());
+        }
         planNode.setFileScanNode(fileScanNode);
         super.toThrift(planNode);
     }

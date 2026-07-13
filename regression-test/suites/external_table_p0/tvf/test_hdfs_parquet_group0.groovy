@@ -16,6 +16,8 @@
 // under the License.
 
 suite("test_hdfs_parquet_group0", "p0,external") {
+    sql "set enable_file_scanner_v2 = true"
+    sql "set enable_count_push_down_for_external_table = true"
     String hdfs_port = context.config.otherConfigs.get("hive2HdfsPort")
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
 
@@ -104,6 +106,13 @@ suite("test_hdfs_parquet_group0", "p0,external") {
 
 
             uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_parquet/group0/large_string_map.brotli.parquet"
+            explain {
+                sql """ select count(arr) from HDFS(
+                        "uri" = "${uri}",
+                        "hadoop.username" = "${hdfsUserName}",
+                        "format" = "parquet"); """
+                contains "pushdown agg=COUNT_NON_NULL"
+            }
             order_qt_test_11 """ select count(arr) from HDFS(
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",

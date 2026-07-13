@@ -844,12 +844,27 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         return getPlanFragmentForPhysicalFileScan(hudiScan, context, hudiScanNode);
     }
 
+    private void setFilePushDownAggregate(PhysicalRelation relation, ScanNode scanNode,
+            PlanTranslatorContext context) {
+        TPushAggOp pushAggOp = context.getRelationPushAggOp(relation.getRelationId());
+        scanNode.setPushDownAggNoGrouping(pushAggOp);
+        if (pushAggOp == TPushAggOp.COUNT_NON_NULL) {
+            Optional<ExprId> targetSlot = context.getRelationPushAggSlot(relation.getRelationId());
+            Preconditions.checkState(targetSlot.isPresent(),
+                    "COUNT_NON_NULL target is missing for relation " + relation.getRelationId());
+            SlotRef slotRef = context.findSlotRef(targetSlot.get());
+            Preconditions.checkState(slotRef != null,
+                    "COUNT_NON_NULL target slot is missing for relation " + relation.getRelationId());
+            scanNode.setCountNonNullSlotId(slotRef.getSlotId());
+        }
+    }
+
     @NotNull
     private PlanFragment getPlanFragmentForPhysicalFileScan(PhysicalFileScan fileScan, PlanTranslatorContext context,
             ScanNode scanNode) {
         scanNode.setNereidsId(fileScan.getId());
         context.getNereidsIdToPlanNodeIdMap().put(fileScan.getId(), scanNode.getId());
-        scanNode.setPushDownAggNoGrouping(context.getRelationPushAggOp(fileScan.getRelationId()));
+        setFilePushDownAggregate(fileScan, scanNode, context);
         scanNode.setHasPartitionPredicate(fileScan.hasPartitionPredicate());
 
         if (fileScan.getStats() != null) {
@@ -1105,6 +1120,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         TableValuedFunctionIf catalogFunction = tvfRelation.getFunction().getCatalogFunction();
         SessionVariable sv = ConnectContext.get().getSessionVariable();
         ScanNode scanNode = catalogFunction.getScanNode(context.nextPlanNodeId(), tupleDescriptor, sv);
+        setFilePushDownAggregate(tvfRelation, scanNode, context);
         scanNode.setDistributeExprLists(getDistributeExpr(tvfRelation));
         scanNode.setNereidsId(tvfRelation.getId());
         context.getNereidsIdToPlanNodeIdMap().put(tvfRelation.getId(), scanNode.getId());
@@ -1370,14 +1386,18 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     public PlanFragment visitPhysicalStorageLayerAggregate(
             PhysicalStorageLayerAggregate storageLayerAggregate, PlanTranslatorContext context) {
         Preconditions.checkState((storageLayerAggregate.getRelation() instanceof PhysicalOlapScan
-                        || storageLayerAggregate.getRelation() instanceof PhysicalFileScan),
-                "PhysicalStorageLayerAggregate only support PhysicalOlapScan and PhysicalFileScan: "
+                        || storageLayerAggregate.getRelation() instanceof PhysicalFileScan
+                        || storageLayerAggregate.getRelation() instanceof PhysicalTVFRelation),
+                "PhysicalStorageLayerAggregate only supports file and OLAP scans: "
                         + storageLayerAggregate.getRelation().getClass().getName());
 
         TPushAggOp pushAggOp;
         switch (storageLayerAggregate.getAggOp()) {
             case COUNT:
                 pushAggOp = TPushAggOp.COUNT;
+                break;
+            case COUNT_NON_NULL:
+                pushAggOp = TPushAggOp.COUNT_NON_NULL;
                 break;
             case COUNT_ON_MATCH:
                 pushAggOp = TPushAggOp.COUNT_ON_INDEX;
@@ -1393,14 +1413,21 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                         + storageLayerAggregate.getAggOp());
         }
 
-        if (storageLayerAggregate.getRelation() instanceof PhysicalFileScan
-                && pushAggOp.equals(TPushAggOp.COUNT)
+        if ((storageLayerAggregate.getRelation() instanceof PhysicalFileScan
+                || storageLayerAggregate.getRelation() instanceof PhysicalTVFRelation)
+                && (pushAggOp.equals(TPushAggOp.COUNT) || pushAggOp.equals(TPushAggOp.COUNT_NON_NULL))
                 && !ConnectContext.get().getSessionVariable().isEnableCountPushDownForExternalTable()) {
             pushAggOp = TPushAggOp.NONE;
         }
 
         context.setRelationPushAggOp(
                 storageLayerAggregate.getRelation().getRelationId(), pushAggOp);
+        if (pushAggOp == TPushAggOp.COUNT_NON_NULL) {
+            Preconditions.checkState(storageLayerAggregate.getAggSlot().isPresent(),
+                    "COUNT_NON_NULL requires one target slot");
+            context.setRelationPushAggSlot(storageLayerAggregate.getRelation().getRelationId(),
+                    storageLayerAggregate.getAggSlot().get());
+        }
 
         PlanFragment planFragment = storageLayerAggregate.getRelation().accept(this, context);
 

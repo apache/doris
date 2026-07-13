@@ -33,6 +33,7 @@ import org.apache.doris.nereids.rules.analysis.NormalizeAggregate;
 import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.Or;
@@ -53,12 +54,16 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalHudiScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalTVFRelation;
+import org.apache.doris.nereids.trees.plans.logical.SupportPruneNestedColumn;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate.PushDownAggOp;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalTVFRelation;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.tablefunction.ExternalFileTableValuedFunction;
 
 import com.google.common.collect.ImmutableList;
 
@@ -257,6 +262,26 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                         LogicalProject<LogicalFileScan> project = agg.child();
                         LogicalFileScan fileScan = project.child();
                         return storageLayerAggregate(agg, project, fileScan, ctx.cascadesContext);
+                    })
+            ),
+            RuleType.STORAGE_LAYER_AGGREGATE_WITHOUT_PROJECT_FOR_TVF.build(
+                logicalAggregate(
+                    logicalTVFRelation()
+                )
+                    .when(agg -> agg.isNormalized() && enablePushDownNoGroupAgg())
+                    .thenApply(ctx -> storageLayerAggregate(ctx.root, null, ctx.root.child(), ctx.cascadesContext))
+            ),
+            RuleType.STORAGE_LAYER_AGGREGATE_WITH_PROJECT_FOR_TVF.build(
+                logicalAggregate(
+                    logicalProject(
+                        logicalTVFRelation()
+                    )
+                ).when(agg -> agg.isNormalized() && enablePushDownNoGroupAgg())
+                    .thenApply(ctx -> {
+                        LogicalAggregate<LogicalProject<LogicalTVFRelation>> agg = ctx.root;
+                        LogicalProject<LogicalTVFRelation> project = agg.child();
+                        LogicalTVFRelation tvf = project.child();
+                        return storageLayerAggregate(agg, project, tvf, ctx.cascadesContext);
                     })
             )
         );
@@ -549,7 +574,20 @@ public class AggregateStrategies implements ImplementationRuleFactory {
             LogicalRelation logicalScan, CascadesContext cascadesContext) {
         final LogicalAggregate<? extends Plan> canNotPush = aggregate;
 
-        if (!(logicalScan instanceof LogicalOlapScan) && !(logicalScan instanceof LogicalFileScan)) {
+        if (!(logicalScan instanceof LogicalOlapScan) && !(logicalScan instanceof LogicalFileScan)
+                && !(logicalScan instanceof LogicalTVFRelation)) {
+            return canNotPush;
+        }
+        if (logicalScan instanceof LogicalTVFRelation
+                && !(((LogicalTVFRelation) logicalScan).getFunction().getCatalogFunction()
+                        instanceof ExternalFileTableValuedFunction)) {
+            return canNotPush;
+        }
+        if (logicalScan instanceof LogicalTVFRelation
+                && (!(((LogicalTVFRelation) logicalScan).getFunction()
+                        instanceof SupportPruneNestedColumn)
+                        || !((SupportPruneNestedColumn) ((LogicalTVFRelation) logicalScan)
+                                .getFunction()).supportPruneNestedColumn())) {
             return canNotPush;
         }
 
@@ -691,7 +729,24 @@ public class AggregateStrategies implements ImplementationRuleFactory {
         List<SlotReference> usedSlotInTable = (List<SlotReference>) Project.findProject(aggUsedSlots,
                 logicalScan.getOutput());
 
+        Optional<ExprId> pushDownAggSlot = Optional.empty();
+
         for (SlotReference slot : usedSlotInTable) {
+            if (logicalScan instanceof LogicalTVFRelation) {
+                if (mergeOp == PushDownAggOp.COUNT
+                        && slot.nullable()
+                        && checkNullSlots.contains(slot)) {
+                    boolean canPushNullableCount = aggregateFunctions.size() == 1
+                            && usedSlotInTable.size() == 1
+                            && enableFileScannerV2();
+                    if (!canPushNullableCount) {
+                        return canNotPush;
+                    }
+                    mergeOp = PushDownAggOp.COUNT_NON_NULL;
+                    pushDownAggSlot = Optional.of(slot.getExprId());
+                }
+                continue;
+            }
             Optional<Column> optionalColumn = slot.getOriginalColumn();
             if (!optionalColumn.isPresent()) {
                 // virtual columns (e.g., generated from MATCH_ALL expressions) do not have
@@ -729,6 +784,12 @@ public class AggregateStrategies implements ImplementationRuleFactory {
             }
         }
 
+        if (logicalScan instanceof LogicalTVFRelation
+                && mergeOp != PushDownAggOp.COUNT
+                && mergeOp != PushDownAggOp.COUNT_NON_NULL) {
+            return canNotPush;
+        }
+
         if (logicalScan instanceof LogicalOlapScan) {
             PhysicalOlapScan physicalScan = (PhysicalOlapScan) new LogicalOlapScanToPhysicalOlapScan()
                     .build()
@@ -738,11 +799,12 @@ public class AggregateStrategies implements ImplementationRuleFactory {
             if (project != null) {
                 return aggregate.withChildren(ImmutableList.of(
                     project.withChildren(
-                        ImmutableList.of(new PhysicalStorageLayerAggregate(physicalScan, mergeOp)))
+                        ImmutableList.of(new PhysicalStorageLayerAggregate(
+                                physicalScan, mergeOp, pushDownAggSlot)))
                 ));
             } else {
                 return aggregate.withChildren(ImmutableList.of(
-                    new PhysicalStorageLayerAggregate(physicalScan, mergeOp)
+                    new PhysicalStorageLayerAggregate(physicalScan, mergeOp, pushDownAggSlot)
                 ));
             }
 
@@ -754,11 +816,30 @@ public class AggregateStrategies implements ImplementationRuleFactory {
             if (project != null) {
                 return aggregate.withChildren(ImmutableList.of(
                     project.withChildren(
-                        ImmutableList.of(new PhysicalStorageLayerAggregate(physicalScan, mergeOp)))
+                        ImmutableList.of(new PhysicalStorageLayerAggregate(
+                                physicalScan, mergeOp, pushDownAggSlot)))
                 ));
             } else {
                 return aggregate.withChildren(ImmutableList.of(
-                    new PhysicalStorageLayerAggregate(physicalScan, mergeOp)
+                    new PhysicalStorageLayerAggregate(physicalScan, mergeOp, pushDownAggSlot)
+                ));
+            }
+
+        } else if (logicalScan instanceof LogicalTVFRelation) {
+            PhysicalTVFRelation physicalScan =
+                    (PhysicalTVFRelation) new LogicalTVFRelationToPhysicalTVFRelation()
+                            .build()
+                            .transform(logicalScan, cascadesContext)
+                            .get(0);
+            if (project != null) {
+                return aggregate.withChildren(ImmutableList.of(
+                    project.withChildren(
+                        ImmutableList.of(new PhysicalStorageLayerAggregate(
+                                physicalScan, mergeOp, pushDownAggSlot)))
+                ));
+            } else {
+                return aggregate.withChildren(ImmutableList.of(
+                    new PhysicalStorageLayerAggregate(physicalScan, mergeOp, pushDownAggSlot)
                 ));
             }
 
@@ -770,6 +851,11 @@ public class AggregateStrategies implements ImplementationRuleFactory {
     private boolean enablePushDownStringMinMax() {
         ConnectContext connectContext = ConnectContext.get();
         return connectContext != null && connectContext.getSessionVariable().isEnablePushDownStringMinMax();
+    }
+
+    private boolean enableFileScannerV2() {
+        ConnectContext connectContext = ConnectContext.get();
+        return connectContext != null && connectContext.getSessionVariable().enableFileScannerV2;
     }
 
     private boolean enablePushDownNoGroupAgg() {

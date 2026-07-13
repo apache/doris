@@ -448,6 +448,16 @@ Status FileScannerV2::_init_table_reader(const TFileRangeDesc& range) {
 
     VExprContextSPtrs table_conjuncts;
     RETURN_IF_ERROR(_build_table_conjuncts(&table_conjuncts));
+    std::optional<format::GlobalIndex> count_non_null_global_index;
+    if (_local_state->get_count_non_null_slot_id().has_value()) {
+        const auto target =
+                _slot_id_to_global_index.find(*_local_state->get_count_non_null_slot_id());
+        if (target == _slot_id_to_global_index.end()) {
+            return Status::InternalError("Unknown COUNT_NON_NULL target slot {}",
+                                         *_local_state->get_count_non_null_slot_id());
+        }
+        count_non_null_global_index = target->second;
+    }
     RETURN_IF_ERROR(_table_reader->init({
             .projected_columns = _projected_columns,
             .conjuncts = std::move(table_conjuncts),
@@ -458,6 +468,7 @@ Status FileScannerV2::_init_table_reader(const TFileRangeDesc& range) {
             .scanner_profile = _local_state->scanner_profile(),
             .file_slot_descs = &_file_slot_descs,
             .push_down_agg_type = _local_state->get_push_down_agg_type(),
+            .count_non_null_global_index = count_non_null_global_index,
             .condition_cache_digest = _local_state->get_condition_cache_digest(),
     }));
     return Status::OK();
@@ -800,7 +811,8 @@ bool FileScannerV2::_should_run_adaptive_batch_size() const {
     // COUNT pushdown emits synthetic rows from file metadata and does not materialize file columns,
     // so there is no useful row-width sample to learn from.
     return _block_size_predictor != nullptr &&
-           _local_state->get_push_down_agg_type() != TPushAggOp::type::COUNT;
+           _local_state->get_push_down_agg_type() != TPushAggOp::type::COUNT &&
+           _local_state->get_push_down_agg_type() != TPushAggOp::type::COUNT_NON_NULL;
 }
 
 size_t FileScannerV2::_predict_reader_batch_rows() {

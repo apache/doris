@@ -1012,8 +1012,10 @@ struct FakeFileReaderState {
     bool stop_during_read = false;
     bool not_found_during_init = false;
     std::shared_ptr<FileScanRequest> last_request;
+    std::optional<FileAggregateRequest> last_aggregate_request;
     std::shared_ptr<ConditionCacheContext> condition_cache_ctx;
     std::shared_ptr<io::IOContext> io_ctx;
+    const UInt8* string_payload = nullptr;
 };
 
 class FakeFileReader final : public FileReader {
@@ -1074,6 +1076,7 @@ public:
                 auto column = ColumnString::create();
                 column->insert_data("one", 3);
                 column->insert_data("two", 3);
+                _state->string_payload = column->get_chars().data();
                 file_block->replace_by_position(block_position.value(),
                                                 make_not_null_nullable_column(std::move(column)));
             } else if (file_column_id == LocalColumnId(2)) {
@@ -1121,10 +1124,12 @@ public:
     Status get_aggregate_result(const FileAggregateRequest& request,
                                 FileAggregateResult* result) override {
         DORIS_CHECK(result != nullptr);
+        _state->last_aggregate_request = request;
         if (_state->aggregate_count < 0) {
             return FileReader::get_aggregate_result(request, result);
         }
-        if (request.agg_type != TPushAggOp::type::COUNT) {
+        if (request.agg_type != TPushAggOp::type::COUNT &&
+            request.agg_type != TPushAggOp::type::COUNT_NON_NULL) {
             return Status::NotSupported("fake reader only supports COUNT aggregate pushdown");
         }
         if (_state->stop_during_aggregate) {
@@ -1671,6 +1676,42 @@ TEST(TableReaderTest, SlotlessConjunctDisablesAggregatePushdown) {
     ASSERT_TRUE(reader.close().ok());
 }
 
+TEST(TableReaderTest, DirectMappingTransfersFileColumnOwnership) {
+    std::vector<ColumnDefinition> file_schema;
+    file_schema.push_back(make_file_column(1, "value", std::make_shared<DataTypeString>()));
+
+    std::vector<ColumnDefinition> projected_columns;
+    projected_columns.push_back(make_table_column(1, "value", std::make_shared<DataTypeString>()));
+    set_name_identifiers(&projected_columns);
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto fake_state = std::make_shared<FakeFileReaderState>();
+    FakeTableReader reader(file_schema, fake_state);
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .conjuncts = {},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                            })
+                        .ok());
+
+    SplitReadOptions split_options;
+    split_options.current_range.__set_path("fake-table-reader-input");
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    ASSERT_FALSE(eos);
+    ASSERT_NE(fake_state->string_payload, nullptr);
+
+    const auto& result = assert_cast<const ColumnString&>(expect_not_null_table_column(block, 0));
+    EXPECT_EQ(result.get_chars().data(), fake_state->string_payload);
+}
+
 TEST(TableReaderTest, AbortSplitClearsReaderAfterIgnorableNotFound) {
     std::vector<ColumnDefinition> file_schema;
     file_schema.push_back(make_file_column(0, "id", std::make_shared<DataTypeInt32>()));
@@ -1753,6 +1794,51 @@ TEST(TableReaderTest, PushDownCountRecordsReaderRowsBeforeClosingReader) {
     EXPECT_EQ(block.rows(), 3);
     EXPECT_EQ(file_reader_stats.read_rows, 3);
     EXPECT_EQ(fake_state->close_count, 1);
+}
+
+TEST(TableReaderTest, CountNonNullUsesExplicitTargetColumn) {
+    std::vector<ColumnDefinition> file_schema;
+    file_schema.push_back(make_file_column(0, "id", std::make_shared<DataTypeInt32>()));
+    file_schema.push_back(
+            make_file_column(1, "value", make_nullable(std::make_shared<DataTypeString>())));
+
+    std::vector<ColumnDefinition> projected_columns;
+    projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+    projected_columns.push_back(
+            make_table_column(1, "value", make_nullable(std::make_shared<DataTypeString>())));
+    set_name_identifiers(&projected_columns);
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto fake_state = std::make_shared<FakeFileReaderState>();
+    fake_state->aggregate_count = 3;
+    FakeTableReader reader(file_schema, fake_state);
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .conjuncts = {},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                                    .push_down_agg_type = TPushAggOp::type::COUNT_NON_NULL,
+                                    .count_non_null_global_index = GlobalIndex(1),
+                            })
+                        .ok());
+
+    SplitReadOptions split_options;
+    split_options.current_range.__set_path("fake-table-reader-input");
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    ASSERT_FALSE(eos);
+    ASSERT_TRUE(fake_state->last_aggregate_request.has_value());
+    EXPECT_EQ(fake_state->last_aggregate_request->agg_type, TPushAggOp::type::COUNT_NON_NULL);
+    ASSERT_EQ(fake_state->last_aggregate_request->columns.size(), 1);
+    EXPECT_EQ(fake_state->last_aggregate_request->columns[0].projection.local_id(), 1);
+    EXPECT_EQ(block.rows(), 3);
+    expect_not_null_table_column(block, 1);
 }
 
 TEST(TableReaderTest, PushDownCountStopConvertsAggregateEndOfFileToEos) {
@@ -1873,10 +1959,11 @@ TEST(TableReaderTest, DebugStringCoversReaderStateAndEnumNames) {
                   std::string::npos);
     }
 
-    const std::vector<TPushAggOp::type> agg_ops {TPushAggOp::type::NONE, TPushAggOp::type::MINMAX,
-                                                 TPushAggOp::type::MIX,
-                                                 TPushAggOp::type::COUNT_ON_INDEX};
-    const std::vector<std::string> agg_names {"NONE", "MINMAX", "MIX", "COUNT_ON_INDEX"};
+    const std::vector<TPushAggOp::type> agg_ops {
+            TPushAggOp::type::NONE, TPushAggOp::type::MINMAX, TPushAggOp::type::MIX,
+            TPushAggOp::type::COUNT_ON_INDEX, TPushAggOp::type::COUNT_NON_NULL};
+    const std::vector<std::string> agg_names {"NONE", "MINMAX", "MIX", "COUNT_ON_INDEX",
+                                              "COUNT_NON_NULL"};
     for (size_t idx = 0; idx < agg_ops.size(); ++idx) {
         TableReader enum_reader;
         ASSERT_TRUE(enum_reader

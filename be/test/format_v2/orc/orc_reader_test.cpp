@@ -4753,7 +4753,7 @@ TEST_F(NewOrcReaderTest, AggregatePushdownCountColumnUsesNonNullValueCount) {
     EXPECT_EQ(count_star_result.count, 400);
 
     format::FileAggregateRequest count_column_request;
-    count_column_request.agg_type = TPushAggOp::type::COUNT;
+    count_column_request.agg_type = TPushAggOp::type::COUNT_NON_NULL;
     count_column_request.columns.push_back({.projection = field_projection(0)});
     format::FileAggregateResult count_column_result;
     status = reader->get_aggregate_result(count_column_request, &count_column_result);

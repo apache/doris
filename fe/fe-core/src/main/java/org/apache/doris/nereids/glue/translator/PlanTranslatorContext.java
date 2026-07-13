@@ -106,6 +106,7 @@ public class PlanTranslatorContext {
     private final Map<PlanFragmentId, CTEScanNode> cteScanNodeMap = Maps.newHashMap();
 
     private final Map<RelationId, TPushAggOp> tablePushAggOp = Maps.newHashMap();
+    private final Map<RelationId, ExprId> tablePushAggSlot = Maps.newHashMap();
 
     private final Map<ScanNode, Set<SlotId>> statsUnknownColumnsMap = Maps.newHashMap();
 
@@ -428,6 +429,14 @@ public class PlanTranslatorContext {
 
     public TPushAggOp getRelationPushAggOp(RelationId relationId) {
         return tablePushAggOp.getOrDefault(relationId, TPushAggOp.NONE);
+    }
+
+    public void setRelationPushAggSlot(RelationId relationId, ExprId exprId) {
+        tablePushAggSlot.put(relationId, exprId);
+    }
+
+    public Optional<ExprId> getRelationPushAggSlot(RelationId relationId) {
+        return Optional.ofNullable(tablePushAggSlot.get(relationId));
     }
 
     public boolean isTopMaterializeNode() {

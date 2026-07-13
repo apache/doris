@@ -836,6 +836,8 @@ struct TBrokerScanNode {
 struct TFileScanNode {
     1: optional Types.TTupleId tuple_id
     2: optional string table_name
+    // Target slot for COUNT_NON_NULL. COUNT without this field keeps COUNT(*) semantics.
+    3: optional Types.TSlotId count_non_null_slot_id
 }
 
 struct TRecCTETarget {
@@ -971,7 +973,8 @@ enum TPushAggOp {
 	MINMAX = 1,
 	COUNT = 2,
 	MIX = 3,
-	COUNT_ON_INDEX = 4
+	COUNT_ON_INDEX = 4,
+	COUNT_NON_NULL = 5
 }
 
 struct TScoreRangeInfo {

@@ -18,8 +18,11 @@
 package org.apache.doris.nereids.trees.plans.physical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.trees.expressions.ExprId;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
@@ -30,7 +33,6 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.statistics.Statistics;
 
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 
 import java.util.List;
@@ -39,25 +41,33 @@ import java.util.Objects;
 import java.util.Optional;
 
 /** PhysicalStorageLayerAggregate */
-public class PhysicalStorageLayerAggregate extends PhysicalCatalogRelation {
+public class PhysicalStorageLayerAggregate extends PhysicalRelation {
 
-    private final PhysicalCatalogRelation relation;
+    private final PhysicalRelation relation;
     private final PushDownAggOp aggOp;
+    private final Optional<ExprId> aggSlot;
 
-    public PhysicalStorageLayerAggregate(PhysicalCatalogRelation relation, PushDownAggOp aggOp) {
-        super(relation.getRelationId(), relation.getType(), relation.getTable(), relation.getQualifier(),
-                Optional.empty(), relation.getLogicalProperties(), ImmutableList.of());
-        this.relation = Objects.requireNonNull(relation, "relation cannot be null");
-        this.aggOp = Objects.requireNonNull(aggOp, "aggOp cannot be null");
+    public PhysicalStorageLayerAggregate(PhysicalRelation relation, PushDownAggOp aggOp) {
+        this(relation, aggOp, Optional.empty());
     }
 
-    public PhysicalStorageLayerAggregate(PhysicalCatalogRelation relation, PushDownAggOp aggOp,
-            Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
-            PhysicalProperties physicalProperties, Statistics statistics) {
-        super(relation.getRelationId(), relation.getType(), relation.getTable(), relation.getQualifier(),
-                groupExpression, logicalProperties, physicalProperties, statistics, ImmutableList.of());
+    public PhysicalStorageLayerAggregate(PhysicalRelation relation, PushDownAggOp aggOp,
+            Optional<ExprId> aggSlot) {
+        super(relation.getRelationId(), relation.getType(), Optional.empty(), relation.getLogicalProperties());
         this.relation = Objects.requireNonNull(relation, "relation cannot be null");
         this.aggOp = Objects.requireNonNull(aggOp, "aggOp cannot be null");
+        this.aggSlot = Objects.requireNonNull(aggSlot, "aggSlot cannot be null");
+    }
+
+    public PhysicalStorageLayerAggregate(PhysicalRelation relation, PushDownAggOp aggOp,
+            Optional<ExprId> aggSlot,
+            Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
+            PhysicalProperties physicalProperties, Statistics statistics) {
+        super(relation.getRelationId(), relation.getType(), groupExpression, logicalProperties,
+                physicalProperties, statistics);
+        this.relation = Objects.requireNonNull(relation, "relation cannot be null");
+        this.aggOp = Objects.requireNonNull(aggOp, "aggOp cannot be null");
+        this.aggSlot = Objects.requireNonNull(aggSlot, "aggSlot cannot be null");
     }
 
     public PhysicalRelation getRelation() {
@@ -66,6 +76,45 @@ public class PhysicalStorageLayerAggregate extends PhysicalCatalogRelation {
 
     public PushDownAggOp getAggOp() {
         return aggOp;
+    }
+
+    public Optional<ExprId> getAggSlot() {
+        return aggSlot;
+    }
+
+    @Override
+    public DataTrait computeDataTrait() {
+        return relation.getLogicalProperties().getTrait();
+    }
+
+    @Override
+    public void computeUnique(DataTrait.Builder builder) {
+        builder.addUniqueSlot(relation.getLogicalProperties().getTrait());
+    }
+
+    @Override
+    public void computeUniform(DataTrait.Builder builder) {
+        builder.addUniformSlot(relation.getLogicalProperties().getTrait());
+    }
+
+    @Override
+    public void computeEqualSet(DataTrait.Builder builder) {
+        builder.addEqualSet(relation.getLogicalProperties().getTrait());
+    }
+
+    @Override
+    public void computeFd(DataTrait.Builder builder) {
+        builder.addFuncDepsDG(relation.getLogicalProperties().getTrait());
+    }
+
+    @Override
+    public List<Slot> computeOutput() {
+        return relation.getOutput();
+    }
+
+    @Override
+    public boolean canPushDownRuntimeFilter() {
+        return relation.canPushDownRuntimeFilter();
     }
 
     @Override
@@ -82,35 +131,52 @@ public class PhysicalStorageLayerAggregate extends PhysicalCatalogRelation {
         );
     }
 
+    @Override
+    public String shapeInfo() {
+        if (!(relation instanceof PhysicalCatalogRelation)) {
+            return super.shapeInfo();
+        }
+        PhysicalCatalogRelation catalogRelation = (PhysicalCatalogRelation) relation;
+        StringBuilder shapeBuilder = new StringBuilder(getClass().getSimpleName())
+                .append("[").append(catalogRelation.getTable().getName()).append("]");
+        if (!getAppliedRuntimeFilters().isEmpty()) {
+            shapeBuilder.append(" apply RFs:");
+            getAppliedRuntimeFilters().forEach(
+                    runtimeFilter -> shapeBuilder.append(" RF").append(runtimeFilter.getId().asInt()));
+        }
+        return shapeBuilder.toString();
+    }
+
     public PhysicalStorageLayerAggregate withPhysicalOlapScan(PhysicalOlapScan physicalOlapScan) {
-        return AbstractPlan.copyWithSameId(this, () -> new PhysicalStorageLayerAggregate(physicalOlapScan, aggOp));
+        return AbstractPlan.copyWithSameId(this,
+                () -> new PhysicalStorageLayerAggregate(physicalOlapScan, aggOp, aggSlot));
     }
 
     @Override
     public PhysicalStorageLayerAggregate withGroupExpression(Optional<GroupExpression> groupExpression) {
         return AbstractPlan.copyWithSameId(this, () -> new PhysicalStorageLayerAggregate(relation, aggOp,
-                groupExpression, getLogicalProperties(), physicalProperties, statistics));
+                aggSlot, groupExpression, getLogicalProperties(), physicalProperties, statistics));
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return AbstractPlan.copyWithSameId(this, () -> new PhysicalStorageLayerAggregate(relation, aggOp,
-                groupExpression, logicalProperties.get(), physicalProperties, statistics));
+                aggSlot, groupExpression, logicalProperties.get(), physicalProperties, statistics));
     }
 
     @Override
     public PhysicalPlan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
             Statistics statistics) {
         return AbstractPlan.copyWithSameId(this, () -> new PhysicalStorageLayerAggregate(
-                (PhysicalCatalogRelation) relation.withPhysicalPropertiesAndStats(null, statistics),
-                aggOp, groupExpression,
+                (PhysicalRelation) relation.withPhysicalPropertiesAndStats(null, statistics),
+                aggOp, aggSlot, groupExpression,
                 getLogicalProperties(), physicalProperties, statistics));
     }
 
     /** PushAggOp */
     public enum PushDownAggOp {
-        COUNT, MIN_MAX, MIX, COUNT_ON_MATCH;
+        COUNT, COUNT_NON_NULL, MIN_MAX, MIX, COUNT_ON_MATCH;
 
         /** supportedFunctions */
         public static Map<Class<? extends AggregateFunction>, PushDownAggOp> supportedFunctions() {

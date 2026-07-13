@@ -17,27 +17,45 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.catalog.ArrayType;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.FunctionGenTable;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.Type;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RulePromise;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.implementation.AggregateStrategies;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.Properties;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ln;
+import org.apache.doris.nereids.trees.expressions.functions.table.Hdfs;
+import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate.PushDownAggOp;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalTVFRelation;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.tablefunction.ExternalFileTableValuedFunction;
+import org.apache.doris.tablefunction.TableValuedFunctionIf;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 import java.util.Collections;
 import java.util.Optional;
@@ -75,7 +93,8 @@ public class PhysicalStorageLayerAggregateTest implements MemoPatternMatchSuppor
                 .applyImplementation(storageLayerAggregateWithoutProject())
                 .matches(
                     logicalAggregate(
-                        physicalStorageLayerAggregate().when(agg -> agg.getAggOp() == PushDownAggOp.COUNT)
+                        physicalStorageLayerAggregate().when(agg -> agg.getAggOp() == PushDownAggOp.COUNT
+                                && agg.shapeInfo().equals("PhysicalStorageLayerAggregate[tbl]"))
                     )
                 );
 
@@ -189,6 +208,42 @@ public class PhysicalStorageLayerAggregateTest implements MemoPatternMatchSuppor
                 );
     }
 
+    @Test
+    void testNullableTvfCountWithoutOriginalColumnPushesTargetColumnShape() throws AnalysisException {
+        ExternalFileTableValuedFunction catalogFunction =
+                Mockito.mock(ExternalFileTableValuedFunction.class);
+        Column arrayColumn = new Column("arr", ArrayType.create(Type.STRING, true), true);
+        FunctionGenTable table = new FunctionGenTable(1, "hdfs",
+                TableIf.TableType.TABLE_VALUED_FUNCTION, ImmutableList.of(arrayColumn), catalogFunction);
+        Hdfs function = new Hdfs(
+                new Properties(Collections.singletonMap("format", "parquet"))) {
+            @Override
+            protected TableValuedFunctionIf toCatalogFunction() {
+                return catalogFunction;
+            }
+        };
+        Mockito.when(catalogFunction.getTable()).thenReturn(table);
+
+        SlotReference arraySlot = new SlotReference(StatementScopeIdGenerator.newExprId(), "arr",
+                DataType.fromCatalogType(arrayColumn.getType()), true, ImmutableList.of("hdfs"));
+        LogicalTVFRelation tvf = new LogicalTVFRelation(
+                new RelationId(1), function, ImmutableList.of()).withCachedOutputs(ImmutableList.of(arraySlot));
+        LogicalAggregate<LogicalTVFRelation> aggregate = new LogicalAggregate<>(
+                Collections.emptyList(), ImmutableList.of(new Alias(new Count(arraySlot), "count")),
+                true, Optional.empty(), tvf);
+
+        ConnectContext connectContext = MemoTestUtils.createConnectContext();
+        connectContext.getSessionVariable().enableFileScannerV2 = true;
+        CascadesContext context = MemoTestUtils.createCascadesContext(connectContext, aggregate);
+
+        PlanChecker.from(context)
+                .applyImplementation(storageLayerAggregateWithoutProjectForTvf())
+                .matches(logicalAggregate(physicalStorageLayerAggregate().when(agg ->
+                        agg.getRelation() instanceof PhysicalTVFRelation
+                                && agg.getAggOp() == PushDownAggOp.COUNT_NON_NULL
+                                && agg.getAggSlot().equals(Optional.of(arraySlot.getExprId())))));
+    }
+
     private Rule storageLayerAggregateWithoutProject() {
         return new AggregateStrategies().buildRules()
                 .stream()
@@ -201,6 +256,15 @@ public class PhysicalStorageLayerAggregateTest implements MemoPatternMatchSuppor
         return new AggregateStrategies().buildRules()
                 .stream()
                 .filter(rule -> rule.getRuleType() == RuleType.STORAGE_LAYER_AGGREGATE_WITH_PROJECT)
+                .findFirst()
+                .get();
+    }
+
+    private Rule storageLayerAggregateWithoutProjectForTvf() {
+        return new AggregateStrategies().buildRules()
+                .stream()
+                .filter(rule -> rule.getRuleType()
+                        == RuleType.STORAGE_LAYER_AGGREGATE_WITHOUT_PROJECT_FOR_TVF)
                 .findFirst()
                 .get();
     }

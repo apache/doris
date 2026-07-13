@@ -22,6 +22,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <deque>
 #include <exception>
 #include <map>
 #include <memory>
@@ -30,6 +31,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/cast_set.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
@@ -132,6 +134,173 @@ bool supports_nested_scalar_record_reader(const ParquetColumnSchema& column_sche
     }
     return true;
 }
+
+class CountShapeColumnReader final : public ParquetColumnReader {
+public:
+    CountShapeColumnReader(const ParquetColumnSchema& column_schema,
+                           std::shared_ptr<::parquet::ColumnReader> column_reader,
+                           ParquetColumnReaderProfile profile)
+            : ParquetColumnReader(column_schema, column_schema.type, profile),
+              _column_reader(std::move(column_reader)),
+              _descriptor(column_schema.descriptor) {
+        DORIS_CHECK(_column_reader != nullptr);
+        DORIS_CHECK(_descriptor != nullptr);
+    }
+
+    Status read(int64_t rows, MutableColumnPtr&, int64_t*) override {
+        return Status::NotSupported("COUNT shape reader cannot materialize {} rows for column {}",
+                                    rows, _name);
+    }
+
+    Status skip(int64_t rows) override {
+        std::vector<int16_t> def_levels;
+        std::vector<int16_t> rep_levels;
+        RETURN_IF_ERROR(_consume_top_level_rows(rows, &def_levels, &rep_levels));
+        update_reader_skip_rows(rows);
+        return Status::OK();
+    }
+
+    Status load_nested_levels_batch(int64_t rows) override {
+        RETURN_IF_ERROR(_consume_top_level_rows(rows, &_definition_levels, &_repetition_levels));
+        update_reader_read_rows(rows);
+        return Status::OK();
+    }
+
+    const std::vector<int16_t>& nested_definition_levels() const override {
+        return _definition_levels;
+    }
+
+    const std::vector<int16_t>& nested_repetition_levels() const override {
+        return _repetition_levels;
+    }
+
+    int64_t nested_levels_written() const override {
+        return cast_set<int64_t>(_definition_levels.size());
+    }
+
+    bool is_or_has_repeated_child() const override {
+        return _descriptor->max_repetition_level() > 0;
+    }
+
+private:
+    struct TopLevelShape {
+        int16_t definition_level = 0;
+        int16_t repetition_level = 0;
+    };
+
+    template <typename PhysicalType>
+    int64_t _read_typed_batch(int64_t batch_size, int16_t* def_levels, int16_t* rep_levels,
+                              int64_t* values_read) {
+        auto* typed_reader =
+                dynamic_cast<::parquet::TypedColumnReader<PhysicalType>*>(_column_reader.get());
+        DORIS_CHECK(typed_reader != nullptr);
+        using ValueType = typename PhysicalType::c_type;
+        auto values = std::make_unique<ValueType[]>(cast_set<size_t>(batch_size));
+        return typed_reader->ReadBatch(batch_size, def_levels, rep_levels, values.get(),
+                                       values_read);
+    }
+
+    int64_t _read_physical_batch(int64_t batch_size, int16_t* def_levels, int16_t* rep_levels,
+                                 int64_t* values_read) {
+        switch (_column_reader->type()) {
+        case ::parquet::Type::BOOLEAN:
+            return _read_typed_batch<::parquet::BooleanType>(batch_size, def_levels, rep_levels,
+                                                             values_read);
+        case ::parquet::Type::INT32:
+            return _read_typed_batch<::parquet::Int32Type>(batch_size, def_levels, rep_levels,
+                                                           values_read);
+        case ::parquet::Type::INT64:
+            return _read_typed_batch<::parquet::Int64Type>(batch_size, def_levels, rep_levels,
+                                                           values_read);
+        case ::parquet::Type::INT96:
+            return _read_typed_batch<::parquet::Int96Type>(batch_size, def_levels, rep_levels,
+                                                           values_read);
+        case ::parquet::Type::FLOAT:
+            return _read_typed_batch<::parquet::FloatType>(batch_size, def_levels, rep_levels,
+                                                           values_read);
+        case ::parquet::Type::DOUBLE:
+            return _read_typed_batch<::parquet::DoubleType>(batch_size, def_levels, rep_levels,
+                                                            values_read);
+        case ::parquet::Type::BYTE_ARRAY:
+            return _read_typed_batch<::parquet::ByteArrayType>(batch_size, def_levels, rep_levels,
+                                                               values_read);
+        case ::parquet::Type::FIXED_LEN_BYTE_ARRAY:
+            return _read_typed_batch<::parquet::FLBAType>(batch_size, def_levels, rep_levels,
+                                                          values_read);
+        case ::parquet::Type::UNDEFINED:
+            break;
+        }
+        throw ::parquet::ParquetException("Unsupported physical type for COUNT shape reader");
+    }
+
+    Status _load_more_shapes() {
+        constexpr int64_t LEVEL_BATCH_SIZE = 8192;
+        std::vector<int16_t> def_levels(LEVEL_BATCH_SIZE);
+        std::vector<int16_t> rep_levels(LEVEL_BATCH_SIZE);
+        int64_t levels_read = 0;
+        try {
+            int64_t values_read = 0;
+            levels_read = _read_physical_batch(LEVEL_BATCH_SIZE, def_levels.data(),
+                                               rep_levels.data(), &values_read);
+        } catch (const ::parquet::ParquetException& e) {
+            return Status::Corruption("Failed to read parquet shape for column {}: {}", _name,
+                                      e.what());
+        } catch (const std::exception& e) {
+            return Status::InternalError("Failed to read parquet shape for column {}: {}", _name,
+                                         e.what());
+        }
+        if (levels_read <= 0 || levels_read > LEVEL_BATCH_SIZE) {
+            return Status::Corruption("Invalid parquet shape batch for column {}: levels={}", _name,
+                                      levels_read);
+        }
+
+        const bool repeated = _descriptor->max_repetition_level() > 0;
+        for (int64_t level_idx = 0; level_idx < levels_read; ++level_idx) {
+            const int16_t repetition_level = repeated ? rep_levels[level_idx] : 0;
+            if (repetition_level != 0) {
+                continue;
+            }
+            const int16_t definition_level =
+                    _descriptor->max_definition_level() > 0 ? def_levels[level_idx] : 0;
+            _pending_shapes.push_back({definition_level, repetition_level});
+        }
+        return Status::OK();
+    }
+
+    Status _consume_top_level_rows(int64_t rows, std::vector<int16_t>* def_levels,
+                                   std::vector<int16_t>* rep_levels) {
+        DORIS_CHECK(rows >= 0);
+        DORIS_CHECK(def_levels != nullptr);
+        DORIS_CHECK(rep_levels != nullptr);
+        def_levels->clear();
+        rep_levels->clear();
+        def_levels->reserve(cast_set<size_t>(rows));
+        rep_levels->reserve(cast_set<size_t>(rows));
+        while (def_levels->size() < cast_set<size_t>(rows)) {
+            if (_pending_shapes.empty()) {
+                if (!_column_reader->HasNext()) {
+                    return Status::Corruption(
+                            "Parquet COUNT shape reader reached EOF after {} of {} rows for column "
+                            "{}",
+                            def_levels->size(), rows, _name);
+                }
+                RETURN_IF_ERROR(_load_more_shapes());
+                continue;
+            }
+            const auto shape = _pending_shapes.front();
+            _pending_shapes.pop_front();
+            def_levels->push_back(shape.definition_level);
+            rep_levels->push_back(shape.repetition_level);
+        }
+        return Status::OK();
+    }
+
+    std::shared_ptr<::parquet::ColumnReader> _column_reader;
+    const ::parquet::ColumnDescriptor* _descriptor = nullptr;
+    std::deque<TopLevelShape> _pending_shapes;
+    std::vector<int16_t> _definition_levels;
+    std::vector<int16_t> _repetition_levels;
+};
 
 } // namespace
 
@@ -486,12 +655,12 @@ Status ParquetColumnReaderFactory::create(const ParquetColumnSchema& column_sche
 Status ParquetColumnReaderFactory::create_count_shape_reader(
         const ParquetColumnSchema& column_schema, const format::LocalColumnIndex* projection,
         std::unique_ptr<ParquetColumnReader>* reader) const {
-    return create_count_shape_reader_impl(column_schema, projection, false, reader);
+    return create_count_shape_reader_impl(column_schema, projection, reader);
 }
 
 Status ParquetColumnReaderFactory::create_count_shape_reader_impl(
         const ParquetColumnSchema& column_schema, const format::LocalColumnIndex* projection,
-        bool is_nested, std::unique_ptr<ParquetColumnReader>* reader) const {
+        std::unique_ptr<ParquetColumnReader>* reader) const {
     if (reader == nullptr) {
         return Status::InvalidArgument("reader is null");
     }
@@ -501,7 +670,23 @@ Status ParquetColumnReaderFactory::create_count_shape_reader_impl(
             return Status::InvalidArgument("Parquet COUNT projection is invalid for column {}",
                                            column_schema.name);
         }
-        return create_scalar_column_reader(column_schema, is_nested, false, reader);
+        DORIS_CHECK(_row_group != nullptr);
+        DORIS_CHECK(column_schema.leaf_column_id >= 0);
+        try {
+            auto physical_reader = _row_group->Column(column_schema.leaf_column_id);
+            DORIS_CHECK(physical_reader != nullptr);
+            *reader = std::make_unique<CountShapeColumnReader>(
+                    column_schema, std::move(physical_reader), _column_reader_profile);
+            return Status::OK();
+        } catch (const ::parquet::ParquetException& e) {
+            return Status::Corruption(
+                    "Failed to create parquet COUNT shape reader for column {}: {}",
+                    column_schema.name, e.what());
+        } catch (const std::exception& e) {
+            return Status::InternalError(
+                    "Failed to create parquet COUNT shape reader for column {}: {}",
+                    column_schema.name, e.what());
+        }
     case ParquetColumnSchemaKind::STRUCT: {
         if (column_schema.children.empty()) {
             return Status::NotSupported("Parquet COUNT shape reader found empty STRUCT column {}",
@@ -525,7 +710,7 @@ Status ParquetColumnReaderFactory::create_count_shape_reader_impl(
             child_schema = column_schema.children[0].get();
         }
         DORIS_CHECK(child_schema != nullptr);
-        return create_count_shape_reader_impl(*child_schema, child_projection, true, reader);
+        return create_count_shape_reader_impl(*child_schema, child_projection, reader);
     }
     case ParquetColumnSchemaKind::LIST: {
         if (column_schema.children.size() != 1) {
@@ -535,7 +720,7 @@ Status ParquetColumnReaderFactory::create_count_shape_reader_impl(
         const auto& element_schema = *column_schema.children[0];
         const auto* element_projection =
                 format::find_child_projection(projection, element_schema.local_id);
-        return create_count_shape_reader_impl(element_schema, element_projection, true, reader);
+        return create_count_shape_reader_impl(element_schema, element_projection, reader);
     }
     case ParquetColumnSchemaKind::MAP: {
         if (column_schema.children.empty()) {
@@ -545,7 +730,7 @@ Status ParquetColumnReaderFactory::create_count_shape_reader_impl(
         // The key stream defines MAP entry existence and offsets. Counting top-level MAP NULL-ness
         // from it avoids creating a value reader, which is the expensive path for files with huge
         // MAP value strings.
-        return create_count_shape_reader_impl(*column_schema.children[0], nullptr, true, reader);
+        return create_count_shape_reader_impl(*column_schema.children[0], nullptr, reader);
     }
     }
     return Status::NotSupported("Unsupported parquet column schema kind for COUNT column {}",

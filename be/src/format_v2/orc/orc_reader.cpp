@@ -1951,6 +1951,7 @@ Status OrcReader::get_aggregate_result(const format::FileAggregateRequest& reque
     result->count = 0;
     result->columns.clear();
     if (request.agg_type != TPushAggOp::type::COUNT &&
+        request.agg_type != TPushAggOp::type::COUNT_NON_NULL &&
         request.agg_type != TPushAggOp::type::MINMAX) {
         return Status::NotSupported("Unsupported ORC aggregate pushdown type {}", request.agg_type);
     }
@@ -1984,8 +1985,13 @@ Status OrcReader::get_aggregate_result(const format::FileAggregateRequest& reque
         result->count += cast_set<int64_t>(stripe_information->getNumberOfRows());
     }
 
-    if (request.agg_type == TPushAggOp::type::COUNT) {
+    if (request.agg_type == TPushAggOp::type::COUNT ||
+        request.agg_type == TPushAggOp::type::COUNT_NON_NULL) {
         if (request.columns.empty()) {
+            if (request.agg_type == TPushAggOp::type::COUNT_NON_NULL) {
+                return Status::InvalidArgument(
+                        "ORC COUNT_NON_NULL pushdown requires one count column");
+            }
             return Status::OK();
         }
         if (request.columns.size() != 1) {
