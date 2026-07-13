@@ -441,6 +441,13 @@ struct TRemoteDorisFileDesc {
     6: optional string password
 }
 
+// A scan range reads a fixed snapshot and one or more disjoint Lance fragments.
+struct TLanceFileDesc {
+    1: optional string dataset_uri
+    2: optional list<i64> fragment_ids
+    3: optional i64 version
+}
+
 struct TTableFormatFileDesc {
     1: optional string table_format_type
     2: optional TIcebergFileDesc iceberg_params
@@ -454,6 +461,7 @@ struct TTableFormatFileDesc {
     10: optional TRemoteDorisFileDesc remote_doris_params
     // JDBC connection parameters (used when table_format_type == "jdbc")
     11: optional map<string, string> jdbc_params
+    12: optional TLanceFileDesc lance_params
 }
 
 // Deprecated, hive text talbe is a special format, not a serde type
