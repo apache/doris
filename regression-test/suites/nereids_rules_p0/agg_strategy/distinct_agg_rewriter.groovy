@@ -35,4 +35,7 @@ suite("distinct_agg_rewriter") {
     select count(distinct d_200) from t1000_2 group by b_5;"""
     qt_use_multi_distinct """explain shape plan
     select count(distinct d_200) from t1000_2 group by a_1;"""
+
+    sql "set agg_phase=4"
+    sql "select group_concat(distinct dst_key1 order by dst_key2) from t_gbykey_10_dstkey_10_1000_id group by gby_key"
 }

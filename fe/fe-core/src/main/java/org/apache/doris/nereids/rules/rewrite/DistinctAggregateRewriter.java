@@ -112,6 +112,9 @@ public class DistinctAggregateRewriter implements RewriteRuleFactory {
         if (ctx.getSessionVariable().aggPhase == 1 || ctx.getSessionVariable().aggPhase == 2) {
             return true;
         }
+        if (ctx.getSessionVariable().aggPhase == 3 || ctx.getSessionVariable().aggPhase == 4) {
+            return false;
+        }
         if (aggregate.getStats() == null || aggregate.child().getStats() == null) {
             StatsDerive derive = new StatsDerive(false);
             aggregate.accept(derive, new DeriveContext());
@@ -247,9 +250,6 @@ public class DistinctAggregateRewriter implements RewriteRuleFactory {
 
     private Plan rewrite(LogicalAggregate<? extends Plan> aggregate, ConnectContext ctx) {
         if (aggregate.distinctFuncNum() == 0) {
-            return null;
-        }
-        if (ctx.getSessionVariable().aggPhase == 3 || ctx.getSessionVariable().aggPhase == 4) {
             return null;
         }
         if (shouldUseMultiDistinct(aggregate)) {
