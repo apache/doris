@@ -242,7 +242,7 @@ def detect_docker_compose_cmd():
         except (subprocess.CalledProcessError, FileNotFoundError):
             return False
 
-    def _compose_v2_usable(cmd):
+    def _compose_usable(cmd):
         if not _command_available(cmd + ["version"]):
             return False
         try:
@@ -263,18 +263,18 @@ def detect_docker_compose_cmd():
     override = os.environ.get("DORIS_DOCKER_COMPOSE_CMD")
     if override:
         cmd = shlex.split(override)
-        if not _command_available(cmd + ["version"]):
+        if not _compose_usable(cmd):
             raise RuntimeError(
                 "DORIS_DOCKER_COMPOSE_CMD is set but not usable: {}".format(override)
             )
         return cmd
 
     # Prefer Compose v2 when it can talk to the daemon.
-    if _compose_v2_usable(["docker", "compose"]):
+    if _compose_usable(["docker", "compose"]):
         return ["docker", "compose"]
 
     # Fallback for old machines or environments with a newer standalone client.
-    if _command_available(["docker-compose", "version"]):
+    if _compose_usable(["docker-compose"]):
         return ["docker-compose"]
 
     raise RuntimeError(

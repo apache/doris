@@ -96,7 +96,8 @@ suite('test_warm_up_normal_queue_semantics', 'docker') {
         assert queueRows.find { it.jobId == onceClusterJobId.toString() } != null
         assert queueRows.find { it.jobId == eventJobId.toString() } != null
 
-        WarmupMetricsUtils.waitForOnlyOneRunningNormalWarmup(sqlRunner, dstCluster, 30000)
+        def normalJobIds = [periodicJobId, onceTableJobId, onceClusterJobId].collect { it.toString() }
+        WarmupMetricsUtils.waitForOnlyOneRunningNormalWarmup(sqlRunner, dstCluster, 30000, normalJobIds)
         long runningNormal = WarmupMetricsUtils.countRunningNormalWarmupByDst(sqlRunner, dstCluster)
         assertTrue(runningNormal <= 1,
                 "same dst cluster should have at most one running normal warmup, got ${runningNormal}")
@@ -116,10 +117,11 @@ suite('test_warm_up_normal_queue_semantics', 'docker') {
         assertTrue(afterRestartSnapshot.keySet().containsAll(
                 [periodicJobId, onceTableJobId, onceClusterJobId, eventJobId].collect { it.toString() }))
 
-        WarmupMetricsUtils.waitForOnlyOneRunningNormalWarmup(sqlRunner, dstCluster, 30000)
+        WarmupMetricsUtils.waitForOnlyOneRunningNormalWarmup(sqlRunner, dstCluster, 30000, normalJobIds)
         runningNormal = WarmupMetricsUtils.countRunningNormalWarmupByDst(sqlRunner, dstCluster)
         assertTrue(runningNormal <= 1,
-                "after FE restart same dst cluster should still have at most one running normal warmup, got ${runningNormal}")
+                "after FE restart same dst cluster should still have at most one running normal warmup, "
+                        + "got ${runningNormal}")
 
         def beforeMetrics = WarmupMetricsUtils.getWarmupMetrics(sqlRunner, srcCluster, dstCluster)
         for (int i = 20; i < 24; i++) {
@@ -127,6 +129,10 @@ suite('test_warm_up_normal_queue_semantics', 'docker') {
         }
         def afterMetrics = WarmupMetricsUtils.waitForWarmupFinish(sqlRunner, srcCluster, dstCluster,
                 beforeMetrics.finished + 1, 120000)
+        assertTrue(afterMetrics.finished >= beforeMetrics.finished + 1,
+                "event-driven warmup should finish after FE restart, before=${beforeMetrics}, after=${afterMetrics}")
+        assertTrue(afterMetrics.finished + afterMetrics.failed >= afterMetrics.submitted,
+                "event-driven warmup should drain submitted segments, after=${afterMetrics}")
         assertTrue(afterMetrics.requested > beforeMetrics.requested,
                 "event-driven warmup should continue after FE restart, before=${beforeMetrics}, after=${afterMetrics}")
 

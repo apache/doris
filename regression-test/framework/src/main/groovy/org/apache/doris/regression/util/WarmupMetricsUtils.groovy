@@ -167,9 +167,9 @@ class WarmupMetricsUtils {
             }
             Thread.sleep(2000)
         }
-        logger.warn("waitForWarmupFinish timed out after ${timeoutMs}ms, " +
-                "expected finished >= ${expectedFinished}")
-        return getWarmupMetrics(sqlRunner, srcCluster, dstCluster)
+        def latest = getWarmupMetrics(sqlRunner, srcCluster, dstCluster)
+        throw new RuntimeException("waitForWarmupFinish timed out after ${timeoutMs}ms, "
+                + "expected finished >= ${expectedFinished}, latest=${latest}")
     }
 
     /**
@@ -312,6 +312,14 @@ class WarmupMetricsUtils {
         return syncMode.startsWith("EVENT_DRIVEN")
     }
 
+    static boolean isActiveWarmupJob(Map row) {
+        return row.status in ["PENDING", "RUNNING", "WAITING"]
+    }
+
+    static boolean isClusterWarmupJob(Map row) {
+        return row.type == "CLUSTER"
+    }
+
     static List<Map> showWarmupJobsByDst(Closure sqlRunner, String dstCluster) {
         return showWarmupJobs(sqlRunner).findAll { it.dstCluster == dstCluster }
     }
@@ -333,17 +341,45 @@ class WarmupMetricsUtils {
     }
 
     static void waitForOnlyOneRunningNormalWarmup(Closure sqlRunner, String dstCluster,
-                                                  long timeoutMs = 30000) {
+                                                  long timeoutMs = 30000,
+                                                  Collection<String> expectedJobIds = null,
+                                                  long observeMs = 5000) {
         long deadline = System.currentTimeMillis() + timeoutMs
-        long lastCount = -1
+        List<Map> lastRunningRows = []
         while (System.currentTimeMillis() < deadline) {
-            lastCount = countRunningNormalWarmupByDst(sqlRunner, dstCluster)
-            if (lastCount <= 1) {
+            List<Map> runningRows = showWarmupJobsByDst(sqlRunner, dstCluster).findAll {
+                isNormalWarmupJob(it) && it.status == "RUNNING"
+            }
+            lastRunningRows = runningRows
+            if (runningRows.size() > 1) {
+                throw new RuntimeException("expected at most one running normal warmup on ${dstCluster}, "
+                        + "runningRows=${runningRows}")
+            }
+            boolean hasExpectedRunning = expectedJobIds == null || runningRows.any {
+                expectedJobIds.contains(it.jobId)
+            }
+            if (runningRows.size() == 1 && hasExpectedRunning) {
+                assertAtMostOneRunningNormalWarmupDuring(sqlRunner, dstCluster, observeMs)
                 return
             }
             Thread.sleep(1000)
         }
-        throw new RuntimeException("expected at most one running normal warmup on ${dstCluster}, last=${lastCount}")
+        throw new RuntimeException("expected one normal warmup to reach RUNNING on ${dstCluster}, "
+                + "expectedJobIds=${expectedJobIds}, lastRunningRows=${lastRunningRows}")
+    }
+
+    static void assertAtMostOneRunningNormalWarmupDuring(Closure sqlRunner, String dstCluster, long observeMs) {
+        long deadline = System.currentTimeMillis() + observeMs
+        while (System.currentTimeMillis() < deadline) {
+            List<Map> runningRows = showWarmupJobsByDst(sqlRunner, dstCluster).findAll {
+                isNormalWarmupJob(it) && it.status == "RUNNING"
+            }
+            if (runningRows.size() > 1) {
+                throw new RuntimeException("expected at most one running normal warmup on ${dstCluster}, "
+                        + "runningRows=${runningRows}")
+            }
+            Thread.sleep(1000)
+        }
     }
 
     static Map waitForWarmupJobsRecovered(Closure sqlRunner, Map<String, Map> beforeSnapshot,
@@ -382,7 +418,8 @@ class WarmupMetricsUtils {
             }
             Thread.sleep(1000)
         }
-        return [states: states, row: showWarmupJob(sqlRunner, jobId)]
+        throw new RuntimeException("expected periodic job ${jobId} to observe ${minTransitions} "
+                + "RUNNING-to-waiting transitions within ${timeoutMs}ms, states=${states}")
     }
 
     static List<Map> sampleJobTimeline(Closure sqlRunner, Object jobId, long durationMs,
@@ -457,10 +494,21 @@ class WarmupMetricsUtils {
         }
     }
 
-    static List<String> getVcgWarmupJobIds(Closure sqlRunner, String srcCluster, String dstCluster) {
+    static List<Map> getVcgWarmupJobs(Closure sqlRunner, String srcCluster, String dstCluster) {
         return showWarmupJobs(sqlRunner).findAll {
             it.srcCluster == srcCluster && it.dstCluster == dstCluster
-        }.collect { it.jobId }
+                    && isActiveWarmupJob(it) && isClusterWarmupJob(it)
+                    && (it.syncMode.startsWith("PERIODIC") || it.syncMode.startsWith("EVENT_DRIVEN"))
+        }
+    }
+
+    static List<String> getVcgWarmupJobIds(Closure sqlRunner, String srcCluster, String dstCluster) {
+        return getVcgWarmupJobs(sqlRunner, srcCluster, dstCluster).collect { it.jobId }
+    }
+
+    static boolean hasPeriodicAndEventDrivenWarmup(Collection<Map> rows) {
+        return rows.any { it.syncMode.startsWith("PERIODIC") }
+                && rows.any { it.syncMode.startsWith("EVENT_DRIVEN") }
     }
 
     static List<Map> waitForWarmupJobsByPair(Closure sqlRunner, String srcCluster, String dstCluster,
@@ -483,17 +531,18 @@ class WarmupMetricsUtils {
                                                   Collection<String> oldJobIds, int minNewJobs = 1,
                                                   long timeoutMs = 120000) {
         long deadline = System.currentTimeMillis() + timeoutMs
-        List<String> newJobs = []
+        List<Map> newRows = []
         while (System.currentTimeMillis() < deadline) {
-            newJobs = getVcgWarmupJobIds(sqlRunner, srcCluster, dstCluster).findAll {
-                !oldJobIds.contains(it)
+            newRows = getVcgWarmupJobs(sqlRunner, srcCluster, dstCluster).findAll {
+                !oldJobIds.contains(it.jobId)
             }
-            if (newJobs.size() >= minNewJobs) {
-                return newJobs
+            if (newRows.size() >= minNewJobs && hasPeriodicAndEventDrivenWarmup(newRows)) {
+                return newRows.collect { it.jobId }
             }
             Thread.sleep(1000)
         }
-        return newJobs
+        throw new RuntimeException("expected active VCG cluster warmup jobs recreated for "
+                + "${srcCluster}->${dstCluster}, oldJobIds=${oldJobIds}, lastRows=${newRows}")
     }
 
     static void assertHistoricalJobsCancelled(Closure sqlRunner, Collection<String> jobIds,

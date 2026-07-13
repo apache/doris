@@ -84,10 +84,13 @@ suite('test_vcg_warmup_with_manual_once_queue_semantics', 'docker') {
             def rowsByDst = WarmupMetricsUtils.showWarmupJobsByDst(sqlRunner, sharedDst)
             assertTrue(rowsByDst*.jobId.contains(manualOnceId.toString()))
 
-            WarmupMetricsUtils.waitForOnlyOneRunningNormalWarmup(sqlRunner, sharedDst, 30000)
+            def expectedNormalJobIds = (autoRows.findAll { WarmupMetricsUtils.isNormalWarmupJob(it) }*.jobId
+                    + [manualOnceId.toString()])
+            WarmupMetricsUtils.waitForOnlyOneRunningNormalWarmup(sqlRunner, sharedDst, 30000, expectedNormalJobIds)
             long runningNormal = WarmupMetricsUtils.countRunningNormalWarmupByDst(sqlRunner, sharedDst)
             assertTrue(runningNormal <= 1,
-                    "vcg auto periodic plus manual once should still serialize normal warmup on same dst, running=${runningNormal}")
+                    "vcg auto periodic plus manual once should still serialize normal warmup on same dst, "
+                            + "running=${runningNormal}")
 
             def manualOnceRow = WarmupMetricsUtils.showWarmupJob(sqlRunner, manualOnceId)
             assertTrue(WarmupMetricsUtils.isNormalWarmupJob(manualOnceRow))
