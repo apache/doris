@@ -21,6 +21,7 @@
 
 #include <map>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -175,7 +176,9 @@ TEST(JniTableReaderTest, AdaptiveProbeSetBeforePrepareControlsFirstJniOpen) {
     reader.set_batch_size(32);
     ASSERT_TRUE(reader.prepare_split({
                                              .partition_values = {},
+                                             .conjuncts = std::nullopt,
                                              .partition_prune_conjuncts = {},
+                                             .all_runtime_filters_applied = true,
                                              .cache = nullptr,
                                              .current_range = {},
                                              .current_split_format = FileFormat::JNI,
