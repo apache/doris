@@ -91,12 +91,14 @@ import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.Set;
 import java.util.function.Function;
 
@@ -267,6 +269,33 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     @Override
     public boolean ignorePartitionPruneShortCircuit() {
         return true;
+    }
+
+    /**
+     * The distinct scanned partitions among the just-planned ranges (FIX-L12) — restores legacy
+     * {@code IcebergScanNode}'s {@code selectedPartitionNum = partitionMapInfos.size()} (keyed by
+     * {@code (PartitionData) file().partition()}) so EXPLAIN {@code partition=N/M} and
+     * {@code sql_block_rule} reflect the partitions iceberg's manifest/residual evaluation actually
+     * resolved — including hidden/transform partitioning ({@code days(ts)}, {@code bucket(n,id)}) that the
+     * engine's declared-column Nereids pruning cannot see. The identity is
+     * {@link IcebergScanRange#getScannedPartitionKey()} ({@code specId|partitionDataJson}), which is
+     * distinct-faithful for a single spec's transform partitions. Returns empty when no range carries a
+     * partition key (unpartitioned table), so the engine keeps its own count. Only counts this provider's
+     * own {@link IcebergScanRange} instances.
+     */
+    @Override
+    public OptionalLong scannedPartitionCount(List<ConnectorScanRange> scanRanges) {
+        Set<String> distinctPartitions = new HashSet<>();
+        for (ConnectorScanRange range : scanRanges) {
+            if (range instanceof IcebergScanRange) {
+                String key = ((IcebergScanRange) range).getScannedPartitionKey();
+                if (key != null) {
+                    distinctPartitions.add(key);
+                }
+            }
+        }
+        return distinctPartitions.isEmpty()
+                ? OptionalLong.empty() : OptionalLong.of(distinctPartitions.size());
     }
 
     /**

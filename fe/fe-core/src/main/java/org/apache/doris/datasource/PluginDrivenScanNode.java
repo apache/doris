@@ -76,6 +76,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
@@ -305,6 +306,31 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         }
         return new long[] {
                 selectedPartitions.selectedPartitions.size(), selectedPartitions.totalPartitionNum};
+    }
+
+    /**
+     * The {@code selectedPartitionNum} to surface (EXPLAIN {@code partition=N/M} + {@code sql_block_rule}
+     * {@code partition_num}): the connector's real scanned-partition count when it reports one
+     * ({@link ConnectorScanPlanProvider#scannedPartitionCount}), else the engine's Nereids-pruned count
+     * (the {@code displayPartitionCounts} value already set on the node).
+     *
+     * <p>A predicate-driven connector (paimon manifest pruning, iceberg hidden/transform partitioning)
+     * scans fewer distinct partitions than Nereids' declared-partition-column pruning can see, so its
+     * reported count is the faithful one. Directory-partitioned / requiredPartition-driven connectors
+     * (hive, MaxCompute) report {@code empty} and keep the Nereids count (the two coincide).</p>
+     *
+     * <p>Suppressed under {@code COUNT(*)} pushdown: the connector collapses its splits into one count
+     * range (paimon {@code countRepresentative}, iceberg's single count range), so per-partition info is
+     * lost from the returned ranges — the engine keeps its conservative Nereids count there (Nereids
+     * &ge; real, so the {@code partition_num} guard only tightens, never under-blocks). Pure so the gate
+     * is unit-testable.</p>
+     */
+    static long resolveSelectedPartitionNum(long nereidsSelectedPartitionNum, boolean countPushdown,
+            OptionalLong connectorScannedPartitionCount) {
+        if (!countPushdown && connectorScannedPartitionCount.isPresent()) {
+            return connectorScannedPartitionCount.getAsLong();
+        }
+        return nereidsSelectedPartitionNum;
     }
 
     @Override
@@ -1067,6 +1093,17 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         // ConnectorScanRange getters (default false / -1), so non-paimon connectors are unaffected.
         this.nativeReadSplitNum = countNativeReadRanges(ranges);
         this.totalReadSplitNum = ranges.size();
+        // FIX-L12: prefer the connector's real scanned-partition count (distinct native partitions after
+        // its SDK's manifest/residual/transform pruning) over the Nereids declared-column prune count set
+        // at displayPartitionCounts above, so partition=N/M and sql_block_rule reflect what is actually
+        // scanned. Opt-in: the default returns empty and the Nereids count stands (correct for
+        // hive/MaxCompute, where the two coincide). Suppressed under COUNT(*) pushdown (collapsed ranges
+        // lost per-partition info). connector-agnostic: one uniform SPI call + a pure helper, no source
+        // branch — the connector downcasts its own range type to read partition identity.
+        OptionalLong connectorScannedPartitions = onPluginClassLoader(scanProvider,
+                () -> scanProvider.scannedPartitionCount(ranges));
+        this.selectedPartitionNum = resolveSelectedPartitionNum(
+                this.selectedPartitionNum, countPushdown, connectorScannedPartitions);
         long pushDownRowCount = resolvePushDownRowCount(countPushdown, ranges);
         if (pushDownRowCount >= 0) {
             // Only set when a range actually carries a precomputed count (e.g. paimon's collapsed count

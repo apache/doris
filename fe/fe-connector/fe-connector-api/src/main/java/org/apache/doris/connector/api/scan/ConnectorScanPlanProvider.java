@@ -29,6 +29,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalLong;
 
 /**
  * Plans the set of scan ranges (splits) needed to read a connector table.
@@ -266,6 +267,29 @@ public interface ConnectorScanPlanProvider {
      */
     default boolean supportsTableSample() {
         return false;
+    }
+
+    /**
+     * The number of DISTINCT native partitions among the just-planned scan ranges — the count the
+     * connector's SDK actually resolved after ITS full manifest/residual/transform/bucket pruning.
+     * Feeds the scan node's {@code selectedPartitionNum} (EXPLAIN {@code partition=N/M} and the
+     * {@code sql_block_rule} {@code partition_num} guard), so the reported count reflects what is
+     * really scanned rather than the engine's declared-partition-column (Nereids) prune count.
+     *
+     * <p>The default returns {@link OptionalLong#empty()}, so the generic node keeps its Nereids-pruned
+     * count — correct for directory-partitioned / requiredPartition-driven connectors (hive, MaxCompute),
+     * where the two coincide. A predicate-driven connector whose SDK prunes beyond the engine (Paimon
+     * manifest pruning, Iceberg hidden/transform partitioning) overrides this. Mirrors the
+     * {@link #supportsTableSample} opt-in shape; the connector downcasts its OWN range type (it produced
+     * these very ranges) to read partition identity, so the generic node stays connector-agnostic. It
+     * must never over-count (each native partition must map to exactly one identity within a scan), so it
+     * can only tighten, never loosen, the {@code partition_num} guard relative to the Nereids count.</p>
+     *
+     * @param scanRanges the ranges this provider just returned from {@code planScan}
+     * @return the distinct scanned-partition count, or empty to keep the engine's Nereids count (default)
+     */
+    default OptionalLong scannedPartitionCount(List<ConnectorScanRange> scanRanges) {
+        return OptionalLong.empty();
     }
 
     /**

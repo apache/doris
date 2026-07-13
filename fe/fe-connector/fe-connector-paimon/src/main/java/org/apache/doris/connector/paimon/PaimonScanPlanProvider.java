@@ -86,11 +86,14 @@ import java.util.Arrays;
 import java.util.Base64;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalLong;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -344,6 +347,34 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
     @Override
     public boolean ignorePartitionPruneShortCircuit() {
         return true;
+    }
+
+    /**
+     * The distinct scanned partitions among the just-planned ranges (FIX-L12) — restores legacy
+     * {@code PaimonScanNode}'s {@code selectedPartitionNum = partitionInfoMaps.size()} (keyed by
+     * {@code dataSplit.partition()}) so EXPLAIN {@code partition=N/M} and {@code sql_block_rule} reflect
+     * the partitions the paimon SDK actually resolved after manifest/file-stat pruning, not the engine's
+     * declared-column Nereids count. The identity is the rendered {@link PaimonScanRange#getPartitionValues()}
+     * map — {@code getPartitionInfoMap(table, dataSplit.partition(), tz)}, deterministic and injective per
+     * partition within a scan, so distinct maps == distinct native partitions (multiple ranges of one
+     * partition de-dup). Returns empty for an unpartitioned table (every range's partition map is empty),
+     * so the engine keeps its own count. A partition column whose type is unserializable makes
+     * {@code getPartitionInfoMap} drop the whole map to empty too → empty here → engine keeps the (safe,
+     * &ge; real) Nereids count. Only counts this provider's own {@link PaimonScanRange} instances.
+     */
+    @Override
+    public OptionalLong scannedPartitionCount(List<ConnectorScanRange> scanRanges) {
+        Set<Map<String, String>> distinctPartitions = new HashSet<>();
+        for (ConnectorScanRange range : scanRanges) {
+            if (range instanceof PaimonScanRange) {
+                Map<String, String> partitionValues = range.getPartitionValues();
+                if (partitionValues != null && !partitionValues.isEmpty()) {
+                    distinctPartitions.add(partitionValues);
+                }
+            }
+        }
+        return distinctPartitions.isEmpty()
+                ? OptionalLong.empty() : OptionalLong.of(distinctPartitions.size());
     }
 
     /**
