@@ -47,7 +47,7 @@ struct ProcessHashTableProbe {
     void build_side_output_column(MutableColumns& mcol, bool is_mark_join);
 
     void probe_side_output_column(MutableColumns& mcol);
-    bool can_zero_copy_probe_side_all_match_one(bool all_match_one) const;
+    bool can_transfer_probe_columns_to_output(bool probe_indices_are_contiguous) const;
 
     // Only process the join with no other join conjunct, because of no other join conjunt
     // the output block struct is same with mutable block. we can do more opt on it and simplify
@@ -121,8 +121,8 @@ struct ProcessHashTableProbe {
     // nullable column but not has null except first row
     std::vector<bool> _build_column_has_null;
 
-    bool _need_calculate_all_match_one = false;
-    bool _probe_side_output_zero_copy = false;
+    bool _should_check_probe_index_continuity = false;
+    bool _can_transfer_probe_columns_to_output = false;
 
     RuntimeProfile::Counter* _search_hashtable_timer = nullptr;
     RuntimeProfile::Counter* _init_probe_side_timer = nullptr;
