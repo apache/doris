@@ -320,14 +320,16 @@ Status IcebergPositionDeleteSysTableV2Reader::_init_position_delete_reader() {
             .push_down_agg_type = TPushAggOp::type::NONE,
             .condition_cache_digest = 0,
     }));
-    RETURN_IF_ERROR(_position_reader->prepare_split({
-            .partition_values = {},
-            .partition_prune_conjuncts = {},
-            .cache = nullptr,
-            .current_range = _current_range,
-            .current_split_format = file_format,
-            .global_rowid_context = std::nullopt,
-    }));
+    // Keep standalone-reader defaults for scanner-only fields that may be added to
+    // SplitReadOptions.
+    auto split_options = format::SplitReadOptions {};
+    split_options.partition_values = {};
+    split_options.partition_prune_conjuncts = {};
+    split_options.cache = nullptr;
+    split_options.current_range = _current_range;
+    split_options.current_split_format = file_format;
+    split_options.global_rowid_context = std::nullopt;
+    RETURN_IF_ERROR(_position_reader->prepare_split(split_options));
     return Status::OK();
 }
 
