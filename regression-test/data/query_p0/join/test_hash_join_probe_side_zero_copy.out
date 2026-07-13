@@ -10,3 +10,7 @@
 
 -- !mark_and_post_join_conjunct --
 2	20	b
+
+-- !reuse_probe_block_after_transfer --
+4	40
+6	60

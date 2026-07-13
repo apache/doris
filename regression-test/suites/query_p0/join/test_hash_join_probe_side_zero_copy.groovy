@@ -24,7 +24,8 @@ suite("test_hash_join_probe_side_zero_copy", "query,p0") {
         CREATE TABLE test_hash_join_probe_side_zero_copy_probe (
             k INT NOT NULL,
             v INT NOT NULL,
-            s VARCHAR(10) NOT NULL
+            s VARCHAR(10) NOT NULL,
+            n INT NULL
         ) DISTRIBUTED BY HASH(k) BUCKETS 1
         PROPERTIES("replication_num" = "1")
     """
@@ -47,7 +48,8 @@ suite("test_hash_join_probe_side_zero_copy", "query,p0") {
 
     sql """
         INSERT INTO test_hash_join_probe_side_zero_copy_probe VALUES
-            (1, 10, 'a'), (2, 20, 'b'), (3, 30, 'c')
+            (1, 10, 'a', 10), (2, 20, 'b', 20), (3, 30, 'c', 30),
+            (4, 40, 'd', 40), (5, 50, 'e', 50), (6, 60, 'f', 60)
     """
     sql """
         INSERT INTO test_hash_join_probe_side_zero_copy_build_many VALUES
@@ -93,5 +95,17 @@ suite("test_hash_join_probe_side_zero_copy", "query,p0") {
             WHERE p.k = b.k + 10 AND p.s != b.s AND p.v < b.v + 1000
         ) OR p.k = 2
         ORDER BY p.k, p.v, p.s
+    """
+
+    // The first probe batch has only equality misses, so its one-to-one sentinel rows allow
+    // ownership transfer. The cleared placeholders must become physical reusable columns before
+    // the second probe batch, whose duplicate probe indices take the normal indexed-copy path.
+    order_qt_reuse_probe_block_after_transfer """
+        SELECT /*+SET_VAR(batch_size=3, disable_join_reorder=true, parallel_pipeline_task_num=1)*/
+               p.k, p.n
+        FROM test_hash_join_probe_side_zero_copy_probe p
+        LEFT SEMI JOIN [broadcast] test_hash_join_probe_side_zero_copy_build_unique b
+          ON p.k = b.k + 3 AND p.n < b.v
+        ORDER BY p.k, p.n
     """
 }
