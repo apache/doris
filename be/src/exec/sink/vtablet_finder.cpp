@@ -22,6 +22,7 @@
 #include <gen_cpp/FrontendService_types.h>
 #include <glog/logging.h>
 
+#include <algorithm>
 #include <string>
 #include <utility>
 
@@ -83,8 +84,11 @@ Status OlapTabletFinder::find_tablets(RuntimeState* state, Block* block, int row
 
     if (_find_tablet_mode == FindTabletMode::FIND_TABLET_EVERY_ROW) {
         _vpartition->find_tablets(block, qualified_rows, partitions, tablet_index);
+    } else if (_find_tablet_mode == FindTabletMode::FIND_TABLET_RANDOM_BUCKET) {
+        // Adaptive random bucket mode only needs partition ids on sender side.
+        // The receiver decides the concrete tablet from its local ordered tablet list.
     } else {
-        // for random distribution
+        // FIND_TABLET_EVERY_BATCH / FIND_TABLET_EVERY_SINK
         _vpartition->find_tablets(block, qualified_rows, partitions, tablet_index,
                                   &_partition_to_tablet_map);
         if (_find_tablet_mode == FindTabletMode::FIND_TABLET_EVERY_BATCH) {
