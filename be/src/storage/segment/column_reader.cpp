@@ -692,7 +692,7 @@ Status ColumnReader::_load_index(const std::shared_ptr<IndexFileReader>& index_f
                         "create StringTypeInvertedIndexReader error: {}", e.what());
             }
         }
-    } else if (is_numeric_type(type)) {
+    } else if (field_is_numeric_type(type)) {
         try {
             index_reader = BkdIndexReader::create_shared(index_meta, index_file_reader);
         } catch (const CLuceneError& e) {
