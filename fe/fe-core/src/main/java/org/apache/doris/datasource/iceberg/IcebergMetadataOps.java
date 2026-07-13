@@ -1078,12 +1078,8 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     public void modifyColumnComment(ExternalTable dorisTable, ColumnPath columnPath, String comment, long updateTime)
             throws UserException {
         Table icebergTable = IcebergUtils.getIcebergTable(dorisTable);
-        ResolvedColumnPath resolvedPath;
-        if (columnPath.isNested()) {
-            resolvedPath = validateNestedStructFieldPath(icebergTable.schema(), columnPath, "modify comment");
-        } else {
-            resolvedPath = resolveColumnPath(icebergTable.schema(), columnPath, "modify comment");
-        }
+        ResolvedColumnPath resolvedPath = resolveColumnPath(
+                icebergTable.schema(), columnPath, "modify comment");
 
         UpdateSchema updateSchema = icebergTable.updateSchema();
         updateSchema.updateColumnDoc(resolvedPath.getFullPath(), StringUtils.defaultString(comment));

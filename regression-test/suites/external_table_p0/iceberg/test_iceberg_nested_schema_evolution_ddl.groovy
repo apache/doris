@@ -98,10 +98,17 @@ suite("test_iceberg_nested_schema_evolution_ddl", "p0,external,doris,external_do
         exception "Cannot modify MAP key nested column"
     }
 
+    sql """ALTER TABLE ${tableName} MODIFY COLUMN arr_scalar.element COMMENT 'array element comment'"""
+    sql """ALTER TABLE ${tableName} MODIFY COLUMN m_scalar.value COMMENT 'map value comment'"""
+    test {
+        sql """ALTER TABLE ${tableName} MODIFY COLUMN m_scalar.`key` COMMENT 'map key comment'"""
+        exception "Cannot modify comment MAP key nested column"
+    }
+
     sql """ALTER TABLE ${tableName} RENAME COLUMN s.c TO c2"""
     sql """ALTER TABLE ${tableName} RENAME COLUMN arr.element.y TO y2"""
     sql """ALTER TABLE ${tableName} RENAME COLUMN m.value.y TO y2"""
-    sql """ALTER TABLE ${tableName} MODIFY COLUMN s.c2 COMMENT 'renamed struct field'"""
+    sql """ALTER TABLE ${tableName} MODIFY COLUMN s.`c2` COMMENT 'renamed struct field'"""
     sql """ALTER TABLE ${tableName} MODIFY COLUMN arr.element.y2 COMMENT 'renamed array element field'"""
     sql """ALTER TABLE ${tableName} MODIFY COLUMN m.value.y2 COMMENT 'renamed map value field'"""
     sql """ALTER TABLE ${tableName} DROP COLUMN s.drop_me"""

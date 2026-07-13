@@ -90,7 +90,27 @@ public class IcebergNestedSchemaEvolutionParserTest {
         Assertions.assertEquals("top.level", comment.getColumnPath().getFullPath());
     }
 
-    private <T extends AlterTableOp> void assertSingleClausePath(String sql, Class<T> clauseClass,
+    @Test
+    public void testQuotedNestedIdentifiersAreNormalized() {
+        assertSingleClausePath("ALTER TABLE t MODIFY COLUMN info.`Metric` BIGINT",
+                ModifyColumnOp.class, "info.Metric");
+        assertSingleClausePath("ALTER TABLE t MODIFY COLUMN m_scalar.`key` BIGINT",
+                ModifyColumnOp.class, "m_scalar.key");
+        assertSingleClausePath("ALTER TABLE t MODIFY COLUMN info.`Metric``Name` COMMENT 'quoted'",
+                ModifyColumnCommentOp.class, "info.Metric`Name");
+
+        AddColumnOp add = assertSingleClausePath(
+                "ALTER TABLE t ADD COLUMN info.`New``Field` INT NULL AFTER `Old``Field`",
+                AddColumnOp.class, "info.New`Field");
+        Assertions.assertEquals("Old`Field", add.getColPos().getLastCol());
+
+        RenameColumnOp rename = assertSingleClausePath(
+                "ALTER TABLE t RENAME COLUMN info.`Metric` TO `New``Metric`",
+                RenameColumnOp.class, "info.Metric");
+        Assertions.assertEquals("New`Metric", rename.getNewColName());
+    }
+
+    private <T extends AlterTableOp> T assertSingleClausePath(String sql, Class<T> clauseClass,
             String expectedPath) {
         Plan plan = parser.parseSingle(sql);
         Assertions.assertInstanceOf(AlterTableCommand.class, plan);
@@ -109,5 +129,6 @@ public class IcebergNestedSchemaEvolutionParserTest {
         } else if (clause instanceof RenameColumnOp) {
             Assertions.assertEquals(expectedPath, ((RenameColumnOp) clause).getColumnPath().getFullPath());
         }
+        return clauseClass.cast(clause);
     }
 }
