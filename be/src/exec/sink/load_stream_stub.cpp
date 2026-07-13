@@ -117,8 +117,7 @@ int LoadStreamReplyHandler::on_received_messages(brpc::StreamId id, butil::IOBuf
             uint32_t len = cast_set<uint32_t>(response.load_stream_profile().size());
             auto status = deserialize_thrift_msg(buf, &len, false, &tprofile);
             if (status.ok()) {
-                // TODO
-                //_sink->_state->load_channel_profile()->update(tprofile);
+                stub->append_load_stream_profile(tprofile);
             } else {
                 LOG(WARNING) << "load stream TRuntimeProfileTree deserialize failed, errmsg="
                              << status;
@@ -164,6 +163,24 @@ LoadStreamStub::~LoadStreamStub() {
         auto ret = brpc::StreamClose(_stream_id);
         LOG(INFO) << *this << " is deconstructed, close " << (ret == 0 ? "success" : "failed");
     }
+}
+
+void LoadStreamStub::append_load_stream_profile(const TRuntimeProfileTree& profile) {
+    std::lock_guard<bthread::Mutex> lock(_load_stream_profile_mutex);
+    _load_stream_profile.update(profile);
+    _has_load_stream_profile = true;
+}
+
+std::shared_ptr<TRuntimeProfileTree> LoadStreamStub::collect_load_stream_profile(
+        int64_t profile_level) {
+    std::lock_guard<bthread::Mutex> lock(_load_stream_profile_mutex);
+    if (!_has_load_stream_profile) {
+        return nullptr;
+    }
+    auto profile = std::make_shared<TRuntimeProfileTree>();
+    _load_stream_profile.to_thrift(profile.get(), profile_level);
+    _has_load_stream_profile = false;
+    return profile;
 }
 
 // open_load_stream

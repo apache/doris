@@ -178,7 +178,8 @@ void RuntimeProfile::update(const std::vector<TRuntimeProfileNode>& nodes, int* 
 
             if (j == _counter_map.end()) {
                 _counter_map[tcounter.name] =
-                        _pool->add(new Counter(tcounter.type, tcounter.value));
+                        _pool->add(new Counter(tcounter.type, tcounter.value,
+                                               tcounter.__isset.level ? tcounter.level : 2));
             } else {
                 if (j->second->type() != tcounter.type) {
                     LOG(ERROR) << "Cannot update counters with the same name (" << j->first

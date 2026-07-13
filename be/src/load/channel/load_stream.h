@@ -154,7 +154,7 @@ private:
 
     void _report_result(StreamId stream, const Status& status,
                         const std::vector<int64_t>& success_tablet_ids,
-                        const FailedTablets& failed_tablets, bool eos);
+                        const FailedTablets& failed_tablets, bool eos, bool report_profile);
     void _report_schema(StreamId stream, const PStreamHeader& hdr);
     void _report_tablet_load_info(StreamId stream, int64_t index_id);
     void _collect_tablet_load_info_from_tablets(
@@ -167,7 +167,7 @@ private:
         if (header.has_tablet_id()) {
             failed_tablets.emplace_back(header.tablet_id(), status);
         }
-        _report_result(stream, status, {}, failed_tablets, false);
+        _report_result(stream, status, {}, failed_tablets, false, false);
     }
 
     Status _write_stream(StreamId stream, butil::IOBuf& buf);

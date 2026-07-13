@@ -167,10 +167,10 @@ TEST_F(RuntimeProfileCounterTreeNodeTest, HighWaterMarkCounterToThrift) {
     childCounterMap["root"].insert("child");
 
     rootCounter->add(10);
-    rootCounter->set(5);
+    rootCounter->set(static_cast<int64_t>(5));
 
     childCounter->add(100);
-    childCounter->set(50);
+    childCounter->set(static_cast<int64_t>(50));
 
     RuntimeProfileCounterTreeNode rootNode = RuntimeProfileCounterTreeNode::from_map(
             counterMap, childCounterMap, RuntimeProfile::ROOT_COUNTER);

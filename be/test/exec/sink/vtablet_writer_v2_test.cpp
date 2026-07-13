@@ -21,7 +21,9 @@
 #include <unistd.h>
 
 #include <memory>
+#include <sstream>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 #include "common/config.h"
@@ -40,6 +42,7 @@
 #include "testutil/creators.h"
 #include "util/debug_points.h"
 #include "util/defer_op.h"
+#include "util/thrift_util.h"
 
 namespace doris {
 
@@ -52,6 +55,42 @@ public:
 };
 
 const int64_t src_id = 1000;
+
+static TRuntimeProfileTree create_remote_load_stream_profile(int64_t counter_value) {
+    RuntimeProfile remote_profile("LoadStream");
+    auto* index_stream_profile = remote_profile.create_child("IndexStream 10", true, true);
+    auto* tablet_stream_profile =
+            index_stream_profile->create_child("TabletStream 10001", true, true);
+    auto* rowset_builder_profile =
+            tablet_stream_profile->create_child("RowsetBuilder 10001", true, true);
+    COUNTER_SET(ADD_TIMER(rowset_builder_profile, "BuildRowsetTime"), counter_value);
+
+    TRuntimeProfileTree remote_profile_tree;
+    remote_profile.to_thrift(&remote_profile_tree);
+    return remote_profile_tree;
+}
+
+static void append_remote_load_stream_profile(UniqueId load_id,
+                                              const std::shared_ptr<LoadStreamStub>& stub,
+                                              int64_t dst_id, int64_t counter_value) {
+    auto remote_profile_tree = create_remote_load_stream_profile(counter_value);
+    ThriftSerializer serializer(false, 4096);
+    uint8_t* profile_buf = nullptr;
+    uint32_t profile_len = 0;
+    auto serialize_status = serializer.serialize(&remote_profile_tree, &profile_len, &profile_buf);
+    ASSERT_TRUE(serialize_status.ok()) << serialize_status;
+
+    PLoadStreamResponse response;
+    response.set_eos(true);
+    Status::OK().to_protobuf(response.mutable_status());
+    response.set_load_stream_profile(profile_buf, profile_len);
+
+    butil::IOBuf message;
+    message.append(response.SerializeAsString());
+    butil::IOBuf* messages[] = {&message};
+    LoadStreamReplyHandler handler(load_id.to_proto(), dst_id, stub);
+    ASSERT_EQ(0, handler.on_received_messages(0, messages, 1));
+}
 
 static void add_stream(std::shared_ptr<LoadStreamMap> load_stream_map, int64_t node_id,
                        std::vector<int64_t> success_tablets,
@@ -135,6 +174,114 @@ static TabletSchemaSPtr create_int_tablet_schema() {
     auto tablet_schema = std::make_shared<TabletSchema>();
     tablet_schema->init_from_pb(tablet_schema_pb);
     return tablet_schema;
+}
+
+TEST_F(TestVTabletWriterV2, load_stream_reply_profile_should_be_collected) {
+    UniqueId load_id(1, 2);
+    auto schema_map = std::make_shared<IndexToTabletSchema>();
+    auto mow_map = std::make_shared<IndexToEnableMoW>();
+    auto stub = std::make_shared<LoadStreamStub>(load_id, src_id, schema_map, mow_map);
+
+    RuntimeProfile remote_profile("LoadStream");
+    auto* delta_writer_profile = remote_profile.create_child("DeltaWriterV2 10001", true, true);
+    auto* memtable_writer_profile = remote_profile.create_child("MemTableWriter 10001", true, true);
+    COUNTER_SET(ADD_TIMER(delta_writer_profile, "WriteMemTableTime"), static_cast<int64_t>(1));
+    COUNTER_SET(ADD_TIMER(memtable_writer_profile, "MemTableSortTime"), static_cast<int64_t>(1));
+    TRuntimeProfileTree remote_profile_tree;
+    remote_profile.to_thrift(&remote_profile_tree);
+
+    ThriftSerializer serializer(false, 4096);
+    uint8_t* profile_buf = nullptr;
+    uint32_t profile_len = 0;
+    auto serialize_status = serializer.serialize(&remote_profile_tree, &profile_len, &profile_buf);
+    ASSERT_TRUE(serialize_status.ok()) << serialize_status;
+
+    PLoadStreamResponse response;
+    response.set_eos(true);
+    Status::OK().to_protobuf(response.mutable_status());
+    response.set_load_stream_profile(profile_buf, profile_len);
+
+    butil::IOBuf message;
+    message.append(response.SerializeAsString());
+    butil::IOBuf* messages[] = {&message};
+    LoadStreamReplyHandler handler(load_id.to_proto(), 1, stub);
+    ASSERT_EQ(0, handler.on_received_messages(0, messages, 1));
+
+    auto collected_profile_tree = stub->collect_load_stream_profile(2);
+    ASSERT_NE(nullptr, collected_profile_tree);
+
+    RuntimeProfile collected_profile("Collected");
+    collected_profile.update(*collected_profile_tree);
+    std::stringstream profile_string;
+    collected_profile.pretty_print(&profile_string);
+    ASSERT_NE(std::string::npos, profile_string.str().find("DeltaWriterV2 10001"));
+    ASSERT_NE(std::string::npos, profile_string.str().find("MemTableWriter 10001"));
+    ASSERT_NE(std::string::npos, profile_string.str().find("WriteMemTableTime"));
+    ASSERT_NE(std::string::npos, profile_string.str().find("MemTableSortTime"));
+    ASSERT_EQ(nullptr, stub->collect_load_stream_profile(2));
+}
+
+TEST_F(TestVTabletWriterV2, load_stream_profiles_from_backends_should_not_merge_by_writer_name) {
+    UniqueId load_id(1, 2);
+    auto load_stream_map = std::make_shared<LoadStreamMap>(load_id, src_id, 2, 1, nullptr);
+    auto backend1_streams = load_stream_map->get_or_create(101);
+    auto backend2_streams = load_stream_map->get_or_create(102);
+    auto backend1_stream = backend1_streams->streams()[0];
+    auto backend1_second_stream = backend1_streams->streams()[1];
+    auto backend2_stream = backend2_streams->streams()[0];
+    append_remote_load_stream_profile(load_id, backend1_stream, 101, 1);
+    append_remote_load_stream_profile(load_id, backend1_second_stream, 101, 2);
+    append_remote_load_stream_profile(load_id, backend2_stream, 102, 3);
+
+    MockRuntimeState state;
+    auto writer = create_vtablet_writer();
+    writer->_state = &state;
+    writer->_collect_load_stream_profiles(
+            load_stream_map->get_streams_for_node(),
+            {backend1_stream, backend1_second_stream, backend2_stream});
+
+    auto* load_stream_from_backend1 =
+            state.load_channel_profile()->get_child("LoadStream dst_id=101 stream_idx=0");
+    auto* second_load_stream_from_backend1 =
+            state.load_channel_profile()->get_child("LoadStream dst_id=101 stream_idx=1");
+    auto* load_stream_from_backend2 =
+            state.load_channel_profile()->get_child("LoadStream dst_id=102 stream_idx=0");
+    ASSERT_NE(nullptr, load_stream_from_backend1);
+    ASSERT_NE(nullptr, second_load_stream_from_backend1);
+    ASSERT_NE(nullptr, load_stream_from_backend2);
+
+    auto* backend1_index_stream = load_stream_from_backend1->get_child("IndexStream 10");
+    auto* backend1_second_index_stream =
+            second_load_stream_from_backend1->get_child("IndexStream 10");
+    auto* backend2_index_stream = load_stream_from_backend2->get_child("IndexStream 10");
+    ASSERT_NE(nullptr, backend1_index_stream);
+    ASSERT_NE(nullptr, backend1_second_index_stream);
+    ASSERT_NE(nullptr, backend2_index_stream);
+    auto* backend1_tablet_stream = backend1_index_stream->get_child("TabletStream 10001");
+    auto* backend1_second_tablet_stream =
+            backend1_second_index_stream->get_child("TabletStream 10001");
+    auto* backend2_tablet_stream = backend2_index_stream->get_child("TabletStream 10001");
+    ASSERT_NE(nullptr, backend1_tablet_stream);
+    ASSERT_NE(nullptr, backend1_second_tablet_stream);
+    ASSERT_NE(nullptr, backend2_tablet_stream);
+    auto* backend1_rowset_builder = backend1_tablet_stream->get_child("RowsetBuilder 10001");
+    auto* backend1_second_rowset_builder =
+            backend1_second_tablet_stream->get_child("RowsetBuilder 10001");
+    auto* backend2_rowset_builder = backend2_tablet_stream->get_child("RowsetBuilder 10001");
+    ASSERT_NE(nullptr, backend1_rowset_builder);
+    ASSERT_NE(nullptr, backend1_second_rowset_builder);
+    ASSERT_NE(nullptr, backend2_rowset_builder);
+
+    auto* backend1_build_rowset_time = backend1_rowset_builder->get_counter("BuildRowsetTime");
+    auto* backend1_second_build_rowset_time =
+            backend1_second_rowset_builder->get_counter("BuildRowsetTime");
+    auto* backend2_build_rowset_time = backend2_rowset_builder->get_counter("BuildRowsetTime");
+    ASSERT_NE(nullptr, backend1_build_rowset_time);
+    ASSERT_NE(nullptr, backend1_second_build_rowset_time);
+    ASSERT_NE(nullptr, backend2_build_rowset_time);
+    ASSERT_EQ(1, backend1_build_rowset_time->value());
+    ASSERT_EQ(2, backend1_second_build_rowset_time->value());
+    ASSERT_EQ(3, backend2_build_rowset_time->value());
 }
 
 static TDataSink create_vtablet_writer_sink(const TOlapTableSchemaParam& schema,

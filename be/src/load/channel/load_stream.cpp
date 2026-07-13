@@ -445,12 +445,9 @@ void IndexStream::close(const std::vector<PTabletID>& tablets_to_commit,
     }
 }
 
-// TODO: Profile is temporary disabled, because:
-// 1. It's not being processed by the upstream for now
-// 2. There are some problems in _profile->to_thrift()
 LoadStream::LoadStream(const PUniqueId& load_id, LoadStreamMgr* load_stream_mgr,
                        bool enable_profile)
-        : _load_id(load_id), _enable_profile(false), _load_stream_mgr(load_stream_mgr) {
+        : _load_id(load_id), _enable_profile(enable_profile), _load_stream_mgr(load_stream_mgr) {
     g_load_stream_cnt << 1;
     _profile = std::make_unique<RuntimeProfile>("LoadStream");
     _append_data_timer = ADD_TIMER(_profile, "AppendDataTime");
@@ -531,7 +528,8 @@ bool LoadStream::close(int64_t src_id, const std::vector<PTabletID>& tablets_to_
 
 void LoadStream::_report_result(StreamId stream, const Status& status,
                                 const std::vector<int64_t>& success_tablet_ids,
-                                const FailedTablets& failed_tablets, bool eos) {
+                                const FailedTablets& failed_tablets, bool eos,
+                                bool report_profile) {
     LOG(INFO) << "report result " << *this << ", success tablet num " << success_tablet_ids.size()
               << ", failed tablet num " << failed_tablets.size();
     butil::IOBuf buf;
@@ -547,7 +545,7 @@ void LoadStream::_report_result(StreamId stream, const Status& status,
         st.to_protobuf(pb->mutable_status());
     }
 
-    if (_enable_profile && _close_load_cnt == _total_streams) {
+    if (_enable_profile && report_profile) {
         TRuntimeProfileTree tprofile;
         ThriftSerializer ser(false, 4096);
         uint8_t* profile_buf = nullptr;
@@ -768,7 +766,7 @@ void LoadStream::_dispatch(StreamId id, const PStreamHeader& hdr, butil::IOBuf* 
         std::vector<PTabletID> tablets_to_commit(hdr.tablets().begin(), hdr.tablets().end());
         bool all_closed =
                 close(hdr.src_id(), tablets_to_commit, &success_tablet_ids, &failed_tablets);
-        _report_result(id, Status::OK(), success_tablet_ids, failed_tablets, true);
+        _report_result(id, Status::OK(), success_tablet_ids, failed_tablets, true, all_closed);
         std::lock_guard<bthread::Mutex> lock_guard(_lock);
         // if incremental stream, we need to wait for all non-incremental streams to be closed
         // before closing incremental streams. We need a fencing mechanism to avoid use after closing
