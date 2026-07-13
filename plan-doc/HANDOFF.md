@@ -5,13 +5,17 @@
 
 ---
 
-# 🆕 下一个 session = **重分析 P7.5 §3 抽取（新增两条隔离铁律 → 原「搬到中立家」方案作废）**，再续删除
+# 🆕 下一个 session = **实现 §3 重分析的合规委派（步 2a 连接器侧先行）**，再续删除
 
-> **起步必读 = `plan-doc/tasks/P7.5-datasource-deletion-plan.md`**（2026-07-13 的 22-agent HEAD-verified recon 蓝图，run `wf_f747c9ef-9ff`）。**行号信 HEAD 不信文档**。它取代 `hms-cutover-execution-plan-2026-07-10.md §2.4/§3/§4` 与 `fe-core-iceberg-removal-plan.md` 的旧 Phase-3 清单（已过时）。
+> **起步必读（两份）**：① **`plan-doc/tasks/datasource-deletion-extraction-reanalysis-2026-07-13.md`**（§3 抽取的合规重分析，**用户已 review 通过**，14-agent recon run `wf_6b4ce713-04f` + 人工复核）；② `plan-doc/tasks/P7.5-datasource-deletion-plan.md`（施工蓝图，§3 处置列已作废改指重分析、§5 步 2 已改为 2a/2b）。**行号信 HEAD 不信文档**。
 >
-> **🔴 2026-07-13 用户 review 结论（最高优先级，覆盖计划 §3）**：用户新增两条隔离铁律（见下「🔒 铁律」新增两条）——**A** fe-core 源相关代码**只出不进**；**B** 禁 deletion-scaffolding 式就近搬迁。据此，**计划 §3「抽取 4 组活成员搬到中立家（fe-core util）」整体作废**——它把 hive/iceberg 源相关成员搬进 fe-core，同撞两律（尤 `IcebergUtils` 行血缘列名/`getEffectiveIcebergFormatVersion`）。**下一个 session 第一件事 = 重分析 §3**：逐消费者定归属（源相关→连接器插件 + fe-core 消费者改经 SPI 委派；仅真通用→才可留框架），核连接器 SPI 现状，产出隔离合规方案交用户 review，再据此改 §5 步 2 与拓扑序。**正面范式 = 计划 §4-B**（补连接器中立 ACID 能力位，仿 `supportsTableSample` opt-in）。§1/§1.6 纯删、§2 纯切臂、§4-A/§4-C 均合规、不受影响。（memory `fe-core-source-isolation-iron-rules`）
+> **✅ 2026-07-13 用户拍板（最高优先级）**：认可「零 fe-core 源相关新增」的合规重分析取代原「搬中立家」方案。四组处置：① hive 分区名解析 = 2 纯删 + 1 经 `ConnectorPartitionInfo` 加**两并行列表**（有序值 + 现有空标志）委派，4 连接器填值；② hive LZO = **纯删**（消费点全死、连接器早自带）；③ hive 默认分区哨兵 = 查询路径经现有 `ConnectorScanRange.populateRangeParams` 委派（`HiveScanRange` 加 columnsFromPath 重置，**窄** `.equals` 非 `normalize()`）+ 加载路径改指现有中立常量 `ConnectorPartitionValues.HIVE_DEFAULT_PARTITION`；④ iceberg 行血缘 = 常量纯删 + 保留列身份用**逐列中立布尔位 `reservedPassthrough`**（经 `ConnectorColumnConverter:80-90` 跨界重贴，仿现有 invisible/uniqueId）+ 建表校验经现有 `ConnectorTableOps.createTable` 委派（**接受**时机/异常/文案变化，不加前置钩子）。
 >
-> **一句话**：翻闸早已完成（`SPI_READY_TYPES` 含 hms/iceberg/paimon/max_compute/jdbc/es/trino-connector；paimon/mc/es 遗留目录早删）。P7.5 = 收尾删 **hive+hudi+iceberg 循环单元 + trap-tier**（`nereids`/`planner`/`statistics`/`transaction` 里的遗留写/扫描链）≈ **106 文件**，切 **34 dead-arm + 13 import-only** 死臂（~30 存活文件），并做 **4 组抽取**（活成员搬中立家再删原文件）。
+> **下一个 session 第一件事 = 实现步 2a（连接器侧，各带单测，最安全独立起步）**，再 2b（fe-core 消费者改委派），最后步 3/4 删除。**删 `HiveUtil` 前须 4 连接器全接线有序值 + fail-loud + 覆盖 e2e**（否则 `listLatestPartitions:277` try/catch 静默吞分区）。
+>
+> **⏭ 单列紧邻后续（用户定，不并入本轮）**：第二处同款哨兵泄漏 `TablePartitionValues.HIVE_DEFAULT_PARTITION:47` ← 活消费者 `MetadataGenerator:2166`（`partition_values` TVF）；须自己的活性判定。**既存债非本轮**：`IcebergMergeCommand`/`IcebergUpdateCommand` 仍 iceberg 命名活类、`Column.ICEBERG_ROWID_COL:63`（勿当 sanctioned 家、勿新铸 `Column._row_id`）。
+>
+> **一句话**：翻闸早已完成（`SPI_READY_TYPES` 含 hms/iceberg/paimon/max_compute/jdbc/es/trino-connector；paimon/mc/es 遗留目录早删）。P7.5 = 收尾删 **hive+hudi+iceberg 循环单元 + trap-tier**（`nereids`/`planner`/`statistics`/`transaction` 里的遗留写/扫描链）≈ **106 文件**，切 **34 dead-arm + 13 import-only** 死臂（~30 存活文件），并做 **§3 合规委派**（连接器侧补数据/能力位 + fe-core 消费者改委派，再删原文件）。
 >
 > **⚠ 三个前置缺口（用户特别问的“遗漏前置工作”，均须删前处理，详见计划 §4）**：
 > - **A 事件拆除**：`MetastoreEventSyncDriver`（通用）+ 插件 `HmsEventSource/HmsEventParser` 已是活路径；只剩 legacy 拆除——删 `hive/event/` 前须先 EDIT `Env.java`（去 `MetastoreEventsProcessor` 全套面含 `start():2089`）+ `ExternalMetaIdMgr.java`（切死 else 臂 127-130）。
