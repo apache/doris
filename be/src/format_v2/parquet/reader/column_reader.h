@@ -84,8 +84,9 @@ public:
     // nested_definition_levels(), nested_repetition_levels(), and nested_levels_written() are
     // available; value indices and payload columns may be absent. Callers may inspect the levels or
     // call consume_nested_column(), but must not call build_nested_column() afterwards. For example,
-    // skipping ARRAY<STRING> uses this method to find ARRAY boundaries without decoding strings.
-    // Normal scans that need output values use load_nested_batch() instead.
+    // skipping ARRAY<STRING> uses this method to find ARRAY boundaries without constructing a
+    // ColumnString. The underlying Arrow reader may still decode a page because it has no public
+    // levels-only API. Normal scans that need output values use load_nested_batch() instead.
     virtual Status load_nested_levels_batch(int64_t rows);
 
     virtual Status build_nested_column(int64_t length_upper_bound, MutableColumnPtr& column,
@@ -95,7 +96,7 @@ public:
     // load_nested_levels_batch() without appending them to an output Column. Implementations must
     // advance exactly the same nested level cursors and perform the same shape/null/alignment
     // validation as build_nested_column(). The levels-only form is preferred for skip paths because
-    // it also avoids decoding leaf payloads that will be discarded.
+    // it avoids transferring leaf payloads into Doris Columns when they will be discarded.
     //
     // `length_upper_bound` is expressed at this reader's logical level, not in physical leaf
     // values. For example, consuming two rows from ARRAY [[1, 2], []] consumes two parent ARRAY
@@ -126,7 +127,7 @@ protected:
     ParquetColumnReader() = default;
     // Load shape levels and consume skipped parent rows in bounded batches. The bound limits level
     // memory when a parent expands to many children; the levels-only load plus
-    // consume_nested_column() avoids both payload decoding and output Columns.
+    // consume_nested_column() avoids payload materialization and output Columns.
     Status skip_nested_rows(int64_t rows);
     void update_reader_read_rows(int64_t rows) const;
     void update_reader_skip_rows(int64_t rows) const;
