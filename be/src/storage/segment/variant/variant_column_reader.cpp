@@ -1063,7 +1063,7 @@ Status VariantColumnReader::_create_iterator_from_plan(
         return Status::OK();
     }
     case ReadKind::DEFAULT_FILL: {
-        RETURN_IF_ERROR(Segment::new_default_iterator(target_col, iterator));
+        RETURN_IF_ERROR(Segment::new_constant_iterator(target_col, iterator));
         if (opt && opt->stats) {
             opt->stats->variant_subtree_default_iter_count++;
         }

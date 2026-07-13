@@ -44,7 +44,7 @@ Status DummyBinaryColumnReader::new_binary_column_iterator(ColumnIteratorUPtr* i
         binary_column.set_is_nullable(false);
         return binary_column;
     }();
-    RETURN_IF_ERROR(Segment::new_default_iterator(binary_column, iter));
+    RETURN_IF_ERROR(Segment::new_constant_iterator(binary_column, iter));
     return Status::OK();
 }
 

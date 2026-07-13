@@ -351,7 +351,7 @@ public:
 
     /// Parse a human-readable string from FE (delete conditions, default values,
     /// schema change defaults) into a Field. Uses standard decimal parsing with full
-    /// scale. Callers: delete_handler.cpp, column_reader.cpp (DefaultValueColumnIterator),
+    /// scale. Callers: delete_handler.cpp, segment.cpp (Segment::get_default_value_field),
     /// schema_change.cpp.
     virtual Status from_fe_string(const std::string& str, Field& field) const {
         FormatOptions options;

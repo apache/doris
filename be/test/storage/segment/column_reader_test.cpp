@@ -630,13 +630,10 @@ TEST_F(ColumnReaderTest, PlaceHolderRecoveryAfterColumnReplacement) {
 }
 
 namespace {
-void check_default_value_lazy_output(bool read_by_rowids) {
+void check_constant_value_lazy_output(bool read_by_rowids) {
     SCOPED_TRACE(read_by_rowids ? "read_by_rowids" : "next_batch");
 
-    DefaultValueColumnIterator iterator(true, "7", false, FieldType::OLAP_FIELD_TYPE_INT, 0, 0,
-                                        sizeof(int32_t));
-    ColumnIteratorOptions iter_opts;
-    ASSERT_TRUE(iterator.init(iter_opts).ok());
+    ConstantColumnIterator iterator(Field::create_field<TYPE_INT>(7));
     iterator.set_read_requirement(ColumnIterator::ReadRequirement::LAZY_OUTPUT);
     iterator.set_read_phase(ColumnIterator::ReadPhase::PREDICATE);
 
@@ -670,13 +667,10 @@ void check_default_value_lazy_output(bool read_by_rowids) {
     EXPECT_EQ(7, result.get_element(1));
 }
 
-void check_default_value_predicate_not_read_again(bool read_by_rowids) {
+void check_constant_value_predicate_not_read_again(bool read_by_rowids) {
     SCOPED_TRACE(read_by_rowids ? "read_by_rowids" : "next_batch");
 
-    DefaultValueColumnIterator iterator(true, "7", false, FieldType::OLAP_FIELD_TYPE_INT, 0, 0,
-                                        sizeof(int32_t));
-    ColumnIteratorOptions iter_opts;
-    ASSERT_TRUE(iterator.init(iter_opts).ok());
+    ConstantColumnIterator iterator(Field::create_field<TYPE_INT>(7));
     iterator.set_read_requirement(ColumnIterator::ReadRequirement::PREDICATE);
     iterator.set_read_phase(ColumnIterator::ReadPhase::PREDICATE);
 
@@ -711,16 +705,13 @@ void check_default_value_predicate_not_read_again(bool read_by_rowids) {
 }
 } // namespace
 
-TEST_F(ColumnReaderTest, DefaultValueLazyOutputRecoversFilteredPlaceholder) {
-    check_default_value_lazy_output(false);
-    check_default_value_lazy_output(true);
+TEST_F(ColumnReaderTest, ConstantValueLazyOutputRecoversFilteredPlaceholder) {
+    check_constant_value_lazy_output(false);
+    check_constant_value_lazy_output(true);
 }
 
-TEST_F(ColumnReaderTest, DefaultValueLazyOutputFinalizesEmptySelection) {
-    DefaultValueColumnIterator iterator(true, "7", false, FieldType::OLAP_FIELD_TYPE_INT, 0, 0,
-                                        sizeof(int32_t));
-    ColumnIteratorOptions iter_opts;
-    ASSERT_TRUE(iterator.init(iter_opts).ok());
+TEST_F(ColumnReaderTest, ConstantValueLazyOutputFinalizesEmptySelection) {
+    ConstantColumnIterator iterator(Field::create_field<TYPE_INT>(7));
     iterator.set_read_requirement(ColumnIterator::ReadRequirement::LAZY_OUTPUT);
     iterator.set_read_phase(ColumnIterator::ReadPhase::PREDICATE);
 
@@ -744,9 +735,9 @@ TEST_F(ColumnReaderTest, DefaultValueLazyOutputFinalizesEmptySelection) {
     EXPECT_FALSE(iterator._has_place_holder_column);
 }
 
-TEST_F(ColumnReaderTest, DefaultValuePredicateIsNotReadAgainInLazyPhase) {
-    check_default_value_predicate_not_read_again(false);
-    check_default_value_predicate_not_read_again(true);
+TEST_F(ColumnReaderTest, ConstantValuePredicateIsNotReadAgainInLazyPhase) {
+    check_constant_value_predicate_not_read_again(false);
+    check_constant_value_predicate_not_read_again(true);
 }
 
 TEST_F(ColumnReaderTest, SetReadRequirementPropagatesToNestedIterators) {

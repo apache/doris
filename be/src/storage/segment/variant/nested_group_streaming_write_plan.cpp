@@ -25,6 +25,7 @@
 #include <utility>
 
 #include "core/data_type/get_least_supertype.h"
+#include "storage/iterators.h"
 #include "storage/rowset/beta_rowset.h"
 #include "storage/segment/column_reader.h"
 #include "storage/segment/segment.h"
@@ -151,17 +152,21 @@ Status append_plan_from_rowset_reader(const RowsetReaderSharedPtr& input_rs_read
     for (const auto& segment : segment_cache.get_segments()) {
         std::shared_ptr<ColumnReader> column_reader;
         OlapReaderStatistics stats;
-        Status st = segment->get_column_reader(variant_uid, &column_reader, &stats);
-        if (st.is<ErrorCode::NOT_FOUND>()) {
-            continue;
-        }
+        StorageReadOptions read_options;
+        read_options.tablet_schema = rowset->tablet_schema();
+        read_options.stats = &stats;
+        const auto& variant_column = rowset->tablet_schema()->column_by_uid(variant_uid);
+        Status st =
+                segment->_get_column_reader_for_read(variant_column, &column_reader, read_options);
         RETURN_IF_ERROR(st);
         if (column_reader == nullptr) {
             continue;
         }
         auto* variant_reader = dynamic_cast<VariantColumnReader*>(column_reader.get());
         if (variant_reader == nullptr) {
-            return Status::InternalError("column uid {} is not a VariantColumnReader", variant_uid);
+            // The root column is absent from this old segment, so the read helper returned a
+            // schema-default reader. It has no Variant metadata to contribute to the plan.
+            continue;
         }
         RETURN_IF_ERROR(variant_reader->load_external_meta_once());
         append_types_from_segment_reader(*variant_reader, regular_path_types, groups,

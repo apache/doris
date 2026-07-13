@@ -317,10 +317,8 @@ Status RowBinlogSegmentWriter::_fill_binlog_columns(size_t num_rows,
     {
         auto binlog_prefix_columns_guard = binlog_prefix_block.mutate_columns_scoped();
         auto& binlog_prefix_columns = binlog_prefix_columns_guard.mutable_columns();
-        // We can't get the real commit tso here (only known after publish). The tso column
-        // is replaced with the real commit_tso at read time
-        // (SegmentIterator::_update_tso_col_if_needed), so its on-disk value is never used.
-        // Write a NULL placeholder.
+        // We can't get the real commit tso here (only known after publish). Read paths use a
+        // request-scoped ConstantColumnReader for this column, so write a NULL placeholder.
         IColumn* ts_col_ptr = binlog_prefix_columns[0].get();
         auto* ts_nullable_column = check_and_get_column<ColumnNullable>(ts_col_ptr);
         DCHECK(ts_nullable_column != nullptr);
