@@ -26,6 +26,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIndexes;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.PropertyAnalyzer;
@@ -228,6 +229,10 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
      */
     public String getMetaCacheEngine() {
         return "default";
+    }
+
+    public String getHiveParquetTimeZone() throws UserException {
+        return "";
     }
 
     @Override

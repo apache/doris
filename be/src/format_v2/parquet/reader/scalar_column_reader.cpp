@@ -121,13 +121,15 @@ ScalarColumnReader::ScalarColumnReader(
         const ParquetColumnSchema& column_schema,
         std::shared_ptr<::parquet::internal::RecordReader> record_reader,
         const ParquetPageSkipPlan* page_skip_plan, const cctz::time_zone* timezone,
-        bool enable_strict_mode, ParquetColumnReaderProfile profile)
+        bool enable_strict_mode, ParquetColumnReaderProfile profile,
+        const cctz::time_zone* int96_timezone)
         : ParquetColumnReader(column_schema, column_schema.type, profile),
           _descriptor(column_schema.descriptor),
           _type_descriptor(column_schema.type_descriptor),
           _record_reader(std::move(record_reader)),
           _page_skip_plan(page_skip_plan),
           _timezone(timezone),
+          _int96_timezone(int96_timezone),
           _enable_strict_mode(enable_strict_mode),
           _nested_batch(std::make_unique<ParquetNestedScalarBatch>()) {}
 

@@ -569,7 +569,8 @@ suite("test_hive_ctas", "p0,external") {
             'type'='hms',
             'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}',
             'fs.defaultFS' = 'hdfs://${externalEnvIp}:${hdfs_port}',
-            'use_meta_cache' = 'true'
+            'use_meta_cache' = 'true',
+            'hive.parquet.time-zone' = 'Asia/Shanghai'
         );"""
         sql """switch ${catalog_name}"""
 

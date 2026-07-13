@@ -50,7 +50,8 @@ public:
                        std::shared_ptr<::parquet::internal::RecordReader> record_reader,
                        const ParquetPageSkipPlan* page_skip_plan = nullptr,
                        const cctz::time_zone* timezone = nullptr, bool enable_strict_mode = false,
-                       ParquetColumnReaderProfile profile = {});
+                       ParquetColumnReaderProfile profile = {},
+                       const cctz::time_zone* int96_timezone = nullptr);
     ~ScalarColumnReader() override;
 
     Status read(int64_t rows, MutableColumnPtr& column, int64_t* rows_read) override;
@@ -88,7 +89,8 @@ private:
 
     ParquetLeafReader leaf_reader() const {
         return ParquetLeafReader(_descriptor, _type_descriptor, _type, _name, _record_reader,
-                                 _profile, _timezone, _enable_strict_mode);
+                                 _profile, _timezone, _enable_strict_mode, nullptr,
+                                 _int96_timezone);
     }
 
     void advance_rows_read(int64_t rows);
@@ -102,8 +104,9 @@ private:
     const ParquetPageSkipPlan* _page_skip_plan =
             nullptr;                            // page-index pruning result (may be nullptr)
     const cctz::time_zone* _timezone = nullptr; // timezone
-    bool _enable_strict_mode = false;           // strict mode
-    int64_t _row_group_rows_read = 0;           // rows read in the current row group (cursor)
+    const cctz::time_zone* _int96_timezone = nullptr;
+    bool _enable_strict_mode = false; // strict mode
+    int64_t _row_group_rows_read = 0; // rows read in the current row group (cursor)
     std::unique_ptr<ParquetNestedScalarBatch> _nested_batch; // intermediate result for nested reads
 };
 

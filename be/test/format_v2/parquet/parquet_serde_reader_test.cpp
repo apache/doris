@@ -17,10 +17,12 @@
 
 #include <arrow/api.h>
 #include <arrow/io/api.h>
+#include <cctz/time_zone.h>
 #include <gtest/gtest.h>
 #include <parquet/api/reader.h>
 #include <parquet/arrow/writer.h>
 
+#include <algorithm>
 #include <cmath>
 #include <filesystem>
 #include <functional>
@@ -37,6 +39,7 @@
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_timestamptz.h"
 #include "core/types.h"
 #include "format_v2/parquet/parquet_column_schema.h"
 #include "format_v2/parquet/reader/column_reader.h"
@@ -146,13 +149,17 @@ protected:
     }
 
     void write_table(const std::string& file_path, const std::shared_ptr<arrow::Table>& table,
-                     std::shared_ptr<::parquet::ArrowWriterProperties> arrow_properties = nullptr) {
+                     std::shared_ptr<::parquet::ArrowWriterProperties> arrow_properties = nullptr,
+                     bool enable_dictionary = true) {
         auto file_result = arrow::io::FileOutputStream::Open(file_path);
         ASSERT_TRUE(file_result.ok()) << file_result.status();
         ::parquet::WriterProperties::Builder writer_builder;
         writer_builder.version(::parquet::ParquetVersion::PARQUET_2_6);
         writer_builder.data_page_version(::parquet::ParquetDataPageVersion::V2);
         writer_builder.compression(::parquet::Compression::UNCOMPRESSED);
+        if (!enable_dictionary) {
+            writer_builder.disable_dictionary();
+        }
         if (arrow_properties == nullptr) {
             ::parquet::ArrowWriterProperties::Builder arrow_builder;
             arrow_properties = arrow_builder.build();
@@ -238,12 +245,40 @@ protected:
         return _fields.size();
     }
 
-    std::unique_ptr<ParquetColumnReader> create_reader(size_t field_idx) const {
-        ParquetColumnReaderFactory factory(_row_group, _file_reader->metadata()->num_columns());
+    std::unique_ptr<ParquetColumnReader> create_reader(
+            size_t field_idx, const cctz::time_zone* int96_timezone = nullptr) const {
+        ParquetColumnReaderFactory factory(_row_group, _file_reader->metadata()->num_columns(),
+                                           nullptr, {}, nullptr, false, {}, int96_timezone);
         std::unique_ptr<ParquetColumnReader> reader;
         auto st = factory.create(*_fields[field_idx], &reader);
         EXPECT_TRUE(st.ok()) << st;
         return reader;
+    }
+
+    void write_int96_timestamp_file(const std::string& file_path, bool enable_dictionary) {
+        auto field = arrow::field("col_datetime", arrow::timestamp(arrow::TimeUnit::MICRO), false);
+        auto array = build_timestamp_array(
+                arrow::timestamp(arrow::TimeUnit::MICRO),
+                {0, 1234567, 1609459200000000, 1615714200000000, 1615717800000000});
+        auto table = arrow::Table::Make(arrow::schema({field}), {array});
+
+        ::parquet::ArrowWriterProperties::Builder arrow_builder;
+        arrow_builder.enable_force_write_int96_timestamps();
+        write_table(file_path, table, arrow_builder.build(), enable_dictionary);
+    }
+
+    void expect_int96_timestamp_strings(const cctz::time_zone* int96_timezone,
+                                        const std::vector<std::string>& expected) const {
+        ASSERT_EQ(expected.size(), ROW_COUNT);
+        auto reader = create_reader(0, int96_timezone);
+        ASSERT_NE(reader, nullptr);
+        auto column = _fields[0]->type->create_column();
+        int64_t rows_read = 0;
+        ASSERT_TRUE(reader->read(ROW_COUNT, column, &rows_read).ok());
+        ASSERT_EQ(rows_read, ROW_COUNT);
+        for (int64_t row = 0; row < ROW_COUNT; ++row) {
+            EXPECT_EQ(_fields[0]->type->to_string(*column, row), expected[row]);
+        }
     }
 
     template <typename Validator>
@@ -422,37 +457,75 @@ TEST_F(ParquetSerdeReaderTest, ReadAllSupportedPhysicalAndLogicalTypes) {
             });
 }
 
-TEST_F(ParquetSerdeReaderTest, ReadInt96TimestampAsDateTimeV2) {
-    const auto file_path = (_test_dir / "int96_timestamp.parquet").string();
-    auto field = arrow::field("col_datetime", arrow::timestamp(arrow::TimeUnit::MICRO), false);
-    auto array = build_timestamp_array(arrow::timestamp(arrow::TimeUnit::MICRO),
-                                       {0, 1234567, 1609459200000000, 1609459201000000, -1});
-    auto table = arrow::Table::Make(arrow::schema({field}), {array});
+TEST_F(ParquetSerdeReaderTest, ReadInt96TimestampUsesConfiguredParquetTimezoneLikeTrino) {
+    cctz::time_zone shanghai;
+    cctz::time_zone los_angeles;
+    ASSERT_TRUE(cctz::load_time_zone("Asia/Shanghai", &shanghai));
+    ASSERT_TRUE(cctz::load_time_zone("America/Los_Angeles", &los_angeles));
 
-    ::parquet::ArrowWriterProperties::Builder arrow_builder;
-    arrow_builder.enable_force_write_int96_timestamps();
-    _fields.clear();
-    _file_reader.reset();
-    _row_group.reset();
-    write_table(file_path, table, arrow_builder.build());
-    open_file(file_path);
+    for (const bool enable_dictionary : {false, true}) {
+        const auto file_path =
+                (_test_dir / (enable_dictionary ? "int96_dict.parquet" : "int96_plain.parquet"))
+                        .string();
+        write_int96_timestamp_file(file_path, enable_dictionary);
+        _fields.clear();
+        _file_reader.reset();
+        _row_group.reset();
+        open_file(file_path);
 
-    ASSERT_EQ(_fields.size(), 1);
-    EXPECT_EQ(_fields[0]->type_descriptor.physical_type, ::parquet::Type::INT96);
-    EXPECT_EQ(_fields[0]->type_descriptor.extra_type_info, ParquetExtraTypeInfo::IMPALA_TIMESTAMP);
-    ASSERT_TRUE(supports_record_reader(_fields[0]->type_descriptor));
-    ASSERT_EQ(remove_nullable(_fields[0]->type)->get_primitive_type(), TYPE_DATETIMEV2);
+        ASSERT_EQ(_fields.size(), 1);
+        EXPECT_EQ(_fields[0]->type_descriptor.physical_type, ::parquet::Type::INT96);
+        EXPECT_EQ(_fields[0]->type_descriptor.extra_type_info,
+                  ParquetExtraTypeInfo::IMPALA_TIMESTAMP);
+        ASSERT_TRUE(supports_record_reader(_fields[0]->type_descriptor));
+        ASSERT_EQ(remove_nullable(_fields[0]->type)->get_primitive_type(), TYPE_DATETIMEV2);
+        const auto encodings = _file_reader->metadata()->RowGroup(0)->ColumnChunk(0)->encodings();
+        const bool has_dictionary =
+                std::find(encodings.begin(), encodings.end(),
+                          ::parquet::Encoding::RLE_DICTIONARY) != encodings.end() ||
+                std::find(encodings.begin(), encodings.end(),
+                          ::parquet::Encoding::PLAIN_DICTIONARY) != encodings.end();
+        EXPECT_EQ(has_dictionary, enable_dictionary);
 
-    auto reader = create_reader(0);
-    ASSERT_NE(reader, nullptr);
-    auto column = _fields[0]->type->create_column();
-    int64_t rows_read = 0;
-    ASSERT_TRUE(reader->read(ROW_COUNT, column, &rows_read).ok());
-    ASSERT_EQ(rows_read, ROW_COUNT);
-    EXPECT_EQ(_fields[0]->type->to_string(*column, 0), "1970-01-01 00:00:00.000000");
-    EXPECT_EQ(_fields[0]->type->to_string(*column, 1), "1970-01-01 00:00:01.234567");
-    EXPECT_EQ(_fields[0]->type->to_string(*column, 2), "2021-01-01 00:00:00.000000");
-    EXPECT_EQ(_fields[0]->type->to_string(*column, 4), "1969-12-31 23:59:59.999999");
+        // The default disables INT96 timezone conversion, so the raw wall-clock value is stable
+        // regardless of the Doris session timezone.
+        expect_int96_timestamp_strings(nullptr,
+                                       {"1970-01-01 00:00:00.000000", "1970-01-01 00:00:01.234567",
+                                        "2021-01-01 00:00:00.000000", "2021-03-14 09:30:00.000000",
+                                        "2021-03-14 10:30:00.000000"});
+        expect_int96_timestamp_strings(&shanghai,
+                                       {"1970-01-01 08:00:00.000000", "1970-01-01 08:00:01.234567",
+                                        "2021-01-01 08:00:00.000000", "2021-03-14 17:30:00.000000",
+                                        "2021-03-14 18:30:00.000000"});
+        // These two UTC instants straddle the 2021 spring-forward transition and verify that the
+        // configured zone applies its DST rules rather than a fixed offset.
+        expect_int96_timestamp_strings(&los_angeles,
+                                       {"1969-12-31 16:00:00.000000", "1969-12-31 16:00:01.234567",
+                                        "2020-12-31 16:00:00.000000", "2021-03-14 01:30:00.000000",
+                                        "2021-03-14 03:30:00.000000"});
+
+        // INT96 is mapped to TIMESTAMPTZ when the scan enables timestamp-with-time-zone mapping.
+        // Passing a non-UTC reader timezone must not change its instant; the timezone only affects
+        // how that instant is rendered later.
+        auto timestamp_tz_type = std::make_shared<DataTypeTimeStampTz>(6);
+        _fields[0]->type = timestamp_tz_type;
+        _fields[0]->type_descriptor.doris_type = timestamp_tz_type;
+        auto timestamp_tz_reader = create_reader(0, &shanghai);
+        ASSERT_NE(timestamp_tz_reader, nullptr);
+        auto timestamp_tz_column = timestamp_tz_type->create_column();
+        int64_t rows_read = 0;
+        ASSERT_TRUE(timestamp_tz_reader->read(ROW_COUNT, timestamp_tz_column, &rows_read).ok());
+        ASSERT_EQ(rows_read, ROW_COUNT);
+        const auto& timestamp_tz_values =
+                assert_cast<const ColumnTimeStampTz&>(*timestamp_tz_column);
+        const auto utc = cctz::utc_time_zone();
+        EXPECT_EQ(timestamp_tz_values.get_element(0).to_string(utc, 6),
+                  "1970-01-01 00:00:00.000000+00:00");
+        EXPECT_EQ(timestamp_tz_values.get_element(1).to_string(utc, 6),
+                  "1970-01-01 00:00:01.234567+00:00");
+        EXPECT_EQ(timestamp_tz_values.get_element(3).to_string(shanghai, 6),
+                  "2021-03-14 17:30:00.000000+08:00");
+    }
 }
 
 } // namespace
