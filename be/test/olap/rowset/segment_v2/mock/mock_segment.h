@@ -20,7 +20,9 @@
 #include <gmock/gmock.h>
 
 #include <memory>
+#include <string>
 #include <unordered_map>
+#include <utility>
 
 #include "gen_cpp/segment_v2.pb.h"
 #include "io/fs/file_reader.h"
@@ -49,12 +51,23 @@ public:
 
     // Helper methods for test setup
     void add_column_uid_mapping(int32_t col_uid, int32_t footer_ordinal) {
-        _tablet_schema->_cols.push_back(std::make_shared<TabletColumn>());
-        _tablet_schema->_cols.back()->set_unique_id(col_uid);
-        _tablet_schema->_field_uniqueid_to_index[col_uid] = footer_ordinal;
+        (void)footer_ordinal;
+        TabletColumn column;
+        column.set_unique_id(col_uid);
+        column.set_name(std::to_string(col_uid));
+        _tablet_schema->append_column(column);
     }
 
     void set_footer(std::shared_ptr<SegmentFooterPB> footer) { _footer = footer; }
+
+    void set_file_reader_for_test(io::FileReaderSPtr file_reader) {
+        _file_reader = std::move(file_reader);
+    }
+
+    Status parse_footer_for_test(std::shared_ptr<SegmentFooterPB>& footer,
+                                 OlapReaderStatistics* stats = nullptr) {
+        return _parse_footer(footer, stats);
+    }
 
     std::shared_ptr<SegmentFooterPB> get_footer() const { return _footer; }
 
