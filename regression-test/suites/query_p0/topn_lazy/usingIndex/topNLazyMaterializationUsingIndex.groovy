@@ -50,7 +50,30 @@ suite("topNLazyMaterializationUsingIndex") {
 
         insert into t2 values ( 1, 'a', 10, 'cd'),(1,'b', 20, 'cq');
 
+        drop table if exists topn_lazy_filter_order_key;
+        CREATE TABLE topn_lazy_filter_order_key
+        (
+        `k1` INT NOT NULL,
+        `k2` INT NOT NULL,
+        `v` INT NULL,
+        `pad` STRING NULL,
+        INDEX idx_v(v) USING INVERTED
+        )
+        DUPLICATE KEY(k1, k2)
+        DISTRIBUTED BY HASH(k1) BUCKETS 1
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1");
+
+        insert into topn_lazy_filter_order_key values
+            (1, 10, NULL, 'a'),
+            (2, 20, 1, 'b'),
+            (3, 30, 2, 'c'),
+            (4, 40, NULL, 'd'),
+            (5, 50, 3, 'e');
+
         set topn_lazy_materialization_using_index = true;
+        set topn_lazy_materialization_threshold = 1;
+        set enable_segment_limit_pushdown = false;
         SET detail_shape_nodes='PhysicalProject';
         """
         qt_plan """
@@ -75,5 +98,13 @@ suite("topNLazyMaterializationUsingIndex") {
         select * from t1 where
             user_id > 0 order by user_id limit 1;
             """
+
+        order_qt_filter_order_key_not_pruned """
+        select k1, k2, v, pad
+        from topn_lazy_filter_order_key
+        where (v is null or k2 < 40)
+        order by k1, k2
+        limit 1;
+        """
 
 }
