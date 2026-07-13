@@ -28,18 +28,18 @@
 **hive 默认分区哨兵（查询路径经现有 SPI 委派）** — commit `feddf050190`（连接器+测试）+ `c05bb01798e`（fe-core）
 - [x] `HiveScanRange.populateRangeParams` 加 `columnsFromPath{,Keys,IsNull}` 重置（镜像 `IcebergScanRange`，**窄** `HIVE_DEFAULT_PARTITION.equals`，非 `normalize()`）+ 单测 5/5 绿
 
-**iceberg 行血缘（逐列中立标记 + 建表校验下沉）**
-- [ ] `ConnectorColumn` 加 `reservedPassthrough` 位 + `ConnectorColumnConverter` 跨界重贴进 `Column`
-- [ ] iceberg 连接器给 v3 行血缘列设 `reservedPassthrough`
-- [ ] `IcebergConnectorMetadata.createTable` 吸收 v3 格式版本解析 + 保留名冲突拒绝 + 单测
+**iceberg 行血缘（逐列中立标记 + 建表校验下沉）** — commit `1ca679e0820`(基建位) / `9fa915b290b`(连接器)
+- [x] `ConnectorColumn` 加 `reservedPassthrough` 位 + `ConnectorColumnConverter` 跨界重贴进 `Column`（`Column` 加**非持久**字段=无 `@SerializedName`，仿 `isCompoundKey`；拷贝构造补行；不进 equals/hashCode）
+- [x] iceberg 连接器给 v3 行血缘列设 `reservedPassthrough`（`IcebergConnectorMetadata:410-413` 链式 `.reservedPassthrough()`）
+- [x] `IcebergConnectorMetadata.createTable` 吸收 v3 保留名拒绝（新 `IcebergSchemaBuilder.getEffectiveFormatVersion` 全优先级）+ 单测（请求级/目录 default/override + below-v3 allow）
 
 ## 阶段 2b — fe-core 消费者改委派（连接器侧全绿后）
 - [x] `toListPartitionItem` 改 zip 连接器有序值（先带回退、暂不 fail-loud）— commit `49254f1d429`（fail-loud 留到删 `HiveUtil` 时）
 - [x] `FilePartitionUtils` 三处改（import 换中立常量 / 加载路径换常量 / 查询路径删哨兵项只留 `value==null`）— commit `c05bb01798e`（fe-core test-compile 绿 0 checkstyle）
-- [ ] `BindExpression.isIcebergMergeMetaColumn` 改读 `reservedPassthrough`（大小写不敏感）
-- [ ] `CreateTableInfo` 删 iceberg v3 校验方法 + engine gate（校验已下沉连接器）
-- [ ] `IcebergMergeCommand` 7 处改读保留标记 + 按标记枚举列名（176/201/260/336/342/343/369）
-- [ ] `IcebergUpdateCommand:106` 改读保留标记
+- [x] `BindExpression.isIcebergMergeMetaColumn` 改读 `reservedPassthrough`（从 `sink.getCols()` 派生保留名集合、大小写不敏感）— commit `3364966cdd4`
+- [x] `CreateTableInfo` 删 iceberg v3 **engine gate** + 死私有 helper（校验已下沉连接器）— commit `3364966cdd4`。⚠ 公有 `validateIcebergRowLineageColumns(int)` **保留**（仅被**死** `IcebergMetadataOps:358` 引用，随其删除阶段一起删；同 IcebergUtils 成员的处置）
+- [x] `IcebergMergeCommand` 7 处改（5 处 predicate→`isReservedPassthrough()`；342-343 名产出→按 schema 序遍历保留列 `getName()`）— commit `3364966cdd4`
+- [x] `IcebergUpdateCommand:106` 改读保留标记 — commit `3364966cdd4`
 
 ## 阶段 3 — 切死臂 + 清死面
 - [ ] `datasource/` 内 6 处死臂（`CatalogMgr`/`ExternalMetaCacheMgr`/`ExternalMetaCacheRouteResolver`/`CatalogConnectivityTestCoordinator`/`FileQueryScanNode` HiveSplit 臂/`ExternalMetaIdMgr`）
