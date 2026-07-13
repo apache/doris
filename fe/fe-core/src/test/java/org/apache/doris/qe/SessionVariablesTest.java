@@ -172,6 +172,16 @@ public class SessionVariablesTest extends TestWithFeService {
     }
 
     @Test
+    public void testExternalTableBatchModeDefaultsAndFuzzyAttribute() throws Exception {
+        SessionVariable sessionVar = new SessionVariable();
+        Assertions.assertTrue(sessionVar.getEnableExternalTableBatchMode());
+
+        Field field = SessionVariable.class.getDeclaredField("enableExternalTableBatchMode");
+        VarAttrDef.VarAttr varAttr = field.getAnnotation(VarAttrDef.VarAttr.class);
+        Assertions.assertTrue(varAttr.fuzzy());
+    }
+
+    @Test
     public void testForceEagerAggHintParseWhenSetSessionVariable() throws Exception {
         SessionVariable sessionVar = new SessionVariable();
 

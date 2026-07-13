@@ -191,8 +191,8 @@ public:
 
     // Localize table-level filters to the file schema.
     // Trivial mappings can copy structured predicates directly. Type changes may be localized with
-    // a safe cast. Expressions that cannot be pushed down safely should be handled through
-    // reader_expression_map or table-level finalize/filter fallback.
+    // a safe cast. Expressions that cannot be pushed down safely should be handled by the
+    // table-level finalize/filter fallback.
     virtual Status localize_filters(const std::vector<TableFilter>& table_filters,
                                     FileScanRequest* file_request,
                                     RuntimeState* runtime_state = nullptr);

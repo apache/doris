@@ -20,6 +20,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <memory>
+#include <optional>
 #include <sstream>
 #include <string_view>
 #include <utility>
@@ -530,6 +531,71 @@ static void collect_top_level_slot_columns(const VExprSPtr& expr,
     }
 }
 
+static std::optional<uint8_t> signed_integer_width(PrimitiveType type) {
+    switch (type) {
+    case TYPE_TINYINT:
+        return 8;
+    case TYPE_SMALLINT:
+        return 16;
+    case TYPE_INT:
+        return 32;
+    case TYPE_BIGINT:
+        return 64;
+    case TYPE_LARGEINT:
+        return 128;
+    default:
+        return std::nullopt;
+    }
+}
+
+static std::optional<uint8_t> floating_width(PrimitiveType type) {
+    switch (type) {
+    case TYPE_FLOAT:
+        return 32;
+    case TYPE_DOUBLE:
+        return 64;
+    default:
+        return std::nullopt;
+    }
+}
+
+static std::optional<uint8_t> floating_exact_integer_width(PrimitiveType type) {
+    switch (type) {
+    case TYPE_FLOAT:
+        return 24;
+    case TYPE_DOUBLE:
+        return 53;
+    default:
+        return std::nullopt;
+    }
+}
+
+static bool is_lossless_file_to_table_numeric_cast(const DataTypePtr& file_type,
+                                                   const DataTypePtr& table_type) {
+    const auto file_nested_type = remove_nullable(file_type);
+    const auto table_nested_type = remove_nullable(table_type);
+    if (file_nested_type->equals(*table_nested_type)) {
+        return true;
+    }
+
+    const auto file_primitive_type = file_nested_type->get_primitive_type();
+    const auto table_primitive_type = table_nested_type->get_primitive_type();
+    if (const auto file_width = signed_integer_width(file_primitive_type)) {
+        if (const auto table_width = signed_integer_width(table_primitive_type)) {
+            return *table_width >= *file_width;
+        }
+        if (const auto table_width = floating_exact_integer_width(table_primitive_type)) {
+            return *table_width >= *file_width;
+        }
+        return false;
+    }
+    if (const auto file_width = floating_width(file_primitive_type)) {
+        const auto table_width = floating_width(table_primitive_type);
+        return table_width.has_value() && *table_width >= *file_width;
+    }
+    return false;
+}
+
 static VExprSPtr rewrite_literal_to_file_type(const VExprSPtr& literal_expr,
                                               const FileSlotRewriteInfo& rewrite_info,
                                               RewriteContext* rewrite_context) {
@@ -539,6 +605,16 @@ static VExprSPtr rewrite_literal_to_file_type(const VExprSPtr& literal_expr,
     const Field original_field = literal_field(original_literal);
     if (rewrite_info.file_type->equals(*original_literal->data_type())) {
         return original_literal;
+    }
+    // A literal round trip alone cannot prove that file-local evaluation is safe: the file slot
+    // itself may lose information when materialized as the table type. For example, DOUBLE 1.5
+    // becomes BIGINT 1, so table predicate `value = 1` is true while file predicate
+    // `value = 1.0` is false. Complex Field equality also does not compare nested contents.
+    // Restrict localization to scalar numeric casts that preserve every file value; unsupported
+    // and complex casts keep the table predicate and evaluate after materialization.
+    if (!is_lossless_file_to_table_numeric_cast(rewrite_info.file_type,
+                                                original_literal->data_type())) {
+        return nullptr;
     }
     Field file_field;
     try {
@@ -551,6 +627,18 @@ static VExprSPtr rewrite_literal_to_file_type(const VExprSPtr& literal_expr,
         return nullptr;
     }
     if (file_field.get_type() != remove_nullable(rewrite_info.file_type)->get_primitive_type()) {
+        return nullptr;
+    }
+    Field round_trip_field;
+    try {
+        convert_field_to_type(file_field, *original_literal->data_type(), &round_trip_field,
+                              rewrite_info.file_type.get());
+    } catch (const Exception&) {
+        return nullptr;
+    }
+    // The file-to-table type check protects every possible file value. This round trip separately
+    // proves that the specific predicate boundary is exactly representable in the file type.
+    if (round_trip_field != original_field) {
         return nullptr;
     }
     auto literal = std::make_shared<SplitLocalFileLiteral>(
@@ -988,6 +1076,61 @@ static bool mapping_can_use_file_column_directly(const ColumnMapping& mapping) {
         return false;
     }
     return !needs_complex_rematerialize(mapping);
+}
+
+static bool type_contains_varbinary(const DataTypePtr& type) {
+    DORIS_CHECK(type != nullptr);
+    const auto nested_type = remove_nullable(type);
+    switch (nested_type->get_primitive_type()) {
+    case TYPE_VARBINARY:
+        return true;
+    case TYPE_ARRAY:
+        return type_contains_varbinary(
+                assert_cast<const DataTypeArray&>(*nested_type).get_nested_type());
+    case TYPE_MAP: {
+        const auto& map_type = assert_cast<const DataTypeMap&>(*nested_type);
+        return type_contains_varbinary(map_type.get_key_type()) ||
+               type_contains_varbinary(map_type.get_value_type());
+    }
+    case TYPE_STRUCT:
+        return std::ranges::any_of(
+                assert_cast<const DataTypeStruct&>(*nested_type).get_elements(),
+                [](const DataTypePtr& child_type) { return type_contains_varbinary(child_type); });
+    default:
+        return false;
+    }
+}
+
+static FilterConversionType direct_filter_conversion(const ColumnMapping& mapping) {
+    DORIS_CHECK(mapping.table_type != nullptr);
+    DORIS_CHECK(mapping.file_type != nullptr);
+    // FileScanOperator deliberately keeps VARBINARY predicates above external readers. Their
+    // physical binary representations are not uniformly supported by reader-side expression and
+    // metadata filtering, so localizing a late runtime filter here can incorrectly reject rows.
+    // Apply the same rule to a complex root because generic array/map/struct expressions rewrite
+    // the root slot and can otherwise expose a nested VARBINARY child to the reader.
+    if (type_contains_varbinary(mapping.table_type)) {
+        return FilterConversionType::FINALIZE_ONLY;
+    }
+    const auto table_type = remove_nullable(mapping.table_type);
+    const auto file_type = remove_nullable(mapping.file_type);
+    // TIMESTAMPTZ scale mismatch is intentionally materialized as pass-through: a SQL cast rounds
+    // fractional seconds. A file-local cast would therefore filter different instants from the
+    // scanner-level predicate evaluated on the pass-through value.
+    if (table_type->get_primitive_type() == TYPE_TIMESTAMPTZ &&
+        file_type->get_primitive_type() == TYPE_TIMESTAMPTZ &&
+        !mapping.table_type->equals(*mapping.file_type)) {
+        return FilterConversionType::FINALIZE_ONLY;
+    }
+    return mapping.is_trivial ? FilterConversionType::COPY_DIRECTLY
+                              : FilterConversionType::CAST_FILTER;
+}
+
+static FilterConversionType projected_filter_conversion(const ColumnMapping& mapping) {
+    const auto conversion = direct_filter_conversion(mapping);
+    return !mapping.is_trivial && conversion != FilterConversionType::FINALIZE_ONLY
+                   ? FilterConversionType::READER_EXPRESSION
+                   : conversion;
 }
 
 static const ColumnDefinition* find_file_child_for_mapping(const ColumnDefinition& table_child,
@@ -1870,8 +2013,7 @@ Status TableColumnMapper::_create_direct_mapping(const ColumnDefinition& table_c
     mapping->projected_file_children = file_field.children;
     mapping->file_type = file_field.type;
     mapping->is_trivial = mapping_can_use_file_column_directly(*mapping);
-    mapping->filter_conversion = mapping->is_trivial ? FilterConversionType::COPY_DIRECTLY
-                                                     : FilterConversionType::CAST_FILTER;
+    mapping->filter_conversion = direct_filter_conversion(*mapping);
     mapping->child_mappings.clear();
 
     auto table_children = table_column.children;
@@ -1955,10 +2097,7 @@ Status TableColumnMapper::_create_direct_mapping(const ColumnDefinition& table_c
                     &mapping->projected_file_children, &mapping->file_type));
             DCHECK(mapping->table_type != nullptr);
             mapping->is_trivial = mapping_can_use_file_column_directly(*mapping);
-            // TODO: ? READER_EXPRESSION
-            mapping->filter_conversion = mapping->is_trivial
-                                                 ? FilterConversionType::COPY_DIRECTLY
-                                                 : FilterConversionType::READER_EXPRESSION;
+            mapping->filter_conversion = projected_filter_conversion(*mapping);
         }
     }
     return Status::OK();

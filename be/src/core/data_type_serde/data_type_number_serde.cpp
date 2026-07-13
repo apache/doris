@@ -823,27 +823,35 @@ template <PrimitiveType T>
 void DataTypeNumberSerDe<T>::read_one_cell_from_jsonb(IColumn& column,
                                                       const JsonbValue* arg) const {
     auto& col = reinterpret_cast<ColumnType&>(column);
+    auto read_int = [&]() {
+        if (!arg->isInt()) {
+            throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                                   "read_one_cell_from_jsonb with type '{}'", arg->typeName());
+        }
+        return arg->int_val();
+    };
     if constexpr (T == TYPE_TINYINT || T == TYPE_BOOLEAN) {
-        col.insert_value(arg->unpack<JsonbInt8Val>()->val());
+        col.insert_value(static_cast<typename PrimitiveTypeTraits<T>::CppType>(read_int()));
     } else if constexpr (T == TYPE_SMALLINT) {
-        col.insert_value(arg->unpack<JsonbInt16Val>()->val());
-    } else if constexpr (T == TYPE_INT || T == TYPE_IPV4) {
+        col.insert_value(static_cast<int16_t>(read_int()));
+    } else if constexpr (T == TYPE_INT) {
+        col.insert_value(static_cast<int32_t>(read_int()));
+    } else if constexpr (T == TYPE_IPV4) {
         col.insert_value(arg->unpack<JsonbInt32Val>()->val());
     } else if constexpr (T == TYPE_DATEV2) {
-        col.insert_value(binary_cast<UInt32, DateV2Value<DateV2ValueType>>(
-                (UInt32)arg->unpack<JsonbInt32Val>()->val()));
+        col.insert_value(
+                binary_cast<UInt32, DateV2Value<DateV2ValueType>>(static_cast<UInt32>(read_int())));
     } else if constexpr (T == TYPE_DATETIMEV2) {
         col.insert_value(binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(
-                (UInt64)arg->unpack<JsonbInt64Val>()->val()));
+                static_cast<UInt64>(read_int())));
     } else if constexpr (T == TYPE_TIMESTAMPTZ) {
-        col.insert_value(
-                binary_cast<UInt64, TimestampTzValue>((UInt64)arg->unpack<JsonbInt64Val>()->val()));
+        col.insert_value(binary_cast<UInt64, TimestampTzValue>(static_cast<UInt64>(read_int())));
     } else if constexpr (T == TYPE_DATE || T == TYPE_DATETIME) {
-        col.insert_value(binary_cast<Int64, VecDateTimeValue>(arg->unpack<JsonbInt64Val>()->val()));
+        col.insert_value(binary_cast<Int64, VecDateTimeValue>(static_cast<Int64>(read_int())));
     } else if constexpr (T == TYPE_BIGINT) {
-        col.insert_value(arg->unpack<JsonbInt64Val>()->val());
+        col.insert_value(static_cast<int64_t>(read_int()));
     } else if constexpr (T == TYPE_LARGEINT) {
-        col.insert_value(arg->unpack<JsonbInt128Val>()->val());
+        col.insert_value(static_cast<__int128_t>(read_int()));
     } else if constexpr (T == TYPE_FLOAT) {
         col.insert_value(arg->unpack<JsonbFloatVal>()->val());
     } else if constexpr (T == TYPE_DOUBLE || T == TYPE_TIMEV2) {
@@ -870,19 +878,39 @@ void DataTypeNumberSerDe<T>::write_one_cell_to_jsonb(const IColumn& column,
         result.writeInt8(val);
     } else if constexpr (T == TYPE_SMALLINT) {
         int16_t val = *reinterpret_cast<const int16_t*>(data_ref.data);
-        result.writeInt16(val);
-    } else if constexpr (T == TYPE_INT || T == TYPE_DATEV2 || T == TYPE_IPV4) {
+        if (options.enable_row_store_compact_jsonb) {
+            result.writeInt(val);
+        } else {
+            result.writeInt16(val);
+        }
+    } else if constexpr (T == TYPE_INT || T == TYPE_DATEV2) {
+        int32_t val = *reinterpret_cast<const int32_t*>(data_ref.data);
+        if (options.enable_row_store_compact_jsonb) {
+            result.writeInt(val);
+        } else {
+            result.writeInt32(val);
+        }
+    } else if constexpr (T == TYPE_IPV4) {
         int32_t val = *reinterpret_cast<const int32_t*>(data_ref.data);
         result.writeInt32(val);
     } else if constexpr (T == TYPE_BIGINT || T == TYPE_DATE || T == TYPE_DATETIME ||
                          T == TYPE_DATETIMEV2 || T == TYPE_TIMESTAMPTZ) {
         int64_t val = *reinterpret_cast<const int64_t*>(data_ref.data);
-        result.writeInt64(val);
+        if (options.enable_row_store_compact_jsonb) {
+            result.writeInt(val);
+        } else {
+            result.writeInt64(val);
+        }
     } else if constexpr (T == TYPE_LARGEINT) {
         // data_ref.data may not be 16-byte aligned; dereferencing __int128*
         // directly is UB and may SIGBUS on alignment-strict platforms.
         __int128_t val = unaligned_load<__int128_t>(data_ref.data);
-        result.writeInt128(val);
+        if (options.enable_row_store_compact_jsonb && val >= std::numeric_limits<int64_t>::min() &&
+            val <= std::numeric_limits<int64_t>::max()) {
+            result.writeInt(static_cast<int64_t>(val));
+        } else {
+            result.writeInt128(val);
+        }
     } else if constexpr (T == TYPE_FLOAT) {
         float val = *reinterpret_cast<const float*>(data_ref.data);
         result.writeFloat(val);

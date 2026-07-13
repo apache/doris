@@ -17,11 +17,13 @@
 
 package org.apache.doris.paimon;
 
+import org.apache.paimon.data.InternalRow;
 import org.apache.paimon.disk.BufferFileReader;
 import org.apache.paimon.disk.BufferFileWriter;
 import org.apache.paimon.disk.FileIOChannel;
 import org.apache.paimon.disk.IOManager;
 import org.apache.paimon.disk.IOManagerImpl;
+import org.apache.paimon.reader.RecordReader;
 import org.apache.paimon.table.Table;
 import org.junit.Assert;
 import org.junit.Rule;
@@ -31,11 +33,13 @@ import org.junit.rules.TemporaryFolder;
 import java.io.File;
 import java.lang.reflect.Field;
 import java.lang.reflect.Proxy;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class PaimonJniScannerTest {
     @Rule
@@ -159,6 +163,33 @@ public class PaimonJniScannerTest {
         Assert.assertFalse(PaimonJniScanner.parseDataSizeBytes("unknown").isPresent());
     }
 
+    @Test
+    public void testCloseReleasesActiveRecordIterator() throws Exception {
+        PaimonJniScanner scanner = new PaimonJniScanner(128, createBaseParams());
+        AtomicBoolean released = new AtomicBoolean(false);
+        RecordReader.RecordIterator<InternalRow> recordIterator =
+                new RecordReader.RecordIterator<InternalRow>() {
+                    @Override
+                    public InternalRow next() {
+                        return null;
+                    }
+
+                    @Override
+                    public void releaseBatch() {
+                        released.set(true);
+                    }
+                };
+
+        Field recordIteratorField = PaimonJniScanner.class.getDeclaredField("recordIterator");
+        recordIteratorField.setAccessible(true);
+        recordIteratorField.set(scanner, recordIterator);
+
+        scanner.close();
+
+        Assert.assertTrue(released.get());
+        Assert.assertNull(recordIteratorField.get(scanner));
+    }
+
     private Map<String, String> createBaseParams() {
         Map<String, String> params = new HashMap<>();
         params.put("required_fields", "");
@@ -224,5 +255,15 @@ public class PaimonJniScannerTest {
         @Override
         public void close() {
         }
+    }
+
+    @Test
+    public void testGetFieldIndexMatchesMixedCaseColumns() {
+        Assert.assertEquals(1, PaimonJniScanner.getFieldIndex(Arrays.asList("data", "mIxEd_COL", "PART"),
+                "mixed_col"));
+        Assert.assertEquals(2, PaimonJniScanner.getFieldIndex(Arrays.asList("data", "mIxEd_COL", "PART"),
+                "part"));
+        Assert.assertEquals(-1, PaimonJniScanner.getFieldIndex(Arrays.asList("data", "mIxEd_COL", "PART"),
+                "missing_col"));
     }
 }

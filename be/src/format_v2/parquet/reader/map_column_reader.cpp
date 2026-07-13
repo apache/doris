@@ -49,19 +49,7 @@ Status MapColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t* ro
 }
 
 Status MapColumnReader::skip(int64_t rows) {
-    if (rows <= 0) {
-        return Status::OK();
-    }
-    auto scratch_column = _type->create_column();
-    RETURN_IF_ERROR(load_nested_batch(rows));
-    int64_t rows_read = 0;
-    RETURN_IF_ERROR(build_nested_column(rows, scratch_column, &rows_read));
-    if (rows_read != rows) {
-        return Status::Corruption("Failed to skip parquet MAP column {}: skipped {} of {} rows",
-                                  _name, rows_read, rows);
-    }
-    update_reader_skip_rows(rows);
-    return Status::OK();
+    return skip_nested_rows(rows);
 }
 
 Status MapColumnReader::load_nested_batch(int64_t rows) {
@@ -72,22 +60,51 @@ Status MapColumnReader::load_nested_batch(int64_t rows) {
     return _value_reader->load_nested_batch(rows);
 }
 
+Status MapColumnReader::load_nested_levels_batch(int64_t rows) {
+    DORIS_CHECK(_key_reader != nullptr);
+    DORIS_CHECK(_value_reader != nullptr);
+    reset_nested_build_level_cursor();
+    RETURN_IF_ERROR(_key_reader->load_nested_levels_batch(rows));
+    return _value_reader->load_nested_levels_batch(rows);
+}
+
 Status MapColumnReader::build_nested_column(int64_t length_upper_bound, MutableColumnPtr& column,
                                             int64_t* values_read) {
-    if (column.get() == nullptr || values_read == nullptr) {
+    if (column.get() == nullptr) {
         return Status::InvalidArgument("Invalid parquet map build result pointer for column {}",
+                                       _name);
+    }
+    return _consume_or_build_nested_column(length_upper_bound, &column, values_read);
+}
+
+Status MapColumnReader::consume_nested_column(int64_t length_upper_bound,
+                                              int64_t* values_consumed) {
+    return _consume_or_build_nested_column(length_upper_bound, nullptr, values_consumed);
+}
+
+Status MapColumnReader::_consume_or_build_nested_column(int64_t length_upper_bound,
+                                                        MutableColumnPtr* column,
+                                                        int64_t* values_processed) {
+    if (values_processed == nullptr) {
+        return Status::InvalidArgument("Invalid parquet map process result pointer for column {}",
                                        _name);
     }
     DORIS_CHECK(_key_reader != nullptr);
     DORIS_CHECK(_value_reader != nullptr);
-    auto* map_column = map_column_from_output(column);
-    DORIS_CHECK(map_column != nullptr);
-    auto* parent_null_map = null_map_from_nullable_output(column);
-    auto key_column = map_column->get_keys_ptr()->assert_mutable();
-    auto value_column = map_column->get_values_ptr()->assert_mutable();
-    const auto& map_output_type = assert_cast<const DataTypeMap&>(*remove_nullable(_type));
-    remove_nullable_wrapper_if_not_expected(map_output_type.get_key_type(), &key_column);
-    remove_nullable_wrapper_if_not_expected(map_output_type.get_value_type(), &value_column);
+    ColumnMap* map_column = nullptr;
+    NullMap* parent_null_map = nullptr;
+    MutableColumnPtr key_column;
+    MutableColumnPtr value_column;
+    if (column != nullptr) {
+        map_column = map_column_from_output(*column);
+        DORIS_CHECK(map_column != nullptr);
+        parent_null_map = null_map_from_nullable_output(*column);
+        key_column = map_column->get_keys_ptr()->assert_mutable();
+        value_column = map_column->get_values_ptr()->assert_mutable();
+        const auto& map_output_type = assert_cast<const DataTypeMap&>(*remove_nullable(_type));
+        remove_nullable_wrapper_if_not_expected(map_output_type.get_key_type(), &key_column);
+        remove_nullable_wrapper_if_not_expected(map_output_type.get_value_type(), &value_column);
+    }
 
     const auto& def_levels = _key_reader->nested_definition_levels();
     const auto& rep_levels = _key_reader->nested_repetition_levels();
@@ -96,7 +113,7 @@ Status MapColumnReader::build_nested_column(int64_t length_upper_bound, MutableC
     std::vector<uint64_t> entry_counts;
     std::vector<int64_t> map_level_indices;
     NullMap parent_nulls;
-    *values_read = 0;
+    *values_processed = 0;
     int64_t level_idx = nested_build_level_cursor();
     const int16_t min_parent_definition_level =
             static_cast<int16_t>(_definition_level - 1 - (_type->is_nullable() ? 1 : 0));
@@ -104,7 +121,7 @@ Status MapColumnReader::build_nested_column(int64_t length_upper_bound, MutableC
         const int16_t def_level = def_levels[level_idx];
         const int16_t rep_level = rep_levels[level_idx];
         const bool starts_parent = rep_level < _repetition_level;
-        if (starts_parent && *values_read >= length_upper_bound) {
+        if (starts_parent && *values_processed >= length_upper_bound) {
             break;
         }
         const int64_t current_level_idx = level_idx;
@@ -126,13 +143,13 @@ Status MapColumnReader::build_nested_column(int64_t length_upper_bound, MutableC
         }
 
         const bool parent_is_null = def_level < _definition_level - 1;
-        if (parent_is_null && parent_null_map == nullptr) {
+        if (parent_is_null && !_type->is_nullable()) {
             return Status::Corruption("Parquet MAP column {} contains null for non-nullable MAP",
                                       _name);
         }
         parent_nulls.push_back(parent_is_null);
         entry_counts.push_back(def_level >= _definition_level ? 1 : 0);
-        ++*values_read;
+        ++*values_processed;
     }
     set_nested_build_level_cursor(level_idx);
 
@@ -140,18 +157,36 @@ Status MapColumnReader::build_nested_column(int64_t length_upper_bound, MutableC
     for (const auto entry_count : entry_counts) {
         total_entries += entry_count;
     }
-    const size_t key_start = key_column->size();
     int64_t key_value_count = 0;
-    RETURN_IF_ERROR(_key_reader->build_nested_column(static_cast<int64_t>(total_entries),
-                                                     key_column, &key_value_count));
+    size_t key_start = 0;
+    if (column != nullptr) {
+        key_start = key_column->size();
+        RETURN_IF_ERROR(_key_reader->build_nested_column(static_cast<int64_t>(total_entries),
+                                                         key_column, &key_value_count));
+    } else if (auto* scalar_key_reader = dynamic_cast<ScalarColumnReader*>(_key_reader.get())) {
+        // MAP keys are required even if a projected Doris key type is nullable. Validate each
+        // actual entry directly from the key level stream while advancing past empty/null maps.
+        for (const int64_t key_level_idx : map_level_indices) {
+            if (def_levels[key_level_idx] >= _definition_level) {
+                RETURN_IF_ERROR(scalar_key_reader->validate_nested_value(key_level_idx, true));
+                ++key_value_count;
+            }
+        }
+        scalar_key_reader->set_nested_build_level_cursor(level_idx);
+    } else {
+        RETURN_IF_ERROR(_key_reader->consume_nested_column(static_cast<int64_t>(total_entries),
+                                                           &key_value_count));
+    }
     if (key_value_count != static_cast<int64_t>(total_entries)) {
         return Status::Corruption("Parquet MAP column {} built {} keys, expected {}", _name,
                                   key_value_count, total_entries);
     }
-    if (const auto* nullable_key_column = check_and_get_column<ColumnNullable>(*key_column);
-        nullable_key_column != nullptr &&
-        nullable_key_column->has_null(key_start, nullable_key_column->size())) {
-        return Status::Corruption("Parquet MAP column {} contains null key", _name);
+    if (column != nullptr) {
+        if (const auto* nullable_key_column = check_and_get_column<ColumnNullable>(*key_column);
+            nullable_key_column != nullptr &&
+            nullable_key_column->has_null(key_start, nullable_key_column->size())) {
+            return Status::Corruption("Parquet MAP column {} contains null key", _name);
+        }
     }
     int64_t value_count = 0;
     if (auto* scalar_value_reader = dynamic_cast<ScalarColumnReader*>(_value_reader.get())) {
@@ -182,28 +217,40 @@ Status MapColumnReader::build_nested_column(int64_t length_upper_bound, MutableC
                         _name);
             }
             if (def_levels[key_level_idx] >= _definition_level) {
-                RETURN_IF_ERROR(
-                        scalar_value_reader->append_nested_value(value_level_idx, value_column));
+                if (column != nullptr) {
+                    RETURN_IF_ERROR(scalar_value_reader->append_nested_value(value_level_idx,
+                                                                             value_column));
+                } else {
+                    RETURN_IF_ERROR(
+                            scalar_value_reader->validate_nested_value(value_level_idx, false));
+                }
                 ++value_count;
             }
             ++value_level_idx;
         }
         scalar_value_reader->set_nested_build_level_cursor(value_level_idx);
     } else {
-        // Complex MAP values own their nested shape below the entry slot, so they can recursively
-        // materialize exactly one child value for each MAP entry.
-        RETURN_IF_ERROR(_value_reader->build_nested_column(static_cast<int64_t>(total_entries),
-                                                           value_column, &value_count));
+        // Complex MAP values own their nested shape below the entry slot, so they recursively
+        // process exactly one child value for each MAP entry.
+        if (column != nullptr) {
+            RETURN_IF_ERROR(_value_reader->build_nested_column(static_cast<int64_t>(total_entries),
+                                                               value_column, &value_count));
+        } else {
+            RETURN_IF_ERROR(_value_reader->consume_nested_column(
+                    static_cast<int64_t>(total_entries), &value_count));
+        }
     }
     if (value_count != static_cast<int64_t>(total_entries)) {
         return Status::Corruption("Parquet MAP column {} built {} values, expected {}", _name,
                                   value_count, total_entries);
     }
 
-    map_column->get_keys_ptr() = std::move(key_column);
-    map_column->get_values_ptr() = std::move(value_column);
-    append_offsets(map_column->get_offsets(), entry_counts);
-    append_parent_nulls(parent_null_map, parent_nulls);
+    if (column != nullptr) {
+        map_column->get_keys_ptr() = std::move(key_column);
+        map_column->get_values_ptr() = std::move(value_column);
+        append_offsets(map_column->get_offsets(), entry_counts);
+        append_parent_nulls(parent_null_map, parent_nulls);
+    }
     return Status::OK();
 }
 

@@ -89,6 +89,10 @@ public:
         ParquetReader::set_delete_rows(_iceberg_delete_rows);
     }
 
+    void set_deletion_vector() final {
+        ParquetReader::set_deletion_vector(_iceberg_deletion_vector);
+    }
+
 protected:
     // Parquet-specific schema matching via on_before_init_reader hook
     Status on_before_init_reader(ReaderInitContext* ctx) override;
@@ -132,6 +136,8 @@ public:
         // Call OrcReader's set_position_delete_rowids
         this->set_position_delete_rowids(_iceberg_delete_rows);
     }
+
+    void set_deletion_vector() final { OrcReader::set_deletion_vector(_iceberg_deletion_vector); }
 
 protected:
     // ORC-specific schema matching via on_before_init_reader hook

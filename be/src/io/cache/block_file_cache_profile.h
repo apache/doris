@@ -38,6 +38,8 @@ struct AtomicStatistics {
     std::atomic<int64_t> num_io_bytes_read_from_cache = 0;
     std::atomic<int64_t> num_io_bytes_read_from_remote = 0;
     std::atomic<int64_t> num_io_bytes_read_from_peer = 0;
+    std::atomic<int64_t> inverted_index_bytes_read_from_remote = 0;
+    std::atomic<int64_t> segment_footer_index_bytes_read_from_remote = 0;
 };
 class FileCacheMetrics {
 public:

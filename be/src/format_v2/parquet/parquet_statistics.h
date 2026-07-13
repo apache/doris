@@ -15,19 +15,23 @@
 
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <map>
 #include <memory>
+#include <string>
 #include <vector>
 
 #include "common/status.h"
 #include "core/field.h"
+#include "core/string_ref.h"
 #include "exprs/vexpr_fwd.h"
 #include "format_v2/file_reader.h"
 #include "format_v2/parquet/selection_vector.h"
 
 namespace parquet {
 class BloomFilter;
+class ColumnIndex;
 class FileMetaData;
 class ParquetFileReader;
 class Statistics;
@@ -39,11 +43,44 @@ class time_zone;
 
 namespace doris {
 class RuntimeState;
+namespace segment_v2 {
+struct ZoneMap;
+} // namespace segment_v2
 } // namespace doris
 
 namespace doris::format::parquet {
 
 struct ParquetColumnSchema;
+
+// ============================================================================
+// ============================================================================
+
+struct ParquetDictionaryWords {
+    std::vector<std::string> values;
+    std::vector<StringRef> refs;
+
+    void clear() {
+        values.clear();
+        refs.clear();
+    }
+
+    void build_refs() {
+        refs.clear();
+        refs.reserve(values.size());
+        for (const auto& value : values) {
+            refs.emplace_back(value.data(), value.size());
+        }
+    }
+};
+
+// Reads the PLAIN dictionary page for BYTE_ARRAY/FIXED_LEN_BYTE_ARRAY columns and owns copied
+// dictionary bytes in `values`. Both row-group pruning and row-level dictionary predicates use this
+// helper so they agree on dictionary id -> Doris string value mapping.
+bool read_dictionary_words(::parquet::ParquetFileReader* file_reader, int row_group_idx,
+                           int leaf_column_id, const ParquetColumnSchema& column_schema,
+                           ParquetDictionaryWords* dict_words);
+
+std::vector<Field> dictionary_fields_from_words(const ParquetDictionaryWords& dict_words);
 
 // ============================================================================
 // ============================================================================
@@ -87,10 +124,18 @@ struct ParquetColumnStatistics {
 //     -> bloom filter(evaluate_bloom_filter)
 // ============================================================================
 struct ParquetStatisticsUtils {
+    static std::shared_ptr<segment_v2::ZoneMap> MakeZoneMap(
+            const ParquetColumnStatistics& statistics);
+
     static ParquetColumnStatistics TransformColumnStatistics(
             const ParquetColumnSchema& column_schema,
             const std::shared_ptr<::parquet::Statistics>& statistics,
             const cctz::time_zone* timezone = nullptr);
+
+    static bool TransformColumnIndexStatistics(
+            const std::shared_ptr<::parquet::ColumnIndex>& column_index,
+            const ParquetColumnSchema& column_schema, size_t page_idx,
+            ParquetColumnStatistics* page_statistics, const cctz::time_zone* timezone = nullptr);
 
     static bool BloomFilterExcludes(const ParquetColumnSchema& column_schema, int slot_index,
                                     const VExprContextSPtrs& conjuncts,

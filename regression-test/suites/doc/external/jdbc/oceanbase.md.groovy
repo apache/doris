@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("oceanbase.md", "p0,external,oceanbase,external_docker,external_docker_oceanbase") {
+suite("oceanbase.md", "p2,external,oceanbase,external_docker,external_docker_oceanbase") {
     String enabled = context.config.otherConfigs.get("enableJdbcTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String catalog_name = "oceanbase_catalog_md";

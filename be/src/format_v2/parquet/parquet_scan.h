@@ -20,6 +20,7 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <utility>
 #include <vector>
 
 #include "common/status.h"
@@ -35,6 +36,7 @@
 namespace parquet {
 class FileMetaData;
 class ParquetFileReader;
+class RowGroupMetaData;
 class RowGroupReader;
 } // namespace parquet
 
@@ -93,6 +95,9 @@ Status plan_parquet_row_groups(const ::parquet::FileMetaData& metadata,
 IColumn::Filter selection_to_filter(const SelectionVector& selection, uint16_t selected_rows,
                                     int64_t batch_rows);
 
+uint16_t apply_compact_filter_to_selection(const IColumn::Filter& filter,
+                                           SelectionVector* selection, uint16_t selected_rows);
+
 Status execute_batch_filters(const format::FileScanRequest& request, int64_t batch_rows,
                              Block* file_block, SelectionVector* selection, uint16_t* selected_rows,
                              int64_t* conjunct_filtered_rows = nullptr);
@@ -150,7 +155,14 @@ private:
 
     Status read_filter_columns(int64_t batch_rows, const format::FileScanRequest& request,
                                Block* file_block, SelectionVector* selection,
-                               uint16_t* selected_rows, int64_t* conjunct_filtered_rows);
+                               uint16_t* selected_rows, int64_t* conjunct_filtered_rows,
+                               bool* predicate_columns_filtered);
+
+    Status prepare_current_dictionary_filters(
+            ParquetFileContext& file_context,
+            const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
+            const format::FileScanRequest& request, int row_group_idx,
+            const ::parquet::RowGroupMetaData& row_group_metadata);
 
     void prefetch_current_row_group_columns(
             ParquetFileContext& file_context,
@@ -178,11 +190,15 @@ private:
     std::map<ColumnId, std::unique_ptr<ParquetColumnReader>>
             _current_predicate_columns; // predicate ColumnReaders
     std::map<ColumnId, std::unique_ptr<ParquetColumnReader>>
-            _current_non_predicate_columns;   // non-predicate ColumnReaders
-    int64_t _current_row_group_rows = 0;      // current row group row count
-    int _current_row_group_id = -1;           // current row group id in parquet metadata
-    int64_t _current_row_group_rows_read = 0; // rows read in the current row group (cursor)
-    int64_t _current_row_group_first_row = 0; // first file row of the current row group
+            _current_non_predicate_columns; // non-predicate ColumnReaders
+    std::map<ColumnId, IColumn::Filter>
+            _current_dictionary_filters; // local id -> dict entry bitmap
+    std::map<ColumnId, std::vector<std::pair<VExprContextSPtr, VExprSPtr>>>
+            _current_dictionary_residual_conjuncts; // local id -> row-level residual conjuncts
+    int64_t _current_row_group_rows = 0;            // current row group row count
+    int _current_row_group_id = -1;                 // current row group id in parquet metadata
+    int64_t _current_row_group_rows_read = 0;       // rows read in the current row group (cursor)
+    int64_t _current_row_group_first_row = 0;       // first file row of the current row group
     std::vector<RowRange>
             _current_selected_ranges; // selected ranges for the current row group after page-index pruning
     size_t _current_range_idx = 0;        // current selected_range index

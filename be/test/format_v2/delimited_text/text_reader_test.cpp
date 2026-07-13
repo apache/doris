@@ -486,6 +486,35 @@ TEST_F(TextV2ReaderTest, EscapedSeparatorStaysInsideStringField) {
     EXPECT_EQ(nullable_int_at(*block.get_by_position(1).column, 0), 10);
 }
 
+// Hive LazySimpleSerDe treats an even-length escape run as escaped escape characters, so the
+// following delimiter remains structural. V1 and V2 must both split the row at that delimiter.
+TEST_F(TextV2ReaderTest, DoubleEscapeBeforeSeparatorStillSplitsField) {
+    const auto escaped_path = (_test_dir / "double_escaped.text").string();
+    std::ofstream output(escaped_path, std::ios::binary);
+    output << R"(1|alice\\|10)" << '\n';
+    output.close();
+
+    _params.file_attributes.text_params.__set_column_separator("|");
+    auto reader = create_reader(escaped_path, &_params, _slots, &_state, &_profile);
+    std::vector<ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+
+    auto request = std::make_shared<FileScanRequest>();
+    request->non_predicate_columns = {LocalColumnIndex::top_level(LocalColumnId(1)),
+                                      LocalColumnIndex::top_level(LocalColumnId(2))};
+    request->local_positions.emplace(LocalColumnId(1), LocalIndex(0));
+    request->local_positions.emplace(LocalColumnId(2), LocalIndex(1));
+    ASSERT_TRUE(reader->open(request).ok());
+
+    auto block = make_block(schema, {1, 2});
+    size_t rows = 0;
+    bool eof = false;
+    ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+    ASSERT_EQ(rows, 1);
+    EXPECT_EQ(nullable_string_at(*block.get_by_position(0).column, 0), R"(alice\)");
+    EXPECT_EQ(nullable_int_at(*block.get_by_position(1).column, 0), 10);
+}
+
 // Scenario: Hive text supports multi-character field separators. V2 must not split on partial
 // matches and must still honor FileScanRequest output positions.
 TEST_F(TextV2ReaderTest, MultiCharacterSeparatorReadsRequestedColumns) {
