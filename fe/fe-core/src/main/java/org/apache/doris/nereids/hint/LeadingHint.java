@@ -403,6 +403,17 @@ public class LeadingHint extends Hint {
                 }
             }
 
+            // RIGHT OUTER JOIN: the nullable side (leftHand) must not be
+            // joined with unrelated tables before the preserved side
+            // (rightHand) arrives — doing so would change NULL semantics.
+            if (joinConstraint.getJoinType().isRightOuterJoin()) {
+                if (LongBitmap.isOverlap(joinConstraint.getLeftHand(), joinTableBitmap)
+                        && !LongBitmap.isOverlap(joinConstraint.getMinRightHand(), joinTableBitmap)
+                        && !LongBitmap.isSubset(joinTableBitmap, joinConstraint.getLeftHand())) {
+                    return Pair.of(null, false);
+                }
+            }
+
             if (!LongBitmap.isOverlap(joinConstraint.getMinRightHand(), joinTableBitmap)) {
                 continue;
             }
@@ -510,8 +521,16 @@ public class LeadingHint extends Hint {
                 }
 
                 // The preserved side (minLeftHand) is not yet in the join —
-                // this constraint is not applicable, skip it.
+                // the nullable side (minRightHand) is present (passed check 1).
+                // If the join mixes the nullable side with unrelated tables
+                // (tables beyond the original rightHand), the outer join's
+                // NULL semantics cannot be reconstructed later — fail.
+                // Otherwise the join is purely within the nullable side's own
+                // subtree; skip the constraint for now.
                 if (!LongBitmap.isSubset(joinConstraint.getMinLeftHand(), joinTableBitmap)) {
+                    if (!LongBitmap.isSubset(joinTableBitmap, joinConstraint.getRightHand())) {
+                        return Pair.of(null, false);
+                    }
                     continue;
                 }
 

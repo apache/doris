@@ -258,11 +258,13 @@ public class LeadingHintTest {
         long ac = LongBitmap.newBitmapUnion(a, c);
         long abc = LongBitmap.newBitmapUnion(a, b, c);
 
-        // Level {a,c}: constraint does not apply (b is absent)
+        // Level {a,c}: nullable side {a} mixed with unrelated {c} while
+        // preserved side {b} is absent → violated.
         Pair<JoinConstraint, Boolean> levelAC = leading.getJoinConstraint(ac, a, c);
         Assertions.assertNull(levelAC.first,
-                "right outer constraint should not match at {a,c} level (b absent)");
-        Assertions.assertTrue(levelAC.second, "inner join is legal at {a,c} level");
+                "right outer constraint should not match at {a,c} level");
+        Assertions.assertFalse(levelAC.second,
+                "nullable side {a} mixed with unrelated {c} before preserved {b} → violated");
 
         // Level {a,b,c}: constraint matches — children {a,c} and {b}
         // Wait, the constraint requires leftHand={a} on left and rightHand={b} on right.
@@ -295,17 +297,80 @@ public class LeadingHintTest {
         long bc = LongBitmap.newBitmapUnion(b, c);
         long abc = LongBitmap.newBitmapUnion(a, b, c);
 
-        // Level {b,c}: constraint does not apply (a is absent)
+        // Level {b,c}: the nullable side {b} is mixed with unrelated table {c}
+        // while the preserved side {a} is absent → violated (not skippable).
         Pair<JoinConstraint, Boolean> levelBC = leading.getJoinConstraint(bc, b, c);
         Assertions.assertNull(levelBC.first,
-                "left outer constraint should not match at {b,c} level (a absent)");
-        Assertions.assertTrue(levelBC.second, "inner join is legal at {b,c} level");
+                "left outer constraint should not match at {b,c} level");
+        Assertions.assertFalse(levelBC.second,
+                "mixing nullable side {b} with unrelated {c} before preserved {a} arrives → violated");
 
         // Level {a,b,c}: constraint matches
         Pair<JoinConstraint, Boolean> levelABC = leading.getJoinConstraint(abc, a, bc);
         Assertions.assertNotNull(levelABC.first, "left outer constraint should match at {a,b,c} level");
         Assertions.assertTrue(levelABC.second, "constraint matched");
         Assertions.assertEquals(JoinType.LEFT_OUTER_JOIN, levelABC.first.getJoinType());
+    }
+
+    @Test
+    public void testLeftOuterJoinNullableSideCannotMixWithUnrelatedTables() {
+        // (a LEFT OUTER JOIN b ON a.k = b.k) CROSS JOIN c
+        // leading(b c a): the nullable side {b} must not CROSS JOIN with {c}
+        // before the preserved side {a} arrives.
+        //   Original: (a LEFT JOIN b) CROSS JOIN c
+        //     When c is empty: produces 0 rows.
+        //   Generated without guard: (b CROSS JOIN c) RIGHT JOIN a
+        //     When c is empty: preserves all a rows with NULL c — not equivalent!
+        LeadingHint leading = new LeadingHint("Leading");
+        long a = LongBitmap.newBitmap(0);
+        long b = LongBitmap.newBitmap(1);
+        long c = LongBitmap.newBitmap(2);
+
+        addJoinConstraint(leading, a, b, a, b, JoinType.LEFT_OUTER_JOIN);
+
+        long bc = LongBitmap.newBitmapUnion(b, c);
+        long abc = LongBitmap.newBitmapUnion(a, b, c);
+
+        // Level {b,c}: violated — nullable side {b} mixed with {c}
+        Pair<JoinConstraint, Boolean> levelBC = leading.getJoinConstraint(bc, b, c);
+        Assertions.assertFalse(levelBC.second,
+                "{b,c} mixes nullable side with unrelated table → violated");
+
+        // Level {a,b,c}: constraint matches as reversed (LEFT → RIGHT)
+        Pair<JoinConstraint, Boolean> levelABC = leading.getJoinConstraint(abc, bc, a);
+        Assertions.assertNotNull(levelABC.first, "constraint should match at {a,b,c}");
+        Assertions.assertTrue(levelABC.second);
+        Assertions.assertTrue(levelABC.first.isReversed(),
+                "should be reversed: left={b,c}, right={a} for LEFT OUTER JOIN");
+    }
+
+    @Test
+    public void testRightOuterJoinNullableSideCannotMixWithUnrelatedTables() {
+        // (a RIGHT OUTER JOIN b ON a.k = b.k) CROSS JOIN c
+        // leading(a c b): the nullable side {a} must not CROSS JOIN with {c}
+        // before the preserved side {b} arrives.
+        LeadingHint leading = new LeadingHint("Leading");
+        long a = LongBitmap.newBitmap(0);
+        long b = LongBitmap.newBitmap(1);
+        long c = LongBitmap.newBitmap(2);
+
+        addJoinConstraint(leading, a, b, a, b, JoinType.RIGHT_OUTER_JOIN);
+
+        long ac = LongBitmap.newBitmapUnion(a, c);
+        long abc = LongBitmap.newBitmapUnion(a, b, c);
+
+        // For RIGHT OUTER JOIN at {a,c}: leftHand={a} (nullable) overlaps {a,c},
+        // minRightHand={b} (preserved) is absent, and {a,c} ⊄ leftHand={a} →
+        // violated: nullable side mixed with unrelated table before preserved arrives.
+        Pair<JoinConstraint, Boolean> levelAC = leading.getJoinConstraint(ac, a, c);
+        Assertions.assertNull(levelAC.first, "right outer constraint should not match at {a,c}");
+        Assertions.assertFalse(levelAC.second,
+                "nullable side {a} mixed with unrelated {c} before preserved {b} → violated");
+
+        // Level {a,b,c}: constraint matches
+        Pair<JoinConstraint, Boolean> levelABC = leading.getJoinConstraint(abc, ac, b);
+        Assertions.assertNotNull(levelABC.first, "constraint should match at {a,b,c}");
+        Assertions.assertTrue(levelABC.second);
     }
 
     @Test
