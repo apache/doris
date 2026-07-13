@@ -581,7 +581,8 @@ Status TableReader::_init_reader_condition_cache(const FileScanRequest& file_req
     const auto& file = *_current_file_description;
     _condition_cache_key = segment_v2::ConditionCache::ExternalCacheKey(
             file.path, file.mtime, file.file_size, _condition_cache_digest, file.range_start_offset,
-            file.range_size);
+            file.range_size,
+            segment_v2::ConditionCache::ExternalCacheKey::BASE_GRANULE_AWARE_VERSION);
 
     segment_v2::ConditionCacheHandle handle;
     const bool condition_cache_hit = cache->lookup(_condition_cache_key, &handle);
@@ -605,6 +606,10 @@ Status TableReader::_init_reader_condition_cache(const FileScanRequest& file_req
         _condition_cache_ctx = std::make_shared<ConditionCacheContext>();
         _condition_cache_ctx->is_hit = condition_cache_hit;
         _condition_cache_ctx->filter_result = _condition_cache;
+        _condition_cache_ctx->num_granules = _condition_cache->size();
+        if (condition_cache_hit) {
+            _condition_cache_ctx->base_granule = handle.get_base_granule();
+        }
         _data_reader.reader->set_condition_cache_context(_condition_cache_ctx);
     }
     return Status::OK();
@@ -624,8 +629,10 @@ void TableReader::_finalize_reader_condition_cache() {
         _condition_cache_ctx = nullptr;
         return;
     }
-    segment_v2::ConditionCache::instance()->insert(_condition_cache_key,
-                                                   std::move(_condition_cache));
+    DORIS_CHECK(_condition_cache_ctx->num_granules <= _condition_cache->size());
+    _condition_cache->resize(_condition_cache_ctx->num_granules);
+    segment_v2::ConditionCache::instance()->insert(
+            _condition_cache_key, std::move(_condition_cache), _condition_cache_ctx->base_granule);
     _condition_cache = nullptr;
     _condition_cache_ctx = nullptr;
 }
