@@ -18,12 +18,12 @@
 - [ ] 事件管道 legacy 拆除的前置编辑（`Env` 去 `MetastoreEventsProcessor` 全套面 + `ExternalMetaIdMgr` 切死 else 臂）— 与阶段 3 切臂合并亦可
 
 ## 阶段 2a — 连接器侧委派（各带单测，最先做）
-**分区名解析（连接器交已解析的有序值）**
-- [ ] `ConnectorPartitionInfo` 加 `orderedPartitionValues` 字段 + getter + 构造重载（空默认，改 equals/hashCode/toString）
-- [ ] hive 连接器填有序值（`HiveConnectorMetadata:1108`）
-- [ ] paimon 连接器填有序值（`PaimonConnectorMetadata:1078`，`install` 验证）
-- [ ] iceberg 连接器填有序值（`IcebergPartitionUtils:545`）
-- [ ] hudi 连接器填有序值（`HudiConnectorMetadata:734`）
+**分区名解析（连接器交已解析的有序值）** — commit `49254f1d429`
+- [x] `ConnectorPartitionInfo` 加 `orderedPartitionValues` 字段 + getter + 构造重载（空默认，改 equals/hashCode/toString）+ 单测 9/9
+- [x] hive 连接器填有序值（`HiveConnectorMetadata` 复用 `HiveWriteUtils.toPartitionValues`）
+- [x] paimon 连接器填有序值（render 循环内收集，`install` 验证过）
+- [x] iceberg 连接器填有序值（`raw.values`，`String.valueOf` 保 "null" 字节一致）
+- [x] hudi 连接器填有序值（`partKeyNames` render 序，render/parse 互逆）
 
 **hive 默认分区哨兵（查询路径经现有 SPI 委派）**
 - [ ] `HiveScanRange.populateRangeParams` 加 `columnsFromPath{,Keys,IsNull}` 重置（镜像 `IcebergScanRange`，**窄** `HIVE_DEFAULT_PARTITION.equals`，非 `normalize()`）+ 单测
@@ -34,7 +34,7 @@
 - [ ] `IcebergConnectorMetadata.createTable` 吸收 v3 格式版本解析 + 保留名冲突拒绝 + 单测
 
 ## 阶段 2b — fe-core 消费者改委派（连接器侧全绿后）
-- [ ] `toListPartitionItem` 改 zip 连接器有序值（先带回退、暂不 fail-loud）
+- [x] `toListPartitionItem` 改 zip 连接器有序值（先带回退、暂不 fail-loud）— commit `49254f1d429`（fail-loud 留到删 `HiveUtil` 时）
 - [ ] `FilePartitionUtils` 三处改（import 换中立常量 / 加载路径换常量 / 查询路径删哨兵项只留 `value==null`）
 - [ ] `BindExpression.isIcebergMergeMetaColumn` 改读 `reservedPassthrough`（大小写不敏感）
 - [ ] `CreateTableInfo` 删 iceberg v3 校验方法 + engine gate（校验已下沉连接器）
