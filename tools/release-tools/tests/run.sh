@@ -19,11 +19,8 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-required_tool_loop="$(awk '/^for t in /,/; do/' "${ROOT}/01-check-env.sh")"
 
-for tool in git gpg svn svnmucc sha512sum curl gzip; do
-  if ! grep -qw "$tool" <<<"$required_tool_loop"; then
-    echo "01-check-env.sh does not require tool: $tool" >&2
-    exit 1
-  fi
+for test_script in "${ROOT}"/tests/test-*.sh; do
+  echo "== ${test_script##*/} =="
+  "$test_script"
 done

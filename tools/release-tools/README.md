@@ -115,7 +115,12 @@ After the vote passes:
 
 1. Tally the votes and send the `[RESULT]` email manually.
 2. Run `./04-release-complete.sh`.
-3. Review the generated announce email in `WORK_DIR`, then send it manually.
+3. Check that the new source artifacts are visible on `downloads.apache.org`.
+4. Update the Doris download page and release metadata as needed, then check
+   that the public download page points at the new release.
+5. Wait for the download and CDN propagation window.
+6. Review the generated announce email in `WORK_DIR`.
+7. Only after those checks pass, send the `[ANNOUNCE]` email manually.
 
 Use this command only when the release SVN step has already been done and you
 only need to regenerate the announce email:
@@ -248,10 +253,21 @@ It then writes:
 - `announce-email.txt`
 - `announce-email.eml`
 
-Review the announce draft and send it manually.
+Before sending the announce email, check that the release is visible on
+`downloads.apache.org`, update and verify the Doris download page, and wait for
+the download and CDN propagation window. Only after those checks pass, send the
+`[ANNOUNCE]` email manually.
 
 Use `./04-release-complete.sh --mail-only` to regenerate the announce email
 without touching SVN.
+
+## Tests
+
+Run the release-tool shell tests from this directory:
+
+```bash
+./tests/run.sh
+```
 
 ## Manual work not automated
 
@@ -262,6 +278,8 @@ The RM must still do these tasks manually:
 - Send the `[VOTE]` email.
 - Upload convenience binaries, if the release includes them.
 - Tally the vote and send the `[RESULT]` email.
+- Verify `downloads.apache.org` and the Doris download page before announcing.
+- Wait for the download and CDN propagation window.
 - Send the `[ANNOUNCE]` email.
 - Publish Maven staging repositories, update the website and GitHub release
   notes, and clean up old release versions when applicable.

@@ -19,11 +19,9 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-required_tool_loop="$(awk '/^for t in /,/; do/' "${ROOT}/01-check-env.sh")"
+readme="${ROOT}/README.md"
 
-for tool in git gpg svn svnmucc sha512sum curl gzip; do
-  if ! grep -qw "$tool" <<<"$required_tool_loop"; then
-    echo "01-check-env.sh does not require tool: $tool" >&2
-    exit 1
-  fi
-done
+grep -q 'downloads.apache.org' "$readme"
+grep -q 'download page' "$readme"
+grep -q 'propagation' "$readme"
+grep -q 'Only after those checks pass, send the `\[ANNOUNCE\]` email' "$readme"

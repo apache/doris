@@ -50,7 +50,11 @@ shift
 case "$cmd" in
   info)
     url="${@: -1}"
-    [[ "$url" != "https://dist.example.test/release/doris/9.9/9.9.9" ]]
+    case "$url" in
+      https://dist.example.test/release/doris/9.9|https://dist.example.test/release/doris/9.9/9.9.9)
+        exit 1
+        ;;
+    esac
     ;;
   cat)
     url="${@: -1}"
@@ -96,12 +100,39 @@ cat > "$tmp/svnmucc" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 printf '%s\n' "$*" > "$FAKE_SVNMUCC_LOG"
+series_dir_created=0
 while (($#)); do
-  if [[ "$1" == "put" ]]; then
-    checksum_file="$2"
-    cp "$checksum_file" "$FAKE_FINAL_SHA512"
-  fi
-  shift
+  case "$1" in
+    mkdir)
+      if [[ "$2" == "https://dist.example.test/release/doris/9.9" ]]; then
+        series_dir_created=1
+      elif [[ "$2" == "https://dist.example.test/release/doris/9.9/9.9.9" && "$series_dir_created" -eq 0 ]]; then
+        echo "release series directory must be created before release leaf directory" >&2
+        exit 1
+      fi
+      shift 2
+      ;;
+    mv)
+      shift 3
+      ;;
+    put)
+      checksum_file="$2"
+      cp "$checksum_file" "$FAKE_FINAL_SHA512"
+      shift 3
+      ;;
+    rm)
+      shift 2
+      ;;
+    -m|-u|-p)
+      shift 2
+      ;;
+    --non-interactive|--no-auth-cache)
+      shift
+      ;;
+    *)
+      shift
+      ;;
+  esac
 done
 EOF
 chmod +x "$tmp/svnmucc"
@@ -123,6 +154,7 @@ grep -q 'apache-doris-9.9.9-rc01-src.tar.gz$' "$FAKE_SVN_CAT_LOG"
 grep -q 'apache-doris-9.9.9-rc01-src.tar.gz.sha512$' "$FAKE_SVN_CAT_LOG"
 grep -q 'apache-doris-9.9.9-rc01-src.tar.gz.asc$' "$FAKE_SVN_CAT_LOG"
 grep -q -- '--verify apache-doris-9.9.9-rc01-src.tar.gz.asc apache-doris-9.9.9-rc01-src.tar.gz' "$FAKE_GPG_LOG"
+grep -q 'mkdir https://dist.example.test/release/doris/9.9' "$FAKE_SVNMUCC_LOG"
 grep -q 'https://dist.example.test/release/doris/9.9/9.9.9/apache-doris-9.9.9-src.tar.gz' "$FAKE_SVNMUCC_LOG"
 grep -q 'put ' "$FAKE_SVNMUCC_LOG"
 grep -q 'apache-doris-9.9.9-src.tar.gz$' "$FAKE_FINAL_SHA512"

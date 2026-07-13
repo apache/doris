@@ -62,6 +62,7 @@ svnmucc_auth=(--non-interactive --no-auth-cache)
 RELEASE_PKG_BASE="${RELEASE_PKG_BASE:-apache-doris-${VERSION}-src}"
 RELEASE_SERIES="${RELEASE_SERIES:-${VERSION%.*}}"
 RELEASE_SVN_DIR="${RELEASE_SVN_DIR:-${RELEASE_SVN_BASE}/${RELEASE_SERIES}/${VERSION}}"
+RELEASE_SVN_PARENT_DIR="${RELEASE_SVN_PARENT_DIR:-${RELEASE_SVN_DIR%/*}}"
 DOWNLOAD_PAGE_URL="${DOWNLOAD_PAGE_URL:-https://doris.apache.org/download/}"
 ANNOUNCE_RELEASE_NOTES_URL="${ANNOUNCE_RELEASE_NOTES_URL:-}"
 
@@ -125,7 +126,8 @@ EOF
 }
 
 publish_to_release_svn() {
-  local src_tar src_asc src_sha512 dst_tar dst_asc dst_sha512 checksum_dir src_tar_file final_sha512_file
+  local src_tar src_asc src_sha512 dst_tar dst_asc dst_sha512 checksum_dir src_tar_file final_sha512_file release_parent_missing
+  local -a svnmucc_ops
 
   require_tool svn
   require_tool svnmucc
@@ -160,6 +162,13 @@ publish_to_release_svn() {
   if svn info "${svn_auth[@]}" "$RELEASE_SVN_DIR" >/dev/null 2>&1; then
     die "release SVN folder already exists: $RELEASE_SVN_DIR (use --mail-only to regenerate the email)"
   fi
+  release_parent_missing=0
+  if svn info "${svn_auth[@]}" "$RELEASE_SVN_PARENT_DIR" >/dev/null 2>&1; then
+    ok "release SVN parent exists: ${RELEASE_SVN_PARENT_DIR}"
+  else
+    release_parent_missing=1
+    warn "release SVN parent will be created: ${RELEASE_SVN_PARENT_DIR}"
+  fi
 
   checksum_dir="$(mktemp -d)"
   src_tar_file="${PKG_BASE}.tar.gz"
@@ -179,24 +188,29 @@ publish_to_release_svn() {
   ok "final sha512 ok: ${dst_sha512}"
 
   echo "--- svnmucc operations ---"
+  svnmucc_ops=()
+  if [[ "$release_parent_missing" -eq 1 ]]; then
+    echo "mkdir ${RELEASE_SVN_PARENT_DIR}"
+    svnmucc_ops+=(mkdir "$RELEASE_SVN_PARENT_DIR")
+  fi
   echo "mkdir ${RELEASE_SVN_DIR}"
+  svnmucc_ops+=(mkdir "$RELEASE_SVN_DIR")
   echo "mv    ${src_tar}"
   echo "  ->  ${RELEASE_SVN_DIR}/${dst_tar}"
+  svnmucc_ops+=(mv "$src_tar" "${RELEASE_SVN_DIR}/${dst_tar}")
   echo "mv    ${src_asc}"
   echo "  ->  ${RELEASE_SVN_DIR}/${dst_asc}"
+  svnmucc_ops+=(mv "$src_asc" "${RELEASE_SVN_DIR}/${dst_asc}")
   echo "put   ${final_sha512_file}"
   echo "  ->  ${RELEASE_SVN_DIR}/${dst_sha512}"
+  svnmucc_ops+=(put "$final_sha512_file" "${RELEASE_SVN_DIR}/${dst_sha512}")
   echo "rm    ${DEV_SVN_DIR}"
+  svnmucc_ops+=(rm "$DEV_SVN_DIR")
   echo
   echo "Will commit the URL operations above in one SVN revision."
   confirm "FINAL confirm - publish release SVN and remove dev RC now?" || { warn "stopping before SVN commit."; rm -rf "$checksum_dir"; exit 0; }
 
-  if ! svnmucc "${svnmucc_auth[@]}" -m "Release Doris ${VERSION}" \
-    mkdir "$RELEASE_SVN_DIR" \
-    mv "$src_tar" "${RELEASE_SVN_DIR}/${dst_tar}" \
-    mv "$src_asc" "${RELEASE_SVN_DIR}/${dst_asc}" \
-    put "$final_sha512_file" "${RELEASE_SVN_DIR}/${dst_sha512}" \
-    rm "$DEV_SVN_DIR"; then
+  if ! svnmucc "${svnmucc_auth[@]}" -m "Release Doris ${VERSION}" "${svnmucc_ops[@]}"; then
     rm -rf "$checksum_dir"
     die "svnmucc release publish failed"
   fi
