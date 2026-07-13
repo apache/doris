@@ -88,6 +88,9 @@ public class DistinctAggregateRewriter implements RewriteRuleFactory {
         SPLIT_IN_REWRITE, MULTI_STRATEGY, SPLIT_IN_CASCADES
     }
 
+    private static final String errorString = "Unsupported query: GROUP_CONCAT(DISTINCT ... ORDER BY ...)"
+            + " cannot be used together with a multi-argument COUNT(DISTINCT ...).";
+
     @Override
     public List<Rule> buildRules() {
         return ImmutableList.of(
@@ -97,9 +100,20 @@ public class DistinctAggregateRewriter implements RewriteRuleFactory {
                         .thenApply(ctx -> rewrite(ctx.root, ctx.connectContext))
                         .toRule(RuleType.DISTINCT_AGGREGATE_SPLIT),
                 logicalAggregate()
-                        .when(agg -> agg.getGroupByExpressions().isEmpty()
-                                && agg.mustUseMultiDistinctAgg() && !AggregateUtils.containsCountDistinctMultiExpr(agg))
-                        .then(this::convertToMultiDistinct)
+                        .when(agg -> agg.getGroupByExpressions().isEmpty())
+                        .then(agg -> {
+                            // count(distinct a,b) cannot use multi_distinct
+                            boolean mustSplit = AggregateUtils.containsCountDistinctMultiExpr(agg);
+                            boolean mustUseMulti = agg.mustUseMultiDistinctAgg();
+                            if (mustSplit && mustUseMulti) {
+                                throw new AnalysisException(errorString);
+                            }
+                            if (mustUseMulti) {
+                                return convertToMultiDistinct(agg);
+                            } else {
+                                return null;
+                            }
+                        })
                         .toRule(RuleType.PROCESS_SCALAR_AGG_MUST_USE_MULTI_DISTINCT)
         );
     }
@@ -110,9 +124,7 @@ public class DistinctAggregateRewriter implements RewriteRuleFactory {
         boolean mustSplit = AggregateUtils.containsCountDistinctMultiExpr(aggregate);
         boolean mustUseMulti = aggregate.mustUseMultiDistinctAgg();
         if (mustSplit && mustUseMulti) {
-            throw new AnalysisException(
-                    "Unsupported query: GROUP_CONCAT(DISTINCT ... ORDER BY ...) cannot be used together with "
-                            + "a multi-argument COUNT(DISTINCT ...).");
+            throw new AnalysisException(errorString);
         }
         if (mustSplit) {
             return Strategy.SPLIT_IN_REWRITE;
