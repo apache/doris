@@ -22,6 +22,7 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cstdarg>
 #include <cstdint>
 #include <cstdio>
@@ -110,6 +111,8 @@ class Roaring64MapSetBitForwardIterator;
 // - added clear() and is32BitsEnough()
 class Roaring64Map {
 public:
+    using RoaringMap = std::map<uint32_t, roaring::Roaring>;
+
     /**
      * Create an empty bitmap
      */
@@ -985,6 +988,8 @@ private:
     }
 
     void emplaceOrInsert(const uint32_t key, roaring::Roaring&& value) {
+        // CRoaring's C++ move constructor bit-copies the underlying C struct and
+        // is unsafe with phmap::btree_map value relocation after operations such as shrinkToFit().
         roarings.emplace(key, value);
     }
 
@@ -1197,21 +1202,17 @@ public:
         return true;
     }
 
-    // The caller must ensure the input already has set semantics.
-    bool read(const void* src, size_t n) {
+    // Read serialized SET payload. Values are stored as fixed little-endian uint64_t.
+    bool read(const void* src, size_t n, bool deduplicate = false) {
         DORIS_CHECK(n <= INLINE_CAPACITY) << "BitmapSmallSet overflow";
         clear();
-        if (n > 0) {
-            memcpy(_values.data(), src, sizeof(value_type) * n);
-        }
+        decode_fixed64_le_array(_values.data(), src, n);
         _size = static_cast<uint8_t>(n);
+        if (deduplicate) {
+            compact_unique();
+            return true;
+        }
         return has_unique_values();
-    }
-
-    void read_unique(const void* src, size_t n) {
-        DORIS_CHECK(n <= INLINE_CAPACITY) << "BitmapSmallSet overflow";
-        clear();
-        insert_many(reinterpret_cast<const value_type*>(src), n);
     }
 
     void copy_to_sorted(value_type* dst) const {
@@ -2374,15 +2375,10 @@ public:
             *dst = static_cast<uint8_t>(_set.size());
             ++dst;
             {
-                // `BitmapSmallSet` stores values inline and unordered, but historical SET bytes were
-                // emitted by iterating `phmap::flat_hash_set`. Rebuild the old container before
-                // encoding so visible strings such as `bitmap_to_base64` stay stable.
-                //   TypeCode::SET(1 byte) | count(1 byte) | uint64 values in phmap iteration order.
-                phmap::flat_hash_set<uint64_t> values;
+                // SET serialization does not guarantee a canonical value order. The old phmap-backed
+                // SET order also depended on bucket state, so write the current inline order directly.
+                //   TypeCode::SET(1 byte) | count(1 byte) | uint64 values in little-endian order.
                 for (auto v : _set) {
-                    values.insert(v);
-                }
-                for (auto v : values) {
                     encode_fixed64_le(reinterpret_cast<uint8_t*>(dst), v);
                     dst += sizeof(uint64_t);
                 }
@@ -2406,7 +2402,8 @@ public:
             _sv = decode_fixed32_le(reinterpret_cast<const uint8_t*>(src + 1));
             if (config::enable_set_in_bitmap_value) {
                 _type = SET;
-                _set.read(&_sv, 1);
+                _set.clear();
+                _set.insert(_sv);
             }
             break;
         case BitmapTypeCode::SINGLE64:
@@ -2414,7 +2411,8 @@ public:
             _sv = decode_fixed64_le(reinterpret_cast<const uint8_t*>(src + 1));
             if (config::enable_set_in_bitmap_value) {
                 _type = SET;
-                _set.read(&_sv, 1);
+                _set.clear();
+                _set.insert(_sv);
             }
             break;
         case BitmapTypeCode::BITMAP32:
@@ -2451,8 +2449,7 @@ public:
             break;
         }
         case BitmapTypeCode::SET_V2: {
-            uint32_t size = 0;
-            memcpy(&size, src + 1, sizeof(uint32_t));
+            uint32_t size = decode_fixed32_le(reinterpret_cast<const uint8_t*>(src + 1));
             src += sizeof(uint32_t) + 1;
 
             if (!config::enable_set_in_bitmap_value || size > SET_TYPE_THRESHOLD) {
@@ -2461,13 +2458,13 @@ public:
 
                 if (size > 0) {
                     std::vector<uint64_t> values(size);
-                    memcpy(values.data(), src, sizeof(uint64_t) * size);
+                    decode_fixed64_le_array(values.data(), src, size);
                     _bitmap->addMany(size, values.data());
                     src += sizeof(uint64_t) * size;
                 }
             } else {
                 _type = SET;
-                _set.read_unique(src, size);
+                _set.read(src, size, true);
             }
             break;
         }
@@ -2840,6 +2837,8 @@ private:
                 _type = SINGLE;
                 _sv = *_set.begin();
                 _set.clear();
+            } else if (_set.empty()) {
+                _type = EMPTY;
             }
         }
     }
