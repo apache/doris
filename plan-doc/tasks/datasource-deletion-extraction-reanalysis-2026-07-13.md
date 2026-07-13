@@ -106,6 +106,17 @@ hive 是最后一个其 scan range **不**重置 `columnsFromPath*` 的连接器
 **对抗结论**：SOUND。攻击（"加载路径仍留 hive token"）在铁律字面上**失败**——A 禁的是**增加**源相关，不禁保留既有通用行为；且加载路径无连接器可委派，
 强行委派会**弄坏**它。净 fe-core token **减少**（查询路径哨兵项移入 hive 插件）。
 
+> **实现前置 trace（2026-07-13 已核，供施工）**：活查询路径 = `PluginDrivenScanNode extends FileQueryScanNode`，复用继承的
+> `createScanRangeLocations:455` → `fileSplit.getPartitionValues()` 非 null 走 `normalizeColumnsFromPath(...)`(`:473`)（`PluginDrivenSplit.getPartitionValues:82`
+> 由 `scanRange.getPartitionValues()` Map 转来）→ `createFileRangeDesc:552` 仅当 `columnsFromPathKeys`(=`pathPartitionKeys`)非空时 set
+> `columnsFromPath/Keys/IsNull` → `setScanParams:1606` override → `populateRangeParams:1617`。iceberg/paimon 在 `populateRangeParams`
+> **unset+重建** columnsFromPath（`IcebergScanRange:110-125`）覆盖掉 `:165` 的结果；**hive 未重置**→ 故 hive 是 `:165` 哨兵的最后消费者。
+> **施工**：① `HiveScanRange.populateRangeParams` 加 `unsetColumnsFromPath{,Keys,IsNull}` + 从 `partitionValues` Map 重建（key/value/isNull，
+> **窄** `HIVE_DEFAULT_PARTITION.equals(value)`→ value `""`+isNull `true`），镜像 iceberg；② `FilePartitionUtils.normalizeColumnsFromPath:165`
+> 删哨兵项只留 `value==null`；③ `parseColumnsFromPathWithNullInfo:143`（加载路径）常量改指 `ConnectorPartitionValues.HIVE_DEFAULT_PARTITION` + import 换。
+> **动手前仍须核**：`HiveScanRange.partitionValues` 由 hive scan plan provider 如何填（key=分区列名？null 是否存哨兵串？）、与 `transactional_hive`
+> ACID 分支的交互、以及重建后与当前 `normalizeColumnsFromPath` 输出**逐字节一致**（含 columnsFromPathKeys 顺序，BE 按 key 名匹配）。加一条 hive 真 NULL 分区回归。
+
 **⚠ 新揪出的第二处同形泄漏（原 §3 漏列）**：`TablePartitionValues.HIVE_DEFAULT_PARTITION:47`，被**活的** `MetadataGenerator:2166`
 （`partition_values` TVF）字符串比较。只删 `HiveExternalMetaCache` 那份会留下这份同样的泄漏。**须单列一组**做自己的活性判定（trap-tier 死 vs 连接器空标志委派），否则"泄漏只是被搬家"。
 
