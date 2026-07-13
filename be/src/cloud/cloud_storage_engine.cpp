@@ -1080,8 +1080,7 @@ Status CloudStorageEngine::_submit_cumulative_compaction_task(const CloudTabletS
                     tablet->set_last_cumu_compaction_failure_time(now);
                     auto gc_st = compaction->garbage_collection();
                     if (!gc_st.ok()) {
-                        LOG_WARNING(
-                                "failed to garbage collect delayed CloudCumulativeCompaction")
+                        LOG_WARNING("failed to garbage collect delayed CloudCumulativeCompaction")
                                 .tag("tablet_id", tablet->tablet_id())
                                 .error(gc_st);
                         if (tablet->keys_type() == KeysType::UNIQUE_KEYS &&
