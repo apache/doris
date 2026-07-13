@@ -1205,6 +1205,8 @@ void StorageEngine::_handle_compaction(TabletSharedPtr tablet,
                     long now = duration_cast<std::chrono::milliseconds>(
                                        std::chrono::system_clock::now().time_since_epoch())
                                        .count();
+                    tablet->set_last_cumu_compaction_status(
+                            "cumulative compaction delayed: large task thread pool intensive");
                     tablet->set_last_cumu_compaction_failure_time(now);
                     return;
                 }

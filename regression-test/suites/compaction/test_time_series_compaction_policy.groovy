@@ -160,19 +160,19 @@ suite("test_time_series_compaction_polciy", "p0") {
     int rowsetCount = get_rowset_count.call(tablets);
     assert (rowsetCount == 34 * replicaNum)
 
-    // trigger cumulative compactions for all tablets in table
+    // Verify the shared helper waits for a terminal time-series compaction signal.
     // after cumulative compaction, there is only 26 rowset.
     // 5 consecutive empty versions are merged into one empty version
     // 34 - 2*4 = 26
-    trigger_cumulative_all.call(tablets)
-    rowsetCount = wait_rowset_count_le.call(tablets, 26 * replicaNum, 60)
+    trigger_and_wait_compaction(tableName, "cumulative")
+    rowsetCount = get_rowset_count.call(tablets)
     assert (rowsetCount == 26 * replicaNum) : "expected ${26 * replicaNum} rowsets, got ${rowsetCount}"
 
-    // trigger cumulative compactions for all tablets in ${tableName}
+    // Run through the helper again while the previous terminal status is already [OK].
     // after cumulative compaction, there is only 22 rowset.
     // 26 - 4 = 22
-    trigger_cumulative_all.call(tablets)
-    rowsetCount = wait_rowset_count_le.call(tablets, 22 * replicaNum, 60)
+    trigger_and_wait_compaction(tableName, "cumulative")
+    rowsetCount = get_rowset_count.call(tablets)
     assert (rowsetCount == 22 * replicaNum) : "expected ${22 * replicaNum} rowsets, got ${rowsetCount}"
 
     qt_sql_2 """ select count() from ${tableName}"""

@@ -109,6 +109,7 @@ Status CumulativeCompaction::execute_compact() {
                 tablet()->set_last_cumu_compaction_success_time(UnixMillis());
             }
         }
+        tablet()->increment_cumulative_compaction_completed_count();
     });
     std::unique_lock<std::mutex> lock(tablet()->get_cumulative_compaction_lock(), std::try_to_lock);
     if (!lock.owns_lock()) {

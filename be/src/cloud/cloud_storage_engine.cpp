@@ -1054,6 +1054,9 @@ Status CloudStorageEngine::_submit_cumulative_compaction_task(const CloudTabletS
                     duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
             CompactionTaskTracker::instance()->update_to_running(compaction_id, rs);
         }
+        bool should_delay_large_task = false;
+        int delayed_used_threads = 0;
+        int delayed_small_tasks_running = 0;
         do {
             std::lock_guard lock(_cumu_compaction_delay_mtx);
             _cumu_compaction_thread_pool_used_threads++;
@@ -1072,42 +1075,45 @@ Status CloudStorageEngine::_submit_cumulative_compaction_task(const CloudTabletS
                 }
                 // Deal with large task
                 if (_should_delay_large_task()) {
-                    long now = duration_cast<milliseconds>(system_clock::now().time_since_epoch())
-                                       .count();
-                    // sleep 5s for this tablet
-                    tablet->set_last_cumu_compaction_status(
-                            "cumulative compaction delayed: large task thread pool intensive");
-                    tablet->set_last_cumu_compaction_failure_time(now);
-                    auto gc_st = compaction->garbage_collection();
-                    if (!gc_st.ok()) {
-                        LOG_WARNING("failed to garbage collect delayed CloudCumulativeCompaction")
-                                .tag("tablet_id", tablet->tablet_id())
-                                .error(gc_st);
-                        if (tablet->keys_type() == KeysType::UNIQUE_KEYS &&
-                            tablet->enable_unique_key_merge_on_write()) {
-                            meta_mgr().remove_delete_bitmap_update_lock(
-                                    tablet->table_id(), COMPACTION_DELETE_BITMAP_LOCK_ID,
-                                    compaction->initiator(), tablet->tablet_id());
-                        }
-                    }
-                    erase_executing_cumu_compaction();
-                    LOG_WARNING(
-                            "failed to do CloudCumulativeCompaction, cumu thread pool is "
-                            "intensive, delay large task.")
-                            .tag("tablet_id", tablet->tablet_id())
-                            .tag("input_rows", compaction->get_input_num_rows())
-                            .tag("input_rowsets_total_size", compaction->get_input_rowsets_bytes())
-                            .tag("config::large_cumu_compaction_task_bytes_threshold",
-                                 config::large_cumu_compaction_task_bytes_threshold)
-                            .tag("config::large_cumu_compaction_task_row_num_threshold",
-                                 config::large_cumu_compaction_task_row_num_threshold)
-                            .tag("remaining threads", _cumu_compaction_thread_pool_used_threads)
-                            .tag("small_tasks_running",
-                                 _cumu_compaction_thread_pool_small_tasks_running);
-                    return;
+                    should_delay_large_task = true;
+                    delayed_used_threads = _cumu_compaction_thread_pool_used_threads;
+                    delayed_small_tasks_running = _cumu_compaction_thread_pool_small_tasks_running;
                 }
             }
         } while (false);
+        if (should_delay_large_task) {
+            long now = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+            // sleep 5s for this tablet
+            tablet->set_last_cumu_compaction_status(
+                    "cumulative compaction delayed: large task thread pool intensive");
+            tablet->set_last_cumu_compaction_failure_time(now);
+            auto gc_st = compaction->garbage_collection();
+            if (!gc_st.ok()) {
+                LOG_WARNING("failed to garbage collect delayed CloudCumulativeCompaction")
+                        .tag("tablet_id", tablet->tablet_id())
+                        .error(gc_st);
+                if (tablet->keys_type() == KeysType::UNIQUE_KEYS &&
+                    tablet->enable_unique_key_merge_on_write()) {
+                    meta_mgr().remove_delete_bitmap_update_lock(
+                            tablet->table_id(), COMPACTION_DELETE_BITMAP_LOCK_ID,
+                            compaction->initiator(), tablet->tablet_id());
+                }
+            }
+            erase_executing_cumu_compaction();
+            LOG_WARNING(
+                    "failed to do CloudCumulativeCompaction, cumu thread pool is intensive, "
+                    "delay large task.")
+                    .tag("tablet_id", tablet->tablet_id())
+                    .tag("input_rows", compaction->get_input_num_rows())
+                    .tag("input_rowsets_total_size", compaction->get_input_rowsets_bytes())
+                    .tag("config::large_cumu_compaction_task_bytes_threshold",
+                         config::large_cumu_compaction_task_bytes_threshold)
+                    .tag("config::large_cumu_compaction_task_row_num_threshold",
+                         config::large_cumu_compaction_task_row_num_threshold)
+                    .tag("remaining threads", delayed_used_threads)
+                    .tag("small_tasks_running", delayed_small_tasks_running);
+            return;
+        }
         st = compaction->execute_compact();
         if (!st.ok()) {
             // Error log has been output in `execute_compact`
