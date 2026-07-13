@@ -163,7 +163,7 @@ public class MaxComputeConnectorMetadata implements ConnectorMetadata {
 
         java.util.Map<String, String> props = new java.util.HashMap<>();
         if (!partitionColumnNames.isEmpty()) {
-            props.put("partition_columns",
+            props.put(ConnectorTableSchema.PARTITION_COLUMNS_KEY,
                     String.join(",", partitionColumnNames));
         }
         return new ConnectorTableSchema(

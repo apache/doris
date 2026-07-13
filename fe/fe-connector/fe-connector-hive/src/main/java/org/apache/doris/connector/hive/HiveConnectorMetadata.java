@@ -117,8 +117,9 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
     // FE-internal schema-control property key: a CSV of the RAW remote partition-column names. The generic
     // fe-core consumer (PluginDrivenExternalTable.toSchemaCacheValue) reads it to derive which of the emitted
     // columns are partition columns; it is the same key the paimon/iceberg/maxcompute connectors emit and is
-    // stripped from the user-facing SHOW CREATE properties by fe-core.
-    private static final String PARTITION_COLUMNS_PROPERTY = "partition_columns";
+    // stripped from the user-facing SHOW CREATE properties by fe-core. The central reserved-key definition
+    // (namespaced under __internal.) lives in ConnectorTableSchema.
+    private static final String PARTITION_COLUMNS_PROPERTY = ConnectorTableSchema.PARTITION_COLUMNS_KEY;
 
     // Connector-side spelling of fe-type ScalarType.MAX_VARCHAR_LENGTH (the connector must not import fe-type);
     // a hive `string` partition column is widened to varchar(65533) for legacy parity. Paimon hardcodes the
@@ -448,13 +449,6 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
         // mutating the shared tableInfo map.
         Map<String, String> tableProperties = new HashMap<>(
                 tableInfo.getParameters() != null ? tableInfo.getParameters() : Collections.emptyMap());
-        // Strip the FE-internal reserved partition marker that may have leaked in from the copied HMS
-        // parameters above (a user TBLPROPERTY literally named "partition_columns"): the generic fe-core
-        // consumer (PluginDrivenExternalTable.toSchemaCacheValue) treats a non-empty "partition_columns"
-        // as the partition-column CSV, so a leaked user value would make a NON-partitioned table be
-        // misdetected as partitioned. Only this connector's own value (re-stamped below when the table
-        // has partition keys) may reach fe-core.
-        tableProperties.remove(PARTITION_COLUMNS_PROPERTY);
         // Mark which emitted columns are partition columns for the generic fe-core consumer. Without this
         // property every partitioned hive/hudi table is read as unpartitioned (wrong pruning/row count, MTMV
         // breakage). The value is a CSV of the RAW partition-key names in declaration order; hive partition-key

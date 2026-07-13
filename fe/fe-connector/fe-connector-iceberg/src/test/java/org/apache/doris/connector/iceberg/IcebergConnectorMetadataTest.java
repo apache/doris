@@ -656,42 +656,46 @@ public class IcebergConnectorMetadataTest {
     }
 
     @Test
-    public void getTableSchemaStripsUserPartitionColumnsOnUnpartitionedTable() {
-        // A user TBLPROPERTY literally named "partition_columns" on an UNPARTITIONED iceberg table (e.g. set
-        // via ALTER TABLE ... SET TBLPROPERTIES('partition_columns'='id')) must NOT survive into the emitted
-        // schema properties: the generic fe-core consumer (PluginDrivenExternalTable.toSchemaCacheValue)
-        // treats a non-empty "partition_columns" as the partition-column CSV, so a leaked user value whose
-        // CSV matches a real column would make this non-partitioned table be misdetected as partitioned
-        // (wrong pruning / row-count / EXPLAIN partition=N/M). buildTableSchema stamps the key only for a
-        // genuinely partitioned table, so for an unpartitioned table it must be absent.
-        // MUTATION: dropping tableProps.remove("partition_columns") -> the user value leaks via putAll -> red.
+    public void getTableSchemaUserPartitionColumnsCannotCollideWithReservedKey() {
+        // A user TBLPROPERTY literally named "partition_columns" (bare, e.g. ALTER TABLE ... SET
+        // TBLPROPERTIES('partition_columns'='id')) can NEVER be mistaken for the reserved partition marker,
+        // which is namespaced under __internal. (ConnectorTableSchema.PARTITION_COLUMNS_KEY). On an
+        // UNPARTITIONED table the connector emits NO reserved key -> fe-core sees no partition marker ->
+        // the table stays unpartitioned; and the user's bare property flows through unchanged (no silent
+        // strip). MUTATION: reverting the reserved key to bare "partition_columns" -> the user value would be
+        // read as the partition CSV -> the assertNull fails -> red.
         RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
         Map<String, String> userProps = new HashMap<>();
-        userProps.put("partition_columns", "id");   // a real column name — fe-core would match it
+        userProps.put("partition_columns", "id");   // a real column name, as a plain user property
         ops.table = new FakeIcebergTable(
                 "t1", idNameSchema(), PartitionSpec.unpartitioned(), "s3://bucket/db1/t1", userProps);
         ConnectorTableSchema schema =
                 metadataWith(ops).getTableSchema(null, new IcebergTableHandle("db1", "t1"));
-        Assertions.assertFalse(schema.getProperties().containsKey("partition_columns"),
-                "an unpartitioned iceberg table must not carry partition_columns even if the source props do");
+        Assertions.assertNull(schema.getProperties().get(ConnectorTableSchema.PARTITION_COLUMNS_KEY),
+                "an unpartitioned iceberg table must emit no reserved partition marker");
+        Assertions.assertEquals("id", schema.getProperties().get("partition_columns"),
+                "the user's bare partition_columns property must flow through unchanged (no collision, no strip)");
     }
 
     @Test
-    public void getTableSchemaPartitionColumnsReflectSpecNotCollidingUserProperty() {
-        // Guard the fix does not over-strip: a genuinely partitioned table (identity on `name`) whose source
-        // properties ALSO carry a colliding "partition_columns"=id must emit the CONNECTOR's spec-derived
-        // value (`name`), never the user's spoofed value — the remove()+re-stamp guarantees the connector wins.
-        // MUTATION: removing the re-stamp, or stripping unconditionally after the stamp -> red.
+    public void getTableSchemaReservedKeyCoexistsWithCollidingUserProperty() {
+        // A genuinely partitioned table (identity on `name`) whose source properties ALSO carry a colliding
+        // bare "partition_columns"=id: the reserved key (__internal.partition_columns) carries the CONNECTOR's
+        // spec-derived value (`name`), and the user's bare property coexists independently — the two live in
+        // different namespaces and never overwrite each other. MUTATION: bare reserved key -> the two would
+        // collide -> one assertion fails -> red.
         Schema schema = idNameSchema();
         PartitionSpec identitySpec = PartitionSpec.builderFor(schema).identity("name").build();
         RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
         Map<String, String> userProps = new HashMap<>();
-        userProps.put("partition_columns", "id");   // user tries to spoof partitioning on `id`
+        userProps.put("partition_columns", "id");   // a plain user property, not the reserved key
         ops.table = new FakeIcebergTable("t2", schema, identitySpec, "s3://bucket/db1/t2", userProps);
         ConnectorTableSchema out =
                 metadataWith(ops).getTableSchema(null, new IcebergTableHandle("db1", "t2"));
-        Assertions.assertEquals("name", out.getProperties().get("partition_columns"),
-                "partition_columns must be the spec-derived value, not the colliding user property");
+        Assertions.assertEquals("name", out.getProperties().get(ConnectorTableSchema.PARTITION_COLUMNS_KEY),
+                "the reserved key must carry the spec-derived value");
+        Assertions.assertEquals("id", out.getProperties().get("partition_columns"),
+                "the user's bare property coexists, untouched");
     }
 
     @Test
@@ -726,9 +730,9 @@ public class IcebergConnectorMetadataTest {
         Assertions.assertEquals("PARTITION BY LIST (`name`) ()",
                 identitySchema.getProperties().get(ConnectorTableSchema.SHOW_PARTITION_CLAUSE_KEY),
                 "an identity partition must render as the bare quoted column");
-        // Also byte-faithful: the partition_columns CSV (functional, consumed by fe-core) is unchanged.
+        // Also byte-faithful: the partition-columns CSV (functional, consumed by fe-core) is unchanged.
         Assertions.assertEquals("name",
-                identitySchema.getProperties().get("partition_columns"));
+                identitySchema.getProperties().get(ConnectorTableSchema.PARTITION_COLUMNS_KEY));
 
         // Partitioned with a NON-identity transform (bucket): renders the Doris BUCKET(N, col) term.
         PartitionSpec bucketSpec = PartitionSpec.builderFor(schema).bucket("id", 8).build();
@@ -855,8 +859,8 @@ public class IcebergConnectorMetadataTest {
         // generic "partition_columns" CSV property (toSchemaCacheValue), the same key MaxCompute/paimon
         // emit. An unpartitioned table must NOT emit it, or isPartitionedTable() would be wrong post-flip.
         // MUTATION: always emitting partition_columns -> red.
-        Assertions.assertNull(unpartSchema.getProperties().get("partition_columns"),
-                "an unpartitioned table must not carry a partition_columns property");
+        Assertions.assertNull(unpartSchema.getProperties().get(ConnectorTableSchema.PARTITION_COLUMNS_KEY),
+                "an unpartitioned table must not carry a partition-columns property");
 
         // Partitioned (identity on name): the source column name is surfaced under partition_columns.
         Schema schema = idNameSchema();
@@ -871,7 +875,7 @@ public class IcebergConnectorMetadataTest {
         // legacy IcebergExternalTable did (IcebergUtils.loadTableSchemaCacheValue: spec source columns).
         // MUTATION: dropping the partition_columns emission -> the key is absent -> red.
         Assertions.assertEquals("name",
-                partSchema.getProperties().get("partition_columns"),
+                partSchema.getProperties().get(ConnectorTableSchema.PARTITION_COLUMNS_KEY),
                 "a partitioned table must surface its partition source columns as a CSV");
     }
 
@@ -892,7 +896,7 @@ public class IcebergConnectorMetadataTest {
         // WHY: a bucket/truncate/day transform still has a source column that legacy treats as a partition
         // column. MUTATION: filtering to identity transforms -> "id" absent -> red.
         Assertions.assertEquals("id",
-                partSchema.getProperties().get("partition_columns"),
+                partSchema.getProperties().get(ConnectorTableSchema.PARTITION_COLUMNS_KEY),
                 "a non-identity transform must still surface its source column as a partition column");
     }
 

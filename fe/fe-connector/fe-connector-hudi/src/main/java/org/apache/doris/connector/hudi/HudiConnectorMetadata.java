@@ -95,7 +95,7 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
     // names, in declaration order). Mirrors HiveConnectorMetadata.PARTITION_COLUMNS_PROPERTY; fe-core derives the
     // partition-column set SOLELY from this key (PluginDrivenExternalTable.toSchemaCacheValue). Without it every
     // partitioned Hudi table is read as UNPARTITIONED -> wrong pruning/row-count and MTMV "not partition table".
-    private static final String PARTITION_COLUMNS_PROPERTY = "partition_columns";
+    private static final String PARTITION_COLUMNS_PROPERTY = ConnectorTableSchema.PARTITION_COLUMNS_KEY;
 
     // Hive-canonical partition text for a DATETIME/TIMESTAMP literal: space separator, full seconds. See
     // hiveDateTimeString / extractLiteralValue (H2: String.valueOf(LocalDateTime) would yield ISO "…T…" and drop

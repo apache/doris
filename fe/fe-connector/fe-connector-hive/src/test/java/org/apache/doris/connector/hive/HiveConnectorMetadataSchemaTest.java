@@ -135,7 +135,7 @@ public class HiveConnectorMetadataSchemaTest {
     public void testPartitionColumnsPropertyEmittedWithRawNamesInOrder() {
         ConnectorTableSchema schema = schemaOf(partitionedTable().build());
         Assertions.assertEquals("year,region",
-                schema.getProperties().get("partition_columns"));
+                schema.getProperties().get(ConnectorTableSchema.PARTITION_COLUMNS_KEY));
     }
 
     @Test
@@ -219,34 +219,42 @@ public class HiveConnectorMetadataSchemaTest {
                 .parameters(Collections.emptyMap())
                 .build();
         ConnectorTableSchema schema = schemaOf(tableInfo);
-        Assertions.assertFalse(schema.getProperties().containsKey("partition_columns"));
+        Assertions.assertFalse(schema.getProperties().containsKey(ConnectorTableSchema.PARTITION_COLUMNS_KEY));
     }
 
     @Test
-    public void testUnpartitionedTableStripsUserPartitionColumnsParameter() {
-        // A user TBLPROPERTY literally named "partition_columns" on a NON-partitioned hive table must not leak
-        // into the emitted schema: the generic fe-core consumer (PluginDrivenExternalTable.toSchemaCacheValue)
-        // treats a non-empty "partition_columns" as the partition-column CSV, so a leaked user value whose CSV
-        // matches a real column would make this unpartitioned table be misdetected as partitioned.
-        // MUTATION: dropping tableProperties.remove(PARTITION_COLUMNS_PROPERTY) -> the parameter leaks -> red.
+    public void testUserPartitionColumnsParameterCannotCollideWithReservedKey() {
+        // A user TBLPROPERTY literally named "partition_columns" (bare) can NEVER be mistaken for the reserved
+        // partition marker, which is namespaced under __internal. (ConnectorTableSchema.PARTITION_COLUMNS_KEY).
+        // On a NON-partitioned hive table: the connector emits NO reserved key -> fe-core sees no partition
+        // marker -> the table stays unpartitioned; and the user's bare property flows through unchanged (no
+        // silent strip). MUTATION: reverting the reserved key to the bare "partition_columns" -> the user
+        // value would be read as the partition CSV -> the assertNull below fails -> red.
         Map<String, String> params = new HashMap<>();
-        params.put("partition_columns", "id");   // a real column — fe-core would match it
+        params.put("partition_columns", "id");   // a real column name, as a plain user property
         HmsTableInfo tableInfo = unpartitionedTable(PARQUET_INPUT_FORMAT).parameters(params).build();
         ConnectorTableSchema schema = schemaOf(tableInfo);
-        Assertions.assertFalse(schema.getProperties().containsKey("partition_columns"),
-                "an unpartitioned hive table must not carry partition_columns even if a parameter is named so");
+        Assertions.assertNull(schema.getProperties().get(ConnectorTableSchema.PARTITION_COLUMNS_KEY),
+                "an unpartitioned hive table must emit no reserved partition marker");
+        Assertions.assertEquals("id", schema.getProperties().get("partition_columns"),
+                "the user's bare partition_columns property must flow through unchanged (no collision, no strip)");
     }
 
     @Test
-    public void testPartitionedTablePartitionColumnsReflectKeysNotCollidingParameter() {
-        // Guard the fix does not over-strip: a genuinely partitioned table whose parameters ALSO carry a
-        // colliding "partition_columns"=id must emit the CONNECTOR's own partition-key CSV (year,region),
-        // never the user's spoofed value. MUTATION: stripping unconditionally after the stamp -> red.
+    public void testPartitionedTableReservedKeyCoexistsWithCollidingUserParameter() {
+        // A genuinely partitioned table whose parameters ALSO carry a colliding bare "partition_columns"=id:
+        // the reserved key (__internal.partition_columns) carries the CONNECTOR's own partition-key CSV
+        // (year,region), and the user's bare property coexists independently — the two live in different
+        // namespaces and never overwrite each other. MUTATION: bare reserved key -> the user value would
+        // overwrite (or be overwritten) -> one of the assertions fails -> red.
         Map<String, String> params = new HashMap<>();
         params.put("partition_columns", "id");
         ConnectorTableSchema schema = schemaOf(partitionedTable().parameters(params).build());
-        Assertions.assertEquals("year,region", schema.getProperties().get("partition_columns"),
-                "partition_columns must be the connector's partition-key CSV, not the colliding parameter");
+        Assertions.assertEquals("year,region",
+                schema.getProperties().get(ConnectorTableSchema.PARTITION_COLUMNS_KEY),
+                "the reserved key must carry the connector's partition-key CSV");
+        Assertions.assertEquals("id", schema.getProperties().get("partition_columns"),
+                "the user's bare property coexists, untouched");
     }
 
     @Test

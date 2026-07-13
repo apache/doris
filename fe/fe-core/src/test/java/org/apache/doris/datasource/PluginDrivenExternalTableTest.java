@@ -842,19 +842,24 @@ public class PluginDrivenExternalTableTest {
     }
 
     @Test
-    public void getTablePropertiesStripsControlAndRenderHintKeys() {
-        // WHY: the rendered PROPERTIES(...) block must contain only user-facing properties — the FE-internal
-        // schema-control keys (partition_columns/primary_keys) and the SHOW CREATE render-hint keys
-        // (show.location/show.partition-clause/show.sort-clause, rendered as separate clauses) must be stripped.
-        // MUTATION: dropping any strip clause -> that key leaks into PROPERTIES -> red.
+    public void getTablePropertiesStripsReservedKeysAndPassesThroughColludingUserKeys() {
+        // WHY: the rendered PROPERTIES(...) block must contain only user-facing properties — every FE-internal
+        // reserved control key (ConnectorTableSchema.RESERVED_CONTROL_KEYS, all namespaced under __internal.:
+        // the partition-columns / primary-keys markers + the SHOW CREATE render hints) must be stripped.
+        // Because the reserved keys are namespaced, a source table's own BARE property (e.g. literally named
+        // "partition_columns") can NEVER collide with one, so it flows through unchanged.
+        // MUTATION: reverting a reserved key to a bare name -> the bare user key would be stripped (data loss)
+        // or the reserved key would leak into PROPERTIES -> red.
         Map<String, String> raw = new LinkedHashMap<>();
         raw.put("write.format.default", "parquet");
-        raw.put("partition_columns", "id");
-        raw.put("primary_keys", "id");
-        raw.put("show.location", "s3://bucket/db/t");
-        raw.put("show.partition-clause", "PARTITION BY LIST (`id`) ()");
-        raw.put("show.sort-clause", "ORDER BY (`id` ASC NULLS FIRST)");
+        raw.put(ConnectorTableSchema.PARTITION_COLUMNS_KEY, "id");
+        raw.put(ConnectorTableSchema.PRIMARY_KEYS_KEY, "id");
+        raw.put(ConnectorTableSchema.SHOW_LOCATION_KEY, "s3://bucket/db/t");
+        raw.put(ConnectorTableSchema.SHOW_PARTITION_CLAUSE_KEY, "PARTITION BY LIST (`id`) ()");
+        raw.put(ConnectorTableSchema.SHOW_SORT_CLAUSE_KEY, "ORDER BY (`id` ASC NULLS FIRST)");
         raw.put("path", "s3://bucket/db/t");
+        // A user's own BARE property whose name equals the OLD un-namespaced reserved name: it must survive.
+        raw.put("partition_columns", "a_user_value");
 
         Map<String, String> props = pluginTableWithRawProperties(raw).getTableProperties();
 
@@ -862,18 +867,20 @@ public class PluginDrivenExternalTableTest {
                 "user-facing properties are preserved");
         Assertions.assertTrue(props.containsKey("path"),
                 "a connector's user-facing path property (paimon) is preserved");
-        Assertions.assertFalse(props.containsKey("partition_columns"));
-        Assertions.assertFalse(props.containsKey("primary_keys"));
-        Assertions.assertFalse(props.containsKey("show.location"));
-        Assertions.assertFalse(props.containsKey("show.partition-clause"));
-        Assertions.assertFalse(props.containsKey("show.sort-clause"));
+        Assertions.assertEquals("a_user_value", props.get("partition_columns"),
+                "a user's bare partition_columns property flows through (no collision with the reserved key)");
+        Assertions.assertFalse(props.containsKey(ConnectorTableSchema.PARTITION_COLUMNS_KEY));
+        Assertions.assertFalse(props.containsKey(ConnectorTableSchema.PRIMARY_KEYS_KEY));
+        Assertions.assertFalse(props.containsKey(ConnectorTableSchema.SHOW_LOCATION_KEY));
+        Assertions.assertFalse(props.containsKey(ConnectorTableSchema.SHOW_PARTITION_CLAUSE_KEY));
+        Assertions.assertFalse(props.containsKey(ConnectorTableSchema.SHOW_SORT_CLAUSE_KEY));
     }
 
     @Test
     public void getShowLocationReadsHintKeyWithPathFallback() {
-        // Reserved show.location hint -> rendered LOCATION.
+        // Reserved show-location hint -> rendered LOCATION.
         Map<String, String> iceberg = new HashMap<>();
-        iceberg.put("show.location", "s3://bucket/db/t");
+        iceberg.put(ConnectorTableSchema.SHOW_LOCATION_KEY, "s3://bucket/db/t");
         Assertions.assertEquals("s3://bucket/db/t",
                 pluginTableWithRawProperties(iceberg).getShowLocation());
 
@@ -884,9 +891,9 @@ public class PluginDrivenExternalTableTest {
         Assertions.assertEquals("s3://bucket/db/p",
                 pluginTableWithRawProperties(paimon).getShowLocation());
 
-        // show.location wins over path when both present (a connector that emits both).
+        // the show-location hint wins over path when both present (a connector that emits both).
         Map<String, String> both = new HashMap<>();
-        both.put("show.location", "s3://hint");
+        both.put(ConnectorTableSchema.SHOW_LOCATION_KEY, "s3://hint");
         both.put("path", "s3://path");
         Assertions.assertEquals("s3://hint", pluginTableWithRawProperties(both).getShowLocation());
 
@@ -897,8 +904,8 @@ public class PluginDrivenExternalTableTest {
     @Test
     public void getShowPartitionAndSortClauseReadHintKeys() {
         Map<String, String> raw = new HashMap<>();
-        raw.put("show.partition-clause", "PARTITION BY LIST (BUCKET(8, `id`)) ()");
-        raw.put("show.sort-clause", "ORDER BY (`name` DESC NULLS LAST)");
+        raw.put(ConnectorTableSchema.SHOW_PARTITION_CLAUSE_KEY, "PARTITION BY LIST (BUCKET(8, `id`)) ()");
+        raw.put(ConnectorTableSchema.SHOW_SORT_CLAUSE_KEY, "ORDER BY (`name` DESC NULLS LAST)");
         PluginDrivenExternalTable table = pluginTableWithRawProperties(raw);
         Assertions.assertEquals("PARTITION BY LIST (BUCKET(8, `id`)) ()", table.getShowPartitionClause());
         Assertions.assertEquals("ORDER BY (`name` DESC NULLS LAST)", table.getShowSortClause());

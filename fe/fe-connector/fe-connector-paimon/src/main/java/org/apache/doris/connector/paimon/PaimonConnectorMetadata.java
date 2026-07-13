@@ -302,14 +302,6 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
         // (no fe-core dependency); the fe-core consumer filters out the schema-control keys below.
         if (table instanceof DataTable) {
             schemaProps.putAll(((DataTable) table).coreOptions().toMap());
-            // Strip the FE-internal reserved schema-control keys that may have leaked in from the source
-            // coreOptions() above (a user option literally named "partition_columns"/"primary_keys"): the
-            // generic fe-core consumer (PluginDrivenExternalTable.toSchemaCacheValue) treats a non-empty
-            // "partition_columns" as the partition-column CSV, so a leaked user value would make a
-            // NON-partitioned table be misdetected as partitioned. Only this connector's own values
-            // (re-stamped below from partitionKeys/primaryKeys) may reach fe-core.
-            schemaProps.remove("partition_columns");
-            schemaProps.remove("primary_keys");
             if (primaryKeys != null && !primaryKeys.isEmpty()) {
                 schemaProps.put(CoreOptions.PRIMARY_KEY.key(), String.join(",", primaryKeys));
             }
@@ -324,10 +316,10 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
             // fromRemoteColumnName), so the entries carry the SAME case as the columns to keep the two sides
             // matchable (a mixed-case paimon partition key would otherwise be silently missed and the table
             // treated as non-partitioned).
-            schemaProps.put("partition_columns", String.join(",", partitionKeys));
+            schemaProps.put(ConnectorTableSchema.PARTITION_COLUMNS_KEY, String.join(",", partitionKeys));
         }
         if (primaryKeys != null && !primaryKeys.isEmpty()) {
-            schemaProps.put("primary_keys", String.join(",", primaryKeys));
+            schemaProps.put(ConnectorTableSchema.PRIMARY_KEYS_KEY, String.join(",", primaryKeys));
         }
 
         return new ConnectorTableSchema(tableName, columns, "PAIMON", schemaProps);

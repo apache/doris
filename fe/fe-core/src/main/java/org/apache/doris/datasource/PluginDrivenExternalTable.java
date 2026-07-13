@@ -502,15 +502,15 @@ public class PluginDrivenExternalTable extends ExternalTable {
 
         List<Column> columns = ConnectorColumnConverter.convertColumns(mappedColumns);
 
-        // Identify partition columns from the connector's "partition_columns" property (a CSV of
-        // RAW remote column names; producer: MaxComputeConnectorMetadata). We keep two aligned
+        // Identify partition columns from the connector's reserved PARTITION_COLUMNS_KEY property (a CSV of
+        // RAW remote column names; producer: hive/hudi/iceberg/paimon/maxcompute). We keep two aligned
         // views: the Doris Columns (with mapped/local names, used for getPartitionColumns + types)
         // and the raw remote names (used to index the raw-keyed partition-value maps from the SPI).
         // The columns themselves are already present in `columns` (the connector appends partition
         // columns to the schema, mirroring legacy); here we only mark which ones are partitions.
         List<Column> partitionColumns = new ArrayList<>();
         List<String> partitionColumnRemoteNames = new ArrayList<>();
-        String partColsProp = tableSchema.getProperties().get("partition_columns");
+        String partColsProp = tableSchema.getProperties().get(ConnectorTableSchema.PARTITION_COLUMNS_KEY);
         if (partColsProp != null && !partColsProp.isEmpty()) {
             Map<String, Column> byName = Maps.newHashMapWithExpectedSize(columns.size());
             for (Column c : columns) {
@@ -714,26 +714,18 @@ public class PluginDrivenExternalTable extends ExternalTable {
 
     /**
      * The connector's user-facing table properties (e.g. paimon coreOptions: path / file.format /
-     * write-only), used by SHOW CREATE TABLE to render the PROPERTIES(...) block (D-046). The
-     * FE-internal schema-control keys ({@code partition_columns} / {@code primary_keys}, emitted by
-     * the connector so {@link #initSchema()} can derive the partition columns) and the SHOW CREATE
-     * render-hint keys ({@code show.location} / {@code show.partition-clause} / {@code show.sort-clause},
-     * rendered as the LOCATION / PARTITION BY / ORDER BY clauses via {@link #getShowLocation()} etc.) and the
-     * per-table capability marker ({@code connector.per-table-capabilities}, consumed by {@link
-     * #supportsTopNLazyMaterialize()} / {@link #supportsNestedColumnPrune()}) are stripped — they are not
-     * user-facing options and must not leak into the rendered PROPERTIES(...).
+     * write-only), used by SHOW CREATE TABLE to render the PROPERTIES(...) block (D-046). Every FE-internal
+     * reserved control key ({@link ConnectorTableSchema#RESERVED_CONTROL_KEYS} — the partition-columns /
+     * primary-keys markers, the SHOW CREATE render hints, and the per-table capability / distribution markers,
+     * all namespaced under {@code __internal.}) is stripped: they are not user-facing options and must not
+     * leak into the rendered PROPERTIES(...). Because the reserved keys are namespaced, a source table's own
+     * user property can never collide with one, so it flows through here unchanged.
      */
     public Map<String, String> getTableProperties() {
         Map<String, String> raw = rawTableProperties();
         Map<String, String> result = new LinkedHashMap<>();
         for (Map.Entry<String, String> entry : raw.entrySet()) {
-            String key = entry.getKey();
-            if ("partition_columns".equals(key) || "primary_keys".equals(key)
-                    || ConnectorTableSchema.SHOW_LOCATION_KEY.equals(key)
-                    || ConnectorTableSchema.SHOW_PARTITION_CLAUSE_KEY.equals(key)
-                    || ConnectorTableSchema.SHOW_SORT_CLAUSE_KEY.equals(key)
-                    || ConnectorTableSchema.PER_TABLE_CAPABILITIES_KEY.equals(key)
-                    || ConnectorTableSchema.DISTRIBUTION_COLUMNS_KEY.equals(key)) {
+            if (ConnectorTableSchema.RESERVED_CONTROL_KEYS.contains(entry.getKey())) {
                 continue;
             }
             result.put(entry.getKey(), entry.getValue());
