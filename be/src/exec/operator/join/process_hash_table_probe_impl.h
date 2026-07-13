@@ -201,11 +201,10 @@ void ProcessHashTableProbe<JoinOpType>::probe_side_output_column(MutableColumns&
                              (is_asof_join || !_parent_operator->is_lazy_materialized_column(i));
         if (should_output) {
             if (_can_transfer_probe_columns_to_output) {
-                // Keep the live probe block row-sized for lazy materialization and state checks,
-                // while transferring its original column owner into the mutable output block.
-                mock_column_size(mcol[i], _probe_indexs.size());
                 auto& probe_column = probe_block.get_by_position(i).column;
                 auto mutable_probe_column = IColumn::mutate(std::move(probe_column));
+                // Reuse the empty output column as the next child output column. The transferred
+                // probe column has been fully consumed and no longer needs to carry the row count.
                 probe_column = std::move(mcol[i]);
                 mcol[i] = std::move(mutable_probe_column);
             } else {

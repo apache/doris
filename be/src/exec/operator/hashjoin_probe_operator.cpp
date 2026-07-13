@@ -169,14 +169,6 @@ void HashJoinProbeLocalState::_prepare_probe_block() {
     }
     _key_columns_holder.clear();
     _probe_block.clear_column_data(_parent->get_child()->row_desc().num_materialized_slots());
-    // Probe-column ownership transfer leaves row-sized ColumnConst placeholders in the live
-    // probe block. Do not pass those placeholders back as reusable child output columns: an
-    // upstream operator may preserve the const wrapper while filling the next input block.
-    for (auto& column : _probe_block) {
-        if (is_column_const(*column.column)) {
-            column.column = column.type->create_column();
-        }
-    }
 }
 
 HashJoinProbeOperatorX::HashJoinProbeOperatorX(ObjectPool* pool, const TPlanNode& tnode,
