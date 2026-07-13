@@ -21,6 +21,7 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.cloud.transaction.TxnUtil;
 import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
@@ -33,6 +34,9 @@ import org.apache.doris.load.routineload.kafka.KafkaTaskInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateRoutineLoadInfo;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.thrift.TKafkaRLTaskProgress;
+import org.apache.doris.thrift.TLoadSourceType;
+import org.apache.doris.thrift.TRLTaskTxnCommitAttachment;
+import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.thrift.TUniqueKeyUpdateMode;
 import org.apache.doris.transaction.GlobalTransactionMgrIface;
 import org.apache.doris.transaction.TransactionException;
@@ -53,6 +57,25 @@ import java.util.List;
 import java.util.Map;
 
 public class RoutineLoadJobTest {
+    @Test
+    public void testFirstErrorMsgInTxnCommitAttachment() {
+        TRLTaskTxnCommitAttachment thriftAttachment = new TRLTaskTxnCommitAttachment();
+        thriftAttachment.setLoadSourceType(TLoadSourceType.KAFKA);
+        thriftAttachment.setId(new TUniqueId(1, 2));
+        thriftAttachment.setJobId(3);
+        thriftAttachment.setKafkaRLTaskProgress(new TKafkaRLTaskProgress(Maps.newHashMap()));
+        thriftAttachment.setErrorLogUrl("http://127.0.0.1/error_log");
+        thriftAttachment.setFirstErrorMsg("invalid source row");
+
+        RLTaskTxnCommitAttachment attachment = new RLTaskTxnCommitAttachment(thriftAttachment);
+        Assert.assertEquals("invalid source row", attachment.getFirstErrorMsg());
+
+        RLTaskTxnCommitAttachment cloudAttachment = TxnUtil.rtTaskTxnCommitAttachmentFromPb(
+                TxnUtil.rlTaskTxnCommitAttachmentToPb(attachment));
+        Assert.assertEquals("http://127.0.0.1/error_log", cloudAttachment.getErrorLogUrl());
+        Assert.assertEquals("invalid source row", cloudAttachment.getFirstErrorMsg());
+    }
+
     @Test
     public void testAfterAbortedReasonOffsetOutOfRange() throws UserException {
         Env env = Mockito.mock(Env.class);
@@ -95,6 +118,8 @@ public class RoutineLoadJobTest {
         tKafkaRLTaskProgress.partitionCmtOffset = Maps.newHashMap();
         KafkaProgress kafkaProgress = new KafkaProgress(tKafkaRLTaskProgress);
         Deencapsulation.setField(attachment, "progress", kafkaProgress);
+        Deencapsulation.setField(attachment, "errorLogUrl", "http://127.0.0.1/error_log");
+        Deencapsulation.setField(attachment, "firstErrorMsg", "invalid source row");
 
         KafkaProgress currentProgress = new KafkaProgress(tKafkaRLTaskProgress);
 
@@ -114,6 +139,8 @@ public class RoutineLoadJobTest {
 
         Assert.assertEquals(RoutineLoadJob.JobState.RUNNING, routineLoadJob.getState());
         Assert.assertEquals(new Long(1), Deencapsulation.getField(jobStatistic, "abortedTaskNum"));
+        Assert.assertEquals("http://127.0.0.1/error_log", routineLoadJob.getErrorLogUrls().peek());
+        Assert.assertEquals("invalid source row", routineLoadJob.getFirstErrorMsg());
     }
 
     @Test
@@ -153,10 +180,13 @@ public class RoutineLoadJobTest {
         Deencapsulation.setField(routineLoadJob, "pauseReason", errorReason);
         Deencapsulation.setField(routineLoadJob, "progress", kafkaProgress);
         Deencapsulation.setField(routineLoadJob, "userIdentity", userIdentity);
+        Deencapsulation.setField(routineLoadJob, "firstErrorMsg", "invalid source row");
 
         List<String> showInfo = routineLoadJob.getShowInfo();
         Assert.assertEquals(true, showInfo.stream().filter(entity -> !Strings.isNullOrEmpty(entity))
                 .anyMatch(entity -> entity.equals(errorReason.toString())));
+        Assert.assertEquals(24, showInfo.size());
+        Assert.assertEquals("invalid source row", showInfo.get(23));
     }
 
     @Test

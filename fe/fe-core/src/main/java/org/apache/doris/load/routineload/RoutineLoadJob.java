@@ -276,6 +276,8 @@ public abstract class RoutineLoadJob
 
     // save the latest 3 error log urls
     private Queue<String> errorLogUrls = EvictingQueue.create(3);
+    @SerializedName("fem")
+    private String firstErrorMsg = "";
 
     @SerializedName("ccid")
     private String cloudClusterId;
@@ -807,6 +809,10 @@ public abstract class RoutineLoadJob
 
     public Queue<String> getErrorLogUrls() {
         return errorLogUrls;
+    }
+
+    public String getFirstErrorMsg() {
+        return Strings.nullToEmpty(firstErrorMsg);
     }
 
     // RoutineLoadScheduler will run this method at fixed interval, and renew the timeout tasks
@@ -1408,6 +1414,12 @@ public abstract class RoutineLoadJob
             routineLoadTaskInfo.handleTaskByTxnCommitAttachment(rlTaskTxnCommitAttachment);
         }
 
+        if (rlTaskTxnCommitAttachment != null
+                && !Strings.isNullOrEmpty(rlTaskTxnCommitAttachment.getFirstErrorMsg())) {
+            firstErrorMsg = StringUtils.abbreviate(
+                    rlTaskTxnCommitAttachment.getFirstErrorMsg(), Config.first_error_msg_max_length);
+        }
+
         if (rlTaskTxnCommitAttachment != null && !Strings.isNullOrEmpty(rlTaskTxnCommitAttachment.getErrorLogUrl())) {
             errorLogUrls.add(rlTaskTxnCommitAttachment.getErrorLogUrl());
         }
@@ -1712,6 +1724,7 @@ public abstract class RoutineLoadJob
             row.add(userIdentity.getQualifiedUser());
             row.add(comment);
             row.add(getClusterInfo());
+            row.add(getFirstErrorMsg());
             return row;
         } finally {
             readUnlock();

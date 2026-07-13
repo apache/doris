@@ -99,6 +99,7 @@ Status StreamLoadExecutor::execute_plan_fragment(
         ctx->loaded_bytes = state->num_bytes_load_total();
         int64_t num_selected_rows = ctx->number_total_rows - ctx->number_unselected_rows;
         ctx->error_url = to_load_error_http_path(state->get_error_log_file_path());
+        ctx->first_error_msg = state->get_first_error_msg();
         if (status->ok() && !ctx->group_commit && num_selected_rows > 0 &&
             (double)ctx->number_filtered_rows / num_selected_rows > ctx->max_filter_ratio) {
             // NOTE: Do not modify the error message here, for historical reasons,
@@ -118,7 +119,6 @@ Status StreamLoadExecutor::execute_plan_fragment(
             LOG(WARNING) << "fragment execute failed"
                          << ", err_msg=" << status->to_string() << ", " << ctx->brief();
             ctx->number_loaded_rows = 0;
-            ctx->first_error_msg = state->get_first_error_msg();
             // cancel body_sink, make sender known it
             if (ctx->body_sink != nullptr) {
                 ctx->body_sink->cancel(status->to_string());
@@ -428,6 +428,9 @@ bool StreamLoadExecutor::collect_load_stat(StreamLoadContext* ctx, TTxnCommitAtt
         rl_attach.__set_receivedBytes(ctx->receive_bytes);
         rl_attach.__set_loadedBytes(ctx->loaded_bytes);
         rl_attach.__set_loadCostMs(ctx->load_cost_millis);
+        if (!ctx->first_error_msg.empty()) {
+            rl_attach.__set_firstErrorMsg(ctx->first_error_msg);
+        }
 
         attach->rlTaskTxnCommitAttachment = rl_attach;
         attach->__isset.rlTaskTxnCommitAttachment = true;

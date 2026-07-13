@@ -406,6 +406,7 @@ message RLTaskTxnCommitAttachmentPB {
     optional int64 task_execution_time_ms = 7;
     optional RoutineLoadProgressPB progress = 8;
     optional string error_log_url = 9;
+    optional string first_error_msg = 10;
 }
 
 message RoutineLoadJobStatisticPB {

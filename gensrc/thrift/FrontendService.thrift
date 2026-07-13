@@ -675,6 +675,7 @@ struct TRLTaskTxnCommitAttachment {
     10: optional TKafkaRLTaskProgress kafkaRLTaskProgress
     11: optional string errorLogUrl
     12: optional TKinesisRLTaskProgress kinesisRLTaskProgress
+    13: optional string firstErrorMsg
 }
 
 struct TTxnCommitAttachment {
@@ -1668,6 +1669,7 @@ struct TRoutineLoadJob {
     19: optional i32 current_abort_task_num
     20: optional bool is_abnormal_pause
     21: optional string compute_group
+    22: optional string first_error_msg
 }
 
 struct TFetchRoutineLoadJobResult {

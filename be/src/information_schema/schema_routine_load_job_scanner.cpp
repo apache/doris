@@ -51,6 +51,7 @@ std::vector<SchemaScanner::ColumnDesc> SchemaRoutineLoadJobScanner::_s_tbls_colu
         {"LAG", TYPE_STRING, sizeof(StringRef), true},
         {"REASON_OF_STATE_CHANGED", TYPE_STRING, sizeof(StringRef), true},
         {"ERROR_LOG_URLS", TYPE_STRING, sizeof(StringRef), true},
+        {"FIRST_ERROR_MSG", TYPE_STRING, sizeof(StringRef), true},
         {"USER_NAME", TYPE_STRING, sizeof(StringRef), true},
         {"CURRENT_ABORT_TASK_NUM", TYPE_INT, sizeof(int32_t), true},
         {"IS_ABNORMAL_PAUSE", TYPE_BOOLEAN, sizeof(int8_t), true},
@@ -169,10 +170,13 @@ Status SchemaRoutineLoadJobScanner::_fill_block_impl(Block* block) {
                 case 16: // ERROR_LOG_URLS
                     column_value = job_info.__isset.error_log_urls ? job_info.error_log_urls : "";
                     break;
-                case 17: // USER_NAME
+                case 17: // FIRST_ERROR_MSG
+                    column_value = job_info.__isset.first_error_msg ? job_info.first_error_msg : "";
+                    break;
+                case 18: // USER_NAME
                     column_value = job_info.__isset.user_name ? job_info.user_name : "";
                     break;
-                case 20: // COMPUTE_GROUP
+                case 21: // COMPUTE_GROUP
                     column_value = job_info.__isset.compute_group ? job_info.compute_group : "";
                     break;
                 }

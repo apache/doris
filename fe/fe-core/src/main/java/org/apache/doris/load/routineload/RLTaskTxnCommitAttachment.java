@@ -46,6 +46,7 @@ public class RLTaskTxnCommitAttachment extends TxnCommitAttachment {
     @SerializedName(value = "pro")
     private RoutineLoadProgress progress;
     private String errorLogUrl;
+    private String firstErrorMsg;
 
     public RLTaskTxnCommitAttachment() {
         super(TransactionState.LoadJobSourceType.ROUTINE_LOAD_TASK);
@@ -75,6 +76,9 @@ public class RLTaskTxnCommitAttachment extends TxnCommitAttachment {
         if (rlTaskTxnCommitAttachment.isSetErrorLogUrl()) {
             this.errorLogUrl = rlTaskTxnCommitAttachment.getErrorLogUrl();
         }
+        if (rlTaskTxnCommitAttachment.isSetFirstErrorMsg()) {
+            this.firstErrorMsg = rlTaskTxnCommitAttachment.getFirstErrorMsg();
+        }
     }
 
     public RLTaskTxnCommitAttachment(RLTaskTxnCommitAttachmentPB rlTaskTxnCommitAttachment) {
@@ -92,6 +96,7 @@ public class RLTaskTxnCommitAttachment extends TxnCommitAttachment {
 
         this.progress = progress;
         this.errorLogUrl = rlTaskTxnCommitAttachment.getErrorLogUrl();
+        this.firstErrorMsg = rlTaskTxnCommitAttachment.getFirstErrorMsg();
     }
 
     public long getJobId() {
@@ -132,6 +137,10 @@ public class RLTaskTxnCommitAttachment extends TxnCommitAttachment {
 
     public String getErrorLogUrl() {
         return errorLogUrl;
+    }
+
+    public String getFirstErrorMsg() {
+        return firstErrorMsg;
     }
 
     @Override
