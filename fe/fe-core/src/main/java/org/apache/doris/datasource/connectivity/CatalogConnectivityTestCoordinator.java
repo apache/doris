@@ -19,8 +19,6 @@ package org.apache.doris.datasource.connectivity;
 
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.datasource.property.metastore.HiveGlueMetaStoreProperties;
-import org.apache.doris.datasource.property.metastore.HiveHMSProperties;
 import org.apache.doris.datasource.property.metastore.MetastoreProperties;
 import org.apache.doris.datasource.property.storage.HdfsProperties;
 import org.apache.doris.datasource.property.storage.MinioProperties;
@@ -265,24 +263,11 @@ public class CatalogConnectivityTestCoordinator {
      * Create metadata connectivity tester based on properties type.
      */
     private MetaConnectivityTester createMetaTester(MetastoreProperties props) {
-        // Hive HMS
-        if (props instanceof HiveHMSProperties) {
-            HiveHMSProperties hiveProps = (HiveHMSProperties) props;
-            return new HiveHMSConnectivityTester(hiveProps, hiveProps.getHmsBaseProperties());
-        }
-
-        // Hive Glue
-        if (props instanceof HiveGlueMetaStoreProperties) {
-            HiveGlueMetaStoreProperties glueProps = (HiveGlueMetaStoreProperties) props;
-            return new HiveGlueMetaStoreConnectivityTester(glueProps, glueProps.getBaseProperties());
-        }
-
-        // Design S7: iceberg is a plugin (SPI) catalog; its FE->external connectivity test runs connector-side
-        // (PluginDrivenExternalCatalog.checkWhenCreating delegates to connector.testConnection), never through
-        // this coordinator (only legacy Hive/Type.HMS reaches it), so the former iceberg branches were dead
-        // and were removed with the fe-core iceberg metastore cluster.
-
-        // Default: no-op tester
+        // Hive/Glue/iceberg are plugin (SPI) catalogs; their FE->external connectivity test runs
+        // connector-side (PluginDrivenExternalCatalog.checkWhenCreating delegates to
+        // connector.testConnection), never through this coordinator, so the former Hive/Glue/iceberg
+        // branches were dead and were removed with the fe-core hive/iceberg metastore cluster. Only
+        // non-plugin catalogs (lakesoul/doris/test), which never carry Hive metastore props, reach here.
         return new MetaConnectivityTester() {
         };
     }

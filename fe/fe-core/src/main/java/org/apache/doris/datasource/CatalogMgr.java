@@ -22,7 +22,6 @@ import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.DdlException;
@@ -38,11 +37,7 @@ import org.apache.doris.common.lock.MonitoredReentrantReadWriteLock;
 import org.apache.doris.common.util.DatasourcePrintableMap;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.datasource.hive.HMSExternalTable;
-import org.apache.doris.datasource.hive.HiveExternalMetaCache;
-import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.nereids.trees.plans.commands.CreateCatalogCommand;
 import org.apache.doris.persist.OperationType;
 import org.apache.doris.persist.gson.GsonPostProcessable;
@@ -815,22 +810,9 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             }
             return;
         }
-        if (table instanceof HMSExternalTable) {
-            HMSExternalTable hmsTable = (HMSExternalTable) table;
-            List<Type> partitionColumnTypes;
-            try {
-                partitionColumnTypes = hmsTable.getPartitionColumnTypes(MvccUtil.getSnapshotFromContext(hmsTable));
-            } catch (NotSupportedException e) {
-                LOG.warn("Ignore not supported hms table, message: {} ", e.getMessage());
-                return;
-            }
-            HiveExternalMetaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr().hive(catalog.getId());
-            cache.addPartitionsCache(hmsTable.getOrBuildNameMapping(), partitionNames, partitionColumnTypes);
-            hmsTable.setUpdateTime(updateTime);
-        } else if (catalog instanceof PluginDrivenExternalCatalog) {
-            // Flipped: the connector owns the partition cache (pull-through), so invalidating by name is
-            // enough for the added partitions to show up on the next listing. Mirrors refreshTableInternal's
-            // connector hook; the fe-core hive cache above is retired for a flipped catalog.
+        if (catalog instanceof PluginDrivenExternalCatalog) {
+            // The connector owns the partition cache (pull-through), so invalidating by name is enough for
+            // the added partitions to show up on the next listing. Mirrors refreshTableInternal's connector hook.
             ((PluginDrivenExternalCatalog) catalog).getConnector().invalidatePartition(
                     ((ExternalDatabase<?>) db).getRemoteName(), ((ExternalTable) table).getRemoteName(),
                     partitionNames);
@@ -864,13 +846,8 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             return;
         }
 
-        if (table instanceof HMSExternalTable) {
-            HMSExternalTable hmsTable = (HMSExternalTable) table;
-            Env.getCurrentEnv().getExtMetaCacheMgr().hive(catalog.getId())
-                    .dropPartitionsCache(hmsTable, partitionNames, true);
-            hmsTable.setUpdateTime(updateTime);
-        } else if (catalog instanceof PluginDrivenExternalCatalog) {
-            // Flipped: the connector owns the partition cache (pull-through); invalidate by name.
+        if (catalog instanceof PluginDrivenExternalCatalog) {
+            // The connector owns the partition cache (pull-through); invalidate by name.
             ((PluginDrivenExternalCatalog) catalog).getConnector().invalidatePartition(
                     ((ExternalDatabase<?>) db).getRemoteName(), ((ExternalTable) table).getRemoteName(),
                     partitionNames);

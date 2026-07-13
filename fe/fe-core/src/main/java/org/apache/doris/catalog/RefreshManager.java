@@ -29,9 +29,6 @@ import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalObjectLog;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.PluginDrivenExternalCatalog;
-import org.apache.doris.datasource.hive.HMSExternalCatalog;
-import org.apache.doris.datasource.hive.HMSExternalTable;
-import org.apache.doris.datasource.hive.HiveExternalMetaCache;
 import org.apache.doris.persist.OperationType;
 
 import com.google.common.base.Strings;
@@ -211,27 +208,8 @@ public class RefreshManager {
                     new TableNameInfo(catalog.getName(), log.getDbName(), log.getTableName()),
                     new TableNameInfo(catalog.getName(), log.getDbName(), log.getNewTableName()));
         } else {
-            List<String> modifiedPartNames = log.getPartitionNames();
-            List<String> newPartNames = log.getNewPartitionNames();
-            if (catalog instanceof HMSExternalCatalog
-                    && ((modifiedPartNames != null && !modifiedPartNames.isEmpty())
-                    || (newPartNames != null && !newPartNames.isEmpty()))) {
-                // Partition-level cache invalidation, only for hive catalog
-                HiveExternalMetaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
-                        .hive(catalog.getId());
-                cache.refreshAffectedPartitionsCache((HMSExternalTable) table.get(), modifiedPartNames, newPartNames);
-                if (table.get() instanceof HMSExternalTable && log.getLastUpdateTime() > 0) {
-                    ((HMSExternalTable) table.get()).setUpdateTime(log.getLastUpdateTime());
-                }
-                LOG.info("replay refresh partitions for table {}, "
-                                + "modified partitions count: {}, "
-                                + "new partitions count: {}",
-                        table.get().getName(), modifiedPartNames == null ? 0 : modifiedPartNames.size(),
-                        newPartNames == null ? 0 : newPartNames.size());
-            } else {
-                // Full table cache invalidation
-                refreshTableInternal(db.get(), table.get(), log.getLastUpdateTime());
-            }
+            // Full table cache invalidation
+            refreshTableInternal(db.get(), table.get(), log.getLastUpdateTime());
         }
     }
 
@@ -305,16 +283,10 @@ public class RefreshManager {
 
         ExternalTable externalTable = (ExternalTable) table;
         if (externalTable.getCatalog() instanceof PluginDrivenExternalCatalog) {
-            // Flipped: the connector owns the partition cache (pull-through); invalidate by name. The fe-core
-            // hive cache below is retired for a flipped catalog. Mirrors refreshTableInternal's connector hook.
+            // The connector owns the partition cache (pull-through); invalidate by name. Mirrors
+            // refreshTableInternal's connector hook.
             ((PluginDrivenExternalCatalog) externalTable.getCatalog()).getConnector().invalidatePartition(
                     ((ExternalDatabase<?>) db).getRemoteName(), externalTable.getRemoteName(), partitionNames);
-        } else {
-            HiveExternalMetaCache cache =
-                    Env.getCurrentEnv().getExtMetaCacheMgr().hive(externalTable.getCatalog().getId());
-            for (String partitionName : partitionNames) {
-                cache.invalidatePartitionCache(externalTable, partitionName);
-            }
         }
         externalTable.setUpdateTime(updateTime);
     }
