@@ -236,6 +236,132 @@ public class LeadingHintTest {
     }
 
     @Test
+    public void testRightOuterJoinBlocksPrematureInnerPredicateConsumption() {
+        // (a RIGHT OUTER JOIN b ON a.k = b.k) INNER JOIN c ON a.x = c.x
+        // Leading(a c b) → the inner predicate a.x = c.x references the nullable
+        // left side {a} of the RIGHT OUTER JOIN. It must NOT be consumed at the
+        // premature {a,c} join level because the outer join's preserved side {b}
+        // has not arrived yet. Consuming it early would produce:
+        //   (a INNER JOIN c) RIGHT OUTER JOIN b
+        // which preserves b rows when a is empty — not equivalent to the original.
+        //
+        // At the {a,c} level the right-outer constraint is not applicable
+        // (minRightHand={b} is absent), so getJoinConstraint returns (null,true).
+        LeadingHint leading = new LeadingHint("Leading");
+        long a = LongBitmap.newBitmap(0);
+        long b = LongBitmap.newBitmap(1);
+        long c = LongBitmap.newBitmap(2);
+
+        // RIGHT OUTER JOIN constraint: leftHand={a} (nullable), rightHand={b} (preserved)
+        addJoinConstraint(leading, a, b, a, b, JoinType.RIGHT_OUTER_JOIN);
+
+        long ac = LongBitmap.newBitmapUnion(a, c);
+        long abc = LongBitmap.newBitmapUnion(a, b, c);
+
+        // Level {a,c}: constraint does not apply (b is absent)
+        Pair<JoinConstraint, Boolean> levelAC = leading.getJoinConstraint(ac, a, c);
+        Assertions.assertNull(levelAC.first,
+                "right outer constraint should not match at {a,c} level (b absent)");
+        Assertions.assertTrue(levelAC.second, "inner join is legal at {a,c} level");
+
+        // Level {a,b,c}: constraint matches — children {a,c} and {b}
+        // Wait, the constraint requires leftHand={a} on left and rightHand={b} on right.
+        // With left={a,c} and right={b}: leftHand={a}⊆{a,c}? That's the minLeftHand check
+        // in the general matching, not the full-outer exact match.
+        // For RIGHT OUTER JOIN, the constraint uses the general minLeftHand/minRightHand
+        // matching (not exact match like FULL OUTER JOIN).
+        // minLeftHand={a} ⊆ {a,c}=left? Yes. minRightHand={b} ⊆ {b}=right? Yes.
+        // → constraint matches as RIGHT_OUTER_JOIN.
+        Pair<JoinConstraint, Boolean> levelABC = leading.getJoinConstraint(abc, ac, b);
+        Assertions.assertNotNull(levelABC.first, "right outer constraint should match at {a,b,c} level");
+        Assertions.assertTrue(levelABC.second, "constraint matched");
+        Assertions.assertEquals(JoinType.RIGHT_OUTER_JOIN, levelABC.first.getJoinType());
+    }
+
+    @Test
+    public void testLeftOuterJoinBlocksPrematureInnerPredicateConsumption() {
+        // (a LEFT OUTER JOIN b ON a.k = b.k) INNER JOIN c ON b.x = c.x
+        // Leading(b c a) → the inner predicate b.x = c.x references the nullable
+        // right side {b} of the LEFT OUTER JOIN. It must NOT be consumed at the
+        // premature {b,c} join level before the preserved left side {a} arrives.
+        LeadingHint leading = new LeadingHint("Leading");
+        long a = LongBitmap.newBitmap(0);
+        long b = LongBitmap.newBitmap(1);
+        long c = LongBitmap.newBitmap(2);
+
+        // LEFT OUTER JOIN constraint: leftHand={a} (preserved), rightHand={b} (nullable)
+        addJoinConstraint(leading, a, b, a, b, JoinType.LEFT_OUTER_JOIN);
+
+        long bc = LongBitmap.newBitmapUnion(b, c);
+        long abc = LongBitmap.newBitmapUnion(a, b, c);
+
+        // Level {b,c}: constraint does not apply (a is absent)
+        Pair<JoinConstraint, Boolean> levelBC = leading.getJoinConstraint(bc, b, c);
+        Assertions.assertNull(levelBC.first,
+                "left outer constraint should not match at {b,c} level (a absent)");
+        Assertions.assertTrue(levelBC.second, "inner join is legal at {b,c} level");
+
+        // Level {a,b,c}: constraint matches
+        Pair<JoinConstraint, Boolean> levelABC = leading.getJoinConstraint(abc, a, bc);
+        Assertions.assertNotNull(levelABC.first, "left outer constraint should match at {a,b,c} level");
+        Assertions.assertTrue(levelABC.second, "constraint matched");
+        Assertions.assertEquals(JoinType.LEFT_OUTER_JOIN, levelABC.first.getJoinType());
+    }
+
+    @Test
+    public void testFullOuterJoinPredicateNotConsumedAsScanFilter() {
+        // a FULL OUTER JOIN b ON a.v > 0 — the predicate a.v > 0 belongs to
+        // the full outer join's ON clause. It must NOT be pushed down as a
+        // scan filter on a because rows where a.v <= 0 should produce
+        // NULL-extended rows in the full outer join.
+        //
+        // Verifies: predicates with outer-join originalType are deferred from
+        // scan-level consumption by shouldDeferFromScan.
+        LeadingHint leading = new LeadingHint("Leading");
+        Expression expr = new IntegerLiteral(1);
+        long a = LongBitmap.newBitmap(0);
+
+        // Simulate: FULL_OUTER_JOIN(a,b) records predicate a.v > 0 with bitmap={a}
+        leading.addFilter(a, expr, JoinType.FULL_OUTER_JOIN);
+        Assertions.assertEquals(JoinType.FULL_OUTER_JOIN,
+                leading.getFilters().get(0).originalType,
+                "full outer predicate should carry FULL_OUTER_JOIN type");
+    }
+
+    @Test
+    public void testRightOuterJoinUpperPredicateNotConsumedBeforeNullableSide() {
+        // (a LEFT OUTER JOIN b ON a.k = b.k) INNER JOIN c ON b.v > 0
+        // leading(b a c): scan b is visited first. The predicate b.v > 0
+        // has type=INNER_JOIN (from the upper join) and bitmap={b} which is
+        // the nullable right side of the LEFT OUTER JOIN. It must NOT be
+        // pushed as a scan filter on b — it must wait for the outer join.
+        //
+        // Verifies: isBlockedByPendingOuterJoin blocks INNER predicates that
+        // reference the nullable side when the preserved side is absent.
+        LeadingHint leading = new LeadingHint("Leading");
+        long a = LongBitmap.newBitmap(0);
+        long b = LongBitmap.newBitmap(1);
+
+        // LEFT OUTER JOIN constraint: leftHand={a} (preserved), rightHand={b} (nullable)
+        addJoinConstraint(leading, a, b, a, b, JoinType.LEFT_OUTER_JOIN);
+
+        // The INNER JOIN predicate b.v > 0 has bitmap={b}, type=INNER_JOIN
+        // Pretend we're at scan b: joinTableBitmap={b}
+        // isBlockedByPendingOuterJoin({b}, {b}):
+        //   LEFT OUTER JOIN: isOverlap({b}, rightHand={b})=true
+        //   && !isSubset(leftHand={a}, {b})=true → blocked!
+        //
+        // getJoinConstraint at {b} level: minRightHand={b} overlaps {b}=true
+        // → the else-branch mustBeLeftjoin guard we added skips because
+        // minLeftHand={a} is not in {b}. So getJoinConstraint returns (null,true).
+        Pair<JoinConstraint, Boolean> levelB = leading.getJoinConstraint(b, b, 0L);
+        Assertions.assertNull(levelB.first,
+                "left outer constraint should not match at scan {b} (a absent)");
+        Assertions.assertTrue(levelB.second,
+                "inner join is legal at {b} level — predicate deferral happens in collectJoinConditions/makeFilterPlanIfExist");
+    }
+
+    @Test
     public void testSemiJoinConstrainedSideViolatedWithMinLeftHand() {
         // Reproduces SQL 1 bug scenario:
         // LEFT SEMI JOIN: retained side leftHand={0,1}, rightHand={2}

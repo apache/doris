@@ -509,6 +509,12 @@ public class LeadingHint extends Hint {
                     return Pair.of(null, false);
                 }
 
+                // The preserved side (minLeftHand) is not yet in the join —
+                // this constraint is not applicable, skip it.
+                if (!LongBitmap.isSubset(joinConstraint.getMinLeftHand(), joinTableBitmap)) {
+                    continue;
+                }
+
                 mustBeLeftjoin = true;
             }
         }
@@ -650,7 +656,14 @@ public class LeadingHint extends Hint {
 
     /** Collect filter entries whose bitmap is a subset of the given join's tables.
      *  Removes them from the global filter list; the caller must put back any entry
-     *  whose original type is incompatible with the final join type. */
+     *  whose original type is incompatible with the final join type.
+     *
+     *  Filters from an INNER/CROSS join that reference the nullable side of a
+     *  pending outer join (RIGHT or LEFT) are deferred — consuming them before
+     *  the outer join is built would change NULL semantics. For example, with
+     *  (a RIGHT JOIN b) INNER JOIN c AND leading(a c b), the {a,c} inner predicate
+     *  must not be consumed at the {a,c} level because a is the nullable side of
+     *  the pending RIGHT JOIN. */
     private List<FilterEntry> collectJoinConditions(List<FilterEntry> filters,
                                                      LogicalPlan left, LogicalPlan right) {
         List<FilterEntry> collected = new ArrayList<>();
@@ -658,11 +671,43 @@ public class LeadingHint extends Hint {
         for (int i = filters.size() - 1; i >= 0; i--) {
             FilterEntry entry = filters.get(i);
             if (LongBitmap.isSubset(entry.bitmap, tablesBitMap)) {
+                // Defer inner/cross predicates that reference the nullable side
+                // of a pending outer join whose counterpart is not yet present.
+                if (entry.originalType.isInnerOrCrossJoin()
+                        && isBlockedByPendingOuterJoin(entry.bitmap, tablesBitMap)) {
+                    continue;
+                }
                 collected.add(entry);
                 filters.remove(i);
             }
         }
         return collected;
+    }
+
+    /** Check whether an inner/cross predicate whose column bitmap is
+     *  {@code filterBitmap} should be deferred because it references the
+     *  nullable side of a pending outer join whose other side is not yet
+     *  in the current join ({@code joinTableBitmap}). */
+    private boolean isBlockedByPendingOuterJoin(long filterBitmap, long joinTableBitmap) {
+        for (JoinConstraint constraint : joinConstraintList) {
+            // RIGHT OUTER JOIN: leftHand is the nullable side.
+            // The predicate must wait until the preserved rightHand arrives.
+            if (constraint.getJoinType().isRightOuterJoin()) {
+                if (LongBitmap.isOverlap(filterBitmap, constraint.getLeftHand())
+                        && !LongBitmap.isSubset(constraint.getRightHand(), joinTableBitmap)) {
+                    return true;
+                }
+            }
+            // LEFT OUTER JOIN: rightHand is the nullable side.
+            // The predicate must wait until the preserved leftHand arrives.
+            if (constraint.getJoinType().isLeftOuterJoin()) {
+                if (LongBitmap.isOverlap(filterBitmap, constraint.getRightHand())
+                        && !LongBitmap.isSubset(constraint.getLeftHand(), joinTableBitmap)) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     private LogicalPlan makeFilterPlanIfExist(List<FilterEntry> filters, LogicalPlan scan) {
@@ -671,6 +716,13 @@ public class LeadingHint extends Hint {
         for (int i = filters.size() - 1; i >= 0; i--) {
             FilterEntry entry = filters.get(i);
             if (LongBitmap.isSubset(entry.bitmap, scanBitmap)) {
+                // Outer-join and semi/anti predicates carry NULL-preservation
+                // semantics and must not be pushed down as scan filters.
+                // Inner predicates that reference the nullable side of a
+                // pending outer join must also wait for the join level.
+                if (shouldDeferFromScan(entry, scanBitmap)) {
+                    continue;
+                }
                 newConjuncts.add(entry.expr);
                 filters.remove(i);
             }
@@ -680,6 +732,28 @@ public class LeadingHint extends Hint {
         } else {
             return new LogicalFilter<>(newConjuncts, scan);
         }
+    }
+
+    /** Whether a filter entry should not be consumed as a scan-level filter.
+     *  Outer-join and semi/anti predicates must stay at the join level;
+     *  inner predicates referencing the nullable side of a pending outer
+     *  join must wait for that outer join to be built. */
+    private boolean shouldDeferFromScan(FilterEntry entry, long scanBitmap) {
+        // Outer join predicates belong to the join ON clause — pushing them
+        // down as scan filters would eliminate rows that the outer join
+        // should preserve as NULL-extended matches.
+        if (entry.originalType.isOuterJoin()
+                || entry.originalType.isSemiOrAntiJoin()) {
+            return true;
+        }
+        // Inner predicates that reference the nullable side of a pending
+        // outer join must wait; otherwise they filter before the outer
+        // join can introduce NULLs.
+        if (entry.originalType.isInnerOrCrossJoin()
+                && isBlockedByPendingOuterJoin(entry.bitmap, scanBitmap)) {
+            return true;
+        }
+        return false;
     }
 
     private Long getBitmap(LogicalPlan root) {
