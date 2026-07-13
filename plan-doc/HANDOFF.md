@@ -23,7 +23,9 @@
 >
 > **e2e 全 live-gated**(真集群):L19 非分区表 `SET TBLPROPERTIES('partition_columns'=真列名)` 不再误判为分区;L18 v3 `GEOMETRY` 列建表可加载、`SELECT geom` 报错、`SELECT 其它列` 可用;L16 无(纯注释);**L17** iceberg `t FOR VERSION AS OF v1 a JOIN t FOR VERSION AS OF v2 b` 跨 ALTER schema 演进 → 抛「same table at multiple versions with different schemas not supported yet」清晰错(非 BE 崩)。
 >
-> **下一步**:#65185 复核系列 H/M/L 主体**已全部收口**;⏸ 决策类**仅余 `L20`**(MC EQ `==` vs `=`，须先中文讲清背景问用户,可顺带补 P4-3-IN 方向回归测试)。⏸ `M8`(升级文档)用户 07-12 跳过;`D-系列`设计债(新增 `D-MVCC-VERSION-SCHEMA`)随 P8/择机。**所有本系列 e2e 均 live-gated 待用户真集群自跑**(memory `hms-iceberg-delegation-needs-e2e`)。
+> **L20 DONE `b2786fa1200`(2026-07-13,最后一条决策类)** — maxcompute EQ 谓词下推发 Java 式 `==`(MaxCompute 无此算子→ODPS 拒解析→等值谓词静默不下推=全表扫)。**用户追问「为啥不像老代码」点中根因**:迁移前 `MaxComputeScanNode` 从不手写符号——映射到 ODPS SDK `BinaryPredicate.Operator` 枚举、符号取 `getDescription()`(EQUALS→`=`);迁移时改手写符号表,EQ 抄成 Java `==`(余五个碰巧对)。→ **恢复老代码做法**(映射 SDK 枚举 + `getDescription()`,非仅 `"=="`→`"="`),根除整类手抄漂移。**决定性静态证据**(SDK 字节码 EQUALS 描述=`=` + connector-api `ConnectorComparison.Operator.EQ` 符号=`=`)→**无需 live A/B**。`EQ_FOR_NULL`(`<=>`)无 ODPS 等价→default throw→NO_PREDICATE(同 legacy skip);NE/LT/LE/GT/GE 逐字节不变。**顺补 P4-3-IN 方向回归测试**。`MaxComputePredicateConverterTest` 26/26(21 旧+5 新:EQ 单等号 RED-able/全算子集/`EQ_FOR_NULL` 不下推/IN·NOT IN 方向)、0 checkstyle、import 门净。设计 `designs/FIX-L20-design.md`。e2e live-gated(真 ODPS `WHERE k=v`/`IN` 不退全表)。
+>
+> **下一步**:**#65185 复核系列全部收口**——H1–H4、M1–M8(M8 用户 07-12 跳过·文档欠账,非代码)、L1–L20 全部 DONE 或用户签字 accept/skip;决策类(L2/L10/L12/L17/L18/L19/L20)均已中文讲清+用户签字。**余** ⚪ `D-系列`设计债(新增 `D-MVCC-VERSION-SCHEMA`)随 P8/择机。**所有本系列 e2e 均 live-gated 待用户真集群自跑**(memory `hms-iceberg-delegation-needs-e2e`)。
 
 ---
 

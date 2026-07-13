@@ -56,7 +56,7 @@ Legend：⬜ todo / 🔄 in progress / ✅ done / ⏸ 挂起(需决策/live)
 | 29 | **L17** | 🟡低 | fe-core/iceberg | 同表多版本 version-blind schema 绑定 | ✅ | ✅ | ✅ | ✅ 用户签字 fail-loud+TODO |
 | 30 | **L18** | 🟡低 | iceberg | 未知/v3 类型静默 UNSUPPORTED | ✅ | ✅ | ✅ | ✅ 用户签字 accept(DV-051) |
 | 31 | **L19** | 🟡低 | fe-core/iceberg | partition_columns 魔法键撞名→误判分区 | ✅ | ✅ | ✅ | ✅ |
-| 32 | **L20** | 🟡低 | maxcompute | EQ 发 `==`(对齐 `=` 或 live A/B) | ⬜ | ⬜ | ⬜ | ⏸ 或 live |
+| 32 | **L20** | 🟡低 | maxcompute | EQ 发 `==`→改用 SDK 算子描述发 `=` | ✅ | ✅ | ✅ | ✅ |
 | — | **D-系列** | ⚪设计债 | — | 见文末「设计债跟踪」(多为 P8 前置/需一次性重构) | — | — | — | ⏸ |
 
 ---
@@ -68,7 +68,7 @@ Legend：⬜ todo / 🔄 in progress / ✅ done / ⏸ 挂起(需决策/live)
 - **批次 2(中危·fe-core 通用节点,blast radius 较大,单测充分后再动)**：`M3`、`M1`。
 - **批次 3(运营/门禁)**：`M8`(发布工具+文档,无 fe 编译)、`L1`(gate)。
 - **批次 4(低危·连接器)**：`L3–L6`(trino)、`L7/L8`(kerberos)、`L9/L20`(mc)、`L11/L13/L14`(paimon)、`L18`(iceberg)。
-- **批次 5(需决策,先问用户再动)**：~~`L2`(SQL 缓存)~~ **DONE `c9a86337906` 恢复缓存**、~~`L10`(EXPLAIN 名)~~ **DONE 用户签字 accept [DV-050]**、~~`L12`(selectedPartitionNum)~~ **DONE `e5de7aedcd5` 用户签字选项 B=能力 SPI 回报真实数**;**余** `L20`(MC EQ 写法)。
+- **批次 5(需决策,先问用户再动)**：~~`L2`(SQL 缓存)~~ **DONE `c9a86337906` 恢复缓存**、~~`L10`(EXPLAIN 名)~~ **DONE 用户签字 accept [DV-050]**、~~`L12`(selectedPartitionNum)~~ **DONE `e5de7aedcd5` 用户签字选项 B=能力 SPI 回报真实数**、~~`L20`(MC EQ 写法)~~ **DONE `b2786fa1200` 恢复 SDK 算子描述发 `=`**。**批次 5 全部收口。**
 - **批次 6(设计债/P8)**：`D-系列`,择机或随 P8。`D-PRUNE` 因承载 H1/H3,提前到批次 0。
 
 > 决策类(⏸)条目**先在 session 里用中文讲清背景+选项问用户**(memory `ask-user-explain-in-chinese-first`),别擅自选一路实现。
@@ -197,7 +197,7 @@ Legend：⬜ todo / 🔄 in progress / ✅ done / ⏸ 挂起(需决策/live)
 - [x] **L17** DONE `3627556db34`(设计 `designs/FIX-L17-design.md`;3-lens 红队 `wf_f7b69cf7-ec8` 推翻 analysis-time 方案→改 scan-node)· **用户 2026-07-13 签字:先 fail-loud + 记 TODO 重构**。红队证 analysis-time `getSchemaCacheValue` 守卫**顺序依赖+被 plain-ref/MTMV default pin 遮蔽+@incr 漏**(同一 query 抛或静默 skew 视绑定序)→改**逐引用 scan-node 守卫**:`PluginDrivenScanNode.pinMvccSnapshot` 解析版本感知 pin 后,校验每个 bound tuple 列在**本引用 pinned schema** 可解析(有 field-id 按 id、否则按 name),否则抛。确定性+完整(catch 自连接/latest-遮蔽/@incr/MTMV)+无误报(`t@old JOIN t@latest` 各 tuple 匹配自身版本→不抛)。静态可测 helper,7 RED-able UT。TODO=`D-MVCC-VERSION-SCHEMA`(逐引用版本感知 schema 绑定,仿 Trino 版本作用域 handle)。残余:嵌套 field-id-only 重编号看不见(iceberg id 稳定不触发)。
 - [x] **L18** DONE `1c9c99c7767`(设计 `designs/FIX-L18-design.md`;登记 **DV-051**)· **用户 2026-07-13 签字 accept「统一映射 UNSUPPORTED」**(非抛):`IcebergTypeMapping.fromIcebergType/fromPrimitive` 两 `default` 臂保持把 Doris 无法表示的 iceberg 类型(v3 primitives TIMESTAMP_NANO/GEOMETRY/GEOGRAPHY/UNKNOWN + non-primitive VARIANT)映射 UNSUPPORTED→表能加载、该列 present-but-unqueryable、其它列可用。**背离** legacy(抛 `IllegalArgumentException`)与 Trino(抛 NOT_SUPPORTED),但用户选 graceful degradation。**无功能改动**;加澄清注释+守护测试 `unknownAndV3TypesDegradeToUnsupportedByDesign`(未来改抛→red);写方向 `toIcebergPrimitive` 仍抛(CREATE 不静默接受不可 round-trip 类型)。
 - [x] **L19** DONE(初版 `01668779fd9` **已被 `2c58d8342c1` 取代**;设计 `designs/FIX-L19-design.md`〔SUPERSEDED〕+ `designs/DESIGN-reserved-connector-keys-framework.md`)· **用户否决静默 `remove`**(丢用户数据无信号、后来者加保留键无提示)→改**给所有保留控制键统一加 `__internal.` 前缀**(与既有 `show.*`/`connector.*` 同机制,集中为 `ConnectorTableSchema` 常量:`__internal.partition_columns`/`__internal.primary_keys`/`__internal.show.*`/`__internal.connector.*` + `RESERVED_CONTROL_KEYS` 集)。撞名**由构造消除**——用户裸 `partition_columns` 作普通用户属性正常透传(不删、SHOW CREATE 正常显示),永不被当控制键。**用户裁决只重命名、不加校验**(前缀够独特)。保留键全 **FE-only**(不发 BE,BE 走 `path_partition_keys`)、非持久化、SHOW CREATE 剥离→重命名零 BE/序列化/golden 影响。删三连接器 L19 `remove`;fe-core `getTableProperties` 改 `RESERVED_CONTROL_KEYS.contains`(未来加键自动剥离)。iceberg 50+hive 23+paimon 12/19/43+fe-core 8/36 全绿,0 checkstyle,import 门净。**新增 UT 证撞名消除**(裸用户键与保留键共存/透传)。e2e live-gated(非分区表设 `partition_columns` 用户属性不误判 + SHOW CREATE 显示该属性)。
-- [ ] **L20** ⏸ MC EQ `==` · `MaxComputePredicateConverter.java:145-146`:直接 `case EQ: opDesc = "=";` 对齐 SDK/legacy 消除不确定性(推荐);或 live ODPS A/B 确认容忍。顺带补 IN 方向回归测试(P4-3-IN 已修但缺测)。
+- [x] **L20** DONE `b2786fa1200`(设计 `designs/FIX-L20-design.md`)· MC EQ 发 `==`→**恢复老代码做法**:算子符号取自 ODPS SDK `BinaryPredicate.Operator.getDescription()`(EQUALS→`=`)而非手写符号表,根除手抄漂移。SDK 字节码 + connector-api `ConnectorComparison.Operator.EQ` 双证符号即 `=`,消除「ODPS 是否容忍 `==`」不确定性(无需 live A/B)。`EQ_FOR_NULL`(`<=>`)无 ODPS 等价→default throw→NO_PREDICATE(BE 重滤,同 legacy skip);NE/LT/LE/GT/GE 逐字节不变。**顺带补 P4-3-IN 方向回归测试**(`col IN (values)`)+ EQ 单等号(RED-able)/全算子集/`EQ_FOR_NULL` 守护测。26/26 绿、0 checkstyle、import 门净。e2e live-gated(真 ODPS `WHERE k=v`/`IN` 下推不退全表)。
 
 ---
 
@@ -331,3 +331,8 @@ Legend：⬜ todo / 🔄 in progress / ✅ done / ⏸ 挂起(需决策/live)
 - **L17** — 同表多版本 version-blind:**用户签字 fail-loud + TODO 重构**(`D-MVCC-VERSION-SCHEMA`)。红队证 analysis-time 守卫顺序依赖+default-pin/MTMV/@incr 遮蔽→改**逐引用 scan-node 守卫**(tuple 列须在本引用 pinned schema 可解析,有 id 按 id 否则 name)。确定性+完整+无误报。SchemaGuardTest 7/7 + MvccPin 3/3 + MvccExternalTable 59/59。
 - **e2e 全 live-gated**(真集群):L19 非分区表 SET TBLPROPERTIES('partition_columns'=真列)不误判分区;L18 v3 GEOMETRY 列表可加载、该列查报错、其它列可用;L16 无(纯注释);L17 iceberg `t FOR VERSION AS OF v1 a JOIN t FOR VERSION AS OF v2 b` 跨 ALTER →抛清晰错(非 BE 崩)。
 - **决策类仅余 L20**(MC EQ `==`)。设计文档 `designs/FIX-L16/L17/L18/L19-design.md`。
+
+---
+
+**⭐ L20 DONE `b2786fa1200`(2026-07-13,最后一条决策类收口)** — maxcompute EQ 谓词下推发 Java 式 `==`(MaxCompute 无此算子→ODPS 拒解析→等值谓词静默不下推=全表扫)。**用户追问「为啥不像老代码」点中根因**:迁移前 `MaxComputeScanNode` 从不手写符号——它映射到 ODPS SDK `BinaryPredicate.Operator` 枚举、符号取 `getDescription()`(EQUALS→`=`);迁移时改成手写符号表,EQ 顺手抄成 Java 的 `==`(其余五个碰巧对)。→ **恢复老代码做法**(映射 SDK 枚举 + `getDescription()`,非仅把 `"=="` 改 `"="`),根除整类手抄漂移;单一权威=SDK。**决定性静态证据**(SDK 字节码 EQUALS 描述=`=` + connector-api `ConnectorComparison.Operator.EQ` 符号=`=`)消除「ODPS 是否容忍 `==`」不确定性→**无需 live A/B**。`EQ_FOR_NULL`(`<=>`)无 ODPS 等价→default throw→NO_PREDICATE(BE 重滤,同 legacy skip);NE/LT/LE/GT/GE 逐字节不变。**顺补 P4-3-IN 方向回归测试**(此前修过 IN 极性但无测)。`MaxComputePredicateConverterTest` 26/26 绿(21 旧 + 5 新:EQ 单等号 RED-able、全算子集、`EQ_FOR_NULL` 不下推、IN/NOT IN 方向)、0 checkstyle、import 门净。设计 `designs/FIX-L20-design.md`。e2e live-gated(真 ODPS `WHERE k=v`/`IN` 下推不退全表)。
+- **⭐ #65185 复核修复系列全部收口**:H1–H4、M1–M8(M8 用户跳过·文档欠账)、L1–L20 全部 DONE 或用户签字 accept/skip。决策类(L2/L10/L12/L17/L18/L19/L20)均已中文讲清 + 用户签字。**余** ⚪ D-系列设计债(随 P8/择机)。**所有本系列 e2e 均 live-gated,待用户真集群回归**(memory `hms-iceberg-delegation-needs-e2e`)。
