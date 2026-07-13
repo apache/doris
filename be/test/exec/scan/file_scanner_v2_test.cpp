@@ -59,6 +59,35 @@ TFileRangeDesc hudi_range_with_delta_logs() {
     return range;
 }
 
+TFileRangeDesc paimon_cpp_jni_range() {
+    auto range = range_with_format("paimon", TFileFormatType::FORMAT_JNI);
+    TPaimonFileDesc paimon_params;
+    paimon_params.__set_reader_type(TPaimonReaderType::PAIMON_CPP);
+    range.table_format_params.__set_paimon_params(std::move(paimon_params));
+    return range;
+}
+
+struct RetryableCloseState {
+    int close_calls = 0;
+};
+
+class RetryableCloseTableReader final : public format::TableReader {
+public:
+    explicit RetryableCloseTableReader(std::shared_ptr<RetryableCloseState> state)
+            : _state(std::move(state)) {}
+
+    Status close() override {
+        ++_state->close_calls;
+        if (_state->close_calls == 1) {
+            return Status::InternalError("injected table reader close failure");
+        }
+        return Status::OK();
+    }
+
+private:
+    std::shared_ptr<RetryableCloseState> _state;
+};
+
 VExprSPtr slot_ref(int slot_id, int column_id, DataTypePtr type, const std::string& name) {
     return VSlotRef::create_shared(slot_id, column_id, -1, std::move(type), name);
 }
@@ -192,18 +221,30 @@ TEST(FileScannerV2Test, PaimonCppReaderForcesLegacyScanner) {
 
     TFileScanRangeParams params;
     params.__set_format_type(TFileFormatType::FORMAT_JNI);
-    // Match FE-generated Paimon params: the table-format descriptor is stored per range, while
-    // paimon_predicate is stored once at scan level.
-    params.__set_paimon_predicate("serialized-predicate");
-
+    // Rolling upgrades may carry the only Paimon marker and reader type on each split. Since the
+    // scan-level selector cannot inspect that split yet, the C++ reader option conservatively keeps
+    // JNI scans on V1 even without a scan-level paimon_predicate.
     EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
+    EXPECT_FALSE(FileScannerV2::is_supported(params, paimon_cpp_jni_range()));
 
-    // Other JNI table formats and Paimon without the C++ reader remain eligible for V2.
-    params.__isset.paimon_predicate = false;
-    EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
-    params.__set_paimon_predicate("serialized-predicate");
+    // Disabling the C++ reader restores V2 eligibility for supported JNI implementations.
     query_options.__set_enable_paimon_cpp_reader(false);
     EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
+}
+
+TEST(FileScannerV2Test, FailedTableReaderCloseCanBeRetriedThroughScanner) {
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    RuntimeProfile profile("file_scanner_v2_close_retry");
+    auto close_state = std::make_shared<RetryableCloseState>();
+    FileScannerV2 scanner(&state, &profile,
+                          std::make_unique<RetryableCloseTableReader>(close_state));
+
+    EXPECT_FALSE(scanner.close(&state).ok());
+    EXPECT_EQ(close_state->close_calls, 1);
+    EXPECT_TRUE(scanner.close(&state).ok());
+    EXPECT_EQ(close_state->close_calls, 2);
+    EXPECT_TRUE(scanner.close(&state).ok());
+    EXPECT_EQ(close_state->close_calls, 2);
 }
 
 // Scenario: Once FileScannerV2 is selected, an unsupported range must fail instead of falling back

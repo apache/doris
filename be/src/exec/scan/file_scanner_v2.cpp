@@ -212,6 +212,10 @@ Status rewrite_slot_refs_to_global_index(
 } // namespace
 
 #ifdef BE_TEST
+FileScannerV2::FileScannerV2(RuntimeState* state, RuntimeProfile* profile,
+                             std::unique_ptr<format::TableReader> table_reader)
+        : Scanner(state, profile), _table_reader(std::move(table_reader)) {}
+
 Status FileScannerV2::TEST_validate_scan_range(const TFileScanRangeParams& params,
                                                const TFileRangeDesc& range) {
     return _validate_scan_range(params, range);
@@ -824,7 +828,13 @@ Status FileScannerV2::close(RuntimeState* state) {
         return Status::OK();
     }
     if (_table_reader != nullptr) {
-        RETURN_IF_ERROR(_table_reader->close());
+        const auto close_status = _table_reader->close();
+        if (!close_status.ok()) {
+            // Reserve the close attempt with _try_close(), but commit the scanner-level closed
+            // state only after the retained table reader has completed its retryable cleanup.
+            _is_closed.store(false);
+            return close_status;
+        }
         _report_condition_cache_profile();
         _table_reader.reset();
     }
