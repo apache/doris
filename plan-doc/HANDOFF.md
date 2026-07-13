@@ -5,31 +5,25 @@
 
 ---
 
-# 🆕 下一个 session = **删除阶段进行中 · Batch 1 已完成 → 下一个是 Batch 2（切断所有死臂）**
+# 🆕 下一个 session = **删除阶段主体已完成（原子删除死簇已合入）→ 剩 e2e 欠账 + 用户全量回归 + PR 收尾**
 
-> **📋 施工蓝图（唯一权威） = `plan-doc/tasks/datasource-deletion-batch-plan-2026-07-13.md`**（用户 2026-07-13 review 通过；含 §4-B ACID 定论 + 4 批次序 + 每批 file:line + 用户决策）。进度勾选 = `plan-doc/tasks/datasource-deletion-tasklist.md`（**每完成一项即勾 `[x]` 随 commit**）。抽取合规重分析 = `datasource-deletion-extraction-reanalysis-2026-07-13.md`。**行号信 HEAD 不信文档**。
+> **删除阶段进度勾选 = `plan-doc/tasks/datasource-deletion-tasklist.md`**（阶段 0–6 全绿，仅剩 e2e/用户回归两项）。原子删除清单存档 = `plan-doc/tasks/batch3-delete-manifest-2026-07-14.md`（HEAD-verified，含 109 删文件 + 16 耦合删改 + 45 测试删/改 + 保留澄清）。**行号信 HEAD 不信文档**。
 >
-> **本 session 核验存档**：`.claude/wf-p75-deletion-batch-verify.js`（run `wf_749d6834-e98`，15-agent HEAD 重核 + ACID 对抗复核）。DELETE/EDIT 逐文件重核结论已收进批次方案 §2/§3；EDIT 精确行号在核验结果里（scratchpad ephemeral，批次方案已收纳要点，动手前仍以 HEAD 为准重核）。
+> **✅ 删旧代码全流程已完成**（用户 2026-07-13 批次方案 + 2026-07-14 清单批准执行）：
+> - Batch 1 删前置（`ed46d48a354`/`c2f99712e8e`/`417f7fa6481`：分区值 fail-loud · 事件旧面板拆除 · §4-B ACID 安全直切）。
+> - Batch 2 切死臂（`1e75d5023e5`/`b1aa9b763c6`：datasource + nereids/statistics/tvf 全部 live 文件死分支清零）。
+> - **Batch 3 原子删死簇 = `6f7ff7f3f6b`**（172 文件，+39/−37100）：109 主源整删（hive 52 + hudi 15 + iceberg 23 + connectivity 5 + systable 1 + Nereids sink/scan 族 10 + planner/statistics/transaction 4 + 补丁版 `HiveMetaStoreClient` 1）+ 16 保留文件耦合删改 + 31 测试整删 + 14 测试改。
+> - **守门全绿**：fe-core `test-compile`（含 test 源）BUILD SUCCESS · checkstyle 0（26 模块）· import-gate exit 0 · 回放单测 `Hms/Iceberg/PaimonGsonCompatReplayTest` 9/9（旧类名标签回放仍解析为 `PluginDriven*`）。
 >
-> **✅ Batch 1（删前置）已完成三 commit**（fe-core test-compile BUILD SUCCESS + 0 checkstyle 已核）：
-> - `ed46d48a354` **分区值 fail-loud**：`PluginDrivenMvccExternalTable.toListPartitionItem` 删 `HiveUtil.toPartitionValues` 回退，连接器空值在容错 try/catch **之外** `checkState` 硬报错（4 连接器已全接线）。**删 `HiveUtil` 的最后一处 live 引用已清**。
-> - `c2f99712e8e` **事件旧面板拆除**：`Env` 去 `MetastoreEventsProcessor` 全套面（field/init/getter/`start()`/import）；`ExternalMetaIdMgr` 切死 else 臂 127-130；`ExternalMetaIdMgrTest` 改测活路径 `MetastoreEventSyncDriver`。
-> - `417f7fa6481` **§4-B ACID 安全直切**：`FileQueryScanNode` 删死 `instanceof HiveSplit` 臂 + import。§4-B 定论=安全直切（连接器恒填分区值 + `HiveScanRange.populateRangeParams` 无条件重建 columns-from-path，四重独立保险；**无需**连接器 ACID 中立位）。
-> - ⚠ **欠 e2e（用户自跑，live-gated）**：① ACID 分区表读分区列值正确；② 分区有序值（paimon+iceberg+hive+hudi，含非字符串列真 NULL 分区）。与删除正交，收尾统一补。
+> **本 session 核验存档**：删前核验 `.claude/wf-batch3-delete-verify.js`（run `wf_d1815c18-1be`，122-agent：52 主源 + 68 测试逐文件分类 + gson/反射回放专项 + 完备性 critic）；施改 `.claude/wf-batch3-apply-edits.js`（run `wf_51715436-f16`，31-agent 精确删改）。
 >
-> **✅ 用户 2026-07-13 拍板（最高优先级，见批次方案 §5）**：① 总批次序认可；② §4-B 安全直切、不加连接器位、补 ACID e2e；③ **`HiveVersionUtil` + fe-core 补丁版 `HiveMetaStoreClient` 两个都删**（fe-connector-hms 已自带副本，fe-core 两份不再使用，删完为零引用孤儿，随 Batch 3）；④ `getBrokerAddresses`/`PlanType` 孤儿枚举/`StatisticsAutoCollector` 的 hudi-jar `VisibleForTesting` 注解换源 = 随批清理；⑤ **Batch 3 死簇一个大删除提交**；⑥ 拓扑多 commit → 最终 squash。
+> **🔑 删除阶段两条关键澄清（务必记住，勿回退）**：
+> 1. `DistributionSpecHiveTableSinkHashPartitioned`/`UnPartitioned`（`nereids/properties`）**名带 HiveTableSink 但是活类,保留**——活的通用连接器写路径 `PhysicalConnectorTableSink` + `PhysicalProperties.SINK_RANDOM_PARTITIONED` 在用；命名误导是既存债，改名单列。
+> 2. `GsonUtils` 里 `"HMSExternalCatalog"`/`"HMSExternalTable"` 等是 **compat 字符串标签**，`registerCompatibleSubtype` 指向活 `PluginDrivenExternalCatalog`/`PluginDrivenMvccExternalTable`——**这些行不可删**（承接旧 image 回放），删旧类不碰它。
 >
-> **✅ Batch 2 datasource 块已完成一 commit**（`1e75d5023e5`，test-compile BUILD SUCCESS + 0 checkstyle 已核）：切 `CatalogMgr` 两分区臂 / `ExternalMetaCacheRouteResolver` HMS 路由臂 / `RefreshManager` 两臂 / `CatalogConnectivityTestCoordinator` Hive-Glue 臂（自包含死臂，均顺清 import）。⚠ `ExternalMetaCacheRouteResolverTest` 现断言已删的 HMS 路由（与 `ExternalMetaCacheMgr` 引擎缓存机制纠缠）→ **随 Batch 3 test-linkage 删**。
+> **⏭ 删除线剩余（收尾）**：① e2e 欠账（ACID 分区表读分区列值 + 分区有序值 paimon/iceberg/hive/hudi 含非字符串 NULL 分区，与删除正交，用户真集群自跑）；② 用户自跑翻闸 hms 全量回归，删前后逐位一致；③ PR 收尾（拓扑多 commit → 最终 squash，base = `branch-catalog-spi`）。
 >
-> **🔴 Batch-2/Batch-3 边界铁律（本 session 核出，务必遵守）**：Batch 2 只切「活方法里的死分支」，顺清**仅**被该臂用的 import/local/私有方法；**不得**在 Batch 2 删「使用者含仍存在的待删类」的声明——`ExternalMetaCacheMgr.hive()/hudi()/iceberg()` 访问器+注册+常量+import、`Env.hiveTransactionMgr` field/init/getter/import、`BaseExternalTableDataSink.getTFileFormatType/getTFileCompressType/supportedFileFormatTypes`、`StatisticsUtil.getHiveRowCount/getTotalSizeFromHMS`、`CreateTableInfo.validateIcebergRowLineageColumns(int)`、`PhysicalPlanTranslator` sink-visitor 方法、`SinkVisitor`/`RelationVisitor` 默认方法——**随 Batch 3 与被删类原子一起删**（其使用者是死 `HiveScanNode`/`HiveTableSink` 等，Batch 2 删会编译断）。详见 `datasource-deletion-tasklist.md` 阶段 3 抬头。
->
-> **✅ Batch 2 剩余已完成一 commit**（`b1aa9b763c6`，test-compile BUILD SUCCESS + 0 checkstyle）：nereids/statistics/tvf **22 文件死臂全切**（19-agent 并行工作流 `.claude/wf-p75-batch2-deadarm-cuts.js` + 3 刁钻文件人工做 + 通读 diff 复核 + 补修 2 处漏清 import）。**Batch 2（切死臂）至此全部完成**——所有 live 文件对删除集的死分支引用已清零，仅剩「Batch-3-coupled 声明」（见上铁律）+ 删除集内部互引 + 测试。
->
-> **下一个 = Batch 3（原子删死簇，一个大删除提交，用户定）**。删前先用中文出删除文件清单给用户过目。内容 = ① §1 全部删除文件（hive 顶层含 `HiveUtil`/`HiveExternalMetaCache` + hive/event + hive/source + hudi + iceberg 含 `IcebergUtils` + infra，~106）+ ② trap-tier（§1.6）+ 连锁 impl-rule（`LogicalHiveTableSinkToPhysicalHiveTableSink`/`LogicalHudiScanToPhysicalHudiScan` + `RuleSet` 注册）+ ③ **两个补丁类**（fe-core `datasource/hive/HiveVersionUtil` + `org/apache/hadoop/hive/metastore/HiveMetaStoreClient`）+ ④ 同批移除 Batch-3-coupled 声明（`ExternalMetaCacheMgr` 引擎缓存注册/访问器/常量/import · `Env.hiveTransactionMgr` field/init/getter/import · `BaseExternalTableDataSink.getTFileFormatType/getTFileCompressType/supportedFileFormatTypes`+`PluginDrivenTableSink` override · `StatisticsUtil.getHiveRowCount/getRowCountFromParameters/getTotalSizeFromHMS`+import · `CreateTableInfo.validateIcebergRowLineageColumns(int)`+`IcebergUtils` import · `PhysicalPlanTranslator.visitPhysicalHudiScan`+`visitPhysicalHiveTableSink`+`DistributionSpecHiveTableSink*`+`directoryLister` 面+相关 import · `SinkVisitor`/`RelationVisitor` 默认方法 · `PlanType` 孤儿枚举=可选）+ ⑤ 测试联动（§4-C：删 3 个 `@Disabled`（`HmsCatalogTest`/`HmsQueryCacheTest`/`HiveDDLAndDMLPlanTest`）+ `MetastoreEventFactoryTest`/`HiveScanNodeTest`/`HiveTableSinkTest`/`HMSAnalysisTaskTest`/`Hudi*Test`/`Iceberg*Test`/`IcebergSysTableResolverTest`/`HiveUtilTest`/**`ExternalMetaCacheRouteResolverTest`**（断言已删 HMS 路由）等 + 改 `TestHMSCachedClient`/`OlapInsertExecutorTest` 桩）。删除集自成闭环→整簇原子删（一个大 commit）；每步 test-compile 必绿。**完整删除/测试清单见本 session 核验 `wf_749d6834-e98` 结果 + 批次方案 §1/§3/§4-C**。→ **Batch 4 守门**（test-compile 含测试源 + checkstyle 0 + import-gate + 回放单测 + 用户自跑全量回归）。
->
-> **⚠ 动手前重核**：Batch 1 改了 5 个文件（`Env`/`ExternalMetaIdMgr`/`FileQueryScanNode`/`PluginDrivenMvccExternalTable`/`ExternalMetaIdMgrTest`），行号已变；批次方案 §3 的其余文件未被 Batch 1 触及，但仍以 HEAD grep 为准。
->
-> **⏭ 单列后续（用户定，不并入本轮）**：第二处哨兵泄漏 `TablePartitionValues.HIVE_DEFAULT_PARTITION:47` ← 活 `MetadataGenerator:2166`（`partition_values` TVF）——本 session 核实仍活；须自己的活性判定。**既存债**：`IcebergMergeCommand`/`IcebergUpdateCommand` 仍 iceberg 命名活类；`Column.ICEBERG_ROWID_COL`（勿当 sanctioned 家、勿新铸 `Column._row_id`）。
+> **⏭ 单列后续（用户定，不并入本轮）**：① 第二处哨兵泄漏 `TablePartitionValues.HIVE_DEFAULT_PARTITION` ← 活 `MetadataGenerator`（`partition_values` TVF）；② iceberg AWS 属性簇 + maven 依赖（`iceberg-aws`/`s3tables`）pom 裁剪（现可做，iceberg 文件已删）；③ jdbc `client|util` streaming/CDC 子系统迁移。**既存债**：`IcebergMergeCommand`/`IcebergUpdateCommand` 仍 iceberg 命名活类；`Column.ICEBERG_ROWID_COL`（勿新铸 `Column._row_id`）。
 
 ---
 

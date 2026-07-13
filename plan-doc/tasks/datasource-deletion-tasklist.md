@@ -51,22 +51,24 @@
 - [x] **statistics/tvf 死臂**（commit `b1aa9b763c6`）：`AnalysisManager`（→`return false`）· `StatisticsUtil`（仅切 instanceof 臂；死方法留 Batch3）· `StatisticsAutoCollector`（hudi-jar `VisibleForTesting`→guava）· `MetadataGenerator`（三 HMS 臂 + 删死 `dealHMSCatalog`/`partitionValuesMetadataResultForHmsTable`）· `PartitionsTableValuedFunction`· `PartitionValuesTableValuedFunction`
 - [x] 每块 `UnusedImports` 清净 + fe-core test-compile BUILD SUCCESS + 0 checkstyle（19-agent 工作流并行切 + 人工通读 diff 复核 + 2 处漏清 import 补修）
 
-## 阶段 4 — 删 trap-tier + 循环单元
-- [ ] trap-tier 文件（`HiveInsertExecutor`/`LogicalHiveTableSink`/`PhysicalHiveTableSink`/`UnboundHiveTableSink`/`LogicalHudiScan`/`PhysicalHudiScan`/`HiveTableSink`/`HMSAnalysisTask`/`HiveTransactionManager`/`TransactionManagerFactory`）
-- [ ] hive 循环单元（顶层 29 + `event/` 21 + `source/` 2）含 hive LZO 三方法纯删
-- [ ] hudi 循环单元（15）
-- [ ] iceberg 循环单元（22 + `IcebergUtils`）
-- [ ] `infra/`（6）
+## 阶段 4 — 删 trap-tier + 循环单元 —— ✅ 完成（原子删除清单见 `batch3-delete-manifest-2026-07-14.md`）
+> 实际删除集 = 109 主源（HEAD 实测；`infra` 实为 `connectivity`(5 hive/glue 探测器)+`systable`(IcebergSysTable)，按文件删非按目录）。`DistributionSpecHiveTableSink*` 澄清为**活类保留**（通用连接器写路径用）。
+- [x] trap-tier 文件（`HiveInsertExecutor`/`LogicalHiveTableSink`/`PhysicalHiveTableSink`/`UnboundHiveTableSink`/`LogicalHudiScan`/`PhysicalHudiScan`/`HiveTableSink`/`HMSAnalysisTask`/`HiveTransactionManager`/`TransactionManagerFactory`）+ 两 impl-rule + 补丁版 `HiveMetaStoreClient`
+- [x] hive 循环单元（顶层 29 + `event/` 21 + `source/` 2）含 hive LZO 三方法纯删
+- [x] hudi 循环单元（15）
+- [x] iceberg 循环单元（14 顶层 + cache 2 + profile 1 + source 6 = 23，含 `IcebergUtils`）
+- [x] `connectivity`(5)+`systable`(1)（原记 `infra/`(6)）
+- [x] 保留文件耦合删改（16 文件）：visitor override/默认方法、`RuleSet`/`ExpressionRewrite` 规则注册、`Env.hiveTransactionMgr`、`ExternalMetaCacheMgr` 引擎缓存、`StatisticsUtil`/`CreateTableInfo`/`BaseExternalTableDataSink` 死方法、`PhysicalPlanTranslator` sink/scan visitor+directoryLister、孤儿 `PlanType`/`RuleType` 枚举
 
-## 阶段 5 — 测试源联动
-- [ ] 删 3 个 `@Disabled`（`HmsCatalogTest`/`HmsQueryCacheTest`/`HiveDDLAndDMLPlanTest`）+ `MetastoreEventFactoryTest`
-- [ ] 改 `ExternalMetaIdMgrTest` / `TestHMSCachedClient` + 其余引用删除单元的测试逐个处置
+## 阶段 5 — 测试源联动 —— ✅ 完成
+- [x] 删 31 个 hive/hudi/iceberg-only 测试类（含 3 个 `@Disabled`：`HmsCatalogTest`/`HmsQueryCacheTest`/`HiveDDLAndDMLPlanTest` + `MetastoreEventFactoryTest` 等）
+- [x] 改 14 个顺带引用被删类的测试（桩/断言/import 改为 `PluginDriven*` 保留类；`PartitionCompensatorTest`/`MTMVPartitionCheckUtilTest` 用 `PluginDrivenMvccExternalTable` 保 MTMVRelatedTableIf 转型）
 
 ## 阶段 6 — 守门
-- [ ] fe-core `test-compile` BUILD SUCCESS（含 test 源）+ checkstyle 0
-- [ ] import-gate 净（`tools/check-connector-imports.sh`）
-- [ ] 靶向回放单测保绿（`HmsGsonCompatReplayTest`/`Iceberg`/`PaimonGsonCompatReplayTest` 等）
-- [ ] ACID 分区列 e2e（若判定需连接器改）+ 分区有序值委派 e2e（paimon+iceberg+hive+hudi，含非字符串列真 NULL 分区）
+- [x] fe-core `test-compile` BUILD SUCCESS（含 test 源）+ checkstyle 0（26 模块全 0 violations）
+- [x] import-gate 净（`tools/check-connector-imports.sh` exit 0）
+- [x] 靶向回放单测保绿（`HmsGsonCompatReplayTest`/`Iceberg`/`PaimonGsonCompatReplayTest` 各 3/3，共 9/9 pass）——旧类名标签回放仍解析为 `PluginDriven*`
+- [ ] ACID 分区列 e2e + 分区有序值委派 e2e（与删除正交，收尾统一补，用户自跑）
 - [ ] 用户自跑：翻闸 hms 全量回归删前后逐位一致
 
 ## 后续独立项（不并入本轮）
