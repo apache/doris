@@ -171,6 +171,8 @@ publish_to_release_svn() {
   fi
 
   checksum_dir="$(mktemp -d)"
+  trap 'rm -rf "$checksum_dir"' EXIT
+
   src_tar_file="${PKG_BASE}.tar.gz"
   final_sha512_file="${checksum_dir}/${dst_sha512}"
   svn cat "${svn_auth[@]}" "$src_tar" > "${checksum_dir}/${src_tar_file}"
@@ -208,13 +210,13 @@ publish_to_release_svn() {
   svnmucc_ops+=(rm "$DEV_SVN_DIR")
   echo
   echo "Will commit the URL operations above in one SVN revision."
-  confirm "FINAL confirm - publish release SVN and remove dev RC now?" || { warn "stopping before SVN commit."; rm -rf "$checksum_dir"; exit 0; }
+  confirm "FINAL confirm - publish release SVN and remove dev RC now?" || { warn "stopping before SVN commit."; exit 0; }
 
   if ! svnmucc "${svnmucc_auth[@]}" -m "Release Doris ${VERSION}" "${svnmucc_ops[@]}"; then
-    rm -rf "$checksum_dir"
     die "svnmucc release publish failed"
   fi
   rm -rf "$checksum_dir"
+  trap - EXIT
   ok "committed release artifacts: ${RELEASE_SVN_DIR}/"
   ok "removed dev RC folder: ${DEV_SVN_DIR}/"
 }

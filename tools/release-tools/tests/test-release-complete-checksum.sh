@@ -64,7 +64,11 @@ case "$cmd" in
         printf 'release artifact bytes\n'
         ;;
       *.sha512)
-        digest="$(printf 'release artifact bytes\n' | sha512sum | awk '{print $1}')"
+        if [[ "${FAKE_BAD_SHA512:-0}" -eq 1 ]]; then
+          digest="00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+        else
+          digest="$(printf 'release artifact bytes\n' | sha512sum | awk '{print $1}')"
+        fi
         printf '%s  apache-doris-9.9.9-rc01-src.tar.gz\n' "$digest"
         ;;
       *.asc)
@@ -83,6 +87,17 @@ case "$cmd" in
 esac
 EOF
 chmod +x "$tmp/svn"
+
+cat > "$tmp/mktemp" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+[[ "$1" == "-d" ]]
+dir="${FAKE_MKTEMP_ROOT}/checksum-dir-${RANDOM}-${RANDOM}"
+mkdir -p "$dir"
+printf '%s\n' "$dir" >> "$FAKE_MKTEMP_LOG"
+printf '%s\n' "$dir"
+EOF
+chmod +x "$tmp/mktemp"
 
 cat > "$tmp/gpg" <<'EOF'
 #!/usr/bin/env bash
@@ -142,6 +157,9 @@ export FAKE_SVN_CAT_LOG="$tmp/svn-cat.log"
 export FAKE_GPG_LOG="$tmp/gpg.log"
 export FAKE_SVNMUCC_LOG="$tmp/svnmucc.log"
 export FAKE_FINAL_SHA512="$tmp/final.sha512"
+export FAKE_MKTEMP_ROOT="$tmp/mktemp-root"
+export FAKE_MKTEMP_LOG="$tmp/mktemp.log"
+mkdir -p "$FAKE_MKTEMP_ROOT"
 
 printf 'y\n' | bash "$tmp/04-release-complete.sh" >/dev/null
 
@@ -160,5 +178,22 @@ grep -q 'put ' "$FAKE_SVNMUCC_LOG"
 grep -q 'apache-doris-9.9.9-src.tar.gz$' "$FAKE_FINAL_SHA512"
 if grep -q 'apache-doris-9.9.9-rc01-src.tar.gz' "$FAKE_FINAL_SHA512"; then
   echo "final checksum sidecar still references the RC tarball name" >&2
+  exit 1
+fi
+
+success_checksum_dir="$(tail -n 1 "$FAKE_MKTEMP_LOG")"
+if [[ -e "$success_checksum_dir" ]]; then
+  echo "checksum temp directory was not removed after successful publish: $success_checksum_dir" >&2
+  exit 1
+fi
+
+if FAKE_BAD_SHA512=1 bash "$tmp/04-release-complete.sh" >/dev/null 2>&1; then
+  echo "release completion unexpectedly succeeded with a bad RC checksum" >&2
+  exit 1
+fi
+
+failed_checksum_dir="$(tail -n 1 "$FAKE_MKTEMP_LOG")"
+if [[ -e "$failed_checksum_dir" ]]; then
+  echo "checksum temp directory was not removed after checksum verification failure: $failed_checksum_dir" >&2
   exit 1
 fi
