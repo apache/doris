@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.nereids.analyzer.UnboundRelation;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.pattern.GeneratedPlanPatterns;
 import org.apache.doris.nereids.rules.RulePromise;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -88,6 +89,16 @@ class BindRelationTest extends TestWithFeService implements GeneratedPlanPattern
         Assertions.assertEquals(
                 ImmutableList.of("internal", DEFAULT_CLUSTER_PREFIX + DB1, "t"),
                 ((LogicalOlapScan) plan).qualified());
+    }
+
+    @Test
+    void rejectIncrementalReadWithoutRowBinlog() {
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> PlanChecker.from(connectContext)
+                        .analyze("SELECT a, b, __DORIS_BINLOG_OP__ "
+                                + "FROM db1.t@incr(\"incrementType\" = \"DETAIL\")"));
+
+        Assertions.assertEquals("INCR query requires ROW binlog enabled on base table.", exception.getMessage());
     }
 
     @Test
