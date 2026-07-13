@@ -32,7 +32,7 @@ suite("test_oceanbase_jdbc_catalog", "p2,external") {
         sql """ create catalog if not exists ${catalog_name} properties(
                     "type"="jdbc",
                     "user"="root@test",
-                    "password"="",
+                    "password"="123456",
                     "jdbc_url" = "jdbc:oceanbase://${externalEnvIp}:${oceanbase_port}/doris_test",
                     "driver_url" = "${driver_url}",
                     "driver_class" = "com.oceanbase.jdbc.Driver"

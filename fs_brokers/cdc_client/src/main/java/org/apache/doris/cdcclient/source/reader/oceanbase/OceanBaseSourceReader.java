@@ -15,10 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.job.common;
+package org.apache.doris.cdcclient.source.reader.oceanbase;
 
-public enum DataSourceType {
-    MYSQL,
-    POSTGRES,
-    OCEANBASE
-}
+import org.apache.doris.cdcclient.source.reader.mysql.MySqlSourceReader;
+
+public class OceanBaseSourceReader extends MySqlSourceReader {}
