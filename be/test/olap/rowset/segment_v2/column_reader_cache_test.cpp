@@ -624,11 +624,8 @@ TEST_F(ColumnReaderCacheTest, FillMissingDecimalV2PrecisionForComplexTypeFromTab
     ASSERT_NE(data_type, nullptr);
     EXPECT_EQ(data_type->get_primitive_type(), TYPE_ARRAY);
     const auto* array_type = assert_cast<const DataTypeArray*>(data_type.get());
-    const auto* nested_type_nullable =
-            assert_cast<const DataTypeNullable*>(array_type->get_nested_type().get());
-    ASSERT_NE(nested_type_nullable, nullptr);
     const auto* nested_type =
-            assert_cast<const DataTypeDecimalV2*>(nested_type_nullable->get_nested_type().get());
+            assert_cast<const DataTypeDecimalV2*>(array_type->get_nested_type().get());
     ASSERT_NE(nested_type, nullptr);
     EXPECT_EQ(nested_type->get_original_precision(), 18);
     EXPECT_EQ(nested_type->get_original_scale(), 4);
