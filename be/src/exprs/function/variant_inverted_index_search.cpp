@@ -43,6 +43,7 @@
 #include "storage/index/inverted/query_v2/term_query/term_query.h"
 #include "storage/index/inverted/query_v2/weight.h"
 #include "storage/index/inverted/util/string_helper.h"
+#include "storage/iterators.h"
 #include "storage/segment/segment.h"
 #include "storage/segment/variant/nested_group_path.h"
 #include "storage/segment/variant/nested_group_provider.h"
@@ -669,14 +670,20 @@ Status VariantNestedSearchEvaluator::evaluate(
     }
     const ColumnId column_id = static_cast<ColumnId>(ordinal);
 
-    std::shared_ptr<segment_v2::ColumnReader> column_reader;
-    RETURN_IF_ERROR(segment->get_column_reader(segment->tablet_schema()->column(column_id),
-                                               &column_reader,
-                                               index_exec_ctx->column_iter_opts().stats));
-    auto* variant_reader = dynamic_cast<segment_v2::VariantColumnReader*>(column_reader.get());
-    if (variant_reader == nullptr) {
-        return Status::InvalidArgument("Column '{}' is not VARIANT for nested query", root_field);
+    std::shared_ptr<segment_v2::VariantColumnReader> variant_reader;
+    StorageReadOptions read_options;
+    read_options.tablet_schema = segment->tablet_schema();
+    read_options.stats = index_exec_ctx->column_iter_opts().stats;
+    read_options.io_ctx = index_exec_ctx->column_iter_opts().io_ctx;
+    Status st = segment->get_variant_root_reader(segment->tablet_schema()->column(column_id),
+                                                 read_options, &variant_reader);
+    if (st.is<ErrorCode::NOT_FOUND>()) {
+        // A segment written before nullable/defaulted VARIANT root `v` was added contains no
+        // nested documents, so NESTED(v.items, ...) cannot match any row in this segment.
+        return Status::OK();
     }
+    RETURN_IF_ERROR(st);
+    DORIS_CHECK(variant_reader != nullptr);
 
     std::string array_path;
     if (dot_pos == std::string::npos) {

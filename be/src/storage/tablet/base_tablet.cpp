@@ -99,6 +99,12 @@ Status _get_segment_column_iterator(const BetaRowsetSharedPtr& rowset, uint32_t 
     segment_v2::SegmentSharedPtr segment = *it;
     StorageReadOptions opts;
     opts.stats = stats;
+    // This helper also bypasses TabletReader. For example, fetching
+    // __DORIS_COMMIT_TSO_COL__ from a rowset with commit_tso=100 must synthesize 100 instead of
+    // reading the segment placeholder 0.
+    opts.tablet_schema = rowset->tablet_schema();
+    opts.version = rowset->version();
+    opts.commit_tso = rowset->commit_tso();
     if (input_io_ctx != nullptr) {
         opts.io_ctx = *input_io_ctx;
     }

@@ -17,6 +17,7 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -27,6 +28,10 @@
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "storage/predicate/predicate_creator.h"
+#include "storage/rowset/beta_rowset.h"
+#include "storage/schema.h"
+#include "storage/segment/segment.h"
+#include "storage/segment/segment_iterator.h"
 #include "testutil/index_storage_test_util.h"
 
 namespace doris::index_storage_test {
@@ -185,6 +190,80 @@ TEST_F(IndexStorageVariantDynamicPathPruningTest,
         EXPECT_EQ(result.rows_read, 2);
         EXPECT_GT(result.stats.raw_rows_read, 0);
     });
+}
+
+TEST_F(IndexStorageVariantDynamicPathPruningTest, StatisticsAggregatesFallBackForSparseOnlyPath) {
+    auto variant = dynamic_variant_column();
+    variant.max_subcolumns_count = 1;
+    variant.sparse_hash_shard_count = 1;
+    const auto index_case =
+            IndexStorageCaseBuilder("variant_sparse_path_statistics_aggregate_fallback")
+                    .tablet_id(110064)
+                    .variant_column(std::move(variant))
+                    .rowset(0, IndexDataSourceSpec::inline_variant(
+                                       {R"({"kept_i": 10, "dynamic_i": 1})", R"({"kept_i": 11})",
+                                        R"({"kept_i": 12})"},
+                                       0))
+                    .build();
+    ASSERT_TRUE(create_tablet(index_case.tablet_options).ok());
+    auto rowsets = write_rowsets(index_case.rowsets);
+    ASSERT_TRUE(rowsets.has_value()) << rowsets.error();
+    ASSERT_EQ(1, rowsets->size());
+
+    auto probe = probe_rowset(rowsets->front());
+    ASSERT_TRUE(probe.has_value()) << probe.error();
+    ASSERT_EQ(1, probe->segments.size());
+    EXPECT_TRUE(probe->contains_relative_path("kept_i"));
+    EXPECT_FALSE(probe->contains_relative_path("dynamic_i"));
+    EXPECT_TRUE(std::any_of(probe->segments.front().variant_columns.begin(),
+                            probe->segments.front().variant_columns.end(),
+                            [](const auto& column) { return column.is_sparse_column; }));
+
+    auto readable_rowsets = rowsets_with_variant_extended_schema(rowsets.value());
+    ASSERT_TRUE(readable_rowsets.has_value()) << readable_rowsets.error();
+    ASSERT_EQ(1, readable_rowsets->size());
+    const int32_t path_column_id = column_id_by_path("v.dynamic_i");
+    ASSERT_GE(path_column_id, 0) << dump_schema_paths(*tablet_schema());
+    const auto& path_column = tablet_schema()->column(path_column_id);
+    ASSERT_TRUE(path_column.has_path_info());
+
+    auto beta_rowset = std::dynamic_pointer_cast<BetaRowset>(readable_rowsets->front());
+    ASSERT_NE(nullptr, beta_rowset);
+    std::vector<segment_v2::SegmentSharedPtr> segments;
+    auto st = beta_rowset->load_segments(&segments);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_EQ(1, segments.size());
+
+    auto read_schema = std::make_shared<ReadSchema>(
+            std::vector<TabletColumnPtr> {tablet_schema()->columns().at(path_column_id)});
+    OlapReaderStatistics stats;
+    StorageReadOptions read_options;
+    read_options.stats = &stats;
+    read_options.tablet_schema = tablet_schema();
+    read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
+    read_options.target_cast_type_for_variants[path_column.name()] = nullable_int64_target_type();
+
+    std::shared_ptr<segment_v2::ColumnReader> physical_reader;
+    st = segments.front()->get_column_reader_for_pruning(path_column, read_options,
+                                                         &physical_reader);
+    ASSERT_TRUE(st.is<ErrorCode::NOT_FOUND>()) << st;
+    ASSERT_EQ(nullptr, physical_reader);
+
+    for (auto agg_type : {TPushAggOp::MINMAX, TPushAggOp::MIX}) {
+        SCOPED_TRACE(agg_type);
+        read_options.push_down_agg_type_opt = agg_type;
+
+        std::unique_ptr<RowwiseIterator> iter;
+        st = segments.front()->new_iterator(read_schema, read_options, &iter);
+        ASSERT_TRUE(st.ok()) << st;
+        ASSERT_NE(nullptr, iter);
+        ASSERT_NE(nullptr, dynamic_cast<segment_v2::SegmentIterator*>(iter.get()));
+
+        Block block = read_schema->create_read_block();
+        st = iter->next_batch(&block);
+        ASSERT_TRUE(st.ok()) << st;
+        EXPECT_EQ(3, block.rows());
+    }
 }
 
 // Compaction may merge low-value and high-value input segments into one output segment. In that

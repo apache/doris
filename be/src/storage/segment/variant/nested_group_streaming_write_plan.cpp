@@ -25,6 +25,7 @@
 #include <utility>
 
 #include "core/data_type/get_least_supertype.h"
+#include "storage/iterators.h"
 #include "storage/rowset/beta_rowset.h"
 #include "storage/segment/column_reader.h"
 #include "storage/segment/segment.h"
@@ -149,20 +150,20 @@ Status append_plan_from_rowset_reader(const RowsetReaderSharedPtr& input_rs_read
             std::static_pointer_cast<BetaRowset>(rowset), &segment_cache));
 
     for (const auto& segment : segment_cache.get_segments()) {
-        std::shared_ptr<ColumnReader> column_reader;
+        std::shared_ptr<VariantColumnReader> variant_reader;
         OlapReaderStatistics stats;
-        Status st = segment->get_column_reader(variant_uid, &column_reader, &stats);
+        StorageReadOptions read_options;
+        read_options.tablet_schema = rowset->tablet_schema();
+        read_options.stats = &stats;
+        const auto& variant_column = rowset->tablet_schema()->column_by_uid(variant_uid);
+        Status st = segment->get_variant_root_reader(variant_column, read_options, &variant_reader);
         if (st.is<ErrorCode::NOT_FOUND>()) {
+            // A nullable/defaulted VARIANT added after this segment has no physical NestedGroup
+            // paths. Its logical default is produced later by normal value reading.
             continue;
         }
         RETURN_IF_ERROR(st);
-        if (column_reader == nullptr) {
-            continue;
-        }
-        auto* variant_reader = dynamic_cast<VariantColumnReader*>(column_reader.get());
-        if (variant_reader == nullptr) {
-            return Status::InternalError("column uid {} is not a VariantColumnReader", variant_uid);
-        }
+        DORIS_CHECK(variant_reader != nullptr);
         RETURN_IF_ERROR(variant_reader->load_external_meta_once());
         append_types_from_segment_reader(*variant_reader, regular_path_types, groups,
                                          ng_owned_paths);
