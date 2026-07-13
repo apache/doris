@@ -17,7 +17,11 @@
 
 package org.apache.doris.common.util;
 
+import org.apache.doris.common.Config;
+
+import org.junit.After;
 import org.junit.Assert;
+import org.junit.Before;
 import org.junit.Test;
 
 import java.util.Arrays;
@@ -25,8 +29,28 @@ import java.util.List;
 
 public class S3UtilTest {
 
+    private String originalS3ClientHttpScheme;
+
+    @Before
+    public void setUp() {
+        originalS3ClientHttpScheme = Config.s3_client_http_scheme;
+    }
+
+    @After
+    public void tearDown() {
+        Config.s3_client_http_scheme = originalS3ClientHttpScheme;
+    }
+
     @Test
-    public void testBuildEndpointUrlDefaultsToHttps() {
+    public void testBuildEndpointUrlDefaultsToHttp() {
+        Assert.assertEquals("http", Config.s3_client_http_scheme);
+        Assert.assertEquals("http://s3.us-east-1.amazonaws.com",
+                S3Util.buildEndpointUrl("s3.us-east-1.amazonaws.com"));
+    }
+
+    @Test
+    public void testBuildEndpointUrlUsesConfiguredHttpsScheme() {
+        Config.s3_client_http_scheme = "https";
         Assert.assertEquals("https://s3.us-east-1.amazonaws.com",
                 S3Util.buildEndpointUrl("s3.us-east-1.amazonaws.com"));
     }

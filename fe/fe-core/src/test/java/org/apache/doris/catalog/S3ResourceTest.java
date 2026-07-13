@@ -194,8 +194,8 @@ public class S3ResourceTest {
         Assert.assertEquals("s3_1", rS3Resource1.getName());
         Assert.assertEquals("s3_2", rS3Resource2.getName());
 
-        Assert.assertEquals("https://aaa", rS3Resource2.getProperty(S3Properties.ENDPOINT));
-        Assert.assertEquals("https://aaa",
+        Assert.assertEquals("http://aaa", rS3Resource2.getProperty(S3Properties.ENDPOINT));
+        Assert.assertEquals("http://aaa",
                 S3Properties.getObjStoreInfoPB(rS3Resource2.getCopiedProperties()).getEndpoint());
         Assert.assertEquals(rS3Resource2.getProperty(S3Properties.REGION), "bbb");
         Assert.assertEquals(rS3Resource2.getProperty(S3Properties.ROOT_PATH), "/path/to/root");
@@ -232,9 +232,9 @@ public class S3ResourceTest {
         modify.clear();
         modify.put(S3Properties.ENDPOINT, "new-endpoint");
         s3Resource.modifyProperties(modify);
-        Assert.assertEquals("https://new-endpoint", s3Resource.getProperty(S3Properties.ENDPOINT));
-        Assert.assertEquals("https://new-endpoint", s3Resource.getProperty(S3Properties.Env.ENDPOINT));
-        Assert.assertEquals("https://new-endpoint",
+        Assert.assertEquals("http://new-endpoint", s3Resource.getProperty(S3Properties.ENDPOINT));
+        Assert.assertEquals("http://new-endpoint", s3Resource.getProperty(S3Properties.Env.ENDPOINT));
+        Assert.assertEquals("http://new-endpoint",
                 S3Properties.getObjStoreInfoPB(s3Resource.getCopiedProperties()).getEndpoint());
 
         modify.clear();

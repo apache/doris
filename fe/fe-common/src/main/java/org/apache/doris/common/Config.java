@@ -3242,6 +3242,11 @@ public class Config extends ConfigBase {
                     + "For example: s3_load_endpoint_white_list=a,b,c"})
     public static String[] s3_load_endpoint_white_list = {};
 
+    @ConfField(description = {
+            "The scheme added to S3 endpoints without an explicit scheme. Valid values are http and https."},
+            options = {"http", "https"})
+    public static String s3_client_http_scheme = "http";
+
     @ConfField(mutable = true, description = {
             "For deterministic S3 paths (without wildcards like *, ?), use HEAD requests instead of "
                     + "ListObjects to avoid requiring ListBucket permission. Brace patterns {1,2,3} and "

@@ -434,7 +434,7 @@ public class S3Util {
         if (endpoint.contains("://")) {
             return endpoint;
         }
-        return "https://" + endpoint;
+        return Config.s3_client_http_scheme + "://" + endpoint;
     }
 
     /**
