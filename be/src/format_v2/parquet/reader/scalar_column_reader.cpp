@@ -487,7 +487,12 @@ Status ScalarColumnReader::consume_nested_column(int64_t length_upper_bound,
                                        _name);
     }
     DORIS_CHECK(_nested_batch != nullptr);
-    const int16_t materialized_slot_definition_level = _nested_batch->value_slot_definition_level;
+    // A levels-only batch intentionally has no value-slot metadata. Reconstruct the same logical
+    // slot threshold used by load_nested_batch(): a nullable leaf owns a slot at one definition
+    // level below a non-null value, while a required leaf owns a slot only at its full definition
+    // level. For example, an empty ARRAY<STRING> boundary must not be consumed as a STRING value.
+    const int16_t materialized_slot_definition_level =
+            static_cast<int16_t>(_definition_level - (_type->is_nullable() ? 1 : 0));
     *values_consumed = 0;
     int64_t level_idx = nested_build_level_cursor();
     while (level_idx < _nested_batch->levels_written && *values_consumed < length_upper_bound) {

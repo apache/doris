@@ -134,6 +134,7 @@ protected:
         std::filesystem::remove_all(_test_dir);
         std::filesystem::create_directories(_test_dir);
         _file_path = (_test_dir / "reader.parquet").string();
+        _plain_file_path = (_test_dir / "plain_reader.parquet").string();
         write_parquet_file();
         _file_reader = ::parquet::ParquetFileReader::OpenFile(_file_path, false);
         auto metadata = _file_reader->metadata();
@@ -1819,6 +1820,38 @@ protected:
         return reader;
     }
 
+    std::unique_ptr<ParquetColumnReader> create_plain_reader(size_t field_idx) {
+        // Keep the normal fixture dictionary encoded. This one test writes a plain-encoded copy
+        // because Arrow BinaryRecordReader has a stricter reset contract than
+        // DictionaryRecordReader.
+        auto schema = arrow::schema(_arrow_fields);
+        auto table = arrow::Table::Make(schema, _arrays);
+        auto plain_file_result = arrow::io::FileOutputStream::Open(_plain_file_path);
+        DORIS_CHECK(plain_file_result.ok());
+        std::shared_ptr<arrow::io::FileOutputStream> plain_out = *plain_file_result;
+        ::parquet::WriterProperties::Builder plain_builder;
+        plain_builder.version(::parquet::ParquetVersion::PARQUET_2_6);
+        plain_builder.data_page_version(::parquet::ParquetDataPageVersion::V2);
+        plain_builder.compression(::parquet::Compression::UNCOMPRESSED);
+        plain_builder.disable_dictionary();
+        PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(
+                *table, arrow::default_memory_pool(), plain_out, ROW_COUNT, plain_builder.build()));
+        DORIS_CHECK(plain_out->Close().ok());
+
+        _plain_file_reader = ::parquet::ParquetFileReader::OpenFile(_plain_file_path, false);
+        auto metadata = _plain_file_reader->metadata();
+        DORIS_CHECK(metadata != nullptr);
+        DORIS_CHECK(metadata->num_row_groups() == 1);
+        _plain_row_group = _plain_file_reader->RowGroup(0);
+        DORIS_CHECK(_plain_row_group != nullptr);
+
+        ParquetColumnReaderFactory factory(_plain_row_group, metadata->num_columns());
+        std::unique_ptr<ParquetColumnReader> reader;
+        auto st = factory.create(*_fields[field_idx], &reader);
+        EXPECT_TRUE(st.ok()) << st;
+        return reader;
+    }
+
     std::unique_ptr<ParquetColumnReader> create_projected_child_reader(size_t field_idx,
                                                                        size_t child_idx) const {
         const auto& struct_schema = *_fields[field_idx];
@@ -1887,8 +1920,11 @@ protected:
 
     std::filesystem::path _test_dir;
     std::string _file_path;
+    std::string _plain_file_path;
     std::unique_ptr<::parquet::ParquetFileReader> _file_reader;
+    std::unique_ptr<::parquet::ParquetFileReader> _plain_file_reader;
     std::shared_ptr<::parquet::RowGroupReader> _row_group;
+    std::shared_ptr<::parquet::RowGroupReader> _plain_row_group;
     std::vector<std::unique_ptr<ParquetColumnSchema>> _fields;
     std::vector<std::shared_ptr<arrow::Field>> _arrow_fields;
     std::vector<std::shared_ptr<arrow::Array>> _arrays;
@@ -3190,6 +3226,35 @@ TEST_F(ParquetColumnReaderTest, SkipMapWithOverflowThenRead) {
     EXPECT_EQ(offsets[0], 0);
     EXPECT_EQ(offsets[1], 0);
     EXPECT_EQ(offsets[2], 1);
+}
+
+TEST_F(ParquetColumnReaderTest, SkipPlainBinaryMapThenReadResetsArrowBuilder) {
+    const auto field_idx = find_field_idx("nullable_map_int_string_col");
+    auto reader = create_plain_reader(field_idx);
+
+    // Row 0 contains two STRING values. The levels-only skip must release (and discard) those
+    // Arrow BinaryRecordReader builder chunks before the next normal read. If they leak into the
+    // next batch, ParquetLeafReader observes more values than current definition/repetition levels.
+    auto st = reader->skip(1);
+    ASSERT_TRUE(st.ok()) << st;
+
+    MutableColumnPtr column = reader->type()->create_column();
+    int64_t rows_read = 0;
+    st = reader->read(3, column, &rows_read);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_EQ(rows_read, 3);
+
+    const auto& nullable_column = assert_cast<const ColumnNullable&>(*column);
+    ASSERT_EQ(nullable_column.size(), 3);
+    EXPECT_TRUE(nullable_column.is_null_at(0));
+    const auto& map_column = assert_cast<const ColumnMap&>(nullable_column.get_nested_column());
+    ASSERT_EQ(map_column.get_offsets().size(), 3);
+    EXPECT_EQ(map_column.get_offsets()[0], 0);
+    EXPECT_EQ(map_column.get_offsets()[1], 0);
+    EXPECT_EQ(map_column.get_offsets()[2], 1);
+    const auto& values = get_nullable_nested_column<ColumnString>(map_column.get_values());
+    ASSERT_EQ(values.size(), 1);
+    EXPECT_EQ(values.get_data_at(0).to_string(), "cc");
 }
 
 TEST_F(ParquetColumnReaderTest, SelectMapWithOverflow) {
