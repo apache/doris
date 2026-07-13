@@ -1078,6 +1078,18 @@ static bool mapping_can_use_file_column_directly(const ColumnMapping& mapping) {
     return !needs_complex_rematerialize(mapping);
 }
 
+static FilterConversionType direct_filter_conversion(const ColumnMapping& mapping) {
+    DORIS_CHECK(mapping.table_type != nullptr);
+    // FileScanOperator deliberately keeps VARBINARY predicates above external readers. Their
+    // physical binary representations are not uniformly supported by reader-side expression and
+    // metadata filtering, so localizing a late runtime filter here can incorrectly reject rows.
+    if (remove_nullable(mapping.table_type)->get_primitive_type() == TYPE_VARBINARY) {
+        return FilterConversionType::FINALIZE_ONLY;
+    }
+    return mapping.is_trivial ? FilterConversionType::COPY_DIRECTLY
+                              : FilterConversionType::CAST_FILTER;
+}
+
 static const ColumnDefinition* find_file_child_for_mapping(const ColumnDefinition& table_child,
                                                            const ColumnDefinition& file_parent,
                                                            TableColumnMappingMode mode,
@@ -1958,8 +1970,7 @@ Status TableColumnMapper::_create_direct_mapping(const ColumnDefinition& table_c
     mapping->projected_file_children = file_field.children;
     mapping->file_type = file_field.type;
     mapping->is_trivial = mapping_can_use_file_column_directly(*mapping);
-    mapping->filter_conversion = mapping->is_trivial ? FilterConversionType::COPY_DIRECTLY
-                                                     : FilterConversionType::CAST_FILTER;
+    mapping->filter_conversion = direct_filter_conversion(*mapping);
     mapping->child_mappings.clear();
 
     auto table_children = table_column.children;
