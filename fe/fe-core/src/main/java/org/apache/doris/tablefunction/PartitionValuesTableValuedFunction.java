@@ -28,8 +28,6 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.PluginDrivenExternalTable;
-import org.apache.doris.datasource.hive.HMSExternalCatalog;
-import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -114,8 +112,7 @@ public class PartitionValuesTableValuedFunction extends MetadataTableValuedFunct
             throw new AnalysisException("can not find catalog: " + catalogName);
         }
         // disallow unsupported catalog
-        if (!(catalog.isInternalCatalog() || catalog instanceof HMSExternalCatalog
-                || catalog instanceof PluginDrivenExternalCatalog)) {
+        if (!(catalog.isInternalCatalog() || catalog instanceof PluginDrivenExternalCatalog)) {
             throw new AnalysisException(String.format("Catalog of type '%s' is not allowed in ShowPartitionsStmt",
                     catalog.getType()));
         }
@@ -135,12 +132,6 @@ public class PartitionValuesTableValuedFunction extends MetadataTableValuedFunct
 
         // A flipped hms table is a PluginDrivenExternalTable, not an HMSExternalTable; both are served
         // via their common partition SPI below, mirroring the $partitions TVF (PartitionsTableValuedFunction).
-        if (table instanceof HMSExternalTable) {
-            if (!((HMSExternalTable) table).isPartitionedTable()) {
-                throw new AnalysisException("Table " + tableName + " is not a partitioned table");
-            }
-            return table;
-        }
         if (table instanceof PluginDrivenExternalTable) {
             if (!((PluginDrivenExternalTable) table).isPartitionedTable()) {
                 throw new AnalysisException("Table " + tableName + " is not a partitioned table");

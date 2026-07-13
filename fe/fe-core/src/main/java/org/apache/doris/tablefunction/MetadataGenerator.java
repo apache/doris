@@ -69,8 +69,6 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.PluginDrivenExternalTable;
 import org.apache.doris.datasource.TablePartitionValues;
-import org.apache.doris.datasource.hive.HMSExternalCatalog;
-import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.metacache.MetaCacheEntryStats;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccUtil;
@@ -459,17 +457,11 @@ public class MetadataGenerator {
             return errorResult("Unsupported hudi inspect type: " + hudiQueryType);
         }
 
-        // Dual-arm on table type (mirrors partitionValuesMetadataResult): a LEGACY hms-backed hudi table is an
-        // HMSExternalTable served from HudiExternalMetaCache; a flipped hudi table is a PluginDrivenExternalTable
-        // served by its connector via the SUPPORTS_METADATA_TABLE SPI. Timeline iteration/parsing lives OUTSIDE
-        // this class in both arms, so MetadataGenerator no longer imports org.apache.hudi. The plugin arm is
-        // dormant until the hudi catalog is flipped; the HMS arm keeps serving the 4 p2 hudi_meta suites today.
+        // A flipped hudi table is a PluginDrivenExternalTable served by its connector via the
+        // SUPPORTS_METADATA_TABLE SPI. Timeline iteration/parsing lives OUTSIDE this class, so
+        // MetadataGenerator no longer imports org.apache.hudi.
         List<List<String>> timelineRows;
         switch (dorisTable.getType()) {
-            case HMS_EXTERNAL_TABLE:
-                timelineRows = Env.getCurrentEnv().getExtMetaCacheMgr().hudi(catalog.getId())
-                        .getTimelineRows(dorisTable.getOrBuildNameMapping());
-                break;
             case PLUGIN_EXTERNAL_TABLE: {
                 PluginDrivenExternalTable pluginTable = (PluginDrivenExternalTable) dorisTable;
                 if (!pluginTable.supportsMetadataTable()) {
@@ -1322,29 +1314,12 @@ public class MetadataGenerator {
             return dealInternalCatalog((Database) db, table);
         } else if (catalog instanceof PluginDrivenExternalCatalog) {
             return dealPluginDrivenCatalog((PluginDrivenExternalCatalog) catalog, (ExternalTable) table);
-        } else if (catalog instanceof HMSExternalCatalog) {
-            return dealHMSCatalog((HMSExternalCatalog) catalog, (ExternalTable) table);
         }
 
         if (LOG.isDebugEnabled()) {
             LOG.debug("partitionMetadataResult() end");
         }
         return errorResult("not support catalog: " + catalogName);
-    }
-
-    private static TFetchSchemaTableDataResult dealHMSCatalog(HMSExternalCatalog catalog, ExternalTable table) {
-        List<TRow> dataBatch = Lists.newArrayList();
-        List<String> partitionNames = catalog.getClient()
-                .listPartitionNames(table.getRemoteDbName(), table.getRemoteName());
-        for (String partition : partitionNames) {
-            TRow trow = new TRow();
-            trow.addToColumnValue(new TCell().setStringVal(partition));
-            dataBatch.add(trow);
-        }
-        TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
-        result.setDataBatch(dataBatch);
-        result.setStatus(new TStatus(TStatusCode.OK));
-        return result;
     }
 
     private static TFetchSchemaTableDataResult dealPluginDrivenCatalog(PluginDrivenExternalCatalog catalog,
@@ -2097,10 +2072,6 @@ public class MetadataGenerator {
             TableIf table = PartitionValuesTableValuedFunction.analyzeAndGetTable(ctlName, dbName, tblName, false);
             TableType tableType = table.getType();
             switch (tableType) {
-                case HMS_EXTERNAL_TABLE:
-                    dataBatch = partitionValuesMetadataResultForHmsTable((HMSExternalTable) table,
-                            params.getColumnsName());
-                    break;
                 case PLUGIN_EXTERNAL_TABLE:
                     dataBatch = partitionValuesMetadataResultForPluginTable((PluginDrivenExternalTable) table,
                             params.getColumnsName());
@@ -2116,13 +2087,6 @@ public class MetadataGenerator {
             LOG.warn("error when get partition values metadata. {}.{}.{}", ctlName, dbName, tblName, t);
             return errorResult("error when get partition values metadata: " + Util.getRootCauseMessage(t));
         }
-    }
-
-    private static List<TRow> partitionValuesMetadataResultForHmsTable(HMSExternalTable tbl, List<String> colNames)
-            throws AnalysisException {
-        Map<String, List<String>> valuesMap = tbl.getHivePartitionValues(
-                MvccUtil.getSnapshotFromContext(tbl)).getNameToPartitionValues();
-        return partitionValuesRows(tbl.getPartitionColumns(), colNames, valuesMap, tbl.getName());
     }
 
     // A flipped hms table (and paimon/iceberg) is a PluginDrivenExternalTable, not an HMSExternalTable; the

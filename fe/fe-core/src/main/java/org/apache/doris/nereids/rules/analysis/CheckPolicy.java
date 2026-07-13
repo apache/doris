@@ -20,7 +20,6 @@ package org.apache.doris.nereids.rules.analysis;
 import org.apache.doris.connector.api.pushdown.ConnectorExpression;
 import org.apache.doris.datasource.ConnectorExpressionToNereidsConverter;
 import org.apache.doris.datasource.PluginDrivenExternalTable;
-import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
@@ -35,7 +34,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalCheckPolicy;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCheckPolicy.RelatedPolicy;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
-import org.apache.doris.nereids.trees.plans.logical.LogicalHudiScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
@@ -91,14 +89,7 @@ public class CheckPolicy implements AnalysisRuleFactory {
                             Set<Expression> combineFilter = new LinkedHashSet<>();
 
                             // replace incremental params as AND expression
-                            if (relation instanceof LogicalHudiScan) {
-                                // Legacy hudi-on-HMS incremental read (LogicalHudiScan); deleted at the cutover.
-                                LogicalHudiScan hudiScan = (LogicalHudiScan) relation;
-                                if (hudiScan.getTable() instanceof HMSExternalTable) {
-                                    combineFilter.addAll(hudiScan.generateIncrementalExpression(
-                                            hudiScan.getLogicalProperties().getOutput()));
-                                }
-                            } else if (relation instanceof LogicalFileScan
+                            if (relation instanceof LogicalFileScan
                                     && ((LogicalFileScan) relation).getTable() instanceof PluginDrivenExternalTable
                                     && ((LogicalFileScan) relation).getScanParams().isPresent()) {
                                 // Neutral synthetic-predicate injection for an SPI-driven (plugin) scan: the

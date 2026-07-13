@@ -41,9 +41,6 @@ import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.PluginDrivenExternalTable;
 import org.apache.doris.datasource.doris.RemoteDorisExternalTable;
-import org.apache.doris.datasource.hive.HMSExternalDatabase;
-import org.apache.doris.datasource.hive.HMSExternalTable;
-import org.apache.doris.datasource.hive.HiveUtil;
 import org.apache.doris.dictionary.Dictionary;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
@@ -51,7 +48,6 @@ import org.apache.doris.nereids.analyzer.Scope;
 import org.apache.doris.nereids.analyzer.UnboundBlackholeSink;
 import org.apache.doris.nereids.analyzer.UnboundConnectorTableSink;
 import org.apache.doris.nereids.analyzer.UnboundDictionarySink;
-import org.apache.doris.nereids.analyzer.UnboundHiveTableSink;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundTVFTableSink;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
@@ -82,7 +78,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalBlackholeSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalConnectorTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalDictionarySink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
-import org.apache.doris.nereids.trees.plans.logical.LogicalHiveTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
@@ -156,8 +151,6 @@ public class BindSink implements AnalysisRuleFactory {
                             return fileSink.withOutputExprs(output);
                         })
                 ),
-                // TODO: bind hive target table
-                RuleType.BINDING_INSERT_HIVE_TABLE.build(unboundHiveTableSink().thenApply(this::bindHiveTableSink)),
                 RuleType.BINDING_INSERT_CONNECTOR_TABLE.build(
                     unboundConnectorTableSink().thenApply(this::bindConnectorTableSink)),
                 RuleType.BINDING_INSERT_DICTIONARY_TABLE
@@ -657,63 +650,6 @@ public class BindSink implements AnalysisRuleFactory {
                 Optional.empty(), Optional.empty(), projectWithCast);
     }
 
-    private Plan bindHiveTableSink(MatchingContext<UnboundHiveTableSink<Plan>> ctx) {
-        UnboundHiveTableSink<?> sink = ctx.root;
-        Pair<HMSExternalDatabase, HMSExternalTable> pair = bind(ctx.cascadesContext, sink);
-        HMSExternalDatabase database = pair.first;
-        HMSExternalTable table = pair.second;
-        LogicalPlan child = ((LogicalPlan) sink.child());
-
-        if (!sink.getPartitions().isEmpty()) {
-            throw new AnalysisException("Not support insert with partition spec in hive catalog.");
-        }
-
-        // Fast-fail: if the table-level SD already declares an LZO InputFormat, reject immediately
-        // without entering the expensive partition-lookup path in bindDataSink().
-        // Note: this is a best-effort early check.  The definitive LZO guard lives in
-        // BaseExternalTableDataSink.getTFileFormatType(), which is called for both the table-level
-        // SD and every existing partition SD — covering the case where the table SD is plain text
-        // but individual partitions override it with an LZO InputFormat.
-        String inputFormat = table.getRemoteTable().getSd().getInputFormat();
-        if (HiveUtil.isLzoInputFormat(inputFormat)) {
-            throw new AnalysisException("INSERT INTO is not supported for LZO Hive tables "
-                    + "(input format: " + inputFormat + "). LZO tables are read-only in Doris.");
-        }
-
-        List<Column> bindColumns;
-        if (sink.getColNames().isEmpty()) {
-            bindColumns = table.getBaseSchema(true).stream().collect(ImmutableList.toImmutableList());
-        } else {
-            bindColumns = sink.getColNames().stream().map(cn -> {
-                Column column = table.getColumn(cn);
-                if (column == null) {
-                    throw new AnalysisException(String.format("column %s is not found in table %s",
-                            cn, table.getName()));
-                }
-                return column;
-            }).collect(ImmutableList.toImmutableList());
-        }
-        LogicalHiveTableSink<?> boundSink = new LogicalHiveTableSink<>(
-                database,
-                table,
-                bindColumns,
-                child.getOutput().stream()
-                    .map(NamedExpression.class::cast)
-                    .collect(ImmutableList.toImmutableList()),
-                sink.getDMLCommandType(),
-                Optional.empty(),
-                Optional.empty(),
-                child);
-        // we need to insert all the columns of the target table
-        if (boundSink.getCols().size() != child.getOutput().size()) {
-            throw new AnalysisException("insert into cols should be corresponding to the query output");
-        }
-        Map<String, NamedExpression> columnToOutput = getColumnToOutput(ctx, table, false, false,
-                boundSink, child);
-        LogicalProject<?> fullOutputProject = getOutputProjectByCoercion(table.getFullSchema(), child, columnToOutput);
-        return boundSink.withChildAndUpdateOutput(fullOutputProject);
-    }
-
     /**
      * Connector analogue of the retired legacy iceberg static-partition validation: validates a
      * flipped-connector table's
@@ -1024,21 +960,6 @@ public class BindSink implements AnalysisRuleFactory {
         }
         return Pair.of(pair.first, pair.second instanceof RemoteDorisExternalTable
                 ? ((RemoteDorisExternalTable) pair.second).getOlapTable() : (OlapTable) pair.second);
-    }
-
-    private Pair<HMSExternalDatabase, HMSExternalTable> bind(CascadesContext cascadesContext,
-                                                             UnboundHiveTableSink<? extends Plan> sink) {
-        List<String> tableQualifier = RelationUtil.getQualifierName(cascadesContext.getConnectContext(),
-                sink.getNameParts());
-        Pair<DatabaseIf<?>, TableIf> pair = RelationUtil.getDbAndTable(tableQualifier,
-                cascadesContext.getConnectContext().getEnv(), Optional.empty());
-        if (pair.second instanceof HMSExternalTable) {
-            HMSExternalTable table = (HMSExternalTable) pair.second;
-            if (table.getDlaType() == HMSExternalTable.DLAType.HIVE) {
-                return Pair.of(((HMSExternalDatabase) pair.first), table);
-            }
-        }
-        throw new AnalysisException("the target table of insert into is not a Hive table");
     }
 
     @SuppressWarnings("rawtypes")

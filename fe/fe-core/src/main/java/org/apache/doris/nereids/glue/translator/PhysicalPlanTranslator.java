@@ -61,9 +61,7 @@ import org.apache.doris.datasource.doris.RemoteOlapTable;
 import org.apache.doris.datasource.doris.source.RemoteDorisScanNode;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
-import org.apache.doris.datasource.hive.source.HiveScanNode;
 import org.apache.doris.datasource.hudi.source.HudiScanNode;
-import org.apache.doris.datasource.iceberg.source.IcebergScanNode;
 import org.apache.doris.datasource.lakesoul.LakeSoulExternalTable;
 import org.apache.doris.datasource.lakesoul.source.LakeSoulScanNode;
 import org.apache.doris.datasource.mvcc.MvccUtil;
@@ -827,36 +825,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                         fileScan.getTableSample().get().sampleValue, fileScan.getTableSample().get().seek));
             }
             scanNode = pluginScanNode;
-        } else if (table instanceof HMSExternalTable) {
-            if (directoryLister == null) {
-                this.directoryLister = new TransactionScopeCachingDirectoryListerFactory(
-                        Config.max_external_table_split_file_meta_cache_num).get(new FileSystemDirectoryLister());
-            }
-            switch (((HMSExternalTable) table).getDlaType()) {
-                case ICEBERG:
-                    scanNode = new IcebergScanNode(context.nextPlanNodeId(), tupleDescriptor, false, sv,
-                            context.getScanContext());
-                    break;
-                case HIVE:
-                    scanNode = new HiveScanNode(context.nextPlanNodeId(), tupleDescriptor, false, sv, directoryLister,
-                            context.getScanContext());
-                    HiveScanNode hiveScanNode = (HiveScanNode) scanNode;
-                    hiveScanNode.setSelectedPartitions(fileScan.getSelectedPartitions());
-                    if (fileScan.getTableSample().isPresent()) {
-                        hiveScanNode.setTableSample(new TableSample(fileScan.getTableSample().get().isPercent,
-                                fileScan.getTableSample().get().sampleValue, fileScan.getTableSample().get().seek));
-                    }
-                    break;
-                case HUDI:
-                    // HUDI table should be handled by visitPhysicalHudiScan, not here.
-                    // If we reach here, it means LogicalHudiScan was incorrectly converted to
-                    // PhysicalFileScan.
-                    throw new RuntimeException("HUDI table should use PhysicalHudiScan instead of PhysicalFileScan. "
-                            + "This indicates a bug in the optimizer rules. "
-                            + "FileScan class: " + fileScan.getClass().getSimpleName());
-                default:
-                    throw new RuntimeException("do not support DLA type " + ((HMSExternalTable) table).getDlaType());
-            }
         } else if (table instanceof LakeSoulExternalTable) {
             scanNode = new LakeSoulScanNode(context.nextPlanNodeId(), tupleDescriptor, false, sv,
                     context.getScanContext());

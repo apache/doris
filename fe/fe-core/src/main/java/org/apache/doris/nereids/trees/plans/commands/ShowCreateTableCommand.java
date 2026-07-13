@@ -34,8 +34,6 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.PluginDrivenExternalTable;
 import org.apache.doris.datasource.PluginDrivenSysExternalTable;
-import org.apache.doris.datasource.hive.HMSExternalTable;
-import org.apache.doris.datasource.hive.HiveMetaStoreClientHelper;
 import org.apache.doris.datasource.systable.SysTable;
 import org.apache.doris.datasource.systable.SysTableResolver;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -153,11 +151,6 @@ public class ShowCreateTableCommand extends ShowCommand {
 
         table.readLock();
         try {
-            if (table.getType() == Table.TableType.HMS_EXTERNAL_TABLE) {
-                rows.add(Arrays.asList(table.getName(),
-                        HiveMetaStoreClientHelper.showCreateTable((HMSExternalTable) table)));
-                return new ShowResultSet(META_DATA, rows);
-            }
             if (table instanceof PluginDrivenExternalTable && ((PluginDrivenExternalTable) table).isView()) {
                 // Flipped iceberg view: reproduce the legacy ICEBERG_EXTERNAL_TABLE view arm above on the
                 // neutral plugin path (only iceberg declares SUPPORTS_VIEW). Render the same bytes as

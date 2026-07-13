@@ -40,7 +40,6 @@ import org.apache.doris.catalog.stream.BaseTableStream.StreamScanType;
 import org.apache.doris.catalog.stream.OlapTableStream;
 import org.apache.doris.catalog.stream.OlapTableStreamWrapper;
 import org.apache.doris.catalog.stream.StreamReadMode;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.Util;
@@ -48,8 +47,6 @@ import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.ExternalView;
 import org.apache.doris.datasource.PluginDrivenExternalTable;
 import org.apache.doris.datasource.doris.RemoteDorisExternalTable;
-import org.apache.doris.datasource.hive.HMSExternalTable;
-import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
 import org.apache.doris.datasource.systable.SysTableResolver;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.nereids.CTEContext;
@@ -102,7 +99,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
-import org.apache.doris.nereids.trees.plans.logical.LogicalHudiScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOdbcScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableStreamScan;
@@ -750,33 +746,6 @@ public class BindRelation extends OneAnalysisRuleFactory {
                     Plan viewBody = parseAndAnalyzeDorisView(view, qualifiedTableName, cascadesContext);
                     LogicalView<Plan> logicalView = new LogicalView<>(view, viewBody);
                     return new LogicalSubQueryAlias<>(qualifiedTableName, logicalView);
-                case HMS_EXTERNAL_TABLE:
-                    HMSExternalTable hmsTable = (HMSExternalTable) table;
-                    if (Config.enable_query_hive_views && hmsTable.isView()) {
-                        isView = true;
-                        String hiveCatalog = hmsTable.getCatalog().getName();
-                        String hiveDb = hmsTable.getDatabase().getFullName();
-                        String ddlSql = hmsTable.getViewText();
-                        Plan hiveViewPlan = parseAndAnalyzeExternalView(
-                                hmsTable, hiveCatalog, hiveDb, ddlSql, cascadesContext);
-                        return new LogicalSubQueryAlias<>(qualifiedTableName, hiveViewPlan);
-                    }
-                    if (hmsTable.getDlaType() == DLAType.HUDI) {
-                        LogicalHudiScan hudiScan = new LogicalHudiScan(unboundRelation.getRelationId(), hmsTable,
-                                qualifierWithoutTableName, ImmutableList.of(), Optional.empty(),
-                                unboundRelation.getTableSample(), unboundRelation.getTableSnapshot(),
-                                Optional.empty());
-                        hudiScan = hudiScan.withScanParams(
-                                hmsTable, Optional.ofNullable(unboundRelation.getScanParams()));
-                        return hudiScan;
-                    } else {
-                        return new LogicalFileScan(unboundRelation.getRelationId(), (HMSExternalTable) table,
-                                qualifierWithoutTableName,
-                                ImmutableList.of(),
-                                unboundRelation.getTableSample(),
-                                unboundRelation.getTableSnapshot(),
-                                Optional.ofNullable(unboundRelation.getScanParams()), Optional.empty());
-                    }
                 case PAIMON_EXTERNAL_TABLE:
                 case MAX_COMPUTE_EXTERNAL_TABLE:
                 case TRINO_CONNECTOR_EXTERNAL_TABLE:

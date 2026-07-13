@@ -49,7 +49,6 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.PluginDrivenExternalCatalog;
-import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.CascadesContext;
@@ -384,9 +383,7 @@ public class CreateTableInfo {
             return;
         }
         CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(ctlName);
-        if (catalog instanceof HMSExternalCatalog && !engineName.equals(ENGINE_HIVE)) {
-            throw new AnalysisException("Hms type catalog can only use `hive` engine.");
-        } else if (catalog instanceof PluginDrivenExternalCatalog) {
+        if (catalog instanceof PluginDrivenExternalCatalog) {
             // After the SPI cutover a max_compute / paimon catalog is a PluginDrivenExternalCatalog; mirror
             // the legacy per-type consistency check, keyed on the connector type.
             String pluginEngine = pluginCatalogTypeToEngine((PluginDrivenExternalCatalog) catalog);
@@ -907,8 +904,6 @@ public class CreateTableInfo {
 
             if (catalog instanceof InternalCatalog) {
                 engineName = ENGINE_OLAP;
-            } else if (catalog instanceof HMSExternalCatalog) {
-                engineName = ENGINE_HIVE;
             } else if (catalog instanceof PluginDrivenExternalCatalog
                     && pluginCatalogTypeToEngine((PluginDrivenExternalCatalog) catalog) != null) {
                 // After the SPI cutover a max_compute / paimon catalog is a PluginDrivenExternalCatalog; pad

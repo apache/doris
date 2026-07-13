@@ -23,7 +23,6 @@ import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.PluginDrivenExternalTable;
-import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
@@ -39,9 +38,6 @@ import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
-import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.SessionVariable;
-import org.apache.doris.thrift.TFileFormatType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -238,28 +234,6 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
             // below is dead for them. Only enabled when the connector also carries nested field ids (see
             // SUPPORTS_NESTED_COLUMN_PRUNE / SlotTypeReplacer), else nested leaves would read NULL.
             return ((PluginDrivenExternalTable) table).supportsNestedColumnPrune();
-        }
-        if (table instanceof HMSExternalTable) {
-            HMSExternalTable hmsTable = (HMSExternalTable) table;
-            if (hmsTable.getDlaType() == HMSExternalTable.DLAType.HUDI) {
-                // Don't prune nested column for HUDI table for now, because HUDI table
-                // may have some issues when pruning nested column.
-                return false;
-            }
-            try {
-                ConnectContext connectContext = ConnectContext.get();
-                SessionVariable sessionVariable = connectContext.getSessionVariable();
-                TFileFormatType fileFormatType = ((HMSExternalTable) table).getFileFormatType(sessionVariable);
-                switch (fileFormatType) {
-                    case FORMAT_PARQUET:
-                    case FORMAT_ORC:
-                        return true;
-                    default:
-                        return false;
-                }
-            } catch (Throwable t) {
-                // ignore and not prune
-            }
         }
         return false;
     }

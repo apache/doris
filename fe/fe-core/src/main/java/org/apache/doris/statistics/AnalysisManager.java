@@ -44,7 +44,6 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.PluginDrivenExternalTable;
-import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.info.TableNameInfoUtils;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -1489,8 +1488,7 @@ public class AnalysisManager implements Writable {
                 && ((PluginDrivenExternalTable) table).supportsSampleAnalyze()) {
             return true;
         }
-        return table instanceof HMSExternalTable
-                && ((HMSExternalTable) table).getDlaType().equals(HMSExternalTable.DLAType.HIVE);
+        return false;
     }
 
 

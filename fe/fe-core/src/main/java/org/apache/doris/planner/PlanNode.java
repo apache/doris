@@ -20,7 +20,6 @@
 
 package org.apache.doris.planner;
 
-import org.apache.doris.analysis.ColumnAccessPath;
 import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprSubstitutionMap;
@@ -36,7 +35,6 @@ import org.apache.doris.common.Id;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.TreeNode;
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.iceberg.source.IcebergScanNode;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.planner.LocalExchangeNode.LocalExchangeType;
 import org.apache.doris.planner.LocalExchangeNode.LocalExchangeTypeRequire;
@@ -946,33 +944,19 @@ public abstract class PlanNode extends TreeNode<PlanNode> {
             if (slot.getDisplayAllAccessPaths() != null
                     && slot.getDisplayAllAccessPaths() != null
                     && !slot.getDisplayAllAccessPaths().isEmpty()) {
-                if (this instanceof IcebergScanNode) {
-                    displayAllAccessPathsString = mergeIcebergAccessPathsWithId(
-                            slot.getAllAccessPaths(),
-                            slot.getDisplayAllAccessPaths()
-                    );
-                } else {
-                    displayAllAccessPathsString = slot.getDisplayAllAccessPaths()
-                            .stream()
-                            .map(a -> StringUtils.join(a.getPath(), "."))
-                            .collect(Collectors.joining(", "));
-                }
+                displayAllAccessPathsString = slot.getDisplayAllAccessPaths()
+                        .stream()
+                        .map(a -> StringUtils.join(a.getPath(), "."))
+                        .collect(Collectors.joining(", "));
             }
             String displayPredicateAccessPathsString = null;
             if (slot.getDisplayPredicateAccessPaths() != null
                     && slot.getDisplayPredicateAccessPaths() != null
                     && !slot.getDisplayPredicateAccessPaths().isEmpty()) {
-                if (this instanceof IcebergScanNode) {
-                    displayPredicateAccessPathsString = mergeIcebergAccessPathsWithId(
-                            slot.getPredicateAccessPaths(),
-                            slot.getDisplayPredicateAccessPaths()
-                    );
-                } else {
-                    displayPredicateAccessPathsString = slot.getPredicateAccessPaths()
-                            .stream()
-                            .map(a -> StringUtils.join(a.getPath(), "."))
-                            .collect(Collectors.joining(", "));
-                }
+                displayPredicateAccessPathsString = slot.getPredicateAccessPaths()
+                        .stream()
+                        .map(a -> StringUtils.join(a.getPath(), "."))
+                        .collect(Collectors.joining(", "));
             }
 
 
@@ -1006,30 +990,6 @@ public abstract class PlanNode extends TreeNode<PlanNode> {
                         .append(displayPredicateAccessPathsString).append("]\n");
             }
         }
-    }
-
-    private String mergeIcebergAccessPathsWithId(
-            List<ColumnAccessPath> accessPaths, List<ColumnAccessPath> displayAccessPaths) {
-        List<String> mergeDisplayAccessPaths = Lists.newArrayList();
-        for (int i = 0; i < displayAccessPaths.size(); i++) {
-            ColumnAccessPath displayAccessPath = displayAccessPaths.get(i);
-            ColumnAccessPath idAccessPath = accessPaths.get(i);
-            List<String> nameAccessPathStrings = displayAccessPath.getPath();
-            List<String> idAccessPathStrings = idAccessPath.getPath();
-
-            List<String> mergedPath = new ArrayList<>();
-            for (int j = 0; j < idAccessPathStrings.size(); j++) {
-                String name = nameAccessPathStrings.get(j);
-                String id = idAccessPathStrings.get(j);
-                if (name.equals(id)) {
-                    mergedPath.add(name);
-                } else {
-                    mergedPath.add(name + "(" + id + ")");
-                }
-            }
-            mergeDisplayAccessPaths.add(StringUtils.join(mergedPath, "."));
-        }
-        return StringUtils.join(mergeDisplayAccessPaths, ", ");
     }
 
     public Pair<PlanNode, LocalExchangeType> enforceAndDeriveLocalExchange(

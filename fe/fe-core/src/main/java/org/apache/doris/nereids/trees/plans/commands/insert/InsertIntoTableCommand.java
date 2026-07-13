@@ -26,7 +26,6 @@ import org.apache.doris.catalog.stream.TableStreamUpdateInfo;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
-import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.ProfileManager.ProfileType;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.Util;
@@ -35,7 +34,6 @@ import org.apache.doris.datasource.FileScanNode;
 import org.apache.doris.datasource.PluginDrivenExternalTable;
 import org.apache.doris.datasource.doris.RemoteDorisExternalTable;
 import org.apache.doris.datasource.doris.RemoteOlapTable;
-import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.dictionary.Dictionary;
 import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.load.loadv2.LoadStatistic;
@@ -70,7 +68,6 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalBlackholeSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalConnectorTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDictionarySink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalHiveTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSink;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -503,21 +500,6 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
                                     && coordinator.getQueryOptions().isEnableMemtableOnSinkNode();
                     coordinator.getQueryOptions().setEnableMemtableOnSinkNode(isEnableMemtableOnSinkNode);
                 });
-            } else if (physicalSink instanceof PhysicalHiveTableSink) {
-                boolean emptyInsert = childIsEmptyRelation(physicalSink);
-                HMSExternalTable hiveExternalTable = (HMSExternalTable) targetTableIf;
-                if (hiveExternalTable.isHiveTransactionalTable()) {
-                    throw new UserException("Not supported insert into hive transactional table.");
-                }
-
-                return ExecutorFactory.from(
-                        planner,
-                        dataSink,
-                        physicalSink,
-                        () -> new HiveInsertExecutor(ctx, hiveExternalTable, label, planner,
-                                Optional.of(insertCtx.orElse((new HiveInsertCommandContext()))), emptyInsert, jobId)
-                );
-                // set hive query options
             } else if (physicalSink instanceof PhysicalConnectorTableSink) {
                 boolean emptyInsert = childIsEmptyRelation(physicalSink);
                 ExternalTable externalTable = (ExternalTable) targetTableIf;

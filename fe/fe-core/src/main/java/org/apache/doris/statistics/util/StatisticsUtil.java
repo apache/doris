@@ -56,7 +56,6 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.PluginDrivenExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable;
-import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IPv4Literal;
 import org.apache.doris.nereids.trees.expressions.literal.IPv6Literal;
@@ -1004,12 +1003,6 @@ public class StatisticsUtil {
             return true;
         }
 
-        // Support HMS table (only HIVE and ICEBERG types)
-        if (table instanceof HMSExternalTable) {
-            HMSExternalTable hmsTable = (HMSExternalTable) table;
-            DLAType dlaType = hmsTable.getDlaType();
-            return dlaType.equals(DLAType.HIVE) || dlaType.equals(DLAType.ICEBERG);
-        }
         return false;
     }
 
