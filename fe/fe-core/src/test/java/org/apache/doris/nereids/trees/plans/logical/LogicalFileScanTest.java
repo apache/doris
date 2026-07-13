@@ -20,7 +20,6 @@ package org.apache.doris.nereids.trees.plans.logical;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.datasource.PluginDrivenExternalTable;
-import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 
@@ -42,10 +41,10 @@ public class LogicalFileScanTest {
         // computePluginDrivenOutput() (row-lineage columns are surfaced by the connector via getFullSchema); the
         // legacy exact-class IcebergExternalTable arm is gone. Assert the invisible v3 row-lineage columns still
         // reach the plan output.
-        Column rowIdColumn = new Column(IcebergUtils.ICEBERG_ROW_ID_COL, Type.BIGINT, true);
+        Column rowIdColumn = new Column("_row_id", Type.BIGINT, true);
         rowIdColumn.setIsVisible(false);
         Column lastUpdatedSequenceNumberColumn =
-                new Column(IcebergUtils.ICEBERG_LAST_UPDATED_SEQUENCE_NUMBER_COL, Type.BIGINT, true);
+                new Column("_last_updated_sequence_number", Type.BIGINT, true);
         lastUpdatedSequenceNumberColumn.setIsVisible(false);
         List<Column> schema = Arrays.asList(
                 new Column("id", Type.INT, true),
@@ -65,8 +64,8 @@ public class LogicalFileScanTest {
                 .collect(Collectors.toList());
         Assertions.assertEquals(Arrays.asList(
                 "id",
-                IcebergUtils.ICEBERG_ROW_ID_COL,
-                IcebergUtils.ICEBERG_LAST_UPDATED_SEQUENCE_NUMBER_COL), outputNames);
+                "_row_id",
+                "_last_updated_sequence_number"), outputNames);
     }
 
     @Test

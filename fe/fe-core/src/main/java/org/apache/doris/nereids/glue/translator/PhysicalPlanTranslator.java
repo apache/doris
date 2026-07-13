@@ -39,7 +39,6 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.connector.api.Connector;
@@ -59,15 +58,9 @@ import org.apache.doris.datasource.PluginDrivenScanNode;
 import org.apache.doris.datasource.doris.RemoteDorisExternalTable;
 import org.apache.doris.datasource.doris.RemoteOlapTable;
 import org.apache.doris.datasource.doris.source.RemoteDorisScanNode;
-import org.apache.doris.datasource.hive.HMSExternalTable;
-import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
-import org.apache.doris.datasource.hudi.source.HudiScanNode;
 import org.apache.doris.datasource.lakesoul.LakeSoulExternalTable;
 import org.apache.doris.datasource.lakesoul.source.LakeSoulScanNode;
 import org.apache.doris.datasource.mvcc.MvccUtil;
-import org.apache.doris.fs.DirectoryLister;
-import org.apache.doris.fs.FileSystemDirectoryLister;
-import org.apache.doris.fs.TransactionScopeCachingDirectoryListerFactory;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.DistributionSpecAllSingleton;
@@ -133,8 +126,6 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalGenerate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalHiveTableSink;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalHudiScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalIcebergDeleteSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalIcebergMergeSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalIntersect;
@@ -193,7 +184,6 @@ import org.apache.doris.planner.ExceptNode;
 import org.apache.doris.planner.ExchangeNode;
 import org.apache.doris.planner.GroupCommitBlockSink;
 import org.apache.doris.planner.HashJoinNode;
-import org.apache.doris.planner.HiveTableSink;
 import org.apache.doris.planner.IntersectNode;
 import org.apache.doris.planner.JoinNodeBase;
 import org.apache.doris.planner.MaterializationNode;
@@ -274,8 +264,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     private static final Logger LOG = LogManager.getLogger(PhysicalPlanTranslator.class);
     private final StatsErrorEstimator statsErrorEstimator;
     private final PlanTranslatorContext context;
-
-    private DirectoryLister directoryLister;
 
     public PhysicalPlanTranslator() {
         this(null, null);
@@ -554,16 +542,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
         rootFragment.setSink(sink);
 
-        return rootFragment;
-    }
-
-    @Override
-    public PlanFragment visitPhysicalHiveTableSink(PhysicalHiveTableSink<? extends Plan> hiveTableSink,
-                                                   PlanTranslatorContext context) {
-        PlanFragment rootFragment = hiveTableSink.child().accept(this, context);
-        rootFragment.setOutputPartition(DataPartition.UNPARTITIONED);
-        HiveTableSink sink = new HiveTableSink((HMSExternalTable) hiveTableSink.getTargetTable());
-        rootFragment.setSink(sink);
         return rootFragment;
     }
 
@@ -863,57 +841,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         emptySetNode.setDistributeExprLists(getDistributeExpr(emptyRelation));
         updateLegacyPlanIdToPhysicalPlan(planFragment.getPlanRoot(), emptyRelation);
         return planFragment;
-    }
-
-    @Override
-    public PlanFragment visitPhysicalHudiScan(PhysicalHudiScan hudiScan, PlanTranslatorContext context) {
-        List<Slot> slots = hudiScan.getOutput();
-        ExternalTable table = hudiScan.getTable();
-        TupleDescriptor tupleDescriptor = generateTupleDesc(slots, table, context);
-        SessionVariable sv = ConnectContext.get().getSessionVariable();
-
-        // Plugin-driven (SPI) Hudi: route through PluginDrivenScanNode.
-        if (table instanceof PluginDrivenExternalTable) {
-            // Fail loud: the SPI Hudi path does not yet honor time travel or incremental
-            // reads. HudiScanPlanProvider always reads the latest snapshot, and the
-            // incremental relation has no SPI representation, so honoring them silently
-            // would return wrong results (latest snapshot / full scan instead). Full
-            // support is deferred to the Hudi connector live cutover (batch E); see
-            // plan-doc DV-006 / tasks/P3.
-            if (hudiScan.getIncrementalRelation().isPresent()) {
-                throw new AnalysisException("Hudi incremental read is not yet supported via the "
-                        + "catalog SPI; it is deferred to the Hudi connector migration.");
-            }
-            if (hudiScan.getTableSnapshot().isPresent()) {
-                throw new AnalysisException("Hudi time travel (FOR TIME/VERSION AS OF) is not yet "
-                        + "supported via the catalog SPI; it is deferred to the Hudi connector migration.");
-            }
-            PluginDrivenExternalCatalog pluginCatalog =
-                    (PluginDrivenExternalCatalog) table.getCatalog();
-            ScanNode scanNode = PluginDrivenScanNode.create(context.nextPlanNodeId(), tupleDescriptor,
-                    false, sv, context.getScanContext(), pluginCatalog,
-                    (PluginDrivenExternalTable) table);
-            FileQueryScanNode fileScan = (FileQueryScanNode) scanNode;
-            hudiScan.getScanParams().ifPresent(fileScan::setScanParams);
-            return getPlanFragmentForPhysicalFileScan(hudiScan, context, scanNode);
-        }
-
-        if (directoryLister == null) {
-            this.directoryLister = new TransactionScopeCachingDirectoryListerFactory(
-                    Config.max_external_table_split_file_meta_cache_num).get(new FileSystemDirectoryLister());
-        }
-        if (!(table instanceof HMSExternalTable) || ((HMSExternalTable) table).getDlaType() != DLAType.HUDI) {
-            throw new RuntimeException("Invalid table type for Hudi scan: " + table.getType());
-        }
-        HudiScanNode hudiScanNode = new HudiScanNode(context.nextPlanNodeId(), tupleDescriptor, false,
-                hudiScan.getScanParams(), hudiScan.getIncrementalRelation(), sv,
-                directoryLister, context.getScanContext());
-        if (hudiScan.getTableSnapshot().isPresent()) {
-            hudiScanNode.setQueryTableSnapshot(hudiScan.getTableSnapshot().get());
-        }
-        hudiScanNode.setSelectedPartitions(hudiScan.getSelectedPartitions());
-        hudiScanNode.setDistributeExprLists(getDistributeExpr(hudiScan));
-        return getPlanFragmentForPhysicalFileScan(hudiScan, context, hudiScanNode);
     }
 
     @NotNull

@@ -49,7 +49,6 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.PluginDrivenExternalCatalog;
-import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.Scope;
@@ -1126,26 +1125,6 @@ public class CreateTableInfo {
                         throw new AnalysisException("Order key column[" + name + "] doesn't exist.");
                     }
                 }
-            }
-        }
-    }
-
-    /**
-     * Validate that Iceberg v3 tables do not define row-lineage reserved columns.
-     *
-     * <p>DEAD in the LIVE path: the engine-side gate (validate() for engine=iceberg) was removed — the live
-     * iceberg CREATE now validates in the connector ({@code IcebergConnectorMetadata.createTable}). This method
-     * remains ONLY because the legacy {@code IcebergMetadataOps.performCreateTable} (unreachable post-cutover)
-     * still calls it; it is deleted together with that legacy unit in the deletion phase.
-     */
-    public void validateIcebergRowLineageColumns(int formatVersion) {
-        if (formatVersion < IcebergUtils.ICEBERG_ROW_LINEAGE_MIN_VERSION) {
-            return;
-        }
-        for (ColumnDefinition columnDef : columns) {
-            if (IcebergUtils.isIcebergRowLineageColumn(columnDef.getName())) {
-                throw new AnalysisException("Cannot create Iceberg v" + formatVersion
-                        + " table with reserved row lineage column: " + columnDef.getName());
             }
         }
     }
