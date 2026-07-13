@@ -79,7 +79,7 @@ private:
             }
 
             const BitmapValue& value = data[i];
-            if (value.empty()) {
+            if (!value.cardinality()) {
                 result_null_map[i] = true;
                 result_data[i] = 0;
                 continue;

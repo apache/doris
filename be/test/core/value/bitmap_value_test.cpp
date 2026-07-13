@@ -544,6 +544,18 @@ TEST(BitmapValueTest, bitmap_xor_single_and_set) {
     config::enable_set_in_bitmap_value = false;
 }
 
+TEST(BitmapValueTest, bitmap_xor_same_set_returns_empty) {
+    config::enable_set_in_bitmap_value = true;
+
+    BitmapValue lhs({1, 2});
+    lhs ^= BitmapValue({1, 2});
+
+    EXPECT_EQ(0, lhs.cardinality());
+    EXPECT_EQ(BitmapTypeCode::EMPTY, lhs.get_type_code());
+
+    config::enable_set_in_bitmap_value = false;
+}
+
 TEST(BitmapValueTest, bitmap_xor_set_bitmap_clear_stale_set) {
     config::enable_set_in_bitmap_value = true;
 

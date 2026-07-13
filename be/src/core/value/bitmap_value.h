@@ -1417,6 +1417,11 @@ public:
         this->add_many(bits.data(), bits.size());
     }
 
+    explicit BitmapValue(const std::vector<uint64_t>& bits) : _is_shared(false) {
+        _type = EMPTY;
+        add_many(bits.data(), bits.size());
+    }
+
     BitmapTypeCode::type get_type_code() const {
         switch (_type) {
         case EMPTY:
@@ -1990,6 +1995,7 @@ public:
 
                 if (_set.size() + add_count <= SET_TYPE_THRESHOLD) {
                     _set.insert_many(values_to_add.data(), add_count);
+                    _convert_to_smaller_type();
                 } else {
                     _convert_set_to_bitmap();
                     _bitmap->addMany(add_count, values_to_add.data());
