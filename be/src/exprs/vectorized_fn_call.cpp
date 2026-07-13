@@ -37,6 +37,7 @@
 #include "core/block/column_numbers.h"
 #include "core/column/column.h"
 #include "core/column/column_array.h"
+#include "core/column/column_const.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type.h"
@@ -173,6 +174,10 @@ Status VectorizedFnCall::prepare(RuntimeState* state, const RowDescriptor& desc,
                                      _fn.name.function_name, get_child_type_names(),
                                      _data_type->get_name());
     }
+    _always_const_arguments.assign(_children.size(), nullptr);
+    for (auto index : _function->get_const_argument_indexes()) {
+        DORIS_CHECK_LT(index, _always_const_arguments.size());
+    }
     VExpr::register_function_context(state, context);
     _function_name = _fn.name.function_name;
     _prepare_finished = true;
@@ -192,9 +197,22 @@ Status VectorizedFnCall::open(RuntimeState* state, VExprContext* context,
     }
     RETURN_IF_ERROR(VExpr::init_function_context(state, context, scope, _function));
     if (scope == FunctionContext::FRAGMENT_LOCAL) {
+        RETURN_IF_ERROR(_init_always_const_arguments(context));
         RETURN_IF_ERROR(VExpr::get_const_col(context, nullptr));
     }
     _open_finished = true;
+    return Status::OK();
+}
+
+Status VectorizedFnCall::_init_always_const_arguments(VExprContext* context) {
+    for (auto index : _function->get_const_argument_indexes()) {
+        ColumnPtr column;
+        RETURN_IF_ERROR(_children[index]->execute_column(context, nullptr, nullptr, 1, column));
+        if (!is_column_const(*column)) {
+            column = ColumnConst::create(std::move(column), 1);
+        }
+        _always_const_arguments[index] = std::move(column);
+    }
     return Status::OK();
 }
 
@@ -276,8 +294,12 @@ Status VectorizedFnCall::_do_execute(VExprContext* context, const Block* block,
 
     for (int i = 0; i < _children.size(); ++i) {
         ColumnPtr tmp_arg_column;
-        RETURN_IF_ERROR(
-                _children[i]->execute_column(context, block, selector, count, tmp_arg_column));
+        if (_always_const_arguments[i]) {
+            tmp_arg_column = _always_const_arguments[i];
+        } else {
+            RETURN_IF_ERROR(
+                    _children[i]->execute_column(context, block, selector, count, tmp_arg_column));
+        }
         auto arg_type = _children[i]->execute_type(block);
         temp_block.insert({tmp_arg_column, arg_type, _children[i]->expr_name()});
         args[i] = i;

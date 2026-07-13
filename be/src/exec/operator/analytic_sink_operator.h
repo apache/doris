@@ -115,6 +115,7 @@ private:
     VExprContextSPtrs _order_by_eq_expr_ctxs;
     VExprContextSPtrs _range_between_expr_ctxs;
     std::vector<std::vector<MutableColumnPtr>> _agg_input_columns;
+    std::vector<std::vector<const IColumn*>> _agg_input_column_ptrs;
     std::vector<MutableColumnPtr> _partition_by_columns;
     std::vector<MutableColumnPtr> _order_by_columns;
     std::vector<MutableColumnPtr> _range_result_columns;

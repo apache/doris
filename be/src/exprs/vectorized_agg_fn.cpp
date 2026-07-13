@@ -282,7 +282,8 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc,
 }
 
 Status AggFnEvaluator::open(RuntimeState* state) {
-    return VExpr::open(_input_exprs_ctxs, state);
+    RETURN_IF_ERROR(VExpr::open(_input_exprs_ctxs, state));
+    return _init_always_const_arguments();
 }
 
 void AggFnEvaluator::create(AggregateDataPtr place) {
@@ -385,26 +386,39 @@ std::string AggFnEvaluator::debug_string() const {
     return out.str();
 }
 
+Status AggFnEvaluator::_init_always_const_arguments() {
+    _always_const_arguments.resize(_input_exprs_ctxs.size());
+    for (int i = 0; i < _input_exprs_ctxs.size(); ++i) {
+        if (!_always_const_argument_idx[i]) {
+            continue;
+        }
+        ColumnWithTypeAndName const_argument;
+        RETURN_IF_ERROR(_input_exprs_ctxs[i]->execute_const_expr(const_argument));
+        auto column = const_argument.column;
+        DORIS_CHECK(column);
+        if (const auto* const_column = check_and_get_column<ColumnConst>(*column)) {
+            column = const_column->get_data_column_ptr();
+        }
+        const_argument.column = ColumnConst::create(std::move(column), 1);
+        _always_const_arguments[i] = std::move(const_argument);
+    }
+    return Status::OK();
+}
+
 Status AggFnEvaluator::_calc_argument_columns(Block* block) {
     SCOPED_TIMER(_expr_timer);
     _agg_columns.resize(_input_exprs_ctxs.size());
-    std::vector<int> column_ids(_input_exprs_ctxs.size());
 
     for (int i = 0; i < _input_exprs_ctxs.size(); ++i) {
-        int column_id = block->columns();
         if (_always_const_argument_idx[i]) {
-            ColumnWithTypeAndName const_argument;
-            RETURN_IF_ERROR(_input_exprs_ctxs[i]->execute_const_expr(const_argument));
-            auto column = const_argument.column;
-            if (const auto* const_column = check_and_get_column<ColumnConst>(*column)) {
-                column = const_column->get_data_column_ptr();
-            }
-            const_argument.column = ColumnConst::create(std::move(column), block->rows());
-            block->insert(std::move(const_argument));
-        } else {
-            RETURN_IF_ERROR(_input_exprs_ctxs[i]->execute(block, &column_id));
-            block->replace_by_position_if_const(column_id);
+            DORIS_CHECK(_always_const_arguments.size() == _input_exprs_ctxs.size());
+            DORIS_CHECK(_always_const_arguments[i].column);
+            _agg_columns[i] = _always_const_arguments[i].column.get();
+            continue;
         }
+        int column_id = block->columns();
+        RETURN_IF_ERROR(_input_exprs_ctxs[i]->execute(block, &column_id));
+        block->replace_by_position_if_const(column_id);
         _agg_columns[i] = block->get_by_position(column_id).column.get();
     }
     return Status::OK();
@@ -428,6 +442,7 @@ AggFnEvaluator::AggFnEvaluator(AggFnEvaluator& evaluator, RuntimeState* state)
           _function(evaluator._function),
           _expr_name(evaluator._expr_name),
           _agg_columns(evaluator._agg_columns),
+          _always_const_arguments(evaluator._always_const_arguments),
           _always_const_argument_idx(evaluator._always_const_argument_idx) {
     if (evaluator._fn.binary_type == TFunctionBinaryType::JAVA_UDF) {
         DataTypes tmp_argument_types;

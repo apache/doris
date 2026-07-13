@@ -31,6 +31,7 @@
 #include "testutil/column_helper.h"
 #include "testutil/mock/mock_agg_fn_evaluator.h"
 #include "testutil/mock/mock_descriptors.h"
+#include "testutil/mock/mock_literal_expr.h"
 #include "testutil/mock/mock_runtime_state.h"
 #include "testutil/mock/mock_slot_ref.h"
 namespace doris {
@@ -296,6 +297,41 @@ TEST_F(AnalyticSinkOperatorTest, AggFunction) {
         EXPECT_EQ(block2.rows(), 0);
     }
     std::cout << "######### AggFunction with sum test end #########" << std::endl;
+}
+
+TEST_F(AnalyticSinkOperatorTest, OpenCachesAlwaysConstArgumentColumnPointers) {
+    Initialize(10);
+    auto double_type = std::make_shared<DataTypeFloat64>();
+    create_operator(true, 1, "percentile", {double_type, double_type}, double_type);
+    sink->_num_agg_input[0] = 2;
+
+    auto value_expr = MockSlotRef::create_mock_context(0, double_type);
+    auto const_quantile_expr = MockLiteral::create_const<DataTypeFloat64>(0.5, 1);
+    sink->_agg_expr_ctxs.resize(1);
+    sink->_agg_expr_ctxs[0] = {value_expr, const_quantile_expr};
+    sink->_agg_functions[0]->_input_exprs_ctxs = sink->_agg_expr_ctxs[0];
+    ASSERT_TRUE(sink->_agg_functions[0]->open(state.get()).ok());
+
+    create_local_state();
+
+    ASSERT_EQ(sink_local_state->_agg_input_columns.size(), 1);
+    ASSERT_EQ(sink_local_state->_agg_input_columns[0].size(), 2);
+    ASSERT_EQ(sink_local_state->_agg_input_column_ptrs.size(), 1);
+    ASSERT_EQ(sink_local_state->_agg_input_column_ptrs[0].size(), 2);
+
+    EXPECT_EQ(sink_local_state->_agg_input_column_ptrs[0][0],
+              sink_local_state->_agg_input_columns[0][0].get());
+    EXPECT_NE(sink_local_state->_agg_input_column_ptrs[0][1],
+              sink_local_state->_agg_input_columns[0][1].get());
+
+    const auto& always_const_arguments =
+            sink_local_state->_agg_functions[0]->always_const_arguments();
+    ASSERT_EQ(always_const_arguments.size(), 2);
+    ASSERT_TRUE(always_const_arguments[1].column);
+    EXPECT_EQ(sink_local_state->_agg_input_column_ptrs[0][1],
+              always_const_arguments[1].column.get());
+    EXPECT_TRUE(is_column<ColumnConst>(*sink_local_state->_agg_input_column_ptrs[0][1]));
+    EXPECT_TRUE(sink_local_state->close(state.get(), Status::OK()).ok());
 }
 
 TEST_F(AnalyticSinkOperatorTest, AggFunction2) {

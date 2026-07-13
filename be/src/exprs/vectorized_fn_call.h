@@ -119,8 +119,12 @@ protected:
     std::string _function_name;
 
 private:
+    Status _init_always_const_arguments(VExprContext* context);
     Status _do_execute(VExprContext* context, const Block* block, const Selector* selector,
                        size_t count, ColumnPtr& result_column, ColumnPtr* arg_column) const;
+
+    // Cached one-row ColumnConst arguments required to be constant by function semantics.
+    std::vector<ColumnPtr> _always_const_arguments;
 };
 
 } // namespace doris
