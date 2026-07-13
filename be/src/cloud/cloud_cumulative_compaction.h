@@ -47,14 +47,14 @@ public:
     int64_t get_input_rowsets_bytes() const { return _input_rowsets_total_size; }
     int64_t get_input_num_rows() const { return _input_row_num; }
 
+    Status garbage_collection() override;
+
 private:
     Status pick_rowsets_to_compact();
 
     std::string_view compaction_name() const override { return "CloudCumulativeCompaction"; }
 
     Status modify_rowsets() override;
-
-    Status garbage_collection() override;
 
     void update_cumulative_point();
 

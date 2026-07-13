@@ -1078,6 +1078,19 @@ Status CloudStorageEngine::_submit_cumulative_compaction_task(const CloudTabletS
                     tablet->set_last_cumu_compaction_status(
                             "cumulative compaction delayed: large task thread pool intensive");
                     tablet->set_last_cumu_compaction_failure_time(now);
+                    auto gc_st = compaction->garbage_collection();
+                    if (!gc_st.ok()) {
+                        LOG_WARNING(
+                                "failed to garbage collect delayed CloudCumulativeCompaction")
+                                .tag("tablet_id", tablet->tablet_id())
+                                .error(gc_st);
+                        if (tablet->keys_type() == KeysType::UNIQUE_KEYS &&
+                            tablet->enable_unique_key_merge_on_write()) {
+                            meta_mgr().remove_delete_bitmap_update_lock(
+                                    tablet->table_id(), COMPACTION_DELETE_BITMAP_LOCK_ID,
+                                    compaction->initiator(), tablet->tablet_id());
+                        }
+                    }
                     erase_executing_cumu_compaction();
                     LOG_WARNING(
                             "failed to do CloudCumulativeCompaction, cumu thread pool is "
