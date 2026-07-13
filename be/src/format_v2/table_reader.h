@@ -927,6 +927,12 @@ protected:
         if (!_all_runtime_filters_applied_for_split) {
             return false;
         }
+        // Scanner owns the original conjunct list and evaluates it after TableReader finalizes
+        // rows. Even a slotless conjunct that cannot become a TableFilter must see every source
+        // row before an aggregate reduces the stream to synthetic COUNT/MINMAX rows.
+        if (!_conjuncts.empty()) {
+            return false;
+        }
         // Only support aggregate pushdown when there is no delete or filter, so
         // the reduced rows consumed by the upper aggregate remain semantically equivalent to a
         // normal scan.

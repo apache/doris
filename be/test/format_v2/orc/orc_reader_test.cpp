@@ -29,6 +29,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <orc/OrcFile.hh>
@@ -132,6 +133,24 @@ DateV2Value<DateTimeV2ValueType> make_datetime_v2(uint16_t year, uint8_t month, 
     DateV2Value<DateTimeV2ValueType> value;
     value.unchecked_set_time(year, month, day, hour, minute, second, microsecond);
     return value;
+}
+
+TEST(OrcStatisticsBoundsTest, RejectsInvertedAndNanDecodedBounds) {
+    EXPECT_TRUE(format::orc::detail::valid_statistics_bounds(Field::create_field<TYPE_INT>(1),
+                                                             Field::create_field<TYPE_INT>(10)));
+    EXPECT_FALSE(format::orc::detail::valid_statistics_bounds(Field::create_field<TYPE_INT>(10),
+                                                              Field::create_field<TYPE_INT>(1)));
+    EXPECT_FALSE(format::orc::detail::valid_statistics_bounds(
+            Field::create_field<TYPE_DOUBLE>(std::numeric_limits<double>::quiet_NaN()),
+            Field::create_field<TYPE_DOUBLE>(10)));
+    EXPECT_FALSE(format::orc::detail::valid_statistics_bounds(
+            Field::create_field<TYPE_STRING>("z"), Field::create_field<TYPE_STRING>("a")));
+    EXPECT_FALSE(format::orc::detail::valid_statistics_bounds(
+            Field::create_field<TYPE_DATEV2>(make_date_v2(2026, 7, 13)),
+            Field::create_field<TYPE_DATEV2>(make_date_v2(2026, 7, 12))));
+    EXPECT_FALSE(format::orc::detail::valid_statistics_bounds(
+            Field::create_field<TYPE_DECIMAL128I>(Decimal128V3(10)),
+            Field::create_field<TYPE_DECIMAL128I>(Decimal128V3(1))));
 }
 
 class TableLiteral : public VLiteral {

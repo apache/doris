@@ -1078,16 +1078,59 @@ static bool mapping_can_use_file_column_directly(const ColumnMapping& mapping) {
     return !needs_complex_rematerialize(mapping);
 }
 
+static bool type_contains_varbinary(const DataTypePtr& type) {
+    DORIS_CHECK(type != nullptr);
+    const auto nested_type = remove_nullable(type);
+    switch (nested_type->get_primitive_type()) {
+    case TYPE_VARBINARY:
+        return true;
+    case TYPE_ARRAY:
+        return type_contains_varbinary(
+                assert_cast<const DataTypeArray&>(*nested_type).get_nested_type());
+    case TYPE_MAP: {
+        const auto& map_type = assert_cast<const DataTypeMap&>(*nested_type);
+        return type_contains_varbinary(map_type.get_key_type()) ||
+               type_contains_varbinary(map_type.get_value_type());
+    }
+    case TYPE_STRUCT:
+        return std::ranges::any_of(
+                assert_cast<const DataTypeStruct&>(*nested_type).get_elements(),
+                [](const DataTypePtr& child_type) { return type_contains_varbinary(child_type); });
+    default:
+        return false;
+    }
+}
+
 static FilterConversionType direct_filter_conversion(const ColumnMapping& mapping) {
     DORIS_CHECK(mapping.table_type != nullptr);
+    DORIS_CHECK(mapping.file_type != nullptr);
     // FileScanOperator deliberately keeps VARBINARY predicates above external readers. Their
     // physical binary representations are not uniformly supported by reader-side expression and
     // metadata filtering, so localizing a late runtime filter here can incorrectly reject rows.
-    if (remove_nullable(mapping.table_type)->get_primitive_type() == TYPE_VARBINARY) {
+    // Apply the same rule to a complex root because generic array/map/struct expressions rewrite
+    // the root slot and can otherwise expose a nested VARBINARY child to the reader.
+    if (type_contains_varbinary(mapping.table_type)) {
+        return FilterConversionType::FINALIZE_ONLY;
+    }
+    const auto table_type = remove_nullable(mapping.table_type);
+    const auto file_type = remove_nullable(mapping.file_type);
+    // TIMESTAMPTZ scale mismatch is intentionally materialized as pass-through: a SQL cast rounds
+    // fractional seconds. A file-local cast would therefore filter different instants from the
+    // scanner-level predicate evaluated on the pass-through value.
+    if (table_type->get_primitive_type() == TYPE_TIMESTAMPTZ &&
+        file_type->get_primitive_type() == TYPE_TIMESTAMPTZ &&
+        !mapping.table_type->equals(*mapping.file_type)) {
         return FilterConversionType::FINALIZE_ONLY;
     }
     return mapping.is_trivial ? FilterConversionType::COPY_DIRECTLY
                               : FilterConversionType::CAST_FILTER;
+}
+
+static FilterConversionType projected_filter_conversion(const ColumnMapping& mapping) {
+    const auto conversion = direct_filter_conversion(mapping);
+    return !mapping.is_trivial && conversion != FilterConversionType::FINALIZE_ONLY
+                   ? FilterConversionType::READER_EXPRESSION
+                   : conversion;
 }
 
 static const ColumnDefinition* find_file_child_for_mapping(const ColumnDefinition& table_child,
@@ -2054,10 +2097,7 @@ Status TableColumnMapper::_create_direct_mapping(const ColumnDefinition& table_c
                     &mapping->projected_file_children, &mapping->file_type));
             DCHECK(mapping->table_type != nullptr);
             mapping->is_trivial = mapping_can_use_file_column_directly(*mapping);
-            // TODO: ? READER_EXPRESSION
-            mapping->filter_conversion = mapping->is_trivial
-                                                 ? FilterConversionType::COPY_DIRECTLY
-                                                 : FilterConversionType::READER_EXPRESSION;
+            mapping->filter_conversion = projected_filter_conversion(*mapping);
         }
     }
     return Status::OK();

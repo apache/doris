@@ -1614,6 +1614,50 @@ TEST(TableReaderTest, PendingRuntimeFilterDisablesMinMaxPushdown) {
     std::filesystem::remove_all(test_dir);
 }
 
+TEST(TableReaderTest, SlotlessConjunctDisablesAggregatePushdown) {
+    std::vector<ColumnDefinition> file_schema;
+    file_schema.push_back(make_file_column(0, "id", std::make_shared<DataTypeInt32>()));
+
+    std::vector<ColumnDefinition> projected_columns;
+    projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+    set_name_identifiers(&projected_columns);
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    bool predicate_executed = false;
+    auto fake_state = std::make_shared<FakeFileReaderState>();
+    fake_state->aggregate_count = 3;
+    FakeTableReader reader(file_schema, fake_state);
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .conjuncts = {prepared_conjunct(
+                                            &state,
+                                            std::make_shared<NonDeterministicPartitionPredicate>(
+                                                    &predicate_executed))},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                                    .push_down_agg_type = TPushAggOp::type::COUNT,
+                            })
+                        .ok());
+
+    SplitReadOptions split_options;
+    split_options.current_range.__set_path("fake-table-reader-input");
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    // The slotless predicate cannot become a TableFilter or a file-reader conjunct, but its
+    // presence still prevents the fake aggregate count (3) from replacing the two physical rows.
+    ASSERT_NE(fake_state->last_request, nullptr);
+    EXPECT_TRUE(fake_state->last_request->conjuncts.empty());
+    EXPECT_EQ(block.rows(), 2);
+    EXPECT_TRUE(predicate_executed);
+    ASSERT_TRUE(reader.close().ok());
+}
+
 TEST(TableReaderTest, AbortSplitClearsReaderAfterIgnorableNotFound) {
     std::vector<ColumnDefinition> file_schema;
     file_schema.push_back(make_file_column(0, "id", std::make_shared<DataTypeInt32>()));

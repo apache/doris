@@ -80,6 +80,20 @@
 #include "util/timezone_utils.h"
 
 namespace doris::format::orc {
+
+bool detail::valid_statistics_bounds(const Field& min_value, const Field& max_value) {
+    DORIS_CHECK(min_value.get_type() == max_value.get_type());
+    if (min_value.get_type() == TYPE_FLOAT &&
+        (std::isnan(min_value.get<TYPE_FLOAT>()) || std::isnan(max_value.get<TYPE_FLOAT>()))) {
+        return false;
+    }
+    if (min_value.get_type() == TYPE_DOUBLE &&
+        (std::isnan(min_value.get<TYPE_DOUBLE>()) || std::isnan(max_value.get<TYPE_DOUBLE>()))) {
+        return false;
+    }
+    return !(max_value < min_value);
+}
+
 namespace {
 
 constexpr uint64_t DEFAULT_ORC_READ_BATCH_SIZE = 4096;
@@ -90,6 +104,16 @@ constexpr const char* ORC_LIST_ELEMENT_NAME = "element";
 constexpr const char* ORC_MAP_KEY_NAME = "key";
 constexpr const char* ORC_MAP_VALUE_NAME = "value";
 constexpr const char* ORC_ICEBERG_ID_ATTRIBUTE = "iceberg.id";
+
+bool set_validated_zone_map(Field min_value, Field max_value, segment_v2::ZoneMap* zone_map) {
+    DORIS_CHECK(zone_map != nullptr);
+    if (!detail::valid_statistics_bounds(min_value, max_value)) {
+        return false;
+    }
+    zone_map->min_value = std::move(min_value);
+    zone_map->max_value = std::move(max_value);
+    return true;
+}
 
 uint64_t orc_metric_value(const std::atomic<uint64_t>& metric) {
     return metric.load(std::memory_order_relaxed);
@@ -397,27 +421,25 @@ bool set_integer_zone_map(const ::orc::Type& type, const ::orc::ColumnStatistics
     }
     switch (type.getKind()) {
     case ::orc::TypeKind::BYTE:
-        zone_map->min_value =
-                Field::create_field<TYPE_TINYINT>(cast_set<Int8>(integer_statistics->getMinimum()));
-        zone_map->max_value =
-                Field::create_field<TYPE_TINYINT>(cast_set<Int8>(integer_statistics->getMaximum()));
-        return true;
+        return set_validated_zone_map(
+                Field::create_field<TYPE_TINYINT>(cast_set<Int8>(integer_statistics->getMinimum())),
+                Field::create_field<TYPE_TINYINT>(cast_set<Int8>(integer_statistics->getMaximum())),
+                zone_map);
     case ::orc::TypeKind::SHORT:
-        zone_map->min_value = Field::create_field<TYPE_SMALLINT>(
-                cast_set<Int16>(integer_statistics->getMinimum()));
-        zone_map->max_value = Field::create_field<TYPE_SMALLINT>(
-                cast_set<Int16>(integer_statistics->getMaximum()));
-        return true;
+        return set_validated_zone_map(Field::create_field<TYPE_SMALLINT>(
+                                              cast_set<Int16>(integer_statistics->getMinimum())),
+                                      Field::create_field<TYPE_SMALLINT>(
+                                              cast_set<Int16>(integer_statistics->getMaximum())),
+                                      zone_map);
     case ::orc::TypeKind::INT:
-        zone_map->min_value =
-                Field::create_field<TYPE_INT>(cast_set<Int32>(integer_statistics->getMinimum()));
-        zone_map->max_value =
-                Field::create_field<TYPE_INT>(cast_set<Int32>(integer_statistics->getMaximum()));
-        return true;
+        return set_validated_zone_map(
+                Field::create_field<TYPE_INT>(cast_set<Int32>(integer_statistics->getMinimum())),
+                Field::create_field<TYPE_INT>(cast_set<Int32>(integer_statistics->getMaximum())),
+                zone_map);
     case ::orc::TypeKind::LONG:
-        zone_map->min_value = Field::create_field<TYPE_BIGINT>(integer_statistics->getMinimum());
-        zone_map->max_value = Field::create_field<TYPE_BIGINT>(integer_statistics->getMaximum());
-        return true;
+        return set_validated_zone_map(
+                Field::create_field<TYPE_BIGINT>(integer_statistics->getMinimum()),
+                Field::create_field<TYPE_BIGINT>(integer_statistics->getMaximum()), zone_map);
     default:
         return false;
     }
@@ -435,9 +457,9 @@ bool set_boolean_zone_map(const ::orc::ColumnStatistics& statistics,
     if (!has_false && !has_true) {
         return false;
     }
-    zone_map->min_value = Field::create_field<TYPE_BOOLEAN>(static_cast<UInt8>(has_false ? 0 : 1));
-    zone_map->max_value = Field::create_field<TYPE_BOOLEAN>(static_cast<UInt8>(has_true ? 1 : 0));
-    return true;
+    return set_validated_zone_map(
+            Field::create_field<TYPE_BOOLEAN>(static_cast<UInt8>(has_false ? 0 : 1)),
+            Field::create_field<TYPE_BOOLEAN>(static_cast<UInt8>(has_true ? 1 : 0)), zone_map);
 }
 
 bool set_floating_zone_map(const ::orc::Type& type, const ::orc::ColumnStatistics& statistics,
@@ -448,16 +470,16 @@ bool set_floating_zone_map(const ::orc::Type& type, const ::orc::ColumnStatistic
         return false;
     }
     if (type.getKind() == ::orc::TypeKind::FLOAT) {
-        zone_map->min_value = Field::create_field<TYPE_FLOAT>(
-                static_cast<Float32>(double_statistics->getMinimum()));
-        zone_map->max_value = Field::create_field<TYPE_FLOAT>(
-                static_cast<Float32>(double_statistics->getMaximum()));
-        return true;
+        return set_validated_zone_map(Field::create_field<TYPE_FLOAT>(static_cast<Float32>(
+                                              double_statistics->getMinimum())),
+                                      Field::create_field<TYPE_FLOAT>(static_cast<Float32>(
+                                              double_statistics->getMaximum())),
+                                      zone_map);
     }
     if (type.getKind() == ::orc::TypeKind::DOUBLE) {
-        zone_map->min_value = Field::create_field<TYPE_DOUBLE>(double_statistics->getMinimum());
-        zone_map->max_value = Field::create_field<TYPE_DOUBLE>(double_statistics->getMaximum());
-        return true;
+        return set_validated_zone_map(
+                Field::create_field<TYPE_DOUBLE>(double_statistics->getMinimum()),
+                Field::create_field<TYPE_DOUBLE>(double_statistics->getMaximum()), zone_map);
     }
     return false;
 }
@@ -476,9 +498,8 @@ bool set_string_zone_map(const ::orc::Type& type, const ::orc::ColumnStatistics&
         return Field::create_field<TYPE_STRING>(
                 std::string(value.data(), trim_right_spaces(value.data(), value.size())));
     };
-    zone_map->min_value = build_field(string_statistics->getMinimum());
-    zone_map->max_value = build_field(string_statistics->getMaximum());
-    return true;
+    return set_validated_zone_map(build_field(string_statistics->getMinimum()),
+                                  build_field(string_statistics->getMaximum()), zone_map);
 }
 
 bool set_date_zone_map(const ::orc::ColumnStatistics& statistics, segment_v2::ZoneMap* zone_map) {
@@ -488,11 +509,9 @@ bool set_date_zone_map(const ::orc::ColumnStatistics& statistics, segment_v2::Zo
         return false;
     }
     auto& date_dict = date_day_offset_dict::get();
-    zone_map->min_value =
-            Field::create_field<TYPE_DATEV2>(date_dict[date_statistics->getMinimum()]);
-    zone_map->max_value =
-            Field::create_field<TYPE_DATEV2>(date_dict[date_statistics->getMaximum()]);
-    return true;
+    return set_validated_zone_map(
+            Field::create_field<TYPE_DATEV2>(date_dict[date_statistics->getMinimum()]),
+            Field::create_field<TYPE_DATEV2>(date_dict[date_statistics->getMaximum()]), zone_map);
 }
 
 DateV2Value<DateTimeV2ValueType> datetime_v2_from_orc_millis(int64_t millis, int32_t nanos_tail,
@@ -533,22 +552,27 @@ bool set_timestamp_zone_map(const ::orc::ColumnStatistics& statistics,
         return false;
     }
     if (use_timestamp_tz) {
-        zone_map->min_value = Field::create_field<TYPE_TIMESTAMPTZ>(timestamp_tz_from_orc_millis(
-                timestamp_statistics->getMinimum(), timestamp_statistics->getMinimumNanos()));
-        zone_map->max_value = Field::create_field<TYPE_TIMESTAMPTZ>(timestamp_tz_from_orc_millis(
-                timestamp_statistics->getMaximum(), timestamp_statistics->getMaximumNanos()));
-        return true;
+        return set_validated_zone_map(
+                Field::create_field<TYPE_TIMESTAMPTZ>(
+                        timestamp_tz_from_orc_millis(timestamp_statistics->getMinimum(),
+                                                     timestamp_statistics->getMinimumNanos())),
+                Field::create_field<TYPE_TIMESTAMPTZ>(
+                        timestamp_tz_from_orc_millis(timestamp_statistics->getMaximum(),
+                                                     timestamp_statistics->getMaximumNanos())),
+                zone_map);
     }
     if (!format::utc_timestamp_range_is_monotonic(
                 format::floor_epoch_seconds(timestamp_statistics->getMinimum(), 1000),
                 format::floor_epoch_seconds(timestamp_statistics->getMaximum(), 1000), timezone)) {
         return false;
     }
-    zone_map->min_value = Field::create_field<TYPE_DATETIMEV2>(datetime_v2_from_orc_millis(
-            timestamp_statistics->getMinimum(), timestamp_statistics->getMinimumNanos(), timezone));
-    zone_map->max_value = Field::create_field<TYPE_DATETIMEV2>(datetime_v2_from_orc_millis(
-            timestamp_statistics->getMaximum(), timestamp_statistics->getMaximumNanos(), timezone));
-    return true;
+    return set_validated_zone_map(Field::create_field<TYPE_DATETIMEV2>(datetime_v2_from_orc_millis(
+                                          timestamp_statistics->getMinimum(),
+                                          timestamp_statistics->getMinimumNanos(), timezone)),
+                                  Field::create_field<TYPE_DATETIMEV2>(datetime_v2_from_orc_millis(
+                                          timestamp_statistics->getMaximum(),
+                                          timestamp_statistics->getMaximumNanos(), timezone)),
+                                  zone_map);
 }
 
 int32_t decimal_scale_for_orc_type(const ::orc::Type& type) {
@@ -596,9 +620,8 @@ bool set_decimal_zone_map(const ::orc::Type& type, const ::orc::ColumnStatistics
     if (!min_value.has_value() || !max_value.has_value()) {
         return false;
     }
-    zone_map->min_value = Field::create_field<TYPE_DECIMAL128I>(*min_value);
-    zone_map->max_value = Field::create_field<TYPE_DECIMAL128I>(*max_value);
-    return true;
+    return set_validated_zone_map(Field::create_field<TYPE_DECIMAL128I>(*min_value),
+                                  Field::create_field<TYPE_DECIMAL128I>(*max_value), zone_map);
 }
 
 bool build_zone_map_from_orc_statistics(const ::orc::Type& type,

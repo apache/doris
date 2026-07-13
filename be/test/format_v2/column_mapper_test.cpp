@@ -1189,7 +1189,7 @@ TEST(ColumnMapperCreateMappingTest, ByNameUsesFirstMatchingFileFieldWhenAmbiguou
     expect_mapping(mapper.mappings()[0], 0, "id", 0, "ID", int_type, int_type);
 }
 
-TEST(ColumnMapperCreateMappingTest, TimestampTzScaleMismatchDoesNotAddFinalizeCast) {
+TEST(ColumnMapperCreateMappingTest, TimestampTzScaleMismatchKeepsFilterAboveReader) {
     // Scenario: HDFS TVF may expose a table slot as TIMESTAMPTZ(0), while a Parquet logical UTC
     // timestamp file schema is materialized as TIMESTAMPTZ(6). Finalization must not add a SQL
     // cast from scale 6 to scale 0, because that cast rounds fractional seconds:
@@ -1207,7 +1207,17 @@ TEST(ColumnMapperCreateMappingTest, TimestampTzScaleMismatchDoesNotAddFinalizeCa
     ASSERT_EQ(mapper.mappings().size(), 1);
     expect_mapping(mapper.mappings()[0], 0, "ts_tz", 0, "ts_tz", file_type, table_type);
     EXPECT_TRUE(mapper.mappings()[0].is_trivial);
-    EXPECT_EQ(mapper.mappings()[0].filter_conversion, FilterConversionType::COPY_DIRECTLY);
+    EXPECT_EQ(mapper.mappings()[0].filter_conversion, FilterConversionType::FINALIZE_ONLY);
+
+    TableFilter filter {
+            .conjunct = VExprContext::create_shared(table_slot(0, 0, table_type, "ts_tz")),
+            .global_indices = {GlobalIndex(0)}};
+    FileScanRequest request;
+    ASSERT_TRUE(mapper.create_scan_request({filter}, table_schema, &request).ok());
+    EXPECT_TRUE(request.predicate_columns.empty());
+    ASSERT_EQ(request.non_predicate_columns.size(), 1);
+    EXPECT_EQ(request.non_predicate_columns[0].column_id(), LocalColumnId(0));
+    EXPECT_TRUE(request.conjuncts.empty());
 }
 
 TEST(ColumnMapperCreateMappingTest, ByNameUsesNameMappingForRenamedColumn) {
@@ -2179,6 +2189,28 @@ TEST(ColumnMapperLocalizeFiltersTest, VarbinaryFilterStaysAboveFileReader) {
                                 literal(binary_type, value))),
                         .global_indices = {GlobalIndex(0)}};
 
+    FileScanRequest request;
+    ASSERT_TRUE(mapper.create_scan_request({filter}, {table_column}, &request).ok());
+    EXPECT_TRUE(request.predicate_columns.empty());
+    ASSERT_EQ(request.non_predicate_columns.size(), 1);
+    EXPECT_EQ(request.non_predicate_columns[0].column_id(), LocalColumnId(7));
+    EXPECT_TRUE(request.conjuncts.empty());
+}
+
+TEST(ColumnMapperLocalizeFiltersTest, NestedVarbinaryFilterStaysAboveFileReader) {
+    const auto table_column = struct_name_col(
+            "payload", {name_col("id", i32()), name_col("binary_value", varbinary())});
+    const auto file_column = struct_name_col(
+            "payload", {name_col("id", i32(), 0), name_col("binary_value", varbinary(), 1)}, 7);
+
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_NAME});
+    ASSERT_TRUE(mapper.create_mapping({table_column}, {}, {file_column}).ok());
+    ASSERT_EQ(mapper.mappings().size(), 1);
+    EXPECT_EQ(mapper.mappings()[0].filter_conversion, FilterConversionType::FINALIZE_ONLY);
+
+    TableFilter filter {
+            .conjunct = VExprContext::create_shared(table_slot(0, 0, table_column.type, "payload")),
+            .global_indices = {GlobalIndex(0)}};
     FileScanRequest request;
     ASSERT_TRUE(mapper.create_scan_request({filter}, {table_column}, &request).ok());
     EXPECT_TRUE(request.predicate_columns.empty());
