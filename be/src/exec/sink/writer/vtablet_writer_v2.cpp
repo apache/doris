@@ -692,7 +692,8 @@ Status VTabletWriterV2::close(Status exec_status) {
             SCOPED_TIMER(_close_writer_timer);
             // close all delta writers if this is the last user
             RuntimeProfile* delta_writer_profile =
-                    _state->profile_level() >= 2 ? _operator_profile : nullptr;
+                    (_state->enable_profile() && _state->profile_level() >= 2) ? _operator_profile
+                                                                               : nullptr;
             auto st = _delta_writer_for_tablet->close(segments_for_tablet, delta_writer_profile);
             _delta_writer_for_tablet.reset();
             if (!st.ok()) {
