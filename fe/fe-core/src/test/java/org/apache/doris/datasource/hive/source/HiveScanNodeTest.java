@@ -27,6 +27,7 @@ import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TFileScanRangeParams;
+import org.apache.doris.thrift.TFileTextScanRangeParams;
 
 import org.junit.Assert;
 import org.junit.Test;
@@ -123,6 +124,16 @@ public class HiveScanNodeTest {
         Assert.assertTrue(scanParams.isSetTableFormatParams());
         Assert.assertEquals(TableFormatType.TRANSACTIONAL_HIVE.value(),
                 scanParams.getTableFormatParams().getTableFormatType());
+    }
+
+    @Test
+    public void testTrimDoubleQuotesOnlyForDoubleQuoteEnclose() {
+        TFileTextScanRangeParams textParams = new TFileTextScanRangeParams();
+        textParams.setEnclose((byte) '"');
+        Assert.assertTrue(HiveScanNode.shouldTrimDoubleQuotes(textParams));
+
+        textParams.setEnclose((byte) '\'');
+        Assert.assertFalse(HiveScanNode.shouldTrimDoubleQuotes(textParams));
     }
 
     private HiveScanNode createHiveScanNode() {
