@@ -100,19 +100,13 @@ public class DistinctAggregateRewriter implements RewriteRuleFactory {
                         .thenApply(ctx -> rewrite(ctx.root, ctx.connectContext))
                         .toRule(RuleType.DISTINCT_AGGREGATE_SPLIT),
                 logicalAggregate()
-                        .when(agg -> agg.getGroupByExpressions().isEmpty())
+                        .when(agg -> agg.getGroupByExpressions().isEmpty() && agg.mustUseMultiDistinctAgg())
                         .then(agg -> {
                             // count(distinct a,b) cannot use multi_distinct
-                            boolean mustSplit = AggregateUtils.containsCountDistinctMultiExpr(agg);
-                            boolean mustUseMulti = agg.mustUseMultiDistinctAgg();
-                            if (mustSplit && mustUseMulti) {
+                            if (AggregateUtils.containsCountDistinctMultiExpr(agg)) {
                                 throw new AnalysisException(errorString);
                             }
-                            if (mustUseMulti) {
-                                return convertToMultiDistinct(agg);
-                            } else {
-                                return null;
-                            }
+                            return convertToMultiDistinct(agg);
                         })
                         .toRule(RuleType.PROCESS_SCALAR_AGG_MUST_USE_MULTI_DISTINCT)
         );
