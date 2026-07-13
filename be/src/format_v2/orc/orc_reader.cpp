@@ -605,8 +605,12 @@ bool build_zone_map_from_orc_statistics(const ::orc::Type& type,
         return set_string_zone_map(type, statistics, zone_map);
     case ::orc::TypeKind::DATE:
         return set_date_zone_map(statistics, zone_map);
-    case ::orc::TypeKind::TIMESTAMP:
-        return set_timestamp_zone_map(statistics, timezone, false, zone_map);
+    case ::orc::TypeKind::TIMESTAMP: {
+        // ORC stores timestamp statistics as wall-clock values in UTC coordinates. Restore them
+        // with UTC so the session timezone does not shift the civil time.
+        static const auto utc_time_zone = cctz::utc_time_zone();
+        return set_timestamp_zone_map(statistics, utc_time_zone, false, zone_map);
+    }
     case ::orc::TypeKind::TIMESTAMP_INSTANT:
         return set_timestamp_zone_map(statistics, timezone, enable_mapping_timestamp_tz, zone_map);
     case ::orc::TypeKind::DECIMAL:

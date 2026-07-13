@@ -4282,6 +4282,7 @@ void write_two_stripe_constant_timestamp_file(const std::string& file_path,
     ::orc::WriterOptions options;
     options.setCompression(::orc::CompressionKind_NONE);
     options.setMemoryPool(::orc::getDefaultPool());
+    options.setTimezoneName("GMT");
     options.setStripeSize(1);
     options.setDictionaryKeySizeThreshold(0);
     auto writer = ::orc::createWriter(*type, &memory_stream, options);
@@ -4641,13 +4642,47 @@ TEST_F(NewOrcReaderTest, AggregatePushdownUsesPrunedStripes) {
     EXPECT_EQ(reader->reader_statistics().filtered_row_groups, 1);
 }
 
-TEST_F(NewOrcReaderTest, AggregatePushdownTimestampMinMaxUsesSessionTimezone) {
+TEST_F(NewOrcReaderTest, AggregatePushdownTimestampMinMaxMatchesScanInSessionTimezone) {
     const auto multi_stripe_file_path = (_test_dir / "aggregate_timestamp_timezone.orc").string();
-    write_two_stripe_constant_timestamp_file(multi_stripe_file_path, 0, 3600);
+    write_two_stripe_constant_timestamp_file(multi_stripe_file_path, 1609459200, 1609462800);
 
-    auto reader = create_reader_for_path(multi_stripe_file_path);
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     state.set_timezone("Asia/Shanghai");
+
+    auto scan_reader = create_reader_for_path(multi_stripe_file_path);
+    ASSERT_TRUE(scan_reader->init(&state).ok());
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(scan_reader->get_schema(&schema).ok());
+    ASSERT_EQ(schema.size(), 2);
+    auto scan_request = std::make_shared<format::FileScanRequest>();
+    scan_request->non_predicate_columns = {field_projection(0)};
+    ASSERT_TRUE(scan_reader->open(scan_request).ok());
+
+    std::optional<DateV2Value<DateTimeV2ValueType>> scan_min;
+    std::optional<DateV2Value<DateTimeV2ValueType>> scan_max;
+    size_t scan_rows = 0;
+    bool eof = false;
+    while (!eof) {
+        Block block = build_file_block({schema[0]});
+        size_t rows = 0;
+        ASSERT_TRUE(scan_reader->get_block(&block, &rows, &eof).ok());
+        scan_rows += rows;
+        const auto& nullable = assert_cast<const ColumnNullable&>(*block.get_by_position(0).column);
+        const auto& values = assert_cast<const ColumnDateTimeV2&>(nullable.get_nested_column());
+        for (size_t row = 0; row < rows; ++row) {
+            ASSERT_FALSE(nullable.is_null_at(row));
+            const auto value = values.get_element(row);
+            scan_min = !scan_min.has_value() || value < *scan_min ? value : *scan_min;
+            scan_max = !scan_max.has_value() || *scan_max < value ? value : *scan_max;
+        }
+    }
+    ASSERT_EQ(scan_rows, 400);
+    ASSERT_TRUE(scan_min.has_value());
+    ASSERT_TRUE(scan_max.has_value());
+    EXPECT_EQ(*scan_min, make_datetime_v2(2021, 1, 1, 0, 0, 0, 123000));
+    EXPECT_EQ(*scan_max, make_datetime_v2(2021, 1, 1, 1, 0, 0, 123000));
+
+    auto reader = create_reader_for_path(multi_stripe_file_path);
     ASSERT_TRUE(reader->init(&state).ok());
 
     auto request = std::make_shared<format::FileScanRequest>();
@@ -4665,10 +4700,8 @@ TEST_F(NewOrcReaderTest, AggregatePushdownTimestampMinMaxUsesSessionTimezone) {
     EXPECT_EQ(aggregate_result.count, 400);
     EXPECT_TRUE(aggregate_result.columns[0].has_min);
     EXPECT_TRUE(aggregate_result.columns[0].has_max);
-    EXPECT_EQ(aggregate_result.columns[0].min_value.get<TYPE_DATETIMEV2>(),
-              make_datetime_v2(1970, 1, 1, 8, 0, 0, 123000));
-    EXPECT_EQ(aggregate_result.columns[0].max_value.get<TYPE_DATETIMEV2>(),
-              make_datetime_v2(1970, 1, 1, 9, 0, 0, 123000));
+    EXPECT_EQ(aggregate_result.columns[0].min_value.get<TYPE_DATETIMEV2>(), *scan_min);
+    EXPECT_EQ(aggregate_result.columns[0].max_value.get<TYPE_DATETIMEV2>(), *scan_max);
 }
 
 TEST_F(NewOrcReaderTest, AggregatePushdownTimestampInstantMinMaxUsesTimestampTzWhenMapped) {
