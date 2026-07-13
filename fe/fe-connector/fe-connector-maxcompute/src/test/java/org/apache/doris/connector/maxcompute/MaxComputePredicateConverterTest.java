@@ -331,4 +331,74 @@ public class MaxComputePredicateConverterTest {
         Assertions.assertSame(Predicate.NO_PREDICATE, converter(true, UTC).convert(or),
                 "an unconvertible disjunct must drop the whole OR (no row loss)");
     }
+
+    // ---- L20 (FIX-L20): the comparison operator symbol must come from the ODPS SDK's own
+    //      BinaryPredicate.Operator description, not a hand-written table. EQ must push a single "=",
+    //      never Java's "==" (which MaxCompute, like SQL, does not accept -> pushdown lost -> full
+    //      scan). Legacy MaxComputeScanNode used odpsOp.getDescription(); the migration hand-wrote the
+    //      symbols and EQ drifted to "==". "id" is INT in typeMap(), so numeric formatting applies. ----
+
+    private static String pushedComparison(ConnectorComparison.Operator op) {
+        ConnectorComparison cmp = new ConnectorComparison(op,
+                new ConnectorColumnRef("id", ConnectorType.of("INT")), ConnectorLiteral.ofLong(5));
+        // RawPredicate.toString() returns the raw pushed string; normalize whitespace (formatLiteralValue
+        // pads values with surrounding spaces) so the assertion pins the operator, not the spacing.
+        return converter(true, UTC).convert(cmp).toString().trim().replaceAll("\\s+", " ");
+    }
+
+    @Test
+    public void testEqualsEmitsSingleEqualsNotDoubleEquals() {
+        // RED on the pre-fix code, which emitted "id == 5". The ODPS SDK's EQUALS description is "=".
+        String raw = converter(true, UTC).convert(new ConnectorComparison(ConnectorComparison.Operator.EQ,
+                new ConnectorColumnRef("id", ConnectorType.of("INT")), ConnectorLiteral.ofLong(5))).toString();
+        Assertions.assertFalse(raw.contains("=="), "EQ must push a single '=', not Java's '=='; got: " + raw);
+        Assertions.assertEquals("id = 5", raw.trim().replaceAll("\\s+", " "),
+                "EQ must push 'id = 5'; got: " + raw);
+    }
+
+    @Test
+    public void testAllComparisonOperatorsEmitSdkSymbols() {
+        // Pin the whole operator set to the SDK BinaryPredicate.Operator descriptions so a future
+        // hand-edit cannot silently drift any symbol again.
+        Assertions.assertEquals("id = 5", pushedComparison(ConnectorComparison.Operator.EQ));
+        Assertions.assertEquals("id != 5", pushedComparison(ConnectorComparison.Operator.NE));
+        Assertions.assertEquals("id < 5", pushedComparison(ConnectorComparison.Operator.LT));
+        Assertions.assertEquals("id <= 5", pushedComparison(ConnectorComparison.Operator.LE));
+        Assertions.assertEquals("id > 5", pushedComparison(ConnectorComparison.Operator.GT));
+        Assertions.assertEquals("id >= 5", pushedComparison(ConnectorComparison.Operator.GE));
+    }
+
+    @Test
+    public void testEqForNullIsNotPushedDown() {
+        // EQ_FOR_NULL ("<=>") has no ODPS BinaryPredicate equivalent: it must degrade to NO_PREDICATE
+        // (default -> throw -> caught), never be pushed as a malformed "<=>" RawPredicate. BE re-filters.
+        Predicate p = converter(true, UTC).convert(new ConnectorComparison(
+                ConnectorComparison.Operator.EQ_FOR_NULL,
+                new ConnectorColumnRef("id", ConnectorType.of("INT")), ConnectorLiteral.ofLong(5)));
+        Assertions.assertSame(Predicate.NO_PREDICATE, p,
+                "EQ_FOR_NULL has no ODPS equivalent and must not be pushed down");
+    }
+
+    // ---- P4-3-IN direction regression: the IN-polarity fix pushes `col IN (values)` (column first),
+    //      not the reversed form. This had no dedicated test; pin both IN and NOT IN direction. ----
+
+    @Test
+    public void testInListEmitsColumnThenValues() {
+        ConnectorIn in = new ConnectorIn(
+                new ConnectorColumnRef("id", ConnectorType.of("INT")),
+                Arrays.<ConnectorExpression>asList(ConnectorLiteral.ofLong(1), ConnectorLiteral.ofLong(2)),
+                false);
+        String s = converter(true, UTC).convert(in).toString().trim().replaceAll("\\s+", " ");
+        Assertions.assertEquals("id IN ( 1 , 2 )", s, "IN must push 'col IN (values)'; got: " + s);
+    }
+
+    @Test
+    public void testNotInListEmitsColumnThenNotIn() {
+        ConnectorIn in = new ConnectorIn(
+                new ConnectorColumnRef("id", ConnectorType.of("INT")),
+                Arrays.<ConnectorExpression>asList(ConnectorLiteral.ofLong(1), ConnectorLiteral.ofLong(2)),
+                true);
+        String s = converter(true, UTC).convert(in).toString().trim().replaceAll("\\s+", " ");
+        Assertions.assertEquals("id NOT IN ( 1 , 2 )", s, "NOT IN must push 'col NOT IN (values)'; got: " + s);
+    }
 }
