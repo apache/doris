@@ -474,9 +474,9 @@ TEST_F(VAggCollectTest, test_multi_distinct_functions_are_registered) {
     AggregateFunctionSimpleFactory factory = AggregateFunctionSimpleFactory::instance();
     register_aggregate_function_array_agg(factory);
 
-    std::vector<DataTypePtr> element_types = {
-            std::make_shared<DataTypeInt32>(), std::make_shared<DataTypeInt64>(),
-            std::make_shared<DataTypeString>()};
+    std::vector<DataTypePtr> element_types = {std::make_shared<DataTypeInt32>(),
+                                              std::make_shared<DataTypeInt64>(),
+                                              std::make_shared<DataTypeString>()};
     for (const auto& elem : element_types) {
         for (bool nullable : {false, true}) {
             DataTypes args = {nullable ? make_nullable(elem) : elem};
