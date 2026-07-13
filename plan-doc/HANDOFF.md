@@ -13,7 +13,9 @@
 >
 > **✅ 2026-07-13 用户拍板（最高优先级）**：认可「零 fe-core 源相关新增」的合规重分析取代原「搬中立家」方案。四组处置：① hive 分区名解析 = 2 纯删 + 1 经 `ConnectorPartitionInfo` 加**两并行列表**（有序值 + 现有空标志）委派，4 连接器填值；② hive LZO = **纯删**（消费点全死、连接器早自带）；③ hive 默认分区哨兵 = 查询路径经现有 `ConnectorScanRange.populateRangeParams` 委派（`HiveScanRange` 加 columnsFromPath 重置，**窄** `.equals` 非 `normalize()`）+ 加载路径改指现有中立常量 `ConnectorPartitionValues.HIVE_DEFAULT_PARTITION`；④ iceberg 行血缘 = 常量纯删 + 保留列身份用**逐列中立布尔位 `reservedPassthrough`**（经 `ConnectorColumnConverter:80-90` 跨界重贴，仿现有 invisible/uniqueId）+ 建表校验经现有 `ConnectorTableOps.createTable` 委派（**接受**时机/异常/文案变化，不加前置钩子）。
 >
-> **下一个 session 第一件事 = 实现步 2a（连接器侧，各带单测，最安全独立起步）**，再 2b（fe-core 消费者改委派），最后步 3/4 删除。**删 `HiveUtil` 前须 4 连接器全接线有序值 + fail-loud + 覆盖 e2e**（否则 `listLatestPartitions:277` try/catch 静默吞分区）。
+> **进度**：步 2a 第一组（**分区有序值委派**）已完成+验证+提交（commit `49254f1d429`，连接器 install 985 测试绿 + fe-core test-compile 绿 0 checkstyle）——`ConnectorPartitionInfo` 加 `orderedPartitionValues` 字段，hive/paimon/iceberg/hudi 四连接器填值，fe-core `toListPartitionItem` 改用（带回退、暂不 fail-loud）。**删 `HiveUtil` 前仍须** fail-loud + 覆盖 e2e（否则 `listLatestPartitions:277` try/catch 静默吞分区）。
+>
+> **下一个 = 步 2a 剩余两组**：① hive 默认分区哨兵查询路径（`HiveScanRange.populateRangeParams` 加 columnsFromPath 重置，镜像 `IcebergScanRange`，窄 `.equals`）+ fe-core `FilePartitionUtils` 三处改；② iceberg 逐列 `reservedPassthrough` 位（`ConnectorColumn`→`ConnectorColumnConverter`→`Column`）+ iceberg override + `IcebergConnectorMetadata.createTable` 吸收 v3 校验 + 4 处 nereids 消费者改读位。另 ⚠ 步 1 前置 ACID `isAcid()` 中立位（与 §3 正交，可穿插）。**每完成一项勾 `datasource-deletion-tasklist.md`**。
 >
 > **⏭ 单列紧邻后续（用户定，不并入本轮）**：第二处同款哨兵泄漏 `TablePartitionValues.HIVE_DEFAULT_PARTITION:47` ← 活消费者 `MetadataGenerator:2166`（`partition_values` TVF）；须自己的活性判定。**既存债非本轮**：`IcebergMergeCommand`/`IcebergUpdateCommand` 仍 iceberg 命名活类、`Column.ICEBERG_ROWID_COL:63`（勿当 sanctioned 家、勿新铸 `Column._row_id`）。
 >
