@@ -2174,11 +2174,10 @@ TEST(ColumnMapperLocalizeFiltersTest, VarbinaryFilterStaysAboveFileReader) {
     EXPECT_EQ(mapper.mappings()[0].filter_conversion, FilterConversionType::FINALIZE_ONLY);
 
     const auto value = Field::create_field<TYPE_VARBINARY>(StringView("binary-value"));
-    TableFilter filter {
-            .conjunct = VExprContext::create_shared(binary_predicate(
-                    TExprOpcode::EQ, table_slot(0, 0, binary_type, "partition_key"),
-                    literal(binary_type, value))),
-            .global_indices = {GlobalIndex(0)}};
+    TableFilter filter {.conjunct = VExprContext::create_shared(binary_predicate(
+                                TExprOpcode::EQ, table_slot(0, 0, binary_type, "partition_key"),
+                                literal(binary_type, value))),
+                        .global_indices = {GlobalIndex(0)}};
 
     FileScanRequest request;
     ASSERT_TRUE(mapper.create_scan_request({filter}, {table_column}, &request).ok());
