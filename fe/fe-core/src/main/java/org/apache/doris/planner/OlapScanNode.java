@@ -124,6 +124,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 // Full scan of an Olap table.
@@ -609,19 +610,23 @@ public class OlapScanNode extends ScanNode {
 
             boolean querySelectionEvaluated = false;
             if (useFixReplica <= -1) {
-                if (skipMissingVersion) {
-                    // sort by replica's last success version, higher success version in the front.
-                    replicas.sort(Replica.LAST_SUCCESS_VERSION_COMPARATOR);
-                } else if (replicas.size() > 1) {
-                    Collections.shuffle(replicas);
+                if (!Config.isCloudMode() && selectionHint == null) {
+                    selectionHint = context.getQueryBackendSelectionDecision();
                 }
-                if (shouldApplyQuerySelection(skipMissingVersion)) {
-                    if (selectionHint == null) {
-                        selectionHint = context.getQueryBackendSelectionDecision();
+                if (skipMissingVersion) {
+                    List<Replica> orderedReplicas = orderReplicasForQuerySelection(
+                            true, replicas, selectionHint,
+                            replica -> getReplicaLocationTag(replica, allBackends));
+                    querySelectionEvaluated = !Config.isCloudMode();
+                    if (orderedReplicas != replicas) {
+                        replicas = new ArrayList<>(orderedReplicas);
+                        scanBackendOrderBySelection = true;
                     }
-                    List<Replica> orderedReplicas = BackendSelectionService.orderQueryCandidates(
-                            selectionHint, replicas, replica -> getReplicaLocationTag(replica, allBackends));
-                    querySelectionEvaluated = true;
+                } else {
+                    List<Replica> orderedReplicas = orderReplicasForQuerySelection(
+                            false, replicas, selectionHint,
+                            replica -> getReplicaLocationTag(replica, allBackends));
+                    querySelectionEvaluated = shouldApplyQuerySelection(false);
                     if (orderedReplicas != replicas) {
                         replicas = new ArrayList<>(orderedReplicas);
                         scanBackendOrderBySelection = true;
@@ -1103,13 +1108,35 @@ public class OlapScanNode extends ScanNode {
     static boolean shouldFilterReplicaByResourceTag(boolean isInvalidComputeGroup, boolean isNotCloudComputeGroup,
             ComputeGroup computeGroup, String beTagName) {
         return isInvalidComputeGroup
-                || (Config.resource_tag_location_check
+                || (Config.enable_resource_tag_location_check
                         && isNotCloudComputeGroup && !computeGroup.containsBackend(beTagName));
     }
 
     @VisibleForTesting
     static boolean shouldApplyQuerySelection(boolean skipMissingVersion) {
         return !Config.isCloudMode() && !skipMissingVersion;
+    }
+
+    @VisibleForTesting
+    static List<Replica> orderReplicasForQuerySelection(boolean skipMissingVersion, List<Replica> replicas,
+            BackendSelection.SelectionHint hint, Function<Replica, Tag> tagOf)
+            throws UserException {
+        if (skipMissingVersion) {
+            // Sort by replica's last success version, higher success version in the front.
+            replicas.sort(Replica.LAST_SUCCESS_VERSION_COMPARATOR);
+            if (!Config.isCloudMode()) {
+                return BackendSelectionService.orderQueryCandidatesWithinTies(
+                        hint, replicas, Replica.LAST_SUCCESS_VERSION_COMPARATOR, tagOf);
+            }
+            return replicas;
+        }
+        if (replicas.size() > 1) {
+            Collections.shuffle(replicas);
+        }
+        if (shouldApplyQuerySelection(false)) {
+            return BackendSelectionService.orderQueryCandidates(hint, replicas, tagOf);
+        }
+        return replicas;
     }
 
     @VisibleForTesting

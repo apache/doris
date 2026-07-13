@@ -25,6 +25,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.Backend;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
@@ -130,6 +131,50 @@ public final class BackendSelectionService {
         List<T> orderedCandidates = policy.orderQueryCandidates(hint, candidates, locationKey);
         validateOrderedCandidates("orderQueryCandidates", candidates, orderedCandidates);
         return orderedCandidates;
+    }
+
+    /**
+     * Apply query selection independently within each contiguous tie group while preserving group order.
+     * The input candidates must already be sorted by {@code tieComparator}, and candidates with the same
+     * priority must be contiguous. The provider must preserve every candidate instance in each group.
+     * Required selection is applied globally because it is a hard filter.
+     */
+    public static <T> List<T> orderQueryCandidatesWithinTies(BackendSelection.SelectionHint hint,
+            List<T> candidates, Comparator<T> tieComparator, Function<T, Tag> tagOf) throws UserException {
+        BackendSelectionPolicy policy = BackendSelectionPolicyFactory.get();
+        if (isRequiredSelection(hint)) {
+            BackendSelection.CandidateSelection<T> selection =
+                    policy.partitionRequiredQueryCandidates(hint, candidates, tagOf);
+            return requiredCandidates("partitionRequiredQueryCandidates", hint, candidates, selection);
+        }
+        if (!policy.hasQuerySelectionPreference(hint) || candidates.size() < 2) {
+            return candidates;
+        }
+
+        List<T> result = new ArrayList<>(candidates.size());
+        boolean changed = false;
+        int start = 0;
+        while (start < candidates.size()) {
+            int end = start + 1;
+            while (end < candidates.size()
+                    && tieComparator.compare(candidates.get(start), candidates.get(end)) == 0) {
+                end++;
+            }
+
+            List<T> originalGroup = new ArrayList<>(candidates.subList(start, end));
+            List<T> providerInput = new ArrayList<>(originalGroup);
+            List<T> ordered = policy.orderQueryCandidates(hint, providerInput, tagOf);
+            validateOrderedCandidates("orderQueryCandidatesWithinTies", originalGroup, ordered);
+            for (int i = 0; i < originalGroup.size(); i++) {
+                if (ordered.get(i) != originalGroup.get(i)) {
+                    changed = true;
+                    break;
+                }
+            }
+            result.addAll(ordered);
+            start = end;
+        }
+        return changed ? result : candidates;
     }
 
     /** Classify the query selection outcome after the kernel has applied its candidate filters. */

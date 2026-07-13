@@ -30,6 +30,8 @@ import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 import java.util.function.Function;
 
@@ -242,6 +244,123 @@ class BackendSelectionServiceTest {
     }
 
     @Test
+    void testOrderQueryCandidatesWithinTiesReordersOnlyWithinTieGroups() throws Exception {
+        Candidate first = new Candidate("first", 10);
+        Candidate second = new Candidate("second", 10);
+        Candidate third = new Candidate("third", 9);
+        Candidate fourth = new Candidate("fourth", 9);
+        List<Candidate> candidates = ImmutableList.of(first, second, third, fourth);
+        BackendSelection.SelectionHint hint = new BackendSelection.SelectionHint(
+                "key_a", BackendSelection.Mode.PREFER, "test");
+        BackendSelectionPolicy policy = Mockito.mock(BackendSelectionPolicy.class);
+        Mockito.when(policy.hasQuerySelectionPreference(hint)).thenReturn(true);
+        Mockito.when(policy.orderQueryCandidates(
+                        Mockito.eq(hint), Mockito.anyList(), Mockito.eq(CANDIDATE_TAG)))
+                .thenAnswer(invocation -> {
+                    List<Candidate> ordered = invocation.getArgument(1);
+                    Collections.reverse(ordered);
+                    return ordered;
+                });
+
+        try (MockedStatic<BackendSelectionPolicyFactory> mockedFactory =
+                Mockito.mockStatic(BackendSelectionPolicyFactory.class)) {
+            mockedFactory.when(BackendSelectionPolicyFactory::get).thenReturn(policy);
+
+            List<Candidate> ordered = BackendSelectionService.orderQueryCandidatesWithinTies(
+                    hint, candidates, Comparator.comparingInt(candidate -> candidate.priority), CANDIDATE_TAG);
+
+            Assertions.assertEquals(ImmutableList.of(second, first, fourth, third), ordered);
+            Assertions.assertNotSame(candidates, ordered);
+            Assertions.assertEquals(ImmutableList.of(first, second, third, fourth), candidates);
+            Mockito.verify(policy, Mockito.times(2)).orderQueryCandidates(
+                    Mockito.eq(hint), Mockito.anyList(), Mockito.eq(CANDIDATE_TAG));
+        }
+    }
+
+    @Test
+    void testOrderQueryCandidatesWithinTiesReturnsOriginalWhenProviderKeepsOrder() throws Exception {
+        Candidate first = new Candidate("first", 10);
+        Candidate second = new Candidate("second", 9);
+        List<Candidate> candidates = ImmutableList.of(first, second);
+        BackendSelection.SelectionHint hint = new BackendSelection.SelectionHint(
+                "key_a", BackendSelection.Mode.PREFER, "test");
+        BackendSelectionPolicy policy = Mockito.mock(BackendSelectionPolicy.class);
+        Mockito.when(policy.hasQuerySelectionPreference(hint)).thenReturn(true);
+        Mockito.when(policy.orderQueryCandidates(
+                        Mockito.eq(hint), Mockito.anyList(), Mockito.eq(CANDIDATE_TAG)))
+                .thenAnswer(invocation -> invocation.getArgument(1));
+
+        try (MockedStatic<BackendSelectionPolicyFactory> mockedFactory =
+                Mockito.mockStatic(BackendSelectionPolicyFactory.class)) {
+            mockedFactory.when(BackendSelectionPolicyFactory::get).thenReturn(policy);
+
+            Assertions.assertSame(candidates, BackendSelectionService.orderQueryCandidatesWithinTies(
+                    hint, candidates, Comparator.comparingInt(candidate -> candidate.priority), CANDIDATE_TAG));
+        }
+    }
+
+    @Test
+    void testOrderQueryCandidatesWithinTiesRejectsCandidateOutsideCurrentTieGroup() throws Exception {
+        Candidate first = new Candidate("first", 10);
+        Candidate second = new Candidate("second", 10);
+        Candidate outside = new Candidate("outside", 9);
+        List<Candidate> candidates = ImmutableList.of(first, second, outside);
+        BackendSelection.SelectionHint hint = new BackendSelection.SelectionHint(
+                "key_a", BackendSelection.Mode.PREFER, "test");
+        BackendSelectionPolicy policy = Mockito.mock(BackendSelectionPolicy.class);
+        Mockito.when(policy.hasQuerySelectionPreference(hint)).thenReturn(true);
+        Mockito.when(policy.orderQueryCandidates(
+                        Mockito.eq(hint), Mockito.anyList(), Mockito.eq(CANDIDATE_TAG)))
+                .thenAnswer(invocation -> ImmutableList.of(outside, first));
+
+        try (MockedStatic<BackendSelectionPolicyFactory> mockedFactory =
+                Mockito.mockStatic(BackendSelectionPolicyFactory.class)) {
+            mockedFactory.when(BackendSelectionPolicyFactory::get).thenReturn(policy);
+
+            UserException exception = Assertions.assertThrows(UserException.class,
+                    () -> BackendSelectionService.orderQueryCandidatesWithinTies(
+                            hint, candidates, Comparator.comparingInt(candidate -> candidate.priority), CANDIDATE_TAG));
+            Assertions.assertTrue(exception.getMessage().contains("orderQueryCandidatesWithinTies"));
+        }
+    }
+
+    @Test
+    void testOrderQueryCandidatesWithinTiesRejectsDroppedCandidate() throws Exception {
+        assertInvalidTieOrder(candidates -> ImmutableList.of(candidates.get(0)));
+    }
+
+    @Test
+    void testOrderQueryCandidatesWithinTiesRejectsDuplicateCandidate() throws Exception {
+        assertInvalidTieOrder(candidates -> ImmutableList.of(candidates.get(0), candidates.get(0)));
+    }
+
+    @Test
+    void testRequiredQuerySelectionWithinTiesUsesGlobalPartition() throws Exception {
+        Candidate first = new Candidate("first", 10);
+        Candidate second = new Candidate("second", 9);
+        List<Candidate> candidates = ImmutableList.of(first, second);
+        BackendSelection.SelectionHint hint = new BackendSelection.SelectionHint(
+                "key_a", BackendSelection.Mode.REQUIRE, "test");
+        BackendSelectionPolicy policy = Mockito.mock(BackendSelectionPolicy.class);
+        BackendSelection.CandidateSelection<Candidate> selection =
+                new BackendSelection.CandidateSelection<>(ImmutableList.of(second), ImmutableList.of(first));
+        Mockito.when(policy.partitionRequiredQueryCandidates(hint, candidates, CANDIDATE_TAG))
+                .thenReturn(selection);
+
+        try (MockedStatic<BackendSelectionPolicyFactory> mockedFactory =
+                Mockito.mockStatic(BackendSelectionPolicyFactory.class)) {
+            mockedFactory.when(BackendSelectionPolicyFactory::get).thenReturn(policy);
+
+            Assertions.assertEquals(ImmutableList.of(second),
+                    BackendSelectionService.orderQueryCandidatesWithinTies(
+                            hint, candidates, Comparator.comparingInt(candidate -> candidate.priority), CANDIDATE_TAG));
+            Mockito.verify(policy).partitionRequiredQueryCandidates(hint, candidates, CANDIDATE_TAG);
+            Mockito.verify(policy, Mockito.never()).orderQueryCandidates(
+                    Mockito.any(), Mockito.anyList(), Mockito.any());
+        }
+    }
+
+    @Test
     void testClassifyQuerySelectionUsesProviderOutcome() {
         Candidate candidate = new Candidate("candidate");
         List<Candidate> candidates = ImmutableList.of(candidate);
@@ -348,11 +467,38 @@ class BackendSelectionServiceTest {
         }
     }
 
+    private void assertInvalidTieOrder(Function<List<Candidate>, List<Candidate>> invalidOrder) throws Exception {
+        Candidate first = new Candidate("first", 10);
+        Candidate second = new Candidate("second", 10);
+        List<Candidate> candidates = ImmutableList.of(first, second);
+        BackendSelection.SelectionHint hint = new BackendSelection.SelectionHint(
+                "key_a", BackendSelection.Mode.PREFER, "test");
+        BackendSelectionPolicy policy = Mockito.mock(BackendSelectionPolicy.class);
+        Mockito.when(policy.hasQuerySelectionPreference(hint)).thenReturn(true);
+        Mockito.when(policy.orderQueryCandidates(
+                        Mockito.eq(hint), Mockito.anyList(), Mockito.eq(CANDIDATE_TAG)))
+                .thenAnswer(invocation -> invalidOrder.apply(invocation.getArgument(1)));
+        try (MockedStatic<BackendSelectionPolicyFactory> mockedFactory =
+                Mockito.mockStatic(BackendSelectionPolicyFactory.class)) {
+            mockedFactory.when(BackendSelectionPolicyFactory::get).thenReturn(policy);
+            UserException exception = Assertions.assertThrows(UserException.class,
+                    () -> BackendSelectionService.orderQueryCandidatesWithinTies(
+                            hint, candidates, Comparator.comparingInt(candidate -> candidate.priority), CANDIDATE_TAG));
+            Assertions.assertTrue(exception.getMessage().contains("orderQueryCandidatesWithinTies"));
+        }
+    }
+
     private static final class Candidate {
         private final String value;
+        private final int priority;
 
         private Candidate(String value) {
+            this(value, 0);
+        }
+
+        private Candidate(String value, int priority) {
             this.value = value;
+            this.priority = priority;
         }
 
         @Override

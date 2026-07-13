@@ -147,7 +147,7 @@ public class Config extends ConfigBase {
             "Whether to enable replica filtering based on location resource tags. If disabled, invalid compute "
                     + "groups are still rejected, but replicas are no longer filtered by the user's location "
                     + "resource tag."})
-    public static boolean resource_tag_location_check = true;
+    public static boolean enable_resource_tag_location_check = true;
 
     @ConfField(mutable = true, masterOnly = false,
             description = {"PreparedStatement stmtId starting position, used for testing only"})

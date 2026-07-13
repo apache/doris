@@ -17,33 +17,44 @@
 
 package org.apache.doris.planner;
 
+import org.apache.doris.catalog.LocalReplica;
+import org.apache.doris.catalog.Replica;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.resource.BackendSelection;
+import org.apache.doris.resource.BackendSelectionPolicy;
+import org.apache.doris.resource.BackendSelectionPolicyFactory;
+import org.apache.doris.resource.Tag;
 import org.apache.doris.resource.computegroup.ComputeGroup;
 
+import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 
 class OlapScanNodeBackendSelectionConfigTest {
     @Test
     void testResourceTagLocationCheckConfigGate() {
-        boolean oldConfig = Config.resource_tag_location_check;
+        boolean oldConfig = Config.enable_resource_tag_location_check;
         try {
-            Config.resource_tag_location_check = false;
+            Config.enable_resource_tag_location_check = false;
             Assertions.assertTrue(OlapScanNode.shouldFilterReplicaByResourceTag(
                     true, true, ComputeGroup.INVALID_COMPUTE_GROUP, "rg_a"));
             ComputeGroup computeGroup = new ComputeGroup("rg_a", "rg_a", null);
             Assertions.assertFalse(OlapScanNode.shouldFilterReplicaByResourceTag(false, true, computeGroup, "rg_b"));
 
-            Config.resource_tag_location_check = true;
+            Config.enable_resource_tag_location_check = true;
             Assertions.assertTrue(OlapScanNode.shouldFilterReplicaByResourceTag(
                     true, false, ComputeGroup.INVALID_COMPUTE_GROUP, "rg_a"));
             Assertions.assertTrue(OlapScanNode.shouldFilterReplicaByResourceTag(false, true, computeGroup, "rg_b"));
             Assertions.assertFalse(OlapScanNode.shouldFilterReplicaByResourceTag(false, true, computeGroup, "rg_a"));
         } finally {
-            Config.resource_tag_location_check = oldConfig;
+            Config.enable_resource_tag_location_check = oldConfig;
         }
     }
 
@@ -78,6 +89,91 @@ class OlapScanNodeBackendSelectionConfigTest {
                 () -> OlapScanNode.validateRequiredQuerySelection(false, 0, hint));
         Assertions.assertDoesNotThrow(
                 () -> OlapScanNode.validateRequiredQuerySelection(false, -1, hint));
+    }
+
+    @Test
+    void testSkipMissingVersionUsesTieAwareQuerySelection() throws Exception {
+        Replica first = replica(1, 10);
+        Replica second = replica(2, 10);
+        Replica third = replica(3, 9);
+        Replica fourth = replica(4, 9);
+        List<Replica> replicas = new ArrayList<>(ImmutableList.of(first, second, third, fourth));
+        BackendSelection.SelectionHint hint = new BackendSelection.SelectionHint(
+                "key_a", BackendSelection.Mode.PREFER, "test");
+        BackendSelectionPolicy policy = Mockito.mock(BackendSelectionPolicy.class);
+        Mockito.when(policy.hasQuerySelectionPreference(hint)).thenReturn(true);
+        Mockito.when(policy.orderQueryCandidates(
+                        Mockito.eq(hint), Mockito.anyList(), Mockito.any()))
+                .thenAnswer(invocation -> {
+                    List<Replica> ordered = new ArrayList<>(invocation.getArgument(1));
+                    Collections.reverse(ordered);
+                    return ordered;
+                });
+
+        try (MockedStatic<BackendSelectionPolicyFactory> mockedFactory =
+                Mockito.mockStatic(BackendSelectionPolicyFactory.class)) {
+            mockedFactory.when(BackendSelectionPolicyFactory::get).thenReturn(policy);
+
+            List<Replica> ordered = OlapScanNode.orderReplicasForQuerySelection(
+                    true, replicas, hint, replica -> Tag.DEFAULT_BACKEND_TAG);
+
+            Assertions.assertEquals(ImmutableList.of(second, first, fourth, third), ordered);
+            Mockito.verify(policy, Mockito.times(2)).orderQueryCandidates(
+                    Mockito.eq(hint), Mockito.anyList(), Mockito.any());
+        }
+    }
+
+    @Test
+    void testNonSkipMissingVersionUsesExistingQuerySelectionPath() throws Exception {
+        Replica first = replica(1, 10);
+        Replica second = replica(2, 10);
+        List<Replica> replicas = new ArrayList<>(ImmutableList.of(first, second));
+        BackendSelection.SelectionHint hint = new BackendSelection.SelectionHint(
+                "key_a", BackendSelection.Mode.PREFER, "test");
+        BackendSelectionPolicy policy = Mockito.mock(BackendSelectionPolicy.class);
+        Mockito.when(policy.hasQuerySelectionPreference(hint)).thenReturn(true);
+        Mockito.when(policy.orderQueryCandidates(
+                        Mockito.eq(hint), Mockito.anyList(), Mockito.any()))
+                .thenAnswer(invocation -> invocation.getArgument(1));
+
+        try (MockedStatic<BackendSelectionPolicyFactory> mockedFactory =
+                Mockito.mockStatic(BackendSelectionPolicyFactory.class)) {
+            mockedFactory.when(BackendSelectionPolicyFactory::get).thenReturn(policy);
+
+            List<Replica> ordered = OlapScanNode.orderReplicasForQuerySelection(
+                    false, replicas, hint, replica -> Tag.DEFAULT_BACKEND_TAG);
+
+            Assertions.assertEquals(replicas.size(), ordered.size());
+            Mockito.verify(policy).hasQuerySelectionPreference(hint);
+            Mockito.verify(policy).orderQueryCandidates(
+                    Mockito.eq(hint), Mockito.anyList(), Mockito.any());
+        }
+    }
+
+    @Test
+    void testTieAwareNoOpKeepsOriginalReplicaList() throws Exception {
+        Replica first = replica(1, 10);
+        Replica second = replica(2, 9);
+        List<Replica> replicas = new ArrayList<>(ImmutableList.of(first, second));
+        BackendSelection.SelectionHint hint = new BackendSelection.SelectionHint(
+                "key_a", BackendSelection.Mode.PREFER, "test");
+        BackendSelectionPolicy policy = Mockito.mock(BackendSelectionPolicy.class);
+        Mockito.when(policy.hasQuerySelectionPreference(hint)).thenReturn(true);
+        Mockito.when(policy.orderQueryCandidates(
+                        Mockito.eq(hint), Mockito.anyList(), Mockito.any()))
+                .thenAnswer(invocation -> invocation.getArgument(1));
+
+        try (MockedStatic<BackendSelectionPolicyFactory> mockedFactory =
+                Mockito.mockStatic(BackendSelectionPolicyFactory.class)) {
+            mockedFactory.when(BackendSelectionPolicyFactory::get).thenReturn(policy);
+
+            Assertions.assertSame(replicas, OlapScanNode.orderReplicasForQuerySelection(
+                    true, replicas, hint, replica -> Tag.DEFAULT_BACKEND_TAG));
+        }
+    }
+
+    private Replica replica(long replicaId, long version) {
+        return new LocalReplica(replicaId, replicaId, Replica.ReplicaState.NORMAL, version, 0);
     }
 
     @Test
