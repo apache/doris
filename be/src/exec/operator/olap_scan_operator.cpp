@@ -224,6 +224,8 @@ Status OlapScanLocalState::_init_profile() {
     _lazy_read_seek_timer = ADD_TIMER(_segment_profile, "LazyReadSeekTime");
     _lazy_read_seek_counter = ADD_COUNTER(_segment_profile, "LazyReadSeekCount", TUnit::UNIT);
 
+    _lazy_read_pruned_timer = ADD_TIMER(_segment_profile, "LazyReadPrunedTime");
+
     _output_col_timer = ADD_TIMER(_segment_profile, "OutputColumnTime");
 
     _stats_filtered_counter = ADD_COUNTER(_segment_profile, "RowsStatsFiltered", TUnit::UNIT);
@@ -588,6 +590,14 @@ bool OlapScanLocalState::_check_expr_storage_filter(const VExprSPtr& expr,
 
 bool OlapScanLocalState::_storage_no_merge() {
     auto& p = _parent->cast<OlapScanOperatorX>();
+    // MIN_DELTA / DETAIL binlog scans read through BlockReader, which aggregates and splits one
+    // stored UPDATE into BEFORE/AFTER rows, synthesizing __DORIS_BINLOG_OP__ and the before-image
+    // values above the storage layer. That is a merge, so predicates must not be pushed to the
+    // SegmentIterator (they would see meaningless pre-merge values); they are kept as residual
+    // conjuncts evaluated above the reader. APPEND_ONLY / NONE do not split rows and keep pushdown.
+    if (_is_binlog_merge_scan()) {
+        return false;
+    }
     return (p._olap_scan_node.keyType == TKeysType::DUP_KEYS ||
             (p._olap_scan_node.keyType == TKeysType::UNIQUE_KEYS &&
              p._olap_scan_node.__isset.enable_unique_key_merge_on_write &&
@@ -598,6 +608,16 @@ bool OlapScanLocalState::_storage_no_merge() {
 bool OlapScanLocalState::_read_mor_as_dup() {
     auto& p = _parent->cast<OlapScanOperatorX>();
     return p._olap_scan_node.__isset.read_mor_as_dup && p._olap_scan_node.read_mor_as_dup;
+}
+
+bool OlapScanLocalState::_is_binlog_merge_scan() const {
+    // All ranges of one scan node share the same binlog scan type. Only MIN_DELTA / DETAIL go
+    // through BlockReader's merge (op synthesis + BEFORE/AFTER split).
+    if (_scan_ranges.empty() || !_scan_ranges[0]->__isset.binlog_scan_type) {
+        return false;
+    }
+    auto scan_type = _scan_ranges[0]->binlog_scan_type;
+    return scan_type == TBinlogScanType::MIN_DELTA || scan_type == TBinlogScanType::DETAIL;
 }
 
 Status OlapScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
@@ -677,6 +697,7 @@ Status OlapScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
     };
     bool read_row_binlog =
             p._olap_scan_node.__isset.read_row_binlog && p._olap_scan_node.read_row_binlog;
+    bool has_tso_predicate = _scan_ranges[0]->__isset.start_tso || _scan_ranges[0]->__isset.end_tso;
 
     // The flag of preagg's meaning is whether return pre agg data(or partial agg data)
     // PreAgg ON: The storage layer returns partially aggregated data without additional processing. (Fast data reading)
@@ -688,7 +709,7 @@ Status OlapScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
         p._push_down_agg_type == TPushAggOp::NONE &&
         (_storage_no_merge() || p._olap_scan_node.is_preaggregation)
         // binlog<row> need to be read in order
-        && !read_row_binlog) {
+        && !read_row_binlog && !has_tso_predicate) {
         // Filter out the "full scan" placeholder range (has_lower_bound == false)
         // so that only ranges with real key bounds are forwarded to the parallel scanner.
         std::vector<OlapScanRange*> key_ranges;
@@ -777,7 +798,6 @@ Status OlapScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
             for (auto& split : _read_sources[scan_range_idx].rs_splits) {
                 split.rs_reader = split.rs_reader->clone();
             }
-
             auto scanner = OlapScanner::create_shared(
                     this, OlapScanner::Params {
                                   state(),
@@ -786,6 +806,7 @@ Status OlapScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
                                   _tablets[scan_range_idx].tablet,
                                   version,
                                   _read_sources[scan_range_idx],
+                                  {},
                                   p._limit,
                                   p._olap_scan_node.is_preaggregation,
                                   read_row_binlog,

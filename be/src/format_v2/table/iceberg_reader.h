@@ -119,8 +119,6 @@ private:
         format::DeleteRows* _rows = nullptr;
     };
 
-    static std::string _iceberg_delete_vector_cache_key(const TIcebergDeleteFileDesc& delete_file);
-
     static std::shared_ptr<io::FileSystemProperties> _delete_file_system_properties(
             const TFileScanRangeParams& scan_params);
 
@@ -139,13 +137,17 @@ private:
             const std::vector<TIcebergDeleteFileDesc>& delete_files);
 
     // Read equality/position delete files.
-    Status _read_parquet_equality_delete_file(const TIcebergDeleteFileDesc& delete_file,
-                                              const TFileScanRangeParams& scan_params,
-                                              IcebergDeleteFileIOContext* delete_io_ctx);
-    Status _read_parquet_position_delete_file(const TIcebergDeleteFileDesc& delete_file,
-                                              const TFileScanRangeParams& scan_params,
-                                              IcebergDeleteFileIOContext* delete_io_ctx,
-                                              PositionDeleteRowsCollector* collector);
+    Status _create_delete_file_reader(const TIcebergDeleteFileDesc& delete_file,
+                                      const TFileScanRangeParams& scan_params,
+                                      IcebergDeleteFileIOContext* delete_io_ctx,
+                                      std::unique_ptr<format::FileReader>* reader);
+    Status _read_equality_delete_file(const TIcebergDeleteFileDesc& delete_file,
+                                      const TFileScanRangeParams& scan_params,
+                                      IcebergDeleteFileIOContext* delete_io_ctx);
+    Status _read_position_delete_file(const TIcebergDeleteFileDesc& delete_file,
+                                      const TFileScanRangeParams& scan_params,
+                                      IcebergDeleteFileIOContext* delete_io_ctx,
+                                      PositionDeleteRowsCollector* collector);
 
     // Read position delete files and collect deleted row positions to update DeletePredicate.
     Status _init_position_delete_rows(const std::vector<TIcebergDeleteFileDesc>& delete_files);

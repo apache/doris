@@ -17,9 +17,9 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## 🌍 این را به زبان‌های دیگر بخوانید
+## 🌍 این مطلب را به زبان‌های دیگر بخوانید
 
-[العربية](../ar-SA/README.md) • [বাংলা](../bn-BD/README.md) • [Deutsch](../de-DE/README.md) • [English](../../README.md) • [Español](../es-ES/README.md) • [فارسی](README.md) • [Français](../fr-FR/README.md) • [हिन्दी](../hi-IN/README.md) • [Bahasa Indonesia](../id-ID/README.md) • [Italiano](../it-IT/README.md) • [日本語](../ja-JP/README.md) • [한국어](../ko-KR/README.md) • [Polski](../pl-PL/README.md) • [Português](../pt-BR/README.md) • [Română](../ro-RO/README.md) • [Русский](../ru-RU/README.md) • [Slovenščina](../sl-SI/README.md) • [ไทย](../th-TH/README.md) • [Türkçe](../tr-TR/README.md) • [Українська](../uk-UA/README.md) • [Tiếng Việt](../vi-VN/README.md) • [简体中文](../zh-CN/README.md) • [繁體中文](../zh-TW/README.md)
+[English](../../README.md) • [العربية](../ar-SA/README.md) • [বাংলা](../bn-BD/README.md) • [Deutsch](../de-DE/README.md) • [Español](../es-ES/README.md) • [فارسی](README.md) • [Français](../fr-FR/README.md) • [हिन्दी](../hi-IN/README.md) • [Bahasa Indonesia](../id-ID/README.md) • [Italiano](../it-IT/README.md) • [日本語](../ja-JP/README.md) • [한국어](../ko-KR/README.md) • [Polski](../pl-PL/README.md) • [Português](../pt-BR/README.md) • [Română](../ro-RO/README.md) • [Русский](../ru-RU/README.md) • [Slovenščina](../sl-SI/README.md) • [ไทย](../th-TH/README.md) • [Türkçe](../tr-TR/README.md) • [Українська](../uk-UA/README.md) • [Tiếng Việt](../vi-VN/README.md) • [简体中文](../zh-CN/README.md) • [繁體中文](../zh-TW/README.md)
 
 <div align="center">
 
@@ -27,10 +27,9 @@ under the License.
 
 [![License](https://img.shields.io/badge/license-Apache%202-4EB1BA.svg)](https://www.apache.org/licenses/LICENSE-2.0.html)
 [![GitHub release](https://img.shields.io/github/release/apache/doris.svg)](https://github.com/apache/doris/releases)
-[![OSSRank](https://shields.io/endpoint?url=https://ossrank.com/shield/516)](https://ossrank.com/p/516)
-[![Commit activity](https://img.shields.io/github/commit-activity/m/apache/doris)](https://github.com/apache/doris/commits/master/)
-[![EN doc](https://img.shields.io/badge/Docs-English-blue.svg)](https://doris.apache.org/docs/gettingStarted/what-is-apache-doris)
-[![CN doc](https://img.shields.io/badge/文档-中文版-blue.svg)](https://doris.apache.org/zh-CN/docs/gettingStarted/what-is-apache-doris)
+[![Slack](https://img.shields.io/badge/Join%20Our%20Community-Slack-blue)](https://doris.apache.org/slack)
+[![EN doc](https://img.shields.io/badge/Docs-English-blue.svg)](https://doris.apache.org/docs/dev/getting-started/what-is-apache-doris)
+[![CN doc](https://img.shields.io/badge/文档-中文版-blue.svg)](https://doris.apache.org/zh-CN/docs/dev/getting-started/what-is-apache-doris)
 
 <div>
 
@@ -56,255 +55,114 @@ under the License.
 
 ---
 
-<p align="center">
-
+<div align="center">
   <a href="https://trendshift.io/repositories/1156" target="_blank"><img src="https://trendshift.io/api/badge/repositories/1156" alt="apache%2Fdoris | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
+</div>
 
+Apache Doris یک پایگاه داده متن‌باز برای تحلیل و جستجوی بلادرنگ است که بر پایه معماری MPP ساخته شده است. این پایگاه داده تحلیل سریع با SQL، شتاب‌دهی به پرس‌وجوهای lakehouse و جستجوی ترکیبی روی داده‌های ساختاریافته، متنی و برداری را فراهم می‌کند.
+
+برای آشنایی با تازه‌ترین نمای کلی محصول، موارد استفاده، به‌روزرسانی‌های اکوسیستم، وبلاگ‌ها و داستان‌های کاربران، [وب‌سایت رسمی](https://doris.apache.org/) را ببینید. برای به‌روزرسانی‌های نسخه، [همه یادداشت‌های انتشار](https://doris.apache.org/releases/all-release) را ببینید.
+
+## 📈 موارد استفاده
+
+| مورد استفاده | چه چیزی فراهم می‌کند |
+| -------- | ---------------- |
+| [تحلیل برای کاربران نهایی](https://doris.apache.org/use-cases/customer-facing-analytics) | تحلیل تعاملی با زمان پاسخ کمتر از یک ثانیه را در اختیار کاربران بیرونی قرار دهید. |
+| [انبار داده](https://doris.apache.org/use-cases/data-warehousing) | یک انبار داده بلادرنگ برای حوزه‌های مختلف کسب‌وکار بسازید. |
+| [مشاهده‌پذیری](https://doris.apache.org/use-cases/observability) | لاگ‌ها، رویدادها و معیارهای پرترافیک را با SQL تحلیل کنید. |
+| [Doris برای AI](https://doris.apache.org/use-cases/ai) | جستجوی برداری، متنی، JSON و ساختاریافته را در یک موتور SQL به کار ببرید. |
+
+## 🚀 توانمندی‌های اصلی
+
+Apache Doris بر سه توانمندی اصلی بنا شده است. وب‌سایت، مرجع اصلی توضیحات و نمونه‌های دقیق محصول است.
+
+| توانمندی | چه چیزی فراهم می‌کند |
+| ---------- | ---------------- |
+| [تحلیل بلادرنگ](https://doris.apache.org/#real-time-analytics) | ورود داده جریانی، تبدیل افزایشی و پرس‌وجوهای کمتر از یک ثانیه در هم‌زمانی بالا. |
+| [تحلیل Lakehouse](https://doris.apache.org/#lakehouse-analytics) | تحلیل سریع SQL روی قالب‌های جدول باز مانند Iceberg، Delta Lake و Hudi. |
+| [جستجوی ترکیبی](https://doris.apache.org/#hybrid-search) | تحلیل بومی SQL روی JSON، متن کامل و داده‌های برداری برای بارهای کاری AI و جستجو. |
+
+## 🔌 اکوسیستم
+
+Doris در مرکز پشته داده مدرن قرار می‌گیرد. این سیستم پایگاه‌های داده بالادستی، سامانه‌های جریانی و ذخیره‌سازی lakehouse را به ابزارهای پایین‌دستی BI، AI، تحلیل و مشاهده‌پذیری متصل می‌کند.
+
+<p align="center">
+  <img src="https://doris.apache.org/images/doris-ecosystem.jpg" alt="Apache Doris ecosystem" width="850" />
 </p>
 
+برای تازه‌ترین پوشش اکوسیستم، [وب‌سایت رسمی](https://doris.apache.org/) و [مستندات اتصال و یکپارچه‌سازی](https://doris.apache.org/docs/dev/connection-integration/data-integration/intro) را ببینید.
 
+## 👣 شروع کار
 
+- [Apache Doris چیست](https://doris.apache.org/docs/dev/getting-started/what-is-apache-doris)
+- [شروع سریع](https://doris.apache.org/docs/dev/getting-started/quick-start)
+- [دانلود](https://doris.apache.org/download)
+- [نصب](https://doris.apache.org/docs/dev/install/intro)
+- [کامپایل از سورس](https://doris.apache.org/community/source-install/compilation-with-docker)
 
-Apache Doris یک پایگاه داده تحلیلی آسان برای استفاده، با عملکرد بالا و در زمان واقعی است که بر اساس معماری MPP ساخته شده است و به دلیل سرعت فوق‌العاده و سهولت استفاده شناخته شده است. این فقط به زمان پاسخ زیر ثانیه نیاز دارد تا نتایج پرس‌وجو را تحت داده‌های عظیم برگرداند و می‌تواند نه تنها سناریوهای پرس‌وجوی نقطه‌ای با همزمانی بالا، بلکه سناریوهای تحلیل پیچیده با توان عملیاتی بالا را نیز پشتیبانی کند.
+## 🧱 معماری
 
-همه اینها Apache Doris را به ابزاری ایده‌آل برای سناریوهایی از جمله تحلیل گزارش، پرس‌وجوی ad-hoc، انبار داده یکپارچه و شتاب پرس‌وجوی دریاچه داده تبدیل می‌کند. در Apache Doris، کاربران می‌توانند برنامه‌های مختلفی بسازند، مانند تحلیل رفتار کاربر، پلتفرم تست AB، تحلیل بازیابی لاگ، تحلیل پروفایل کاربر و تحلیل سفارش.
+Apache Doris هم از استقرار با محاسبه و ذخیره‌سازی یکپارچه و هم از استقرار با محاسبه و ذخیره‌سازی جدا پشتیبانی می‌کند. در حالت جدا، گروه‌های محاسباتی بدون حالت روی ذخیره‌سازی شیء مشترک اجرا می‌شوند، بنابراین می‌توانید توان محاسباتی را بر اساس نیاز مقیاس دهید و بارهای کاری را از هم جدا کنید.
 
-🎉 🔗[همه نسخه‌ها](https://doris.apache.org/docs/releasenotes/all-release) را بررسی کنید، جایی که خلاصه زمانی نسخه‌های Apache Doris منتشر شده در سال گذشته را خواهید یافت.
+<p align="center">
+  <img src="https://doris.apache.org/images/next/home-page/cs-decoupled.jpg" alt="Apache Doris compute-storage decoupled architecture" width="850" />
+</p>
 
-👀 🔗[وب‌سایت رسمی](https://doris.apache.org/) را کاوش کنید تا ویژگی‌های اصلی، وبلاگ‌ها و موارد استفاده Apache Doris را به تفصیل کشف کنید.
+در [راهنمای استقرار](https://doris.apache.org/docs/dev/install/intro) و [راهنمای حالت استقرار](https://doris.apache.org/docs/dev/install/choosing-deployment-mode) بیشتر بخوانید.
 
-## 📈 سناریوهای استفاده
+## 📣 به‌روزرسانی‌های پروژه
 
-همانطور که در شکل زیر نشان داده شده است، پس از ادغام‌ها و پردازش‌های مختلف داده، منابع داده معمولاً در انبار داده زمان واقعی Apache Doris و دریاچه داده آفلاین یا انبار داده (در Apache Hive، Apache Iceberg یا Apache Hudi) ذخیره می‌شوند.
-
-<br />
-
-<img src="https://cdn.selectdb.com/static/What_is_Apache_Doris_3_a61692c2ce.png" />
-
-<br />
-
-
-Apache Doris به طور گسترده در سناریوهای زیر استفاده می‌شود:
-
-- **تحلیل داده زمان واقعی**:
-
-  - **گزارش‌دهی و تصمیم‌گیری زمان واقعی**: Doris گزارش‌ها و داشبوردهای به‌روز شده در زمان واقعی را برای استفاده داخلی و خارجی سازمانی فراهم می‌کند و تصمیم‌گیری زمان واقعی را در فرآیندهای خودکار پشتیبانی می‌کند。
-  
-  - **تحلیل Ad Hoc**: Doris قابلیت‌های تحلیل داده چندبعدی را ارائه می‌دهد و تحلیل سریع هوش تجاری و پرس‌وجوهای ad-hoc را برای کمک به کاربران در کشف سریع بینش از داده‌های پیچیده فعال می‌کند。
-  
-  - **پروفایل‌سازی کاربر و تحلیل رفتار**: Doris می‌تواند رفتارهای کاربر مانند مشارکت، حفظ و تبدیل را تجزیه و تحلیل کند، در حالی که همچنین از سناریوهایی مانند بینش جمعیت و انتخاب جمعیت برای تحلیل رفتار پشتیبانی می‌کند.
-
-- **تحلیل دریاچه داده**:
-
-  - **شتاب پرس‌وجوی دریاچه داده**: Doris پرس‌وجوهای داده دریاچه داده را با موتور پرس‌وجوی کارآمد خود تسریع می‌کند.
-  
-  - **تحلیل فدرال**: Doris پرس‌وجوهای فدرال را در چندین منبع داده پشتیبانی می‌کند، معماری را ساده می‌کند و سیلوهای داده را از بین می‌برد.
-  
-  - **پردازش داده زمان واقعی**: Doris قابلیت‌های پردازش جریان داده زمان واقعی و پردازش دسته‌ای داده را برای برآورده کردن نیازهای همزمانی بالا و تأخیر کم الزامات تجاری پیچیده ترکیب می‌کند.
-
-- **قابلیت مشاهده مبتنی بر SQL**:
-
-  - **تحلیل لاگ و رویداد**: Doris تحلیل زمان واقعی یا دسته‌ای لاگ‌ها و رویدادها را در سیستم‌های توزیع شده فعال می‌کند، کمک به شناسایی مشکلات و بهینه‌سازی عملکرد.
-
-
-## معماری کلی
-
-Apache Doris از پروتکل MySQL استفاده می‌کند، با نحو MySQL بسیار سازگار است و SQL استاندارد را پشتیبانی می‌کند. کاربران می‌توانند از طریق ابزارهای کلاینت مختلف به Apache Doris دسترسی داشته باشند و به راحتی با ابزارهای BI ادغام می‌شود.
-
-### معماری یکپارچه ذخیره‌سازی-محاسبات
-
-معماری یکپارچه ذخیره‌سازی-محاسبات Apache Doris ساده شده و نگهداری آسان است. همانطور که در شکل زیر نشان داده شده است، فقط از دو نوع فرآیند تشکیل شده است:
-
-- **Frontend (FE):** عمدتاً مسئول مدیریت درخواست‌های کاربر، تجزیه و برنامه‌ریزی پرس‌وجو، مدیریت متاداده و وظایف مدیریت گره است.
-
-- **Backend (BE):** عمدتاً مسئول ذخیره‌سازی داده و اجرای پرس‌وجو است. داده‌ها به قطعات تقسیم می‌شوند و با چندین کپی در گره‌های BE ذخیره می‌شوند.
-
-![معماری کلی Apache Doris](https://cdn.selectdb.com/static/What_is_Apache_Doris_adb26397e2.png)
-
-<br />
-
-در یک محیط تولید، می‌توان چندین گره FE را برای بازیابی از فاجعه مستقر کرد. هر گره FE یک کپی کامل از متاداده را نگه می‌دارد. گره‌های FE به سه نقش تقسیم می‌شوند:
-
-| نقش      | عملکرد                                                     |
-| --------- | ------------------------------------------------------------ |
-| Master    | گره FE Master مسئول عملیات خواندن و نوشتن متاداده است. هنگامی که تغییرات متاداده در Master رخ می‌دهد، از طریق پروتکل BDB JE با گره‌های Follower یا Observer همگام می‌شوند. |
-| Follower  | گره Follower مسئول خواندن متاداده است. اگر گره Master خراب شود، یک گره Follower می‌تواند به عنوان Master جدید انتخاب شود. |
-| Observer  | گره Observer مسئول خواندن متاداده است و عمدتاً برای افزایش همزمانی پرس‌وجو استفاده می‌شود. در انتخابات رهبری خوشه شرکت نمی‌کند. |
-
-هم فرآیندهای FE و هم BE به صورت افقی مقیاس‌پذیر هستند، که به یک خوشه واحد اجازه می‌دهد از صدها ماشین و ده‌ها پتابایت ظرفیت ذخیره‌سازی پشتیبانی کند. فرآیندهای FE و BE از یک پروتکل سازگاری برای اطمینان از در دسترس بودن بالای سرویس‌ها و قابلیت اطمینان بالای داده استفاده می‌کنند. معماری یکپارچه ذخیره‌سازی-محاسبات به شدت یکپارچه است، پیچیدگی عملیاتی سیستم‌های توزیع شده را به طور قابل توجهی کاهش می‌دهد.
-
-
-## ویژگی‌های اصلی Apache Doris
-
-- **در دسترس بودن بالا**: در Apache Doris، هم متاداده و هم داده با چندین کپی ذخیره می‌شوند، لاگ‌های داده را از طریق پروتکل quorum همگام می‌کنند. نوشتن داده زمانی موفق در نظر گرفته می‌شود که اکثریت کپی‌ها نوشتن را تکمیل کرده باشند، اطمینان حاصل می‌کند که خوشه حتی در صورت خرابی چند گره در دسترس باقی بماند. Apache Doris هم بازیابی از فاجعه در همان شهر و هم بین منطقه‌ای را پشتیبانی می‌کند، حالت‌های master-slave خوشه دوتایی را فعال می‌کند. هنگامی که برخی گره‌ها خرابی را تجربه می‌کنند، خوشه می‌تواند به طور خودکار گره‌های معیوب را جدا کند، جلوگیری از تأثیر بر در دسترس بودن کلی خوشه.
-
-- **سازگاری بالا**: Apache Doris با پروتکل MySQL بسیار سازگار است و نحو SQL استاندارد را پشتیبانی می‌کند، اکثر توابع MySQL و Hive را پوشش می‌دهد. این سازگاری بالا به کاربران اجازه می‌دهد تا برنامه‌ها و ابزارهای موجود را به راحتی انتقال داده و یکپارچه کنند. Apache Doris اکوسیستم MySQL را پشتیبانی می‌کند، به کاربران اجازه می‌دهد با استفاده از ابزارهای کلاینت MySQL به Doris متصل شوند برای عملیات و نگهداری راحت‌تر. همچنین سازگاری پروتکل MySQL را برای ابزارهای گزارش‌دهی BI و ابزارهای انتقال داده پشتیبانی می‌کند، اطمینان از کارایی و پایداری در فرآیندهای تحلیل داده و انتقال داده.
-
-- **انبار داده زمان واقعی**: بر اساس Apache Doris، می‌توان یک سرویس انبار داده زمان واقعی ساخت. Apache Doris قابلیت‌های جذب داده در سطح ثانیه را ارائه می‌دهد، تغییرات افزایشی را از پایگاه‌های داده تراکنشی آنلاین بالادست در عرض چند ثانیه به Doris ضبط می‌کند. با استفاده از موتورهای برداری، معماری MPP و موتورهای اجرای Pipeline، Doris قابلیت‌های پرس‌وجوی داده زیر ثانیه را ارائه می‌دهد، بنابراین یک پلتفرم انبار داده زمان واقعی با عملکرد بالا و تأخیر کم می‌سازد.
-
-- **دریاچه داده یکپارچه**: Apache Doris می‌تواند یک معماری دریاچه داده یکپارچه بر اساس منابع داده خارجی مانند دریاچه‌های داده یا پایگاه‌های داده رابطه‌ای بسازد. راه‌حل دریاچه داده یکپارچه Doris یکپارچه‌سازی بی‌درز و جریان آزاد داده بین دریاچه‌های داده و انبارهای داده را فعال می‌کند، کمک به کاربران برای استفاده مستقیم از قابلیت‌های انبار داده برای حل مشکلات تحلیل داده در دریاچه‌های داده در حالی که به طور کامل از قابلیت‌های مدیریت داده دریاچه داده برای افزایش ارزش داده استفاده می‌کند.
-
-- **مدل‌سازی انعطاف‌پذیر**: Apache Doris رویکردهای مختلف مدل‌سازی را ارائه می‌دهد، مانند مدل‌های جدول گسترده، مدل‌های پیش‌تجمعی، طرح‌های ستاره/برف‌دانه و غیره. در طول واردات داده، داده‌ها می‌توانند به جداول گسترده صاف شوند و از طریق موتورهای محاسباتی مانند Flink یا Spark به Doris نوشته شوند، یا داده‌ها می‌توانند مستقیماً به Doris وارد شوند، انجام عملیات مدل‌سازی داده از طریق نمایش‌ها، نمایش‌های مادی یا اتصالات چند جدولی زمان واقعی.
-
-## نمای کلی فنی
-
-Doris یک رابط SQL کارآمد ارائه می‌دهد و با پروتکل MySQL کاملاً سازگار است. موتور پرس‌وجوی آن بر اساس یک معماری MPP (پردازش موازی انبوه) است که قادر به اجرای کارآمد پرس‌وجوهای تحلیلی پیچیده و دستیابی به پرس‌وجوهای زمان واقعی با تأخیر کم است. از طریق فناوری ذخیره‌سازی ستونی برای رمزگذاری و فشرده‌سازی داده، عملکرد پرس‌وجو و نسبت فشرده‌سازی ذخیره‌سازی را به طور قابل توجهی بهینه می‌کند.
-
-### رابط
-
-Apache Doris پروتکل MySQL را اتخاذ می‌کند، SQL استاندارد را پشتیبانی می‌کند و با نحو MySQL بسیار سازگار است. کاربران می‌توانند از طریق ابزارهای کلاینت مختلف به Apache Doris دسترسی داشته باشند و آن را به راحتی با ابزارهای BI ادغام کنند، از جمله اما محدود به Smartbi، DataEase، FineBI، Tableau، Power BI و Apache Superset. Apache Doris می‌تواند به عنوان منبع داده برای هر ابزار BI که پروتکل MySQL را پشتیبانی می‌کند کار کند.
-
-### موتور ذخیره‌سازی
-
-Apache Doris یک موتور ذخیره‌سازی ستونی دارد که داده‌ها را بر اساس ستون رمزگذاری، فشرده و می‌خواند. این یک نسبت فشرده‌سازی داده بسیار بالا را ممکن می‌سازد و تا حد زیادی اسکن غیرضروری داده را کاهش می‌دهد، بنابراین استفاده کارآمدتر از منابع IO و CPU را می‌سازد.
-
-Apache Doris ساختارهای نمایه متنوعی را برای به حداقل رساندن اسکن داده پشتیبانی می‌کند:
-
-- **نمایه کلید مرکب مرتب شده**: کاربران می‌توانند حداکثر سه ستون را برای تشکیل یک کلید مرتب‌سازی مرکب مشخص کنند. این می‌تواند داده را به طور مؤثر هرس کند تا بهتر از سناریوهای گزارش‌دهی با همزمانی بالا پشتیبانی کند.
-
-- **نمایه Min/Max**: این فیلتر مؤثر داده را در پرس‌وجوهای برابری و محدوده انواع عددی ممکن می‌سازد.
-
-- **نمایه BloomFilter**: این در فیلتر برابری و هرس ستون‌های کاردینالیتی بالا بسیار مؤثر است.
-
-- **نمایه معکوس**: این جستجوی سریع برای هر فیلدی را ممکن می‌سازد.
-
-Apache Doris انواع مختلفی از مدل‌های داده را پشتیبانی می‌کند و آن‌ها را برای سناریوهای مختلف بهینه کرده است:
-
-- **مدل جزئیات (مدل کلید تکراری):** یک مدل داده جزئیات طراحی شده برای برآورده کردن نیازهای ذخیره‌سازی جزئیات جداول واقعیت.
-
-- **مدل کلید اصلی (مدل کلید منحصر به فرد):** کلیدهای منحصر به فرد را تضمین می‌کند؛ داده‌های با همان کلید بازنویسی می‌شوند، امکان به‌روزرسانی داده در سطح ردیف را فراهم می‌کند.
-
-- **مدل تجمع (مدل کلید تجمع)**: ستون‌های مقدار با همان کلید را ادغام می‌کند، عملکرد را از طریق پیش‌تجمع به طور قابل توجهی بهبود می‌بخشد.
-
-Apache Doris همچنین نمایش‌های مادی جدول واحد با سازگاری قوی و نمایش‌های مادی چند جدولی به‌روزرسانی شده به صورت ناهمزمان را پشتیبانی می‌کند. نمایش‌های مادی جدول واحد به طور خودکار توسط سیستم به‌روزرسانی و نگهداری می‌شوند، نیاز به مداخله دستی از کاربران ندارند. نمایش‌های مادی چند جدولی می‌توانند به صورت دوره‌ای با استفاده از زمان‌بندی درون خوشه یا ابزارهای زمان‌بندی خارجی به‌روزرسانی شوند، پیچیدگی مدل‌سازی داده را کاهش می‌دهد.
-
-### 🔍 موتور پرس‌وجو
-
-Apache Doris یک موتور پرس‌وجو مبتنی بر MPP برای اجرای موازی بین گره‌ها و درون گره‌ها دارد. این اتصال shuffle توزیع شده را برای جداول بزرگ برای مدیریت بهتر پرس‌وجوهای پیچیده پشتیبانی می‌کند.
-
-<br />
-
-![Query Engine](https://cdn.selectdb.com/static/What_is_Apache_Doris_1_c6f5ba2af9.png)
-
-<br />
-
-موتور پرس‌وجوی Apache Doris کاملاً برداری است، با تمام ساختارهای حافظه در یک فرمت ستونی چیده شده است. این می‌تواند فراخوانی‌های تابع مجازی را تا حد زیادی کاهش دهد، نرخ ضربه کش را افزایش دهد و استفاده کارآمد از دستورالعمل‌های SIMD را ممکن سازد. Apache Doris عملکردی 5-10 برابر بالاتر در سناریوهای تجمع جدول گسترده نسبت به موتورهای غیربرداری ارائه می‌دهد.
-
-<br />
-
-![Doris query engine](https://cdn.selectdb.com/static/What_is_Apache_Doris_2_29cf58cc6b.png)
-
-<br />
-
-Apache Doris از فناوری اجرای پرس‌وجوی تطبیقی برای تنظیم پویای برنامه اجرا بر اساس آمار زمان اجرا استفاده می‌کند. به عنوان مثال، می‌تواند یک فیلتر زمان اجرا ایجاد کند و آن را به سمت پروب فشار دهد. به طور خاص، فیلترها را به گره اسکن پایین‌ترین سطح در سمت پروب فشار می‌دهد، که مقدار داده برای پردازش را تا حد زیادی کاهش می‌دهد و عملکرد اتصال را افزایش می‌دهد. فیلتر زمان اجرای Apache Doris In/Min/Max/Bloom Filter را پشتیبانی می‌کند.
-
-Apache Doris از یک موتور اجرای Pipeline استفاده می‌کند که پرس‌وجوها را به چندین کار فرعی برای اجرای موازی تقسیم می‌کند، به طور کامل از قابلیت‌های CPU چند هسته‌ای استفاده می‌کند. همزمان مشکل انفجار رشته را با محدود کردن تعداد رشته‌های پرس‌وجو حل می‌کند. موتور اجرای Pipeline کپی و اشتراک داده را کاهش می‌دهد، عملیات مرتب‌سازی و تجمع را بهینه می‌کند، بنابراین کارایی و توان عملیاتی پرس‌وجو را به طور قابل توجهی بهبود می‌بخشد.
-
-از نظر بهینه‌ساز، Apache Doris از یک استراتژی بهینه‌سازی ترکیبی CBO (بهینه‌ساز مبتنی بر هزینه)، RBO (بهینه‌ساز مبتنی بر قانون) و HBO (بهینه‌ساز مبتنی بر تاریخ) استفاده می‌کند. RBO از تا کردن ثابت، بازنویسی زیرپرس‌وجو، فشار دادن محمول و موارد دیگر پشتیبانی می‌کند. CBO از مرتب‌سازی مجدد اتصال و بهینه‌سازی‌های دیگر پشتیبانی می‌کند. HBO برنامه اجرای بهینه را بر اساس اطلاعات پرس‌وجوی تاریخی توصیه می‌کند. این اقدامات متعدد بهینه‌سازی اطمینان می‌دهد که Doris می‌تواند برنامه‌های پرس‌وجوی با عملکرد بالا را برای انواع مختلف پرس‌وجو فهرست کند.
-
-
-## 🎆 چرا Apache Doris را انتخاب کنیم؟
-
-- 🎯 **استفاده آسان**: دو فرآیند، بدون وابستگی‌های دیگر؛ مقیاس‌بندی خوشه آنلاین، بازیابی خودکار کپی؛ سازگار با پروتکل MySQL و استفاده از SQL استاندارد.
-
-- 🚀 **عملکرد بالا**: عملکرد فوق‌العاده سریع برای پرس‌وجوهای با تأخیر کم و توان عملیاتی بالا با موتور ذخیره‌سازی ستونی، معماری MPP مدرن، موتور پرس‌وجوی برداری، نمایش مادی پیش‌تجمعی و نمایه داده.
-
-- 🖥️ **یکپارچه واحد**: یک سیستم واحد می‌تواند سناریوهای سرویس‌دهی داده زمان واقعی، تحلیل داده تعاملی و پردازش داده آفلاین را پشتیبانی کند.
-
-- ⚛️ **پرس‌وجوی فدرال**: پرس‌وجوی فدرال دریاچه‌های داده مانند Hive، Iceberg، Hudi و پایگاه‌های داده مانند MySQL و Elasticsearch را پشتیبانی می‌کند.
-
-- ⏩ **روش‌های مختلف واردات داده**: واردات دسته‌ای از HDFS/S3 و واردات جریان از MySQL Binlog/Kafka را پشتیبانی می‌کند؛ نوشتن میکرو-دسته از طریق رابط HTTP و نوشتن زمان واقعی با استفاده از Insert در JDBC را پشتیبانی می‌کند.
-
-- 🚙 **اکوسیستم غنی**: Spark از Spark-Doris-Connector برای خواندن و نوشتن Doris استفاده می‌کند؛ Flink-Doris-Connector به Flink CDC اجازه می‌دهد تا نوشتن داده exactly-once را در Doris پیاده‌سازی کند؛ DBT Doris Adapter برای تبدیل داده در Doris با DBT ارائه می‌شود.
-
-## 🙌 مشارکت‌کنندگان
-
-**Apache Doris با موفقیت از انکوباتور Apache فارغ‌التحصیل شد و در ژوئن 2022 به یک پروژه سطح بالا تبدیل شد**.
-
-ما عمیقاً از 🔗[مشارکت‌کنندگان جامعه](https://github.com/apache/doris/graphs/contributors) برای مشارکت آن‌ها در Apache Doris قدردانی می‌کنیم.
-
-[![contrib graph](https://contrib.rocks/image?repo=apache/doris)](https://github.com/apache/doris/graphs/contributors)
-
-## 👨‍👩‍👧‍👦 کاربران
-
-Apache Doris اکنون در چین و سراسر جهان پایه کاربری گسترده‌ای دارد و تا امروز، **Apache Doris در محیط‌های تولید در هزاران شرکت در سراسر جهان استفاده می‌شود.** بیش از 80% از 50 شرکت برتر اینترنت در چین از نظر ارزش بازار یا ارزیابی مدت‌هاست که از Apache Doris استفاده می‌کنند، از جمله Baidu، Meituan، Xiaomi، Jingdong، Bytedance، Tencent، NetEase، Kwai، Sina، 360، Mihoyo و Ke Holdings. همچنین به طور گسترده در برخی صنایع سنتی مانند مالی، انرژی، تولید و مخابرات استفاده می‌شود.
-
-کاربران Apache Doris: 🔗[کاربران](https://doris.apache.org/users)
-
-لوگوی شرکت خود را در وب‌سایت Apache Doris اضافه کنید: 🔗[شرکت خود را اضافه کنید](https://github.com/apache/doris/discussions/27683)
- 
-## 👣 شروع کنید
-
-### 📚 مستندات
-
-همه مستندات   🔗[مستندات](https://doris.apache.org/docs/gettingStarted/what-is-apache-doris)  
-
-### ⬇️ دانلود 
-
-همه نسخه‌های انتشار و باینری 🔗[دانلود](https://doris.apache.org/download) 
-
-### 🗄️ کامپایل
-
-نحوه کامپایل را ببینید  🔗[کامپایل](https://doris.apache.org/community/source-install/compilation-with-docker))
-
-### 📮 نصب
-
-نحوه نصب و استقرار را ببینید 🔗[نصب و استقرار](https://doris.apache.org/docs/install/preparation/env-checking) 
+| منبع | چه چیزی فراهم می‌کند |
+| -------- | ---------------- |
+| [گزارش جامعه](https://doris.apache.org/community-report/) | به‌روزرسانی‌های هفتگی درباره فعالیت جامعه، درخواست‌های Pull ادغام‌شده، مشارکت‌کنندگان و پیشرفت قابلیت‌ها. |
+| [Roadmap 2026](https://github.com/apache/doris/issues/60036) | گفت‌وگوی برنامه‌ریزی 2026 برای AI و جستجوی ترکیبی، موتور پرس‌وجو، ذخیره‌سازی و کارهای مربوط به دریاچه داده. |
 
 ## 🧩 اجزا
 
-### 📝 Doris Connector
+Doris برای گردش‌کارهای رایج مهندسی داده، اتصال‌دهنده‌ها و ابزارهایی فراهم می‌کند.
 
-Doris پشتیبانی برای Spark/Flink برای خواندن داده‌های ذخیره شده در Doris از طریق Connector فراهم می‌کند و همچنین نوشتن داده به Doris از طریق Connector را پشتیبانی می‌کند.
+- [Doris Flink Connector](https://doris.apache.org/docs/dev/connection-integration/data-integration/flink-doris-connector)
+- [Doris Spark Connector](https://doris.apache.org/docs/dev/connection-integration/data-integration/spark-doris-connector)
+- [Doris Kafka Connector](https://doris.apache.org/docs/dev/connection-integration/data-integration/doris-kafka-connector)
+- [Doris Stream Loader](https://doris.apache.org/docs/dev/connection-integration/data-integration/doris-streamloader)
+- [Doris Kubernetes Operator](https://doris.apache.org/docs/dev/install/deploy-on-kubernetes/doris-operator/intro)
 
-🔗[apache/doris-flink-connector](https://github.com/apache/doris-flink-connector)
+## 👨‍👩‍👧‍👦 کاربران
 
-🔗[apache/doris-spark-connector](https://github.com/apache/doris-spark-connector)
+Apache Doris در محیط‌های تولیدی هزاران شرکت در سراسر جهان و در حوزه‌هایی مانند خدمات اینترنتی، مالی، خرده‌فروشی، لجستیک، تولید، انرژی، مخابرات، AI و صنایع دیگر استفاده می‌شود.
 
+- [کاربران Apache Doris](https://doris.apache.org/why-doris/users/)
+- [شرکت خود را اضافه کنید](https://github.com/apache/doris/discussions/27683)
+
+## 🙌 مشارکت‌کنندگان
+
+Apache Doris از Apache Incubator فارغ‌التحصیل شد و در ژوئن 2022 به یک Apache Top-Level Project تبدیل شد. از همه [مشارکت‌کنندگان جامعه](https://github.com/apache/doris/graphs/contributors) که به ساخت Doris کمک می‌کنند سپاسگزاریم.
+
+[![contrib graph](https://contrib.rocks/image?repo=apache/doris)](https://github.com/apache/doris/graphs/contributors)
 
 ## 🌈 جامعه و پشتیبانی
 
-### 📤 اشتراک در فهرست‌های پستی
+- [مسائل GitHub](https://github.com/apache/doris/issues)
+- [گفت‌وگوهای GitHub](https://github.com/apache/doris/discussions)
+- [درخواست‌های Pull](https://github.com/apache/doris/pulls)
+- [روش مشارکت](https://doris.apache.org/community/how-to-contribute/)
+- [راهنمای ارسال کد](https://doris.apache.org/community/how-to-contribute/pull-request/)
 
-فهرست پستی شناخته‌شده‌ترین شکل ارتباط در جامعه Apache است. نحوه 🔗[اشتراک در فهرست‌های پستی](https://doris.apache.org/community/subscribe-mail-list) را ببینید
+## 💬 تماس با ما
 
-### 🙋 گزارش مشکلات یا ارسال Pull Request
+- [به Slack بپیوندید](https://doris.apache.org/slack)
+- [عضویت در فهرست ایمیل توسعه‌دهندگان](https://doris.apache.org/community/subscribe-mail-list)
 
-اگر سوالی دارید، می‌توانید 🔗[GitHub Issue](https://github.com/apache/doris/issues) ثبت کنید یا آن را در 🔗[GitHub Discussion](https://github.com/apache/doris/discussions) ارسال کنید و با ارسال 🔗[Pull Request](https://github.com/apache/doris/pulls) آن را برطرف کنید
+## 🧰 پیوندها
 
-### 🍻 نحوه مشارکت
-
-ما از پیشنهادات، نظرات (شامل انتقادات)، نظرات و مشارکت‌های شما استقبال می‌کنیم. 🔗[نحوه مشارکت](https://doris.apache.org/community/how-to-contribute/) و 🔗[راهنمای ارسال کد](https://doris.apache.org/community/how-to-contribute/pull-request/) را ببینید
-
-### ⌨️ پیشنهادات بهبود Doris (DSIP)
-
-🔗[پیشنهاد بهبود Doris (DSIP)](https://cwiki.apache.org/confluence/display/DORIS/Doris+Improvement+Proposals) را می‌توان به عنوان **مجموعه‌ای از اسناد طراحی برای همه به‌روزرسانی‌ها یا بهبودهای اصلی ویژگی** در نظر گرفت.
-
-### 🔑 مشخصات کدنویسی Backend C++
-🔗 [مشخصات کدنویسی Backend C++](https://cwiki.apache.org/confluence/pages/viewpage.action?pageId=240883637) باید به شدت رعایت شود، که به ما کمک می‌کند کیفیت کد بهتری به دست آوریم.
-
-## 💬 با ما تماس بگیرید
-
-از طریق فهرست پستی زیر با ما تماس بگیرید.
-
-| نام                                                                          | محدوده                           |                                                                 |                                                                     |                                                                              |
-|:------------------------------------------------------------------------------|:--------------------------------|:----------------------------------------------------------------|:--------------------------------------------------------------------|:-----------------------------------------------------------------------------|
-| [dev@doris.apache.org](mailto:dev@doris.apache.org)     | بحث‌های مرتبط با توسعه | [اشتراک](mailto:dev-subscribe@doris.apache.org)   | [لغو اشتراک](mailto:dev-unsubscribe@doris.apache.org)   | [آرشیوها](http://mail-archives.apache.org/mod_mbox/doris-dev/)   |
-
-## 🧰 لینک‌ها
-
-* وب‌سایت رسمی Apache Doris - [سایت](https://doris.apache.org)
-* فهرست پستی توسعه‌دهندگان - <dev@doris.apache.org>. به <dev-subscribe@doris.apache.org> ایمیل بزنید، پاسخ را دنبال کنید تا در فهرست پستی مشترک شوید.
-* کانال Slack - [به Slack بپیوندید](https://doris.apache.org/slack)
-* Twitter - [دنبال کنید @doris_apache](https://twitter.com/doris_apache)
-
+- وب‌سایت رسمی Apache Doris: [doris.apache.org](https://doris.apache.org)
+- X: [@doris_apache](https://twitter.com/doris_apache)
+- Medium: [@ApacheDoris](https://medium.com/@ApacheDoris)
 
 ## 📜 مجوز
 
 [Apache License, Version 2.0](https://www.apache.org/licenses/LICENSE-2.0)
 
-> **یادداشت**
-> برخی از مجوزهای وابستگی‌های شخص ثالث با مجوز Apache 2.0 سازگار نیستند. بنابراین باید
-برخی از ویژگی‌های Doris را غیرفعال کنید تا با مجوز Apache 2.0 مطابقت داشته باشد. برای جزئیات، به فایل `thirdparty/LICENSE.txt` مراجعه کنید
-
-
+> **نکته**
+> برخی مجوزهای وابستگی‌های شخص ثالث با Apache 2.0 License سازگار نیستند. بنابراین برای رعایت Apache 2.0 License باید
+برخی قابلیت‌های Doris را غیرفعال کنید. برای جزئیات، به `thirdparty/LICENSE.txt` مراجعه کنید

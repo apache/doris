@@ -23,7 +23,11 @@
 #include <gtest/gtest.h>
 
 #include <set>
+#include <vector>
 
+#include "storage/schema.h"
+#include "storage/tablet/tablet_schema_helper.h"
+#include "storage/tablet_info.h"
 #include "util/json/path_in_data.h"
 
 namespace doris {
@@ -32,6 +36,36 @@ class TabletSchemaTest : public testing::Test {
 protected:
     void SetUp() override {}
 };
+
+TEST_F(TabletSchemaTest, test_commit_tso_col_idx_from_append_column) {
+    TabletSchema tablet_schema;
+    tablet_schema.append_column(*create_int_key(0, false));
+    EXPECT_EQ(-1, tablet_schema.commit_tso_col_idx());
+
+    tablet_schema.append_column(*create_commit_tso_column(1));
+    EXPECT_EQ(1, tablet_schema.commit_tso_col_idx());
+
+    std::vector<ColumnId> column_ids {0, 1};
+    Schema read_schema(tablet_schema.columns(), column_ids);
+    EXPECT_EQ(1, read_schema.commit_tso_col_idx());
+}
+
+TEST_F(TabletSchemaTest, test_commit_tso_col_idx_from_current_index_schema) {
+    TabletSchema ori_schema;
+    ori_schema.append_column(*create_int_key(0, false));
+
+    TabletColumn key_column = *create_int_key(0, false);
+    TabletColumn commit_tso_column = *create_commit_tso_column(1);
+    OlapTableIndexSchema index_schema;
+    index_schema.index_id = 100;
+    index_schema.schema_hash = 200;
+    index_schema.columns.push_back(&key_column);
+    index_schema.columns.push_back(&commit_tso_column);
+
+    TabletSchema current;
+    current.build_current_tablet_schema(index_schema.index_id, 2, &index_schema, ori_schema);
+    EXPECT_EQ(1, current.commit_tso_col_idx());
+}
 
 TEST_F(TabletSchemaTest, test_tablet_column_init_from_pb) {
     ColumnPB column_pb;

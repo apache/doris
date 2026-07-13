@@ -16,6 +16,7 @@
 #include "format_v2/parquet/reader/parquet_leaf_reader.h"
 
 #include <arrow/array/array_binary.h>
+#include <arrow/array/array_dict.h>
 #include <parquet/api/schema.h>
 #include <parquet/column_reader.h>
 #include <parquet/exception.h>
@@ -91,12 +92,71 @@ Status decoded_fixed_value_size(const std::string& column_name, DecodedValueKind
 Status get_binary_chunks(const std::string& column_name,
                          ::parquet::internal::RecordReader& record_reader,
                          std::vector<std::shared_ptr<::arrow::Array>>* chunks) {
+    if (auto* dictionary_reader =
+                dynamic_cast<::parquet::internal::DictionaryRecordReader*>(&record_reader);
+        dictionary_reader != nullptr) {
+        auto chunked = dictionary_reader->GetResult();
+        if (chunked == nullptr) {
+            return Status::Corruption(
+                    "Parquet dictionary record reader returned null result for column {}",
+                    column_name);
+        }
+        *chunks = chunked->chunks();
+        return Status::OK();
+    }
     auto* binary_reader = dynamic_cast<::parquet::internal::BinaryRecordReader*>(&record_reader);
     if (binary_reader == nullptr) {
         return Status::InternalError("Parquet binary record reader is not available for column {}",
                                      column_name);
     }
     *chunks = binary_reader->GetBuilderChunks();
+    return Status::OK();
+}
+
+Status append_dictionary_binary_values(const std::string& column_name,
+                                       const ::arrow::DictionaryArray& dictionary_array,
+                                       std::vector<StringRef>* values) {
+    DORIS_CHECK(values != nullptr);
+    const auto& dictionary = dictionary_array.dictionary();
+    if (dictionary == nullptr) {
+        return Status::Corruption("Parquet dictionary array has null dictionary for column {}",
+                                  column_name);
+    }
+    auto append_value = [&](int64_t dictionary_index) -> Status {
+        if (dictionary_index < 0 || dictionary_index >= dictionary->length()) {
+            return Status::Corruption("Invalid parquet dictionary index {} for column {}",
+                                      dictionary_index, column_name);
+        }
+        if (auto* binary_array = dynamic_cast<::arrow::BinaryArray*>(dictionary.get())) {
+            if (binary_array->IsNull(dictionary_index)) {
+                values->emplace_back(static_cast<const char*>(nullptr), 0);
+                return Status::OK();
+            }
+            int32_t length = 0;
+            const uint8_t* value = binary_array->GetValue(dictionary_index, &length);
+            values->emplace_back(reinterpret_cast<const char*>(value), length);
+            return Status::OK();
+        }
+        if (auto* fixed_array = dynamic_cast<::arrow::FixedSizeBinaryArray*>(dictionary.get())) {
+            if (fixed_array->IsNull(dictionary_index)) {
+                values->emplace_back(static_cast<const char*>(nullptr), 0);
+                return Status::OK();
+            }
+            values->emplace_back(
+                    reinterpret_cast<const char*>(fixed_array->GetValue(dictionary_index)),
+                    fixed_array->byte_width());
+            return Status::OK();
+        }
+        return Status::InternalError("Unexpected Arrow dictionary value array type for column {}",
+                                     column_name);
+    };
+    for (int64_t row_idx = 0; row_idx < dictionary_array.length(); ++row_idx) {
+        if (dictionary_array.IsNull(row_idx)) {
+            values->emplace_back(static_cast<const char*>(nullptr), 0);
+            continue;
+        }
+        RETURN_IF_ERROR(append_value(dictionary_array.GetValueIndex(row_idx)));
+    }
     return Status::OK();
 }
 
@@ -131,6 +191,9 @@ Status build_binary_values(const std::string& column_name,
                 values->emplace_back(reinterpret_cast<const char*>(fixed_array->GetValue(row_idx)),
                                      fixed_array->byte_width());
             }
+        } else if (auto* dictionary_array = dynamic_cast<::arrow::DictionaryArray*>(chunk.get())) {
+            RETURN_IF_ERROR(
+                    append_dictionary_binary_values(column_name, *dictionary_array, values));
         } else {
             return Status::InternalError("Unexpected Arrow binary array type for column {}",
                                          column_name);
@@ -277,10 +340,22 @@ Status ParquetLeafReader::collect_levels_batch(::parquet::internal::RecordReader
     }
     batch->_read_dense_for_nullable = record_reader.read_dense_for_nullable();
 
-    // Deliberately ignore values_written(), values() and BinaryRecordReader::GetBuilderChunks().
-    // COUNT(col) only needs top-level shape. Pulling binary chunks transfers Arrow builder
-    // ownership into Doris arrays and later into ColumnString, which is exactly the OOM-prone
-    // materialization path for huge MAP/ARRAY/STRUCT string payloads.
+    // Arrow's RecordReader::Reset() does not reset ByteArray/FLBA builders. GetBuilderChunks()
+    // (or DictionaryRecordReader::GetResult()) is the documented reset operation and must be
+    // called before the next ReadRecords(). Otherwise a levels-only skip followed by a normal read
+    // observes values from both batches; for example, skipping ARRAY<STRING> ["a", "b"] and then
+    // reading ["c"] would report one current level but three values. Release the chunks here and
+    // let the temporary vector destroy them immediately. We deliberately do not inspect or copy
+    // their payload into a Doris Column, so the levels-only contract still avoids Doris-side value
+    // materialization.
+    if (batch->is_binary_value()) {
+        std::vector<std::shared_ptr<::arrow::Array>> discarded_chunks;
+        RETURN_IF_ERROR(get_binary_chunks(_name, record_reader, &discarded_chunks));
+    }
+
+    // COUNT(col) and nested skip only need top-level shape. Fixed-width values remain owned by the
+    // RecordReader and are cleared by Reset(); binary values were released above solely to reset
+    // the Arrow builder.
     batch->_values_written = 0;
     return Status::OK();
 }

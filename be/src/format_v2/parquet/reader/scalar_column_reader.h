@@ -17,7 +17,9 @@
 
 #include <memory>
 #include <string>
+#include <vector>
 
+#include "core/string_ref.h"
 #include "format_v2/parquet/parquet_type.h"
 #include "format_v2/parquet/reader/column_reader.h"
 #include "format_v2/parquet/reader/parquet_leaf_reader.h"
@@ -53,11 +55,17 @@ public:
 
     Status read(int64_t rows, MutableColumnPtr& column, int64_t* rows_read) override;
     Status skip(int64_t rows) override;
+    Status select_with_dictionary_filter(const SelectionVector& sel, uint16_t selected_rows,
+                                         int64_t batch_rows,
+                                         const IColumn::Filter& dictionary_filter,
+                                         MutableColumnPtr& column, IColumn::Filter* row_filter,
+                                         bool* used_filter) override;
 
     Status load_nested_batch(int64_t rows) override;
     Status load_nested_levels_batch(int64_t rows) override;
     Status build_nested_column(int64_t length_upper_bound, MutableColumnPtr& column,
                                int64_t* values_read) override;
+    Status consume_nested_column(int64_t length_upper_bound, int64_t* values_consumed) override;
     const std::vector<int16_t>& nested_definition_levels() const override;
     const std::vector<int16_t>& nested_repetition_levels() const override;
     int64_t nested_levels_written() const override;
@@ -65,6 +73,16 @@ public:
 
 private:
     Status append_nested_value(int64_t level_idx, MutableColumnPtr& column) const;
+    Status validate_nested_value(int64_t level_idx, bool require_non_null) const;
+    Status read_range_with_dictionary_filter(int64_t rows, const IColumn::Filter& dictionary_filter,
+                                             MutableColumnPtr& column, IColumn::Filter* row_filter,
+                                             int64_t* rows_read, bool* used_filter);
+    Status append_dictionary_filtered_values(
+            const std::vector<std::shared_ptr<::arrow::Array>>& chunks,
+            const IColumn::Filter& dictionary_filter, MutableColumnPtr& column,
+            IColumn::Filter* row_filter, int64_t* matched_rows, bool* used_filter) const;
+    Status append_decoded_binary_values(const std::vector<StringRef>& values,
+                                        MutableColumnPtr& column) const;
 
     const ::parquet::ColumnDescriptor* descriptor() const { return _descriptor; }
 

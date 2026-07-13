@@ -471,6 +471,7 @@ DECLARE_String(storage_page_cache_limit);
 // Shard size for page cache, the value must be power of two.
 // It's recommended to set it to a value close to the number of BE cores in order to reduce lock contentions.
 DECLARE_Int32(storage_page_cache_shard_size);
+DECLARE_mInt32(file_cache_mem_storage_shard_num);
 // Percentage for index page cache
 // all storage page cache will be divided into data_page_cache and index_page_cache
 DECLARE_Int32(index_page_cache_percentage);
@@ -712,9 +713,11 @@ DECLARE_mInt64(load_error_log_limit_bytes);
 // each category has diffrent thread number
 // threads to handle heavy api interface, such as transmit_block etc
 DECLARE_Int32(brpc_heavy_work_pool_threads);
+DECLARE_Int32(brpc_peer_fetch_pool_threads);
 // threads to handle light api interface, such as exec_plan_fragment_prepare/exec_plan_fragment_start
 DECLARE_Int32(brpc_light_work_pool_threads);
 DECLARE_Int32(brpc_heavy_work_pool_max_queue_size);
+DECLARE_Int32(brpc_peer_fetch_pool_max_queue_size);
 DECLARE_Int32(brpc_light_work_pool_max_queue_size);
 DECLARE_mBool(enable_bthread_transmit_block);
 DECLARE_Int32(brpc_arrow_flight_work_pool_threads);
@@ -914,6 +917,11 @@ DECLARE_mDouble(min_flush_thread_num_per_cpu);
 
 // Whether to enable adaptive flush thread adjustment
 DECLARE_mBool(enable_adaptive_flush_threads);
+
+// Whether to block writes when one table has too many pending flush memtables on this BE.
+DECLARE_mBool(enable_table_memtable_flush_backpressure);
+// Max pending flush memtables for one table on this BE before blocking new writes.
+DECLARE_mInt32(table_memtable_flush_pending_count_limit);
 
 // config for tablet meta checkpoint
 DECLARE_mInt32(tablet_meta_checkpoint_min_new_rowsets_num);
@@ -1149,6 +1157,11 @@ DECLARE_mInt32(cold_data_compaction_score_threshold);
 DECLARE_Int32(min_s3_file_system_thread_num);
 DECLARE_Int32(max_s3_file_system_thread_num);
 
+// Thread pool for S3 reads in cross-CG peer winner race.
+// Max should match max_concurrent_peer_races so the pool never fills up under normal operation.
+DECLARE_Int32(min_peer_race_s3_thread_num);
+DECLARE_Int32(max_peer_race_s3_thread_num);
+
 DECLARE_Bool(enable_time_lut);
 
 DECLARE_mBool(enable_query_like_bloom_filter);
@@ -1379,6 +1392,10 @@ DECLARE_Bool(enable_feature_binlog);
 // enable set in BitmapValue
 DECLARE_Bool(enable_set_in_bitmap_value);
 
+// Enable compact integer tags in row-store JSONB. Once enabled and compact data is written,
+// rollback to code without compact row-store JSONB reader support is not safe.
+DECLARE_Bool(enable_row_store_compact_jsonb);
+
 // max number of hdfs file handle in cache
 DECLARE_Int64(max_hdfs_file_handle_cache_num);
 DECLARE_Int32(max_hdfs_file_handle_cache_time_sec);
@@ -1403,8 +1420,6 @@ DECLARE_mString(kerberos_krb5_conf_path);
 // JDK-8153057: avoid StackOverflowError thrown from the UncaughtExceptionHandler in thread "process reaper"
 DECLARE_mBool(jdk_process_reaper_use_default_stack_size);
 
-// Values include `none`, `glog`, `boost`, `glibc`, `libunwind`
-DECLARE_mString(get_stack_trace_tool);
 DECLARE_mBool(enable_address_sanitizers_with_stack_trace);
 
 // DISABLED: Don't resolve location info.

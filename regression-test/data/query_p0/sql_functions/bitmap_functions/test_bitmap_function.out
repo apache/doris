@@ -537,6 +537,18 @@ true
 -- !sql_bitmap_base64_nereids8 --
 1
 
+-- !sql_bitmap_base64_history_set_v1 --
+1,9999999
+
+-- !sql_bitmap_base64_history_set_v1_reversed --
+1,9999999
+
+-- !sql_bitmap_base64_history_set_v2_reversed --
+1,9999999
+
+-- !sql_bitmap_base64_history_set_v1_mixed --
+0,1,7,4294967296,18446744073709551615
+
 -- !sql_bitmap_base64_nereids9 --
 
 0

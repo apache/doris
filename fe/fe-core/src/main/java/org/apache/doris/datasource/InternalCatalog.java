@@ -2326,6 +2326,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             throw new DdlException("Cannot create temporary table with binlog enable");
         }
         createTableInfo.getProperties().putAll(createTableBinlogConfig.toProperties());
+        createTableInfo.createCommitTSOColumnIfNecessary(createTableBinlogConfig);
 
         // get keys type
         KeysDesc keysDesc = createTableInfo.getKeysDesc();

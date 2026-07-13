@@ -144,6 +144,49 @@ Status build_segment_zonemap_context(Segment* segment, const Schema& schema,
     return Status::OK();
 }
 
+void fill_missing_decimal_precision(const TabletColumn& column, ColumnMetaPB* meta) {
+    auto meta_type = static_cast<FieldType>(meta->type());
+    if (meta_type != column.type()) {
+        return;
+    }
+
+    if (field_is_decimal_type(meta_type)) {
+        if ((!meta->has_precision() || meta->precision() <= 0) && column.precision() > 0) {
+            meta->set_precision(column.precision());
+        }
+        if ((!meta->has_frac() || meta->frac() < 0) && column.frac() >= 0) {
+            meta->set_frac(column.frac());
+        }
+    }
+
+    // Complex column meta may also include storage helper children, such as
+    // array offsets. Only schema children have matching TabletColumn subtypes.
+    int child_count =
+            std::min(meta->children_columns_size(), static_cast<int>(column.get_subtype_count()));
+    for (int i = 0; i < child_count; ++i) {
+        fill_missing_decimal_precision(column.get_sub_column(i), meta->mutable_children_columns(i));
+    }
+}
+
+void fill_missing_decimal_precision_from_schema(const TabletSchemaSPtr& tablet_schema,
+                                                ColumnMetaPB* meta) {
+    if (!meta->has_unique_id()) {
+        return;
+    }
+    int32_t col_idx = tablet_schema->field_index(static_cast<int32_t>(meta->unique_id()));
+    if (col_idx < 0) {
+        return;
+    }
+    fill_missing_decimal_precision(tablet_schema->column(col_idx), meta);
+}
+
+void fill_footer_missing_decimal_precision(const TabletSchemaSPtr& tablet_schema,
+                                           SegmentFooterPB* footer) {
+    for (int i = 0; i < footer->columns_size(); ++i) {
+        fill_missing_decimal_precision_from_schema(tablet_schema, footer->mutable_columns(i));
+    }
+}
+
 } // namespace
 
 Status Segment::open(io::FileSystemSPtr fs, const std::string& path, int64_t tablet_id,
@@ -340,7 +383,16 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
         }
         const TabletColumn& col = read_options.tablet_schema->column(column_id);
         std::shared_ptr<ColumnReader> reader;
-        Status st = get_column_reader(col, &reader, read_options.stats);
+        // __DORIS_COMMIT_TSO_COL__ on a single-version segment stores a 0 placeholder on disk
+        // (replaced with the rowset's real commit_tso at read time). Its on-disk zonemap [0,0]
+        // must not drive segment-level pruning, so build a ConstantColumnReader carrying the real
+        // commit_tso to prune against the real value instead.
+        std::optional<Field> const_value;
+        if (read_options.version.first == read_options.version.second &&
+            column_id == schema->commit_tso_col_idx() && read_options.commit_tso.end_tso() != -1) {
+            const_value = Field::create_field<TYPE_BIGINT>(read_options.commit_tso.end_tso());
+        }
+        Status st = get_column_reader(col, &reader, read_options.stats, std::move(const_value));
         // not found in this segment, skip
         if (st.is<ErrorCode::NOT_FOUND>()) {
             continue;
@@ -595,6 +647,10 @@ Status Segment::_parse_footer(std::shared_ptr<SegmentFooterPB>& footer,
                 _file_reader->path().native(), file_size,
                 file_cache_key_str(_file_reader->path().native()));
     }
+    // Segments written before #26572 do not persist decimal precision/frac in
+    // ColumnMetaPB, so recover the logical p/s from TabletSchema before
+    // ColumnReader builds DataTypeDecimal.
+    fill_footer_missing_decimal_precision(_tablet_schema, footer.get());
 
     VLOG_DEBUG << fmt::format("Loading segment footer from {} finished",
                               _file_reader->path().native());
@@ -813,9 +869,26 @@ Status Segment::new_column_iterator(const TabletColumn& tablet_column,
         return Status::OK();
     }
 
+    // __DORIS_COMMIT_TSO_COL__ on a single-version segment stores a 0 placeholder on disk (its
+    // real value is the rowset's commit_tso, filled at read time). Pass the real commit_tso as a
+    // const value so the cache returns a ConstantColumnReader, whose iterator yields the real value
+    // on every read path (projection / predicate / MIN-MAX zone-map) instead of the placeholder 0.
+    // commit_tso == -1 means it is not assigned yet (before publish); keep the on-disk value then.
+    // The value is constant per segment (a segment belongs to a single rowset), so caching the
+    // ConstantColumnReader does not cross-pollute other queries. Some internal read paths (e.g. MOW
+    // partial-update row fetch) build a bare StorageReadOptions without tablet_schema, so guard it.
+    std::optional<Field> const_value;
+    if (opt->tablet_schema != nullptr && opt->version.first == opt->version.second &&
+        opt->commit_tso.end_tso() != -1) {
+        int32_t tso_idx = opt->tablet_schema->commit_tso_col_idx();
+        if (tso_idx != -1 && opt->tablet_schema->column(tso_idx).unique_id() == unique_id) {
+            const_value = Field::create_field<TYPE_BIGINT>(opt->commit_tso.end_tso());
+        }
+    }
+
     // init iterator by unique id
     std::shared_ptr<ColumnReader> reader;
-    RETURN_IF_ERROR(get_column_reader(unique_id, &reader, opt->stats));
+    RETURN_IF_ERROR(get_column_reader(unique_id, &reader, opt->stats, std::move(const_value)));
     if (reader == nullptr) {
         return Status::InternalError("column reader is nullptr, unique_id={}", unique_id);
     }
@@ -865,7 +938,7 @@ Status Segment::new_column_iterator(const TabletColumn& tablet_column,
 }
 
 Status Segment::get_column_reader(int32_t col_uid, std::shared_ptr<ColumnReader>* column_reader,
-                                  OlapReaderStatistics* stats) {
+                                  OlapReaderStatistics* stats, std::optional<Field> const_value) {
     RETURN_IF_ERROR(_create_column_meta_once(stats));
     SCOPED_RAW_TIMER(&stats->segment_create_column_readers_timer_ns);
     // The column is not in this segment, return nullptr
@@ -874,7 +947,8 @@ Status Segment::get_column_reader(int32_t col_uid, std::shared_ptr<ColumnReader>
         return Status::Error<ErrorCode::NOT_FOUND, false>("column not found in segment, col_uid={}",
                                                           col_uid);
     }
-    return _column_reader_cache->get_column_reader(col_uid, column_reader, stats);
+    return _column_reader_cache->get_column_reader(col_uid, column_reader, stats,
+                                                   std::move(const_value));
 }
 
 Status Segment::traverse_column_meta_pbs(const std::function<void(const ColumnMetaPB&)>& visitor) {
@@ -888,7 +962,7 @@ Status Segment::traverse_column_meta_pbs(const std::function<void(const ColumnMe
 
 Status Segment::get_column_reader(const TabletColumn& col,
                                   std::shared_ptr<ColumnReader>* column_reader,
-                                  OlapReaderStatistics* stats) {
+                                  OlapReaderStatistics* stats, std::optional<Field> const_value) {
     RETURN_IF_ERROR(_create_column_meta_once(stats));
     SCOPED_RAW_TIMER(&stats->segment_create_column_readers_timer_ns);
     int col_uid = col.unique_id() >= 0 ? col.unique_id() : col.parent_unique_id();
@@ -903,7 +977,8 @@ Status Segment::get_column_reader(const TabletColumn& col,
         return _column_reader_cache->get_path_column_reader(col_uid, relative_path, column_reader,
                                                             stats);
     }
-    return _column_reader_cache->get_column_reader(col_uid, column_reader, stats);
+    return _column_reader_cache->get_column_reader(col_uid, column_reader, stats,
+                                                   std::move(const_value));
 }
 
 Status Segment::new_index_iterator(const TabletColumn& tablet_column, const TabletIndex* index_meta,
@@ -1117,13 +1192,14 @@ Status Segment::seek_and_read_by_rowid(const TabletSchema& schema, SlotDescripto
     DORIS_CHECK(std::adjacent_find(row_ids.begin(), row_ids.end()) == row_ids.end());
     // ColumnIterator::seek_and_read expects monotonically increasing row_ids without
     // duplicates for correct ordinal scanning. Enforce this contract at the entry point.
+    auto io_ctx = storage_read_options.io_ctx;
+    io_ctx.reader_type = ReaderType::READER_QUERY;
+    io_ctx.file_cache_stats = &storage_read_options.stats->file_cache_stats;
     segment_v2::ColumnIteratorOptions opt {
             .use_page_cache = !config::disable_storage_page_cache,
             .file_reader = file_reader().get(),
             .stats = storage_read_options.stats,
-            .io_ctx = io::IOContext {.reader_type = ReaderType::READER_QUERY,
-                                     .file_cache_stats =
-                                             &storage_read_options.stats->file_cache_stats},
+            .io_ctx = io_ctx,
     };
 
     if (!slot->column_paths().empty()) {

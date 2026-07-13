@@ -21,12 +21,15 @@
 #include <gtest/gtest-test-part.h>
 #include <roaring/roaring.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <string>
+#include <vector>
 
 #include "gtest/gtest.h"
 #include "gtest/gtest_pred_impl.h"
 #include "util/coding.h"
+#include "util/url_coding.h"
 
 namespace doris {
 using roaring::Roaring;
@@ -503,6 +506,20 @@ void check_bitmap_equal(const BitmapValue& left, const BitmapValue& right) {
     }
 }
 
+std::vector<uint64_t> sorted_bitmap_values(const BitmapValue& bitmap) {
+    std::vector<uint64_t> values;
+    for (auto v : bitmap) {
+        values.emplace_back(v);
+    }
+    std::sort(values.begin(), values.end());
+    return values;
+}
+
+void check_bitmap_values(const BitmapValue& bitmap, std::vector<uint64_t> expected) {
+    std::sort(expected.begin(), expected.end());
+    EXPECT_EQ(sorted_bitmap_values(bitmap), expected);
+}
+
 TEST(BitmapValueTest, write_read) {
     config::enable_set_in_bitmap_value = true;
     BitmapValue bitmap_empty;
@@ -966,14 +983,31 @@ std::string convert_bitmap_to_string(BitmapValue& bitmap) {
     return buf;
 }
 
+std::string decode_base64_to_string(const std::string& base64) {
+    std::string decoded;
+    EXPECT_TRUE(base64_decode(base64, &decoded));
+    return decoded;
+}
+
+BitmapValue deserialize_bitmap_from_string(const std::string& buffer) {
+    BitmapValue bitmap;
+    EXPECT_TRUE(bitmap.deserialize(buffer.data()));
+    return bitmap;
+}
+
 TEST(BitmapValueTest, bitmap_serde) {
+    auto old_enable_set = config::enable_set_in_bitmap_value;
+    auto old_serialize_version = config::bitmap_serialize_version;
+    config::enable_set_in_bitmap_value = false;
+    config::bitmap_serialize_version = 1;
+
     { // EMPTY
         BitmapValue empty;
         std::string buffer = convert_bitmap_to_string(empty);
         std::string expect_buffer(1, BitmapTypeCode::EMPTY);
         EXPECT_EQ(expect_buffer, buffer);
 
-        BitmapValue out(buffer.data());
+        BitmapValue out = deserialize_bitmap_from_string(buffer);
         EXPECT_EQ(0, out.cardinality());
     }
     { // SINGLE32
@@ -984,18 +1018,19 @@ TEST(BitmapValueTest, bitmap_serde) {
         put_fixed32_le(&expect_buffer, i);
         EXPECT_EQ(expect_buffer, buffer);
 
-        BitmapValue out(buffer.data());
+        BitmapValue out = deserialize_bitmap_from_string(buffer);
         EXPECT_EQ(1, out.cardinality());
         EXPECT_TRUE(out.contains(i));
     }
     { // BITMAP32
-        BitmapValue bitmap32({0, UINT32_MAX});
+        BitmapValue bitmap32({1, 9999999});
         std::string buffer = convert_bitmap_to_string(bitmap32);
+        EXPECT_EQ(decode_base64_to_string("AjowAAACAAAAAAAAAJgAAAAYAAAAGgAAAAEAf5Y="), buffer);
 
-        BitmapValue out(buffer.data());
+        BitmapValue out = deserialize_bitmap_from_string(buffer);
         EXPECT_EQ(2, out.cardinality());
-        EXPECT_TRUE(out.contains(0));
-        EXPECT_TRUE(out.contains(UINT32_MAX));
+        EXPECT_TRUE(out.contains(1));
+        EXPECT_TRUE(out.contains(9999999));
     }
     { // SINGLE64
         uint64_t i = static_cast<uint64_t>(UINT32_MAX) + 1;
@@ -1005,19 +1040,88 @@ TEST(BitmapValueTest, bitmap_serde) {
         put_fixed64_le(&expect_buffer, i);
         EXPECT_EQ(expect_buffer, buffer);
 
-        BitmapValue out(buffer.data());
+        BitmapValue out = deserialize_bitmap_from_string(buffer);
         EXPECT_EQ(1, out.cardinality());
         EXPECT_TRUE(out.contains(i));
     }
     { // BITMAP64
-        BitmapValue bitmap64({0, static_cast<uint64_t>(UINT32_MAX) + 1});
+        BitmapValue bitmap64({1, static_cast<uint64_t>(UINT32_MAX) + 1});
         std::string buffer = convert_bitmap_to_string(bitmap64);
+        EXPECT_EQ(decode_base64_to_string(
+                          "BAIAAAAAOjAAAAEAAAAAAAAAEAAAAAEAAQAAADowAAABAAAAAAAAABAAAAAAAA=="),
+                  buffer);
 
-        BitmapValue out(buffer.data());
+        BitmapValue out = deserialize_bitmap_from_string(buffer);
         EXPECT_EQ(2, out.cardinality());
-        EXPECT_TRUE(out.contains(0));
+        EXPECT_TRUE(out.contains(1));
         EXPECT_TRUE(out.contains(static_cast<uint64_t>(UINT32_MAX) + 1));
     }
+    { // BITMAP32_V2
+        config::bitmap_serialize_version = 2;
+        std::vector<uint64_t> bits32 {0,  1,  2,  3,  4,  5,  6,  7,  8,  9,  10,
+                                      11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21,
+                                      22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32};
+        BitmapValue bitmap32(bits32);
+        std::string buffer = convert_bitmap_to_string(bitmap32);
+        EXPECT_EQ(decode_base64_to_string("DAI7MAAAAQAAIAABAAAAIAA="), buffer);
+
+        BitmapValue out = deserialize_bitmap_from_string(buffer);
+        check_bitmap_values(out, bits32);
+    }
+    { // BITMAP64_V2
+        std::vector<uint64_t> bits64 {
+                0,  1,  2,  3,  4,  5,  6,  7,  8,  9,  10,
+                11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21,
+                22, 23, 24, 25, 26, 27, 28, 29, 30, 31, static_cast<uint64_t>(UINT32_MAX) + 1};
+        BitmapValue bitmap64(bits64);
+        std::string buffer = convert_bitmap_to_string(bitmap64);
+        EXPECT_EQ(decode_base64_to_string("DQIAAAAAAjswAAABAAAfAAEAAAAfAAEAAAABAQAAAAAAAAA="),
+                  buffer);
+
+        BitmapValue out = deserialize_bitmap_from_string(buffer);
+        check_bitmap_values(out, bits64);
+    }
+    { // SET serialization is semantic-only because hash-set iteration order is not stable.
+        config::enable_set_in_bitmap_value = true;
+        config::bitmap_serialize_version = 1;
+        std::vector<uint64_t> values {UINT64_MAX, 0, static_cast<uint64_t>(UINT32_MAX) + 1, 7, 1};
+        BitmapValue set_bitmap;
+        for (auto value : values) {
+            set_bitmap.add(value);
+        }
+        EXPECT_EQ(set_bitmap.get_type_code(), BitmapTypeCode::SET);
+
+        std::string buffer = convert_bitmap_to_string(set_bitmap);
+        BitmapValue out = deserialize_bitmap_from_string(buffer);
+        check_bitmap_values(out, values);
+    }
+    { // Deserializing historical SET bytes must not depend on their serialized payload order.
+        config::enable_set_in_bitmap_value = true;
+        std::vector<uint64_t> values {1, 9999999};
+        std::string set_v1_insert_order = decode_base64_to_string("BQIBAAAAAAAAAH+WmAAAAAAA");
+        std::string set_v1_reverse_order = decode_base64_to_string("BQJ/lpgAAAAAAAEAAAAAAAAA");
+        std::string set_v2_reverse_order = decode_base64_to_string("CgIAAAB/lpgAAAAAAAEAAAAAAAAA");
+
+        BitmapValue set_in_insert_order = deserialize_bitmap_from_string(set_v1_insert_order);
+        BitmapValue set_in_reverse_order = deserialize_bitmap_from_string(set_v1_reverse_order);
+        BitmapValue set_v2_in_reverse_order = deserialize_bitmap_from_string(set_v2_reverse_order);
+
+        check_bitmap_values(set_in_insert_order, values);
+        check_bitmap_values(set_in_reverse_order, values);
+        check_bitmap_values(set_v2_in_reverse_order, values);
+    }
+    { // Historical SET bytes with mixed 32-bit and 64-bit values must remain readable.
+        config::enable_set_in_bitmap_value = true;
+        std::vector<uint64_t> values {UINT64_MAX, 0, static_cast<uint64_t>(UINT32_MAX) + 1, 7, 1};
+        std::string set_v1_mixed =
+                decode_base64_to_string("BQX//////////wAAAAAAAAAAAAAAAAEAAAAHAAAAAAAAAAEAAAAAAAAA");
+
+        BitmapValue out = deserialize_bitmap_from_string(set_v1_mixed);
+        check_bitmap_values(out, values);
+    }
+
+    config::enable_set_in_bitmap_value = old_enable_set;
+    config::bitmap_serialize_version = old_serialize_version;
 }
 
 // Forked from CRoaring's UT of Roaring64Map

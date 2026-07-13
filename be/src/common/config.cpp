@@ -409,6 +409,7 @@ DEFINE_String(storage_page_cache_limit, "20%");
 // Shard size for page cache, the value must be power of two.
 // It's recommended to set it to a value close to the number of BE cores in order to reduce lock contentions.
 DEFINE_Int32(storage_page_cache_shard_size, "256");
+DEFINE_mInt32(file_cache_mem_storage_shard_num, "1024");
 // Percentage for index page cache
 // all storage page cache will be divided into data_page_cache and index_page_cache
 DEFINE_Int32(index_page_cache_percentage, "10");
@@ -649,8 +650,10 @@ DEFINE_mInt64(load_error_log_reserve_hours, "48");
 DEFINE_mInt64(load_error_log_limit_bytes, "209715200");
 
 DEFINE_Int32(brpc_heavy_work_pool_threads, "-1");
+DEFINE_Int32(brpc_peer_fetch_pool_threads, "-1");
 DEFINE_Int32(brpc_light_work_pool_threads, "-1");
 DEFINE_Int32(brpc_heavy_work_pool_max_queue_size, "-1");
+DEFINE_Int32(brpc_peer_fetch_pool_max_queue_size, "-1");
 DEFINE_Int32(brpc_light_work_pool_max_queue_size, "-1");
 DEFINE_mBool(enable_bthread_transmit_block, "true");
 DEFINE_Int32(brpc_arrow_flight_work_pool_threads, "-1");
@@ -859,6 +862,11 @@ DEFINE_mDouble(min_flush_thread_num_per_cpu, "0.5");
 
 // Whether to enable adaptive flush thread adjustment
 DEFINE_mBool(enable_adaptive_flush_threads, "true");
+
+// Whether to block writes when one table has too many pending flush memtables on this BE.
+DEFINE_mBool(enable_table_memtable_flush_backpressure, "true");
+// Max pending flush memtables for one table on this BE before blocking new writes.
+DEFINE_mInt32(table_memtable_flush_pending_count_limit, "10");
 
 // config for tablet meta checkpoint
 DEFINE_mInt32(tablet_meta_checkpoint_min_new_rowsets_num, "10");
@@ -1073,6 +1081,8 @@ DEFINE_mInt32(merged_hdfs_min_io_size, "8192");
 
 // OrcReader
 DEFINE_mInt32(orc_natural_read_size_mb, "8");
+DEFINE_Validator(orc_natural_read_size_mb,
+                 [](const int config) -> bool { return config > 0 && config <= 1024; });
 // Perform the always_true check at intervals determined by runtime_filter_sampling_frequency
 DEFINE_mInt32(runtime_filter_sampling_frequency, "32");
 DEFINE_mInt32(execution_max_rpc_timeout_sec, "3600");
@@ -1090,6 +1100,9 @@ DEFINE_String(tmp_file_dir, "tmp");
 
 DEFINE_Int32(min_s3_file_system_thread_num, "16");
 DEFINE_Int32(max_s3_file_system_thread_num, "64");
+
+DEFINE_Int32(min_peer_race_s3_thread_num, "0");
+DEFINE_Int32(max_peer_race_s3_thread_num, "32"); // aligned with default max_concurrent_peer_races
 
 DEFINE_Bool(enable_time_lut, "true");
 
@@ -1336,6 +1349,10 @@ DEFINE_Bool(enable_feature_binlog, "false");
 // enable set in BitmapValue
 DEFINE_Bool(enable_set_in_bitmap_value, "true");
 
+// Enable compact integer tags in row-store JSONB. Once enabled and compact data is written,
+// rollback to code without compact row-store JSONB reader support is not safe.
+DEFINE_Bool(enable_row_store_compact_jsonb, "false");
+
 DEFINE_Int64(max_hdfs_file_handle_cache_num, "20000");
 DEFINE_Int32(max_hdfs_file_handle_cache_time_sec, "28800");
 DEFINE_Int64(max_external_file_meta_cache_num, "1000");
@@ -1353,7 +1370,6 @@ DEFINE_mString(kerberos_krb5_conf_path, "/etc/krb5.conf");
 // JDK-8153057: avoid StackOverflowError thrown from the UncaughtExceptionHandler in thread "process reaper"
 DEFINE_mBool(jdk_process_reaper_use_default_stack_size, "true");
 
-DEFINE_mString(get_stack_trace_tool, "libunwind");
 DEFINE_mString(dwarf_location_info_mode, "FAST");
 DEFINE_mBool(enable_address_sanitizers_with_stack_trace, "true");
 

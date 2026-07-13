@@ -1434,6 +1434,9 @@ public class SchemaChangeHandler extends AlterHandler {
                 throw new DdlException("Can not enable sequence column support, already supported sequence column.");
             } else if (newColName.equalsIgnoreCase(Column.VERSION_COL)) {
                 throw new DdlException("Can not enable version column support, already supported version column.");
+            } else if (newColName.equalsIgnoreCase(Column.COMMIT_TSO_COL)) {
+                throw new DdlException(
+                        "Can not enable commit tso column support, already supported commit tso column.");
             } else {
                 if (ignoreSameColumn && newColumn.equals(foundColumn)) {
                     //for add columns rpc, allow add same type column.

@@ -98,6 +98,13 @@ else()
 endif()
 message(STATUS "make test: ${MAKE_TEST}")
 
+if (OS_MACOSX)
+    set(USE_UNWIND OFF)
+else()
+    set(USE_UNWIND ON)
+endif()
+message(STATUS "USE_UNWIND is ${USE_UNWIND}")
+
 option(ENABLE_TLS "Enable TLS feature module" OFF)
 set(TLS_MODULE_DIR "" CACHE STRING "TLS feature module directory under cloud/src")
 if (ENABLE_TLS AND "${TLS_MODULE_DIR}" STREQUAL "")

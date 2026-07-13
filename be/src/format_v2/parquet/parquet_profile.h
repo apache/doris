@@ -52,7 +52,18 @@ struct ParquetScanProfile {
     RuntimeProfile::Counter* range_gap_skipped_rows = nullptr; // rows skipped by range gaps
     RuntimeProfile::Counter* column_read_time = nullptr;       // column read time (ns)
     RuntimeProfile::Counter* predicate_filter_time = nullptr;  // predicate filter time (ns)
-    ParquetColumnReaderProfile column_reader_profile;          // nested column read statistics
+    RuntimeProfile::Counter* dict_filter_rewrite_time = nullptr; // dictionary rewrite time (ns)
+    RuntimeProfile::Counter* dict_filter_expr_rewrite_time =
+            nullptr; // expression/residual rewrite time (ns)
+    RuntimeProfile::Counter* dict_filter_read_dict_time = nullptr; // dictionary page read time (ns)
+    RuntimeProfile::Counter* dict_filter_build_time =
+            nullptr; // dictionary entry bitmap build time (ns)
+    RuntimeProfile::Counter* dict_filter_candidate_columns = nullptr;   // candidate columns
+    RuntimeProfile::Counter* dict_filter_columns = nullptr;             // optimized columns
+    RuntimeProfile::Counter* dict_filter_unsupported_columns = nullptr; // unsupported columns
+    RuntimeProfile::Counter* dict_filter_read_failures = nullptr;       // dictionary read failures
+    RuntimeProfile::Counter* rows_filtered_by_dict_filter = nullptr;    // rows filtered by dict
+    ParquetColumnReaderProfile column_reader_profile; // nested column read statistics
 };
 
 // ============================================================================
@@ -70,6 +81,7 @@ struct ParquetProfile {
     RuntimeProfile::Counter* filtered_row_groups_by_min_max = nullptr;
     RuntimeProfile::Counter* filtered_row_groups_by_dictionary = nullptr;
     RuntimeProfile::Counter* filtered_row_groups_by_bloom_filter = nullptr;
+    RuntimeProfile::Counter* filtered_row_groups_by_page_index = nullptr;
     RuntimeProfile::Counter* to_read_row_groups = nullptr;
     RuntimeProfile::Counter* total_row_groups = nullptr;
     RuntimeProfile::Counter* selected_row_ranges = nullptr;
@@ -110,6 +122,9 @@ struct ParquetProfile {
     RuntimeProfile::Counter* page_index_filter_time = nullptr;
     RuntimeProfile::Counter* read_page_index_time = nullptr;
     RuntimeProfile::Counter* parse_page_index_time = nullptr;
+    RuntimeProfile::Counter* expr_zonemap_unusable = nullptr;
+    RuntimeProfile::Counter* in_zonemap_point_check = nullptr;
+    RuntimeProfile::Counter* in_zonemap_range_only = nullptr;
 
     RuntimeProfile::Counter* decompress_time = nullptr;
     RuntimeProfile::Counter* decompress_cnt = nullptr;
@@ -133,6 +148,14 @@ struct ParquetProfile {
 
     RuntimeProfile::Counter* predicate_filter_time = nullptr;
     RuntimeProfile::Counter* dict_filter_rewrite_time = nullptr;
+    RuntimeProfile::Counter* dict_filter_expr_rewrite_time = nullptr;
+    RuntimeProfile::Counter* dict_filter_read_dict_time = nullptr;
+    RuntimeProfile::Counter* dict_filter_build_time = nullptr;
+    RuntimeProfile::Counter* dict_filter_candidate_columns = nullptr;
+    RuntimeProfile::Counter* dict_filter_columns = nullptr;
+    RuntimeProfile::Counter* dict_filter_unsupported_columns = nullptr;
+    RuntimeProfile::Counter* dict_filter_read_failures = nullptr;
+    RuntimeProfile::Counter* rows_filtered_by_dict_filter = nullptr;
     RuntimeProfile::Counter* convert_time = nullptr;
     RuntimeProfile::Counter* bloom_filter_read_time = nullptr;
 };

@@ -89,7 +89,17 @@ public class EliminateOrderByKey implements RewriteRuleFactory {
             for (OrderExpression orderExpression : orderExpressions) {
                 orderKeys.add(orderExpression.getOrderKey());
             }
-            List<OrderKey> retainExpression = eliminate(dataTrait, orderKeys);
+            // an order key that repeats one of the window's own partition keys is constant within each
+            // partition, so ordering by it is redundant and can be pruned (in addition to the data-trait
+            // based elimination below).
+            Set<Expression> partitionKeyConstants = ImmutableSet.copyOf(windowExpression.getPartitionKeys());
+            List<OrderKey> retainExpression = eliminate(dataTrait, orderKeys, partitionKeyConstants);
+            // When every order key is redundant the retained list becomes empty, which is fine: an order key
+            // is only pruned when it is constant within each partition (duplicate / equal to a partition key /
+            // uniform / functionally constant), so it carried no intra-partition ordering. Dropping it changes
+            // neither the framed result (for a RANGE frame a constant key keeps the whole partition as one peer
+            // group, exactly like an empty ORDER BY) nor the partition topn pushdown, and it lets partition topn
+            // drop the redundant partition key. This matches the existing behavior introduced with this rule.
             if (retainExpression.size() == orderKeys.size()) {
                 newNamedExpressions.add(expr);
                 continue;
@@ -117,6 +127,19 @@ public class EliminateOrderByKey implements RewriteRuleFactory {
     }
 
     private static List<OrderKey> eliminate(DataTrait dataTrait, List<OrderKey> inputOrderKeys) {
+        return eliminate(dataTrait, inputOrderKeys, ImmutableSet.of());
+    }
+
+    /**
+     * Eliminate redundant order keys.
+     *
+     * @param partitionKeyConstants exprs that are constant within the scope of the order keys (e.g. a window's
+     *         partition keys, which are constant inside each partition); an order key equal to one of them is
+     *         redundant. Empty for a plain sort. They are still recorded as dominants so that order keys
+     *         functionally dependent on them are eliminated too.
+     */
+    private static List<OrderKey> eliminate(DataTrait dataTrait, List<OrderKey> inputOrderKeys,
+            Set<Expression> partitionKeyConstants) {
         Set<Slot> validSlots = new HashSet<>();
         for (OrderKey inputOrderKey : inputOrderKeys) {
             Expression expr = inputOrderKey.getExpr();
@@ -135,6 +158,12 @@ public class EliminateOrderByKey implements RewriteRuleFactory {
             Expression expr = inputOrderKey.getExpr();
             // eliminate by duplicate
             if (orderExprWithEqualSet.contains(expr)) {
+                continue;
+            }
+            // eliminate by partition key (constant within each partition for window order keys)
+            if (partitionKeyConstants.contains(expr)) {
+                orderExprWithEqualSet.add(expr);
+                orderExprWithEqualSet.addAll(dataTrait.calEqualSet((Slot) expr));
                 continue;
             }
             // eliminate by uniform

@@ -24,6 +24,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/cast_set.h"
 #include "common/status.h"
 #include "core/data_type/data_type.h"
 #include "core/field.h"
@@ -35,7 +36,6 @@
 
 namespace doris {
 class Block;
-class ColumnPredicate;
 struct ConditionCacheContext;
 
 namespace io {
@@ -47,64 +47,6 @@ namespace doris::format {
 
 class TableColumnMapper;
 struct TableColumnMapperOptions;
-
-// Struct-only nested predicate target used by file-layer pruning.
-// This intentionally models only a STRUCT field chain. LIST/MAP/repeated predicates need explicit
-// quantified semantics, so they must not be encoded here.
-struct FileStructPredicateTarget {
-    int32_t file_local_id = -1;
-    std::string file_child_name;
-    std::unique_ptr<FileStructPredicateTarget> child;
-
-    FileStructPredicateTarget() = default;
-    FileStructPredicateTarget(int32_t local_id, std::string child_name,
-                              std::unique_ptr<FileStructPredicateTarget> nested_child = nullptr)
-            : file_local_id(local_id),
-              file_child_name(std::move(child_name)),
-              child(std::move(nested_child)) {}
-    FileStructPredicateTarget(const FileStructPredicateTarget& other);
-    FileStructPredicateTarget& operator=(const FileStructPredicateTarget& other);
-    FileStructPredicateTarget(FileStructPredicateTarget&& other) noexcept = default;
-    FileStructPredicateTarget& operator=(FileStructPredicateTarget&& other) noexcept = default;
-};
-
-struct FileNestedPredicateTarget {
-    LocalColumnId file_column_id = LocalColumnId::invalid();
-    // Null means the predicate targets the top-level primitive column itself.
-    std::unique_ptr<FileStructPredicateTarget> struct_target;
-
-    FileNestedPredicateTarget() = default;
-    explicit FileNestedPredicateTarget(LocalColumnId column_id) : file_column_id(column_id) {}
-    FileNestedPredicateTarget(LocalColumnId column_id,
-                              std::unique_ptr<FileStructPredicateTarget> target)
-            : file_column_id(column_id), struct_target(std::move(target)) {}
-    FileNestedPredicateTarget(const FileNestedPredicateTarget& other);
-    FileNestedPredicateTarget& operator=(const FileNestedPredicateTarget& other);
-    FileNestedPredicateTarget(FileNestedPredicateTarget&& other) noexcept = default;
-    FileNestedPredicateTarget& operator=(FileNestedPredicateTarget&& other) noexcept = default;
-
-    bool is_valid() const { return file_column_id.is_valid(); }
-};
-
-// File-local single-column predicates for file-layer pruning, such as min/max, page index,
-// dictionary and bloom filter.
-// Predicates must all belong to target.file_column_id. target.struct_target points to the nested
-// primitive leaf under that root; null means the top-level column itself is the primitive leaf.
-// These predicates are pruning hints only and are not row-level conjuncts.
-struct FileColumnPredicateFilter {
-    FileNestedPredicateTarget target;
-    // Compatibility fields for call sites and tests that still construct pruning filters directly.
-    // New mapper code should fill target; file readers consume target first and only fall back to
-    // these fields while the API migration is in progress.
-    LocalColumnId file_column_id = LocalColumnId::invalid();
-    std::vector<int32_t> file_child_id_path;
-    std::vector<std::shared_ptr<ColumnPredicate>> predicates;
-
-    LocalColumnId effective_file_column_id() const;
-    std::vector<int32_t> effective_file_child_id_path() const;
-    bool same_target_as(const FileColumnPredicateFilter& other) const;
-    std::string debug_string() const;
-};
 
 enum class FileFormat {
     PARQUET,
@@ -134,9 +76,6 @@ struct FileScanRequest {
     VExprContextSPtrs conjuncts;
     // Delete predicates converted to file-local expressions.
     VExprContextSPtrs delete_conjuncts;
-    // Single-column predicates used only for file-layer pruning, such as statistics, page index,
-    // dictionary and bloom filter. They must not be used for batch row-level filtering.
-    std::vector<FileColumnPredicateFilter> column_predicate_filters;
 };
 
 // Helper for constructing the scan-column layout in FileScanRequest.
@@ -381,6 +320,13 @@ public:
 
 protected:
     virtual void _init_profile() {}
+    void _record_scan_rows(int64_t rows) {
+        DORIS_CHECK(rows >= 0);
+        _reader_statistics.read_rows += rows;
+        if (_io_ctx != nullptr && _io_ctx->file_reader_stats != nullptr) {
+            _io_ctx->file_reader_stats->read_rows += cast_set<size_t>(rows);
+        }
+    }
 
     io::FileReaderSPtr _file_reader;
     // _tracing_file_reader wraps _file_reader.
