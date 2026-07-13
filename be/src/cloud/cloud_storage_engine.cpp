@@ -1028,15 +1028,18 @@ Status CloudStorageEngine::_submit_cumulative_compaction_task(const CloudTabletS
         signal::tablet_id = tablet->tablet_id();
         g_cumu_compaction_running_task_count << 1;
         bool is_large_task = true;
+        bool delay_accounting_started = false;
         Defer defer {[&]() {
             DBUG_EXECUTE_IF("CloudStorageEngine._submit_cumulative_compaction_task.sleep",
                             { sleep(5); })
             // Idempotent cleanup: remove task from tracker
             CompactionTaskTracker::instance()->remove_task(compaction_id);
             std::lock_guard lock(_cumu_compaction_delay_mtx);
-            _cumu_compaction_thread_pool_used_threads--;
-            if (!is_large_task) {
-                _cumu_compaction_thread_pool_small_tasks_running--;
+            if (delay_accounting_started) {
+                _cumu_compaction_thread_pool_used_threads--;
+                if (!is_large_task) {
+                    _cumu_compaction_thread_pool_small_tasks_running--;
+                }
             }
             g_cumu_compaction_running_task_count << -1;
             erase_submitted_cumu_compaction();
@@ -1060,6 +1063,7 @@ Status CloudStorageEngine::_submit_cumulative_compaction_task(const CloudTabletS
         do {
             std::lock_guard lock(_cumu_compaction_delay_mtx);
             _cumu_compaction_thread_pool_used_threads++;
+            delay_accounting_started = true;
             if (config::large_cumu_compaction_task_min_thread_num > 1 &&
                 _cumu_compaction_thread_pool->max_threads() >=
                         config::large_cumu_compaction_task_min_thread_num) {
