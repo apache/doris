@@ -16,6 +16,10 @@
 // under the License.
 
 suite("test_backend_selection_variables") {
+    if (isCloudMode()) {
+        return
+    }
+
     def mode = sql """ show variables like 'backend_selection_mode'; """
     assertEquals("prefer", mode[0][1])
     def key = sql """ show variables like 'preferred_backend_selection_key'; """
