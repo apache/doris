@@ -22,6 +22,7 @@
 #include <atomic>
 #include <cstdint>
 #include <memory>
+#include <set>
 #include <string>
 
 #include "common/config.h"
@@ -101,6 +102,10 @@ public:
     }
 
     bool is_rf_wrapper() const override { return true; }
+
+    ZoneMapFilterResult evaluate_zonemap_filter(const ZoneMapEvalContext& ctx) const override;
+    bool can_evaluate_zonemap_filter() const override;
+    void collect_slot_column_ids(std::set<int>& column_ids) const override;
 
     int filter_id() const { return _filter_id; }
 
