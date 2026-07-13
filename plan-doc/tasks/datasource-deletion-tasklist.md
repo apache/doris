@@ -13,9 +13,11 @@
 - [x] 抽取四组的隔离合规重分析（14-agent recon + 对抗验证 + 人工复核）
 - [x] 用户 review 通过 + 主计划拓扑序改写 + 交接更新 + 提交
 
-## 阶段 1 — 删前置缺口
-- [ ] 迁移-hive ACID 分区列的连接器中立信号（`ConnectorScanRange` 加默认 false 的 `isAcid()` 位；`FileQueryScanNode` 死 `instanceof HiveSplit` 臂改读它）
-- [ ] 事件管道 legacy 拆除的前置编辑（`Env` 去 `MetastoreEventsProcessor` 全套面 + `ExternalMetaIdMgr` 切死 else 臂）— 与阶段 3 切臂合并亦可
+## 阶段 1 — 删前置缺口（批次方案见 `datasource-deletion-batch-plan-2026-07-13.md`，用户 2026-07-13 review 通过）
+- [x] **§4-B ACID 定论 = 安全直切**（15-agent 重核 + 对抗复核：连接器对分区表恒填分区值 + `HiveScanRange.populateRangeParams` 无条件重建 columns-from-path，三/四重独立保险）——**无需**连接器 `isAcid()` 中立位；直接切 `FileQueryScanNode` 死 `instanceof HiveSplit` 臂 + import（1c）。⚠ 欠 ACID 分区读 e2e（用户自跑）。
+- [x] 分区有序值 fail-loud（`PluginDrivenMvccExternalTable.toListPartitionItem` 删 `HiveUtil.toPartitionValues` 回退，连接器空值在 try/catch **之外** `checkState` 硬报错；4 连接器已全接线）（1a）。⚠ 欠分区有序值 e2e（含非字符串列真 NULL 分区，用户自跑）。
+- [x] 事件管道 legacy 拆除（`Env` 去 `MetastoreEventsProcessor` field/init/getter/`start()`/import；`ExternalMetaIdMgr` 切死 else 臂 127-130；`ExternalMetaIdMgrTest` 改测活路径 `MetastoreEventSyncDriver`）（1b）。
+- 注：`Env.hiveTransactionMgr` 全套面 = 阶段 3 切臂（随 hive 死簇），非本批。`HiveVersionUtil` + fe-core 补丁版 `HiveMetaStoreClient` = 阶段 4 删（用户确认 fe-connector-hms 已自带副本，fe-core 两份不再使用）。
 
 ## 阶段 2a — 连接器侧委派（各带单测，最先做）
 **分区名解析（连接器交已解析的有序值）** — commit `49254f1d429`
