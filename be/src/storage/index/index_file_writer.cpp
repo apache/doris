@@ -379,6 +379,9 @@ Status IndexFileWriter::begin_close() {
         RETURN_IF_ERROR(_snii_compound_writer->finish());
         _total_file_size = _idx_v2_writer == nullptr ? 0 : _idx_v2_writer->bytes_appended();
         _file_info.set_index_size(_total_file_size);
+        if (_idx_v2_writer != nullptr && _idx_v2_writer->state() != io::FileWriter::State::CLOSED) {
+            RETURN_IF_ERROR(_idx_v2_writer->close(true));
+        }
         return Status::OK();
     }
     if (_indices_dirs.empty()) {
