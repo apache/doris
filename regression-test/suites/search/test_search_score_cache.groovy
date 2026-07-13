@@ -25,18 +25,22 @@ suite("test_search_score_cache", "p0") {
         }
     }
 
-    def assertStablePositiveScoreQuery = { warmSql, scoreSql ->
+    def assertStablePositiveScoreQuery = { tag, warmSql, scoreSql ->
         def warmResult1 = sql warmSql
         def warmResult2 = sql warmSql
         assertEquals(warmResult1, warmResult2)
 
         def scoreResult1 = sql scoreSql
         def scoreResult2 = sql scoreSql
-        assertEquals(scoreResult1.size(), scoreResult2.size())
-        assertEquals(scoreResult1.collect { it[0] as int }.sort(),
-                scoreResult2.collect { it[0] as int }.sort())
+        assertEquals(scoreResult1.collect { it[0] as int }, scoreResult2.collect { it[0] as int })
         assertPositiveScores(scoreResult1)
         assertPositiveScores(scoreResult2)
+
+        quickTest(tag, """
+            SELECT id
+            FROM (${scoreSql}) t
+            ORDER BY s DESC
+        """)
     }
 
     sql "DROP TABLE IF EXISTS ${tableName}"
@@ -66,14 +70,14 @@ suite("test_search_score_cache", "p0") {
     """
 
     sql """INSERT INTO ${tableName} VALUES
-        (1, 1, 'apple banana cherry', 'red fruit sweet apple', '{"host":"apple banana server"}'),
-        (2, 1, 'apple banana date', 'fresh apple banana salad', '{"host":"apple server cluster"}'),
-        (3, 0, 'banana grape mango', 'yellow fruit tropical', '{"host":"banana server"}'),
-        (4, 1, 'apple grape kiwi', 'green fruit fresh apple', '{"host":"green apple server"}'),
+        (1, 1, 'apple apple apple banana cherry', 'red fruit sweet apple', '{"host":"apple banana server"}'),
+        (2, 1, 'apple apple banana date', 'fresh apple banana salad', '{"host":"apple server cluster"}'),
+        (3, 0, 'banana banana banana grape mango', 'yellow fruit tropical', '{"host":"banana server"}'),
+        (4, 1, 'apple grape kiwi', 'green fruit fresh apple', '{"host":"green green apple server"}'),
         (5, 0, 'mango pineapple coconut', 'tropical fruit exotic', '{"host":"mango server"}'),
-        (6, 1, 'apple cherry plum', 'mixed fruit apple salad', '{"host":"apple cherry node"}'),
-        (7, 0, 'banana coconut papaya', 'smoothie blend tropical', '{"host":"banana coconut node"}'),
-        (8, 1, 'grape cherry apple', 'wine fruit tart apple', '{"host":"grape apple node"}')
+        (6, 1, 'apple cherry plum apricot fig', 'mixed fruit apple salad', '{"host":"apple cherry node"}'),
+        (7, 0, 'banana banana coconut papaya', 'smoothie blend tropical', '{"host":"banana coconut node"}'),
+        (8, 1, 'grape cherry apple apple apple apple', 'wine fruit tart apple', '{"host":"grape apple node"}')
     """
     sql "sync"
 
@@ -82,6 +86,7 @@ suite("test_search_score_cache", "p0") {
 
     // SEARCH DSL + score() must execute scorers even when the DSL bitmap cache is warm.
     assertStablePositiveScoreQuery(
+        "search_dsl_score",
         """
             SELECT /*+SET_VAR(enable_common_expr_pushdown=true,enable_inverted_index_query_cache=true) */
                    id
@@ -101,6 +106,7 @@ suite("test_search_score_cache", "p0") {
 
     // MATCH_ANY + score() must bypass bitmap-only inverted index query cache.
     assertStablePositiveScoreQuery(
+        "match_any_score",
         """
             SELECT /*+SET_VAR(enable_common_expr_pushdown=true,enable_inverted_index_query_cache=true) */
                    id
@@ -120,6 +126,7 @@ suite("test_search_score_cache", "p0") {
 
     // MATCH_ALL + score() should still produce collected BM25 scores after cache warmup.
     assertStablePositiveScoreQuery(
+        "match_all_score",
         """
             SELECT /*+SET_VAR(enable_common_expr_pushdown=true,enable_inverted_index_query_cache=true) */
                    id
@@ -139,6 +146,7 @@ suite("test_search_score_cache", "p0") {
 
     // MATCH_PHRASE + score() should not materialize default 0 scores from cached bitmaps.
     assertStablePositiveScoreQuery(
+        "match_phrase_score",
         """
             SELECT /*+SET_VAR(enable_common_expr_pushdown=true,enable_inverted_index_query_cache=true) */
                    id
@@ -159,6 +167,7 @@ suite("test_search_score_cache", "p0") {
 
     // score() with ordinary filters should still execute scorers after the indexed bitmap cache is warm.
     assertStablePositiveScoreQuery(
+        "match_any_with_filter_score",
         """
             SELECT /*+SET_VAR(enable_common_expr_pushdown=true,enable_inverted_index_query_cache=true) */
                    id
@@ -178,6 +187,7 @@ suite("test_search_score_cache", "p0") {
 
     // score() on VARIANT subfields must not fall back to default 0 after cache warmup.
     assertStablePositiveScoreQuery(
+        "variant_match_phrase_score",
         """
             SELECT /*+SET_VAR(enable_common_expr_pushdown=true,enable_inverted_index_query_cache=true) */
                    id
@@ -217,25 +227,28 @@ suite("test_search_score_cache", "p0") {
         ORDER BY id
     """
     def unionScoreSql = """
-        (
-            SELECT /*+SET_VAR(enable_common_expr_pushdown=true,enable_inverted_index_query_cache=true) */
-                   id, score() AS s
-            FROM ${tableName}
-            WHERE title MATCH_ANY 'apple'
-            ORDER BY s DESC
-            LIMIT 3
-        )
-        UNION ALL
-        (
-            SELECT /*+SET_VAR(enable_common_expr_pushdown=true,enable_inverted_index_query_cache=true) */
-                   id, score() AS s
-            FROM ${tableName}
-            WHERE title MATCH_ANY 'banana'
-            ORDER BY s DESC
-            LIMIT 3
-        )
+        SELECT * FROM (
+            (
+                SELECT /*+SET_VAR(enable_common_expr_pushdown=true,enable_inverted_index_query_cache=true) */
+                       id, score() AS s
+                FROM ${tableName}
+                WHERE title MATCH_ANY 'apple'
+                ORDER BY s DESC
+                LIMIT 3
+            )
+            UNION ALL
+            (
+                SELECT /*+SET_VAR(enable_common_expr_pushdown=true,enable_inverted_index_query_cache=true) */
+                       id, score() AS s
+                FROM ${tableName}
+                WHERE title MATCH_ANY 'banana'
+                ORDER BY s DESC
+                LIMIT 3
+            )
+        ) t
+        ORDER BY s DESC
     """
-    assertStablePositiveScoreQuery(unionWarmSql, unionScoreSql)
+    assertStablePositiveScoreQuery("union_all_score", unionWarmSql, unionScoreSql)
 
     sql "DROP TABLE IF EXISTS ${tableName}"
 }
