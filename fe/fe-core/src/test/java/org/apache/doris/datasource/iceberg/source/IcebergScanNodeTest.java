@@ -44,21 +44,35 @@ import org.mockito.Mockito;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.UUID;
 
 public class IcebergScanNodeTest {
     private static final long MB = 1024L * 1024L;
 
     private static class TestIcebergScanNode extends IcebergScanNode {
+        private final boolean enableMappingVarbinary;
+
         TestIcebergScanNode(SessionVariable sv) {
+            this(sv, false);
+        }
+
+        TestIcebergScanNode(SessionVariable sv, boolean enableMappingVarbinary) {
             super(new PlanNodeId(0), new TupleDescriptor(new TupleId(0)), sv, ScanContext.EMPTY);
+            this.enableMappingVarbinary = enableMappingVarbinary;
         }
 
         @Override
         public boolean isBatchMode() {
             return false;
+        }
+
+        @Override
+        protected boolean getEnableMappingVarbinary() {
+            return enableMappingVarbinary;
         }
     }
 
@@ -171,6 +185,42 @@ public class IcebergScanNodeTest {
         method.setAccessible(true);
 
         Assert.assertEquals("{\"p2\":10}", method.invoke(node, partitionData, oldSpec, outputPartitionFields));
+    }
+
+    @Test
+    public void testRejectBinaryPartitionValueWithoutBinarySafeTransport() throws Exception {
+        assertUnsupportedPositionDeletesPartitionValue(
+                Types.BinaryType.get(), ByteBuffer.wrap(new byte[] {0, (byte) 0xff}), false, "binary");
+        assertUnsupportedPositionDeletesPartitionValue(
+                Types.FixedType.ofLength(2), ByteBuffer.wrap(new byte[] {0, (byte) 0xff}), false, "fixed[2]");
+    }
+
+    @Test
+    public void testRejectUuidPartitionValueWhenMappedToVarbinary() throws Exception {
+        assertUnsupportedPositionDeletesPartitionValue(
+                Types.UUIDType.get(), UUID.fromString("123e4567-e89b-12d3-a456-426614174000"), true, "uuid");
+    }
+
+    private void assertUnsupportedPositionDeletesPartitionValue(
+            org.apache.iceberg.types.Type type, Object value, boolean enableMappingVarbinary,
+            String expectedType) throws Exception {
+        TestIcebergScanNode node = new TestIcebergScanNode(new SessionVariable(), enableMappingVarbinary);
+        Schema schema = new Schema(Types.NestedField.required(1, "p", type));
+        PartitionSpec spec = PartitionSpec.builderFor(schema).identity("p").build();
+        PartitionData partitionData = new PartitionData(spec.partitionType());
+        partitionData.set(0, value);
+
+        Method method = IcebergScanNode.class.getDeclaredMethod("getPartitionDataObjectJson",
+                PartitionData.class, PartitionSpec.class, List.class);
+        method.setAccessible(true);
+        try {
+            method.invoke(node, partitionData, spec, spec.partitionType().fields());
+            Assert.fail("Binary partition values must not be silently materialized as NULL");
+        } catch (InvocationTargetException e) {
+            Assert.assertTrue(e.getCause() instanceof UserException);
+            Assert.assertTrue(e.getCause().getMessage().contains("partition field 'p'"));
+            Assert.assertTrue(e.getCause().getMessage().contains(expectedType));
+        }
     }
 
     @Test

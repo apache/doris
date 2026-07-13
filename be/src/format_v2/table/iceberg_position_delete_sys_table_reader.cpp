@@ -176,6 +176,10 @@ Status IcebergPositionDeleteSysTableV2Reader::get_block(Block* block, bool* eos)
     if (*eos) {
         return Status::OK();
     }
+    if (_io_ctx != nullptr && _io_ctx->should_stop) {
+        *eos = true;
+        return Status::OK();
+    }
     if (!_has_split) {
         *eos = true;
         return Status::OK();
@@ -223,6 +227,7 @@ Status IcebergPositionDeleteSysTableV2Reader::close() {
     _iceberg_file_desc = nullptr;
     _delete_file_desc = nullptr;
     _read_columns.clear();
+    _partition_value.reset();
     _next_dv_position.reset();
     _dv_positions = roaring::Roaring64Map();
     _has_split = false;
@@ -260,7 +265,7 @@ Status IcebergPositionDeleteSysTableV2Reader::_init_split() {
                 "Iceberg position delete system table range should contain exactly one delete "
                 "file");
     }
-    _delete_file_desc = &_iceberg_file_desc->delete_files[0];
+    _delete_file_desc = _iceberg_file_desc->delete_files.data();
     if (is_iceberg_deletion_vector(*_delete_file_desc)) {
         _delete_file_kind = DeleteFileKind::DELETION_VECTOR;
     } else if (_delete_file_desc->__isset.content &&
@@ -406,6 +411,7 @@ Status IcebergPositionDeleteSysTableV2Reader::_append_deletion_vector_block(Bloc
     }
     check_output_columns_aligned(columns);
     *read_rows = rows;
+    _record_scan_rows(rows);
     // FileScannerV2 treats eof=true as "advance to the next split" without returning the
     // current block. Keep eof false after appending rows and report EOF on the next empty call.
     *eof = false;
@@ -510,11 +516,17 @@ Status IcebergPositionDeleteSysTableV2Reader::_append_partition_column(MutableCo
         return Status::OK();
     }
 
-    auto serde = slot.get_data_type_ptr()->get_serde();
-    StringRef partition_data(_iceberg_file_desc->partition_data_json.data(),
-                             _iceberg_file_desc->partition_data_json.size());
-    DataTypeSerDe::FormatOptions options = DataTypeSerDe::get_default_format_options();
-    RETURN_IF_ERROR(serde->from_string(partition_data, *column, options));
+    if (!_partition_value) {
+        auto partition_value = slot.get_data_type_ptr()->create_column();
+        auto serde = slot.get_data_type_ptr()->get_serde();
+        StringRef partition_data(_iceberg_file_desc->partition_data_json.data(),
+                                 _iceberg_file_desc->partition_data_json.size());
+        DataTypeSerDe::FormatOptions options = DataTypeSerDe::get_default_format_options();
+        RETURN_IF_ERROR(serde->from_string(partition_data, *partition_value, options));
+        DORIS_CHECK(partition_value->size() == 1);
+        _partition_value = std::move(partition_value);
+    }
+    column->insert_from(*_partition_value, 0);
     return Status::OK();
 }
 

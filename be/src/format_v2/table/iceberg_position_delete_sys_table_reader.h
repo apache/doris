@@ -77,6 +77,7 @@ private:
     DeleteFileKind _delete_file_kind = DeleteFileKind::POSITION_DELETE;
     std::unique_ptr<format::TableReader> _position_reader;
     std::vector<ReadColumn> _read_columns;
+    ColumnPtr _partition_value;
     roaring::Roaring64Map _dv_positions;
     std::optional<roaring::Roaring64Map::const_iterator> _next_dv_position;
     bool _has_split = false;

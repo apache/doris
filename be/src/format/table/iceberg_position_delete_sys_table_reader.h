@@ -48,17 +48,20 @@ public:
                                         RuntimeState* state, RuntimeProfile* profile,
                                         const TFileRangeDesc& range,
                                         const TFileScanRangeParams* range_params,
+                                        std::shared_ptr<io::IOContext> io_ctx,
                                         FileMetaCache* meta_cache);
     ~IcebergPositionDeleteSysTableReader() override;
 
     Status _get_columns_impl(std::unordered_map<std::string, DataTypePtr>* name_to_type) override;
     void set_batch_size(size_t batch_size) override { _batch_size = batch_size; }
     size_t get_batch_size() const override { return _batch_size; }
+    bool count_read_rows() override;
     Status close() override;
 
 protected:
     Status _do_init_reader(ReaderInitContext* ctx) override;
     Status _do_get_next_block(Block* block, size_t* read_rows, bool* eof) override;
+    void _collect_profile_before_close() override;
 
 private:
     enum class DeleteFileKind {
@@ -90,7 +93,7 @@ private:
     const TFileRangeDesc& _range;
     const TFileScanRangeParams* _range_params = nullptr;
 
-    IcebergDeleteFileIOContext _io_context;
+    std::shared_ptr<io::IOContext> _io_ctx;
     const TIcebergFileDesc* _iceberg_file_desc = nullptr;
     const TIcebergDeleteFileDesc* _delete_file_desc = nullptr;
     DeleteFileKind _delete_file_kind = DeleteFileKind::POSITION_DELETE;
@@ -99,6 +102,7 @@ private:
     std::unique_ptr<GenericReader> _position_reader;
     std::vector<ReadColumn> _read_columns;
     std::unordered_map<std::string, uint32_t> _read_col_name_to_block_idx;
+    ColumnPtr _partition_value;
     roaring::Roaring64Map _dv_positions;
     std::optional<roaring::Roaring64Map::const_iterator> _next_dv_position;
 };

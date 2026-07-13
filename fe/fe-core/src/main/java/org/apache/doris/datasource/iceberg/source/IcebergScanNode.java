@@ -979,7 +979,7 @@ public class IcebergScanNode extends FileQueryScanNode {
         return split;
     }
 
-    private Split createIcebergPositionDeleteSysSplit(PositionDeletesScanTask task) {
+    private Split createIcebergPositionDeleteSysSplit(PositionDeletesScanTask task) throws UserException {
         DeleteFile deleteFile = task.file();
         String originalPath = deleteFile.path().toString();
         LocationPath locationPath = createLocationPathWithCache(originalPath);
@@ -1000,7 +1000,10 @@ public class IcebergScanNode extends FileQueryScanNode {
 
         split.setPartitionSpecId(deleteFile.specId());
         PartitionSpec partitionSpec = icebergTable.specs().get(deleteFile.specId());
-        if (partitionSpec != null && partitionSpec.isPartitioned() && deleteFile.partition() != null) {
+        Preconditions.checkNotNull(partitionSpec, "Partition spec with specId %s not found for table %s",
+                deleteFile.specId(), icebergTable.name());
+        if (partitionSpec.isPartitioned() && deleteFile.partition() != null
+                && isPositionDeletesPartitionColumnRequested()) {
             split.setPartitionDataJson(getPartitionDataObjectJson(
                     (PartitionData) deleteFile.partition(), partitionSpec,
                     getPositionDeletesOutputPartitionFields()));
@@ -1030,11 +1033,27 @@ public class IcebergScanNode extends FileQueryScanNode {
         return partitionField.type().asNestedType().fields();
     }
 
+    private boolean isPositionDeletesPartitionColumnRequested() {
+        return desc.getSlots().stream()
+                .anyMatch(slot -> "partition".equalsIgnoreCase(slot.getColumn().getName()));
+    }
+
     private String getPartitionDataObjectJson(PartitionData partitionData, PartitionSpec partitionSpec,
-            List<NestedField> outputPartitionFields) {
+            List<NestedField> outputPartitionFields) throws UserException {
+        List<NestedField> partitionTypes = partitionData.getPartitionType().asNestedType().fields();
+        boolean enableMappingVarbinary = getEnableMappingVarbinary();
+        for (int i = 0; i < partitionTypes.size(); i++) {
+            Type type = partitionTypes.get(i).type();
+            if (partitionData.get(i) != null && (type.typeId() == Type.TypeID.BINARY
+                    || type.typeId() == Type.TypeID.FIXED
+                    || (type.typeId() == Type.TypeID.UUID && enableMappingVarbinary))) {
+                throw new UserException("Iceberg position_deletes cannot materialize non-null partition field '"
+                        + partitionTypes.get(i).name() + "' of type " + type
+                        + " without a binary-safe partition transport");
+            }
+        }
         List<String> partitionValues = IcebergUtils.getPartitionValues(
                 partitionData, partitionSpec, sessionVariable.getTimeZone());
-        List<NestedField> partitionTypes = partitionData.getPartitionType().asNestedType().fields();
         Map<Integer, Object> partitionValueByFieldId = new HashMap<>();
         List<PartitionField> fields = partitionSpec.fields();
         for (int i = 0; i < fields.size(); i++) {

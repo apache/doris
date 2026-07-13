@@ -1183,7 +1183,8 @@ Status FileScanner::_get_next_reader() {
                 ReaderInitContext ctx;
                 _fill_base_init_context(&ctx);
                 auto reader = IcebergPositionDeleteSysTableReader::create_unique(
-                        _file_slot_descs, _state, _profile, range, _params, file_meta_cache_ptr);
+                        _file_slot_descs, _state, _profile, range, _params, _io_ctx,
+                        file_meta_cache_ptr);
                 init_status = static_cast<GenericReader*>(reader.get())->init_reader(&ctx);
                 _cur_reader = std::move(reader);
                 need_to_get_parsed_schema = false;
@@ -1205,7 +1206,8 @@ Status FileScanner::_get_next_reader() {
                 ReaderInitContext ctx;
                 _fill_base_init_context(&ctx);
                 auto reader = IcebergPositionDeleteSysTableReader::create_unique(
-                        _file_slot_descs, _state, _profile, range, _params, file_meta_cache_ptr);
+                        _file_slot_descs, _state, _profile, range, _params, _io_ctx,
+                        file_meta_cache_ptr);
                 init_status = static_cast<GenericReader*>(reader.get())->init_reader(&ctx);
                 _cur_reader = std::move(reader);
                 need_to_get_parsed_schema = false;

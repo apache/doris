@@ -152,20 +152,22 @@ std::shared_ptr<TableSchemaChangeHelper::StructNode> create_position_delete_root
 IcebergPositionDeleteSysTableReader::IcebergPositionDeleteSysTableReader(
         const std::vector<SlotDescriptor*>& file_slot_descs, RuntimeState* state,
         RuntimeProfile* profile, const TFileRangeDesc& range,
-        const TFileScanRangeParams* range_params, FileMetaCache* meta_cache)
+        const TFileScanRangeParams* range_params, std::shared_ptr<io::IOContext> io_ctx,
+        FileMetaCache* meta_cache)
         : _file_slot_descs(file_slot_descs),
           _state(state),
           _profile(profile),
           _range(range),
           _range_params(range_params),
-          _io_context(state) {
+          _io_ctx(std::move(io_ctx)) {
     _meta_cache = meta_cache;
 }
 
 IcebergPositionDeleteSysTableReader::~IcebergPositionDeleteSysTableReader() = default;
 
 Status IcebergPositionDeleteSysTableReader::_do_init_reader(ReaderInitContext* /*ctx*/) {
-    if (_state == nullptr || _profile == nullptr || _range_params == nullptr) {
+    if (_state == nullptr || _profile == nullptr || _range_params == nullptr ||
+        _io_ctx == nullptr) {
         return Status::InvalidArgument(
                 "invalid Iceberg position delete system table reader context");
     }
@@ -179,7 +181,7 @@ Status IcebergPositionDeleteSysTableReader::_do_init_reader(ReaderInitContext* /
                 "Iceberg position delete system table range should contain exactly one delete "
                 "file");
     }
-    _delete_file_desc = &_iceberg_file_desc->delete_files[0];
+    _delete_file_desc = _iceberg_file_desc->delete_files.data();
     if (is_iceberg_deletion_vector(*_delete_file_desc)) {
         _delete_file_kind = DeleteFileKind::DELETION_VECTOR;
     } else if (_delete_file_desc->__isset.content &&
@@ -209,10 +211,21 @@ Status IcebergPositionDeleteSysTableReader::_get_columns_impl(
     return Status::OK();
 }
 
+bool IcebergPositionDeleteSysTableReader::count_read_rows() {
+    return _delete_file_kind == DeleteFileKind::POSITION_DELETE;
+}
+
+void IcebergPositionDeleteSysTableReader::_collect_profile_before_close() {
+    if (_position_reader != nullptr) {
+        _position_reader->collect_profile_before_close();
+    }
+}
+
 Status IcebergPositionDeleteSysTableReader::close() {
     if (_position_reader != nullptr) {
         RETURN_IF_ERROR(_position_reader->close());
     }
+    _partition_value.reset();
     _next_dv_position.reset();
     _dv_positions = roaring::Roaring64Map();
     return Status::OK();
@@ -230,9 +243,9 @@ Status IcebergPositionDeleteSysTableReader::_init_position_delete_reader() {
     const bool row_requested = _output_column_requested(kRowColumn);
 
     if (_delete_file_desc->file_format == TFileFormatType::FORMAT_PARQUET) {
-        auto parquet_reader = ParquetReader::create_unique(
-                _profile, *_range_params, _range, _batch_size, &_state->timezone_obj(),
-                &_io_context.io_ctx, _state, _meta_cache);
+        auto parquet_reader =
+                ParquetReader::create_unique(_profile, *_range_params, _range, _batch_size,
+                                             &_state->timezone_obj(), _io_ctx, _state, _meta_cache);
 
         const FieldDescriptor* schema = nullptr;
         int row_index = -1;
@@ -279,7 +292,7 @@ Status IcebergPositionDeleteSysTableReader::_init_position_delete_reader() {
     if (_delete_file_desc->file_format == TFileFormatType::FORMAT_ORC) {
         auto orc_reader =
                 OrcReader::create_unique(_profile, _state, *_range_params, _range, _batch_size,
-                                         _state->timezone(), &_io_context.io_ctx, _meta_cache);
+                                         _state->timezone(), _io_ctx, _meta_cache);
 
         const orc::Type* row_type = nullptr;
         if (row_requested) {
@@ -340,7 +353,7 @@ Status IcebergPositionDeleteSysTableReader::_init_deletion_vector_reader() {
     options.state = _state;
     options.profile = _profile;
     options.scan_params = _range_params;
-    options.io_ctx = &_io_context.io_ctx;
+    options.io_ctx = _io_ctx.get();
     options.meta_cache = _meta_cache;
     if (_range.__isset.fs_name) {
         options.fs_name = &_range.fs_name;
@@ -354,6 +367,13 @@ Status IcebergPositionDeleteSysTableReader::_init_deletion_vector_reader() {
 
 Status IcebergPositionDeleteSysTableReader::_do_get_next_block(Block* block, size_t* read_rows,
                                                                bool* eof) {
+    DORIS_CHECK(_io_ctx != nullptr);
+    if (_io_ctx->should_stop) {
+        *read_rows = 0;
+        *eof = true;
+        return Status::OK();
+    }
+
     if (_delete_file_kind == DeleteFileKind::DELETION_VECTOR) {
         return _append_deletion_vector_block(block, read_rows, eof);
     }
@@ -532,11 +552,17 @@ Status IcebergPositionDeleteSysTableReader::_append_partition_column(MutableColu
         return Status::OK();
     }
 
-    auto serde = slot.get_data_type_ptr()->get_serde();
-    StringRef partition_data(_iceberg_file_desc->partition_data_json.data(),
-                             _iceberg_file_desc->partition_data_json.size());
-    DataTypeSerDe::FormatOptions options = DataTypeSerDe::get_default_format_options();
-    RETURN_IF_ERROR(serde->from_string(partition_data, *column, options));
+    if (!_partition_value) {
+        auto partition_value = slot.get_data_type_ptr()->create_column();
+        auto serde = slot.get_data_type_ptr()->get_serde();
+        StringRef partition_data(_iceberg_file_desc->partition_data_json.data(),
+                                 _iceberg_file_desc->partition_data_json.size());
+        DataTypeSerDe::FormatOptions options = DataTypeSerDe::get_default_format_options();
+        RETURN_IF_ERROR(serde->from_string(partition_data, *partition_value, options));
+        DORIS_CHECK(partition_value->size() == 1);
+        _partition_value = std::move(partition_value);
+    }
+    column->insert_from(*_partition_value, 0);
     return Status::OK();
 }
 
