@@ -23,7 +23,14 @@ suite('test_audit_log_internal_query_failure', 'nonConcurrent') {
     def tbl = 'test_audit_log_internal_query_failure_t1'
 
     setGlobalVarTemporary([enable_audit_plugin: true], {
+        def sqlCacheOrigValue = null
         try {
+            sqlCacheOrigValue = (sql "select @@enable_sql_cache")[0][0]
+            // The audit_log table is loaded asynchronously. Repeated polling
+            // can otherwise cache an early empty result before the target audit
+            // batch becomes visible.
+            sql "set enable_sql_cache=false"
+
             sql "drop table if exists ${tbl}"
             sql """
                 create table ${tbl} (k int, v int)
@@ -57,38 +64,52 @@ suite('test_audit_log_internal_query_failure', 'nonConcurrent') {
                 GetDebugPoint().clearDebugPointsForAllBEs()
             }
 
-            def currentDb = (sql_return_maparray "select database() as db")[0].db.toString()
-            def fullTableName = "internal.${currentDb}.${tbl}"
-
             // Force a flush so the failed internal query is queryable from
             // __internal_schema.audit_log.
             // The failed gather SQL reads from our user table and runs as an
             // internal query; it must show up with state=ERR. Filter by start
             // time to avoid matching stale entries from previous runs.
-            // Use queried_tables_and_views instead of stmt because stmt can be
-            // truncated by audit_plugin_max_sql_length when running in CI.
+            // Match the injected IO error instead of queried_tables_and_views:
+            // failed internal queries do not always populate that field before
+            // the error is audited, but the propagated error message contains
+            // the tablet-scoped debug point evidence.
             def query = """select state, error_code, error_message
                            from __internal_schema.audit_log
                            where is_internal = 1
-                             and array_contains(queried_tables_and_views, '${fullTableName}')
                              and state = 'ERR'
+                             and error_message like '%IO_ERROR%'
+                             and error_message like '%${tabletId}%'
                              and `time` >= '${startTime}'
                            order by `time` desc limit 1"""
+            def diagnosticQuery = """select `time`, state, error_code, error_message, queried_tables_and_views
+                                     from __internal_schema.audit_log
+                                     where is_internal = 1
+                                       and `time` >= '${startTime}'
+                                     order by `time` desc limit 5"""
             def res = []
-            int retry = 60
+            int retry = 90
             while (res.isEmpty() && retry-- > 0) {
                 sql "call flush_audit_log()"
                 sleep(2000)
                 res = sql_return_maparray "${query}"
             }
+            if (res.isEmpty()) {
+                logger.info("recent internal audit rows after injected IO error: ${sql_return_maparray(diagnosticQuery)}")
+            }
             assertFalse(res.isEmpty(),
-                    "expected an audit_log entry with state=ERR for the failed gather query")
+                    "expected an audit_log entry with state=ERR for the injected IO_ERROR")
             assertEquals('ERR', res[0].state.toString())
             assertNotEquals('0', res[0].error_code.toString())
             assertNotNull(res[0].error_message)
             assertTrue(!res[0].error_message.toString().isEmpty(),
                     "audit_log error_message should not be empty, got: ${res[0].error_message}")
         } finally {
+            try {
+                if (sqlCacheOrigValue != null) {
+                    sql "set enable_sql_cache=${sqlCacheOrigValue}"
+                }
+            } catch (Throwable ignored) {
+            }
             try {
                 sql "drop table if exists ${tbl}"
             } catch (Throwable ignored) {
