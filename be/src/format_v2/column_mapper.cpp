@@ -876,6 +876,7 @@ static VExprSPtr rewrite_table_expr_to_file_expr(
         return expr;
     }
     if (is_struct_element_expr(expr)) {
+        const auto table_leaf_type = expr->data_type();
         if (!rewrite_struct_element_path_to_file_expr(expr, filter_mappings, global_to_file_slot,
                                                       rewrite_context)) {
             // The scanner still evaluates the original table-level conjunct after TableReader
@@ -885,6 +886,20 @@ static VExprSPtr rewrite_table_expr_to_file_expr(
             // parents such as `element_at(element_at(map_values(m), 1), 'field')`; only direct
             // slot-rooted struct chains are supported here.
             *can_localize = false;
+            return expr;
+        }
+        DORIS_CHECK(table_leaf_type != nullptr);
+        DORIS_CHECK(expr->data_type() != nullptr);
+        if (!expr->data_type()->equals(*table_leaf_type)) {
+            // Path localization changes the leaf to the physical file type. For example, after an
+            // Iceberg evolution from STRUCT<a: INT> to STRUCT<a: BIGINT>, the localized old-file
+            // predicate is initially `element_at(file_col, 'a')::INT = 10::BIGINT`. Cast only the
+            // leaf back to BIGINT so the comparison has matching operands without forcing a cast
+            // of the entire evolved struct (whose children may also have been added or reordered).
+            auto cast_expr = Cast::create_shared(table_leaf_type);
+            cast_expr->add_child(expr);
+            rewrite_context->add_created_expr(cast_expr);
+            return cast_expr;
         }
         return expr;
     }

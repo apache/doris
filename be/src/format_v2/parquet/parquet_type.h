@@ -54,6 +54,9 @@ enum class ParquetTimeUnit {
 // ============================================================================
 struct ParquetTypeDescriptor {
     DataTypePtr doris_type;
+    // Physical fallback used only to keep file schema construction alive when the logical type is
+    // unsupported. Column reader creation still rejects unsupported_reason before decoding.
+    DataTypePtr physical_doris_type;
     ParquetExtraTypeInfo extra_type_info = ParquetExtraTypeInfo::NONE;
     ParquetTimeUnit time_unit = ParquetTimeUnit::UNKNOWN;
     ::parquet::Type::type physical_type = ::parquet::Type::UNDEFINED;

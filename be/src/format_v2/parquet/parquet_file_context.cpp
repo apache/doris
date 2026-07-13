@@ -27,7 +27,6 @@
 #include <limits>
 #include <mutex>
 #include <string_view>
-#include <unordered_map>
 #include <utility>
 
 #include "common/check.h"
@@ -44,6 +43,32 @@
 namespace doris::format::parquet {
 
 namespace detail {
+
+namespace {
+
+bool page_cache_range_less(const ParquetPageCacheRange& lhs, const ParquetPageCacheRange& rhs) {
+    return lhs.offset < rhs.offset || (lhs.offset == rhs.offset && lhs.size < rhs.size);
+}
+
+} // namespace
+
+void ParquetPageCacheRangeIndex::insert(ParquetPageCacheRange range) {
+    const auto it = std::lower_bound(_ranges.begin(), _ranges.end(), range, page_cache_range_less);
+    if (it == _ranges.end() || it->offset != range.offset || it->size != range.size) {
+        _ranges.insert(it, range);
+    }
+}
+
+void ParquetPageCacheRangeIndex::erase(ParquetPageCacheRange range) {
+    const auto it = std::lower_bound(_ranges.begin(), _ranges.end(), range, page_cache_range_less);
+    if (it != _ranges.end() && it->offset == range.offset && it->size == range.size) {
+        _ranges.erase(it);
+    }
+}
+
+void ParquetPageCacheRangeIndex::clear() {
+    std::vector<ParquetPageCacheRange>().swap(_ranges);
+}
 
 std::vector<ParquetPageCacheReadPlanEntry> plan_page_cache_range_read(
         int64_t position, int64_t nbytes, const std::vector<ParquetPageCacheRange>& cached_ranges) {
@@ -133,61 +158,6 @@ bool should_use_merge_range_reader(const std::vector<ParquetPageCacheRange>& ran
 
 namespace {
 
-// StoragePageCache only supports exact-key lookup. Keep lightweight range metadata here so later
-// Arrow ReadAt requests can reuse cached bytes when their requested ranges are subsets of, or are
-// fully covered by, previously cached ranges. Stale metadata is pruned on lookup.
-std::mutex cached_page_range_index_mutex;
-std::unordered_map<std::string, std::vector<ParquetPageCacheRange>> cached_page_range_index;
-constexpr size_t MAX_CACHED_PAGE_RANGE_FILES = 4096;
-constexpr size_t MAX_CACHED_PAGE_RANGES_PER_FILE = 65536;
-
-void register_cached_page_range(const std::string& file_key, int64_t position, int64_t nbytes) {
-    DORIS_CHECK(nbytes > 0);
-    std::lock_guard lock(cached_page_range_index_mutex);
-    if (cached_page_range_index.find(file_key) == cached_page_range_index.end() &&
-        cached_page_range_index.size() >= MAX_CACHED_PAGE_RANGE_FILES) {
-        cached_page_range_index.erase(cached_page_range_index.begin());
-    }
-    auto& ranges = cached_page_range_index[file_key];
-    auto it = std::find_if(ranges.begin(), ranges.end(), [&](const ParquetPageCacheRange& range) {
-        return range.offset == position && range.size == nbytes;
-    });
-    if (it == ranges.end()) {
-        if (ranges.size() >= MAX_CACHED_PAGE_RANGES_PER_FILE) {
-            ranges.erase(ranges.begin());
-        }
-        ranges.push_back(ParquetPageCacheRange {position, nbytes});
-    }
-}
-
-void unregister_cached_page_range(const std::string& file_key,
-                                  const ParquetPageCacheRange& stale_range) {
-    std::lock_guard lock(cached_page_range_index_mutex);
-    auto it = cached_page_range_index.find(file_key);
-    if (it == cached_page_range_index.end()) {
-        return;
-    }
-    auto& ranges = it->second;
-    ranges.erase(std::remove_if(ranges.begin(), ranges.end(),
-                                [&](const ParquetPageCacheRange& range) {
-                                    return range.offset == stale_range.offset &&
-                                           range.size == stale_range.size;
-                                }),
-                 ranges.end());
-    if (ranges.empty()) {
-        cached_page_range_index.erase(it);
-    }
-}
-
-std::vector<ParquetPageCacheRange> cached_page_ranges_for_file(const std::string& file_key) {
-    std::lock_guard lock(cached_page_range_index_mutex);
-    auto it = cached_page_range_index.find(file_key);
-    if (it == cached_page_range_index.end()) {
-        return {};
-    }
-    return it->second;
-}
-
 std::string build_page_cache_file_key(const io::FileReader& file_reader,
                                       const io::FileDescription& file_description) {
     const int64_t mtime =
@@ -228,6 +198,12 @@ public:
     arrow::Status Close() override {
         if (!_closed) {
             collect_active_merge_range_profile();
+            std::lock_guard lock(_page_cache_mutex);
+            // The cache payload may outlive this reader in StoragePageCache, but the auxiliary
+            // range directory must not. For example, after file A closes, file B must not scan A's
+            // ranges or retain their metadata until process shutdown.
+            _cached_page_range_index.clear();
+            std::vector<ParquetPageCacheRange>().swap(_page_cache_ranges);
             _closed = true;
         }
         return arrow::Status::OK();
@@ -393,7 +369,7 @@ private:
         if (!StoragePageCache::instance()->lookup(
                     page_cache_key(cached_range.offset, cached_range.size), &handle,
                     segment_v2::DATA_PAGE)) {
-            unregister_cached_page_range(_page_cache_file_key, cached_range);
+            _cached_page_range_index.erase(cached_range);
             return false;
         }
         Slice cached = handle.data();
@@ -406,8 +382,8 @@ private:
     }
 
     bool try_read_from_cached_ranges(int64_t position, int64_t nbytes, void* out) {
-        auto plan = detail::plan_page_cache_range_read(
-                position, nbytes, cached_page_ranges_for_file(_page_cache_file_key));
+        auto plan = detail::plan_page_cache_range_read(position, nbytes,
+                                                       _cached_page_range_index.ranges());
         if (plan.empty()) {
             return false;
         }
@@ -458,7 +434,7 @@ private:
         PageCacheHandle handle;
         StoragePageCache::instance()->insert(page_cache_key(position, nbytes), page, &handle,
                                              segment_v2::DATA_PAGE);
-        register_cached_page_range(_page_cache_file_key, position, nbytes);
+        _cached_page_range_index.insert(ParquetPageCacheRange {.offset = position, .size = nbytes});
         ++_page_cache_stats.write_count;
         ++_page_cache_stats.compressed_write_count;
     }
@@ -516,6 +492,7 @@ private:
     std::string _page_cache_file_key;
     mutable std::mutex _page_cache_mutex;
     std::vector<ParquetPageCacheRange> _page_cache_ranges;
+    detail::ParquetPageCacheRangeIndex _cached_page_range_index;
     ParquetPageCacheStats _page_cache_stats;
 };
 

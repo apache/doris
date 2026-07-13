@@ -295,7 +295,7 @@ TEST(NativeV2ReaderTest, RejectsInvalidHeaderAndEmptyFile) {
     static_cast<void>(io::global_local_filesystem()->delete_file(empty_path));
 }
 
-TEST(NativeV2ReaderTest, RejectsUnsupportedVersionAndHeaderOnlyFile) {
+TEST(NativeV2ReaderTest, RejectsUnsupportedVersionAndReportsHeaderOnlyFileAsEmpty) {
     std::filesystem::create_directories("./log");
     RuntimeState state;
     RuntimeProfile profile("native_v2_reader_header_boundary_test");
@@ -322,7 +322,8 @@ TEST(NativeV2ReaderTest, RejectsUnsupportedVersionAndHeaderOnlyFile) {
     auto header_only_reader = create_reader(header_only_path, &state, &profile);
     ASSERT_TRUE(header_only_reader->init(&state).ok());
     std::vector<ColumnDefinition> schema;
-    EXPECT_FALSE(header_only_reader->get_schema(&schema).ok());
+    const auto header_only_status = header_only_reader->get_schema(&schema);
+    EXPECT_TRUE(header_only_status.is<ErrorCode::END_OF_FILE>()) << header_only_status;
     static_cast<void>(io::global_local_filesystem()->delete_file(header_only_path));
 }
 

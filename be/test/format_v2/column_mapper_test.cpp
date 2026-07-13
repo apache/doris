@@ -28,6 +28,7 @@
 #include "common/consts.h"
 #include "core/assert_cast.h"
 #include "core/block/block.h"
+#include "core/column/column_struct.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_decimal.h"
@@ -38,6 +39,7 @@
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type/data_type_timestamptz.h"
 #include "core/data_type/data_type_varbinary.h"
+#include "exprs/vectorized_fn_call.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vin_predicate.h"
@@ -316,6 +318,38 @@ private:
     std::string _expr_name;
 };
 
+class ExecutableStructElementExpr final : public VExpr {
+public:
+    explicit ExecutableStructElementExpr(DataTypePtr child_type)
+            : VExpr(std::move(child_type), false) {
+        set_node_type(TExprNodeType::FUNCTION_CALL);
+        TFunctionName fn_name;
+        fn_name.__set_function_name(_expr_name);
+        _fn.__set_name(fn_name);
+    }
+
+    const std::string& expr_name() const override { return _expr_name; }
+
+    Status clone_node(VExprSPtr* cloned_expr) const override {
+        DORIS_CHECK(cloned_expr != nullptr);
+        *cloned_expr = std::make_shared<ExecutableStructElementExpr>(data_type());
+        return Status::OK();
+    }
+
+    Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
+                               size_t count, ColumnPtr& result_column) const override {
+        ColumnPtr struct_column;
+        RETURN_IF_ERROR(
+                get_child(0)->execute_column(context, block, selector, count, struct_column));
+        const auto& input = assert_cast<const ColumnStruct&>(*struct_column);
+        result_column = input.get_column_ptr(0);
+        return Status::OK();
+    }
+
+private:
+    const std::string _expr_name = "element_at";
+};
+
 VExprSPtr table_slot(int slot_id, int column_id, DataTypePtr type, const std::string& name) {
     return VSlotRef::create_shared(slot_id, column_id, -1, std::move(type), name);
 }
@@ -337,6 +371,40 @@ VExprSPtr element_at(const VExprSPtr& parent, DataTypePtr child_type,
     auto expr = std::make_shared<TestFunctionExpr>("element_at", std::move(child_type));
     expr->add_child(parent);
     expr->add_child(literal(str(), Field::create_field<TYPE_STRING>(child_name)));
+    return expr;
+}
+
+VExprSPtr executable_struct_element(const VExprSPtr& parent, DataTypePtr child_type,
+                                    const std::string& child_name) {
+    auto expr = std::make_shared<ExecutableStructElementExpr>(std::move(child_type));
+    expr->add_child(parent);
+    expr->add_child(literal(str(), Field::create_field<TYPE_STRING>(child_name)));
+    return expr;
+}
+
+VExprSPtr executable_binary_predicate(TExprOpcode::type opcode, const VExprSPtr& left,
+                                      const VExprSPtr& right) {
+    const auto result_type = u8();
+    TFunctionName fn_name;
+    fn_name.__set_function_name(opcode == TExprOpcode::GT ? "gt" : "eq");
+    TFunction fn;
+    fn.__set_name(fn_name);
+    fn.__set_binary_type(TFunctionBinaryType::BUILTIN);
+    fn.__set_arg_types({left->data_type()->to_thrift(), right->data_type()->to_thrift()});
+    fn.__set_ret_type(result_type->to_thrift());
+    fn.__set_has_var_args(false);
+
+    TExprNode node;
+    node.__set_node_type(TExprNodeType::BINARY_PRED);
+    node.__set_opcode(opcode);
+    node.__set_type(result_type->to_thrift());
+    node.__set_fn(fn);
+    node.__set_num_children(2);
+    node.__set_is_nullable(false);
+
+    auto expr = VectorizedFnCall::create_shared(node);
+    expr->add_child(left);
+    expr->add_child(right);
     return expr;
 }
 
@@ -2991,6 +3059,63 @@ TEST(ColumnMapperScanRequestTest, NestedElementAtConjunctUsesFileChildTypeForRen
     ASSERT_EQ(localized_parent_type->get_elements().size(), 2);
     EXPECT_EQ(localized_parent_type->get_element_name(0), "aa");
     EXPECT_EQ(localized_parent_type->get_element_name(1), "bb");
+}
+
+// Scenario: Iceberg promotes a nested struct leaf from INT to BIGINT while an old file still
+// stores INT. The localized element_at must be cast back to the table leaf type so the comparison
+// is prepared and executed with matching operand types.
+TEST_F(ColumnMapperCastTest, NestedElementAtConjunctCastsPromotedFileLeafToTableType) {
+    const auto file_int_type = i32();
+    const auto table_bigint_type = i64();
+
+    auto table_b = field_id_col("b", 11, table_bigint_type);
+    auto table_struct = struct_col("s", 10, {table_b});
+    auto file_b = field_id_col("b", 11, file_int_type, 0);
+    auto file_struct = struct_col("s", 10, {file_b}, 5);
+
+    auto table_leaf = executable_struct_element(
+            table_slot(0, 0, table_struct.type, table_struct.name), table_bigint_type, "b");
+    auto filter_expr = executable_binary_predicate(
+            TExprOpcode::GT, table_leaf,
+            literal(table_bigint_type, Field::create_field<TYPE_BIGINT>(15)));
+    TableFilter filter {.conjunct = VExprContext::create_shared(filter_expr),
+                        .global_indices = {GlobalIndex(0)}};
+
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_FIELD_ID});
+    ASSERT_TRUE(mapper.create_mapping({table_struct}, {}, {file_struct}).ok());
+
+    FileScanRequest request;
+    ASSERT_TRUE(mapper.create_scan_request({filter}, {table_struct}, &request, &state).ok());
+    ASSERT_EQ(request.conjuncts.size(), 1);
+    const auto& localized_root = request.conjuncts[0]->root();
+    ASSERT_EQ(localized_root->get_num_children(), 2);
+    const auto& localized_cast = localized_root->children()[0];
+    ASSERT_NE(dynamic_cast<const Cast*>(localized_cast.get()), nullptr);
+    EXPECT_TRUE(localized_cast->data_type()->equals(*table_bigint_type));
+    ASSERT_EQ(localized_cast->get_num_children(), 1);
+    EXPECT_EQ(localized_cast->children()[0]->expr_name(), "element_at");
+    EXPECT_TRUE(localized_cast->children()[0]->data_type()->equals(*file_int_type));
+
+    auto values = ColumnInt32::create();
+    values->insert_value(10);
+    values->insert_value(20);
+    MutableColumns children;
+    children.push_back(std::move(values));
+    Block block;
+    block.insert({ColumnStruct::create(std::move(children)), mapper.mappings()[0].file_type, "s"});
+
+    auto* conjunct = request.conjuncts[0].get();
+    auto status = conjunct->prepare(&state, RowDescriptor());
+    ASSERT_TRUE(status.ok()) << status;
+    status = conjunct->open(&state);
+    ASSERT_TRUE(status.ok()) << status;
+    IColumn::Filter result(block.rows(), 1);
+    bool can_filter_all = false;
+    status = conjunct->execute_filter(&block, result.data(), block.rows(), false, &can_filter_all);
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_FALSE(can_filter_all);
+    EXPECT_EQ(result, IColumn::Filter({0, 1}));
+    conjunct->close();
 }
 
 // Scenario: output projection reads one struct child while the row filter reads a different nested

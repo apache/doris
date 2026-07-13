@@ -414,7 +414,7 @@ TEST(ParquetSchemaTest, BuildEntryValidatesNullPointerAndEmptyRoot) {
     EXPECT_TRUE(fields.empty());
 }
 
-TEST(ParquetSchemaTest, RejectInvalidListMapAndUnsupportedTime) {
+TEST(ParquetSchemaTest, RejectInvalidListMapAndPreserveUnsupportedTime) {
     const auto bad_list = ::parquet::schema::GroupNode::Make(
             "bad_list", ::parquet::Repetition::OPTIONAL,
             {::parquet::schema::PrimitiveNode::Make("item", ::parquet::Repetition::OPTIONAL,
@@ -432,9 +432,11 @@ TEST(ParquetSchemaTest, RejectInvalidListMapAndUnsupportedTime) {
     const auto converted_time = ::parquet::schema::PrimitiveNode::Make(
             "time_ms", ::parquet::Repetition::REQUIRED, ::parquet::Type::INT32,
             ::parquet::ConvertedType::TIME_MILLIS);
-    const auto status = build_status({converted_time});
-    EXPECT_FALSE(status.ok());
-    EXPECT_NE(status.to_string().find("Parquet TIME with isAdjustedToUTC=true is not supported"),
+    const auto fields = build_fields({converted_time});
+    ASSERT_EQ(fields.size(), 1);
+    EXPECT_EQ(remove_nullable(fields[0]->type)->get_primitive_type(), TYPE_INT);
+    EXPECT_NE(fields[0]->type_descriptor.unsupported_reason.find(
+                      "Parquet TIME with isAdjustedToUTC=true is not supported"),
               std::string::npos);
 }
 
@@ -513,15 +515,21 @@ TEST(ParquetSchemaTest, RejectAdditionalInvalidListAndMapLayouts) {
     EXPECT_FALSE(build_status({repeated_map}).ok());
 }
 
-TEST(ParquetSchemaTest, LogicalUtcTimeIsRejected) {
+TEST(ParquetSchemaTest, LogicalUtcTimeIsPreservedForProjection) {
     const auto adjusted_time = ::parquet::schema::PrimitiveNode::Make(
             "time_ms", ::parquet::Repetition::REQUIRED,
             ::parquet::LogicalType::Time(true, ::parquet::LogicalType::TimeUnit::MILLIS),
             ::parquet::Type::INT32);
-    const auto status = build_status({adjusted_time});
-    EXPECT_FALSE(status.ok());
-    EXPECT_NE(status.to_string().find("Parquet TIME with isAdjustedToUTC=true is not supported"),
-              std::string::npos);
+    const auto supported_value = ::parquet::schema::PrimitiveNode::Make(
+            "value", ::parquet::Repetition::REQUIRED, ::parquet::Type::INT64);
+    const auto row = ::parquet::schema::GroupNode::Make("row", ::parquet::Repetition::OPTIONAL,
+                                                        {adjusted_time, supported_value});
+    const auto fields = build_fields({row});
+    ASSERT_EQ(fields.size(), 1);
+    ASSERT_EQ(fields[0]->children.size(), 2);
+    EXPECT_EQ(remove_nullable(fields[0]->children[0]->type)->get_primitive_type(), TYPE_INT);
+    EXPECT_FALSE(fields[0]->children[0]->type_descriptor.unsupported_reason.empty());
+    EXPECT_EQ(remove_nullable(fields[0]->children[1]->type)->get_primitive_type(), TYPE_BIGINT);
 }
 
 } // namespace doris::format::parquet

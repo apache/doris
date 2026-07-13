@@ -115,6 +115,29 @@ TEST(ParquetPageCacheRangeTest, InvalidRequestMisses) {
     EXPECT_TRUE(detail::plan_page_cache_range_read(100, -1, cached_ranges).empty());
 }
 
+TEST(ParquetPageCacheRangeTest, PerFileRangeIndexSortsDeduplicatesAndClears) {
+    detail::ParquetPageCacheRangeIndex index;
+    index.insert({200, 20});
+    index.insert({100, 30});
+    index.insert({100, 10});
+    index.insert({100, 30});
+
+    ASSERT_EQ(index.ranges().size(), 3);
+    EXPECT_EQ(index.ranges()[0].offset, 100);
+    EXPECT_EQ(index.ranges()[0].size, 10);
+    EXPECT_EQ(index.ranges()[1].offset, 100);
+    EXPECT_EQ(index.ranges()[1].size, 30);
+    EXPECT_EQ(index.ranges()[2].offset, 200);
+
+    index.erase({100, 30});
+    ASSERT_EQ(index.ranges().size(), 2);
+    EXPECT_EQ(index.ranges()[0].size, 10);
+    EXPECT_EQ(index.ranges()[1].offset, 200);
+
+    index.clear();
+    EXPECT_TRUE(index.ranges().empty());
+}
+
 TEST(ParquetPageCacheRangeTest, ValidPrefetchRangesSkipInvalidAndOverflowRanges) {
     const std::vector<ParquetPageCacheRange> ranges = {
             {100, 50},

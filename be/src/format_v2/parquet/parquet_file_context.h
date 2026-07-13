@@ -66,6 +66,22 @@ struct ParquetPageCacheStats {
 
 namespace detail {
 
+class ParquetPageCacheRangeIndex {
+public:
+    void insert(ParquetPageCacheRange range);
+    void erase(ParquetPageCacheRange range);
+    void clear();
+
+    const std::vector<ParquetPageCacheRange>& ranges() const { return _ranges; }
+
+private:
+    // This index belongs to one DorisRandomAccessFile. Thus two files reading [0, 4KB) never
+    // contend on or observe the same range metadata, and closing the reader releases all entries.
+    // StoragePageCache remains process-wide; only its lightweight exact-range directory is scoped
+    // to the reader that inserted and can validate those entries.
+    std::vector<ParquetPageCacheRange> _ranges;
+};
+
 // Build the copy plan for a ReadAt(position, nbytes) request from the range metadata of
 // previously cached entries.
 // StoragePageCache cannot do range lookup by itself; it can only lookup an exact key. The

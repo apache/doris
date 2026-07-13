@@ -272,6 +272,10 @@ void FileScannerV2::TEST_report_file_cache_profile(
 bool FileScannerV2::TEST_should_skip_not_found(const Status& status, bool ignore_not_found) {
     return _should_skip_not_found(status, ignore_not_found);
 }
+
+bool FileScannerV2::TEST_should_skip_empty(const Status& status) {
+    return _should_skip_empty(status);
+}
 #endif
 
 bool FileScannerV2::is_supported(const TFileScanRangeParams& params, const TFileRangeDesc& range) {
@@ -322,6 +326,8 @@ Status FileScannerV2::init(RuntimeState* state, const VExprContextSPtrs& conjunc
     RETURN_IF_ERROR(Scanner::init(state, conjuncts));
     _get_block_timer =
             ADD_TIMER_WITH_LEVEL(_local_state->scanner_profile(), "FileScannerV2GetBlockTime", 1);
+    _empty_file_counter =
+            ADD_COUNTER_WITH_LEVEL(_local_state->scanner_profile(), "EmptyFileNum", TUnit::UNIT, 1);
     _not_found_file_counter = ADD_COUNTER_WITH_LEVEL(_local_state->scanner_profile(),
                                                      "NotFoundFileNum", TUnit::UNIT, 1);
     _file_counter =
@@ -394,6 +400,20 @@ Status FileScannerV2::_get_block_impl(RuntimeState* state, Block* block, bool* e
                 *eof = false;
                 continue;
             }
+            if (_should_skip_empty(status)) {
+                // END_OF_FILE here means the reader discovered a valid split with no data while
+                // opening or probing it, not that the Scanner has exhausted all splits. Examples
+                // are a zero-byte CSV with an explicit schema and a Doris Native file containing
+                // only its 12-byte header. Treat it like V1's empty-file path: finish this range,
+                // discard partial reader state, and let the loop fetch the next split.
+                RETURN_IF_ERROR(_table_reader->abort_split());
+                COUNTER_UPDATE(_empty_file_counter, 1);
+                _state->update_num_finished_scan_range(1);
+                _has_prepared_split = false;
+                block->clear_column_data(cast_set<int64_t>(_projected_columns.size()));
+                *eof = false;
+                continue;
+            }
             RETURN_IF_ERROR(status);
         }
         if (*eof) {
@@ -435,6 +455,16 @@ Status FileScannerV2::_prepare_next_split(bool* eos) {
         if (_should_skip_not_found(status, config::ignore_not_found_file_in_external_table)) {
             RETURN_IF_ERROR(_table_reader->abort_split());
             COUNTER_UPDATE(_not_found_file_counter, 1);
+            _state->update_num_finished_scan_range(1);
+            continue;
+        }
+        if (_should_skip_empty(status)) {
+            // Schema discovery can reach EOF before a split becomes prepared. A header-only Native
+            // file follows this path, while a reader that discovers emptiness on its first
+            // get_block() follows the symmetric branch in _get_block_impl(). Both paths must
+            // advance exactly one scan range and preserve later files in the same scan.
+            RETURN_IF_ERROR(_table_reader->abort_split());
+            COUNTER_UPDATE(_empty_file_counter, 1);
             _state->update_num_finished_scan_range(1);
             continue;
         }
@@ -538,6 +568,10 @@ Status FileScannerV2::_prepare_table_reader_split(const TFileRangeDesc& range,
 
 bool FileScannerV2::_should_skip_not_found(const Status& status, bool ignore_not_found) {
     return ignore_not_found && status.is<ErrorCode::NOT_FOUND>();
+}
+
+bool FileScannerV2::_should_skip_empty(const Status& status) {
+    return status.is<ErrorCode::END_OF_FILE>();
 }
 
 bool FileScannerV2::_should_enable_file_meta_cache() const {
