@@ -15,18 +15,18 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_sqlserver_all_types_select", "p0,external,sqlserver,external_docker,external_docker_sqlserver") {
+suite("test_sqlserver_jdbc_row_count", "p2,external") {
     String enabled = context.config.otherConfigs.get("enableJdbcTest")
+    logger.info("enabled " + enabled)
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
     String s3_endpoint = getS3Endpoint()
     String bucket = getS3BucketName()
     String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mssql-jdbc-11.2.3.jre8.jar"
-    String driver_url13 = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mssql-jdbc-13.4.0.jre8.jar"
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
+        String catalog_name = "test_sqlserver_jdbc_row_count";
         String sqlserver_port = context.config.otherConfigs.get("sqlserver_2022_port");
-
-        sql """drop catalog if exists sqlserver_all_type_test """
-        sql """create catalog if not exists sqlserver_all_type_test properties(
+        sql """drop catalog if exists ${catalog_name} """
+        sql """ create catalog if not exists ${catalog_name} properties(
                     "type"="jdbc",
                     "user"="sa",
                     "password"="Doris123456",
@@ -34,28 +34,43 @@ suite("test_sqlserver_all_types_select", "p0,external,sqlserver,external_docker,
                     "driver_url" = "${driver_url}",
                     "driver_class" = "com.microsoft.sqlserver.jdbc.SQLServerDriver"
         );"""
+        sql """use ${catalog_name}.dbo"""
+        def result = sql """show table stats student"""
+        Thread.sleep(1000)
+        for (int i = 0; i < 60; i++) {
+            result = sql """show table stats student""";
+            if (result[0][2] != "-1") {
+                break;
+            }
+            logger.info("Table row count not ready yet. Wait 1 second.")
+            Thread.sleep(1000)
+        }
+        assertEquals("3", result[0][2])
+        sql """drop catalog ${catalog_name}"""
 
-        sql """use sqlserver_all_type_test.dbo"""
-
-        qt_desc_all_types_null """desc dbo.extreme_test;"""
-
-        qt_select_all_types_null """select * from dbo.extreme_test order by 1;"""
-
-        qt_select_all_types_multi_block """select count(*) from dbo.extreme_test_multi_block;"""
-
-        sql """drop catalog if exists sqlserver_all_type_test """
-
-        sql """drop catalog if exists sqlserver_13_test """
-        sql """create catalog if not exists sqlserver_13_test properties(
+        catalog_name = "test_sqlserver_lower_jdbc_row_count";
+        sql """drop catalog if exists ${catalog_name} """
+        sql """ create catalog if not exists ${catalog_name} properties(
                     "type"="jdbc",
                     "user"="sa",
                     "password"="Doris123456",
                     "jdbc_url" = "jdbc:sqlserver://${externalEnvIp}:${sqlserver_port};encrypt=false;databaseName=doris_test;",
-                    "driver_url" = "${driver_url13}",
-                    "driver_class" = "com.microsoft.sqlserver.jdbc.SQLServerDriver"
+                    "driver_url" = "${driver_url}",
+                    "driver_class" = "com.microsoft.sqlserver.jdbc.SQLServerDriver",
+                    "lower_case_meta_names" = "true"
         );"""
-        sql """switch sqlserver_13_test"""
-        qt_order_show_db """show databases"""
-        sql """drop catalog if exists sqlserver_13_test """
+        sql """use ${catalog_name}.dbo"""
+        result = sql """show table stats test_lower"""
+        Thread.sleep(1000)
+        for (int i = 0; i < 60; i++) {
+            result = sql """show table stats test_lower""";
+            if (result[0][2] != "-1") {
+                break;
+            }
+            logger.info("Table row count not ready yet. Wait 1 second.")
+            Thread.sleep(1000)
+        }
+        assertEquals("1", result[0][2])
+        sql """drop catalog ${catalog_name}"""
     }
 }
