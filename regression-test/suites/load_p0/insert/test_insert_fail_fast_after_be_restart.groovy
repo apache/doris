@@ -25,15 +25,17 @@ suite("test_insert_fail_fast_after_be_restart", "docker") {
     options.setFeNum(1)
     options.setBeNum(1)
     options.cloudMode = false
+    // Keep the BE logically alive during restart so the test exercises the process-epoch branch,
+    // rather than the existing backend-down branch.
+    options.feConfigs += ["max_backend_heartbeat_failure_tolerance_count=100"]
 
     docker(options) {
-        def tableName = "test_insert_fail_fast_after_be_restart"
         GetDebugPoint().clearDebugPointsForAllBEs()
 
         try {
-            sql "DROP TABLE IF EXISTS ${tableName}"
+            sql "DROP TABLE IF EXISTS test_insert_fail_fast_after_be_restart"
             sql """
-                CREATE TABLE ${tableName} (
+                CREATE TABLE test_insert_fail_fast_after_be_restart (
                     k BIGINT NOT NULL,
                     v BIGINT NOT NULL
                 )
@@ -43,6 +45,11 @@ suite("test_insert_fail_fast_after_be_restart", "docker") {
                     "replication_num" = "1"
                 )
             """
+
+            def backendBeforeRestart = sql_return_maparray("SHOW BACKENDS")[0]
+            def backendId = backendBeforeRestart.BackendId.toString()
+            def previousLastStartTime = backendBeforeRestart.LastStartTime.toString()
+            assertTrue(backendBeforeRestart.Alive.toString().equalsIgnoreCase("true"))
 
             // Hold the load fragment before it can report completion to FE. Restarting the BE
             // at this point drops that report while the replacement process quickly becomes alive.
@@ -57,7 +64,7 @@ suite("test_insert_fail_fast_after_be_restart", "docker") {
                 sql "SET insert_timeout = 300"
                 try {
                     sql """
-                        INSERT INTO ${tableName}
+                        INSERT INTO test_insert_fail_fast_after_be_restart
                         SELECT number, number FROM numbers("number" = "1024")
                     """
                     return null
@@ -88,6 +95,22 @@ suite("test_insert_fail_fast_after_be_restart", "docker") {
 
             cluster.restartBackends()
 
+            def restartedBackendObserved = false
+            def heartbeatDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(60)
+            while (System.nanoTime() < heartbeatDeadline) {
+                def currentBackend = sql_return_maparray("SHOW BACKENDS")
+                        .find { it.BackendId.toString() == backendId }
+                if (currentBackend != null
+                        && currentBackend.Alive.toString().equalsIgnoreCase("true")
+                        && currentBackend.LastStartTime.toString() != previousLastStartTime) {
+                    restartedBackendObserved = true
+                    break
+                }
+                sleep(200)
+            }
+            assertTrue(restartedBackendObserved,
+                    "FE did not observe the restarted BE as alive with a changed process epoch")
+
             // LoadProcessor checks backend health every 30 seconds. The restarted BE is alive,
             // so this only finishes before insert_timeout when FE also compares process epochs.
             def errorMessage = insertFuture.get(60, TimeUnit.SECONDS)
@@ -97,10 +120,9 @@ suite("test_insert_fail_fast_after_be_restart", "docker") {
             assertTrue(errorMessage.contains("backend restarted"),
                     "INSERT error should explain that the backend restarted: ${errorMessage}")
 
-            assertEquals(0, sql("SELECT COUNT(*) FROM ${tableName}")[0][0] as int)
+            assertEquals(0, sql("SELECT COUNT(*) FROM test_insert_fail_fast_after_be_restart")[0][0] as int)
         } finally {
             GetDebugPoint().clearDebugPointsForAllBEs()
-            try_sql "DROP TABLE IF EXISTS ${tableName}"
         }
     }
 }

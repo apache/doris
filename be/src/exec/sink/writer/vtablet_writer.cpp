@@ -2066,10 +2066,8 @@ Status VTabletWriter::close(Status exec_status) {
     TEST_INJECTION_POINT("VOlapTableSink::close");
 
     DBUG_EXECUTE_IF("VTabletWriter.close.sleep", {
-        auto sleep_sec = DebugPoints::instance()->get_debug_param_or_default<int32_t>(
-                "VTabletWriter.close.sleep", "sleep_sec", 1);
-        auto token = DebugPoints::instance()->get_debug_param_or_default<std::string>(
-                "VTabletWriter.close.sleep", "token", "");
+        auto sleep_sec = dp->param<int32_t>("sleep_sec", 1);
+        auto token = dp->param<std::string>("token", "");
         LOG(INFO) << "hit debug point VTabletWriter.close.sleep, token=" << token;
         std::this_thread::sleep_for(std::chrono::seconds(sleep_sec));
     });

@@ -670,10 +670,8 @@ Status VTabletWriterV2::close(Status exec_status) {
     }
 
     DBUG_EXECUTE_IF("VTabletWriterV2.close.sleep", {
-        auto sleep_sec = DebugPoints::instance()->get_debug_param_or_default<int32_t>(
-                "VTabletWriterV2.close.sleep", "sleep_sec", 1);
-        auto token = DebugPoints::instance()->get_debug_param_or_default<std::string>(
-                "VTabletWriterV2.close.sleep", "token", "");
+        auto sleep_sec = dp->param<int32_t>("sleep_sec", 1);
+        auto token = dp->param<std::string>("token", "");
         LOG(INFO) << "hit debug point VTabletWriterV2.close.sleep, token=" << token;
         std::this_thread::sleep_for(std::chrono::seconds(sleep_sec));
     });
