@@ -1047,7 +1047,8 @@ TPushAggOp::type ScanLocalState<Derived>::get_push_down_agg_type() {
 }
 
 template <typename Derived>
-const std::vector<int32_t>& ScanLocalState<Derived>::get_push_down_count_slot_ids() const {
+const std::optional<std::vector<int32_t>>& ScanLocalState<Derived>::get_push_down_count_slot_ids()
+        const {
     return _parent->cast<typename Derived::Parent>()._push_down_count_slot_ids;
 }
 

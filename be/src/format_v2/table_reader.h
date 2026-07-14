@@ -135,9 +135,10 @@ struct TableReadOptions {
     const std::vector<SlotDescriptor*>* file_slot_descs = nullptr;
     // Push-down aggregate type.
     const TPushAggOp::type push_down_agg_type = TPushAggOp::type::NONE;
-    // Table/global indices of explicit COUNT arguments. Empty means COUNT(*)/COUNT(1), not "infer
-    // the argument from projected_columns": COUNT(*) still projects one arbitrary placeholder.
-    const std::vector<GlobalIndex> push_down_count_columns = {};
+    // Table/global indices of explicit COUNT arguments. nullopt means an old FE did not send the
+    // semantic argument field, while an explicit empty vector means COUNT(*)/COUNT(1). Keeping
+    // those states separate prevents a rolling-upgrade plan from being reinterpreted by a new BE.
+    const std::optional<std::vector<GlobalIndex>> push_down_count_columns = std::nullopt;
     // Initial digest of predicates available during scanner open. Scanner-driven splits override it
     // with SplitReadOptions::condition_cache_digest after collecting late-arrival runtime filters.
     // A zero digest disables condition cache.
@@ -982,17 +983,29 @@ protected:
             return false;
         }
         if (agg_type == TPushAggOp::type::COUNT) {
+            // Old FEs do not serialize push_down_count_slot_ids. During the supported BE-first
+            // rolling upgrade, nullopt therefore means "COUNT semantics are unknown", not
+            // COUNT(*). Fall back to reading rows until the FE explicitly sends either an empty
+            // list for COUNT(*) or one slot for COUNT(col).
+            if (!_push_down_count_columns.has_value()) {
+                return false;
+            }
             // COUNT(*) needs no column metadata. COUNT(col) currently supports one direct file
             // column; multiple COUNT arguments fall back to the normal scan so every upper
             // aggregate receives the original rows.
-            if (_push_down_count_columns.empty()) {
+            if (_push_down_count_columns->empty()) {
                 return true;
             }
-            if (_push_down_count_columns.size() != 1) {
+            if (_push_down_count_columns->size() != 1) {
                 return false;
             }
             const auto& mapping = _push_down_count_mapping();
+            // Metadata COUNT skips TableReader's normal materialization path. Only a trivial
+            // mapping is safe: for example, a nullable Parquet INT mapped to a NOT NULL table
+            // BIGINT normally needs both an INT->BIGINT cast and nullability validation. Counting
+            // footer values directly would bypass both operations and could hide invalid data.
             return mapping.file_local_id.has_value() && mapping.file_type != nullptr &&
+                   mapping.table_type != nullptr && mapping.is_trivial &&
                    mapping.virtual_column_type == TableVirtualColumnType::INVALID &&
                    mapping.default_expr == nullptr;
         }
@@ -1477,10 +1490,11 @@ protected:
         request->agg_type = agg_type;
         request->columns.clear();
         if (agg_type == TPushAggOp::type::COUNT) {
+            DORIS_CHECK(_push_down_count_columns.has_value());
             // An empty explicit list is the semantic signal for COUNT(*). Do not inspect the
             // mapping count: `SELECT COUNT(*) FROM t` may still project one nullable column because
             // the planner keeps a placeholder slot, and counting that slot would return COUNT(col).
-            if (!_push_down_count_columns.empty()) {
+            if (!_push_down_count_columns->empty()) {
                 const auto& mapping = _push_down_count_mapping();
                 DORIS_CHECK(mapping.file_local_id.has_value());
                 FileAggregateRequest::Column column;
@@ -1504,10 +1518,11 @@ protected:
     }
 
     const ColumnMapping& _push_down_count_mapping() const {
-        DORIS_CHECK(_push_down_count_columns.size() == 1);
+        DORIS_CHECK(_push_down_count_columns.has_value());
+        DORIS_CHECK(_push_down_count_columns->size() == 1);
         const auto mapping_it =
                 std::ranges::find(_data_reader.column_mapper->mappings(),
-                                  _push_down_count_columns.front(), &ColumnMapping::global_index);
+                                  _push_down_count_columns->front(), &ColumnMapping::global_index);
         // FileScannerV2 translates FE SlotIds through the same projected-column list used to build
         // the mapper, so a missing mapping is an FE/BE contract violation rather than a fallback.
         DORIS_CHECK(mapping_it != _data_reader.column_mapper->mappings().end());
@@ -1618,7 +1633,7 @@ protected:
     const std::vector<SlotDescriptor*>* _file_slot_descs = nullptr;
     FileFormat _format;
     TPushAggOp::type _push_down_agg_type = TPushAggOp::type::NONE;
-    std::vector<GlobalIndex> _push_down_count_columns;
+    std::optional<std::vector<GlobalIndex>> _push_down_count_columns;
     size_t _batch_size = 0;
     uint64_t _initial_condition_cache_digest = 0;
     uint64_t _condition_cache_digest = 0;

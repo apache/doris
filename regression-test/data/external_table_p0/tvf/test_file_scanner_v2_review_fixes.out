@@ -9,6 +9,9 @@
 1	10	100
 3	10	300
 
+-- !count_evolved_struct --
+4
+
 -- !unprojected_unsupported_time --
 1
 2

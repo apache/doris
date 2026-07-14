@@ -488,16 +488,20 @@ Status FileScannerV2::_init_table_reader(const TFileRangeDesc& range) {
 
     VExprContextSPtrs table_conjuncts;
     RETURN_IF_ERROR(_build_table_conjuncts(&table_conjuncts));
-    std::vector<format::GlobalIndex> push_down_count_columns;
-    push_down_count_columns.reserve(_local_state->get_push_down_count_slot_ids().size());
-    for (const auto slot_id : _local_state->get_push_down_count_slot_ids()) {
-        const auto global_index_it = _slot_id_to_global_index.find(slot_id);
-        if (global_index_it == _slot_id_to_global_index.end()) {
-            return Status::InternalError(
-                    "Pushed-down COUNT argument is not a projected file scan slot, slot_id={}",
-                    slot_id);
+    std::optional<std::vector<format::GlobalIndex>> push_down_count_columns;
+    const auto& push_down_count_slot_ids = _local_state->get_push_down_count_slot_ids();
+    if (push_down_count_slot_ids.has_value()) {
+        push_down_count_columns.emplace();
+        push_down_count_columns->reserve(push_down_count_slot_ids->size());
+        for (const auto slot_id : *push_down_count_slot_ids) {
+            const auto global_index_it = _slot_id_to_global_index.find(slot_id);
+            if (global_index_it == _slot_id_to_global_index.end()) {
+                return Status::InternalError(
+                        "Pushed-down COUNT argument is not a projected file scan slot, slot_id={}",
+                        slot_id);
+            }
+            push_down_count_columns->push_back(global_index_it->second);
         }
-        push_down_count_columns.push_back(global_index_it->second);
     }
     RETURN_IF_ERROR(_table_reader->init({
             .projected_columns = _projected_columns,

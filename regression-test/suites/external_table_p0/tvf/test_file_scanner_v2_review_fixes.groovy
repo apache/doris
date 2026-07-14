@@ -70,6 +70,17 @@ suite("test_file_scanner_v2_review_fixes", "p0,external") {
     order_qt_struct_leaf_promotion_cold evolvedStructQuery
     order_qt_struct_leaf_promotion_warm evolvedStructQuery
 
+    // COUNT(col) sees a non-trivial mapping for the file whose STRUCT leaf is INT while the merged
+    // table type is BIGINT. It must fall back to the normal scan so schema-evolution casts and
+    // nullability checks run instead of counting footer values directly.
+    order_qt_count_evolved_struct """
+        SELECT COUNT(col.a)
+        FROM local(
+            "file_path" = "${remotePath}/file_scanner_v2_struct_*.parquet",
+            "backend_id" = "${backendId}",
+            "format" = "parquet")
+    """
+
     // TIME_MILLIS is intentionally unsupported by the record reader. It must not prevent schema
     // construction when only the supported id column is projected.
     order_qt_unprojected_unsupported_time """
