@@ -213,6 +213,12 @@ public:
         return customize_file_scan_request(request);
     }
 
+    bool current_data_file_is_immutable() const {
+        DORIS_CHECK(_current_task != nullptr);
+        DORIS_CHECK(_current_task->data_file != nullptr);
+        return _current_task->data_file->is_immutable;
+    }
+
 private:
     std::unique_ptr<TQueryOptions> _query_options;
     std::unique_ptr<TQueryGlobals> _query_globals;
@@ -3109,6 +3115,16 @@ TEST(IcebergV2ReaderTest, RowPositionDeletePredicateColumnIsNotRepeatedAsOutputC
     ASSERT_TRUE(request.conjuncts.empty());
     ASSERT_EQ(request.delete_conjuncts.size(), 1);
     EXPECT_NE(request.delete_conjuncts[0], nullptr);
+}
+
+TEST(IcebergV2ReaderTest, DataFileIsMarkedImmutableForPageCache) {
+    std::vector<ColumnDefinition> projected_columns;
+    projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+
+    IcebergTableReaderScanRequestTestHelper reader;
+    ASSERT_TRUE(reader.init_for_scan_request_test(std::move(projected_columns)).ok());
+
+    EXPECT_TRUE(reader.current_data_file_is_immutable());
 }
 
 } // namespace

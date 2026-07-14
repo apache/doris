@@ -247,6 +247,15 @@ Status IcebergTableReader::prepare_split(const format::SplitReadOptions& options
     if (current_split_pruned()) {
         return Status::OK();
     }
+    DORIS_CHECK(_current_task != nullptr);
+    DORIS_CHECK(_current_task->data_file != nullptr);
+    DORIS_CHECK(_current_file_description.has_value());
+    // Iceberg data files are immutable once referenced by a snapshot; updates create new data files
+    // at new paths instead of overwriting existing files. This lets the Parquet V2 reader use page
+    // cache when the scan range does not carry an mtime, without extending V1's path::0 behavior to
+    // mutable Hive/local files.
+    _current_task->data_file->is_immutable = true;
+    _current_file_description->is_immutable = true;
     if (_is_table_level_count_active()) {
         return Status::OK();
     }
@@ -467,6 +476,9 @@ std::unique_ptr<io::FileDescription> IcebergTableReader::_delete_file_descriptio
     file_description->file_size = range.__isset.file_size ? range.file_size : -1;
     file_description->range_start_offset = range.__isset.start_offset ? range.start_offset : 0;
     file_description->range_size = range.__isset.size ? range.size : -1;
+    // Iceberg delete files follow the same immutable-file contract as data files: a snapshot
+    // references a fixed object and later changes publish a new file rather than replacing it.
+    file_description->is_immutable = true;
     if (range.__isset.fs_name) {
         file_description->fs_name = range.fs_name;
     }
