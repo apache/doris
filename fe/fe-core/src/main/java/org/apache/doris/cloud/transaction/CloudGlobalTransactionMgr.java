@@ -2683,7 +2683,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         LOG.info("try to abort sub transaction, txnId: {}, subTxnId: {}, dbId: {}, tableIds: {}, subTxnNum: {}", txnId,
                 subTxnId, dbId, tableIds, subTxnNum);
         AbortSubTxnRequest request = AbortSubTxnRequest.newBuilder().setCloudUniqueId(Config.cloud_unique_id)
-                .setTxnId(txnId).setSubTxnId(subTxnId).setDbId(dbId).addAllTableIds(tableIds).setSubTxnNum(subTxnId)
+                .setTxnId(txnId).setSubTxnId(subTxnId).setDbId(dbId).addAllTableIds(tableIds).setSubTxnNum(subTxnNum)
                 .setRequestIp(FrontendOptions.getLocalHostAddressCached()).build();
         AbortSubTxnResponse response = null;
         int retryTime = 0;
