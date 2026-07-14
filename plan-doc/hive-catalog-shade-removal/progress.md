@@ -215,3 +215,86 @@ ThriftHmsClient:910   RetryingMetaStoreClient.getProxy(conf, hook, "类名字符
    设 supplier，但 `createConnectorFromProperties()` 在 **:129** 就被调（**早于** :156）→ 有无真实调用窗口？
 
 **commit**：（本次文档更新）
+
+---
+
+## 2026-07-14（四）— 阶段 1 完成：iceberg 原生 Glue 凭证类搬出 fe-core + 改包
+
+**commit**：`2cd01ada8df`（code，独立）· 基线 `570bbc89cf8`
+**方法**：10-agent 侦察（源码 / 全仓引用 / 插件 pom+dependency:tree / 真实 jar javap / Trino 对照）
++ 4 路对抗验证（每路独立复核，不采信侦察结论）。10/10 完成，0 error。
+
+### 做了什么
+
+`ConfigurationAWSCredentialsProvider2x`（50 行）
+`fe/fe-core/.../com/amazonaws/glue/catalog/credentials/`
+→ `fe/fe-connector/fe-connector-iceberg/.../org/apache/doris/connector/iceberg/glue/`
+
+**用户 2026-07-14 拍板「改成 Doris 自己的包」**（非原样搬）。理由：老 FQN 今天 100% 坏 →
+无「工作中的用户配置」会被打破；而 `com.amazonaws.glue.catalog.**` 整棵树马上删光，
+插件里留同名包会让后人 grep 时误判「没删干净」。
+
+改动面 4 文件（git 识别为 rename）：新类 · fe-core 删除 · `IcebergConnectorProperties.java:142` 常量值 ·
+`IcebergCatalogFactoryTest.java:556` 断言。**pom 零改动**。
+
+### 验证（信实测不信推演）
+
+- `mvn -pl fe-connector/fe-connector-iceberg -am test`：**BUILD SUCCESS**，`IcebergCatalogFactoryTest`
+  **63/63 通过**，checkstyle 0
+- `mvn -pl fe-core -am test-compile`：**BUILD SUCCESS**，checkstyle 0（证明 fe-core 删掉该类无编译面破坏）
+- `tools/check-connector-imports.sh`：**exit 0**（HiveVersionUtil 两条是已知误报）
+- **决定性探针**（真实 `ChildFirstClassLoader` + 真实插件 jar 183 个 + app-model 父加载器 576 jar，
+  同一次运行的前后对照）：
+
+```
+--- BEFORE (旧 FQN，仍在 stale doris-fe.jar 里) ---
+  resolved from : app-model
+  VERDICT native-Glue creds (old): isAssignableFrom = false
+--- AFTER (搬进插件后) ---
+  resolved from : ChildFirstClassLoader
+  VERDICT native-Glue creds: isAssignableFrom = true   [FIXED]
+  create(Map) returned : org.apache.doris.connector.iceberg.glue.ConfigurationAWSCredentialsProvider2x
+  resolveCredentials() : accessKeyId=AKIA_PROBE
+RESULT: PASS
+```
+
+### 侦察挖出的事实更正（**文档此前是错的**）
+
+1. **模块路径是嵌套的**：`fe/fe-connector/fe-connector-iceberg`，**不是** `fe/fe-connector-iceberg`。
+   `-pl fe-connector/fe-connector-iceberg -am`（`-am` 必填，否则 `${revision}` 假错）。
+2. **真实报错不是 CCE**：是 `IllegalArgumentException "Cannot initialize ..., it does not implement
+   software.amazon.awssdk.auth.credentials.AwsCredentialsProvider"` —— iceberg `AwsClientProperties`
+   的 `isAssignableFrom` 门禁（`Preconditions.checkArgument`）在 `checkcast` **之前**就拦下了。修法不受影响。
+3. **`auth:2.29.52` 早在插件 compile classpath 上**（经**未声明**的传递路径：declared `s3` → `auth`）。
+   反向对照实验：从 classpath 剥掉 `auth-2.29.52.jar` → `package ... does not exist`，证明确是它在起作用。
+   全 classpath 扫描 `AwsCredentialsProvider.class` 只有 1 份 → 无 shaded 副本污染。
+4. **新包命中 parent-first 前缀**：`org.apache.doris.connector.` 在 `CONNECTOR_PARENT_FIRST_PREFIXES` 里
+   → 子加载器先问父。**成立靠「父无此类 → CNFE → 回退子加载器 findClass」**，已实测；
+   与插件内其它所有类同一模式（`IcebergCatalogFactory` 等皆如此）。
+
+### Trino 对照（架构层）
+
+Trino **不走「传类名 → 反射加载」这一跳**：自己实现 `TrinoGlueCatalog`，在 Guice module 里
+**直接构造实例** `StaticCredentialsProvider.create(AwsBasicCredentials.create(k, s))` 交给
+`GlueClient.builder().credentialsProvider(instance)`。实例自带 `Class`，在插件加载器里解析一次 → 天然无 split-brain。
+
+**未照搬的理由**：我们用 iceberg 官方 `GlueCatalog`，它只接受属性 map，唯一注入点就是类名字符串；
+要绕开须自实现 `AwsClientFactory` —— 而 iceberg 加载 `client.factory` **同样按名反射**，同样一跳，代码更多。
+搬 50 行是最小修法。
+
+**另证**（javap，排除「根本不需要这个类」的可能）：iceberg 的 `AwsClientProperties` **确有**内建静态 AK/SK
+阶梯（`credentialsProvider(ak, sk, token)` → `StaticCredentialsProvider`），但 Glue client 走的
+`applyClientCredentialConfigurations` **只调 `credentialsProvider(String)`**（25 条指令，全扫描确认
+3-arg 重载只被 `AwsProperties.restCredentialsProvider` 和 `S3FileIOProperties` 引用）
+→ **自定义类是真必需**，不能用 iceberg 原生属性替掉。
+
+### 🆕 侦察挖出的两个遗留项（**清单里原本没有**）
+
+1. **T-21（待用户签字）**：`create()` **静音丢弃 session token**。`IcebergCatalogFactory.java:565-566`
+   发 `client.credentials-provider.glue.session_token`、单测 `:559` 断言它，但 `create()` 只造
+   `AwsBasicCredentials`，**从不造 `AwsSessionCredentials`** → 临时 STS 凭证认证必失败。
+   既有 bug，非搬迁引入；属**行为变更** → 未动。
+2. **T-30 落刀前必查**：`IcebergCatalogFactory.java:563-564` 发的
+   `aws.catalog.credentials.provider.factory.class` → `ConfigurationAWSCredentialsProviderFactory`
+   **指向一个即将被 T-30 删掉的 fe-core 类**（第二条 fe-core→插件按名耦合）。
+   T-34 称「iceberg 原生从不读该 key，删除中性」→ **落刀前 javap 复核**。
