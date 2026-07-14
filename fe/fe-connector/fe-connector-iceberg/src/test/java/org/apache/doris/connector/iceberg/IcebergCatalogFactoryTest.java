@@ -553,7 +553,7 @@ public class IcebergCatalogFactoryTest {
                         "glue.role_arn", "arn:aws:iam::1:role/should-not-fire",
                         "glue.endpoint", "https://glue.us-east-1.amazonaws.com"),
                 Optional.empty());
-        Assertions.assertEquals("com.amazonaws.glue.catalog.credentials.ConfigurationAWSCredentialsProvider2x",
+        Assertions.assertEquals("org.apache.doris.connector.iceberg.glue.ConfigurationAWSCredentialsProvider2x",
                 opts.get("client.credentials-provider"));
         Assertions.assertEquals("GAK", opts.get("client.credentials-provider.glue.access_key"));
         Assertions.assertEquals("GSK", opts.get("client.credentials-provider.glue.secret_key"));

@@ -139,7 +139,7 @@ public final class IcebergConnectorProperties {
     // -- GLUE emitted literal keys / values / defaults (non-SDK) --
     public static final String GLUE_CREDENTIALS_PROVIDER_KEY = "client.credentials-provider";
     public static final String GLUE_CREDENTIALS_PROVIDER_2X =
-            "com.amazonaws.glue.catalog.credentials.ConfigurationAWSCredentialsProvider2x";
+            "org.apache.doris.connector.iceberg.glue.ConfigurationAWSCredentialsProvider2x";
     public static final String GLUE_CREDENTIALS_PROVIDER_ACCESS_KEY = "client.credentials-provider.glue.access_key";
     public static final String GLUE_CREDENTIALS_PROVIDER_SECRET_KEY = "client.credentials-provider.glue.secret_key";
     public static final String GLUE_CREDENTIALS_PROVIDER_SESSION_TOKEN =

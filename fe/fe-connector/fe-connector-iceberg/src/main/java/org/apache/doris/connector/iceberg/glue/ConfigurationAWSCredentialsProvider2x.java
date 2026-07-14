@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package com.amazonaws.glue.catalog.credentials;
+package org.apache.doris.connector.iceberg.glue;
 
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.AwsCredentials;
@@ -24,9 +24,13 @@ import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
 import java.util.Map;
 
 /**
- * This is credentials provider for AWS SDK 2.x, comparing to ConfigurationAWSCredentialsProvider,
- * which is for AWS SDK 1.x.
- * See: https://docs.aws.amazon.com/sdk-for-java/latest/developer-guide/migration-client-credentials.html
+ * Credentials provider for the glue flavor's static AK/SK, named by the {@code client.credentials-provider}
+ * property {@link org.apache.doris.connector.iceberg.IcebergCatalogFactory} emits.
+ *
+ * <p>MUST live in this plugin module: iceberg's {@code AwsClientProperties} resolves the property's class name
+ * through the plugin's child-first loader and gates it on {@code AwsCredentialsProvider.isAssignableFrom},
+ * against the plugin's own copy of that interface. A copy loaded from any other loader implements a different
+ * {@code AwsCredentialsProvider} and is rejected with "it does not implement ...".
  */
 public class ConfigurationAWSCredentialsProvider2x implements AwsCredentialsProvider {
 
