@@ -19,6 +19,7 @@
 
 #include <memory>
 
+#include "common/thread_safety_annotations.h"
 #include "storage/partial_update_info.h"
 #include "storage/rowset/rowset.h"
 #include "storage/tablet/base_tablet.h"
@@ -380,7 +381,8 @@ public:
     bool update_rowset_warmup_state_inverted_idx_num(WarmUpTriggerSource source, RowsetId rowset_id,
                                                      int64_t delta);
     bool update_rowset_warmup_state_inverted_idx_num_unlocked(WarmUpTriggerSource source,
-                                                              RowsetId rowset_id, int64_t delta);
+                                                              RowsetId rowset_id, int64_t delta)
+            REQUIRES(_rowset_warm_up_states_mutex);
     WarmUpState complete_rowset_segment_warmup(WarmUpTriggerSource trigger_source,
                                                RowsetId rowset_id, Status status,
                                                int64_t segment_num, int64_t inverted_idx_num);
@@ -408,6 +410,7 @@ public:
         std::string res;
         auto add_log = [&](const RowsetSharedPtr& rs) {
             auto tmp = fmt::format("{}{}", rs->rowset_id().to_string(), rs->version().to_string());
+            SharedLockGuard warmup_rlock(_rowset_warm_up_states_mutex);
             if (_rowset_warm_up_states.contains(rs->rowset_id())) {
                 tmp += fmt::format(
                         ", progress={}, segments_warmed_up={}/{}, inverted_idx_warmed_up={}/{}",
@@ -431,7 +434,8 @@ private:
 
     bool add_rowset_warmup_state_unlocked(
             const RowsetMeta& rowset, WarmUpTriggerSource source,
-            std::chrono::steady_clock::time_point start_tp = std::chrono::steady_clock::now());
+            std::chrono::steady_clock::time_point start_tp = std::chrono::steady_clock::now())
+            REQUIRES(_rowset_warm_up_states_mutex);
 
     // used by capture_rs_reader_xxx functions
     bool rowset_is_warmed_up_unlocked(int64_t start_version, int64_t end_version) const;
@@ -534,7 +538,9 @@ private:
 
         void update_state();
     };
-    std::unordered_map<RowsetId, RowsetWarmUpInfo> _rowset_warm_up_states;
+    mutable AnnotatedSharedMutex _rowset_warm_up_states_mutex;
+    std::unordered_map<RowsetId, RowsetWarmUpInfo> _rowset_warm_up_states
+            GUARDED_BY(_rowset_warm_up_states_mutex);
 
     mutable std::shared_mutex _warmed_up_rowsets_mutex;
     std::unordered_set<RowsetId> _warmed_up_rowsets;
