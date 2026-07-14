@@ -351,6 +351,34 @@ TEST(NativeV2ReaderTest, RejectsTruncatedBlockDuringSchemaProbe) {
     static_cast<void>(io::global_local_filesystem()->delete_file(path));
 }
 
+TEST(NativeV2ReaderTest, RejectsPartialBlockLengthAsCorruption) {
+    std::filesystem::create_directories("./log");
+    RuntimeState state;
+    RuntimeProfile profile("native_v2_reader_partial_length_test");
+
+    std::string header;
+    header.append(DORIS_NATIVE_MAGIC, sizeof(DORIS_NATIVE_MAGIC));
+    uint8_t version_buffer[sizeof(uint32_t)];
+    encode_fixed32_le(version_buffer, DORIS_NATIVE_FORMAT_VERSION);
+    header.append(reinterpret_cast<const char*>(version_buffer), sizeof(version_buffer));
+
+    for (size_t prefix_bytes = 1; prefix_bytes < sizeof(uint64_t); ++prefix_bytes) {
+        const auto path = "./log/native_v2_partial_length_" + std::to_string(prefix_bytes) + "_" +
+                          UniqueId::gen_uid().to_string() + ".native";
+        auto content = header;
+        content.append(prefix_bytes, '\0');
+        ASSERT_TRUE(write_file(path, content).ok());
+
+        auto reader = create_reader(path, &state, &profile);
+        ASSERT_TRUE(reader->init(&state).ok());
+        std::vector<ColumnDefinition> schema;
+        const auto status = reader->get_schema(&schema);
+        EXPECT_TRUE(status.is<ErrorCode::INTERNAL_ERROR>()) << status;
+        EXPECT_NE(status.to_string().find("truncated native block length"), std::string::npos);
+        static_cast<void>(io::global_local_filesystem()->delete_file(path));
+    }
+}
+
 TEST(NativeV2ReaderTest, RejectsZeroLengthBlockAndInvalidPBlock) {
     std::filesystem::create_directories("./log");
     RuntimeState state;

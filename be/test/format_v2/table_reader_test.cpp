@@ -2723,6 +2723,56 @@ TEST(TableReaderTest, TableLevelCountUsesAssignedRowCount) {
     std::filesystem::remove_all(test_dir);
 }
 
+TEST(TableReaderTest, TableLevelCountRequiresExplicitCountStarArguments) {
+    const auto test_dir = std::filesystem::temp_directory_path() /
+                          "doris_table_reader_table_count_arguments_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+
+    const auto file_path = (test_dir / "split.parquet").string();
+    write_int_pair_parquet_file(file_path, {1, 2, 3}, {10, 20, 30}, {"one", "two", "three"});
+
+    std::vector<ColumnDefinition> projected_columns;
+    projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+    set_name_identifiers(&projected_columns);
+
+    const std::vector<std::optional<std::vector<GlobalIndex>>> unsafe_count_arguments {
+            std::nullopt, std::vector<GlobalIndex> {GlobalIndex(0)}};
+    for (const auto& count_arguments : unsafe_count_arguments) {
+        RuntimeState state {TQueryOptions(), TQueryGlobals()};
+        TableReader reader;
+        ASSERT_TRUE(reader.init({
+                                        .projected_columns = projected_columns,
+                                        .conjuncts = {},
+                                        .format = FileFormat::PARQUET,
+                                        .scan_params = nullptr,
+                                        .io_ctx = nullptr,
+                                        .runtime_state = &state,
+                                        .scanner_profile = nullptr,
+                                        .push_down_agg_type = TPushAggOp::type::COUNT,
+                                        .push_down_count_columns = count_arguments,
+                                })
+                            .ok());
+        auto split_options = build_split_options(file_path);
+        // Five metadata rows deliberately disagree with the three physical rows. nullopt models an
+        // old FE, while the non-empty vector models COUNT(id); neither may be treated as COUNT(*).
+        set_table_level_row_count(&split_options, 5);
+        ASSERT_TRUE(reader.prepare_split(split_options).ok());
+
+        size_t total_rows = 0;
+        bool eos = false;
+        while (!eos) {
+            Block block = build_table_block(projected_columns);
+            ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+            total_rows += block.rows();
+        }
+        EXPECT_EQ(3, total_rows);
+        ASSERT_TRUE(reader.close().ok());
+    }
+
+    std::filesystem::remove_all(test_dir);
+}
+
 TEST(TableReaderTest, PushDownMinMaxFromNewParquetReader) {
     const auto test_dir = std::filesystem::temp_directory_path() / "doris_table_reader_minmax_test";
     std::filesystem::remove_all(test_dir);

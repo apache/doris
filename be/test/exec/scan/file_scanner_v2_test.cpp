@@ -99,6 +99,23 @@ TFileRangeDesc legacy_paimon_jni_range_without_reader_type() {
     return range;
 }
 
+TEST(FileScannerTest, V1CountPushdownRequiresExplicitCountStarArguments) {
+    EXPECT_EQ(TPushAggOp::type::COUNT, FileScanner::TEST_effective_push_down_agg_type(
+                                               TPushAggOp::type::COUNT, std::vector<int32_t> {}));
+
+    // A missing field is an old FE plan with unknown COUNT semantics, not COUNT(*).
+    EXPECT_EQ(TPushAggOp::type::NONE, FileScanner::TEST_effective_push_down_agg_type(
+                                              TPushAggOp::type::COUNT, std::nullopt));
+    // V1 cannot evaluate COUNT(col) NULL/CAST semantics before replacing the reader with
+    // CountReader, so an explicit argument must use the normal scan path.
+    EXPECT_EQ(TPushAggOp::type::NONE, FileScanner::TEST_effective_push_down_agg_type(
+                                              TPushAggOp::type::COUNT, std::vector<int32_t> {7}));
+
+    // The COUNT argument field must not affect other storage-layer aggregate operations.
+    EXPECT_EQ(TPushAggOp::type::MINMAX, FileScanner::TEST_effective_push_down_agg_type(
+                                                TPushAggOp::type::MINMAX, std::nullopt));
+}
+
 struct RetryableCloseState {
     int close_calls = 0;
 };

@@ -876,7 +876,12 @@ Status TableReader::prepare_split(const SplitReadOptions& options) {
     // active and no predicate can arrive later. The metadata path can return several batches for
     // one split; after its first synthetic batch there is no way to recover the real rows if a
     // runtime filter arrives before the next scheduler turn.
-    if (_push_down_agg_type == TPushAggOp::type::COUNT && options.all_runtime_filters_applied &&
+    // Table-level metadata only contains the number of rows; it cannot evaluate an expression or
+    // the NULL state of a COUNT argument. Require the new FE's explicit empty argument list, which
+    // means COUNT(*)/COUNT(1). A non-empty list means COUNT(col), while nullopt comes from an old FE
+    // whose COUNT semantics are unknown during a BE-first rolling upgrade.
+    if (_push_down_agg_type == TPushAggOp::type::COUNT && _push_down_count_columns.has_value() &&
+        _push_down_count_columns->empty() && options.all_runtime_filters_applied &&
         _conjuncts.empty() && options.current_range.__isset.table_format_params &&
         options.current_range.table_format_params.__isset.table_level_row_count) {
         DORIS_CHECK(options.current_range.table_format_params.table_level_row_count >= -1);
