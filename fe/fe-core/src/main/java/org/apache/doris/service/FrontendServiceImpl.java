@@ -3327,6 +3327,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 result.setRpcPort(Config.rpc_port);
                 result.setArrowFlightSqlPort(Config.arrow_flight_sql_port);
                 result.setVersion(Version.DORIS_BUILD_VERSION + "-" + Version.DORIS_BUILD_SHORT_HASH);
+                result.setLocalResourceGroup(Config.local_resource_group);
                 result.setLastStartupTime(exeEnv.getStartupTime());
                 result.setProcessUUID(exeEnv.getProcessUUID());
                 if (exeEnv.getDiskInfos() != null) {
