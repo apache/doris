@@ -621,12 +621,14 @@ public class Auth implements Writable {
         writeLock();
         String mysqlUserName = userIdent.getUser();
         String toDropMysqlUserId;
+        boolean userExisted = true;
         try {
             // check if user exists
             if (!doesUserExist(userIdent)) {
                 if (ignoreIfNonExists) {
                     LOG.info("user non exists, ignored to drop user: {}, is replay: {}",
                             userIdent.getQualifiedUser(), isReplay);
+                    userExisted = false;
                     return;
                 }
                 throw new DdlException(String.format("User `%s`@`%s` does not exist.",
@@ -652,6 +654,10 @@ public class Auth implements Writable {
             LOG.info("finished to drop user: {}, is replay: {}", userIdent.getQualifiedUser(), isReplay);
         } finally {
             writeUnlock();
+        }
+
+        if (userExisted) {
+            Env.getCurrentEnv().getPolicyMgr().dropPoliciesByUser(userIdent, isReplay);
         }
 
         if (Config.isNotCloudMode()) {
@@ -1156,10 +1162,12 @@ public class Auth implements Writable {
     }
 
     private void dropRoleInternal(String role, boolean ignoreIfNonExists, boolean isReplay) throws DdlException {
+        boolean roleExisted = true;
         writeLock();
         try {
             if (ignoreIfNonExists && roleManager.getRole(role) == null) {
                 LOG.info("role non exists, ignored to drop role: {}, is replay: {}", role, isReplay);
+                roleExisted = false;
                 return;
             }
 
@@ -1171,6 +1179,9 @@ public class Auth implements Writable {
             }
         } finally {
             writeUnlock();
+        }
+        if (roleExisted) {
+            Env.getCurrentEnv().getPolicyMgr().dropPoliciesByRole(role, isReplay);
         }
         LOG.info("finished to drop role: {}, is replay: {}", role, isReplay);
     }
