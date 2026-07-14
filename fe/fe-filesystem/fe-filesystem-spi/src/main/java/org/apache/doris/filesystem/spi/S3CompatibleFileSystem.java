@@ -555,14 +555,13 @@ public abstract class S3CompatibleFileSystem extends ObjFileSystem {
 
         @Override
         public boolean hasNext() throws IOException {
-            if (bufferIdx < buffer.size()) {
-                return true;
+            while (bufferIdx >= buffer.size()) {
+                if (done) {
+                    return false;
+                }
+                fetchNextPage();
             }
-            if (done) {
-                return false;
-            }
-            fetchNextPage();
-            return bufferIdx < buffer.size();
+            return true;
         }
 
         private void fetchNextPage() throws IOException {
@@ -581,7 +580,12 @@ public abstract class S3CompatibleFileSystem extends ObjFileSystem {
                 buffer.add(new FileEntry(loc, obj.getSize(), false, obj.getModificationTime(), List.of()));
             }
             if (page.isTruncated()) {
-                continuationToken = page.getContinuationToken();
+                String next = page.getContinuationToken();
+                if (next == null || next.equals(continuationToken)) {
+                    throw new IOException("list did not advance for prefix " + prefix
+                            + ", continuation token: " + next);
+                }
+                continuationToken = next;
             } else {
                 done = true;
             }

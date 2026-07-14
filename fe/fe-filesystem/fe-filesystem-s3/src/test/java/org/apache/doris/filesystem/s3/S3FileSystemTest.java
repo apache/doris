@@ -480,6 +480,33 @@ class S3FileSystemTest {
         Assertions.assertEquals("s3://bucket/dir/file.txt", emitted.get(0).location().uri());
     }
 
+    @Test
+    void list_iteratorContinuesAfterMarkerOnlyPage() throws IOException {
+        Mockito.when(mockStorage.listObjects(
+                ArgumentMatchers.eq("s3://bucket/dir/"), ArgumentMatchers.isNull()))
+                .thenReturn(new RemoteObjects(
+                        List.of(new RemoteObject("dir/", "", null, 0L, 0L)),
+                        true, "dir/"));
+        Mockito.when(mockStorage.listObjects(
+                ArgumentMatchers.eq("s3://bucket/dir/"), ArgumentMatchers.eq("dir/")))
+                .thenReturn(new RemoteObjects(
+                        List.of(new RemoteObject("dir/file.txt", "file.txt", null, 7L, 0L)),
+                        false, null));
+
+        List<org.apache.doris.filesystem.FileEntry> emitted = new java.util.ArrayList<>();
+        try (org.apache.doris.filesystem.FileIterator it =
+                fs.list(Location.of("s3://bucket/dir"))) {
+            while (it.hasNext()) {
+                emitted.add(it.next());
+            }
+        }
+
+        Assertions.assertEquals(1, emitted.size(), "expected the iterator to continue to the second page");
+        Assertions.assertEquals("s3://bucket/dir/file.txt", emitted.get(0).location().uri());
+        Mockito.verify(mockStorage).listObjects("s3://bucket/dir/", null);
+        Mockito.verify(mockStorage).listObjects("s3://bucket/dir/", "dir/");
+    }
+
     // ------------------------------------------------------------------
     // listFiles() — direct-children only (strategy a, #6)
     // ------------------------------------------------------------------
