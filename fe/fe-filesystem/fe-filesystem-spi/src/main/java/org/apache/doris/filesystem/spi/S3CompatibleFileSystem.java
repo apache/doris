@@ -559,13 +559,11 @@ public abstract class S3CompatibleFileSystem extends ObjFileSystem {
 
         @Override
         public boolean hasNext() throws IOException {
-            if (bufferIdx < buffer.size()) {
-                return true;
+            // A truncated page may consist entirely of directory markers and filter down to an
+            // empty buffer; keep paging until a visible entry shows up or the listing is exhausted.
+            while (bufferIdx >= buffer.size() && !done) {
+                fetchNextPage();
             }
-            if (done) {
-                return false;
-            }
-            fetchNextPage();
             return bufferIdx < buffer.size();
         }
 
