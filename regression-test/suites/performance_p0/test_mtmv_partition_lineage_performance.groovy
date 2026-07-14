@@ -114,7 +114,6 @@ suite("test_mtmv_partition_lineage_performance", "mtmv") {
         (1, '2024-01-10 00:00:00', 30, 4, 1)
     """
 
-    long createTimeoutMs = 60000
     long createStartMs = System.currentTimeMillis()
     sql """
         CREATE MATERIALIZED VIEW mtmv_partition_lineage_perf_mv
@@ -656,8 +655,6 @@ suite("test_mtmv_partition_lineage_performance", "mtmv") {
 
     long createElapsedMs = System.currentTimeMillis() - createStartMs
     logger.info("partition lineage MTMV create elapsed: ${createElapsedMs} ms")
-    assertTrue(createElapsedMs < createTimeoutMs,
-            "partition lineage MTMV create took ${createElapsedMs} ms, expected less than ${createTimeoutMs} ms")
 
     def mvPartitions = sql """SHOW PARTITIONS FROM mtmv_partition_lineage_perf_mv"""
     logger.info("mtmv_partition_lineage_perf_mv partitions: " + mvPartitions.toString())

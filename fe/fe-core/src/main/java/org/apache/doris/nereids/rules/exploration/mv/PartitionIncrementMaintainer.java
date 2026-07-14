@@ -61,7 +61,6 @@ import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.nereids.trees.plans.visitor.ExpressionLineageReplacer;
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -675,6 +674,8 @@ public class PartitionIncrementMaintainer {
      * The context used in IncrementChecker
      */
     public static final class PartitionIncrementCheckContext {
+        private static final ExpressionNormalization EXPRESSION_NORMALIZATION = new ExpressionNormalization();
+
         // This is used to record partition slot, and the value of map is ref date expression and bool value which
         // identify it's original partition or not, the key of map is the namedExpression to check
         private final Map<NamedExpression, RelatedTableColumnInfo> partitionAndRefExpressionMap
@@ -692,10 +693,6 @@ public class PartitionIncrementMaintainer {
         private final Plan originalPlan;
         // Cache lineage-visible named expressions per plan identity to avoid repeated full plan walks.
         private final Map<Plan, List<NamedExpression>> planLineageExpressionIndexes = new IdentityHashMap<>();
-        // Cache normalized expressions within this check context; normalization uses the same CascadesContext.
-        private final Map<Expression, Expression> normalizedExpressionMap = new IdentityHashMap<>();
-        // Reuse the normalization rewriter during one partition lineage check.
-        private final ExpressionNormalization expressionNormalization = new ExpressionNormalization();
         // Reuse the rewrite context because all normalization in this checker shares the same CascadesContext.
         private final ExpressionRewriteContext expressionRewriteContext;
         private boolean failFast = false;
@@ -779,11 +776,7 @@ public class PartitionIncrementMaintainer {
                 }
                 namedExpression.accept(ExpressionLineageReplacer.NamedExpressionCollector.INSTANCE, replaceContext);
             }
-            List<? extends Expression> replacedExpressions = replaceContext.getReplacedExpressions();
-            if (replacedExpressions == null || expressions.size() != replacedExpressions.size()) {
-                return ExpressionUtils.shuttleExpressionWithLineage(expressions, plan);
-            }
-            return replacedExpressions;
+            return replaceContext.getReplacedExpressions();
         }
 
         private List<? extends Expression> shuttleAndNormalizeExpressionWithLineage(
@@ -795,18 +788,9 @@ public class PartitionIncrementMaintainer {
                     shuttleExpressionWithLineage(ImmutableList.copyOf(expressions), plan);
             List<Expression> normalizedExpressions = new ArrayList<>(shuttledExpressions.size());
             for (Expression expression : shuttledExpressions) {
-                normalizedExpressions.add(normalizeExpression(expression));
+                normalizedExpressions.add(EXPRESSION_NORMALIZATION.rewrite(expression, expressionRewriteContext));
             }
             return normalizedExpressions;
-        }
-
-        private Expression normalizeExpression(Expression expression) {
-            Expression normalizedExpression = normalizedExpressionMap.get(expression);
-            if (normalizedExpression == null) {
-                normalizedExpression = expressionNormalization.rewrite(expression, expressionRewriteContext);
-                normalizedExpressionMap.put(expression, normalizedExpression);
-            }
-            return normalizedExpression;
         }
 
         private List<NamedExpression> getLineageExpressionIndex(Plan plan) {
@@ -814,7 +798,7 @@ public class PartitionIncrementMaintainer {
             if (lineageExpressionIndex == null) {
                 List<NamedExpression> collectedIndex = new ArrayList<>();
                 plan.accept(LineageExpressionCollector.INSTANCE, collectedIndex);
-                lineageExpressionIndex = ImmutableList.copyOf(collectedIndex);
+                lineageExpressionIndex = collectedIndex;
                 planLineageExpressionIndexes.put(plan, lineageExpressionIndex);
             }
             return lineageExpressionIndex;
