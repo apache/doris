@@ -126,6 +126,7 @@ public class MTMVPlanUtil {
             RuleType.ELIMINATE_CONST_JOIN_CONDITION,
             RuleType.CONSTANT_PROPAGATION,
             RuleType.ADD_DEFAULT_LIMIT,
+            RuleType.PULL_UP_JOIN_FROM_UNION_ALL,
             RuleType.ELIMINATE_JOIN_BY_FK,
             RuleType.ELIMINATE_JOIN_BY_UK,
             RuleType.ELIMINATE_GROUP_BY_KEY_BY_UNIFORM,

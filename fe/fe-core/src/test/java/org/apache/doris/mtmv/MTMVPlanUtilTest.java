@@ -33,6 +33,7 @@ import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.sqltest.SqlTestBase;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -240,6 +241,14 @@ public class MTMVPlanUtilTest extends SqlTestBase {
                 MTMVPlanUtil.generateColumns(plan, connectContext, null, null,
                         Lists.newArrayList(new SimpleColumnDefinition("col1", "c1"),
                                 new SimpleColumnDefinition("col1", "c2")), null));
+    }
+
+    @Test
+    public void testDisableRulesWhenGenerateMtmvCacheContainsPullUpJoinFromUnionAll() {
+        Assertions.assertTrue(MTMVPlanUtil.DISABLE_RULES_WHEN_GENERATE_MTMV_CACHE
+                .contains(RuleType.PULL_UP_JOIN_FROM_UNION_ALL));
+        Assertions.assertEquals(MTMVPlanUtil.DISABLE_RULES_WHEN_GENERATE_MTMV_CACHE,
+                MTMVPlanUtil.DISABLE_RULES_WHEN_RUN_MTMV_TASK);
     }
 
     @Test
