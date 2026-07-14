@@ -7,6 +7,10 @@
 
 # 🆕 下一个 session = **删除阶段主体已完成（原子删除死簇已合入）→ 剩 e2e 欠账 + 用户全量回归 + PR 收尾**
 
+> **🔄 2026-07-14 rebase：本分支已 `git pull --rebase upstream-apache branch-catalog-spi` 到最新（base tip = `e0c392b9be0`）。** 上游把 `branch-catalog-spi` rebase 到了更新 master（共同祖先退到纯 master 提交 `a37667de5ae`）；360 commit 重放（22 个 patch 等价的被 git 自动丢弃），**2 处冲突已解**：① `BindRelation.java`（上游 #65468 加 `import StreamReadMode` ↔ 我删 HMS 死臂连带删 `import Config`；留 `StreamReadMode`、删无引用的 `Config`，hive 视图由 `PluginDrivenExternalTable.isView()` 承接）；② iceberg 四文件 **modify/delete**（上游 #65502 改了我原子删除的遗留 fe-core iceberg 文件 → 按删除意图 `git rm`）。**守门全绿**：fe-core+SPI `test-compile` SUCCESS · 全连接器 `test-compile` SUCCESS（paimon 失败=shade `package` 阶段坑，`package` 后 SUCCESS，非回归）。备份分支 `pre-rebase-backup-11-hive` = `800fcf13bea`（rebase 前 HEAD，可回滚）。新增 9 个上游 commit 中 8 个随 base 落地/属通用 FE/BE（#65100/#65355/#65468/#65110/杂项）无需迁移。
+> 
+> **✅ #65502 FE 迁移已入连接器 = `bb7779537b5`**（iceberg 跨 schema 演进行级删除的 initial-default 发送）。连接器侧 `IcebergSchemaUtils.buildField` 现发每字段 iceberg initialDefault（二进制 UUID/BINARY/FIXED 走 Base64+`is_base64`，余走 Doris 串形，timestamp→DATETIMEV2 空格；透传 `enable.mapping.timestamp_tz`）；`IcebergScanPlanProvider` 普通 dict **外科式**补 identifier-field 键列（equality-delete 写方按 identifier 建键）而非发全部列——**保留剪枝优化 CI #969249**（用户 2026-07-14 选“外科式”），仅“有 equality-delete 但无 identifier”时回退全 schema。BE 侧 `TField.initial_default_value(_is_base64)` 随 rebase 已在 base 且已消费。**992 单测绿 · checkstyle 0**。**e2e 欠账**：iceberg equality-delete 跨 schema 演进真集群回归（与下述 e2e 欠账同批，用户自跑）。
+
 > **删除阶段进度勾选 = `plan-doc/tasks/datasource-deletion-tasklist.md`**（阶段 0–6 全绿，仅剩 e2e/用户回归两项）。原子删除清单存档 = `plan-doc/tasks/batch3-delete-manifest-2026-07-14.md`（HEAD-verified，含 109 删文件 + 16 耦合删改 + 45 测试删/改 + 保留澄清）。**行号信 HEAD 不信文档**。
 >
 > **✅ 删旧代码全流程已完成**（用户 2026-07-13 批次方案 + 2026-07-14 清单批准执行）：
