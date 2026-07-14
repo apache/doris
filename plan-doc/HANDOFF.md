@@ -62,6 +62,29 @@
 - `history_schema_info` 嵌套字段名逐层 lowercase（memory `catalog-spi-history-schema-info-lowercase-nested-names`）。
 - `PluginDrivenMvccExternalTable`/`PluginDrivenExternalTable` 是 paimon/iceberg/**翻闸后 hms** 实时基类（memory `plugindriven-mvcc-table-is-live-not-dormant`）。
 
+## 2026-07-14 — fe-core `datasource/connectivity` 迁出（已完成）
+
+**结论**：该包在本分支已是**死代码**（`createMetaTester()` 返回 no-op → `getTestLocation()` 恒 null → S3/Minio 探针不可达；HDFS 探针是空 TODO）。
+唯一入口 `ExternalCatalog.checkWhenCreating()` 被 `PluginDrivenExternalCatalog` 完全 override，只有 `type=doris|test` 够得着。
+故**删除**而非搬迁（搬过去仍是死码）；真正要做的是**补回**被 P6/删旧码时一并删掉的 10 个 meta 探针的能力。方案见 `plan-doc/connectivity-migration-plan.md`。
+
+- `8057f45d0f2` fe-core 删整包 8 文件 + `checkWhenCreating()` 留空 + 删 `DEFAULT_TEST_CONNECTION`；
+  `HiveConnector.testConnection()`（HMS 探针，此前 `test_connection=true` 在 hms 目录上**静默空转**）；
+  `IcebergConnector` meta 探针从 REST-only 扩到 HMS/Glue/S3Tables（钉死 upstream `createMetaTester()` 的分支集合，hadoop 不探）。
+- `c8f05143dc1` BE 存储探针回填：`ConnectorContext.testBackendStorageConnectivity(int, Map)` 通用回调（fe-core 不解释 payload，无 fs 类型分支）
+  + `DefaultConnectorContext` 实现 thrift 往返 + iceberg 在 FE 侧 HEAD 成功后同步调用 + **两个 `TcclPinningConnectorContext` 补委派**（不补则生产静默跳过，单测抓到）
+  + BE `s3_connectivity_tester.cpp` 补 `test_location` 的 `end()` 检查。
+
+**行为变化（唯一一处，须写进 PR 描述）**：`CREATE CATALOG type=doris|test + test_connection=true` 原本抛
+`IllegalArgumentException("Unknown metastore type value 'doris'")`（`checkWhenCreating` 急切调 `getMetastoreProperties()`，
+对无 metastore 的目录必抛且不被 catch）；现在成功。无套件覆盖，属潜伏 bug 修复。
+
+**未验证 / 待办**：
+- `external_table_p2/test_connection/test_connectivity.groovy`：Test 1.1/2.1（坏 HMS uri 应抛 `"HMS"` + `"connectivity test failed"`）
+  在补能力**之前**应当是红的（hive/iceberg-on-HMS 无 meta 探针）；补完应转绿。**需外部环境实跑确认**（p2 未跑）。
+- `fe-connector-paimon` 本地编译不了（`fe-connector-paimon-hive-shade` build 失败，干净树复现）→ 其装饰器委派那一个文件**本地未编译验证**，靠 CI。
+- BE 未编译（用户指示 BE 只改代码）。
+
 # 🗂 memory 相关项
 
 `handoff-discipline-per-phase` · `clean-room-adversarial-review-pref` · `ask-user-explain-in-chinese-first` · `session-handoff-at-30pct-context` · `doris-build-verify-gotchas` · `catalog-spi-fe-core-test-infra` · `catalog-spi-plugindriven-no-source-specific-code` · `plugindriven-mvcc-table-is-live-not-dormant` · `catalog-spi-tracking-issue` · `hms-iceberg-delegation-needs-e2e` · `concurrent-sessions-shared-worktree-hazard` · `fe-core-source-isolation-iron-rules` · `memory-keep-only-general-or-requested`。
