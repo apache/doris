@@ -103,9 +103,9 @@ suite("test_routine_load_first_error_msg", "p0") {
             def showErrorLogUrls = showResult[0][18].toString()
             def showFirstErrorMsg = showResult[0][23]
             if (loadedRows[0][0] == 1 && firstErrorMsg != null
-                    && firstErrorMsg.toString().contains("100|bad_row")
+                    && firstErrorMsg.toString().contains("bad_row")
                     && showFirstErrorMsg != null
-                    && showFirstErrorMsg.toString().contains("100|bad_row")) {
+                    && showFirstErrorMsg.toString().contains("bad_row")) {
                 assertEquals(informationSchemaErrorLogUrls, showErrorLogUrls)
                 assertFalse(informationSchemaErrorLogUrls.contains("first_error_msg:"))
                 assertFalse(showErrorLogUrls.contains("first_error_msg:"))

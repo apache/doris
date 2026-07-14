@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.cloud.transaction.TxnUtil;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
@@ -60,21 +61,23 @@ import java.util.Map;
 public class RoutineLoadJobTest {
     @Test
     public void testFirstErrorMsgInTxnCommitAttachment() {
+        String overlongFirstErrorMsg = Strings.repeat("x", Config.first_error_msg_max_length + 1);
         TRLTaskTxnCommitAttachment thriftAttachment = new TRLTaskTxnCommitAttachment();
         thriftAttachment.setLoadSourceType(TLoadSourceType.KAFKA);
         thriftAttachment.setId(new TUniqueId(1, 2));
         thriftAttachment.setJobId(3);
         thriftAttachment.setKafkaRLTaskProgress(new TKafkaRLTaskProgress(Maps.newHashMap()));
         thriftAttachment.setErrorLogUrl("http://127.0.0.1/error_log");
-        thriftAttachment.setFirstErrorMsg("invalid source row");
+        thriftAttachment.setFirstErrorMsg(overlongFirstErrorMsg);
 
         RLTaskTxnCommitAttachment attachment = new RLTaskTxnCommitAttachment(thriftAttachment);
-        Assert.assertEquals("invalid source row", attachment.getFirstErrorMsg());
+        Assert.assertEquals(Config.first_error_msg_max_length, attachment.getFirstErrorMsg().length());
+        Assert.assertTrue(attachment.getFirstErrorMsg().endsWith("..."));
 
         RLTaskTxnCommitAttachment cloudAttachment = TxnUtil.rtTaskTxnCommitAttachmentFromPb(
                 TxnUtil.rlTaskTxnCommitAttachmentToPb(attachment));
         Assert.assertEquals("http://127.0.0.1/error_log", cloudAttachment.getErrorLogUrl());
-        Assert.assertEquals("invalid source row", cloudAttachment.getFirstErrorMsg());
+        Assert.assertEquals(attachment.getFirstErrorMsg(), cloudAttachment.getFirstErrorMsg());
     }
 
     @Test
