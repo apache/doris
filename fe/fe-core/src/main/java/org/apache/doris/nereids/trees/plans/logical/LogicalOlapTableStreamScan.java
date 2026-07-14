@@ -465,6 +465,12 @@ public class LogicalOlapTableStreamScan extends LogicalOlapScan {
     }
 
     @Override
+    protected boolean hasSameScanState(LogicalCatalogRelation other) {
+        LogicalOlapTableStreamScan that = (LogicalOlapTableStreamScan) other;
+        return super.hasSameScanState(other) && readMode == that.readMode;
+    }
+
+    @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitLogicalOlapTableStreamScan(this, context);
     }

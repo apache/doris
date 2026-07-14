@@ -114,6 +114,16 @@ public class LogicalSchemaScan extends LogicalCatalogRelation {
     }
 
     @Override
+    protected boolean hasSameScanState(LogicalCatalogRelation other) {
+        LogicalSchemaScan that = (LogicalSchemaScan) other;
+        return filterPushed == that.filterPushed
+                && Objects.equals(schemaCatalog, that.schemaCatalog)
+                && Objects.equals(schemaDatabase, that.schemaDatabase)
+                && Objects.equals(schemaTable, that.schemaTable)
+                && Objects.equals(frontendConjuncts, that.frontendConjuncts);
+    }
+
+    @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitLogicalSchemaScan(this, context);
     }

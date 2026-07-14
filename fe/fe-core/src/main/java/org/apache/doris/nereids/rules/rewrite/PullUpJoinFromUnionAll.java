@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
-import org.apache.doris.catalog.constraint.TableIdentifier;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
@@ -582,8 +581,8 @@ public class PullUpJoinFromUnionAll extends OneRewriteRuleFactory {
             }
             boolean isEqual = true;
             if (plan1 instanceof LogicalCatalogRelation && plan2 instanceof LogicalCatalogRelation) {
-                isEqual = new TableIdentifier(((LogicalCatalogRelation) plan1).getTable())
-                        .equals(new TableIdentifier(((LogicalCatalogRelation) plan2).getTable()));
+                isEqual = ((LogicalCatalogRelation) plan1)
+                        .hasSameScanSemantics((LogicalCatalogRelation) plan2);
             } else if (plan1 instanceof LogicalProject && plan2 instanceof LogicalProject) {
                 for (int i = 0; isEqual && i < plan2.getOutput().size(); i++) {
                     Expression expr1 = ((LogicalProject<?>) plan1).getProjects().get(i);

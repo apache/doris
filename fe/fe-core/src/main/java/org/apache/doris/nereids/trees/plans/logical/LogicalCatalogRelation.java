@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.constraint.TableIdentifier;
 import org.apache.doris.catalog.constraint.ConstraintManager;
 import org.apache.doris.catalog.constraint.PrimaryKeyConstraint;
 import org.apache.doris.catalog.constraint.UniqueConstraint;
@@ -249,6 +250,39 @@ public abstract class LogicalCatalogRelation extends LogicalRelation implements 
 
     public LogicalCatalogRelation withVirtualColumns(List<NamedExpression> virtualColumns) {
         return this;
+    }
+
+    public final boolean hasSameScanSemantics(LogicalCatalogRelation other) {
+        if (other == null || getClass() != other.getClass()) {
+            return false;
+        }
+        if (!new TableIdentifier(table).equals(new TableIdentifier(other.table))) {
+            return false;
+        }
+        if (getOutput().size() != other.getOutput().size()) {
+            return false;
+        }
+        for (int i = 0; i < getOutput().size(); i++) {
+            if (!hasSameOutputSlotSemantics(getOutput().get(i), other.getOutput().get(i))) {
+                return false;
+            }
+        }
+        return hasSameScanState(other);
+    }
+
+    protected boolean hasSameScanState(LogicalCatalogRelation other) {
+        return false;
+    }
+
+    private boolean hasSameOutputSlotSemantics(Slot left, Slot right) {
+        if (!(left instanceof SlotReference) || !(right instanceof SlotReference)) {
+            return false;
+        }
+        SlotReference leftSlot = (SlotReference) left;
+        SlotReference rightSlot = (SlotReference) right;
+        return Objects.equals(left.getClass(), right.getClass())
+                && Objects.equals(leftSlot.getName(), rightSlot.getName())
+                && Objects.equals(leftSlot.getSubPath(), rightSlot.getSubPath());
     }
 
     public abstract LogicalCatalogRelation withRelationId(RelationId relationId);

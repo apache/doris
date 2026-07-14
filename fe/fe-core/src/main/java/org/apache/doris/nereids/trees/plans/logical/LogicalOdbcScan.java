@@ -96,6 +96,11 @@ public class LogicalOdbcScan extends LogicalCatalogRelation {
     }
 
     @Override
+    protected boolean hasSameScanState(LogicalCatalogRelation other) {
+        return true;
+    }
+
+    @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitLogicalOdbcScan(this, context);
     }
