@@ -78,6 +78,7 @@ import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.io.StorageCredential;
 import org.apache.iceberg.io.SupportsStorageCredentials;
 import org.apache.iceberg.types.Conversions;
+import org.apache.iceberg.types.Types;
 import org.apache.iceberg.types.Types.NestedField;
 import org.apache.iceberg.util.ScanTaskUtil;
 import org.apache.iceberg.util.SerializationUtil;
@@ -1358,9 +1359,15 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         if (!systemTable) {
             String dict;
             boolean appendRowLineage = getFormatVersion(table) >= 3;
+            // #65502: the catalog's enable.mapping.timestamp_tz flag controls whether a TIMESTAMPTZ column's
+            // iceberg initial default keeps its trailing offset (mapping on) or is rendered as UTC wall time
+            // (mapping off, DATETIMEV2). Thread it into every dict branch so the default matches BE's read.
+            boolean enableTimestampTz = Boolean.parseBoolean(
+                    properties.getOrDefault(IcebergConnectorProperties.ENABLE_MAPPING_TIMESTAMP_TZ, "false"));
             if (iceHandle.hasSnapshotPin()) {
                 dict = IcebergSchemaUtils.encodeSchemaEvolutionProp(
-                        table, pinnedSchema(table, iceHandle), Collections.emptyList(), appendRowLineage);
+                        table, pinnedSchema(table, iceHandle), Collections.emptyList(), appendRowLineage,
+                        enableTimestampTz);
             } else if (iceHandle.isTopnLazyMaterialize()) {
                 // Top-N lazy materialization (M-4): BE re-fetches the non-projected columns of the surviving
                 // rows by the synthesized row-id, so the dict must span the FULL latest schema, not just the
@@ -1368,10 +1375,12 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                 // field-id entry and the native read drops/mis-reads it. An empty requested list builds the
                 // dict over every top-level column (legacy initSchemaInfoForAllColumn parity).
                 dict = IcebergSchemaUtils.encodeSchemaEvolutionProp(
-                        table, table.schema(), Collections.emptyList(), appendRowLineage);
+                        table, table.schema(), Collections.emptyList(), appendRowLineage, enableTimestampTz);
             } else {
                 dict = IcebergSchemaUtils.encodeSchemaEvolutionProp(
-                        table, table.schema(), requestedLowerNames(columns), appendRowLineage);
+                        table, table.schema(),
+                        withEqualityDeleteKeyColumns(table, requestedLowerNames(columns)),
+                        appendRowLineage, enableTimestampTz);
             }
             props.put(SCHEMA_EVOLUTION_PROP, dict);
         } else if (isPositionDeletesSysTable(iceHandle)) {
@@ -1447,6 +1456,59 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             names.add(((IcebergColumnHandle) column).getName());
         }
         return names;
+    }
+
+    /**
+     * Ensure the schema-evolution dict carries the table's equality-delete KEY columns even when the query
+     * does not project them (#65502). Equality-delete keys are hidden scan dependencies: BE resolves a key
+     * that is missing from an OLD data file by looking its field id up in this dict to get the column type +
+     * iceberg initial default; without the entry BE materializes the key as NULL and mis-applies the delete.
+     * The keys are the table's declared identifier fields (what equality-delete writers key on) -> a few
+     * columns, DCHECK-safe superset (BE looks up only its own scan slots; the pin/top-N branches already ship
+     * the full schema). If the table declares NO identifier yet the scan carries equality deletes (whose
+     * equality_ids we cannot cheaply enumerate here), fall back to the full schema. Non-identifier /
+     * append-only / position-delete-only tables are unaffected (the pruned dict is returned verbatim).
+     */
+    private List<String> withEqualityDeleteKeyColumns(Table table, List<String> requested) {
+        if (requested.isEmpty()) {
+            // An empty requested list already makes buildCurrentSchema fall back to the FULL schema (every
+            // top-level column) — a superset that covers every equality-delete key — so there is nothing to
+            // force-include. Returning early also preserves that all-columns fallback (a non-empty identifier
+            // set would otherwise prune it to identifier-only) and skips the table.schema()/currentSnapshot()
+            // probe when it cannot change the result.
+            return requested;
+        }
+        Schema schema = table.schema();
+        Set<Integer> identifierFieldIds = schema.identifierFieldIds();
+        if (identifierFieldIds.isEmpty()) {
+            return hasEqualityDeletes(table) ? Collections.emptyList() : requested;
+        }
+        Set<String> present = new HashSet<>();
+        for (String name : requested) {
+            present.add(name.toLowerCase(Locale.ROOT));
+        }
+        List<String> result = new ArrayList<>(requested);
+        for (int fieldId : identifierFieldIds) {
+            Types.NestedField field = schema.findField(fieldId);
+            if (field == null) {
+                continue;
+            }
+            String lower = field.name().toLowerCase(Locale.ROOT);
+            if (present.add(lower)) {
+                result.add(lower);
+            }
+        }
+        return result;
+    }
+
+    private static boolean hasEqualityDeletes(Table table) {
+        Snapshot snapshot = table.currentSnapshot();
+        if (snapshot == null) {
+            return false;
+        }
+        String equalityDeletes = snapshot.summary().get(TOTAL_EQUALITY_DELETES);
+        // Absent (compaction/replace snapshots omit the counter) -> unknown -> assume present (safe superset).
+        return equalityDeletes == null || !equalityDeletes.equals("0");
     }
 
     /**
