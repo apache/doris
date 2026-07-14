@@ -17,10 +17,13 @@
  */
 // ============================================================================
 // DORIS-PATCH: this file is a verbatim copy of org.apache.hadoop.fs.FileSystem
-// from hadoop-common 3.4.2 (sources jar). hadoop-deps.jar is placed before
-// lib/hadoop-common-*.jar on the BE classpath (see bin/start_be.sh and
-// build.sh, which copy it to be/lib/hadoop_hdfs/), so this class shadows the
-// vanilla one for the whole BE JVM, including all JNI scanners.
+// from hadoop-common 3.4.2 (sources jar). This class shadows the vanilla one
+// in BOTH JVMs, always ahead of hadoop-common on the classpath:
+//  - BE: build.sh copies hadoop-deps.jar to be/lib/hadoop_hdfs/, which
+//    bin/start_be.sh adds before be/lib/hadoop_hdfs/lib/*.jar, covering the
+//    whole BE JVM including all JNI scanners.
+//  - FE: fe-core depends on this module (transitives excluded), so the jar
+//    lands in fe/lib/, and bin/start_fe.sh prepends it explicitly.
 //
 // The only functional change: Cache.Key carries one extra dimension read from
 // the configuration property "doris.fs.cache.key". FE injects a per-catalog /

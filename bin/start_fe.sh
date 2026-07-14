@@ -351,13 +351,25 @@ export JAVA_OPTS="${final_java_opt}"
 
 # add libs to CLASSPATH
 DORIS_FE_JAR=
+HADOOP_DEPS_JAR=
 for f in "${DORIS_HOME}/lib"/*.jar; do
     if [[ "${f}" == *"doris-fe.jar" ]]; then
         DORIS_FE_JAR="${f}"
         continue
     fi
+    if [[ "${f}" == *"/hadoop-deps"*".jar" ]]; then
+        HADOOP_DEPS_JAR="${f}"
+        continue
+    fi
     CLASSPATH="${f}:${CLASSPATH}"
 done
+
+# hadoop-deps carries Doris-patched hadoop classes (e.g. org.apache.hadoop.fs.FileSystem
+# with the credential-aware doris.fs.cache.key cache key); it must be loaded
+# before the vanilla hadoop jars in lib/
+if [[ -n "${HADOOP_DEPS_JAR}" ]]; then
+    CLASSPATH="${HADOOP_DEPS_JAR}:${CLASSPATH}"
+fi
 
 # add custom_libs to CLASSPATH
 # ATTN, custom_libs is deprecated, use plugins/java_extensions
