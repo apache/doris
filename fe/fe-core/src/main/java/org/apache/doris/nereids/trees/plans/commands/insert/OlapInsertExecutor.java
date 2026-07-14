@@ -217,7 +217,7 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
     }
 
     @Override
-    protected void beforeExec() {
+    protected void beforeExec() throws UserException {
         String queryId = DebugUtil.printId(ctx.queryId());
         LOG.info("start insert [{}] with query id {} and txn id {}", labelName, queryId, txnId);
     }

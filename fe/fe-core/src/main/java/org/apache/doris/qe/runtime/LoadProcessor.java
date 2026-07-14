@@ -47,6 +47,7 @@ public class LoadProcessor extends AbstractJobProcessor {
 
     public final LoadContext loadContext;
     public final long jobId;
+    private boolean jobProgressInitialized = false;
 
     // this latch is used to wait finish for load, for example, insert into statement
     // MarkedCountDownLatch:
@@ -65,8 +66,36 @@ public class LoadProcessor extends AbstractJobProcessor {
         // only we set is report success, then the backend would report the fragment status,
         // then we can not the fragment is finished, and we can return in the NereidsCoordinator::join
         coordinatorContext.queryOptions.setIsReportSuccess(true);
-        // the insert into statement isn't a job
         this.jobId = jobId;
+
+        // Try to initialize job progress. Following Broker Load pattern, the job may not be
+        // registered yet at construction time. If the job is not found, this call returns early
+        // and will be retried later via NereidsCoordinator.initLoadJobProgress() after the job
+        // is registered to LoadManager in InsertIntoTableCommand.
+        initJobProgress();
+
+        topFragmentTasks = Lists.newArrayList();
+
+        LOG.info("dispatch load job: {} to {}",
+                DebugUtil.printId(coordinatorContext.queryId), coordinatorContext.backends.get().keySet()
+        );
+    }
+
+    /**
+     * Initialize job progress tracking with LoadManager and ProgressManager.
+     * This method is idempotent and can be called multiple times:
+     * - First call (in constructor): may return early if job not yet registered
+     * - Second call (via NereidsCoordinator.initLoadJobProgress()): performs actual initialization
+     * The jobProgressInitialized flag ensures initialization happens exactly once.
+     */
+    public void initJobProgress() {
+        if (jobProgressInitialized || jobId == -1) {
+            return;
+        }
+        // Job must be registered in LoadManager before we can initialize progress
+        if (Env.getCurrentEnv().getLoadManager().getLoadJob(jobId) == null) {
+            return;
+        }
         TUniqueId queryId = coordinatorContext.queryId;
         Env.getCurrentEnv().getLoadManager().initJobProgress(
                 jobId, queryId, coordinatorContext.instanceIds.get(),
@@ -75,12 +104,7 @@ public class LoadProcessor extends AbstractJobProcessor {
         Env.getCurrentEnv().getProgressManager().addTotalScanNums(
                 String.valueOf(jobId), coordinatorContext.scanRangeNum.get()
         );
-
-        topFragmentTasks = Lists.newArrayList();
-
-        LOG.info("dispatch load job: {} to {}",
-                DebugUtil.printId(queryId), coordinatorContext.backends.get().keySet()
-        );
+        jobProgressInitialized = true;
     }
 
     @Override

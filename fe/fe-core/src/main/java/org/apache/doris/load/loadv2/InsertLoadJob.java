@@ -37,9 +37,9 @@ import org.apache.logging.log4j.Logger;
 import java.util.Set;
 
 /**
- * The class is performed to record the finished info of insert load job.
- * It is created after txn is visible which belongs to insert load job.
- * The state of insert load job is always finished, so it will never be scheduled by JobScheduler.
+ * The class is performed to record insert load job information.
+ * It can be registered while INSERT INTO SELECT is still running so SHOW LOAD can observe runtime progress,
+ * and later updated with the final transaction result.
  */
 public class InsertLoadJob extends LoadJob {
 
@@ -100,6 +100,26 @@ public class InsertLoadJob extends LoadJob {
         // Snapshot the current loadStatistic so it survives FE restarts.
         // loadStatistic itself is not annotated with @SerializedName and won't be persisted.
         this.jobDetailsJson = this.loadStatistic.toJson();
+    }
+
+    /**
+     * Initialize the job for runtime observation before adding to LoadManager.
+     * INSERT INTO SELECT is executed synchronously, so the registered runtime job
+     * represents the currently running load directly.
+     *
+     * @param tableId the target table id
+     * @param userInfo the user who initiated the insert
+     * @param transactionId the transaction id after beginTransaction()
+     * @throws MetaNotFoundException if table or database metadata not found
+     */
+    public void initRunning(long tableId, UserIdentity userInfo, long transactionId) throws MetaNotFoundException {
+        this.tableId = tableId;
+        this.userInfo = userInfo;
+        this.transactionId = transactionId;
+        this.authorizationInfo = gatherAuthInfo();
+        this.createTimestamp = System.currentTimeMillis();
+        this.loadStartTimestamp = this.createTimestamp;
+        this.state = JobState.LOADING;
     }
 
     public AuthorizationInfo gatherAuthInfo() throws MetaNotFoundException {

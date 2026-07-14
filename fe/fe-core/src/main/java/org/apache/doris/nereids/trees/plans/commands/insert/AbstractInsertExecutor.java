@@ -74,6 +74,7 @@ public abstract class AbstractInsertExecutor {
     protected final boolean emptyInsert;
     protected long txnId = INVALID_TXN_ID;
     protected List<TableStreamUpdateInfo> streamUpdateInfos;
+    protected final boolean needRegister;
 
     /**
      * Insert executor listener
@@ -110,9 +111,6 @@ public abstract class AbstractInsertExecutor {
         this.ctx = ctx;
         this.database = table.getDatabase();
         this.insertLoadJob = new InsertLoadJob(database.getId(), labelName, jobId);
-        if (needRegister) {
-            ctx.getEnv().getLoadManager().addLoadJob(insertLoadJob);
-        }
         this.coordinator = EnvFactory.getInstance().createCoordinator(
                 ctx, planner, ctx.getStatsErrorEstimator(), insertLoadJob.getId());
         this.labelName = labelName;
@@ -120,6 +118,18 @@ public abstract class AbstractInsertExecutor {
         this.insertCtx = insertCtx;
         this.emptyInsert = emptyInsert;
         this.jobId = jobId;
+        this.needRegister = needRegister;
+    }
+
+    public boolean shouldRegister() {
+        return needRegister && jobId != -1 && txnId != INVALID_TXN_ID;
+    }
+
+    /**
+     * The job should be initialized and registered by InsertIntoTableCommand after transaction begins.
+     */
+    public InsertLoadJob getInsertLoadJob() {
+        return insertLoadJob;
     }
 
     public void registerListener(InsertExecutorListener listener) {
