@@ -195,7 +195,7 @@ public class HdfsProperties extends HdfsCompatibleProperties {
 
     //fixme be should send use input params
     @Override
-    public Map<String, String> getBackendConfigProperties() {
+    protected Map<String, String> doGetBackendConfigProperties() {
         return backendConfigProperties;
     }
 

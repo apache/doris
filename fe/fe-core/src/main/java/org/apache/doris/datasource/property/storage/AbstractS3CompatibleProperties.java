@@ -129,7 +129,7 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
     }
 
     @Override
-    public Map<String, String> getBackendConfigProperties() {
+    protected Map<String, String> doGetBackendConfigProperties() {
         return generateBackendS3Configuration();
     }
 

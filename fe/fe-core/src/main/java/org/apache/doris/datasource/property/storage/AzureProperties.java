@@ -167,7 +167,7 @@ public class AzureProperties extends StorageProperties {
     }
 
     @Override
-    public Map<String, String> getBackendConfigProperties() {
+    protected Map<String, String> doGetBackendConfigProperties() {
         if (!azureAuthType.equalsIgnoreCase("OAuth2")) {
             Map<String, String> s3Props = new HashMap<>();
             s3Props.put("AWS_ENDPOINT", endpoint);
