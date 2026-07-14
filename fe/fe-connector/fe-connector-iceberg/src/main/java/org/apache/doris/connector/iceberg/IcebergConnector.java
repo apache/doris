@@ -39,6 +39,7 @@ import org.apache.doris.filesystem.properties.StorageProperties;
 import org.apache.doris.kerberos.HadoopAuthenticator;
 import org.apache.doris.kerberos.KerberosAuthSpec;
 import org.apache.doris.kerberos.KerberosAuthenticationConfig;
+import org.apache.doris.thrift.TStorageBackendType;
 
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
@@ -141,6 +142,9 @@ public class IcebergConnector implements Connector {
     // Polaris REST catalog exposes its object-store base location under this key when the
     // "warehouse" property is a catalog name rather than an s3:// location.
     private static final String REST_DEFAULT_BASE_LOCATION = "default-base-location";
+
+    /** The key BE looks up (case-sensitively) to learn which location to probe. */
+    private static final String BE_TEST_LOCATION = "test_location";
 
     private final Map<String, String> properties;
     private final ConnectorContext context;
@@ -309,7 +313,6 @@ public class IcebergConnector implements Connector {
             // exists() issues a HEAD: a 404 (missing object) returns false and is fine, but
             // endpoint/credential failures (e.g. 403) throw — which is what we want to catch.
             io.newInputFile(location).exists();
-            return null;
         } catch (Exception e) {
             LOG.warn("Iceberg storage connectivity test failed for catalog '{}'",
                     context.getCatalogName(), e);
@@ -323,6 +326,34 @@ public class IcebergConnector implements Connector {
                     // best-effort cleanup
                 }
             }
+        }
+
+        // FE can reach the warehouse — now make sure BE can too. FE and BE routinely sit on different
+        // networks, so a warehouse that only FE reaches would pass CREATE CATALOG and then fail every
+        // scan. The engine owns the round-trip (it needs the backend registry); we only hand it the
+        // BE-facing credentials and the location to try.
+        return probeStorageFromBackend(location);
+    }
+
+    /**
+     * Asks a backend to reach {@code location} with the catalog's BE-facing credentials. Returns a failure
+     * result if the backend rejects it, or {@code null} when it passes (or when there is no backend to ask,
+     * or the catalog has no static storage credentials to send — e.g. a REST catalog with vended ones).
+     */
+    ConnectorTestResult probeStorageFromBackend(String location) {
+        Map<String, String> backendProps = new HashMap<>(context.getBackendStorageProperties());
+        if (backendProps.isEmpty()) {
+            return null;
+        }
+        // BE reads the bucket out of this key and dereferences it unconditionally — never omit it.
+        backendProps.put(BE_TEST_LOCATION, location);
+        try {
+            context.testBackendStorageConnectivity(TStorageBackendType.S3.getValue(), backendProps);
+            return null;
+        } catch (Exception e) {
+            LOG.warn("Iceberg storage connectivity test failed on the compute node for catalog '{}'",
+                    context.getCatalogName(), e);
+            return ConnectorTestResult.failure(storageBackendFailureMessage(e));
         }
     }
 
@@ -374,6 +405,15 @@ public class IcebergConnector implements Connector {
 
     static String storageFailureMessage(Throwable cause) {
         return "Storage connectivity test failed: " + rootCauseMessage(cause);
+    }
+
+    /**
+     * The compute-node variant. The {@code (compute node)} tag is what tells an operator the warehouse is
+     * fine from FE and the problem is BE-side (a different network or credential set) — the legacy fe-core
+     * coordinator drew the same distinction.
+     */
+    static String storageBackendFailureMessage(Throwable cause) {
+        return "Storage connectivity test failed (compute node): " + rootCauseMessage(cause);
     }
 
     /** Normalizes and returns {@code value} if it is an s3/s3a/s3n URI, otherwise {@code null}. */

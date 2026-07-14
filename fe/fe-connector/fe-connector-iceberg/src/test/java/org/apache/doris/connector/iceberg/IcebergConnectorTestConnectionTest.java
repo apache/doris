@@ -122,6 +122,87 @@ public class IcebergConnectorTestConnectionTest {
                 .startsWith("Iceberg connectivity test failed"));
     }
 
+    /**
+     * The BE probe must always carry {@code test_location}: BE looks that key up and dereferences the
+     * iterator without checking it exists, so a probe that omits it is worse than no probe at all. It must
+     * also carry the BE-facing credentials from the engine, not the raw catalog aliases.
+     */
+    @Test
+    public void backendProbeCarriesTestLocationAndBackendCredentials() throws Exception {
+        Map<String, String> captured = new HashMap<>();
+        ConnectorContext ctx = new ConnectorContext() {
+            @Override
+            public String getCatalogName() {
+                return "test_iceberg";
+            }
+
+            @Override
+            public long getCatalogId() {
+                return 1L;
+            }
+
+            @Override
+            public Map<String, String> getBackendStorageProperties() {
+                Map<String, String> beProps = new HashMap<>();
+                beProps.put("AWS_ACCESS_KEY", "ak");
+                return beProps;
+            }
+
+            @Override
+            public void testBackendStorageConnectivity(int type, Map<String, String> props) {
+                captured.putAll(props);
+            }
+        };
+        try (IcebergConnector connector = new IcebergConnector(new HashMap<>(), ctx)) {
+            Assertions.assertNull(connector.probeStorageFromBackend("s3://bucket/warehouse"));
+        }
+        Assertions.assertEquals("s3://bucket/warehouse", captured.get("test_location"));
+        Assertions.assertEquals("ak", captured.get("AWS_ACCESS_KEY"));
+    }
+
+    /** A backend that rejects the location must fail the DDL, tagged so the operator knows it is BE-side. */
+    @Test
+    public void backendProbeFailureIsTaggedAsComputeNode() throws Exception {
+        ConnectorContext ctx = new ConnectorContext() {
+            @Override
+            public String getCatalogName() {
+                return "test_iceberg";
+            }
+
+            @Override
+            public long getCatalogId() {
+                return 1L;
+            }
+
+            @Override
+            public Map<String, String> getBackendStorageProperties() {
+                Map<String, String> beProps = new HashMap<>();
+                beProps.put("AWS_ACCESS_KEY", "ak");
+                return beProps;
+            }
+
+            @Override
+            public void testBackendStorageConnectivity(int type, Map<String, String> props) throws Exception {
+                throw new Exception("Access Denied");
+            }
+        };
+        try (IcebergConnector connector = new IcebergConnector(new HashMap<>(), ctx)) {
+            ConnectorTestResult result = connector.probeStorageFromBackend("s3://bucket/warehouse");
+            Assertions.assertNotNull(result);
+            Assertions.assertFalse(result.isSuccess());
+            Assertions.assertTrue(result.getMessage().contains("compute node"), result.getMessage());
+            Assertions.assertTrue(result.getMessage().contains("connectivity test failed"), result.getMessage());
+        }
+    }
+
+    /** No static credentials to hand BE (e.g. a REST catalog with vended ones) means no probe, not a failure. */
+    @Test
+    public void backendProbeSkippedWhenNoBackendCredentials() throws Exception {
+        try (IcebergConnector connector = new IcebergConnector(new HashMap<>(), CTX)) {
+            Assertions.assertNull(connector.probeStorageFromBackend("s3://bucket/warehouse"));
+        }
+    }
+
     @Test
     public void testConnectionSucceedsWhenNothingToProbe() {
         // Filesystem-backed (hadoop) catalog with no S3 credentials: the meta probe is skipped (see

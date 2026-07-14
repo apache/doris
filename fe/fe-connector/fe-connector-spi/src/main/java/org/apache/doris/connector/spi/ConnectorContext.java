@@ -311,6 +311,30 @@ public interface ConnectorContext {
     }
 
     /**
+     * Asks one alive backend to reach the given storage location, so a {@code test_connection=true}
+     * CREATE CATALOG fails on a warehouse that FE can read but BE cannot (a different network, a
+     * different credential set). The FE-side probe a connector runs itself cannot catch that.
+     *
+     * <p>The engine owns the round-trip (picking a live backend, the RPC, the status check) because it
+     * needs the backend registry and the client pool, which no plugin can see. It does not interpret the
+     * payload: {@code storageBackendTypeValue} is the connector's own {@code TStorageBackendType} enum
+     * value and {@code backendProperties} the BE-facing property map, sourced from
+     * {@link #getBackendStorageProperties()} / {@link #getStorageProperties()}. Callers targeting S3 must
+     * include a {@code test_location} entry — BE requires it.
+     *
+     * <p>The default does nothing (no backend fleet, e.g. in connector unit tests), matching the legacy
+     * behavior of skipping the probe when no backend is alive.
+     *
+     * @param storageBackendTypeValue the {@code TStorageBackendType} value BE should probe with
+     * @param backendProperties       BE-facing storage properties (credentials, endpoint, test_location)
+     * @throws Exception if the backend reports the storage unreachable
+     */
+    default void testBackendStorageConnectivity(int storageBackendTypeValue,
+            Map<String, String> backendProperties) throws Exception {
+        // Default: no backend fleet to ask -> skip.
+    }
+
+    /**
      * Returns the catalog's static storage configuration as a list of typed, already-bound
      * {@link StorageProperties} (the fe-filesystem API contract). fe-core binds the catalog's raw
      * properties against the registered filesystem providers and hands the result down here, so a

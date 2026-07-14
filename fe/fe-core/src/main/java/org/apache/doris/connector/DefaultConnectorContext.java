@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.cloud.security.SecurityChecker;
 import org.apache.doris.common.CatalogConfigFileUtils;
+import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.EnvUtils;
 import org.apache.doris.common.Version;
@@ -42,6 +43,13 @@ import org.apache.doris.filesystem.Location;
 import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.fs.SpiSwitchingFileSystem;
 import org.apache.doris.kerberos.ExecutionAuthenticator;
+import org.apache.doris.system.Backend;
+import org.apache.doris.thrift.BackendService;
+import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TStatusCode;
+import org.apache.doris.thrift.TStorageBackendType;
+import org.apache.doris.thrift.TTestStorageConnectivityRequest;
+import org.apache.doris.thrift.TTestStorageConnectivityResponse;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Strings;
@@ -260,6 +268,63 @@ public class DefaultConnectorContext implements ConnectorContext, Closeable {
         // does not throw; an empty map (non-plugin ctor / local-FS warehouse) yields an empty result
         // (no overlay) — correct parity, unlike normalizeStorageUri which must fail-loud on a bad path.
         return CredentialUtils.getBackendPropertiesFromStorageMap(storagePropertiesSupplier.get());
+    }
+
+    /**
+     * Engine side of the BE→storage probe: pick a live backend and ask it to reach the location the
+     * connector resolved. This is the RPC the legacy fe-core {@code StorageConnectivityTester} owned; it
+     * stays engine-side because it needs the backend registry and the client pool. It is payload-agnostic —
+     * the storage type and the property map come from the connector, so no filesystem-specific knowledge
+     * lives here.
+     *
+     * <p>No alive backend means no probe (not a failure), matching the legacy behavior: a catalog must be
+     * creatable on a cluster whose backends are still starting up.
+     */
+    @Override
+    public void testBackendStorageConnectivity(int storageBackendTypeValue,
+            Map<String, String> backendProperties) throws Exception {
+        TStorageBackendType storageType = TStorageBackendType.findByValue(storageBackendTypeValue);
+        if (storageType == null) {
+            throw new IllegalArgumentException(
+                    "Unknown storage backend type value: " + storageBackendTypeValue);
+        }
+        List<Long> aliveBeIds = Env.getCurrentSystemInfo().getAllBackendIds(true);
+        if (aliveBeIds.isEmpty()) {
+            LOG.info("Skipping BE storage connectivity test: no alive backend");
+            return;
+        }
+        Collections.shuffle(aliveBeIds);
+        Backend backend = Env.getCurrentSystemInfo().getBackend(aliveBeIds.get(0));
+        if (backend == null) {
+            LOG.info("Skipping BE storage connectivity test: backend vanished between listing and lookup");
+            return;
+        }
+
+        TTestStorageConnectivityRequest request = new TTestStorageConnectivityRequest();
+        request.setType(storageType);
+        request.setProperties(backendProperties);
+
+        TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBePort());
+        BackendService.Client client = null;
+        boolean ok = false;
+        try {
+            client = ClientPool.backendPool.borrowObject(address);
+            TTestStorageConnectivityResponse response = client.testStorageConnectivity(request);
+            if (response.status.getStatusCode() != TStatusCode.OK) {
+                String errMsg = response.status.isSetErrorMsgs() && !response.status.getErrorMsgs().isEmpty()
+                        ? response.status.getErrorMsgs().get(0) : "Unknown error";
+                throw new Exception(errMsg);
+            }
+            ok = true;
+        } finally {
+            if (client != null) {
+                if (ok) {
+                    ClientPool.backendPool.returnObject(address, client);
+                } else {
+                    ClientPool.backendPool.invalidateObject(address, client);
+                }
+            }
+        }
     }
 
     @Override

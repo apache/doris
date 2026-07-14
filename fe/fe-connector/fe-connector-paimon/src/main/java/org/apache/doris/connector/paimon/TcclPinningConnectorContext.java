@@ -172,6 +172,13 @@ final class TcclPinningConnectorContext implements ConnectorContext {
     }
 
     @Override
+    public void testBackendStorageConnectivity(int storageBackendTypeValue,
+            Map<String, String> backendProperties) throws Exception {
+        // No TCCL pin: this runs entirely engine-side (backend registry + thrift), never in plugin code.
+        delegate.testBackendStorageConnectivity(storageBackendTypeValue, backendProperties);
+    }
+
+    @Override
     public void cleanupEmptyManagedLocation(String location, List<String> tableChildDirs) {
         delegate.cleanupEmptyManagedLocation(location, tableChildDirs);
     }
