@@ -368,17 +368,15 @@ public class PaimonConnector implements Connector {
                 // that a real HMS-backed metastore=hive paimon catalog created through the plugin
                 // throws neither NoClassDefFoundError (.../IMetaStoreClient) nor a Configuration/
                 // HiveConf LinkageError/ClassCastException.
-                // FIX-HMS-CONFRES: resolve an external hive-site.xml (hive.conf.resources) FE-side
-                // (the connector cannot import fe-core/fe-common's CatalogConfigFileUtils), then seed
-                // its keys as the HiveConf BASE so connection-critical settings present only in that
-                // file reach the live metastore client (legacy HMSBaseProperties parity).
-                Map<String, String> hiveConfFiles = context.loadHiveConfResources(
-                        PaimonCatalogFactory.firstNonBlank(properties, "hive.conf.resources"));
+                // FIX-HMS-CONFRES: the external hive-site.xml (hive.conf.resources) is resolved by the
+                // connector itself (PaimonCatalogFactory.addConfResources) and seeded as the HiveConf BASE,
+                // so connection-critical settings present only in that file reach the live metastore client.
                 // Shared parser produces the neutral HiveConf overrides (P2-T03); the connector seeds the
                 // external hive-site.xml as the BASE first, then overlays the overrides (F2 ordering).
                 HmsMetaStoreProperties hms = (HmsMetaStoreProperties)
                         MetaStoreProviders.bind(properties, storageHadoopConfig);
-                HiveConf hc = PaimonCatalogFactory.assembleHiveConf(hiveConfFiles,
+                HiveConf hc = PaimonCatalogFactory.assembleHiveConf(
+                        PaimonCatalogFactory.firstNonBlank(properties, "hive.conf.resources"),
                         hms.toHiveConfOverrides(context.getEnvironment()
                                 .getOrDefault("hive_metastore_client_timeout_second", "10")));
                 return createCatalogFromContext(CatalogContext.create(options, hc), flavor,

@@ -19,12 +19,14 @@ package org.apache.doris.connector.paimon;
 
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.paimon.catalog.FileSystemCatalogFactory;
 import org.apache.paimon.jdbc.JdbcCatalogFactory;
 import org.apache.paimon.options.CatalogOptions;
 import org.apache.paimon.options.Options;
 
+import java.io.File;
 import java.util.Locale;
 import java.util.Map;
 import java.util.function.BiConsumer;
@@ -290,12 +292,12 @@ public final class PaimonCatalogFactory {
     }
 
     /**
-     * Assembles a {@link HiveConf} for the {@code hms} flavor from a neutral key map.
-     * Seeds the optional {@code base} (e.g. an external {@code hive.conf.resources} hive-site.xml,
-     * resolved FE-side via {@code ConnectorContext.loadHiveConfResources}) FIRST, then applies the
-     * shared-parser {@code overrides} on top (last-write-wins), so the connection/user keys correctly
-     * OVERRIDE the file — matching the legacy {@code HMSBaseProperties.checkAndInit} precedence (file
-     * base, then overrides).
+     * Assembles a {@link HiveConf} for the {@code hms} flavor.
+     * Seeds the optional external {@code hive.conf.resources} hive-site.xml (resolved by this connector via
+     * {@link #addConfResources}) FIRST, then applies the shared-parser {@code overrides} on top, so the
+     * connection/user keys correctly OVERRIDE the file — matching the legacy precedence (file base, then
+     * overrides). Overrides win because {@code set()} values live in the {@link Configuration} overlay,
+     * which is applied after every {@code addResource}.
      *
      * <p>The {@code overrides} are produced by the shared metastore parsers
      * ({@code HmsMetaStoreProperties.toHiveConfOverrides(String)} — uri + verbatim {@code hive.*} + auth keys
@@ -309,7 +311,7 @@ public final class PaimonCatalogFactory {
      * @param base      optional base keys (e.g. a resolved hive-site.xml); may be {@code null}/empty
      * @param overrides the connection-fact overrides; never {@code null}
      */
-    public static HiveConf assembleHiveConf(Map<String, String> base, Map<String, String> overrides) {
+    public static HiveConf assembleHiveConf(String confResources, Map<String, String> overrides) {
         HiveConf hiveConf = new HiveConf();
         // Pin the conf classloader to the plugin loader, mirroring buildHadoopConfiguration (above).
         // HiveMetaStoreClient.loadFilterHooks resolves metastore.filter.hook via Configuration.getClass,
@@ -320,11 +322,54 @@ public final class PaimonCatalogFactory {
         // "class DefaultMetaStoreFilterHookImpl not MetaStoreFilterHook". Pinning keeps the whole
         // hive-metastore class graph in one loader.
         hiveConf.setClassLoader(PaimonCatalogFactory.class.getClassLoader());
-        if (base != null) {
-            base.forEach(hiveConf::set);
-        }
+        addConfResources(hiveConf, confResources);
         overrides.forEach(hiveConf::set);
         return hiveConf;
+    }
+
+    /**
+     * Resolves the FE's {@code hadoop_config_dir}. Mirrors {@code fe-filesystem-hdfs}'s
+     * {@code HdfsConfigFileLoader.resolveHadoopConfigDir}: a connector plugin cannot import fe-core's
+     * {@code Config}, so the engine bridges the operator-configured value in via the
+     * {@code doris.hadoop.config.dir} system property ({@code FileSystemFactory.bindAllStorageProperties}
+     * sets it). The fallback matches {@code Config.hadoop_config_dir}'s own default.
+     */
+    private static String resolveHadoopConfigDir() {
+        String fromEngine = System.getProperty("doris.hadoop.config.dir");
+        if (StringUtils.isNotBlank(fromEngine)) {
+            return fromEngine;
+        }
+        String home = System.getenv("DORIS_HOME");
+        if (StringUtils.isBlank(home)) {
+            home = System.getProperty("doris.home", "");
+        }
+        return home + "/plugins/hadoop_conf/";
+    }
+
+    /**
+     * Adds the comma-separated {@code hive.conf.resources} files (each resolved under
+     * {@link #resolveHadoopConfigDir()}) onto {@code hiveConf}. Blank is a no-op; a missing file fails loud,
+     * byte-identically to the legacy fe-common {@code CatalogConfigFileUtils} message.
+     *
+     * <p>The connector resolves and parses these itself rather than receiving pre-flattened keys from the
+     * engine: the previous engine-side hook handed over its own {@code new HiveConf()} in full, force-setting
+     * ~881 hive defaults computed from the ENGINE's hive version (3.1.1) on top of this plugin's own
+     * hive 2.3.9 HiveConf — an unintended side effect of iterating a HiveConf, not a contract.
+     */
+    static void addConfResources(HiveConf hiveConf, String confResources) {
+        if (StringUtils.isBlank(confResources)) {
+            return;
+        }
+        String baseDir = resolveHadoopConfigDir();
+        for (String resource : confResources.split(",")) {
+            String resourcePath = baseDir + resource.trim();
+            File file = new File(resourcePath);
+            if (file.exists() && file.isFile()) {
+                hiveConf.addResource(new Path(file.toURI()));
+            } else {
+                throw new IllegalArgumentException("Config resource file does not exist: " + resourcePath);
+            }
+        }
     }
 
 }

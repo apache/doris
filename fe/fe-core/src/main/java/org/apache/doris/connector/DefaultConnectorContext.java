@@ -20,7 +20,6 @@ package org.apache.doris.connector;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.cloud.security.SecurityChecker;
-import org.apache.doris.common.CatalogConfigFileUtils;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.EnvUtils;
@@ -53,7 +52,6 @@ import org.apache.doris.thrift.TTestStorageConnectivityResponse;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Strings;
-import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -195,22 +193,6 @@ public class DefaultConnectorContext implements ConnectorContext, Closeable {
     @Override
     public <T> T executeAuthenticated(Callable<T> task) throws Exception {
         return authSupplier.get().execute(task);
-    }
-
-    @Override
-    public Map<String, String> loadHiveConfResources(String resources) {
-        if (Strings.isNullOrEmpty(resources)) {
-            return Collections.emptyMap();
-        }
-        // Reuse the EXACT legacy loader (same hadoop_config_dir base, comma-split, fail-if-missing)
-        // so the file-resolution semantics are byte-identical to legacy HMSBaseProperties; only the
-        // resolved key/values cross into the connector (no HiveConf/Configuration identity hazard).
-        HiveConf hc = CatalogConfigFileUtils.loadHiveConfFromHiveConfDir(resources);
-        Map<String, String> out = new HashMap<>();
-        for (Map.Entry<String, String> e : hc) {   // HiveConf IS-A Iterable<Map.Entry<String,String>>
-            out.put(e.getKey(), e.getValue());
-        }
-        return out;
     }
 
     @Override

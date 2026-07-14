@@ -25,6 +25,7 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import software.amazon.awssdk.auth.credentials.AnonymousCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.EnvironmentVariableCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.WebIdentityTokenFileCredentialsProvider;
@@ -911,18 +912,53 @@ public class IcebergCatalogFactoryTest {
     }
 
     @Test
-    public void assembleHiveConfLayersOverridesOverBase() {
-        // WHY: the external hive-site.xml base is seeded first, then the metastore-spi overrides win
-        // (last-write-wins), so a connection key in the overrides correctly overrides the file. MUTATION:
-        // reversing the order -> the base value would win -> red.
-        Map<String, String> base = new HashMap<>();
-        base.put("hive.metastore.uris", "thrift://from-file:9083");
-        base.put("base.only", "kept");
-        Map<String, String> overrides = new HashMap<>();
-        overrides.put("hive.metastore.uris", "thrift://override:9083");
-        HiveConf conf = IcebergCatalogFactory.assembleHiveConf(base, overrides);
-        Assertions.assertEquals("thrift://override:9083", conf.get("hive.metastore.uris"));
-        Assertions.assertEquals("kept", conf.get("base.only"));
+    public void assembleHiveConfLayersOverridesOverBase(@TempDir java.nio.file.Path tmp) throws Exception {
+        // WHY: the external hive-site.xml named by hive.conf.resources is seeded first, then the
+        // metastore-spi overrides win, so a connection key in the overrides correctly overrides the file.
+        // MUTATION: reversing the order -> the base value would win -> red.
+        // The connector resolves the file itself, so this drives the REAL file->HiveConf path: it writes a
+        // real XML and reads the values back off the HiveConf.
+        java.nio.file.Files.write(tmp.resolve("hive-site.xml"),
+                ("<?xml version=\"1.0\"?><configuration>"
+                        + "<property><name>hive.metastore.uris</name><value>thrift://from-file:9083</value></property>"
+                        + "<property><name>base.only</name><value>kept</value></property>"
+                        + "</configuration>").getBytes(java.nio.charset.StandardCharsets.UTF_8));
+
+        String prev = System.getProperty("doris.hadoop.config.dir");
+        System.setProperty("doris.hadoop.config.dir", tmp.toString() + java.io.File.separator);
+        try {
+            Map<String, String> overrides = new HashMap<>();
+            overrides.put("hive.metastore.uris", "thrift://override:9083");
+            HiveConf conf = IcebergCatalogFactory.assembleHiveConf("hive-site.xml", overrides);
+            Assertions.assertEquals("thrift://override:9083", conf.get("hive.metastore.uris"));
+            Assertions.assertEquals("kept", conf.get("base.only"));
+        } finally {
+            if (prev == null) {
+                System.clearProperty("doris.hadoop.config.dir");
+            } else {
+                System.setProperty("doris.hadoop.config.dir", prev);
+            }
+        }
+    }
+
+    @Test
+    public void assembleHiveConfFailsLoudOnMissingFile(@TempDir java.nio.file.Path tmp) {
+        // WHY: the operator named a file carrying connection-critical settings; a missing file must fail
+        // loud, never degrade to "connect with defaults". MUTATION: swallowing the miss -> red.
+        String prev = System.getProperty("doris.hadoop.config.dir");
+        System.setProperty("doris.hadoop.config.dir", tmp.toString() + java.io.File.separator);
+        try {
+            IllegalArgumentException e = Assertions.assertThrows(IllegalArgumentException.class,
+                    () -> IcebergCatalogFactory.assembleHiveConf("absent.xml", Collections.emptyMap()));
+            Assertions.assertTrue(e.getMessage().contains("Config resource file does not exist"),
+                    "message must name the unresolvable file; was: " + e.getMessage());
+        } finally {
+            if (prev == null) {
+                System.clearProperty("doris.hadoop.config.dir");
+            } else {
+                System.setProperty("doris.hadoop.config.dir", prev);
+            }
+        }
     }
 
 }

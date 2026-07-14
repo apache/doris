@@ -694,12 +694,11 @@ public class IcebergConnector implements Connector {
                 // Reuse the shared metastore-spi parser (Q2=B bindForType): iceberg passes its own flavor token
                 // so the metastore-spi never learns iceberg.catalog.type. Only toHiveConfOverrides is used
                 // (iceberg HMS does NOT call paimon's validate(); it does not require a warehouse). The external
-                // hive.conf.resources hive-site.xml is resolved FE-side and seeded as the HiveConf base.
-                Map<String, String> hiveConfFiles = context.loadHiveConfResources(
-                        IcebergCatalogFactory.firstNonBlank(properties, "hive.conf.resources"));
+                // hive.conf.resources hive-site.xml is resolved by the connector itself (addConfResources).
                 HmsMetaStoreProperties hms = (HmsMetaStoreProperties) MetaStoreProviders.bindForType(
                         IcebergConnectorProperties.TYPE_HMS, properties, storageHadoopConfig);
-                conf = IcebergCatalogFactory.assembleHiveConf(hiveConfFiles,
+                conf = IcebergCatalogFactory.assembleHiveConf(
+                        IcebergCatalogFactory.firstNonBlank(properties, "hive.conf.resources"),
                         hms.toHiveConfOverrides(context.getEnvironment()
                                 .getOrDefault("hive_metastore_client_timeout_second", "10")));
                 break;

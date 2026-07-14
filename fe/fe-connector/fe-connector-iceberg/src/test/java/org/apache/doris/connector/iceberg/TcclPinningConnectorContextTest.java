@@ -118,9 +118,6 @@ public class TcclPinningConnectorContextTest {
         TcclPinningConnectorContext ctx = new TcclPinningConnectorContext(delegate, isolatedLoader(), () -> null);
 
         Assertions.assertEquals("test", ctx.getCatalogName());
-        ctx.loadHiveConfResources("a,b");
-        Assertions.assertTrue(delegate.hiveConfResourcesCalled, "loadHiveConfResources must reach the delegate");
-        Assertions.assertEquals("a,b", delegate.lastHiveConfResourcesArg);
 
         // createSiblingConnector is a non-auth engine-service method: the decorator must forward it to the raw
         // delegate (else a wrapped gateway context would return the SPI default null, masking a real sibling as

@@ -24,6 +24,7 @@ import org.apache.doris.filesystem.properties.StorageProperties;
 
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.CatalogUtil;
@@ -33,6 +34,7 @@ import org.apache.iceberg.aws.AwsProperties;
 import org.apache.iceberg.aws.s3.S3FileIOProperties;
 import org.apache.iceberg.rest.auth.OAuth2Properties;
 
+import java.io.File;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -644,18 +646,61 @@ public final class IcebergCatalogFactory {
 
     /**
      * Assembles the {@link HiveConf} for the hms flavor, mirroring {@code PaimonCatalogFactory.assembleHiveConf}:
-     * seed the optional external hive-site.xml {@code base} first, then layer the metastore-spi
-     * {@code toHiveConfOverrides} on top (last-write-wins). The conf classloader is pinned to the plugin loader
-     * (HiveMetaStoreClient filter-hook resolution parity). PURE (a function of the two maps).
+     * seed the optional external hive-site.xml named by {@code hive.conf.resources} first, then layer the
+     * metastore-spi {@code toHiveConfOverrides} on top. Overrides still win: {@code set()} values live in the
+     * {@link org.apache.hadoop.conf.Configuration} overlay, which is applied after every {@code addResource}.
+     * The conf classloader is pinned to the plugin loader (HiveMetaStoreClient filter-hook resolution parity).
      */
-    public static HiveConf assembleHiveConf(Map<String, String> base, Map<String, String> overrides) {
+    public static HiveConf assembleHiveConf(String confResources, Map<String, String> overrides) {
         HiveConf hiveConf = new HiveConf();
         hiveConf.setClassLoader(IcebergCatalogFactory.class.getClassLoader());
-        if (base != null) {
-            base.forEach(hiveConf::set);
-        }
+        addConfResources(hiveConf, confResources);
         overrides.forEach(hiveConf::set);
         return hiveConf;
+    }
+
+    /**
+     * Resolves the FE's {@code hadoop_config_dir}. Mirrors {@code fe-filesystem-hdfs}'s
+     * {@code HdfsConfigFileLoader.resolveHadoopConfigDir}: a connector plugin cannot import fe-core's
+     * {@code Config}, so the engine bridges the operator-configured value in via the
+     * {@code doris.hadoop.config.dir} system property ({@code FileSystemFactory.bindAllStorageProperties}
+     * sets it). The fallback matches {@code Config.hadoop_config_dir}'s own default.
+     */
+    private static String resolveHadoopConfigDir() {
+        String fromEngine = System.getProperty("doris.hadoop.config.dir");
+        if (StringUtils.isNotBlank(fromEngine)) {
+            return fromEngine;
+        }
+        String home = System.getenv("DORIS_HOME");
+        if (StringUtils.isBlank(home)) {
+            home = System.getProperty("doris.home", "");
+        }
+        return home + "/plugins/hadoop_conf/";
+    }
+
+    /**
+     * Adds the comma-separated {@code hive.conf.resources} files (each resolved under
+     * {@link #resolveHadoopConfigDir()}) onto {@code hiveConf}. Blank is a no-op; a missing file fails loud,
+     * byte-identically to the legacy fe-common {@code CatalogConfigFileUtils} message.
+     *
+     * <p>The connector resolves and parses these itself rather than receiving pre-flattened keys from the
+     * engine: the previous engine-side hook handed over its own {@code new HiveConf()} in full, force-setting
+     * ~881 hive defaults computed from the ENGINE's hive version on top of this plugin's own HiveConf.
+     */
+    static void addConfResources(HiveConf hiveConf, String confResources) {
+        if (StringUtils.isBlank(confResources)) {
+            return;
+        }
+        String baseDir = resolveHadoopConfigDir();
+        for (String resource : confResources.split(",")) {
+            String resourcePath = baseDir + resource.trim();
+            File file = new File(resourcePath);
+            if (file.exists() && file.isFile()) {
+                hiveConf.addResource(new Path(file.toURI()));
+            } else {
+                throw new IllegalArgumentException("Config resource file does not exist: " + resourcePath);
+            }
+        }
     }
 
     // ---------------------------------------------------------------------

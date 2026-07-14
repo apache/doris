@@ -132,11 +132,6 @@ final class TcclPinningConnectorContext implements ConnectorContext {
     }
 
     @Override
-    public Map<String, String> loadHiveConfResources(String resources) {
-        return delegate.loadHiveConfResources(resources);
-    }
-
-    @Override
     public Map<String, String> vendStorageCredentials(Map<String, String> rawVendedCredentials) {
         return delegate.vendStorageCredentials(rawVendedCredentials);
     }

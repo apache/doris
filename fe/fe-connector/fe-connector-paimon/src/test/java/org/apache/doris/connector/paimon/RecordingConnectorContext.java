@@ -41,14 +41,6 @@ final class RecordingConnectorContext implements ConnectorContext {
     int authCount;
     boolean failAuth;
 
-    // ---- FIX-HMS-CONFRES: loadHiveConfResources hook ----
-    /** Map the fake returns from {@link #loadHiveConfResources} (the "resolved" hive-site.xml keys). */
-    Map<String, String> hiveConfResources = Collections.emptyMap();
-    /** Whether the connector invoked {@link #loadHiveConfResources}. */
-    boolean hiveConfResourcesCalled;
-    /** The {@code resources} string the connector passed to {@link #loadHiveConfResources}. */
-    String lastHiveConfResourcesArg;
-
     // ---- sibling-connector seam hook (proves the decorator delegates createSiblingConnector) ----
     /** The type the wrapper forwarded to {@link #createSiblingConnector}. */
     String lastSiblingType;
@@ -100,13 +92,6 @@ final class RecordingConnectorContext implements ConnectorContext {
             return "s3://" + rawUri.substring("oss://".length());
         }
         return rawUri;
-    }
-
-    @Override
-    public Map<String, String> loadHiveConfResources(String resources) {
-        hiveConfResourcesCalled = true;
-        lastHiveConfResourcesArg = resources;
-        return hiveConfResources;
     }
 
     @Override
