@@ -117,9 +117,10 @@ public:
                     const io::IOContext* io_ctx = nullptr);
 
     Status new_iterator(std::unique_ptr<segment_v2::IndexedColumnIterator>* index_iterator,
-                        OlapReaderStatistics* stats) const {
+                        OlapReaderStatistics* stats, const io::IOContext* io_ctx = nullptr) const {
         DCHECK(_index_parsed);
-        index_iterator->reset(new segment_v2::IndexedColumnIterator(_index_reader.get(), stats));
+        index_iterator->reset(
+                new segment_v2::IndexedColumnIterator(_index_reader.get(), stats, io_ctx));
         return Status::OK();
     }
 

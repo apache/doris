@@ -134,7 +134,7 @@ Status PrimaryKeyIndexReader::parse_bf(io::FileReaderSPtr file_reader,
     RETURN_IF_ERROR(bf_index_reader.load(!config::disable_pk_storage_page_cache, false,
                                          pk_index_load_stats, &io_ctx));
     std::unique_ptr<segment_v2::BloomFilterIndexIterator> bf_iter;
-    RETURN_IF_ERROR(bf_index_reader.new_iterator(&bf_iter, pk_index_load_stats));
+    RETURN_IF_ERROR(bf_index_reader.new_iterator(&bf_iter, pk_index_load_stats, &io_ctx));
     RETURN_IF_ERROR(bf_iter->read_bloom_filter(0, &_bf));
     segment_v2::g_pk_total_bloom_filter_num << 1;
     segment_v2::g_pk_total_bloom_filter_total_bytes << _bf->size();
