@@ -102,8 +102,8 @@ public class RoutineLoadJobTest {
         TransactionState cleanCommittedTxnState = Mockito.mock(TransactionState.class);
         Mockito.doReturn(attachmentWithoutError).when(cleanCommittedTxnState).getTxnCommitAttachment();
         committedJob.replayOnCommitted(cleanCommittedTxnState);
-        Assert.assertTrue(committedJob.getErrorLogUrls().isEmpty());
-        Assert.assertEquals("", committedJob.getFirstErrorMsg());
+        Assert.assertEquals("http://127.0.0.1/error_log", committedJob.getErrorLogUrls().peek());
+        Assert.assertEquals("invalid source row", committedJob.getFirstErrorMsg());
 
         TransactionState abortedTxnState = Mockito.mock(TransactionState.class);
         Mockito.doReturn(attachment).when(abortedTxnState).getTxnCommitAttachment();
@@ -345,11 +345,17 @@ public class RoutineLoadJobTest {
         RoutineLoadStatistic jobStatistic = Deencapsulation.getField(routineLoadJob, "jobStatistic");
         Deencapsulation.setField(jobStatistic, "currentErrorRows", 1);
         Deencapsulation.setField(jobStatistic, "currentTotalRows", 99);
+        Deencapsulation.setField(routineLoadJob, "otherMsg", "previous warning");
+        routineLoadJob.getErrorLogUrls().add("http://127.0.0.1/error_log");
+        Deencapsulation.setField(routineLoadJob, "firstErrorMsg", "invalid source row");
         Deencapsulation.invoke(routineLoadJob, "updateNumOfData", 2L, 0L, 0L, 1L, 1L, false);
 
         Assert.assertEquals(RoutineLoadJob.JobState.RUNNING, Deencapsulation.getField(routineLoadJob, "state"));
         Assert.assertEquals(new Long(0), Deencapsulation.getField(jobStatistic, "currentErrorRows"));
         Assert.assertEquals(new Long(0), Deencapsulation.getField(jobStatistic, "currentTotalRows"));
+        Assert.assertEquals("", Deencapsulation.getField(routineLoadJob, "otherMsg"));
+        Assert.assertTrue(routineLoadJob.getErrorLogUrls().isEmpty());
+        Assert.assertEquals("", routineLoadJob.getFirstErrorMsg());
 
     }
 

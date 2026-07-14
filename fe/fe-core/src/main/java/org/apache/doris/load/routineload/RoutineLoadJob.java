@@ -960,10 +960,7 @@ public abstract class RoutineLoadJob
                                 + "when current total rows is more than base or the filter ratio is more than the max")
                         .build());
             }
-            // reset currentTotalNum, currentErrorNum and otherMsg
-            this.jobStatistic.currentErrorRows = 0;
-            this.jobStatistic.currentTotalRows = 0;
-            this.otherMsg = "";
+            resetCurrentErrorStatistics();
             this.jobStatistic.currentAbortedTaskNum = 0;
         } else if (this.jobStatistic.currentErrorRows > maxErrorNum
                 || (this.jobStatistic.currentTotalRows > 0
@@ -983,11 +980,16 @@ public abstract class RoutineLoadJob
                         "current error rows is more than max_error_number "
                             + "or the max_filter_ratio is more than the value set"), isReplay);
             }
-            // reset currentTotalNum, currentErrorNum and otherMsg
-            this.jobStatistic.currentErrorRows = 0;
-            this.jobStatistic.currentTotalRows = 0;
-            this.otherMsg = "";
+            resetCurrentErrorStatistics();
         }
+    }
+
+    private void resetCurrentErrorStatistics() {
+        this.jobStatistic.currentErrorRows = 0;
+        this.jobStatistic.currentTotalRows = 0;
+        this.otherMsg = "";
+        this.errorLogUrls.clear();
+        this.firstErrorMsg = "";
     }
 
     protected void replayUpdateProgress(RLTaskTxnCommitAttachment attachment) {
@@ -1438,8 +1440,6 @@ public abstract class RoutineLoadJob
 
     private void updateJobInfoFromAttachment(RLTaskTxnCommitAttachment attachment) {
         if (Strings.isNullOrEmpty(attachment.getErrorLogUrl())) {
-            errorLogUrls.clear();
-            firstErrorMsg = "";
             return;
         }
         errorLogUrls.add(attachment.getErrorLogUrl());
