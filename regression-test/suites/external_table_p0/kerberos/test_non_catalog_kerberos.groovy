@@ -52,6 +52,7 @@ suite("test_non_catalog_kerberos", "p0,external") {
         """
 
     sql """ switch ${hms_catalog_name} """
+    sql """ create database if not exists test_krb_hive_db """
     sql """ use test_krb_hive_db """
     sql """ drop table  if exists ${test_tbl_name}"""
     sql """

@@ -1,4 +1,3 @@
-#!/usr/bin/env bash
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
 # distributed with this work for additional information
@@ -16,5 +15,20 @@
 # specific language governing permissions and limitations
 # under the License.
 
-kinit -kt /etc/hive/conf/hive.keytab hive/hadoop-master-2@OTHERREALM.COM
-beeline -u "jdbc:hive2://localhost:16000/default;principal=hive/hadoop-master-2@OTHERREALM.COM" -e "show databases;"
+FROM apache/hive:3.1.3
+
+USER root
+
+RUN apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get install --no-install-recommends -y \
+        krb5-admin-server \
+        krb5-kdc \
+        krb5-user \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY entrypoint-hive-master.sh /opt/doris/entrypoint.sh
+COPY health-checks/health.sh /opt/doris/health.sh
+
+RUN chmod 755 /opt/doris/entrypoint.sh /opt/doris/health.sh
+
+ENTRYPOINT ["/opt/doris/entrypoint.sh"]

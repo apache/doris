@@ -1474,16 +1474,17 @@ start_lakesoul() {
 
 start_kerberos() {
     echo "RUN_KERBEROS"
+    local KERBEROS_DIR="${ROOT}/docker-compose/kerberos"
     export CONTAINER_UID=${CONTAINER_UID}
-    envsubst <"${ROOT}"/docker-compose/kerberos/kerberos.yaml.tpl >"${ROOT}"/docker-compose/kerberos/kerberos.yaml
-    sed -i "s/s3Endpoint/${s3Endpoint}/g" "${ROOT}"/docker-compose/kerberos/entrypoint-hive-master.sh
-    sed -i "s/s3BucketName/${s3BucketName}/g" "${ROOT}"/docker-compose/kerberos/entrypoint-hive-master.sh
+    envsubst <"${KERBEROS_DIR}/kerberos.yaml.tpl" >"${KERBEROS_DIR}/kerberos.yaml"
+    mkdir -p "${KERBEROS_DIR}/conf/kerberos1" "${KERBEROS_DIR}/conf/kerberos2" \
+        "${KERBEROS_DIR}/two-kerberos-hives"
     for i in {1..2}; do
-        . "${ROOT}"/docker-compose/kerberos/kerberos${i}_settings.env
-        envsubst <"${ROOT}"/docker-compose/kerberos/hadoop-hive.env.tpl >"${ROOT}"/docker-compose/kerberos/hadoop-hive-${i}.env
-        envsubst <"${ROOT}"/docker-compose/kerberos/conf/my.cnf.tpl > "${ROOT}"/docker-compose/kerberos/conf/kerberos${i}/my.cnf
-        envsubst <"${ROOT}"/docker-compose/kerberos/conf/kerberos${i}/kdc.conf.tpl > "${ROOT}"/docker-compose/kerberos/conf/kerberos${i}/kdc.conf
-        envsubst <"${ROOT}"/docker-compose/kerberos/conf/kerberos${i}/krb5.conf.tpl > "${ROOT}"/docker-compose/kerberos/conf/kerberos${i}/krb5.conf
+        . "${KERBEROS_DIR}/kerberos${i}_settings.env"
+        envsubst <"${KERBEROS_DIR}/hadoop-hive.env.tpl" >"${KERBEROS_DIR}/hadoop-hive-${i}.env"
+        for config in kdc.conf krb5.conf core-site.xml hdfs-site.xml hive-site.xml; do
+            envsubst <"${KERBEROS_DIR}/conf/${config}.tpl" >"${KERBEROS_DIR}/conf/kerberos${i}/${config}"
+        done
     done
     sudo chmod a+w /etc/hosts
     if ! awk -v ip="${IP_HOST}" '$1 == ip && $2 == "hadoop-master" { found = 1 } END { exit !found }' /etc/hosts; then
@@ -1492,18 +1493,18 @@ start_kerberos() {
     if ! awk -v ip="${IP_HOST}" '$1 == ip && $2 == "hadoop-master-2" { found = 1 } END { exit !found }' /etc/hosts; then
         sudo sed -i "1i${IP_HOST} hadoop-master-2" /etc/hosts
     fi
-    register_stack_metadata "kerberos" "${ROOT}/docker-compose/kerberos/kerberos.yaml" ""
-    compose_cmd "${ROOT}/docker-compose/kerberos/kerberos.yaml" "" down --remove-orphans
-    sudo rm -rf "${ROOT}"/docker-compose/kerberos/data
+    register_stack_metadata "kerberos" "${KERBEROS_DIR}/kerberos.yaml" ""
+    compose_cmd "${KERBEROS_DIR}/kerberos.yaml" "" down --remove-orphans
+    sudo rm -rf "${KERBEROS_DIR}/data"
     if [[ "${STOP}" -ne 1 ]]; then
         echo "PREPARE KERBEROS DATA"
-        rm -rf "${ROOT}"/docker-compose/kerberos/two-kerberos-hives/*.keytab
-        rm -rf "${ROOT}"/docker-compose/kerberos/two-kerberos-hives/*.jks
-        rm -rf "${ROOT}"/docker-compose/kerberos/two-kerberos-hives/*.conf
-        compose_cmd "${ROOT}/docker-compose/kerberos/kerberos.yaml" "" up --remove-orphans --wait -d
-        sudo ln -sfn "${ROOT}/docker-compose/kerberos/two-kerberos-hives" /keytabs
-        sudo cp "${ROOT}"/docker-compose/kerberos/common/conf/doris-krb5.conf /keytabs/krb5.conf
-        sudo cp "${ROOT}"/docker-compose/kerberos/common/conf/doris-krb5.conf /etc/krb5.conf
+        rm -rf "${KERBEROS_DIR}"/two-kerberos-hives/*.keytab
+        rm -rf "${KERBEROS_DIR}"/two-kerberos-hives/*.jks
+        rm -rf "${KERBEROS_DIR}"/two-kerberos-hives/*.conf
+        compose_cmd "${KERBEROS_DIR}/kerberos.yaml" "" up --build --remove-orphans --wait -d
+        sudo ln -sfn "${KERBEROS_DIR}/two-kerberos-hives" /keytabs
+        sudo cp "${KERBEROS_DIR}/common/conf/doris-krb5.conf" /keytabs/krb5.conf
+        sudo cp "${KERBEROS_DIR}/common/conf/doris-krb5.conf" /etc/krb5.conf
         sleep 2
     fi
 }

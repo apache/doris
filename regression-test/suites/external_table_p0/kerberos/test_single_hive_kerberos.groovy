@@ -48,6 +48,24 @@ suite("test_single_hive_kerberos", "p0,external") {
             );
         """
         sql """ switch hms_kerberos """
+        sql """ CREATE DATABASE IF NOT EXISTS test_krb_hive_db """
+        sql """ USE test_krb_hive_db """
+        sql """ DROP TABLE IF EXISTS test_krb_hive_tbl """
+        sql """
+            CREATE TABLE test_krb_hive_tbl (
+                id_key INT,
+                string_key STRING,
+                rate_val DOUBLE,
+                comment STRING
+            ) ENGINE = hive
+        """
+        sql """
+            INSERT INTO test_krb_hive_tbl VALUES
+                (1, 'a', 3.16, 'cc0'),
+                (2, 'b', 41.2, 'cc1'),
+                (3, 'c', 6.2, 'cc2'),
+                (4, 'd', 1.4, 'cc3')
+        """
         sql """ show databases """
         order_qt_q01 """ select * from hms_kerberos.test_krb_hive_db.test_krb_hive_tbl """
         sql """drop catalog hms_kerberos;"""

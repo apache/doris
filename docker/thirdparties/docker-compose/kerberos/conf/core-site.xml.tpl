@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="UTF-8"?>
+<?xml version="1.0"?>
 <!--
 Licensed to the Apache Software Foundation (ASF) under one
 or more contributor license agreements.  See the NOTICE file
@@ -19,7 +19,28 @@ under the License.
 -->
 <configuration>
     <property>
-        <name>fs.default.name</name>
-        <value>hdfs://hadoop-master-2:9000</value>
+        <name>fs.defaultFS</name>
+        <value>hdfs://${HOST}:${FS_PORT}</value>
+    </property>
+    <property>
+        <name>hadoop.security.authentication</name>
+        <value>kerberos</value>
+    </property>
+    <property>
+        <name>hadoop.security.authorization</name>
+        <value>true</value>
+    </property>
+    <property>
+        <name>hadoop.security.auth_to_local</name>
+        <value>
+            RULE:[2:$1@$0](.*@LABS.TERADATA.COM)s/@.*//
+            RULE:[2:$1@$0](.*@OTHERLABS.TERADATA.COM)s/@.*//
+            RULE:[2:$1@$0](.*@OTHERREALM.COM)s/@.*//
+            DEFAULT
+        </value>
+    </property>
+    <property>
+        <name>hadoop.security.token.service.use_ip</name>
+        <value>false</value>
     </property>
 </configuration>
