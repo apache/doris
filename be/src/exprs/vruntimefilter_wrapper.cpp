@@ -75,9 +75,12 @@ Status VRuntimeFilterWrapper::clone_node(VExprSPtr* cloned_expr) const {
     DORIS_CHECK(_impl != nullptr);
     VExprSPtr cloned_impl;
     RETURN_IF_ERROR(_impl->deep_clone(&cloned_impl));
-    *cloned_expr = VRuntimeFilterWrapper::create_shared(clone_texpr_node(), std::move(cloned_impl),
-                                                        _ignore_thredhold, _null_aware, _filter_id,
-                                                        _sampling_frequency);
+    auto cloned_runtime_filter = VRuntimeFilterWrapper::create_shared(
+            clone_texpr_node(), std::move(cloned_impl), _ignore_thredhold, _null_aware, _filter_id,
+            _sampling_frequency);
+    cloned_runtime_filter->attach_profile_counter(_rf_input_rows, _rf_filter_rows,
+                                                  _always_true_filter_rows);
+    *cloned_expr = std::move(cloned_runtime_filter);
     return Status::OK();
 }
 

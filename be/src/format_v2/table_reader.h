@@ -185,6 +185,14 @@ public:
 
 #ifdef BE_TEST
     size_t TEST_batch_size() const { return _batch_size; }
+    bool TEST_current_data_file_is_immutable() const {
+        DORIS_CHECK(_current_task != nullptr);
+        DORIS_CHECK(_current_task->data_file != nullptr);
+        DORIS_CHECK(_current_file_description.has_value());
+        DORIS_CHECK(_current_task->data_file->is_immutable ==
+                    _current_file_description->is_immutable);
+        return _current_task->data_file->is_immutable;
+    }
 #endif
 
     // Prepare for reading a new split/task.
@@ -318,6 +326,19 @@ public:
     }
 
 protected:
+    // TableReader keeps the active file description both in the scan task and separately for
+    // creating the physical reader. Table-format readers must update both copies when their
+    // snapshot protocol guarantees that a file path is never overwritten with different bytes.
+    // This guarantee lets readers safely build cache keys without mtime; it must not be used for
+    // ordinary Hive/TVF files whose paths may be overwritten in place.
+    void mark_current_data_file_immutable() {
+        DORIS_CHECK(_current_task != nullptr);
+        DORIS_CHECK(_current_task->data_file != nullptr);
+        DORIS_CHECK(_current_file_description.has_value());
+        _current_task->data_file->is_immutable = true;
+        _current_file_description->is_immutable = true;
+    }
+
     std::optional<ColumnDefinition> _find_current_table_column_by_field_id(int32_t field_id,
                                                                            DataTypePtr type) const;
 

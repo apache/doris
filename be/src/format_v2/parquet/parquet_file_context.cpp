@@ -192,10 +192,12 @@ std::string build_page_cache_file_key(const io::FileReader& file_reader,
                                       const io::FileDescription& file_description) {
     const int64_t mtime =
             file_description.mtime != 0 ? file_description.mtime : file_reader.mtime();
-    if (mtime == 0) {
-        // StoragePageCache is process-global. A key with only path + unknown mtime can outlive a
-        // rewritten local test file, or any external file whose version was not propagated. Disable
-        // v2 parquet page cache until the scan descriptor carries a stable object version.
+    if (mtime == 0 && !file_description.is_immutable) {
+        // mtime == 0 means "unknown version", not the Unix epoch. V1 historically caches such a
+        // file under path::0, but copying that behavior for every V2 file is unsafe: a mutable file
+        // can be overwritten with different bytes while retaining both its path and size, causing
+        // process-global page cache entries to return stale data. Only callers that explicitly
+        // guarantee path immutability may use the mtime=0 cache key below.
         return {};
     }
     const int64_t file_size = file_description.file_size >= 0
