@@ -247,8 +247,12 @@ Status NativeReader::_read_next_pblock(std::string* buffer, bool* eof) const {
     }
     _current_offset += sizeof(block_len);
     if (block_len == 0) {
-        *eof = (_current_offset >= _file_size);
-        return Status::OK();
+        // A header-only file reaches the `_current_offset >= _file_size` branch above and is a
+        // valid empty Native file. Once an explicit length prefix is present, however, zero is not
+        // an EOF marker in the Native format. For example, `header + uint64(0)` is truncated input,
+        // not a zero-row split, and must not escape as EOF for FileScannerV2 to count as empty.
+        return Status::InternalError("zero-length native block in file {} at offset {}",
+                                     _file_description->path, _current_offset - sizeof(block_len));
     }
 
     buffer->assign(block_len, '\0');

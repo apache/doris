@@ -687,6 +687,16 @@ Status ParquetReader::get_aggregate_result(const format::FileAggregateRequest& r
         }
         const auto& count_projection = request.columns[0].projection;
         const auto& root_schema = projected_root_schema(_state->file_schema, count_projection);
+        // A required primitive COUNT(col) still carries its projection so the unsupported-type
+        // validation above cannot be bypassed. Once validated, its definition level proves that
+        // every selected row is non-NULL, so preserve the already-computed footer row count and
+        // avoid reading definition levels merely to rediscover COUNT(col) == COUNT(*). Complex
+        // roots continue through the shape reader because their count semantics and read-row
+        // accounting are derived from nested levels.
+        if (root_schema.kind == ParquetColumnSchemaKind::PRIMITIVE &&
+            root_schema.max_definition_level == 0) {
+            return Status::OK();
+        }
         result->count = 0;
         for (const auto& row_group_plan : _state->scan_plan.row_groups) {
             std::shared_ptr<::parquet::RowGroupReader> row_group;

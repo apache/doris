@@ -21,6 +21,7 @@
 #include <arrow/io/api.h>
 #include <gtest/gtest.h>
 #include <parquet/api/reader.h>
+#include <parquet/api/writer.h>
 #include <parquet/arrow/writer.h>
 
 #include <cstring>
@@ -302,6 +303,32 @@ void write_table(const std::string& file_path, const std::shared_ptr<arrow::Tabl
     }
     PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), out,
                                                       row_group_size, builder.build()));
+}
+
+void write_required_adjusted_time_parquet_file(const std::string& file_path) {
+    auto file_result = arrow::io::FileOutputStream::Open(file_path);
+    ASSERT_TRUE(file_result.ok()) << file_result.status();
+    std::shared_ptr<arrow::io::FileOutputStream> out = *file_result;
+
+    // Arrow intentionally writes time32 as local time (isAdjustedToUTC=false), so use Parquet's
+    // low-level writer to produce the unsupported required logical type needed by this aggregate
+    // regression. Required is important: Nereids may push COUNT(col) because NULL filtering cannot
+    // change its value, which is precisely the path where an empty aggregate request lost `col`.
+    const auto adjusted_time = ::parquet::schema::PrimitiveNode::Make(
+            "unsupported_time", ::parquet::Repetition::REQUIRED,
+            ::parquet::LogicalType::Time(true, ::parquet::LogicalType::TimeUnit::MILLIS),
+            ::parquet::Type::INT32);
+    const auto schema_node = ::parquet::schema::GroupNode::Make(
+            "schema", ::parquet::Repetition::REQUIRED, {adjusted_time});
+    const auto schema = std::static_pointer_cast<::parquet::schema::GroupNode>(schema_node);
+    auto writer = ::parquet::ParquetFileWriter::Open(out, schema);
+    auto* row_group = writer->AppendRowGroup();
+    auto* time_writer = static_cast<::parquet::Int32Writer*>(row_group->NextColumn());
+    const int32_t values[] = {1000, 2000};
+    EXPECT_EQ(time_writer->WriteBatch(2, nullptr, nullptr, values), 2);
+    time_writer->Close();
+    row_group->Close();
+    writer->Close();
 }
 
 void write_int_pair_parquet_file(const std::string& file_path, int64_t row_group_size = 2,
@@ -737,6 +764,15 @@ TEST_F(ParquetScanTest, AggregateCountAndMinMaxUseAllSelectedRowGroups) {
     EXPECT_EQ(count_result.count, 6);
     EXPECT_TRUE(count_result.columns.empty());
 
+    format::FileAggregateResult required_count_result;
+    format::FileAggregateRequest required_count_request;
+    required_count_request.agg_type = TPushAggOp::COUNT;
+    required_count_request.columns.push_back({.projection = field_projection(0)});
+    ASSERT_TRUE(reader->get_aggregate_result(required_count_request, &required_count_result).ok());
+    // The required scalar projection is retained for logical-type validation, but after that
+    // validation COUNT(id) can reuse the same selected-row-group footer count as COUNT(*).
+    EXPECT_EQ(required_count_result.count, 6);
+
     format::FileAggregateResult minmax_result;
     format::FileAggregateRequest minmax_request;
     minmax_request.agg_type = TPushAggOp::MINMAX;
@@ -751,6 +787,23 @@ TEST_F(ParquetScanTest, AggregateCountAndMinMaxUseAllSelectedRowGroups) {
     EXPECT_EQ(minmax_result.columns[0].max_value.get<TYPE_INT>(), 6);
     EXPECT_EQ(minmax_result.columns[1].min_value.get<TYPE_INT>(), 10);
     EXPECT_EQ(minmax_result.columns[1].max_value.get<TYPE_INT>(), 60);
+}
+
+TEST_F(ParquetScanTest, AggregateCountRejectsRequiredUnsupportedScalarProjection) {
+    write_required_adjusted_time_parquet_file(_file_path);
+    auto reader = create_reader();
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+    open_all_row_groups(reader.get());
+
+    format::FileAggregateRequest request;
+    request.agg_type = TPushAggOp::COUNT;
+    request.columns.push_back({.projection = field_projection(0)});
+    format::FileAggregateResult result;
+    const auto status = reader->get_aggregate_result(request, &result);
+    EXPECT_TRUE(status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) << status;
+    EXPECT_NE(status.to_string().find("Parquet TIME with isAdjustedToUTC=true is not supported"),
+              std::string::npos);
 }
 
 TEST_F(ParquetScanTest, AggregateMinMaxRejectsInexactBinaryStatistics) {

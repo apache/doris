@@ -1463,16 +1463,15 @@ protected:
         request->columns.clear();
         if (agg_type == TPushAggOp::type::COUNT) {
             // COUNT pushdown historically meant COUNT(*) and therefore carried no columns. For
-            // complex COUNT(col), materializing the full MAP/LIST/STRUCT value only to test the
-            // top-level NULL bit can be extremely expensive. When the scan projects exactly one
-            // directly-mapped complex column, pass that file column to the reader so formats such
-            // as Parquet can count the column shape from metadata/levels without decoding payload
-            // values like MAP value strings. Other COUNT cases stay on the existing row-count path
-            // to avoid changing count(*) semantics.
+            // COUNT(col), Nereids retains exactly the counted slot in the file scan. Pass that
+            // single direct mapping for both scalar and complex columns: besides allowing nullable
+            // complex values to be counted from levels, it lets the file reader validate logical
+            // types before returning footer row counts. For example, a required TIME_MILLIS leaf
+            // has the same count as COUNT(*), but it must still fail as an unsupported requested
+            // column rather than silently returning the row-group count.
             if (_data_reader.column_mapper->mappings().size() == 1) {
                 const auto& mapping = _data_reader.column_mapper->mappings()[0];
                 if (mapping.file_local_id.has_value() && mapping.file_type != nullptr &&
-                    is_complex_type(remove_nullable(mapping.file_type)->get_primitive_type()) &&
                     mapping.virtual_column_type == TableVirtualColumnType::INVALID &&
                     mapping.default_expr == nullptr) {
                     FileAggregateRequest::Column column;

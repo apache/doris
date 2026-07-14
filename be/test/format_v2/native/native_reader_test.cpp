@@ -375,7 +375,9 @@ TEST(NativeV2ReaderTest, RejectsZeroLengthBlockAndInvalidPBlock) {
     auto zero_len_reader = create_reader(zero_len_path, &state, &profile);
     ASSERT_TRUE(zero_len_reader->init(&state).ok());
     std::vector<ColumnDefinition> schema;
-    EXPECT_FALSE(zero_len_reader->get_schema(&schema).ok());
+    const auto zero_len_status = zero_len_reader->get_schema(&schema);
+    EXPECT_TRUE(zero_len_status.is<ErrorCode::INTERNAL_ERROR>()) << zero_len_status;
+    EXPECT_NE(zero_len_status.to_string().find("zero-length native block"), std::string::npos);
     static_cast<void>(io::global_local_filesystem()->delete_file(zero_len_path));
 
     const auto invalid_pblock_path =

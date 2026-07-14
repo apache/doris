@@ -1012,6 +1012,7 @@ struct FakeFileReaderState {
     bool stop_during_read = false;
     bool not_found_during_init = false;
     std::shared_ptr<FileScanRequest> last_request;
+    std::optional<FileAggregateRequest> last_aggregate_request;
     std::shared_ptr<ConditionCacheContext> condition_cache_ctx;
     std::shared_ptr<io::IOContext> io_ctx;
 };
@@ -1127,6 +1128,7 @@ public:
         if (request.agg_type != TPushAggOp::type::COUNT) {
             return Status::NotSupported("fake reader only supports COUNT aggregate pushdown");
         }
+        _state->last_aggregate_request = request;
         if (_state->stop_during_aggregate) {
             DORIS_CHECK(_state->io_ctx != nullptr);
             _state->io_ctx->should_stop = true;
@@ -1753,6 +1755,11 @@ TEST(TableReaderTest, PushDownCountRecordsReaderRowsBeforeClosingReader) {
     EXPECT_EQ(block.rows(), 3);
     EXPECT_EQ(file_reader_stats.read_rows, 3);
     EXPECT_EQ(fake_state->close_count, 1);
+    ASSERT_TRUE(fake_state->last_aggregate_request.has_value());
+    ASSERT_EQ(fake_state->last_aggregate_request->columns.size(), 1);
+    // A primitive COUNT(col) projection must reach the file reader just like a complex one. This
+    // is observable even though the required `id` values make its numeric result equal COUNT(*).
+    EXPECT_EQ(fake_state->last_aggregate_request->columns[0].projection.local_id(), 0);
 }
 
 TEST(TableReaderTest, PushDownCountStopConvertsAggregateEndOfFileToEos) {
