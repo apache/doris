@@ -189,6 +189,12 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
                 matches(TryCast.class, this::visitTryCast),
                 matches(Cast.class, this::visitCast),
                 matches(Now.class, this::visitNow),
+                matches(CurrentDate.class, this::visitCurrentDate),
+                matches(CurrentTime.class, this::visitCurrentTime),
+                matches(UnixTimestamp.class, this::visitUnixTimestamp),
+                matches(UtcDate.class, this::visitUtcDate),
+                matches(UtcTime.class, this::visitUtcTime),
+                matches(UtcTimestamp.class, this::visitUtcTimestamp),
                 matches(BoundFunction.class, this::visitBoundFunction),
                 matches(BinaryArithmetic.class, this::visitBinaryArithmetic),
                 matches(CaseWhen.class, this::visitCaseWhen),
@@ -585,73 +591,121 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
     }
 
     @Override
+    public Expression visitCurrentDate(CurrentDate currentDate, ExpressionRewriteContext context) {
+        currentDate = rewriteChildren(currentDate, context);
+        Optional<Expression> checkedExpr = preProcess(currentDate);
+        if (checkedExpr.isPresent()) {
+            return checkedExpr.get();
+        }
+        Optional<Instant> statementStartTime = getStatementStartTime(context);
+        Optional<ZoneId> statementTimeZone = getStatementTimeZone(context);
+        if (!statementStartTime.isPresent() || !statementTimeZone.isPresent()) {
+            return currentDate;
+        }
+        return DateV2Literal.fromJavaDateType(
+                LocalDateTime.ofInstant(statementStartTime.get(), statementTimeZone.get()));
+    }
+
+    @Override
+    public Expression visitCurrentTime(CurrentTime currentTime, ExpressionRewriteContext context) {
+        currentTime = rewriteChildren(currentTime, context);
+        Optional<Expression> checkedExpr = preProcess(currentTime);
+        if (checkedExpr.isPresent()) {
+            return checkedExpr.get();
+        }
+        Optional<Instant> statementStartTime = getStatementStartTime(context);
+        Optional<ZoneId> statementTimeZone = getStatementTimeZone(context);
+        if (!statementStartTime.isPresent() || !statementTimeZone.isPresent()) {
+            return currentTime;
+        }
+        LocalDateTime dateTime = LocalDateTime.ofInstant(statementStartTime.get(), statementTimeZone.get());
+        if (currentTime.arity() == 0) {
+            return TimeV2Literal.fromJavaDateType(dateTime);
+        }
+        Optional<Integer> precision = getTinyIntPrecision(currentTime);
+        return precision.isPresent()
+                ? TimeV2Literal.fromJavaDateType(dateTime, precision.get())
+                : currentTime;
+    }
+
+    @Override
+    public Expression visitUnixTimestamp(UnixTimestamp unixTimestamp, ExpressionRewriteContext context) {
+        unixTimestamp = rewriteChildren(unixTimestamp, context);
+        Optional<Expression> checkedExpr = preProcess(unixTimestamp);
+        if (checkedExpr.isPresent()) {
+            return checkedExpr.get();
+        }
+        if (unixTimestamp.arity() != 0) {
+            return ExpressionEvaluator.INSTANCE.eval(unixTimestamp);
+        }
+        Optional<Instant> statementStartTime = getStatementStartTime(context);
+        if (!statementStartTime.isPresent()) {
+            return unixTimestamp;
+        }
+        return new BigIntLiteral(statementStartTime.get().getEpochSecond());
+    }
+
+    @Override
+    public Expression visitUtcDate(UtcDate utcDate, ExpressionRewriteContext context) {
+        utcDate = rewriteChildren(utcDate, context);
+        Optional<Expression> checkedExpr = preProcess(utcDate);
+        if (checkedExpr.isPresent()) {
+            return checkedExpr.get();
+        }
+        Optional<Instant> statementStartTime = getStatementStartTime(context);
+        if (!statementStartTime.isPresent()) {
+            return utcDate;
+        }
+        return DateV2Literal.fromJavaDateType(
+                LocalDateTime.ofInstant(statementStartTime.get(), ZoneOffset.UTC));
+    }
+
+    @Override
+    public Expression visitUtcTime(UtcTime utcTime, ExpressionRewriteContext context) {
+        utcTime = rewriteChildren(utcTime, context);
+        Optional<Expression> checkedExpr = preProcess(utcTime);
+        if (checkedExpr.isPresent()) {
+            return checkedExpr.get();
+        }
+        Optional<Instant> statementStartTime = getStatementStartTime(context);
+        if (!statementStartTime.isPresent()) {
+            return utcTime;
+        }
+        LocalDateTime dateTime = LocalDateTime.ofInstant(statementStartTime.get(), ZoneOffset.UTC);
+        if (utcTime.arity() == 0) {
+            return TimeV2Literal.fromJavaDateType(dateTime);
+        }
+        Optional<Integer> precision = getIntegerPrecision(utcTime);
+        return precision.isPresent()
+                ? TimeV2Literal.fromJavaDateType(dateTime, precision.get())
+                : utcTime;
+    }
+
+    @Override
+    public Expression visitUtcTimestamp(UtcTimestamp utcTimestamp, ExpressionRewriteContext context) {
+        utcTimestamp = rewriteChildren(utcTimestamp, context);
+        Optional<Expression> checkedExpr = preProcess(utcTimestamp);
+        if (checkedExpr.isPresent()) {
+            return checkedExpr.get();
+        }
+        Optional<Instant> statementStartTime = getStatementStartTime(context);
+        Optional<Integer> precision = getIntegerPrecision(utcTimestamp);
+        if (!statementStartTime.isPresent() || !precision.isPresent()) {
+            return utcTimestamp;
+        }
+        return DateTimeV2Literal.fromJavaDateType(
+                LocalDateTime.ofInstant(statementStartTime.get(), ZoneOffset.UTC),
+                precision.get());
+    }
+
+    @Override
     public Expression visitBoundFunction(BoundFunction boundFunction, ExpressionRewriteContext context) {
         boundFunction = rewriteChildren(boundFunction, context);
         Optional<Expression> checkedExpr = preProcess(boundFunction);
         if (checkedExpr.isPresent()) {
             return checkedExpr.get();
         }
-        Optional<Expression> statementTimeExpression = evaluateStatementTimeFunction(boundFunction, context);
-        if (statementTimeExpression.isPresent()) {
-            return statementTimeExpression.get();
-        }
         return ExpressionEvaluator.INSTANCE.eval(boundFunction);
-    }
-
-    private Optional<Expression> evaluateStatementTimeFunction(BoundFunction function,
-            ExpressionRewriteContext context) {
-        if (!isStatementTimeFunction(function)) {
-            return Optional.empty();
-        }
-        Optional<Instant> statementStartTime = getStatementStartTime(context);
-        Optional<ZoneId> statementTimeZone = getStatementTimeZone(context);
-        if (!statementStartTime.isPresent() || !statementTimeZone.isPresent()) {
-            return Optional.of(function);
-        }
-
-        Instant instant = statementStartTime.get();
-        if (function instanceof CurrentDate) {
-            return Optional.of(DateV2Literal.fromJavaDateType(
-                    LocalDateTime.ofInstant(instant, statementTimeZone.get())));
-        } else if (function instanceof CurrentTime) {
-            LocalDateTime dateTime = LocalDateTime.ofInstant(instant, statementTimeZone.get());
-            if (function.arity() == 0) {
-                return Optional.of(TimeV2Literal.fromJavaDateType(dateTime));
-            }
-            Optional<Integer> precision = getTinyIntPrecision(function);
-            return precision.isPresent()
-                    ? Optional.of(TimeV2Literal.fromJavaDateType(dateTime, precision.get()))
-                    : Optional.of(function);
-        } else if (function instanceof UnixTimestamp) {
-            return Optional.of(new BigIntLiteral(instant.getEpochSecond()));
-        } else if (function instanceof UtcDate) {
-            return Optional.of(DateV2Literal.fromJavaDateType(
-                    LocalDateTime.ofInstant(instant, ZoneOffset.UTC)));
-        } else if (function instanceof UtcTime) {
-            LocalDateTime dateTime = LocalDateTime.ofInstant(instant, ZoneOffset.UTC);
-            if (function.arity() == 0) {
-                return Optional.of(TimeV2Literal.fromJavaDateType(dateTime));
-            }
-            Optional<Integer> precision = getIntegerPrecision(function);
-            return precision.isPresent()
-                    ? Optional.of(TimeV2Literal.fromJavaDateType(dateTime, precision.get()))
-                    : Optional.of(function);
-        } else {
-            LocalDateTime dateTime = LocalDateTime.ofInstant(instant, ZoneOffset.UTC);
-            Optional<Integer> precision = getIntegerPrecision(function);
-            return precision.isPresent()
-                    ? Optional.of(DateTimeV2Literal.fromJavaDateType(dateTime, precision.get()))
-                    : Optional.of(function);
-        }
-    }
-
-    private boolean isStatementTimeFunction(BoundFunction function) {
-        return function instanceof CurrentDate
-                || function instanceof CurrentTime
-                || (function instanceof UnixTimestamp && function.arity() == 0)
-                || function instanceof UtcDate
-                || function instanceof UtcTime
-                || function instanceof UtcTimestamp;
     }
 
     private Optional<Instant> getStatementStartTime(ExpressionRewriteContext context) {
