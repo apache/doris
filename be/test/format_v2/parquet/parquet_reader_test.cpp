@@ -1291,8 +1291,8 @@ TEST_F(NewParquetReaderTest, ReportsPersistentFileMetaCacheProfile) {
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
 
     RuntimeProfile first_profile("new_parquet_reader_persistent_file_meta_cache_first");
-    auto first_reader =
-            create_reader(0, -1, &first_profile, false, nullptr, std::nullopt, &file_meta_cache);
+    auto first_reader = create_reader(0, -1, &first_profile, false, nullptr, std::nullopt, false,
+                                      &file_meta_cache);
     ASSERT_TRUE(first_reader->init(&state).ok());
     ASSERT_NE(first_profile.get_counter("FileFooterReadCalls"), nullptr);
     ASSERT_NE(first_profile.get_counter("FileFooterHitCache"), nullptr);
@@ -1310,8 +1310,8 @@ TEST_F(NewParquetReaderTest, ReportsPersistentFileMetaCacheProfile) {
     EXPECT_EQ(first_profile.get_counter("FileFooterWriteDiskCache")->value(), 1);
 
     RuntimeProfile second_profile("new_parquet_reader_persistent_file_meta_cache_second");
-    auto second_reader =
-            create_reader(0, -1, &second_profile, false, nullptr, std::nullopt, &file_meta_cache);
+    auto second_reader = create_reader(0, -1, &second_profile, false, nullptr, std::nullopt, false,
+                                       &file_meta_cache);
     ASSERT_TRUE(second_reader->init(&state).ok());
     ASSERT_NE(second_profile.get_counter("FileFooterReadCalls"), nullptr);
     ASSERT_NE(second_profile.get_counter("FileFooterHitCache"), nullptr);
@@ -1355,7 +1355,8 @@ TEST_F(NewParquetReaderTest, InvalidPersistentFileMetaCachePayloadFallsBackToFil
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     RuntimeProfile profile("new_parquet_reader_invalid_persistent_file_meta_cache_payload");
-    auto reader = create_reader(0, -1, &profile, false, nullptr, std::nullopt, &file_meta_cache);
+    auto reader =
+            create_reader(0, -1, &profile, false, nullptr, std::nullopt, false, &file_meta_cache);
     ASSERT_TRUE(reader->init(&state).ok());
 
     std::vector<format::ColumnDefinition> schema;
@@ -1387,7 +1388,7 @@ TEST_F(NewParquetReaderTest, PersistentFileMetaCacheCanSkipMemoryCache) {
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
 
     RuntimeProfile first_profile("new_parquet_reader_skip_memory_file_meta_cache_first");
-    auto first_reader = create_reader(0, -1, &first_profile, false, nullptr, std::nullopt,
+    auto first_reader = create_reader(0, -1, &first_profile, false, nullptr, std::nullopt, false,
                                       &file_meta_cache, false);
     ASSERT_TRUE(first_reader->init(&state).ok());
     const auto file_size = static_cast<int64_t>(std::filesystem::file_size(_file_path));
@@ -1402,7 +1403,7 @@ TEST_F(NewParquetReaderTest, PersistentFileMetaCacheCanSkipMemoryCache) {
     EXPECT_EQ(first_profile.get_counter("FileFooterWriteDiskCache")->value(), 1);
 
     RuntimeProfile second_profile("new_parquet_reader_skip_memory_file_meta_cache_second");
-    auto second_reader = create_reader(0, -1, &second_profile, false, nullptr, std::nullopt,
+    auto second_reader = create_reader(0, -1, &second_profile, false, nullptr, std::nullopt, false,
                                        &file_meta_cache, false);
     ASSERT_TRUE(second_reader->init(&state).ok());
     ASSERT_NE(second_profile.get_counter("FileFooterReadCalls"), nullptr);
