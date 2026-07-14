@@ -297,7 +297,7 @@ suite("test_file_cache_query_limit_segment_meta_profile", "docker") {
         }
 
         def runCase = { String tableName, boolean segmentMetaCounts, long thresholdBytes ->
-            setBeParam("file_cache_query_limit_segment_meta", segmentMetaCounts.toString())
+            setBeParam("enable_file_cache_query_limit_segment_meta", segmentMetaCounts.toString())
             createTableAndLoad(tableName, false)
             setupQuerySession(thresholdBytes)
             clearFileCache()
@@ -311,7 +311,7 @@ suite("test_file_cache_query_limit_segment_meta_profile", "docker") {
         def runParallelPreloadCase = { String tableName, boolean segmentMetaCounts ->
             long tinyThresholdBytes = 1L
             createTableAndLoad(tableName, false)
-            setBeParam("file_cache_query_limit_segment_meta", segmentMetaCounts.toString())
+            setBeParam("enable_file_cache_query_limit_segment_meta", segmentMetaCounts.toString())
             setupParallelPreloadQuerySession(tinyThresholdBytes)
             clearFileCache()
             def query = "SELECT SUM(id + group_id + LENGTH(payload)) FROM ${tableName} " +
@@ -328,8 +328,8 @@ suite("test_file_cache_query_limit_segment_meta_profile", "docker") {
             return counters
         }
 
-        def originalSegmentMetaConfig = getBeParam("file_cache_query_limit_segment_meta")
-        logger.info("original file_cache_query_limit_segment_meta=${originalSegmentMetaConfig}")
+        def originalSegmentMetaConfig = getBeParam("enable_file_cache_query_limit_segment_meta")
+        logger.info("original enable_file_cache_query_limit_segment_meta=${originalSegmentMetaConfig}")
         assert getBeParam("enable_read_cache_file_directly").equalsIgnoreCase("false")
         try {
             def baseline = runCase("file_cache_limit_segment_meta_baseline", false, -1L)
@@ -467,8 +467,8 @@ suite("test_file_cache_query_limit_segment_meta_profile", "docker") {
                     "segmentMetaWriteCacheBytes=${preloadWithSegmentMeta.segmentMetaWriteCacheBytes}, " +
                     "scannerNum=${preloadWithSegmentMeta.scannerNum}")
         } finally {
-            logger.info("restore file_cache_query_limit_segment_meta=${originalSegmentMetaConfig}")
-            setBeParam("file_cache_query_limit_segment_meta", originalSegmentMetaConfig)
+            logger.info("restore enable_file_cache_query_limit_segment_meta=${originalSegmentMetaConfig}")
+            setBeParam("enable_file_cache_query_limit_segment_meta", originalSegmentMetaConfig)
             sql "set file_cache_query_limit_bytes = -1"
         }
     }

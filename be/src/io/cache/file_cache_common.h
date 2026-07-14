@@ -169,7 +169,7 @@ struct CacheContext {
                 remote_scan_cache_write_limiter != nullptr &&
                 io_context->reader_type == ReaderType::READER_QUERY &&
                 (!io_context->is_index_data || io_context->is_inverted_index ||
-                 config::file_cache_query_limit_segment_meta) &&
+                 config::enable_file_cache_query_limit_segment_meta) &&
                 !io_context->is_warmup;
     }
     CacheContext() = default;

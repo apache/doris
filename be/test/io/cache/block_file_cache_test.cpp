@@ -753,10 +753,11 @@ TEST_F(BlockFileCacheTest, get_or_set_remote_scan_cache_write_limiter_is_query_w
 }
 
 TEST_F(BlockFileCacheTest, get_or_set_remote_scan_cache_write_limiter_segment_meta_config) {
-    const bool old_file_cache_query_limit_segment_meta =
-            config::file_cache_query_limit_segment_meta;
+    const bool old_enable_file_cache_query_limit_segment_meta =
+            config::enable_file_cache_query_limit_segment_meta;
     Defer restore_config {[&] {
-        config::file_cache_query_limit_segment_meta = old_file_cache_query_limit_segment_meta;
+        config::enable_file_cache_query_limit_segment_meta =
+                old_enable_file_cache_query_limit_segment_meta;
     }};
 
     const std::string local_cache_path =
@@ -779,7 +780,7 @@ TEST_F(BlockFileCacheTest, get_or_set_remote_scan_cache_write_limiter_segment_me
     segment_footer_io_ctx.is_index_data = true;
     segment_footer_io_ctx.is_inverted_index = false;
 
-    config::file_cache_query_limit_segment_meta = false;
+    config::enable_file_cache_query_limit_segment_meta = false;
     RemoteScanCacheWriteLimiter default_state(query_id, 1_mb);
     segment_footer_io_ctx.remote_scan_cache_write_limiter = &default_state;
     io::CacheContext default_context(&segment_footer_io_ctx);
@@ -797,7 +798,7 @@ TEST_F(BlockFileCacheTest, get_or_set_remote_scan_cache_write_limiter_segment_me
     EXPECT_EQ(default_state.admitted_data_bytes(), 0);
     EXPECT_EQ(mgr.get_file_blocks_num(io::FileCacheType::INDEX), 1);
 
-    config::file_cache_query_limit_segment_meta = true;
+    config::enable_file_cache_query_limit_segment_meta = true;
     RemoteScanCacheWriteLimiter enabled_state(query_id, 1_mb);
     segment_footer_io_ctx.remote_scan_cache_write_limiter = &enabled_state;
     io::CacheContext enabled_context(&segment_footer_io_ctx);
