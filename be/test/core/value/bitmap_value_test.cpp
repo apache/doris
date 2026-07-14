@@ -1101,6 +1101,36 @@ BitmapValue deserialize_bitmap_from_string(const std::string& buffer) {
     return bitmap;
 }
 
+TEST(BitmapValueTest, deserialize_reused_bitmap_to_set_then_promote) {
+    const auto old_enable_set = config::enable_set_in_bitmap_value;
+    config::enable_set_in_bitmap_value = true;
+
+    std::vector<uint64_t> stale_values(41);
+    std::iota(stale_values.begin(), stale_values.end(), 0);
+    BitmapValue reused(stale_values);
+    EXPECT_EQ(BitmapValue::BITMAP, reused._type);
+
+    std::vector<uint64_t> set_values {100, 101};
+    BitmapValue set_bitmap(set_values);
+    EXPECT_EQ(BitmapValue::SET, set_bitmap._type);
+    std::string set_buffer = convert_bitmap_to_string(set_bitmap);
+
+    EXPECT_TRUE(reused.deserialize(set_buffer.data()));
+    EXPECT_EQ(BitmapValue::SET, reused._type);
+    check_bitmap_values(reused, set_values);
+
+    std::vector<uint64_t> promote_values(31);
+    std::iota(promote_values.begin(), promote_values.end(), 102);
+    reused.add_many(promote_values.data(), promote_values.size());
+
+    std::vector<uint64_t> expected {100, 101};
+    expected.insert(expected.end(), promote_values.begin(), promote_values.end());
+    EXPECT_EQ(BitmapValue::BITMAP, reused._type);
+    check_bitmap_values(reused, expected);
+
+    config::enable_set_in_bitmap_value = old_enable_set;
+}
+
 TEST(BitmapValueTest, bitmap_serde) {
     auto old_enable_set = config::enable_set_in_bitmap_value;
     auto old_serialize_version = config::bitmap_serialize_version;
