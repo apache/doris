@@ -19,8 +19,14 @@ suite("analyze_agg") {
     sql """DROP TABLE IF EXISTS t1"""
     sql """DROP TABLE IF EXISTS t2"""
 
-    sql """SET enable_fallback_to_original_planner=false"""
-    sql """SET enable_nereids_planner=true"""
+    sql """
+        SET enable_fallback_to_original_planner=false;
+        SET enable_nereids_planner=true;
+        SET ignore_shape_nodes='PhysicalDistribute';
+        SET disable_nereids_rules='PRUNE_EMPTY_PARTITION';
+        SET runtime_filter_mode=OFF;
+        SET disable_join_reorder=true;
+        """
 
     sql """    
         create table t1
@@ -84,6 +90,153 @@ suite("analyze_agg") {
                 1,
                 x
         """
+
+    // check group by expression not contains aggregate function and window expression
+    test {
+        sql "select SUM(id) FROM t1 group by 1;"
+        exception "GROUP BY expression must not contain aggregate functions: sum(id)"
+    }
+
+    test {
+        // no exception
+        sql "select id as k from t1 group by k;"
+    }
+
+    test {
+        sql "select sum(id) as k from t1 group by k;"
+        exception "GROUP BY expression must not contain aggregate functions: sum(id)"
+    }
+
+    test {
+        sql "select sum(id) as k from t1 group by k + 1;"
+        exception " GROUP BY expression must not contain aggregate functions: (sum(id) + 1)"
+    }
+
+    test {
+        sql "select sum(id) as x, max(id) as y from t1 group by grouping sets((x), (y));"
+        exception "GROUP BY expression must not contain aggregate functions: sum(id)"
+    }
+
+    test {
+        sql "select 100000 as y from t1 group by grouping sets((sum(id)), (max(id)));"
+        exception "GROUP BY expression must not contain aggregate functions: sum(id)"
+    }
+
+    test {
+        sql "select id FROM t1 group by SUM(id);"
+        exception "GROUP BY expression must not contain aggregate functions: sum(id)"
+    }
+
+    test {
+        sql "select SUM(id) OVER() FROM t1 group by 1;"
+        exception "GROUP BY expression must not contain window functions: sum(id) OVER()"
+    }
+
+    test {
+        sql "select SUM(id) OVER() as k FROM t1 group by k;"
+        exception "GROUP BY expression must not contain window functions: sum(id) OVER()"
+    }
+
+    test {
+        sql "select id FROM t1 group by SUM(id) OVER();"
+        exception "GROUP BY expression must not contain window functions: sum(id) OVER()"
+    }
+
+    // check having
+    test {
+        sql "select 1234 from t1 having sum(id) over() > 0"
+        exception "LOGICAL_HAVING can not contains WindowExpression expression: sum(id) OVER()"
+    }
+
+    test {
+        sql "select 1234 from t1 group by id having sum(id) over() > 0"
+        exception "LOGICAL_HAVING can not contains WindowExpression expression: sum(id) OVER()"
+    }
+
+    test {
+        sql "select sum(id) over() as k from t1 group by id having sum(id) over() > 0"
+        exception "LOGICAL_HAVING can not contains WindowExpression expression: sum(id) OVER()"
+    }
+
+    test {
+        sql '''SELECT 1 AS a, COUNT(*), SUM(2), AVG(1), RANK() OVER() AS w_rank
+            WHERE 1 = 1
+            GROUP BY a
+            HAVING COUNT(*) IN (1, 2) AND w_rank = 1
+            ORDER BY a;
+            '''
+
+        exception " HAVING expression 'w_rank' must not contain window functions: rank() OVER()"
+    }
+
+    test {
+        sql '''SELECT 1 AS a, COUNT(*), SUM(2), AVG(1), RANK() OVER() AS w_rank
+            WHERE 1 = 1
+            HAVING COUNT(*) IN (1, 2) AND w_rank = 1
+            ORDER BY a;
+            '''
+
+        exception " HAVING expression 'w_rank' must not contain window functions: rank() OVER()"
+    }
+
+    qt_window_1 '''explain  shape plan
+        select sum(1) over()
+        '''
+
+    qt_window_2 '''explain  shape plan
+        select sum(id) over() from t1
+        '''
+
+    qt_distinct_1 '''explain  shape plan
+        select distinct sum(1) over()
+        '''
+
+    qt_distinct_2 '''explain  shape plan
+        select distinct sum(sum(1)) over()
+        '''
+
+    qt_distinct_3 '''explain  shape plan
+        select distinct sum(id) over() from t1
+        '''
+
+    qt_distinct_4 '''explain  shape plan
+        select distinct sum(sum(id)) over() from t1
+        '''
+
+    // having need before windows
+    qt_having_with_window_1 '''explain shape plan
+        select sum(id) over ()
+        from t1
+        where id + random(1, 1) > 0
+        group by id, id + random(1, 1)
+        having sum(id + random(1, 1)) > 1
+        order by id + random(1, 1), sum(id + random(1, 1)), sum(id + random(1, 1)) over ()
+        '''
+
+    qt_having_with_window_2 '''explain shape plan
+        select sum(id) over (partition by a)
+        from t1
+        where id + random(1, 100) > 0
+        group by id, id + random(1, 100), a
+        having sum(id + random(1, 100)) > 1
+        order by id + random(1, 100), sum(id + random(1, 100)), sum(id + random(1, 100)) over ()
+        '''
+
+    /* TODO: order by contains window expression throw exception, fix in PR #58036
+    qt_having_with_window_3 '''explain shape plan
+        select 12345
+        from t1
+        having sum(id + random(1, 1)) > 1
+        order by sum(id + random(1, 1)) over ()
+        '''
+
+    qt_having_with_window_4 '''explain shape plan
+        select distinct id + random(1, 1)
+        from t1
+        having sum(id + random(1, 1)) > 1
+        order by sum(id + random(1, 1)) over ()
+        '''
+      */
 
     sql "drop table if exists test_sum0_multi_distinct_with_group_by"
     sql "create table test_sum0_multi_distinct_with_group_by (a int, b int, c int) distributed by hash(a) properties('replication_num'='1');"
