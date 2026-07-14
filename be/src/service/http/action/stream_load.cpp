@@ -786,11 +786,7 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
         request.__set_group_commit_mode(ctx->group_commit_mode);
     }
 
-    if (!http_req->header(HTTP_COMPUTE_GROUP).empty()) {
-        request.__set_cloud_cluster(http_req->header(HTTP_COMPUTE_GROUP));
-    } else if (!http_req->header(HTTP_CLOUD_CLUSTER).empty()) {
-        request.__set_cloud_cluster(http_req->header(HTTP_CLOUD_CLUSTER));
-    }
+    set_stream_load_cloud_cluster(*http_req, request);
 
     if (!http_req->header(HTTP_EMPTY_FIELD_AS_NULL).empty()) {
         if (iequal(http_req->header(HTTP_EMPTY_FIELD_AS_NULL), "true")) {
