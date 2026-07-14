@@ -4394,6 +4394,8 @@ format::LocalColumnIndex struct_child_projection(int32_t root_field_id, int32_t 
 
 class NewOrcReaderTest : public testing::Test {
 protected:
+    static void SetUpTestSuite() { TimezoneUtils::load_timezones_to_cache(); }
+
     void SetUp() override {
         _test_dir = unique_test_dir("doris_new_orc_reader_test");
         std::filesystem::remove_all(_test_dir);
@@ -8648,7 +8650,6 @@ TEST_F(NewOrcReaderTest, SargTimestampInstantRepeatedCivilTimeDoesNotPruneStripe
 
     auto reader = create_reader_for_path(multi_stripe_file_path);
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
-    TimezoneUtils::load_timezones_to_cache();
     state.set_timezone("America/New_York");
     ASSERT_TRUE(reader->init(&state).ok());
 
