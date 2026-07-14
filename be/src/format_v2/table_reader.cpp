@@ -33,8 +33,10 @@
 #include "common/status.h"
 #include "core/assert_cast.h"
 #include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_struct.h"
+#include "core/data_type/primitive_type.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vslot_ref.h"
 #include "format/table/deletion_vector_reader.h"
@@ -160,8 +162,27 @@ DataTypePtr find_struct_child_type_by_external_field(const DataTypeStruct& struc
     return nullptr;
 }
 
+DataTypePtr restore_current_primitive_type(const schema::external::TField& field,
+                                           DataTypePtr fallback_type) {
+    if (!field.__isset.type) {
+        return fallback_type;
+    }
+    const auto primitive_type = thrift_to_type(field.type.type);
+    if (is_complex_type(primitive_type)) {
+        return fallback_type;
+    }
+    // The delete file can expose an older physical type, but initial defaults belong to the
+    // current table field. Restore that type from FE before parsing the default and let the table
+    // reader apply the normal promotion cast to the delete-key type.
+    return DataTypeFactory::instance().create_data_type(
+            primitive_type, false, field.type.__isset.precision ? field.type.precision : 0,
+            field.type.__isset.scale ? field.type.scale : 0,
+            field.type.__isset.len ? field.type.len : -1);
+}
+
 ColumnDefinition build_schema_column_from_external_field(const schema::external::TField& field,
                                                          DataTypePtr type) {
+    type = restore_current_primitive_type(field, std::move(type));
     ColumnDefinition column {
             .identifier = field.__isset.id ? Field::create_field<TYPE_INT>(field.id) : Field {},
             .name = field.__isset.name ? field.name : "",
@@ -170,6 +191,11 @@ ColumnDefinition build_schema_column_from_external_field(const schema::external:
             .type = std::move(type),
             .children = {},
             .default_expr = nullptr,
+            .initial_default_value = field.__isset.initial_default_value
+                                             ? std::make_optional(field.initial_default_value)
+                                             : std::nullopt,
+            .initial_default_value_is_base64 = field.__isset.initial_default_value_is_base64 &&
+                                               field.initial_default_value_is_base64,
             .is_partition_key = false,
     };
     if (column.type == nullptr || !field.__isset.nestedField) {
@@ -462,6 +488,34 @@ Status TableReader::annotate_projected_column(const TFileScanSlotInfo& slot_info
     column->identifier = context->schema_column->identifier;
     column->name_mapping = context->schema_column->name_mapping;
     return Status::OK();
+}
+
+std::optional<ColumnDefinition> TableReader::_find_current_table_column_by_field_id(
+        int32_t field_id, DataTypePtr type) const {
+    if (_scan_params == nullptr || !_scan_params->__isset.history_schema_info ||
+        _scan_params->history_schema_info.empty()) {
+        return std::nullopt;
+    }
+    const auto* schema = &_scan_params->history_schema_info.front();
+    if (_scan_params->__isset.current_schema_id) {
+        for (const auto& candidate_schema : _scan_params->history_schema_info) {
+            if (candidate_schema.__isset.schema_id &&
+                candidate_schema.schema_id == _scan_params->current_schema_id) {
+                schema = &candidate_schema;
+                break;
+            }
+        }
+    }
+    if (!schema->__isset.root_field || !schema->root_field.__isset.fields) {
+        return std::nullopt;
+    }
+    for (const auto& field_ptr : schema->root_field.fields) {
+        const auto* field = get_field_ptr(field_ptr);
+        if (field != nullptr && field->__isset.id && field->id == field_id) {
+            return build_schema_column_from_external_field(*field, std::move(type));
+        }
+    }
+    return std::nullopt;
 }
 
 Status TableReader::init(TableReadOptions&& options) {

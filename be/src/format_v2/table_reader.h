@@ -154,7 +154,7 @@ struct SplitReadOptions {
     // filter could arrive after synthetic rows have already been returned and those rows cannot be
     // retracted. Standalone TableReader callers have no scanner runtime-filter lifecycle.
     bool all_runtime_filters_applied = true;
-    ShardedKVCache* cache;
+    ShardedKVCache* cache = nullptr;
     TFileRangeDesc current_range;
     FileFormat current_split_format = FileFormat::PARQUET;
     std::optional<GlobalRowIdContext> global_rowid_context;
@@ -318,6 +318,9 @@ public:
     }
 
 protected:
+    std::optional<ColumnDefinition> _find_current_table_column_by_field_id(int32_t field_id,
+                                                                           DataTypePtr type) const;
+
     // Parse deletion vector information from table format specific file description.
     virtual Status _parse_deletion_vector_file(const TTableFormatFileDesc& t_desc,
                                                DeleteFileDesc* desc, bool* has_delete_file) {
