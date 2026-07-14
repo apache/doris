@@ -2453,54 +2453,6 @@ void SegmentIterator::_replace_version_col_if_needed(const std::vector<ColumnId>
     VLOG_DEBUG << "replaced version column in segment iterator, version_col_idx:" << version_idx;
 }
 
-void SegmentIterator::_update_lsn_col_if_needed(const std::vector<ColumnId>& column_ids,
-                                                size_t num_rows) {
-    // | commit tso(64) | auto-inc row_id(64) |
-    if (_opts.version.first != _opts.version.second) {
-        return;
-    }
-
-    if (_opts.io_ctx.reader_type != ReaderType::READER_BINLOG &&
-        _opts.io_ctx.reader_type != ReaderType::READER_BINLOG_COMPACTION) {
-        return;
-    }
-
-    int32_t lsn_col_idx = _schema->lsn_col_idx();
-    if (lsn_col_idx < 0 || std::ranges::find(column_ids, lsn_col_idx) == column_ids.end()) {
-        return;
-    }
-
-    DCHECK_EQ(_opts.commit_tso.start_tso(), _opts.commit_tso.end_tso());
-    const Int64 commit_tso = _opts.commit_tso.end_tso() == -1 ? 0 : _opts.commit_tso.end_tso();
-
-    if (_is_pred_column[lsn_col_idx]) {
-        auto* lsn_column = assert_cast<ColumnInt128*>(_current_return_columns[lsn_col_idx].get());
-        std::vector<Int128> binlog_lsns;
-        binlog_lsns.reserve(num_rows);
-        for (size_t j = 0; j < num_rows; j++) {
-            const Int128 row_id = lsn_column->get_data()[j];
-            binlog_lsns.emplace_back(make_row_binlog_lsn(commit_tso, row_id));
-        }
-        lsn_column->clear();
-        for (const auto& binlog_lsn : binlog_lsns) {
-            lsn_column->insert_data(reinterpret_cast<const char*>(&binlog_lsn), 0);
-        }
-        return;
-    }
-
-    auto* lsn_column = assert_cast<ColumnInt128*>(_current_return_columns[lsn_col_idx].get());
-    const auto* column_desc = _schema->column(lsn_col_idx);
-    auto column = Schema::get_data_type_ptr(*column_desc)->create_column();
-    DCHECK(column_desc->type() == FieldType::OLAP_FIELD_TYPE_LARGEINT);
-    auto* col_ptr = assert_cast<ColumnInt128*>(column.get());
-
-    for (size_t j = 0; j < num_rows; j++) {
-        const Int128 row_id = lsn_column->get_element(j);
-        col_ptr->insert_value(make_row_binlog_lsn(commit_tso, row_id));
-    }
-    _current_return_columns[lsn_col_idx] = std::move(column);
-}
-
 void SegmentIterator::_update_tso_col_if_needed(const std::vector<ColumnId>& column_ids,
                                                 size_t num_rows) {
     // use physical time part of commit tso to replace timestamp col
@@ -2970,7 +2922,6 @@ Status SegmentIterator::_next_batch_internal(Block* block) {
     _selected_size = 0;
     RETURN_IF_ERROR(_read_columns_by_index(nrows_read_limit, _selected_size));
     _replace_version_col_if_needed(_predicate_column_ids, _selected_size);
-    _update_lsn_col_if_needed(_predicate_column_ids, _selected_size);
     _update_tso_col_if_needed(_predicate_column_ids, _selected_size);
 
     _opts.stats->blocks_load += 1;
@@ -3015,7 +2966,6 @@ Status SegmentIterator::_next_batch_internal(Block* block) {
                                 _common_expr_column_ids, _block_rowids, _sel_rowid_idx.data(),
                                 _selected_size, &_current_return_columns, false, true));
                         _replace_version_col_if_needed(_common_expr_column_ids, _selected_size);
-                        _update_lsn_col_if_needed(_common_expr_column_ids, _selected_size);
                         _update_tso_col_if_needed(_common_expr_column_ids, _selected_size);
                         RETURN_IF_ERROR(_process_columns(_common_expr_column_ids, block));
                     }
@@ -3050,7 +3000,6 @@ Status SegmentIterator::_next_batch_internal(Block* block) {
                         _selected_size, &_current_return_columns,
                         _opts.condition_cache_digest && !_find_condition_cache, false));
                 _replace_version_col_if_needed(_non_predicate_columns, _selected_size);
-                _update_lsn_col_if_needed(_non_predicate_columns, _selected_size);
                 _update_tso_col_if_needed(_non_predicate_columns, _selected_size);
             } else {
                 if (_opts.condition_cache_digest && !_find_condition_cache) {

@@ -95,7 +95,7 @@ suite("test_binlog_changes_syntax", "nonConcurrent") {
             FROM ${dupTable}@incr('startTimestamp' = '${dupT0}',
                 "endTimestamp" = "${dupT1}",
                 "incrementType" = "APPEND_ONLY")
-            ORDER BY __DORIS_BINLOG_LSN__
+            ORDER BY __DORIS_BINLOG_TSO__, __DORIS_BINLOG_LSN__
         """
 
         // 1.2 DETAIL [dupT0, dupT1] must be identical to APPEND_ONLY for dup.
@@ -104,7 +104,7 @@ suite("test_binlog_changes_syntax", "nonConcurrent") {
             FROM ${dupTable}@incr('startTimestamp' = '${dupT0}',
                 "endTimestamp" = "${dupT1}",
                 "incrementType" = "DETAIL")
-            ORDER BY __DORIS_BINLOG_LSN__
+            ORDER BY __DORIS_BINLOG_TSO__, __DORIS_BINLOG_LSN__
         """
 
         // 1.3 MIN_DELTA on dup table should be equivalent to APPEND_ONLY:
@@ -115,7 +115,7 @@ suite("test_binlog_changes_syntax", "nonConcurrent") {
             FROM ${dupTable}@incr('startTimestamp' = '${dupT0}',
                 "endTimestamp" = "${dupT1}",
                 "incrementType" = "MIN_DELTA")
-            ORDER BY __DORIS_BINLOG_LSN__
+            ORDER BY __DORIS_BINLOG_TSO__, __DORIS_BINLOG_LSN__
         """
 
         // 1.4 startTimestamp only: covers in-window + late insert.
@@ -123,7 +123,7 @@ suite("test_binlog_changes_syntax", "nonConcurrent") {
             SELECT id, v1, __DORIS_BINLOG_OP__
             FROM ${dupTable}@incr('startTimestamp' = '${dupT0}',
                 "incrementType" = "DETAIL")
-            ORDER BY __DORIS_BINLOG_LSN__
+            ORDER BY __DORIS_BINLOG_TSO__, __DORIS_BINLOG_LSN__
         """
 
         // 1.5 endTimestamp only: covers seed + in-window inserts.
@@ -131,19 +131,19 @@ suite("test_binlog_changes_syntax", "nonConcurrent") {
             SELECT id, v1, __DORIS_BINLOG_OP__
             FROM ${dupTable}@incr("endTimestamp" = "${dupT1}",
                 "incrementType" = "DETAIL")
-            ORDER BY __DORIS_BINLOG_LSN__
+            ORDER BY __DORIS_BINLOG_TSO__, __DORIS_BINLOG_LSN__
         """
 
         // 1.6 No timestamps: equals @incr() and equals DETAIL of full binlog.
         order_qt_dup_detail_all """
             SELECT id, v1, __DORIS_BINLOG_OP__
             FROM ${dupTable}@incr("incrementType" = "DETAIL")
-            ORDER BY __DORIS_BINLOG_LSN__
+            ORDER BY __DORIS_BINLOG_TSO__, __DORIS_BINLOG_LSN__
         """
         order_qt_dup_incr_empty """
             SELECT id, v1, __DORIS_BINLOG_OP__
             FROM ${dupTable}@incr()
-            ORDER BY __DORIS_BINLOG_LSN__
+            ORDER BY __DORIS_BINLOG_TSO__, __DORIS_BINLOG_LSN__
         """
 
         // 1.7 Degenerate windows.
@@ -153,7 +153,7 @@ suite("test_binlog_changes_syntax", "nonConcurrent") {
             FROM ${dupTable}@incr('startTimestamp' = '${dupT1}',
                 "endTimestamp" = "${dupT0}",
                 "incrementType" = "DETAIL")
-            ORDER BY __DORIS_BINLOG_LSN__
+            ORDER BY __DORIS_BINLOG_TSO__, __DORIS_BINLOG_LSN__
         """
 
         //  - far-future start: empty.
@@ -161,7 +161,7 @@ suite("test_binlog_changes_syntax", "nonConcurrent") {
             SELECT id, v1, __DORIS_BINLOG_OP__
             FROM ${dupTable}@incr('startTimestamp' = '2999-01-01 00:00:00',
                 "incrementType" = "DETAIL")
-            ORDER BY __DORIS_BINLOG_LSN__
+            ORDER BY __DORIS_BINLOG_TSO__, __DORIS_BINLOG_LSN__
         """
 
         //  - far-past start + far-future end: equivalent to full binlog.
@@ -170,7 +170,7 @@ suite("test_binlog_changes_syntax", "nonConcurrent") {
             FROM ${dupTable}@incr('startTimestamp' = '1971-01-01 00:00:00',
                 "endTimestamp" = "2999-01-01 00:00:00",
                 "incrementType" = "DETAIL")
-            ORDER BY __DORIS_BINLOG_LSN__
+            ORDER BY __DORIS_BINLOG_TSO__, __DORIS_BINLOG_LSN__
         """
 
         // 1.8 Cross-check against binlog() TVF — DETAIL with full window must
@@ -179,7 +179,7 @@ suite("test_binlog_changes_syntax", "nonConcurrent") {
         order_qt_dup_binlog_tvf """
             SELECT id, v1, __DORIS_BINLOG_OP__
             FROM binlog("table" = "${dupTable}")
-            ORDER BY __DORIS_BINLOG_LSN__
+            ORDER BY __DORIS_BINLOG_TSO__, __DORIS_BINLOG_LSN__
         """
 
         // ============================================================
@@ -305,7 +305,7 @@ suite("test_binlog_changes_syntax", "nonConcurrent") {
             FROM ${mowTable}@incr('startTimestamp' = '${mowT0}',
                 "endTimestamp" = "${mowT1}",
                 "incrementType" = "DETAIL")
-            ORDER BY __DORIS_BINLOG_LSN__
+            ORDER BY __DORIS_BINLOG_TSO__, __DORIS_BINLOG_LSN__
         """
 
         // 2.4 startTimestamp only: includes the late (6,60).
@@ -313,7 +313,7 @@ suite("test_binlog_changes_syntax", "nonConcurrent") {
             SELECT id, v1, __DORIS_BINLOG_OP__
             FROM ${mowTable}@incr('startTimestamp' = '${mowT0}',
                 "incrementType" = "DETAIL")
-            ORDER BY __DORIS_BINLOG_LSN__
+            ORDER BY __DORIS_BINLOG_TSO__, __DORIS_BINLOG_LSN__
         """
 
         // 2.5 endTimestamp only: includes the seed (1,10) and (3,30).
@@ -321,12 +321,12 @@ suite("test_binlog_changes_syntax", "nonConcurrent") {
             SELECT id, v1, __DORIS_BINLOG_OP__
             FROM ${mowTable}@incr("endTimestamp" = "${mowT1}",
                 "incrementType" = "DETAIL")
-            ORDER BY __DORIS_BINLOG_LSN__
+            ORDER BY __DORIS_BINLOG_TSO__, __DORIS_BINLOG_LSN__
         """
         order_qt_mow_detail_all """
             SELECT id, v1, __DORIS_BINLOG_OP__
             FROM ${mowTable}@incr("incrementType" = "DETAIL")
-            ORDER BY __DORIS_BINLOG_LSN__
+            ORDER BY __DORIS_BINLOG_TSO__, __DORIS_BINLOG_LSN__
         """
 
         // 2.6 MIN_DELTA across full binlog: per-key folding from binlog start
@@ -350,7 +350,7 @@ suite("test_binlog_changes_syntax", "nonConcurrent") {
         order_qt_mow_incr_empty """
             SELECT id, v1, __DORIS_BINLOG_OP__
             FROM ${mowTable}@incr()
-            ORDER BY __DORIS_BINLOG_LSN__
+            ORDER BY __DORIS_BINLOG_TSO__, __DORIS_BINLOG_LSN__
         """
 
         // 2.8 Degenerate window: start > end -> empty.
@@ -367,7 +367,7 @@ suite("test_binlog_changes_syntax", "nonConcurrent") {
             FROM ${mowTable}@incr('startTimestamp' = '1971-01-01 00:00:00',
                 "endTimestamp" = "2999-01-01 00:00:00",
                 "incrementType" = "DETAIL")
-            ORDER BY __DORIS_BINLOG_LSN__
+            ORDER BY __DORIS_BINLOG_TSO__, __DORIS_BINLOG_LSN__
         """
 
         // ============================================================
@@ -427,7 +427,7 @@ suite("test_binlog_changes_syntax", "nonConcurrent") {
             FROM ${mowSeqTable}@incr('startTimestamp' = '${seqT0}',
                 "endTimestamp" = "${seqT1}",
                 "incrementType" = "DETAIL")
-            ORDER BY __DORIS_BINLOG_LSN__
+            ORDER BY __DORIS_BINLOG_TSO__, __DORIS_BINLOG_LSN__
         """
 
         // 3.2 MIN_DELTA collapses to BEFORE(100) -> AFTER(latest visible value).
@@ -485,7 +485,7 @@ suite("test_binlog_changes_syntax", "nonConcurrent") {
             FROM ${mowPartialTable}@incr('startTimestamp' = '${partT0}',
                 "endTimestamp" = "${partT1}",
                 "incrementType" = "DETAIL")
-            ORDER BY __DORIS_BINLOG_LSN__
+            ORDER BY __DORIS_BINLOG_TSO__, __DORIS_BINLOG_LSN__
         """
 
         // 4.2 MIN_DELTA: collapses to BEFORE/AFTER pair for key=1, where AFTER

@@ -140,8 +140,8 @@ protected:
         cfg.source.source_write_type = DataWriteType::TYPE_DIRECT;
         auto lsn_buffer = AutoIncIDBuffer::create_shared(1, 1, kBinlogLsnAutoIncId);
         lsn_buffer->append_range_for_test(1000, num_rows);
-        std::shared_ptr<std::vector<int64_t>> lsn_ids;
-        RETURN_IF_ERROR(allocate_binlog_lsn(lsn_buffer, num_rows, &lsn_ids));
+        auto lsn_ids = std::make_shared<std::vector<int64_t>>();
+        RETURN_IF_ERROR(allocate_binlog_lsn(lsn_buffer, num_rows, *lsn_ids));
         cfg.insert_seg_lsn(0, lsn_ids);
         auto row_binlog_writer_res = _tablet->create_rowset_writer(row_binlog_context, false);
         if (!row_binlog_writer_res.has_value()) {

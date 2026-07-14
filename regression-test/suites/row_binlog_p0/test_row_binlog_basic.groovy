@@ -24,6 +24,7 @@ suite("test_row_binlog_basic", "nonConcurrent") {
     sql "DROP TABLE IF EXISTS test_mow_with_binlog FORCE"
     sql "DROP TABLE IF EXISTS test_mow_with_before_binlog FORCE"
     sql "DROP TABLE IF EXISTS test_mow_seq_with_binlog FORCE"
+    sql "DROP TABLE IF EXISTS test_empty_rowset FORCE"
 
     sql """
         CREATE TABLE test_dup_with_binlog (
@@ -106,6 +107,43 @@ suite("test_row_binlog_basic", "nonConcurrent") {
              WITH PROPERTIES ("function_column.sequence_type" = "int")"""
 
     sql """
+        CREATE TABLE test_empty_rowset (
+            k1 INT,
+            k2 INT,
+            v1 INT,
+            v2 STRING
+        )
+        UNIQUE KEY(k1, k2)
+        DISTRIBUTED BY HASH(k1) BUCKETS 2
+        PROPERTIES (
+            "replication_num" = "1",
+            "enable_unique_key_merge_on_write" = "true",
+            "light_schema_change" = "true",
+            "binlog.enable" = "true",
+            "binlog.format" = "ROW"
+        )
+    """
+
+    // Cover row-binlog empty-rowset close.
+    sql "INSERT INTO test_empty_rowset VALUES (1, 1, 10, '10')"
+
+    qt_empty_rowset_raw """
+        SELECT k1, k2, v1, v2
+        FROM test_empty_rowset
+        ORDER BY k1, k2
+    """
+
+    qt_empty_rowset_binlog """
+        SELECT __DORIS_BINLOG_OP__ AS op,
+               k1,
+               k2,
+               v1,
+               v2
+        FROM binlog("table" = "test_empty_rowset")
+        ORDER BY __DORIS_BINLOG_TSO__, __DORIS_BINLOG_LSN__
+    """
+
+    sql """
         INSERT INTO test_dup_with_binlog VALUES
             (1, 1, 1, 10, '10'),
             (2, 2, 2, 20, '20')
@@ -129,7 +167,7 @@ suite("test_row_binlog_basic", "nonConcurrent") {
                v1,
                v2
         FROM binlog("table" = "test_dup_with_binlog")
-        ORDER BY __DORIS_BINLOG_LSN__
+        ORDER BY __DORIS_BINLOG_TSO__, __DORIS_BINLOG_LSN__
     """
 
     sql """
@@ -157,7 +195,7 @@ suite("test_row_binlog_basic", "nonConcurrent") {
                v1,
                v2
         FROM binlog("table" = "test_mow_with_binlog")
-        ORDER BY __DORIS_BINLOG_LSN__
+        ORDER BY __DORIS_BINLOG_TSO__, __DORIS_BINLOG_LSN__
     """
 
     sql """
@@ -187,7 +225,7 @@ suite("test_row_binlog_basic", "nonConcurrent") {
                __BEFORE__v1__,
                __BEFORE__v2__
         FROM binlog("table" = "test_mow_with_before_binlog")
-        ORDER BY __DORIS_BINLOG_LSN__
+        ORDER BY __DORIS_BINLOG_TSO__, __DORIS_BINLOG_LSN__
     """
 
     sql """
@@ -238,7 +276,7 @@ suite("test_row_binlog_basic", "nonConcurrent") {
                __BEFORE__v1__,
                __BEFORE__v2__
         FROM binlog("table" = "test_mow_seq_with_binlog")
-        ORDER BY __DORIS_BINLOG_LSN__
+        ORDER BY __DORIS_BINLOG_TSO__, __DORIS_BINLOG_LSN__
     """
 
     sql "SET skip_delete_bitmap = true"
@@ -253,7 +291,7 @@ suite("test_row_binlog_basic", "nonConcurrent") {
                __BEFORE__v1__,
                __BEFORE__v2__
         FROM binlog("table" = "test_mow_seq_with_binlog")
-        ORDER BY __DORIS_BINLOG_LSN__
+        ORDER BY __DORIS_BINLOG_TSO__, __DORIS_BINLOG_LSN__
     """
     
     sql "SET skip_delete_bitmap = false"
