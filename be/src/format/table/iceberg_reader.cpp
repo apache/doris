@@ -221,8 +221,7 @@ Status IcebergParquetReader::on_before_init_reader(ReaderInitContext* ctx) {
     _all_required_col_names = ctx->column_names;
 
     // Create column IDs from field descriptor
-    auto column_id_result =
-            _create_column_ids(field_desc, ctx->tuple_descriptor);
+    auto column_id_result = _create_column_ids(field_desc, ctx->tuple_descriptor);
     ctx->column_ids = std::move(column_id_result.column_ids);
     ctx->filter_column_ids = std::move(column_id_result.filter_column_ids);
 
@@ -535,8 +534,7 @@ Status IcebergOrcReader::on_before_init_reader(ReaderInitContext* ctx) {
     _all_required_col_names = ctx->column_names;
 
     // Create column IDs from ORC type
-    auto column_id_result =
-            _create_column_ids(orc_type_ptr, ctx->tuple_descriptor);
+    auto column_id_result = _create_column_ids(orc_type_ptr, ctx->tuple_descriptor);
     ctx->column_ids = std::move(column_id_result.column_ids);
     ctx->filter_column_ids = std::move(column_id_result.filter_column_ids);
 
