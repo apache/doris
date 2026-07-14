@@ -27,7 +27,9 @@
 >
 > **⏭ 删除线剩余（收尾）**：① e2e 欠账（ACID 分区表读分区列值 + 分区有序值 paimon/iceberg/hive/hudi 含非字符串 NULL 分区，与删除正交，用户真集群自跑）；② 用户自跑翻闸 hms 全量回归，删前后逐位一致；③ PR 收尾（拓扑多 commit → 最终 squash，base = `branch-catalog-spi`）。
 >
-> **⏭ 单列后续（用户定，不并入本轮）**：① 第二处哨兵泄漏 `TablePartitionValues.HIVE_DEFAULT_PARTITION` ← 活 `MetadataGenerator`（`partition_values` TVF）；② iceberg AWS 属性簇 + maven 依赖（`iceberg-aws`/`s3tables`）pom 裁剪（现可做，iceberg 文件已删）；③ jdbc `client|util` streaming/CDC 子系统迁移。**既存债**：`IcebergMergeCommand`/`IcebergUpdateCommand` 仍 iceberg 命名活类；`Column.ICEBERG_ROWID_COL`（勿新铸 `Column._row_id`）。
+> **⏭ 单列后续（用户定，不并入本轮）**：① 第二处哨兵泄漏 `TablePartitionValues.HIVE_DEFAULT_PARTITION` ← 活 `MetadataGenerator`（`partition_values` TVF）；② iceberg AWS 属性簇 + maven 依赖（`iceberg-aws`/`s3tables`）pom 裁剪（现可做，iceberg 文件已删）——**已并入下述独立任务空间的阶段 1（HCS-12），别双头开工**；③ jdbc `client|util` streaming/CDC 子系统迁移。
+>
+> **🆕 独立任务空间（2026-07-14 立项，与本主线并行、不混流）= `plan-doc/hive-catalog-shade-removal/`**：剔除 fe-core/fe-common 对 `hive-catalog-shade`（127MB）的依赖。**关键反直觉结论**：该依赖**不是**冗余、**现在删不掉**——fe-core `src/main` 仍有 **26 个文件** import hive 类（38 文件 vendored Glue 客户端树 + DLF `ProxyMetaStoreClient` + 5 个 HiveConf 属性类 + `DefaultConnectorContext` + `RangerHiveAuditHandler`），且 `fe-common` 的 shade 是 **`provided`**（删了 fe-core 依赖 → **编译绿、运行炸**，且在**每个外表 catalog** 路径上）。该空间自带 HANDOFF/design/tasklist/progress，**新 session 从它的 `HANDOFF.md` 进**。**既存债**：`IcebergMergeCommand`/`IcebergUpdateCommand` 仍 iceberg 命名活类；`Column.ICEBERG_ROWID_COL`（勿新铸 `Column._row_id`）。
 
 ---
 
