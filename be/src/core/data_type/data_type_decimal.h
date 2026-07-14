@@ -124,6 +124,10 @@ public:
 
     DataTypeDecimal(UInt32 precision = max_decimal_precision<T>(),
                     UInt32 scale = default_decimal_scale<T>(),
+                    // For decimalv2 only, record the original(schema) precision and scale.
+                    // UINT32_MAX means original precision and scale are unknown.
+                    // Decimalv2 is converted to Decimal(27, 9) in memory for calculations,
+                    // but string casts should retain the precision and scale from the schema.
                     UInt32 arg_original_precision = UINT32_MAX,
                     UInt32 arg_original_scale = UINT32_MAX)
             : precision(precision),
