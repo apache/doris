@@ -37,6 +37,8 @@ suite("test_ivm_explain_refresh") {
         )
     }
 
+    sql "set disable_join_reorder=true"
+
     sql """drop materialized view if exists test_ivm_explain_refresh_mv;"""
     sql """drop table if exists test_ivm_explain_refresh_t1;"""
     sql """drop table if exists test_ivm_explain_refresh_t2;"""
