@@ -35,6 +35,8 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Statistics;
+import org.apache.doris.system.Backend;
+import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
@@ -204,6 +206,48 @@ public class AggregateUtils {
         }
         for (int i = 0; i < groupByKeys.size(); i++) {
             if (!groupByKeys.get(i).equals(orderKeys.get(i).getExpr())) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * Check the basic environmental conditions for bucketed hash aggregation.
+     * This is the shared eligibility gate used by ChildrenPropertiesRegulator
+     * (to allow the one-phase-GLOBAL+distribute pattern), CostModel (for cost
+     * discount), and PhysicalPlanTranslator (for fusion into BucketedAggregationNode).
+     *
+     * @return true if the session variable is enabled, there is exactly one alive BE,
+     *         no smooth upgrade is in progress, and the aggregate has GROUP BY keys.
+     */
+    public static boolean isBucketedHashAggEnabled(int groupByExprCount) {
+        ConnectContext ctx = ConnectContext.get();
+        if (ctx == null) {
+            return false;
+        }
+        if (!ctx.getSessionVariable().enableBucketedHashAgg) {
+            return false;
+        }
+        // Must have GROUP BY keys (without-key aggregation not supported)
+        if (groupByExprCount == 0) {
+            return false;
+        }
+        // Correctness gate: single-BE only (cross-BE in-memory merge is impossible).
+        // Use be_number_for_test first (set by regression tests), fall back to real cluster count.
+        int beNumber = ctx.getSessionVariable().getBeNumberForTest();
+        if (beNumber <= 0) {
+            beNumber = Math.max(1, ctx.getEnv().getClusterInfo().getBackendsNumber(true));
+        }
+        if (beNumber != 1) {
+            return false;
+        }
+        // Smooth upgrade safety net: old BE processes do not recognize
+        // BUCKETED_AGGREGATION_NODE plan node type
+        SystemInfoService clusterInfo = ctx.getEnv().getClusterInfo();
+        for (Long beId : clusterInfo.getAllBackendByCurrentCluster(true)) {
+            Backend be = clusterInfo.getBackend(beId);
+            if (be != null && be.isSmoothUpgradeSrc()) {
                 return false;
             }
         }

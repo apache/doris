@@ -676,34 +676,6 @@ public class QueryStatsRecorderTest {
     }
 
     /**
-     * PhysicalBucketedHashAggregate implements Aggregate but does not extend PhysicalHashAggregate.
-     * The Aggregate interface check must cover it.
-     */
-    @Test
-    @SuppressWarnings("unchecked")
-    public void testBucketedAggregateGroupByQueryHit() {
-        ExprId id1 = new ExprId(1);
-        SlotReference k1Slot = mockSlot(id1, "k1");
-        PhysicalOlapScan scan = mockScan(1L, 1L, 1L, 1L, ImmutableList.of(k1Slot));
-
-        Expression groupExpr = Mockito.mock(Expression.class);
-        Mockito.when(groupExpr.getInputSlots()).thenReturn(ImmutableSet.of(k1Slot));
-
-        org.apache.doris.nereids.trees.plans.physical.PhysicalBucketedHashAggregate<?> agg =
-                Mockito.mock(org.apache.doris.nereids.trees.plans.physical.PhysicalBucketedHashAggregate.class);
-        Mockito.when(agg.children()).thenReturn(ImmutableList.of(scan));
-        Mockito.when(agg.getGroupByExpressions()).thenReturn(ImmutableList.of(groupExpr));
-        Mockito.when(agg.getOutputExpressions()).thenReturn(ImmutableList.of());
-        Mockito.when(agg.getOutput()).thenReturn(ImmutableList.of(k1Slot));
-
-        Map<String, StatsDelta> deltas = QueryStatsRecorder.collectDeltas((PhysicalPlan) agg);
-
-        StatsDelta delta = deltas.get("1_1_1_1");
-        Assertions.assertNotNull(delta, "bucketed aggregate must be recorded via Aggregate interface");
-        Assertions.assertTrue(delta.getColumnStats().get("k1").queryHit, "k1: GROUP BY in bucketed agg");
-    }
-
-    /**
      * JOIN ON t1.k1 = t2.k2: both hash-join and other-join conjuncts → filterHit.
      */
     @Test

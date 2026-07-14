@@ -158,6 +158,13 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
             // group by key is skew
             return skewOnShuffleExpr(aggregate);
         } else {
+            // Bucketed hash agg exception: allow one-phase GLOBAL + distribute
+            // pattern so the translator can fuse it into BucketedAggregationNode.
+            // Gate with data-volume checks using group-level statistics to avoid
+            // generating this pattern when bucketed agg is unsuitable.
+            if (AggregateUtils.isBucketedHashAggEnabled(aggregate.getGroupByExpressions().size())) {
+                return !bucketedDataVolumeGatesPass(aggregate);
+            }
             return true;
         }
     }
@@ -215,6 +222,55 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
     private boolean onePhaseAggWithDistribute(PhysicalHashAggregate<? extends Plan> aggregate) {
         return aggregate.getAggMode() == AggMode.INPUT_TO_RESULT
                 && children.get(0).getPlan() instanceof PhysicalDistribute;
+    }
+
+    /**
+     * Check data-volume gates for bucketed hash aggregation using group-level
+     * statistics available during property regulation. Returns true if the
+     * pattern should be allowed (stats pass or unavailable), false if it should
+     * be banned due to unfavorable data characteristics.
+     * Mirrors the checks from the old implementBucketedPhase.
+     */
+    private boolean bucketedDataVolumeGatesPass(PhysicalHashAggregate<? extends Plan> aggregate) {
+        Statistics inputStats = aggregate.getGroupExpression().get().childStatistics(0);
+        if (inputStats == null) {
+            return true; // no stats → allow (other gates handle eligibility)
+        }
+        Statistics outputStats = aggregate.getGroupExpression().get()
+                .getOwnerGroup().getStatistics();
+        SessionVariable sv = ConnectContext.get().getSessionVariable();
+        double rows = inputStats.getRowCount();
+
+        // Gate 1: minimum input rows
+        if (sv.bucketedAggMinInputRows > 0 && rows < sv.bucketedAggMinInputRows) {
+            return false;
+        }
+
+        // Gate 2: high-cardinality GROUP BY columns
+        double highCardThreshold = sv.bucketedAggHighCardThreshold;
+        if (highCardThreshold > 0) {
+            for (Expression groupByKey : aggregate.getGroupByExpressions()) {
+                ColumnStatistic colStat = inputStats.findColumnStatistics(groupByKey);
+                if (colStat != null && !colStat.isUnKnown
+                        && colStat.ndv > rows * highCardThreshold) {
+                    return false;
+                }
+            }
+        }
+
+        // Gate 3: max group keys (merge phase cost dominates)
+        if (sv.bucketedAggMaxGroupKeys > 0 && outputStats != null
+                && outputStats.getRowCount() > sv.bucketedAggMaxGroupKeys) {
+            return false;
+        }
+
+        // Gate 4: aggregation output cardinality ratio
+        if (highCardThreshold > 0 && outputStats != null
+                && outputStats.getRowCount() > rows * highCardThreshold) {
+            return false;
+        }
+
+        return true;
     }
 
     private boolean childIsCTEConsumer() {

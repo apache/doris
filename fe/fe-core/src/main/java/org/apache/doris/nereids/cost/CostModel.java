@@ -38,13 +38,13 @@ import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.plans.AggMode;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanNodeAndHash;
 import org.apache.doris.nereids.trees.plans.algebra.OlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalBucketedHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
@@ -65,6 +65,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggrega
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.util.AggregateUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.ColumnStatistic;
@@ -89,6 +90,8 @@ class CostModel extends PlanVisitor<Cost, PlanContext> {
     // The cost of using external tables should be somewhat higher than using internal tables,
     // so when encountering a scan of an external table, a coefficient should be applied.
     static final double EXTERNAL_TABLE_SCAN_FACTOR = 5;
+    static final double BUCKETED_AGG_COST_DISCOUNT = 0.5;
+
     private static final Logger LOG = LogManager.getLogger(CostModel.class);
     private final int beNumber;
     private final int parallelInstance;
@@ -96,7 +99,7 @@ class CostModel extends PlanVisitor<Cost, PlanContext> {
 
     public CostModel(ConnectContext connectContext) {
         SessionVariable sessionVariable = connectContext.getSessionVariable();
-        if (sessionVariable.getBeNumberForTest() != -1) {
+        if (sessionVariable.getBeNumberForTest() > 0) {
             // shape test, fix the BE number and instance number
             beNumber = sessionVariable.getBeNumberForTest();
             parallelInstance = 8;
@@ -361,23 +364,19 @@ class CostModel extends PlanVisitor<Cost, PlanContext> {
                     inputStatistics.getRowCount() / beNumber, 0);
         } else {
             int factor = aggregate.getGroupByExpressions().isEmpty() ? 1 : beNumber;
-            // global
+            double rowCost = inputStatistics.getRowCount() / factor;
+            // Bucketed fusion discount: when the one-phase GLOBAL INPUT_TO_RESULT
+            // aggregate is eligible for translator fusion (correctness + data-volume
+            // gates are enforced by ChildrenPropertiesRegulator), apply a discount
+            // to prefer this path over two-phase aggregation.
+            if (aggregate.getAggMode() == AggMode.INPUT_TO_RESULT
+                    && AggregateUtils.isBucketedHashAggEnabled(
+                        aggregate.getGroupByExpressions().size())) {
+                rowCost *= BUCKETED_AGG_COST_DISCOUNT;
+            }
             return Cost.of(context.getSessionVariable(),
-                    exprCost / 100 + inputStatistics.getRowCount() / factor,
-                    inputStatistics.getRowCount() / factor, 0);
+                    exprCost / 100 + rowCost, rowCost, 0);
         }
-    }
-
-    @Override
-    public Cost visitPhysicalBucketedHashAggregate(
-            PhysicalBucketedHashAggregate<? extends Plan> aggregate, PlanContext context) {
-        // Bucketed agg is similar to one-phase agg: all computation on a single BE,
-        // but avoids exchange overhead. Cost is comparable to one-phase agg.
-        Statistics inputStatistics = context.getChildStatistics(0);
-        double exprCost = expressionTreeCost(aggregate.getExpressions());
-        return Cost.of(context.getSessionVariable(),
-                exprCost / 100 + inputStatistics.getRowCount(),
-                inputStatistics.getRowCount(), 0);
     }
 
     @Override
