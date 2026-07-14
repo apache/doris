@@ -947,6 +947,15 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     rewriteJobs.addAll(jobs(
                                     topic("rewrite cte sub-tree after sub path push down",
                                             custom(RuleType.CLEAR_CONTEXT_STATUS, ClearContextStatus::new),
+                                            // ClearContextStatus wipes cteIdToOutputIds and consumerIdToFilters;
+                                            // re-collect them so RewriteCteChildren can prune producer outputs
+                                            // and construct push-down filters correctly. Without this, the
+                                            // second-pass RewriteCteChildren sees null maps and either NPEs
+                                            // (see #57348) or silently skips the projection optimization.
+                                            topDown(
+                                                    new CollectFilterAboveConsumer(),
+                                                    new CollectCteConsumerOutput()
+                                            ),
                                             custom(RuleType.REWRITE_CTE_CHILDREN,
                                                     () -> new RewriteCteChildren(afterPushDownJobs, runCboRules)
                                             )
