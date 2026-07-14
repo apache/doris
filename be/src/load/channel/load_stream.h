@@ -136,9 +136,21 @@ public:
         }
     }
 
-    // return true if all streams are closed, otherwise return false
+    // Count this CLOSE_LOAD. Returns true once CLOSE_LOAD from all streams has been
+    // received (i.e. the load is ready to commit). Only counts and commits; stream
+    // closing is handled by the caller in _dispatch to keep EOS-before-close ordering.
     bool close(int64_t src_id, const std::vector<PTabletID>& tablets_to_commit,
                std::vector<int64_t>* success_tablet_ids, FailedTablets* failed_tablet_ids);
+
+    // Close/park `stream_id` after its EOS was sent, then collect stream ids that are
+    // now safe to close into `to_close`. A non-incremental stream is returned right
+    // away; an incremental stream is parked (fencing) until all CLOSE_LOADs arrive,
+    // after which any thread reaching here drains the parked streams. Registration +
+    // the all-received check are under one lock, and only a stream whose EOS was sent
+    // is ever collected -- this closes both the split-lock leak race and the
+    // close-before-EOS race.
+    void mark_eos_sent_and_collect(int64_t stream_id, bool is_incremental,
+                                   std::vector<int64_t>* to_close);
 
     // callbacks called by brpc
     int on_received_messages(StreamId id, butil::IOBuf* const messages[], size_t size) override;
@@ -189,7 +201,13 @@ private:
     RuntimeProfile::Counter* _close_wait_timer = nullptr;
     LoadStreamMgr* _load_stream_mgr = nullptr;
     std::shared_ptr<ResourceContext> _resource_ctx;
-    std::vector<int64_t> _closing_stream_ids;
+    // Streams whose EOS has been sent and are waiting to be closed. A stream is added
+    // here (under _lock) only after its _report_result() finished, and drained once
+    // _all_close_load_received becomes true. Replaces the old _closing_stream_ids whose
+    // registration happened in a separate lock scope from the all-received check,
+    // causing a race that leaked (never-closed) streams.
+    std::vector<int64_t> _eos_sent_stream_ids;
+    bool _all_close_load_received = false;
     bool _is_incremental = false;
 };
 

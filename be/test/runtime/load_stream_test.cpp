@@ -512,6 +512,25 @@ public:
         static_cast<void>(client.send(&append_buf));
     }
 
+    void close_load_incremental(MockSinkClient& client,
+                                const std::vector<PTabletID>& tablets_to_commit,
+                                uint32_t sender_id, int num_incremental_streams) {
+        butil::IOBuf append_buf;
+        PStreamHeader header;
+        header.mutable_load_id()->set_hi(1);
+        header.mutable_load_id()->set_lo(1);
+        header.set_opcode(PStreamHeader::CLOSE_LOAD);
+        header.set_src_id(sender_id);
+        header.set_num_incremental_streams(num_incremental_streams);
+        for (const auto& tablet : tablets_to_commit) {
+            *header.add_tablets() = tablet;
+        }
+        size_t hdr_len = header.ByteSizeLong();
+        append_buf.append((char*)&hdr_len, sizeof(size_t));
+        append_buf.append(header.SerializeAsString());
+        static_cast<void>(client.send(&append_buf));
+    }
+
     void write_one_tablet(MockSinkClient& client, UniqueId load_id, uint32_t sender_id,
                           int64_t index_id, int64_t tablet_id, uint32_t segid, uint64_t offset,
                           std::string& data, bool segment_eos) {
@@ -1355,6 +1374,57 @@ TEST_F(LoadStreamMgrTest, two_client_one_close_before_the_other_open) {
         auto written_data = read_data(NORMAL_TXN_ID, NORMAL_PARTITION_ID, NORMAL_TABLET_ID, i + 3);
         EXPECT_EQ(written_data, segment_data[sender_id * 3 + i]);
     }
+}
+
+// Reproduce the split-lock close race with 3 incremental CLOSE_LOADs.
+// The debug point delays the first 2 (non-last) streams while the 3rd
+// (all_closed) drains+clears _closing_stream_ids first → the delayed
+// streams are orphaned → LoadStream is never cleaned up.
+TEST_F(LoadStreamMgrTest, incremental_close_race_orhpans_streams) {
+    MockSinkClient client;
+    auto st = client.connect_stream(NORMAL_SENDER_ID, 3);
+    ASSERT_TRUE(st.ok());
+    reset_response_stat();
+
+    // one tablet, no segments (pure close test)
+    PTabletID tablet;
+    tablet.set_partition_id(NORMAL_PARTITION_ID);
+    tablet.set_index_id(NORMAL_INDEX_ID);
+    tablet.set_tablet_id(NORMAL_TABLET_ID);
+
+    // Enable the debug point: non-last incremental streams sleep 3s.
+    auto debug_point_name = std::string("LoadStream.close_load.delay_incremental_register");
+    config::enable_debug_points = true;
+    auto* debug_points = DebugPoints::instance();
+    debug_points->add(debug_point_name);
+    ASSERT_TRUE(debug_points->is_enable(debug_point_name))
+            << "debug point was not registered!";
+
+    // Send 3 incremental CLOSE_LOADs.  The third one is the last
+    // (all_closed); the first two will be delayed and orphaned.
+    for (int i = 0; i < 3; i++) {
+        close_load_incremental(client, {tablet}, NORMAL_SENDER_ID, 1);
+    }
+
+    // At least one EOS response confirms the load ran.
+    wait_for_ack(1);
+    EXPECT_GE(g_response_stat.num, 1);
+
+    // Let the delayed streams wake up (3s sleep + small margin).
+    bthread_usleep(4 * 1000 * 1000);
+
+    // Orphan detected: LoadStream not destroyed because on_closed
+    // never fired for the 2 delayed streams.
+    auto remaining = _load_stream_mgr->get_load_stream_num();
+    EXPECT_GT(remaining, 0)
+            << "orphan NOT detected! LoadStream should still be alive "
+            << "because delayed streams were never StreamClose'd. "
+            << "remaining=" << remaining;
+
+    debug_points->remove(debug_point_name);
+
+    // Cleanup: cancel the last stream to trigger on_closed for it too,
+    // otherwise the brpc server shuts down before the orphaned streams.
 }
 
 } // namespace doris
