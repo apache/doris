@@ -25,36 +25,62 @@
 
 **pom 那 4 行只是症状；真正的工作量是把残留源码搬回插件。** 详见 `design.md §3`。
 
-## ▶️ 下一个 session 的第一件事（二选一，看用户）
+## 🚩 用户定调（2026-07-14，**必须遵守**）
 
-### 路线 A（推荐）：先做**阶段 1 独立清理** —— 便宜、无风险、不等任何决策
+> **「Glue-on-HMS 和 paimon-on-DLF 现在我无法验证，你先按照『需要保留』来设计任务。」**
 
-第一条命令：
-```bash
-cd /mnt/disk1/yy/git/wt-catalog-spi
-# HCS-10：逐条验证 agent 报告的「fe-core 源码零引用」是否属实（含反射/字符串用法，不能只看 import）
-for a in hudi-hadoop-mr iceberg-aws s3-tables-catalog-for-iceberg avro kryo-shaded; do echo "== $a =="; done
+⇒ 三条硬约束：
+1. **禁止**「反正可能已经坏了 → 干脆删功能」。两条路径**必须**在改完后仍可用。
+2. **禁止**无论证的静默换实现（风险 R-2：今天生效的 DLF 客户端是 fe-core vendored 那份，不是 shade 里那份）。
+3. **e2e 不可得 ⇒ 用 HCS-01 的离线 classloader 测试代偿**；**阶段 6 是单向门**，归不了 0 就停在降级档
+   （`design.md §4.1`），**不许为了删而删**。
+
+## ▶️ 下一个 session 的第一件事：**HCS-01（离线 classloader 复现测试）**
+
+这是本任务现在的**最高优先级**，因为它把一个「谁也说不清、又没法 e2e」的问题变成了**离线可跑的红绿灯**。
+
+**为什么它重要 —— 机制推演说今天大概率就是坏的**（`design.md §3.2b`，行号全部亲验）：
+
 ```
-然后按 `tasklist.md` **HCS-10 → HCS-13** 走。重点是 **HCS-11 删 `hudi-hadoop-mr`**
-（`fe/fe-core/pom.xml:600-604`）—— 它是 `hive-storage-api:2.8.1` 混进 `fe/lib` 的唯一来源（风险 R-4）。
-⚠️ `hudi-common` **要留**（`HttpProperties` / `StatisticsCache` 各一处 import）。
+ThriftHmsClient:644  把 TCCL 钉到【插件 child loader】
+ThriftHmsClient:910  调 RetryingMetaStoreClient.getProxy(..., "com.amazonaws...AWSCatalogMetastoreClient")
+                     └─ 内部 Class.forName(name, TCCL).asSubclass(IMetaStoreClient.class)
+                                                        └─ 这个 IMetaStoreClient 来自【child】
+                                                           （插件 zip 里实查到 hive-catalog-shade-3.1.1.jar, 127MB）
+Class.forName 走 child-first：
+   com.amazonaws...AWSCatalogMetastoreClient 不在 parent-first 名单 → findClass(插件 lib) 
+      → ❌ 找不到（shade jar 里 Glue 类 = 0 个条目！）→ 父回退 → 【app loader】定义
+   ⇒ app-loaded 的 Glue 客户端实现的是【app 的】IMetaStoreClient
+   ⇒ 与【child 的】IMetaStoreClient 是两个不同 Class 对象
+   ⇒ asSubclass 失败 ⇒ ClassCastException
+```
+paimon-on-DLF 更糟：child 是 hive **2.3.7**，父是 **3.1.3**，版本都不一样。
 
-### 路线 B：先推**阶段 0 决策**（`tasklist.md` HCS-01~03）
+**HCS-01 要写的测试**（完全离线，不要真集群）：
+```java
+// 用真实 plugin-zip 的 lib/*.jar 组 ChildFirstClassLoader（parent-first 前缀照抄 ConnectorPluginManager:64）
+Class<?> childIMSC = Class.forName("org.apache.hadoop.hive.metastore.IMetaStoreClient", false, child);
+Class<?> glue      = Class.forName("com.amazonaws.glue.catalog.metastore.AWSCatalogMetastoreClient", false, child);
+childIMSC.isAssignableFrom(glue);   // ← RetryingMetaStoreClient.getProxy 内部 asSubclass 的判据
+```
+对 Glue（hms/hive/iceberg/hudi）与 DLF（paimon）各做一遍。**先跑，用事实说话，别先信推演。**
 
-需要用户拍板 3 件事（背景+选项见 `design.md §5`，用中文讲清楚再问）：
+⚠️ **无论结果如何这个测试都是交付物**：它是阶段 2/3 搬迁后的**唯一验收门禁**（e2e 不可得）。
+而且把 Glue/DLF 客户端**搬进插件**会让 caller/callee 落到同一个 loader ——
+**若今天已坏 = 这是修复；若今天能跑 = 这是行为保持。方案两头都成立。**
+
+## ▶️ 可并行开工（不等任何决策）：**阶段 1 独立清理**（HCS-10 → HCS-13）
+
+重点 **HCS-11 删 `hudi-hadoop-mr`**（`fe/fe-core/pom.xml:600-604`）—— 它是 `hive-storage-api:2.8.1`
+混进 `fe/lib` 的唯一来源（风险 R-4）。⚠️ `hudi-common` **要留**（`HttpProperties`/`StatisticsCache` 各一处 import）。
+这是**降级档 0（保底可交）**，零风险。
+
+## ⏳ 待用户签字（`design.md §5`，用中文讲清背景再问）
+
 - **D-1** 38 个 vendored Glue 文件搬去哪？（推荐：搬进 `fe-connector-hms`）
-- **D-2** paimon 的 DLF 客户端怎么给？（推荐：插件自带）
-- **D-3** `RangerHiveAuditHandler` 的 hive-exec `HiveOperationType` 怎么去？（**需要先做 HCS-02 小调研**）
-- **D-4** 要不要先跑 **e2e 前置探测**（HCS-01）——**强烈建议**，见下。
-
-## ⚠️ 一个可能颠覆方案的未知数（风险 R-1）
-
-`AWSCatalogMetastoreClient` / `ProxyMetaStoreClient` 由**父加载器**定义（实现父的 `IMetaStoreClient`，hive 3.1.3），
-而调用它们的 `RetryingMetaStoreClient` 在**插件里**（child-first，**另一份类身份**）。
-→ **Glue-on-HMS 和 paimon-on-DLF 今天可能就已经是坏的**（`ClassCastException`/`LinkageError`），跟本任务无关。
-
-**如果本来就坏**，那么「留着 shade 保平安」是幻觉，插件侧自带客户端是唯一正解，方案可以更激进。
-**这个只能在用户真集群 e2e 探测（HCS-01）。建议在动 Glue/DLF 之前先探。**
+- **D-3** `RangerHiveAuditHandler` 的 hive-exec `HiveOperationType` 怎么去？（**先做 HCS-02 小调研再问**）
+- **D-2 先别问** —— 它有真实技术未知数（DLF 客户端 2193 行 + 依赖 shade 里另外 1963 个 aliyun SDK 类；
+  且 artifact 是 `metastore-client-hive3` 而 paimon 私有 shade 是 hive 2.3.7）。**先做 HCS-30a spike。**
 
 ## 🚫 别做的事
 

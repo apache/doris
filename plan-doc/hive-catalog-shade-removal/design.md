@@ -143,6 +143,53 @@ shade jar 能提供它**，而 fe-core 里有 7 个 main 文件 import 了它。
 > 实际生效的 `ProxyMetaStoreClient` 是 **fe-core vendored 的那份**，不是 shade 里那份。删掉 fe-core 副本 =
 > **悄悄换了 DLF 实现**。必须有意识地处理，不能顺手删。
 
+### 3.2b ⚠️ 机制推演：Glue-on-HMS / paimon-on-DLF **今天很可能就是坏的**（可离线证实，见 HCS-01）
+
+把 classloader 的实际代码路径走一遍（**全部行号已亲验**）：
+
+```
+ChildFirstClassLoader.loadClass(name)                    # fe-extension-loader
+  ├─ isParentFirst(name)? parent-first 名单 =
+  │     java./javax./sun./com.sun./org.slf4j./org.apache.logging./
+  │     org.apache.doris.extension.spi./org.apache.doris.connector.api.
+  │     + 连接器追加 org.apache.doris.connector./org.apache.doris.filesystem.
+  │     → org.apache.hadoop.hive.* 和 com.amazonaws.* 都【不在】名单里
+  ├─ findClass(name)                                     # 只看插件自己的 lib/
+  └─ CNFE → super.loadClass(name)                        # 父回退
+```
+
+于是：
+
+| 类 | 在插件 `lib/` 里吗 | 由谁定义 |
+|---|---|---|
+| `org.apache.hadoop.hive.metastore.IMetaStoreClient` | ✅ 在（hudi/iceberg zip 里**实查到** `lib/hive-catalog-shade-3.1.1.jar`，127 MB） | **child**（插件） |
+| `RetryingMetaStoreClient` | ✅ 同上 | **child** |
+| `com.amazonaws.glue.catalog.metastore.AWSCatalogMetastoreClient` | ❌ **不在**（shade jar 里 0 个条目） | 父回退 → **app loader** |
+
+而 `ThriftHmsClient.java:644` 把 **TCCL 钉到插件 loader**（`getClass().getClassLoader()`），`:910` 才调
+`RetryingMetaStoreClient.getProxy(conf, hookLoader, "com.amazonaws...AWSCatalogMetastoreClient")`。
+hive 的 `getProxy` 内部走 `JavaUtils.getClass(name, IMetaStoreClient.class)` = `Class.forName(name, TCCL)`
++ **`.asSubclass(IMetaStoreClient.class)`**，而这里的 `IMetaStoreClient.class` 是从
+`RetryingMetaStoreClient`（**child**）的定义 loader 解析的。
+
+⇒ **app-loaded 的 `AWSCatalogMetastoreClient` 实现的是「app 的 `IMetaStoreClient`」，与「child 的
+`IMetaStoreClient`」是两个不同的 `Class` 对象**（同名同版本，不同 loader ⇒ 不同类身份）
+⇒ `asSubclass` 失败 ⇒ **`ClassCastException` / `LinkageError`**。
+
+**paimon-on-DLF 更糟**：paimon 的私有 shade 提供的是 **hive 2.3.7** 的 `IMetaStoreClient`
+（jar 内该 class 日期 2020-04-07），而父回退拿到的 fe-core vendored `ProxyMetaStoreClient` 实现的是
+**hive 3.1.3** 的 —— **版本都不一样**。
+
+> **📌 这不是猜测，是可以离线证实/证伪的**：写一个单测，用真实 plugin-zip 的 `lib/*.jar` 组一个
+> `ChildFirstClassLoader`（parent = app loader），`Class.forName(客户端类名, false, child)` 后断言
+> `childIMetaStoreClient.isAssignableFrom(...)`。**不需要真集群**。这就是 **HCS-01**。
+
+**⇒ 对本任务的意义（关键）**：把 Glue / DLF 客户端**搬进插件**，会让调用方（`RetryingMetaStoreClient`）和
+被调方（客户端）落在**同一个 child loader、同一份 `IMetaStoreClient` 身份**上 —— 这**不只是为了删 shade，
+它本身就是在修一个大概率存在的线上 bug**。因此本方案**无论 HCS-01 结果如何都是严格改进**：
+- 若 HCS-01 证明今天已坏 → 搬迁 = **修复**；
+- 若 HCS-01 证明今天能跑（说明我推演错了某处）→ 搬迁 = **行为保持**（且必须靠 HCS-01 的测试守住）。
+
 ### 3.3 `fe-common` 的 `provided` 陷阱 —— 编译绿、运行炸
 
 `fe/fe-common/pom.xml:89-91` 声明 shade 为 **`<scope>provided</scope>`**。
@@ -195,6 +242,21 @@ cd fe && mvn -o dependency:tree -Dverbose \
 · `fastutil-core` 依赖 · BE 侧 `java-udf` / `avro-scanner` 的 pom（**独立供应链**，memory
 `catalog-spi-be-java-ext-shared-classpath`：动它炸过 JNI scanner） · `doris-shade` 仓库本身。
 
+### 4.1 ⛑ 降级路线（**必须事先约定**：e2e 不可得，不许硬上）
+
+用户**无法 e2e 验证** Glue-on-HMS 与 paimon-on-DLF，且要求这两条路径**必须保留可用**。因此：
+
+> **阶段 6（删 pom）是一道单向门 —— 只要阶段 2/3 里有任何一条客户端搬不动，就【不删】shade，收在降级档。**
+
+| 档位 | 达成条件 | 交付物 | 价值 |
+|---|---|---|---|
+| **档 0（保底，无条件可交）** | 阶段 1 独立清理完成 | 删 `hudi-hadoop-mr` 等零引用依赖；`fe/lib` 少一个 `hive-storage-api` | 真实瘦身，零风险 |
+| **档 1** | HCS-01 离线测试落地 | 一个**能证明 Glue/DLF 客户端在插件 loader 下能否被正确解析**的守门单测 | 把一个「谁也说不清」的问题变成 CI 里的红绿灯，**本身就有独立价值** |
+| **档 2** | 阶段 2（Glue 搬迁）+ 阶段 4/5 完成，但 **D-2 spike 失败** | fe-core 去掉 Glue/HiveConf/Ranger，**但 `ProxyMetaStoreClient` 与 shade 依赖保留** | fe-core 大幅瘦身；shade 仍在 `fe/lib`，**目标未达成** |
+| **档 3（完全体）** | 阶段 2–5 全绿 + 总判据 = 0 | 删 `fe-core:437-440` + 三个连带 hack + `fe-common:87-91` | **`fe/lib` 少 127 MB** |
+
+**判据**：`grep` 总判据（见 `tasklist.md` 顶部）必须归 0 才允许进阶段 6。**归不了 0 就停在档 2，不许为了删而删。**
+
 ---
 
 ## 5. ⚠️ 待拍板决策（阶段 0，需要用户签字）
@@ -205,21 +267,40 @@ cd fe && mvn -o dependency:tree -Dverbose \
 - **B 换 upstream `aws-glue-datacatalog-client` jar**：省掉 vendored 副本，但 upstream 是否有匹配 hive 3.1.3 + 我们改名前缀的版本**未调研**，风险高。
 - **C 先不动 Glue，只做阶段 1/4/5**：那样 shade 仍删不掉（Glue 需要 `IMetaStoreClient` 父类），**目标不达成**。
 
-### D-2｜DLF 客户端 for paimon 怎么给？
+### D-2｜DLF 客户端 for paimon 怎么给？（**最高风险项，需要 spike**）
 
-- **A（推荐）** 让 `fe-connector-paimon` 自带 DLF 客户端 jar（这正是 P5-B7 自标的 blocker）。
-  ⚠️ 注意 §3.2 的**静默换实现**：今天生效的是 fe-core vendored 那份。
-- **B** 让 paimon 也依赖 `hive-catalog-shade`（P5 当年明确拒绝过：127 MB + fastutil 污染）。
+⚠️ **这一条不是「用户选一个」就完事的，它有真实的技术未知数**（HCS-30a spike）：
+
+- fe-core 那份 vendored `ProxyMetaStoreClient` 有 **2193 行**，而且它**自己还依赖阿里云 DLF SDK 的其余部分**
+  （`com.aliyun.datalake.metastore.common.*` / `.hive.common.utils.*`）—— 那 **1963 个 `com/aliyun` 类只在
+  shade jar 里**。所以搬 DLF 到 paimon 插件 = 要同时给它 **客户端 + SDK 闭包**。
+- 而且**版本口径对不上**：阿里云 artifact 是 `com.aliyun.datalake:metastore-client-hive3:0.2.14`（hive **3** API），
+  paimon 的私有 shade 是 hive **2.3.7**。
+  📎 **线索**：那个类的包名却叫 `...metastore.**hive2**.ProxyMetaStoreClient` —— 需要 spike 确认它到底实现
+  哪个版本的 `IMetaStoreClient` 接口。
+
+候选路线（spike 后再定）：
+- **A** 把 `metastore-client-hive3` 加进 `fe-connector-paimon-hive-shade` 的 artifactSet，随 paimon 的 thrift 前缀
+  一起 relocate（最干净，**前提是 hive API 版本对得上**）
+- **B** 把 fe-core 那份 vendored 源码搬进 paimon 插件并改写 import 到 paimon 的前缀（工作量大，2193 行）
+- **C** 让 paimon 也依赖 `hive-catalog-shade`（P5 当年明确拒绝：127 MB + fastutil 污染；且会和 paimon 私有 shade
+  的 `IMetaStoreClient` 撞成两份 → **不推荐**）
 
 ### D-3｜Ranger hive 审计的 `HiveOperationType`（hive-exec）怎么去？
 
 需要单独看一眼 `RangerHiveAuditHandler` 用了它什么。选项大致是：换成自建枚举 / 下沉到插件 / 保留（则 shade 删不掉）。
 **阶段 0 需要一次小调研**（~1 个 subagent）。
 
-### D-4｜是否先跑 e2e 前置探测？（**强烈建议**）
+### D-4｜~~是否先跑 e2e 前置探测~~ → **已由用户定调（2026-07-14）**
 
-见 §6 风险 R-1：Glue-on-HMS 和 paimon-on-DLF **今天可能就已经是坏的**。如果本来就坏，
-「留着 shade 保平安」是幻觉，方案可以更激进。**这个探测只能在用户真集群跑。**
+**用户无法验证 Glue-on-HMS 与 paimon-on-DLF，指示：一律按「需要保留、必须继续能用」设计。**
+
+⇒ 方案基调随之固定：
+1. **不得**因为「反正可能已经坏了」就删功能 —— 两条路径**必须**在改完后仍可用（且更正确）。
+2. **不得**做无法验证的静默换实现（风险 R-2）—— DLF 客户端**必须逐字节保行为**或有明确论证。
+3. **e2e 不可得 ⇒ 用离线的 classloader 复现测试代偿**（**HCS-01**，见 §3.2b）。这个测试完全离线可跑，
+   而且比 e2e 更早、更便宜地把「客户端类能不能被插件 loader 正确解析成 `IMetaStoreClient`」钉死。
+   **它同时是搬迁前的现状快照和搬迁后的验收门禁。**
 
 ---
 
@@ -227,9 +308,10 @@ cd fe && mvn -o dependency:tree -Dverbose \
 
 | ID | 风险 | 说明 | 缓解 |
 |---|---|---|---|
-| **R-1** | **可能已经坏了（UNCERTAIN）** | `AWSCatalogMetastoreClient` / `ProxyMetaStoreClient` 由**父**加载器定义 → 实现的是**父的** `IMetaStoreClient`（shade，hive 3.1.3）；而调用它们的 `RetryingMetaStoreClient` 在**插件里**（child-first，另一份类身份）。**跨 loader 类身份不同 → 可能 `ClassCastException`/`LinkageError`。Glue-on-HMS 与 paimon-on-DLF 今天可能已失效。** | **阶段 0 先 e2e 探测**（D-4）。若本来就坏 → 留 shade 无收益，插件侧自带是唯一正解 |
-| **R-2** | 静默换 DLF 实现 | `start_fe.sh:355` 钉 `doris-fe.jar` 最前 → 今天生效的是 fe-core vendored 副本，不是 shade 里那份。删 fe-core 副本 = 悄悄换实现 | 阶段 3 有意识对比两份实现；e2e DLF |
-| **R-3** | Glue 回归无人接得住 | 删 shade 但留 glue 树 → `NoClassDefFoundError`；删 glue 树但不搬 → `ThriftHmsClient:922` 按名 `ClassNotFoundException`。**编译器不报、单测不报** | **必须 Glue e2e** |
+| **R-1** | **Glue-on-HMS / paimon-on-DLF 今天很可能就是坏的**（机制推演，见 §3.2b） | 客户端由**父**加载器定义（实现父的 `IMetaStoreClient`），调用方 `RetryingMetaStoreClient` 在**插件**里（child，另一份 `IMetaStoreClient` 身份）→ `asSubclass` 失败 → `ClassCastException`。paimon 更糟：child 是 hive **2.3.7**，父是 **3.1.3** | **HCS-01 离线 classloader 复现测试**（不需要真集群）。⚠️ **用户无法 e2e，故一律按「必须保留可用」设计**：搬进插件后 caller/callee 同 loader → 若今天已坏则是**修复**，若今天能跑则是**行为保持** |
+| **R-2** | 静默换 DLF 实现 | `start_fe.sh:355` 钉 `doris-fe.jar` 最前 → 今天生效的是 fe-core vendored 副本（2193 行），**不是** shade 里那份。删 fe-core 副本 = 悄悄换实现 | ⚠️ **用户无法 e2e ⇒ 禁止无论证的静默换实现**。HCS-31 必须先 **diff 两份实现**并把差异写进 `progress.md`，无法论证等价就**保留 fe-core 那份的语义**（搬源码而非换 jar） |
+| **R-2b** | **DLF 搬迁存在真实技术未知数** | vendored `ProxyMetaStoreClient`（2193 行）还依赖 shade 里**另外 1963 个** `com/aliyun` SDK 类；且阿里云 artifact 是 `metastore-client-hive3`（hive 3 API）而 paimon 私有 shade 是 hive **2.3.7** | **HCS-30a spike 先行**（D-2）。⚠️ **若 spike 判定不可安全搬迁 → 走 §4.1 降级路线，不硬上** |
+| **R-3** | Glue 回归无人接得住 | 删 shade 但留 glue 树 → `NoClassDefFoundError`；删 glue 树但不搬 → `ThriftHmsClient:922` 按名 `ClassNotFoundException`。**编译器不报、单测不报** | HCS-01 的离线 classloader 测试**就是**这条的守门（e2e 不可得时的代偿） |
 | **R-4** | 删完 `fe/lib` 仍非 hive-free | `hudi-hadoop-mr:1.0.2 → hudi-hadoop-common → hive-storage-api:2.8.1` 还会塞一个 hive jar 进 `fe/lib`，`org.apache.hadoop.hive.*` 变成**半填充命名空间**（比干净缺失更难查；文件系统插件对 `org.apache.hadoop.` 整个前缀是 parent-first） | 阶段 1 顺手删 `hudi-hadoop-mr`（fe-core 源码零引用） |
 | **R-5** | fastutil 去 hack 后的重复 | shade 走后，`fastutil-core:8.5.18`（直接依赖）与完整 `fastutil:8.5.12`（fe-common → trino-main → clearspring）都进 `lib/`，都含 `Long2ObjectOpenHashMap`。**今天是良性的**（两份都有需要的方法），但从此靠 `lib/` 顺序而非显式钉 | 在 `fastutil-core` 依赖上留注释记录此事，否则将来一次版本 bump 会复现原 bug 而无人知道为什么 |
 | **R-6** | 别信 `dependency:analyze` | `AliyunDLFBaseProperties.java:71` 把 `DataLakeConfig.CATALOG_PROXY_MODE` 当**注解 String 常量**用，javac 会**内联**进字节码 → 纯字节码扫描会报「依赖未使用」，但 `javac` 仍会因 `import` 失败 | 一律用 `grep import` + 真编译判定 |

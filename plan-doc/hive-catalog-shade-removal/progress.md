@@ -43,7 +43,49 @@
   hive-storage-api:2.8.1` 也往 `fe/lib` 塞 hive 类。删完 shade，`fe/lib` **仍不是** hive-free
   → 半填充命名空间（风险 R-4，比干净缺失更难查）。
 
-**未决 / 待用户拍板**：D-1（Glue 归属）· D-2（paimon DLF）· D-3（Ranger `HiveOperationType`）·
-D-4（是否先跑 e2e 前置探测 —— **强烈建议**，风险 R-1：Glue-on-HMS / paimon-on-DLF **今天可能已经是坏的**）。
+**未决 / 待用户拍板**：D-1（Glue 归属）· D-2（paimon DLF，**需先 spike**）· D-3（Ranger `HiveOperationType`）。
 
-**commit**：（文档 commit 待填）
+**commit**：`1a9104ee85f`（文档立项）
+
+---
+
+## 2026-07-14（补） — 用户定调「按需要保留设计」+ 由此挖出的机制推演
+
+**用户指示**：*「Glue-on-HMS 和 paimon-on-DLF 现在我无法验证，你先按照『需要保留』来设计任务。」*
+
+⇒ 方案基调固定（写进 `design.md §5 D-4` / `tasklist.md 阶段 0` / `HANDOFF.md`）：
+1. 禁止「反正可能坏了 → 删功能」；两条路径**必须**改完后仍可用。
+2. 禁止无论证的静默换实现（R-2）。
+3. **e2e 不可得 ⇒ 用离线 classloader 测试代偿（HCS-01）**；阶段 6 是**单向门**，归不了 0 就停在降级档
+   （新增 `design.md §4.1` 档 0/1/2/3），**不许为了删而删**。
+
+**为定这个基调而做的探查，挖出三条硬事实（全部亲验）**：
+1. `hive-catalog-shade-3.1.1.jar`（**127 MB**）**确实被打进 hudi / iceberg 的 plugin-zip**（`unzip -l` 实查）
+   → 插件里有**自己那份** `IMetaStoreClient` / `RetryingMetaStoreClient`。
+2. `ThriftHmsClient.java:644` 把 **TCCL 钉到插件（child）loader**，`:910` 才调 `RetryingMetaStoreClient.getProxy`。
+3. fe-core vendored 的 `ProxyMetaStoreClient` 有 **2193 行**，且它**自己还 import 阿里云 DLF SDK 的其余部分**
+   （`com.aliyun.datalake.metastore.common.*` / `.hive.common.utils.*`）—— 那 **1963 个 `com/aliyun` 类只在
+   shade jar 里**。搬 DLF ≠ 搬一个文件，而是要搬**整个 SDK 闭包**。
+
+**⚠️ 由此得出的机制推演（`design.md §3.2b`）—— 可能是本任务最重要的发现**：
+
+`ChildFirstClassLoader` 的 parent-first 名单**不含** `org.apache.hadoop.hive` / `com.amazonaws`
+（实读 `ChildFirstClassLoader.java` + `ConnectorPluginManager.java:64`）。于是：
+- `IMetaStoreClient` / `RetryingMetaStoreClient` → **child 定义**（插件 zip 里有 shade）
+- `AWSCatalogMetastoreClient` → 插件 lib 里**没有**（shade jar 里 Glue 类 = **0 个条目**）→ 父回退 → **app 定义**
+- `getProxy` 内部 `Class.forName(name, TCCL).asSubclass(IMetaStoreClient.class)`，其中 `IMetaStoreClient` 来自 **child**
+- ⇒ app-loaded 的 Glue 客户端实现的是 **app 的** `IMetaStoreClient` ≠ **child 的** → `asSubclass` 失败
+  → **`ClassCastException`**
+
+**⇒ Glue-on-HMS 与 paimon-on-DLF 今天很可能就是坏的**（paimon 更糟：child 是 hive **2.3.7**，父是 **3.1.3**）。
+**这不是猜测，是可以离线证实/证伪的** → 这就是新的 **HCS-01**（本任务最高优先级）。
+
+**⇒ 对方案的意义（两头都成立，所以方案是严格改进）**：把 Glue/DLF 客户端**搬进插件**会让 caller
+（`RetryingMetaStoreClient`）与 callee（客户端）落到**同一个 child loader、同一份 `IMetaStoreClient` 身份**上。
+- 若 HCS-01 证明今天已坏 → 搬迁 = **修复一个线上 bug**；
+- 若 HCS-01 证明今天能跑（推演有误）→ 搬迁 = **行为保持**，且由 HCS-01 的测试守住。
+
+**新增/改写的 task**：HCS-01（改为离线 classloader 测试，替代原「用户真集群 e2e 探测」）·
+**HCS-30a（DLF 搬迁 spike，新增）** · HCS-30b/33（新增）· HCS-22/71（验收改为「离线必过 + 显式声明未 e2e 覆盖项」）。
+
+**commit**：（本次文档更新 commit 待填）
