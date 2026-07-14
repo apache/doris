@@ -121,6 +121,9 @@ public abstract class JdbcClient {
         System.setProperty("com.zaxxer.hikari.useWeakReferences", "true");
     }
 
+    protected JdbcClient() {
+    }
+
     // Initialize DataSource
     private void initializeDataSource(JdbcClientConfig config) {
         ClassLoader oldClassLoader = Thread.currentThread().getContextClassLoader();
