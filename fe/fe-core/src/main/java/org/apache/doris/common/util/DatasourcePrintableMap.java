@@ -18,7 +18,6 @@
 package org.apache.doris.common.util;
 
 import org.apache.doris.common.maxcompute.MCProperties;
-import org.apache.doris.datasource.property.metastore.AWSGlueMetaStoreBaseProperties;
 import org.apache.doris.datasource.property.metastore.AliyunDLFBaseProperties;
 import org.apache.doris.datasource.property.storage.AzureProperties;
 import org.apache.doris.datasource.property.storage.COSProperties;
@@ -58,7 +57,6 @@ public class DatasourcePrintableMap<K, V> extends BasicPrintableMap<K, V> {
                 MCProperties.SECRET_KEY));
         SENSITIVE_KEY.addAll(ConnectorPropertiesUtils.getSensitiveKeys(S3Properties.class));
         SENSITIVE_KEY.addAll(ConnectorPropertiesUtils.getSensitiveKeys(AliyunDLFBaseProperties.class));
-        SENSITIVE_KEY.addAll(ConnectorPropertiesUtils.getSensitiveKeys(AWSGlueMetaStoreBaseProperties.class));
         // Iceberg REST catalog secret keys. Formerly reflected off the fe-core IcebergRestProperties
         // (getSensitiveKeys). That class is being removed with the fe-core iceberg property cluster; its
         // authoritative copy now lives connector-side (fe-connector-metastore-iceberg

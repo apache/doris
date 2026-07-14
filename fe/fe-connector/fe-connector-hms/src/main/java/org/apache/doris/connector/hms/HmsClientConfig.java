@@ -33,7 +33,7 @@ public final class HmsClientConfig {
     /** Property key: HMS Thrift URI (e.g. "thrift://host:9083"). */
     public static final String HMS_URI_KEY = "hive.metastore.uris";
 
-    /** Property key: metastore type — "hms" (default), "dlf", or "glue". */
+    /** Property key: metastore type — "hms" (default) or "dlf". */
     public static final String METASTORE_TYPE_KEY = "hive.metastore.type";
 
     /** Standard HMS (Thrift). */
@@ -42,8 +42,32 @@ public final class HmsClientConfig {
     /** Alibaba Cloud DLF. */
     public static final String METASTORE_TYPE_DLF = "dlf";
 
-    /** AWS Glue Data Catalog. */
-    public static final String METASTORE_TYPE_GLUE = "glue";
+    /**
+     * AWS Glue as an HMS-thrift metastore — REMOVED, no longer a routable type.
+     * Retained only so the removal can be recognised and rejected explicitly: without a rejection this value
+     * falls through to the plain-HMS default and silently connects somewhere the user never configured.
+     */
+    public static final String METASTORE_TYPE_GLUE_REMOVED = "glue";
+
+    /**
+     * Returns the rejection message when {@code properties} selects a metastore type that has been removed,
+     * else null.
+     *
+     * <p>Callers throw their own exception type rather than this returning a throw: property validation must
+     * raise {@link IllegalArgumentException} (the only type the catalog layer unwraps into a clean DdlException),
+     * while the lazy client path raises DorisConnectorException like its neighbours.
+     *
+     * <p>Must be checked BEFORE the HMS URI requirement — a glue catalog carries no {@code hive.metastore.uris},
+     * so the URI check would otherwise shadow this with an error that never mentions glue.
+     */
+    public static String removedMetastoreTypeError(Map<String, String> properties) {
+        if (METASTORE_TYPE_GLUE_REMOVED.equalsIgnoreCase(properties.get(METASTORE_TYPE_KEY))) {
+            return METASTORE_TYPE_KEY + " = " + METASTORE_TYPE_GLUE_REMOVED + " is no longer supported: "
+                    + "AWS Glue as an HMS thrift metastore has been removed. Supported types: "
+                    + METASTORE_TYPE_HMS + ", " + METASTORE_TYPE_DLF + ".";
+        }
+        return null;
+    }
 
     private final Map<String, String> properties;
     private final int poolSize;

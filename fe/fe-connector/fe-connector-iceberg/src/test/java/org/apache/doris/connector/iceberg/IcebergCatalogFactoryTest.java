@@ -544,9 +544,9 @@ public class IcebergCatalogFactoryTest {
 
     @Test
     public void appendGlueAccessKeyBranchEmitsProviderKeysAndWins() {
-        // WHY: when glue access_key & secret_key are both set, legacy emits the ConfigurationAWSCredentialsProvider2x
-        // provider keys + factory class and RETURNS (mutually exclusive with the IAM-role branch). MUTATION: wrong
-        // key/value, or also emitting client.factory (IAM branch) -> red.
+        // WHY: when glue access_key & secret_key are both set, emit the ConfigurationAWSCredentialsProvider2x
+        // provider keys and RETURN (mutually exclusive with the IAM-role branch). MUTATION: wrong key/value, or
+        // also emitting client.factory (IAM branch) -> red.
         Map<String, String> opts = new HashMap<>();
         IcebergCatalogFactory.appendGlueProperties(opts,
                 props("glue.access_key", "GAK", "glue.secret_key", "GSK", "aws.glue.session-token", "GST",
@@ -558,8 +558,8 @@ public class IcebergCatalogFactoryTest {
         Assertions.assertEquals("GAK", opts.get("client.credentials-provider.glue.access_key"));
         Assertions.assertEquals("GSK", opts.get("client.credentials-provider.glue.secret_key"));
         Assertions.assertEquals("GST", opts.get("client.credentials-provider.glue.session_token"));
-        Assertions.assertEquals("com.amazonaws.glue.catalog.credentials.ConfigurationAWSCredentialsProviderFactory",
-                opts.get("aws.catalog.credentials.provider.factory.class"));
+        Assertions.assertNull(opts.get("aws.catalog.credentials.provider.factory.class"),
+                "the factory key was only ever read by the removed thrift-generation Glue client");
         Assertions.assertNull(opts.get("client.factory"), "AK/SK branch must short-circuit the IAM-role branch");
     }
 

@@ -144,9 +144,6 @@ public final class IcebergConnectorProperties {
     public static final String GLUE_CREDENTIALS_PROVIDER_SECRET_KEY = "client.credentials-provider.glue.secret_key";
     public static final String GLUE_CREDENTIALS_PROVIDER_SESSION_TOKEN =
             "client.credentials-provider.glue.session_token";
-    public static final String GLUE_CREDENTIALS_PROVIDER_FACTORY_KEY = "aws.catalog.credentials.provider.factory.class";
-    public static final String GLUE_CREDENTIALS_PROVIDER_FACTORY =
-            "com.amazonaws.glue.catalog.credentials.ConfigurationAWSCredentialsProviderFactory";
     public static final String AWS_REGION_KEY = "aws.region";
     public static final String GLUE_CHECKED_WAREHOUSE = "s3://doris";
     public static final String GLUE_DEFAULT_REGION = "us-east-1";

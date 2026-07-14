@@ -917,16 +917,10 @@ public class ThriftHmsClient implements HmsClient {
     private static final String DLF_CLIENT_CLASS =
             "com.aliyun.datalake.metastore.hive2.ProxyMetaStoreClient";
 
-    /** AWS Glue AWSCatalogMetastoreClient class name. */
-    private static final String GLUE_CLIENT_CLASS =
-            "com.amazonaws.glue.catalog.metastore.AWSCatalogMetastoreClient";
-
     static String getMetastoreClientClassName(HiveConf hiveConf) {
         String type = hiveConf.get(HmsClientConfig.METASTORE_TYPE_KEY);
         if (HmsClientConfig.METASTORE_TYPE_DLF.equalsIgnoreCase(type)) {
             return DLF_CLIENT_CLASS;
-        } else if (HmsClientConfig.METASTORE_TYPE_GLUE.equalsIgnoreCase(type)) {
-            return GLUE_CLIENT_CLASS;
         } else {
             return HiveMetaStoreClient.class.getName();
         }

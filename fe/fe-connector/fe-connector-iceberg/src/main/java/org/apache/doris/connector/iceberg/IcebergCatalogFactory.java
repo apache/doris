@@ -560,8 +560,6 @@ public final class IcebergCatalogFactory {
                     IcebergConnectorProperties.GLUE_CREDENTIALS_PROVIDER_2X);
             opts.put(IcebergConnectorProperties.GLUE_CREDENTIALS_PROVIDER_ACCESS_KEY, glueAccessKey);
             opts.put(IcebergConnectorProperties.GLUE_CREDENTIALS_PROVIDER_SECRET_KEY, glueSecretKey);
-            opts.put(IcebergConnectorProperties.GLUE_CREDENTIALS_PROVIDER_FACTORY_KEY,
-                    IcebergConnectorProperties.GLUE_CREDENTIALS_PROVIDER_FACTORY);
             putIfNotBlank(opts, IcebergConnectorProperties.GLUE_CREDENTIALS_PROVIDER_SESSION_TOKEN,
                     firstNonBlank(props, IcebergConnectorProperties.GLUE_SESSION_TOKEN));
         } else {

@@ -24,7 +24,6 @@ import java.util.Map;
  * <p>
  * Supported subtypes include:
  * - "default" or "hms" -> {@link HiveHMSProperties}
- * - "glue"             -> {@link HiveGlueMetaStoreProperties}
  * - "dlf"              -> {@link HiveAliyunDLFMetaStoreProperties}
  */
 public class HivePropertiesFactory extends AbstractMetastorePropertiesFactory {
@@ -35,7 +34,6 @@ public class HivePropertiesFactory extends AbstractMetastorePropertiesFactory {
     public HivePropertiesFactory() {
         register("default", HiveHMSProperties::new);
         register("hms", HiveHMSProperties::new);
-        register("glue", HiveGlueMetaStoreProperties::new);
         register("dlf", HiveAliyunDLFMetaStoreProperties::new);
     }
 

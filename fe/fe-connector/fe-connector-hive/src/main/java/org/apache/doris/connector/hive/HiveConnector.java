@@ -535,6 +535,14 @@ public class HiveConnector implements Connector {
     }
 
     private HmsClient createClient() {
+        // Catches catalogs created before the type was removed: they deserialize from the image without ever
+        // reaching validateProperties, so this lazy path is their only chance at a message that names glue.
+        // Must precede the URI check below — a glue catalog sets no hive.metastore.uris.
+        String removedType = HmsClientConfig.removedMetastoreTypeError(properties);
+        if (removedType != null) {
+            throw new DorisConnectorException(removedType);
+        }
+
         String metastoreUri = properties.get(HiveConnectorProperties.HIVE_METASTORE_URIS);
         if (metastoreUri == null || metastoreUri.isEmpty()) {
             // Also check the "uri" short form

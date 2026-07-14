@@ -19,6 +19,7 @@ package org.apache.doris.connector.hive;
 
 import org.apache.doris.connector.api.Connector;
 import org.apache.doris.connector.cache.CacheSpec;
+import org.apache.doris.connector.hms.HmsClientConfig;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorProvider;
 
@@ -44,6 +45,15 @@ public class HiveConnectorProvider implements ConnectorProvider {
 
     @Override
     public void validateProperties(Map<String, String> properties) {
+        // Reject removed metastore types at CREATE/ALTER CATALOG. This runs only for a user-issued statement,
+        // never during edit-log replay, so an already-created glue catalog cannot block FE startup here; it is
+        // rejected later, at HiveConnector.createClient(). IllegalArgumentException is required: it is the only
+        // type PluginDrivenExternalCatalog.checkProperties unwraps, preserving the message verbatim.
+        String removedType = HmsClientConfig.removedMetastoreTypeError(properties);
+        if (removedType != null) {
+            throw new IllegalArgumentException(removedType);
+        }
+
         // Restore the legacy HMSExternalCatalog.checkProperties fail-fast for the two meta-cache TTL knobs:
         // after the hms cutover an "hms" catalog is created via this SPI provider (not HMSExternalCatalog), so
         // the old per-property validation no longer runs and an invalid ttl (e.g. -2) was silently accepted.
