@@ -61,6 +61,8 @@ public class ColumnDefinition {
     private boolean isKey;
     private AggregateType aggType;
     private boolean isNullable;
+    // Distinguishes an explicit NULL/NOT NULL clause from the parser's default nullability.
+    private final boolean nullableSpecified;
     private Optional<DefaultValue> defaultValue;
     private Optional<DefaultValue> onUpdateDefaultValue = Optional.empty();
     private final String comment;
@@ -96,6 +98,7 @@ public class ColumnDefinition {
         this.isKey = isKey;
         this.aggType = aggType;
         this.isNullable = isNullable;
+        this.nullableSpecified = true;
         this.defaultValue = defaultValue;
         this.comment = comment;
         this.isVisible = isVisible;
@@ -112,6 +115,7 @@ public class ColumnDefinition {
         this.isKey = isKey;
         this.aggType = aggType;
         this.isNullable = isNullable;
+        this.nullableSpecified = true;
         this.autoIncInitValue = autoIncInitValue;
         this.defaultValue = defaultValue;
         this.onUpdateDefaultValue = onUpdateDefaultValue;
@@ -131,6 +135,8 @@ public class ColumnDefinition {
         this.isKey = isKey;
         this.aggType = aggType;
         this.isNullable = nullableType.getNullable(type.toCatalogDataType().getPrimitiveType());
+        this.nullableSpecified = nullableType == ColumnNullableType.NULLABLE
+                || nullableType == ColumnNullableType.NOT_NULLABLE;
         this.autoIncInitValue = autoIncInitValue;
         this.defaultValue = defaultValue;
         this.onUpdateDefaultValue = onUpdateDefaultValue;
@@ -565,6 +571,7 @@ public class ColumnDefinition {
                 generatedColumnDesc.map(desc ->
                         ConnectContextUtil.getAffectQueryResultInPlanVariables(ConnectContext.get()))
                         .orElse(null));
+        column.setNullableSpecified(nullableSpecified);
         column.setAggregationTypeImplicit(aggTypeImplicit);
         return column;
     }

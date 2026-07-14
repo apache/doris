@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionFieldOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterTableOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropPartitionFieldOp;
 import org.apache.doris.nereids.trees.plans.commands.info.EnableFeatureOp;
+import org.apache.doris.nereids.trees.plans.commands.info.ModifyColumnOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ReplacePartitionFieldOp;
 
 import org.junit.jupiter.api.Assertions;
@@ -206,6 +207,23 @@ public class AlterTableCommandTest {
                 parseAlter("ALTER TABLE t MODIFY COLUMN s.a BIGINT").getOps());
         AlterTableCommand.checkNestedColumnPathSupported(table,
                 parseAlter("ALTER TABLE t ADD COLUMN s.b BIGINT NULL DEFAULT 7").getOps());
+    }
+
+    @Test
+    void testModifyColumnTracksExplicitNullability() {
+        ModifyColumnOp omitted = (ModifyColumnOp) parseAlter(
+                "ALTER TABLE t MODIFY COLUMN s.a BIGINT").getOps().get(0);
+        ModifyColumnOp nullable = (ModifyColumnOp) parseAlter(
+                "ALTER TABLE t MODIFY COLUMN s.a BIGINT NULL").getOps().get(0);
+        ModifyColumnOp notNullable = (ModifyColumnOp) parseAlter(
+                "ALTER TABLE t MODIFY COLUMN s.a BIGINT NOT NULL").getOps().get(0);
+
+        Assertions.assertFalse(omitted.getColumnDef()
+                .translateToCatalogStyleForSchemaChange().isNullableSpecified());
+        Assertions.assertTrue(nullable.getColumnDef()
+                .translateToCatalogStyleForSchemaChange().isNullableSpecified());
+        Assertions.assertTrue(notNullable.getColumnDef()
+                .translateToCatalogStyleForSchemaChange().isNullableSpecified());
     }
 
     private AlterTableCommand parseAlter(String sql) {

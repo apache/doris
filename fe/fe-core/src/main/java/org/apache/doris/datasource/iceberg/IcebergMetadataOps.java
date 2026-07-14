@@ -998,9 +998,6 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
             // Complex type processing branch
             validateForModifyComplexColumn(column, currentCol);
             applyComplexTypeChange(updateSchema, columnPath.getFullPath(), currentCol.type(), column.getType());
-            if (column.isAllowNull()) {
-                updateSchema.makeColumnOptional(columnPath.getFullPath());
-            }
             if (!Objects.equals(currentCol.doc(), column.getComment())) {
                 updateSchema.updateColumnDoc(columnPath.getFullPath(), column.getComment());
             }
@@ -1009,12 +1006,8 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
             validateForModifyColumn(column, currentCol);
             Type icebergType = IcebergUtils.dorisTypeToIcebergType(column.getType());
             updateSchema.updateColumn(columnPath.getFullPath(), icebergType.asPrimitiveType(), column.getComment());
-            if (column.isAllowNull()) {
-                // we can change a required column to optional, but not the other way around
-                // because we don't know whether there is existing data with null values.
-                updateSchema.makeColumnOptional(columnPath.getFullPath());
-            }
         }
+        applyExplicitNullableChange(updateSchema, columnPath.getFullPath(), column);
 
         if (position != null) {
             applyPosition(updateSchema, position, columnPath.getColumnPath(), icebergTable.schema(), "modify");
@@ -1049,8 +1042,6 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         if (column.getType().isComplexType()) {
             validateForModifyComplexColumn(column, currentCol, columnPath.getFullPath());
             applyComplexTypeChange(updateSchema, resolvedPath.getFullPath(), currentCol.type(), column.getType());
-            // Column does not preserve whether NULL was explicit or omitted for MODIFY.
-            // Keep the existing target requiredness instead of silently relaxing it.
             if (!Objects.equals(currentCol.doc(), column.getComment())) {
                 updateSchema.updateColumnDoc(resolvedPath.getFullPath(), column.getComment());
             }
@@ -1058,10 +1049,8 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
             validateForModifyColumn(column, currentCol, columnPath.getFullPath());
             Type icebergType = IcebergUtils.dorisTypeToIcebergType(column.getType());
             updateSchema.updateColumn(resolvedPath.getFullPath(), icebergType.asPrimitiveType(), column.getComment());
-            if (column.isAllowNull()) {
-                updateSchema.makeColumnOptional(resolvedPath.getFullPath());
-            }
         }
+        applyExplicitNullableChange(updateSchema, resolvedPath.getFullPath(), column);
 
         if (position != null) {
             applyPosition(updateSchema, position, resolvedPath.getColumnPath(), icebergTable.schema(), "modify");
@@ -1092,6 +1081,12 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
                     + icebergTable.name() + ", error message is: " + e.getMessage(), e);
         }
         refreshTable(dorisTable, updateTime);
+    }
+
+    private void applyExplicitNullableChange(UpdateSchema updateSchema, String columnPath, Column column) {
+        if (column.isNullableSpecified() && column.isAllowNull()) {
+            updateSchema.makeColumnOptional(columnPath);
+        }
     }
 
     private void validateForModifyColumn(Column column, NestedField currentCol) throws UserException {

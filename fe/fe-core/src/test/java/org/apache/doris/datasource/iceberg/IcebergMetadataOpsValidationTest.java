@@ -258,6 +258,90 @@ public class IcebergMetadataOpsValidationTest {
     }
 
     @Test
+    public void testPrimitiveModifyPreservesRequiredNestedField() throws Throwable {
+        Schema schema = requiredNestedSchema();
+        ExternalTable dorisTable = Mockito.mock(ExternalTable.class);
+        Table icebergTable = Mockito.mock(Table.class);
+        UpdateSchema updateSchema = Mockito.mock(UpdateSchema.class);
+        Mockito.when(dorisTable.getRemoteDbName()).thenReturn("db");
+        Mockito.when(icebergTable.schema()).thenReturn(schema);
+        Mockito.when(icebergTable.updateSchema()).thenReturn(updateSchema);
+
+        try (MockedStatic<IcebergUtils> mockedIcebergUtils =
+                Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
+            mockedIcebergUtils.when(() -> IcebergUtils.getIcebergTable(dorisTable)).thenReturn(icebergTable);
+
+            ops.modifyColumn(dorisTable, ColumnPath.fromDotName("info.metric"),
+                    new Column("metric", Type.BIGINT, true), null, 1L);
+        }
+
+        Mockito.verify(updateSchema).updateColumn("info.metric", Types.LongType.get(), "");
+        Mockito.verify(updateSchema, Mockito.never()).makeColumnOptional(Mockito.anyString());
+        Mockito.verify(updateSchema).commit();
+    }
+
+    @Test
+    public void testTopLevelModifyPreservesRequiredMixedCaseFields() throws Throwable {
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "Id", Types.IntegerType.get()),
+                Types.NestedField.required(2, "Payload", Types.StructType.of(
+                        Types.NestedField.required(3, "Value", Types.IntegerType.get()))));
+        ExternalTable dorisTable = Mockito.mock(ExternalTable.class);
+        Table icebergTable = Mockito.mock(Table.class);
+        UpdateSchema updateSchema = Mockito.mock(UpdateSchema.class);
+        Mockito.when(dorisTable.getRemoteDbName()).thenReturn("db");
+        Mockito.when(icebergTable.schema()).thenReturn(schema);
+        Mockito.when(icebergTable.updateSchema()).thenReturn(updateSchema);
+
+        try (MockedStatic<IcebergUtils> mockedIcebergUtils =
+                Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
+            mockedIcebergUtils.when(() -> IcebergUtils.getIcebergTable(dorisTable)).thenReturn(icebergTable);
+
+            ops.modifyColumn(dorisTable, ColumnPath.of("id"),
+                    new Column("id", Type.BIGINT, true), null, 1L);
+            ops.modifyColumn(dorisTable, ColumnPath.of("payload"), new Column("payload",
+                    new StructType(new StructField("Value", Type.BIGINT)), true), null, 1L);
+        }
+
+        Mockito.verify(updateSchema).updateColumn("Id", Types.LongType.get(), "");
+        Mockito.verify(updateSchema).updateColumn("Payload.Value", Types.LongType.get(), null);
+        Mockito.verify(updateSchema, Mockito.never()).makeColumnOptional(Mockito.anyString());
+        Mockito.verify(updateSchema, Mockito.times(2)).commit();
+    }
+
+    @Test
+    public void testExplicitNullableModifyMakesRequiredFieldsOptional() throws Throwable {
+        Schema schema = requiredNestedSchema();
+        ExternalTable dorisTable = Mockito.mock(ExternalTable.class);
+        Table icebergTable = Mockito.mock(Table.class);
+        UpdateSchema updateSchema = Mockito.mock(UpdateSchema.class);
+        Mockito.when(dorisTable.getRemoteDbName()).thenReturn("db");
+        Mockito.when(icebergTable.schema()).thenReturn(schema);
+        Mockito.when(icebergTable.updateSchema()).thenReturn(updateSchema);
+
+        Column topLevelColumn = new Column("info", new StructType(
+                new StructField("metric", Type.BIGINT),
+                new StructField("child", new StructType(new StructField("value", Type.INT))),
+                new StructField("events", ArrayType.create(Type.INT, true)),
+                new StructField("attrs", new MapType(Type.STRING, Type.INT))), true);
+        topLevelColumn.setNullableSpecified(true);
+        Column nestedColumn = new Column("metric", Type.BIGINT, true);
+        nestedColumn.setNullableSpecified(true);
+
+        try (MockedStatic<IcebergUtils> mockedIcebergUtils =
+                Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
+            mockedIcebergUtils.when(() -> IcebergUtils.getIcebergTable(dorisTable)).thenReturn(icebergTable);
+
+            ops.modifyColumn(dorisTable, ColumnPath.of("info"), topLevelColumn, null, 1L);
+            ops.modifyColumn(dorisTable, ColumnPath.fromDotName("info.metric"), nestedColumn, null, 1L);
+        }
+
+        Mockito.verify(updateSchema).makeColumnOptional("info");
+        Mockito.verify(updateSchema).makeColumnOptional("info.metric");
+        Mockito.verify(updateSchema, Mockito.times(2)).commit();
+    }
+
+    @Test
     public void testModifyColumnRejectsDefaultMetadata() {
         Schema schema = nestedSchema();
         ExternalTable dorisTable = Mockito.mock(ExternalTable.class);
@@ -432,8 +516,7 @@ public class IcebergMetadataOpsValidationTest {
 
         Mockito.verify(updateSchema).updateColumn("arr.element", Types.LongType.get(), "");
         Mockito.verify(updateSchema).updateColumn("m.value", Types.LongType.get(), "");
-        Mockito.verify(updateSchema).makeColumnOptional("arr.element");
-        Mockito.verify(updateSchema).makeColumnOptional("m.value");
+        Mockito.verify(updateSchema, Mockito.never()).makeColumnOptional(Mockito.anyString());
         Mockito.verify(updateSchema, Mockito.times(2)).commit();
     }
 
@@ -616,8 +699,8 @@ public class IcebergMetadataOpsValidationTest {
     }
 
     private Schema requiredNestedSchema() {
-        return new Schema(Types.NestedField.optional(1, "info", Types.StructType.of(
-                Types.NestedField.optional(2, "metric", Types.IntegerType.get()),
+        return new Schema(Types.NestedField.required(1, "info", Types.StructType.of(
+                Types.NestedField.required(2, "metric", Types.IntegerType.get()),
                 Types.NestedField.required(3, "child", Types.StructType.of(
                         Types.NestedField.required(4, "value", Types.IntegerType.get()))),
                 Types.NestedField.required(5, "events", Types.ListType.ofRequired(
