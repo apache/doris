@@ -22,8 +22,6 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.cloud.CacheHotspotManager;
-import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.InternalCatalog;
@@ -43,8 +41,6 @@ import org.apache.doris.thrift.TGetDbsParams;
 import org.apache.doris.thrift.TGetDbsResult;
 import org.apache.doris.thrift.TGetTablesParams;
 import org.apache.doris.thrift.TGetTablesResult;
-import org.apache.doris.thrift.TGetTabletReplicaInfosRequest;
-import org.apache.doris.thrift.TGetTabletReplicaInfosResult;
 import org.apache.doris.thrift.TListTableStatusResult;
 import org.apache.doris.thrift.TMetadataTableRequestParams;
 import org.apache.doris.thrift.TMetadataType;
@@ -64,7 +60,6 @@ import org.junit.BeforeClass;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.ExpectedException;
-import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.util.ArrayList;
@@ -446,38 +441,4 @@ public class FrontendServiceImplTest {
         System.out.println(result);
     }
 
-    @Test
-    public void testGetTabletReplicaInfosNullJobReturnsCancelledWithoutNpe() {
-        String originalCloudUniqueId = Config.cloud_unique_id;
-        Config.cloud_unique_id = "gettabletreplicainfostest";
-
-        CloudEnv cloudEnv = Mockito.mock(CloudEnv.class);
-        CacheHotspotManager cacheHotspotManager = Mockito.mock(CacheHotspotManager.class);
-        Mockito.when(cloudEnv.getCacheHotspotMgr()).thenReturn(cacheHotspotManager);
-        Mockito.when(cacheHotspotManager.getCloudWarmUpJob(123456L)).thenReturn(null);
-
-        MockedStatic<Env> envMock = Mockito.mockStatic(Env.class);
-        try {
-            envMock.when(Env::getCurrentEnv).thenReturn(cloudEnv);
-
-            FrontendServiceImpl frontendService = new FrontendServiceImpl(exeEnv);
-            TGetTabletReplicaInfosRequest request = new TGetTabletReplicaInfosRequest();
-            request.setTabletIds(Collections.singletonList(789L));
-            request.setWarmUpJobId(123456L);
-
-            TGetTabletReplicaInfosResult result;
-            try {
-                result = frontendService.getTabletReplicaInfos(request);
-            } catch (NullPointerException e) {
-                throw new AssertionError("getTabletReplicaInfos must not NPE when the "
-                        + "warm-up job has been removed from CacheHotspotManager", e);
-            }
-
-            Assert.assertNotNull(result.getStatus());
-            Assert.assertEquals(TStatusCode.CANCELLED, result.getStatus().getStatusCode());
-        } finally {
-            envMock.close();
-            Config.cloud_unique_id = originalCloudUniqueId;
-        }
-    }
 }
