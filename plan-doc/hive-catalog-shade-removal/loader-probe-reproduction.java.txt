@@ -1,0 +1,198 @@
+import java.io.File;
+import java.net.URL;
+import java.net.URLClassLoader;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+
+import org.apache.doris.extension.loader.ChildFirstClassLoader;
+import org.apache.doris.extension.loader.ClassLoadingPolicy;
+
+/**
+ * Offline reproduction of the production classloader topology.
+ *
+ * parent  = model of the FE app loader: output/fe/lib/*.jar with doris-fe.jar pinned FIRST
+ *           (mirrors bin/start_fe.sh which puts doris-fe.jar at the head of CLASSPATH)
+ * child   = the REAL ChildFirstClassLoader from fe-extension-loader, over a plugin's
+ *           own jars + lib/*.jar, with the REAL parent-first policy from
+ *           ConnectorPluginManager (DEFAULT + org.apache.doris.connector. + org.apache.doris.filesystem.)
+ *
+ * Question under test: RetryingMetaStoreClient.getProxy() does
+ *     Class.forName(name, true, TCCL).asSubclass(IMetaStoreClient.class)
+ * where IMetaStoreClient.class is resolved from RetryingMetaStoreClient's OWN defining loader.
+ * So the decisive predicate is:  childIMetaStoreClient.isAssignableFrom(resolvedClientClass)
+ */
+public class LoaderProbe {
+
+    private static final String OUT = "/mnt/disk1/yy/git/wt-catalog-spi/output/fe";
+
+    private static final String IMSC = "org.apache.hadoop.hive.metastore.IMetaStoreClient";
+    private static final String RETRYING = "org.apache.hadoop.hive.metastore.RetryingMetaStoreClient";
+    private static final String GLUE = "com.amazonaws.glue.catalog.metastore.AWSCatalogMetastoreClient";
+    private static final String DLF = "com.aliyun.datalake.metastore.hive2.ProxyMetaStoreClient";
+
+    public static void main(String[] args) throws Exception {
+        ClassLoader parent = buildParent();
+        System.out.println("=== PARENT (app loader model) ===");
+        report(parent, IMSC);
+        report(parent, RETRYING);
+        report(parent, GLUE);
+        report(parent, DLF);
+
+        for (String plugin : new String[] {"hive", "iceberg", "hudi", "paimon"}) {
+            probePlugin(parent, plugin);
+        }
+    }
+
+    private static ClassLoader buildParent() throws Exception {
+        File libDir = new File(OUT, "lib");
+        File[] jars = libDir.listFiles(f -> f.getName().endsWith(".jar"));
+        List<URL> urls = new ArrayList<>();
+        // doris-fe.jar pinned first, exactly like start_fe.sh
+        for (File f : jars) {
+            if (f.getName().equals("doris-fe.jar")) {
+                urls.add(f.toURI().toURL());
+            }
+        }
+        for (File f : jars) {
+            if (!f.getName().equals("doris-fe.jar")) {
+                urls.add(f.toURI().toURL());
+            }
+        }
+        System.out.println("parent jars: " + urls.size());
+        return new URLClassLoader("app-model", urls.toArray(new URL[0]),
+                ClassLoader.getPlatformClassLoader());
+    }
+
+    private static void probePlugin(ClassLoader parent, String name) throws Exception {
+        File dir = new File(OUT, "plugins/connector/" + name);
+        if (!dir.isDirectory()) {
+            System.out.println("\n=== PLUGIN " + name + ": MISSING DIR " + dir + " ===");
+            return;
+        }
+        List<URL> urls = new ArrayList<>();
+        File[] root = dir.listFiles(f -> f.getName().endsWith(".jar"));
+        if (root != null) {
+            for (File f : root) {
+                urls.add(f.toURI().toURL());
+            }
+        }
+        File lib = new File(dir, "lib");
+        File[] libJars = lib.listFiles(f -> f.getName().endsWith(".jar"));
+        if (libJars != null) {
+            for (File f : libJars) {
+                urls.add(f.toURI().toURL());
+            }
+        }
+
+        List<String> parentFirst = new ClassLoadingPolicy(
+                Arrays.asList("org.apache.doris.connector.", "org.apache.doris.filesystem."))
+                .toParentFirstPackages();
+
+        ChildFirstClassLoader child =
+                new ChildFirstClassLoader(urls.toArray(new URL[0]), parent, parentFirst);
+
+        System.out.println("\n=== PLUGIN " + name + " (jars=" + urls.size() + ") ===");
+        Class<?> childImsc = report(child, IMSC);
+        report(child, RETRYING);
+        Class<?> glue = report(child, GLUE);
+        Class<?> dlf = report(child, DLF);
+
+        verdict("Glue", childImsc, glue);
+        verdict("DLF ", childImsc, dlf);
+
+        // Replay the REAL production path: RetryingMetaStoreClient.getProxy does
+        //   JavaUtils.getClass(name, IMetaStoreClient.class)  -> Class.forName(name, true, TCCL)
+        // and the ctor then does `checkcast IMetaStoreClient` (bytecode offset 127) on the
+        // instance, where IMetaStoreClient is resolved from RetryingMetaStoreClient's OWN
+        // defining loader (= child). checkcast succeeds iff isAssignableFrom is true.
+        realPath(child, childImsc, GLUE);
+        ctorCheck(child, dlf, "DLF");
+    }
+
+    /**
+     * RetryingMetaStoreClient.getProxy(conf, hookLoader, className) builds
+     *   Class[] {Configuration.class, HiveMetaHookLoader.class, Boolean.class}
+     * and hands it to JavaUtils.newInstance -> getDeclaredConstructor(...), which is an
+     * EXACT signature match (a HiveConf param would NOT match Configuration).
+     * fe-core's vendored ProxyMetaStoreClient adds exactly this ctor; the shade copy may not.
+     */
+    private static void ctorCheck(ClassLoader child, Class<?> impl, String what) {
+        if (impl == null) {
+            System.out.println("  CTOR " + what + ": N/A");
+            return;
+        }
+        try {
+            Class<?> conf = Class.forName("org.apache.hadoop.conf.Configuration", false, impl.getClassLoader());
+            Class<?> hook = Class.forName("org.apache.hadoop.hive.metastore.HiveMetaHookLoader", false, impl.getClassLoader());
+            impl.getDeclaredConstructor(conf, hook, Boolean.class);
+            System.out.println("  CTOR " + what + ": (Configuration, HiveMetaHookLoader, Boolean) FOUND on "
+                    + describe(impl.getClassLoader()) + "  [getProxy can instantiate]");
+        } catch (NoSuchMethodException e) {
+            System.out.println("  CTOR " + what + ": (Configuration, HiveMetaHookLoader, Boolean) *** ABSENT *** on "
+                    + describe(impl.getClassLoader()) + "  [getProxy -> NoSuchMethodException]");
+            System.out.println("        declared ctors: " + Arrays.toString(impl.getDeclaredConstructors()));
+        } catch (Throwable t) {
+            System.out.println("  CTOR " + what + ": probe error " + t);
+        }
+    }
+
+    private static void realPath(ClassLoader child, Class<?> childImsc, String target) {
+        ClassLoader original = Thread.currentThread().getContextClassLoader();
+        try {
+            // exactly what ThriftHmsClient.doAs() does at line 644
+            Thread.currentThread().setContextClassLoader(child);
+            Class<?> javaUtils = Class.forName(
+                    "org.apache.hadoop.hive.metastore.utils.JavaUtils", true, child);
+            Object resolved = javaUtils
+                    .getMethod("getClass", String.class, Class.class)
+                    .invoke(null, target, childImsc);
+            Class<?> c = (Class<?>) resolved;
+            System.out.println("  REAL-PATH JavaUtils.getClass(\"" + target + "\") under pinned TCCL");
+            System.out.println("             -> resolved by " + describe(c.getClassLoader()));
+            System.out.println("             -> ctor `checkcast IMetaStoreClient` would "
+                    + (childImsc.isAssignableFrom(c) ? "SUCCEED" : "THROW ClassCastException"));
+        } catch (Throwable t) {
+            Throwable cause = t.getCause() != null ? t.getCause() : t;
+            System.out.println("  REAL-PATH threw " + cause.getClass().getName() + ": " + cause.getMessage());
+        } finally {
+            Thread.currentThread().setContextClassLoader(original);
+        }
+    }
+
+    private static Class<?> report(ClassLoader cl, String name) {
+        try {
+            // resolve=false: we only need the class object; supertypes are still loaded on define
+            Class<?> c = Class.forName(name, false, cl);
+            ClassLoader def = c.getClassLoader();
+            System.out.printf("  %-70s -> defined by %s%n", shorten(name), describe(def));
+            return c;
+        } catch (Throwable t) {
+            System.out.printf("  %-70s -> %s: %s%n", shorten(name),
+                    t.getClass().getSimpleName(), String.valueOf(t.getMessage()));
+            return null;
+        }
+    }
+
+    private static void verdict(String what, Class<?> childImsc, Class<?> impl) {
+        if (childImsc == null || impl == null) {
+            System.out.println("  VERDICT " + what + ": N/A (a class failed to resolve)");
+            return;
+        }
+        boolean ok = childImsc.isAssignableFrom(impl);
+        System.out.println("  VERDICT " + what + ": child IMetaStoreClient.isAssignableFrom(client) = "
+                + ok + (ok ? "   [OK]" : "   [BROKEN -> asSubclass would throw ClassCastException]"));
+    }
+
+    private static String describe(ClassLoader cl) {
+        if (cl == null) {
+            return "bootstrap";
+        }
+        String n = cl.getName();
+        return (n != null ? n : cl.getClass().getSimpleName()) + "@" + Integer.toHexString(System.identityHashCode(cl));
+    }
+
+    private static String shorten(String n) {
+        return n;
+    }
+}

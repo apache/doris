@@ -88,4 +88,73 @@
 **新增/改写的 task**：HCS-01（改为离线 classloader 测试，替代原「用户真集群 e2e 探测」）·
 **HCS-30a（DLF 搬迁 spike，新增）** · HCS-30b/33（新增）· HCS-22/71（验收改为「离线必过 + 显式声明未 e2e 覆盖项」）。
 
-**commit**：（本次文档更新 commit 待填）
+**commit**：`7b726e224e0`
+
+---
+
+## 2026-07-14（三） — 🚨 离线实验跑出事实：**三条外部 metastore 路径今天全是坏的**（推演证实 + 修正）
+
+**做了什么**
+- 主 session **亲手写并跑了离线 classloader 实验**（`loader-probe-reproduction.java.txt`，本目录）：
+  真实 `output/fe/lib`（576 jar，`doris-fe.jar` 按 `start_fe.sh` 钉最前）当父 + 真实
+  `output/fe/plugins/connector/{hive,iceberg,hudi,paimon}` 的 jar 组 **真实的**
+  `ChildFirstClassLoader`（fe-extension-loader 那份）+ 真实 parent-first 名单。**不是模拟，跑的是生产拓扑。**
+- 6 路调研 + 6 路对抗验证（12 agent）。**对抗验证推翻了 4/6 路的关键结论**，见下。
+
+### 🔴 实验结论（全部实测，非推演）
+
+| 路径 | 结果 | 失败机理 |
+|---|---|---|
+| **Glue**（hive/iceberg/hudi/paimon **全部 4 个**） | ❌ **坏** | Glue 类**不在任何插件 zip**（shade jar 里 `com/amazonaws` = **0** 条目）→ 父回退 → **app loader** 定义 → 它实现的是 **app 的** `IMetaStoreClient`；而 `RetryingMetaStoreClient` 由 **child** 定义 → 其 ctor 的 **`checkcast IMetaStoreClient`（child 的）** → **ClassCastException** |
+| **DLF via hive/iceberg/hudi** | ❌ **坏** | 类身份**是对的**（shade 打进了插件 zip → child 定义，`isAssignableFrom`=**true**）；但 shade 里那份 = **上游原版**，**缺** ctor `(Configuration, HiveMetaHookLoader, Boolean)`（实测只有 `(HiveConf)` / `(HiveConf,…)`）→ `getProxy` 内 `getDeclaredConstructor` **精确匹配** → **NoSuchMethodException** |
+| **DLF via paimon** | ❌ **坏** | paimon zip **既无 aliyun jar 也无 hive-catalog-shade** → 父回退 → app 的（hive **3.1.3**）；而 paimon 私有 shade 是 hive **2.3.7** → 身份 + 版本**双重**不匹配 |
+
+### ⚠️ 由此**修正** `design.md` 的两处错误（结论方向不变，机理写错了）
+
+1. **§3.2b 说失败在 `getProxy` 的 `asSubclass`** → **错**。字节码实证：
+   `JavaUtils.getClass` 只做 `Class.forName(name, true, TCCL)` 后 `areturn`（泛型擦除，**无** asSubclass）。
+   真正的失败点是 `RetryingMetaStoreClient` 私有 ctor **offset 127 的 `checkcast IMetaStoreClient`**。
+2. **R-2 说「今天生效的 DLF 客户端是 fe-core vendored 那份」** → 仅对 **app loader** 成立。
+   **插件路径上 child-first 挑中的是 shade 里那份**（hive/iceberg/hudi 的 zip 里都有）→
+   **「静默换实现」这件事已经在 cutover 时发生了**，不是将来的风险。
+
+### 🚨 最重要：**这是本分支 cutover 引入的回归，不是历史遗留**
+
+- **master 是好的**：`fe/fe-core/.../hive/ThriftHMSCachedClient.java`（本分支**已删**）
+  `:29-30` **直接 import** 两个客户端，`:676/:678` 用 **`ProxyMetaStoreClient.class.getName()` /
+  `AWSCatalogMetastoreClient.class.getName()`** —— **编译期类引用**，编译器保证类在调用方 classpath 上；
+  且全在 fe-core → **app loader** → caller/callee/`IMetaStoreClient` 三者自洽 → 能跑。
+- **本分支坏了**：`fe-connector-hms/.../ThriftHmsClient.java:917/:922` 把它们改写成了**字符串字面量**
+  → 编译期保证**静默消失** → 落到插件 child loader → 三种坏法。
+- **DLF 那个 ctor 的来历**：`fe/fe-core/.../ProxyMetaStoreClient.java:182` 注释
+  **`// morningman: add this constructor to avoid NoSuchMethod exception`** —— Doris 自己给上游打的补丁。
+  master 靠 `start_fe.sh:355` 把 `doris-fe.jar` 钉最前让**打了补丁那份赢**；插件 child-first 让**原版赢** → 补丁失效。
+- **影响面**：`hive.metastore.type` 是用户写在 `CREATE CATALOG` 里的普通属性
+  （`HmsClientConfig.java:37/:43/:46`）→ **任何 Glue/DLF catalog 首次使用必然撞**，非边角路径。
+
+### 🔬 完整证明链（字节码级，全部亲验）
+
+```
+ThriftHmsClient:644   TCCL := 插件 child loader
+ThriftHmsClient:910   RetryingMetaStoreClient.getProxy(conf, hook, "类名字符串")
+  └─ 3-arg 重载 offset 7/12/17: 组 Class[]{Configuration, HiveMetaHookLoader, Boolean}
+  └─ JavaUtils.getClass(name, IMetaStoreClient.class)     ← #149 常量池，从 child 解析
+       └─ Class.forName(name, true, TCCL)                 ← child-first；找不到→父回退
+  └─ JavaUtils.newInstance offset 94: Class.getDeclaredConstructor(...)  ← 精确匹配，不做子类型适配
+  └─ ctor offset 127: checkcast IMetaStoreClient (child 的)
+```
+
+### 🧭 六路调研结论（对抗验证后）
+
+| 路 | 结论 | 验证判定 |
+|---|---|---|
+| **Ranger `HiveOperationType`** | ✅ **是纯死代码**！唯一用途是填一个全仓**零读取**的 `ROLE_OPS`（`RangerHiveAuditHandler.java:55,57-63`）。真编译**双向**验证：删 12 行后摘掉 shade jar 仍 `javac` 通过；不删则恰好报 1 错就是该 import。**→ D-3 决策消失，直接删** | SOUND |
+| **DLF spike** | ❌ **路线 A/B 双双证伪**：`ProxyMetaStoreClient` 是 **hive3-only**（javap 实证实现了 `createCatalog`/`createISchema`/`getValidWriteIds` 等 hive3 专有方法），而 paimon 私有 shade 是 hive **2.3.7**（那些 api 类 grep 计数=0）。包名 `hive2` 是**误导性遗留名** | MOSTLY_SOUND |
+| **零引用依赖** | ⚠️ 前轮「5 项全零引用」**错 3 项**。真可删只有 `hudi-hadoop-mr`。**`kryo-shaded` 绝不可删**（`WorkloadSchedPolicy.java:32,287,298` 经 minlog 真实调用）。`avro` 删声明但 jar 删不掉（三方传递） | MOSTLY_SOUND |
+| **Glue 搬迁** | 可行但 3 个 blocker：① `ConfigurationAWSCredentialsProvider.java:89` 读 `Config.aws_credentials_provider_version`（fe-common，插件不依赖它）② fe-core `HiveGlueMetaStoreProperties.java:24` **反向** import vendored Glue ③ **3 个文件 import 裸 `org.apache.thrift.TException`**，而 fe-connector-hms 编译期**无 libthrift** → 直接搬**必编译失败**（改 shade 前缀即可；**绝不能加 libthrift**，那正是 shade 要防的冲突）。checkstyle **零工作量**（`suppressions.xml:65` 是路径正则，自动跟着走） | MOSTLY_SOUND |
+| **5 个属性类** | ✅ 已是**死代码**可直接删（"hms" 走 `SPI_READY_TYPES` → plugin supplier → `getMetastoreProperties()` 永不被调）。但 `HiveTable.java`/`HMSResource.java` 两个 **GSON 持久化活类**只为拿 String 常量而 import 它们 | MOSTLY_SOUND |
+| **fe-common** | 可解：`CatalogConfigFileUtils` 只删 `loadHiveConfFromHiveConfDir` 那一半（另一半 `loadConfigurationFromHadoopConfDir` 服务**所有**外表 catalog，必须留）。⚠️ `loadHiveConfResources` **不是死代码**（IcebergConnector:707 / PaimonConnector:376 真调），且现语义是把 `new HiveConf()` 的**上千条默认值**灌进插件 HiveConf → 换实现**必须显式签字**（硬约束 2） | MOSTLY_SOUND |
+
+**未决**：见 HANDOFF「待用户签字」。**尚未动任何生产代码。**
+
+**commit**：（本次文档更新）
