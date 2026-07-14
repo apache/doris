@@ -22,9 +22,28 @@
 #include <vector>
 
 #include "io/io_common.h"
+#include "storage/olap_common.h"
 #include "storage/segment/variant/variant_ext_meta_writer.h"
 
 namespace doris::segment_v2 {
+
+namespace {
+
+io::IOContext create_index_io_context(const io::IOContext* source_io_ctx,
+                                      OlapReaderStatistics* stats) {
+    io::IOContext io_ctx;
+    if (source_io_ctx != nullptr) {
+        io_ctx = *source_io_ctx;
+    }
+    io_ctx.is_index_data = true;
+    io_ctx.is_inverted_index = false;
+    if (stats != nullptr) {
+        io_ctx.file_cache_stats = &stats->file_cache_stats;
+    }
+    return io_ctx;
+}
+
+} // namespace
 
 Status ExternalColMetaUtil::parse_external_meta_pointers(
         const SegmentFooterPB& footer, ExternalColMetaUtil::ExternalMetaPointers* out) {
@@ -97,7 +116,9 @@ bool ExternalColMetaUtil::is_valid_meta_slice(uint64_t pos, uint64_t size,
 Status ExternalColMetaUtil::read_col_meta(const io::FileReaderSPtr& file_reader,
                                           const SegmentFooterPB& footer,
                                           const ExternalColMetaUtil::ExternalMetaPointers& p,
-                                          uint32_t col_id, ColumnMetaPB* out_meta) {
+                                          uint32_t col_id, ColumnMetaPB* out_meta,
+                                          OlapReaderStatistics* stats,
+                                          const io::IOContext* source_io_ctx) {
     if (col_id >= p.num_columns) {
         return Status::Corruption("col_id {} out of range {}", col_id, p.num_columns);
     }
@@ -124,7 +145,7 @@ Status ExternalColMetaUtil::read_col_meta(const io::FileReaderSPtr& file_reader,
     std::string buf;
     buf.resize(static_cast<size_t>(size));
     size_t meta_read = 0;
-    io::IOContext io_ctx {.is_index_data = true};
+    io::IOContext io_ctx = create_index_io_context(source_io_ctx, stats);
     RETURN_IF_ERROR(file_reader->read_at(pos, Slice(buf.data(), buf.size()), &meta_read, &io_ctx));
     if (meta_read != size) {
         return Status::Corruption("short read ColumnMetaPB: expect={}, actual={}", size, meta_read);
