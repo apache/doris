@@ -298,3 +298,103 @@ Trino **不走「传类名 → 反射加载」这一跳**：自己实现 `TrinoG
    `aws.catalog.credentials.provider.factory.class` → `ConfigurationAWSCredentialsProviderFactory`
    **指向一个即将被 T-30 删掉的 fe-core 类**（第二条 fe-core→插件按名耦合）。
    T-34 称「iceberg 原生从不读该 key，删除中性」→ **落刀前 javap 复核**。
+
+---
+
+## 2026-07-14（五）— 阶段 2 完成：删 thrift 一代 Glue
+
+**commit**：`e43173eca67`（code，独立）· 基线 `5e6351e6d8a`
+**方法**：6-agent 侦察（阻塞项/树闭包/分派/属性类/iceberg 切面/regression 面）+ 5 路对抗验证
++ 1 个专项 agent 查 FE 生命周期。11/11 完成，0 error。
+
+### 规模
+
+**53 文件改动，-11,245 行 / +139 行。** fe-core main 的 `com.amazonaws.*` 引用 **归零**。
+总判据 26 → **7**（余下为 DLF/hive 部分）。
+
+### 阻塞项已解除（原 HANDOFF 的「落刀前必查」）
+
+`aws.catalog.credentials.provider.factory.class` 的 `opts.put` 删除**行为中性 = CONFIRMED**，字节码级：
+- 拆插件目录**全部 183 个 jar**（侦察只查了 6 个，验证者扩到全量）、**6603 个 class** → 该 key **0 命中**
+- **正对照**（关键）：同一 grep、同一语料，`appendGlueProperties` 发的**其它每一个** key 都能命中
+  （`client.credentials-provider`→4、`client.factory`→7、`client.region`→2 …）→ 空结果是真信号不是坏 grep
+- 唯一读者 `AWSGlueClientFactory.java:115`（`conf.getClass(...)`）在**被删树内**
+- `AwsClientProperties.<init>(Map)` 的 javap 显示它读的是**封闭集合**，不含该 key
+
+### 🔴 本轮最重要的发现：拒绝逻辑放错地方会让 FE 起不来
+
+原计划只说「必须改成显式抛异常」，没说放哪。查 FE 生命周期后发现**三个位置后果完全不同**：
+
+| 位置 | 新建 catalog | **edit-log 回放** |
+|---|---|---|
+| `validateProperties` | ✅ 报错 | ✅ **不跑**（`CatalogMgr:551-553` 有 `!isReplay` 门）→ 安全 |
+| `create()` / 连接器构造函数 | ✅ 报错 | 💀 **会跑**（`CatalogFactory:105-113` 两条路径都建 connector）→ 抛异常 → `EditLog.loadJournal:1521-1539` catch-all **`System.exit(-1)`** → **FE 起不来**（`OP_CREATE_CATALOG=320` 不在默认 skip 列表；恢复需运维手改 `fe.conf`） |
+| `createClient()` | ✅ 报错 | ✅ 懒加载，不跑 → 安全 |
+
+⚠️ **代码库已有的 lakesoul「已移除」先例（`CatalogFactory.java:141-142`）恰好放在没有 isReplay 门的地方**
+→ checkpoint 之后建的 lakesoul catalog 会让 FE 启动失败。**那是个未修的潜在 bug，别照抄它的位置。**
+
+### 另一个发现：光在分派处抛异常根本不会生效
+
+`HiveConnector.createClient:538-546` 的「HMS URI 必填」检查**跑在分派之前**。真实 glue catalog
+**不配** `hive.metastore.uris`（只配 `glue.endpoint`/`glue.access_key`），所以：
+
+| 配置 | 只删 glue 分支后的结局 |
+|---|---|
+| `type=glue`，无 uris（**正常的 glue catalog**） | 报 `"HMS URI ('hive.metastore.uris') is required"` —— 响，但**与 glue 毫无关系**，误导 |
+| `type=glue` + 多余的 uris | **静默连普通 HMS** —— 原记录的风险，真实存在但更窄 |
+
+两种结局都不告诉用户「glue 被移除了」→ 都指向同一个修法。**拒绝必须放在 URI 检查之前。**
+
+### 用户 2026-07-14 拍板：两处都加
+
+- `HiveConnectorProvider.validateProperties` → 抛 **`IllegalArgumentException`**
+  （`PluginDrivenExternalCatalog:193-199` **只解包这一种**并 `new DdlException(e.getMessage())` 原样透出；
+  抛别的类型文案会被包烂。先例 `CacheSpec.checkLongProperty` 同样抛它）
+- `HiveConnector.createClient` → 抛 **`DorisConnectorException`**（邻居惯例；fe-core 有 5+ 处专门 catch 它，
+  改抛 IAE 会绕过那些 handler），**放在 URI 检查之前**
+- 共享的是**文案**（`HmsClientConfig.removedMetastoreTypeError`），不是 throw —— 两处异常类型必须不同
+
+**偏离原计划**：`METASTORE_TYPE_GLUE` 原计划「无消费者→删」，实际**改名保留**为
+`METASTORE_TYPE_GLUE_REMOVED` —— 它有了新消费者（识别并拒绝该已移除类型），比内联字面量清楚。
+
+### 覆盖了老用户升级场景
+
+老 glue catalog 从 image 反序列化（`CatalogMgr.read` → GSON 直接建对象，**`CatalogFactory` 全程不参与**），
+**永不经** `validateProperties`。所以：重启不受影响（不阻塞启动），第一次查询时由 `createClient`
+那处拒绝给出同一句话——而不是 jar 删掉后的 `ClassNotFoundException`。
+
+### 测试
+
+新增 `HmsClientConfigRemovedTypeTest`（2 个用例）。**动机**：侦察发现
+`getMetastoreClientClassName` **全仓零测试覆盖** → 拒绝逻辑被误删不会有任何东西变红。
+两个用例分别钉「glue 必须被拒且文案点名」与「存活类型 hms/dlf 路由不变」（后者防拒绝逻辑误伤面过大）。
+
+**已做变异验证**：把拒绝条件改成 `if (false)` → 测试**确实转红**
+（`AssertionFailedError: hive.metastore.type=glue must be rejected, never silently ignored`）。
+
+⚠️ **自己踩坑并纠正**：变异验证**第一次漏了 `-am`** → `BUILD FAILURE` 是
+`org.apache.doris:fe-connector:pom:${revision}` 解析假错、**根本没编译**到测试 → 首次「变异验证通过」的
+结论**作废**，加 `-am` 重做才是真的（memory `doris-build-verify-gotchas` 早有记载，仍复发）。
+
+### 验证汇总（信 LOG 不信 exit）
+
+- `mvn -pl fe-core -am test-compile` → **BUILD SUCCESS**，checkstyle 0
+- `mvn -pl fe-connector/{fe-connector-hms,fe-connector-hive,fe-connector-iceberg} -am test` → **BUILD SUCCESS**，
+  零 Failures/Errors，checkstyle 0
+- `tools/check-connector-imports.sh` → **exit 0**
+- `grep -rn "com\.amazonaws" fe/fe-core/src/main/java` → **空**
+
+### 对抗验证的 2 个 REFUTED（都是**命题写漏**，非计划有错）
+
+1. 「树自洽，除属性类外无外部引用」→ **REFUTED**：漏列了 `ThriftHmsClient` 的 `GLUE_CLIENT_CLASS`
+   反射字符串（存活模块内）。**计划本就要删它**，是命题的豁免清单写漏。
+2. 「删树+属性类+createV1 后 fe-core 零 com.amazonaws 且仍能编译」→ **REFUTED**：零引用**成立**，
+   但「仍能编译」不成立 —— 会悬空两条硬编译边（`HivePropertiesFactory:38` 的**构造器引用**、
+   `DatasourcePrintableMap:61` 的**类字面量**）。二者**本就在计划的删除清单里**，是我的命题把删除集写小了。
+   → 实际删除时二者均已处理，`test-compile` 实测绿。
+
+### 阶段 2 遗留
+
+见 `tasklist.md` 「阶段 2 遗留」：regression-test 清理（含**文件级 guard 钉在 glue 专有 conf key** 的坑）·
+`test_connection=true` 顺序坑 · 文案里 `Supported types: hms, dlf` 待阶段 3 去掉 `dlf`。

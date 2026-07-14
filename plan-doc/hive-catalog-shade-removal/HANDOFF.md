@@ -6,111 +6,127 @@
 
 ---
 
-# 🆕 下一个 session = **阶段 2（T-30）起，开删 Glue thrift 一代**
+# 🆕 下一个 session = **阶段 3（T-40）起，删 DLF thrift 一代**
 
-## 状态：**阶段 1 已完成并提交**（`2cd01ada8df`），保留路径的凭证 bug 已修复并实测
+## 状态：**阶段 1 + 阶段 2 已完成并提交**
 
-**基线 HEAD** = `2cd01ada8df`（`catalog-spi-11-hive`）。
+**基线 HEAD** = `e43173eca67`（`catalog-spi-11-hive`）。
+
+| 阶段 | commit | 结果 |
+|---|---|---|
+| 1 — 修 iceberg 原生 Glue 凭证类 | `2cd01ada8df` | 搬出 fe-core + 改包；probe 判据 false→**true** 实测 |
+| 2 — 删 Glue thrift 一代 | `e43173eca67` | **-11,245 行**；fe-core `com.amazonaws.*` **归零** |
+
+**总判据**：`26 → 7`（余下 7 个是 hive/DLF import，阶段 3/4 处理）。
 
 ---
 
-## 🚩 最重要的一件事：**任务定性 = 纯删除，别按旧方案做**
+## 🚩 任务定性 = **纯删除**（别按旧方案做）
 
-用户 2026-07-14 拍板：
+用户 2026-07-14 拍板：**「把 glue 和 dlf 这两个功能先删掉，不再支持了」**，
+范围 = **只删「走 HMS thrift 协议的那一代」**。理由：实测证明该代已全坏（本分支 cutover 引入的回归）。
 
-> **「把 glue 和 dlf 这两个功能先删掉，不再支持了，不作为需要迁移的内容。」**
-> 范围 = **只删「走 HMS thrift 协议的那一代」**。
-
-**为什么**：离线 classloader 实验**实测证明 thrift 一代已全坏**（本分支 cutover 引入的回归）。
-用户在信息充分下决定**不修、直接删**。
-
-⇒ **不做**守门测试 · **不做** paimon-on-DLF · **不做**降级档 · 总判据自然归零 · fe-core 全程只减不增。
+⇒ **不做**守门测试 · **不做** paimon-on-DLF · **不做**降级档 · fe-core 全程只减不增。
 
 ---
 
 ## 🔴 删除边界 —— **误删比漏删严重得多**
 
-| | ❌ **删**（thrift 一代，实测已坏） | ✋ **留**（今天可用，与 shade 无关） |
+| | ❌ **删**（thrift 一代，实测已坏） | ✋ **留**（今天可用） |
 |---|---|---|
-| **Glue** | `hive.metastore.type=glue` → vendored `AWSCatalogMetastoreClient` 树 | `iceberg.catalog.type=glue` → iceberg 官方 `GlueCatalog`（AWS SDK **v2**，在插件包内）**← 阶段 1 刚修好，别碰坏** |
-| **DLF** | `hive.metastore.type=dlf` · `iceberg.catalog.type=dlf` · paimon `paimon.catalog.type=dlf`（全经 `ProxyMetaStoreClient`） | **DLF 2.0 REST**：paimon `rest` + dlf token（`PaimonRestMetaStoreProperties`） |
+| **DLF** | `hive.metastore.type=dlf` · `iceberg.catalog.type=dlf`（`DLFCatalog`/`DLFClientPool`）· paimon `paimon.catalog.type=dlf` —— 全经 `ProxyMetaStoreClient` | **DLF 2.0 REST**：paimon `paimon.catalog.type=rest` + dlf token（`PaimonRestMetaStoreProperties`） |
+| **Glue** | *(阶段 2 已删光)* | `iceberg.catalog.type=glue`（iceberg 官方 `GlueCatalog`）**← 阶段 1 刚修好，别碰坏** |
 
 **同名不同物，别按关键字 grep 一把梭删。**
 
 ---
 
-## ▶️ 第一件事：**T-30 —— 删 `fe/fe-core/src/main/java/com/amazonaws/glue/**`**
+## ▶️ 第一件事：**T-40 —— 删 `fe/fe-core/src/main/java/com/aliyun/datalake/**`**
 
-**38 个 .java 中删 37 个**。第 38 个（`ConfigurationAWSCredentialsProvider2x.java`）**已由阶段 1 搬走**
-（现在在 `fe/fe-connector/fe-connector-iceberg/.../connector/iceberg/glue/`）—— 那个目录现在只剩
-v1 的 `ConfigurationAWSCredentialsProvider.java` + `ConfigurationAWSCredentialsProviderFactory.java`，**两个都删**。
+（`ProxyMetaStoreClient.java`，2193 行）。**建议先照阶段 2 的方式跑一轮侦察+对抗验证再落刀**——
+阶段 2 的经验是：侦察挖出的东西（生命周期坑、URI 遮蔽）**全都不在原计划里**，且都是会出事的。
 
-树内自洽；`aws-java-sdk-glue` 为该树独占（树内 712 处引用，树外 0）。
+### 🔴 阶段 2 已趟平的路，阶段 3 直接复用（**别重新踩**）
 
-### 🔴 落 T-30 前必须先查的一件事（阶段 1 侦察挖出，**清单里原本没有**）
+**1. 拒绝逻辑的位置 —— 放错会让 FE 起不来**
 
-`IcebergCatalogFactory.java:563-564` 会往 iceberg 参数里发
-`aws.catalog.credentials.provider.factory.class` → `com.amazonaws.glue.catalog.credentials.ConfigurationAWSCredentialsProviderFactory`
-—— **指向一个即将被 T-30 删掉的 fe-core 类**，是第二条 fe-core→插件的按名耦合。
+| 位置 | 新建 catalog | **edit-log 回放** |
+|---|---|---|
+| `validateProperties` | ✅ 报错 | ✅ **不跑**（`!isReplay` 门）→ 安全 |
+| `create()` / 连接器构造函数 | ✅ 报错 | 💀 **会跑** → 抛异常 → **`System.exit(-1)`，FE 起不来** |
+| `createClient()` | ✅ 报错 | ✅ 懒加载 → 安全 |
 
-T-34 的结论是「iceberg 原生 `AwsClientProperties` **从不读**这个 key（javap 已证），只有**被删的** thrift 树读它
-（`AWSGlueClientFactory.java:114-118`）→ 删除行为中性」。**落刀前用 javap 复核一遍这个结论**，
-确认删掉那条 `opts.put` 不改变任何存活路径的行为。
+**DLF 的拒绝直接加在阶段 2 已建好的 `HmsClientConfig.removedMetastoreTypeError` 里**（同一个方法，
+加一个 dlf 分支即可），两个调用点（`HiveConnectorProvider.validateProperties` +
+`HiveConnector.createClient`）**已经就位，无须新增**。
+
+- `validateProperties` 处**必须** `IllegalArgumentException`（catalog 层只解包这一种，文案才原样透出）
+- `createClient` 处**必须** `DorisConnectorException`（fe-core 有 5+ 处专门 catch 它）
+- ⚠️ **别照抄 lakesoul 先例**（`CatalogFactory.java:141-142`）—— 它的 throw 没有 isReplay 门，是潜在启动 bug
+
+**2. 文案要同步**：`HmsClientConfig.removedMetastoreTypeError` 现在写的是
+`Supported types: hms, dlf` —— **删 DLF 后要去掉 `dlf`**。
+`IcebergCatalogFactory:311-313` 的 `Supported types: rest, hms, glue, hadoop, jdbc, s3tables, dlf`
+也要去掉 `dlf`（✋ **`glue` 要留**）。
+
+**3. 常量处置范式**：`METASTORE_TYPE_GLUE` 没删，改名 `METASTORE_TYPE_GLUE_REMOVED` 供拒绝逻辑使用。
+`METASTORE_TYPE_DLF` 同理 —— 删了 dlf 分派后它仍要留给拒绝逻辑。
+
+**4. 测试**：`getMetastoreClientClassName` 此前零覆盖，阶段 2 已建
+`HmsClientConfigRemovedTypeTest`。DLF 的拒绝**往这个类里加用例**即可。
+⚠️ 该类现有用例 `survivingTypesAreNotRejectedAndStillRouteToTheirClients` **断言 dlf 仍路由到
+`ProxyMetaStoreClient`** —— 删 DLF 时这个用例要改。
+
+### 阶段 3 的清单（tasklist 里的 T-40~T-45）
+
+- **T-42 前先查清** `HiveConnectorMetadata.java:1562` 的 dlf 判断到底做什么
+- **T-45 最需谨慎**：连接器侧 Dlf 属性类**按「是否被 REST 那代共用」逐个判定** ——
+  共用则**不能删**，只能删其 thrift 消费者。`AbstractDlfMetaStoreProperties` 尤其要先确认。
 
 ---
 
-## 🔴 两个「删了会静默走错路」的坑（T-31 / T-41）
+## ⚠️ 后续阶段仍未解决的两个问题（**沿用**）
 
-`ThriftHmsClient.getMetastoreClientClassName` 是 `if(dlf) … else if(glue) … else → HiveMetaStoreClient`。
-**光删分支** ⇒ `hive.metastore.type=glue` 落到 `else` ⇒ **静默去连普通 HMS**（用户以为连的是 Glue）。
-
-⇒ **必须改成显式抛异常**。文案范式：`IcebergCatalogFactory.java:311-313` 的
-`"Unknown ...: X. Supported types: ..."`（⚠️ 该文案里的 `glue` 要留、`dlf` 要去掉）。
-
----
-
-## ⚠️ 落刀前必须先解决的两个未决问题（**沿用，未动**）
-
-1. **T-54（删 `hudi-hadoop-mr`）**：对抗验证指出 **`orc-core-1.8.4`（`fe/lib` 里的实装 jar）的公开 API
-   直接依赖 `hive-storage-api` 的类**。删 `hive-storage-api` 会不会炸 orc？**查清前不许删。**
-2. **T-51（删 `HMSBaseProperties` 等）**：「已是死代码」的证据链**有洞** ——
-   `PluginDrivenExternalCatalog.java:156` 设 supplier，但 `createConnectorFromProperties()` 在 **:129**
-   就被调用（**早于** :156）。**先复验有无真实调用窗口。**
+1. **删 `hudi-hadoop-mr`**：对抗验证指出 **`orc-core-1.8.4`（`fe/lib` 实装 jar）的公开 API 直接依赖
+   `hive-storage-api` 的类**。删 `hive-storage-api` 会不会炸 orc？**查清前不许删。**
+2. **删 `HMSBaseProperties` 等**：「已是死代码」的证据链**有洞** —— `PluginDrivenExternalCatalog.java:156`
+   设 supplier，但 `createConnectorFromProperties()` 在 **:129** 就被调用（**早于** :156）。**先复验。**
    且 `HiveTable.java` / `HMSResource.java` 是 **GSON 持久化活类**，只为拿 String 常量而 import 它。
 
 ---
 
-## 🆕 一个待用户拍板的事（**别自作主张改**）
+## 🆕 待用户拍板（**别自作主张改**）
 
-**T-21：`create()` 静音丢弃 session token**（既有 bug，非本分支引入）。
-`IcebergCatalogFactory.java:565-566` 发 `client.credentials-provider.glue.session_token`、单测 `:559` 断言它，
-但 `ConfigurationAWSCredentialsProvider2x.create()` 只造 `AwsBasicCredentials`，**从不造 `AwsSessionCredentials`**
-→ 用临时 STS 凭证的用户认证必失败。修法一处，但属**行为变更** → **必须签字**。已在 `tasklist.md` 记为 T-21。
+**`create()` 静音丢弃 session token**（既有 bug，非本分支引入）。
+`IcebergCatalogFactory` 发 `client.credentials-provider.glue.session_token`、单测断言它，但
+`ConfigurationAWSCredentialsProvider2x.create()` 只造 `AwsBasicCredentials`，**从不造 `AwsSessionCredentials`**
+→ 用临时 STS 凭证的用户认证必失败。修法一处，但属**行为变更** → **必须签字**。见 `tasklist.md` T-21。
 
 ---
 
 ## 🚫 别做的事
 
-- **别按关键字 grep 一把梭删 glue/dlf** —— 保留路径同名（见上表）
-- **别碰阶段 1 刚修好的东西**：`org.apache.doris.connector.iceberg.glue.ConfigurationAWSCredentialsProvider2x`
-  与 `IcebergConnectorProperties.java:141-142` 的常量、`IcebergCatalogFactory.java:558-562`、`:565-566`
+- **别按关键字 grep 一把梭删 dlf** —— DLF 2.0 REST 是保留路径，同名
+- **别碰阶段 1/2 的成果**：`org.apache.doris.connector.iceberg.glue.ConfigurationAWSCredentialsProvider2x` ·
+  `IcebergConnectorProperties` 的 `GLUE_CREDENTIALS_PROVIDER_KEY`/`_2X`/AK/SK/token ·
+  `IcebergCatalogFactory.appendGlueProperties` 的其余 put · `HmsClientConfigRemovedTypeTest`
 - **别做守门测试 / paimon-on-DLF / 降级档** —— 用户已明确「不做」
-- 别信前一轮的「5 项依赖全零引用」：**`kryo-shaded` 绝不可删**（`WorkloadSchedPolicy.java:32,287,298`
-  经 minlog 传递依赖真实调用）；`avro` 删声明但 jar 删不掉（三方传递）
+- 别信「5 项依赖全零引用」：**`kryo-shaded` 绝不可删**（`WorkloadSchedPolicy.java:32,287,298` 经 minlog
+  传递依赖真实调用）；`avro` 删声明但 jar 删不掉（三方传递）
 - 别拿 `doris-shade/.../target/hive-catalog-shade-3.1.2-SNAPSHOT.jar` 做验证 —— 它**已经**改名了 fastutil，
-  会让你误判「fastutil hack 已死」。**构建实际解析的是 3.1.1**（`~/.m2/.../3.1.1/`）
+  会误判「fastutil hack 已死」。**构建实际解析的是 3.1.1**（`~/.m2/.../3.1.1/`）
 - 别为「删得动」把 HiveConf 逻辑挪进 fe-core util（**铁律 B**，遇到就停手交 review）
 - 别动：`fe/pom.xml:801-805` 版本钉 · `bin/start_fe.sh` 钉序 · `fastutil-core` 依赖 ·
   BE `java-udf`/`avro-scanner` pom · `doris-shade` 仓库
 
 ## ⚙️ 操作须知
 
-- **⚠️ 模块真实路径是嵌套的**：`fe/fe-connector/fe-connector-iceberg`（**不是** `fe/fe-connector-iceberg`）。
-  `-pl` 要写 `fe-connector/fe-connector-iceberg`，**且 `-am` 必填**（漏了 → 假错 `${revision}`）
+- **⚠️ 连接器模块路径是嵌套的**：`fe/fe-connector/fe-connector-XXX`（**不是** `fe/fe-connector-XXX`）。
+  `-pl fe-connector/fe-connector-hms`，**且 `-am` 必填**
+- **`-am` 漏了会出假错**：报 `org.apache.doris:fe-connector:pom:${revision}` 无法解析 →
+  **那是没编译，不是代码错**。阶段 2 在变异验证时踩了这个坑、误判过一次结论
 - maven 必须绝对路径：`mvn -o -f /mnt/disk1/yy/git/wt-catalog-spi/fe/pom.xml -pl fe-core -am test-compile`
-- **验证信 LOG 不信 exit**：后台 task 的 exit code 是 wrapper 的；重定向到文件跑，grep
-  `BUILD SUCCESS`/`BUILD FAILURE`/`[ERROR].*\.java:`/`Checkstyle`（memory `doris-build-verify-gotchas`）
+- **验证信 LOG 不信 exit**：重定向到文件跑，grep `BUILD SUCCESS`/`BUILD FAILURE`/`[ERROR].*\.java:`/`Checkstyle`
 - **⚠️ `git add` 用 path-whitelist，严禁 `git add -A`**（工作树大量非本线程 scratch）
-- 动码前先探并发（memory `concurrent-sessions-shared-worktree-hazard`）—— 主线 session 可能也在改 pom
+- 动码前先探并发（memory `concurrent-sessions-shared-worktree-hazard`）
 - 复现实验：`loader-probe-reproduction.java.txt`（本目录）。**依赖 `output/fe/` 已构建。**
-  阶段 1 的凭证类专用探针见 `progress.md` 2026-07-14（四），跑法同上，判据 `isAssignableFrom`
