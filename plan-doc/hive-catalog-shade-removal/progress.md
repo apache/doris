@@ -158,3 +158,60 @@ ThriftHmsClient:910   RetryingMetaStoreClient.getProxy(conf, hook, "类名字符
 **未决**：见 HANDOFF「待用户签字」。**尚未动任何生产代码。**
 
 **commit**：（本次文档更新）
+
+---
+
+## 2026-07-14（四） — 🔀 用户拍板：**删掉 thrift 一代 Glue/DLF**，任务定性改变
+
+**用户指示**：*「把 glue 和 dlf 这两个功能先删掉，不再支持了，不作为需要迁移的内容。」*
+**范围签字**：**只删「走 HMS thrift 协议的那一代」**，保留 iceberg 原生 Glue + DLF 2.0 REST。
+
+**为什么翻案（且这次翻案是合规的）**：`design.md §4.1` / 原 tasklist 立过一条硬约束
+「**禁止**『反正可能已经坏了 → 干脆删功能』」。那条约束成立的前提是**没人知道它到底坏没坏**。
+本轮离线实验**实测证明四条路径全坏**（见上一条），用户在**信息充分**的前提下决策不修直接删 ——
+这正是那条约束要保护的东西，不是绕过它。
+
+**⇒ 方案塌缩为【纯删除】**：不做守门测试 · 不做 paimon-on-DLF · 不做客户端搬迁 · 不需要降级档 ·
+总判据自然归零 · fe-core 全程只减不增（铁律 A/B 天然满足）。原「阶段 2/3 搬迁」全部作废。
+
+**用户否决的（记下来别回头做）**：守门测试「不做」· paimon-on-DLF「不做」。
+
+### 🔴 本轮新发现：**第四个实例 —— iceberg 原生 Glue 的 AK/SK 路径也是坏的**
+
+主 session 先前告知用户「iceberg 原生 Glue 今天是好的」——**这个说法不完整，已当场更正**。
+只查了 `GlueCatalog` 类本身在插件包里（在），**漏查了它按名加载的凭证类**：
+
+`IcebergCatalogFactory.java:559-560` 在 AK/SK 分支把 `client.credentials-provider` 设为
+`com.amazonaws.glue.catalog.credentials.ConfigurationAWSCredentialsProvider2x`（**住 fe-core，不在插件包**）
+→ iceberg 的 `AwsClientProperties` 用 child loader 按名加载 + `asSubclass` 到 **child 的**
+`software.amazon.awssdk...AwsCredentialsProvider` → **CCE**。**实测 `isAssignableFrom = false`。**
+
+- ✋ IAM-role 分支（`AssumeRoleAwsClientFactory.class.getName()`，**编译期类引用**）**没病** —— 又一次印证
+  「编译期类引用 vs 字符串字面量」就是这一整类 bug 的分水岭。
+- ✋ 默认凭证链分支（不填 AK/SK）**没病**。
+- **修法 = T-20**：把这 **50 行**搬进 `fe-connector-iceberg`（是**出** fe-core，合铁律 A），进插件包即自愈。
+
+### 本轮调研新增的关键事实（4 路清单 + 4 路对抗验证）
+
+- **Glue 树 38 个文件里，只有 37 个可删** —— `ConfigurationAWSCredentialsProvider2x.java` 归**保留路径**（T-20 搬走）。
+  同目录的 `ConfigurationAWSCredentialsProvider.java`(v1) + `...Factory.java` 归 thrift 一代（删）。
+- 🔴 **「删分支」会静默走错路**：`getMetastoreClientClassName` 是 `if(dlf)…else if(glue)…else→HiveMetaStoreClient`。
+  光删分支 ⇒ `hive.metastore.type=glue` 落到 `else` ⇒ **静默去连普通 HMS**。**必须改成显式抛异常。**
+- `aws-java-sdk-glue` 为 vendored 树**独占**（树内 712 处引用，树外 0）→ 可随树删。
+- `createV1` 的**唯一调用点**是 `ConfigurationAWSCredentialsProvider.java:78`（本次删除对象）→ 删后成死代码。
+  ✋ `createV2`/`getV2ClassName` 仍活（`S3Properties.java:350,363,391,406`）。
+- 删 `AWSGlueMetaStoreBaseProperties` 对 `SHOW CREATE CATALOG` **脱敏是字节中性的**：其唯一敏感字段
+  `glueSecretKey` 的三个别名被**保留的** `S3Properties.java:104-106` 逐字覆盖。
+- iceberg 的 `aws.catalog.credentials.provider.factory.class` 这个 key **只被被删的 thrift 树读**
+  （`AWSGlueClientFactory.java:114-118` / `AWSGlueConfig.java:33-34`）；iceberg 原生 `AwsClientProperties`
+  **从不读**它（javap 已证）→ 删除**行为中性**。
+
+### ⚠️ 落刀前必须先解决的两个未决问题（对抗验证挖出）
+
+1. **T-54 删 `hudi-hadoop-mr`**：`orc-core-1.8.4`（`fe/lib` 实装 jar）的**公开 API 直接依赖
+   `hive-storage-api` 的类** → 删了会不会炸 orc？**查清前不许删。**
+   （前一轮只查了「fe-core 自己的源码引用」，方法论有系统性缺口。）
+2. **T-51 删 `HMSBaseProperties`**：「已是死代码」证据链**有洞** —— `PluginDrivenExternalCatalog.java:156`
+   设 supplier，但 `createConnectorFromProperties()` 在 **:129** 就被调（**早于** :156）→ 有无真实调用窗口？
+
+**commit**：（本次文档更新）
