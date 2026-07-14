@@ -180,6 +180,28 @@ under the License.
 
     <build>
         <plugins>
+            <!-- Pure-shade module (no src/main): under a parallel reactor (build.sh's default -T 1C)
+                 the package-phase shade goal can start before this module's main jar is created and
+                 attached, failing with "Failed to create shaded artifact, project main artifact does
+                 not exist". Pin maven-jar-plugin's default-jar to the package phase and force it to
+                 always (re)create the jar, so the main artifact is guaranteed present before shade —
+                 keeping parallel (-T) builds reliable without falling back to single-threaded. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>default-jar</id>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>jar</goal>
+                        </goals>
+                        <configuration>
+                            <forceCreation>true</forceCreation>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-shade-plugin</artifactId>
