@@ -27,6 +27,8 @@ import org.apache.doris.filesystem.FileSystem;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -165,6 +167,59 @@ public class HiveConnectorInvalidateTest {
         Assertions.assertEquals(0, fileCache.size(), "REFRESH CATALOG clears the file cache even with no client built");
     }
 
+    @Test
+    public void invalidatePartitionDropsOnlyThatPartitionsFileListing() {
+        // WHY (Rule 9): a partition add/drop/alter must drop ONLY that partition's cached listing — legacy
+        // HiveExternalMetaCache scoped its file-cache invalidation to (tableId + partitionValues), NOT the whole
+        // table. The values are derived purely from the partition NAME (no metastore lookup), which is what stops
+        // an evicted partition-metadata entry from leaving a stale listing (the #65334 failure mode).
+        HiveConnector connector = new HiveConnector(props(), new FakeConnectorContext());
+        CachingHmsClient cachingClient = (CachingHmsClient) connector.wrapWithCache(new RecordingHmsClient());
+        HiveFileListingCache fileCache = connector.fileListingCacheForTest();
+
+        // Two partitions of table t, plus a same-named partition of a DIFFERENT table t2 (must survive: scoped
+        // by db+table, mirroring legacy's tableId in the predicate).
+        fileCache.listDataFiles("db", "t", "file:///wh/db/t/dt=2024-01-01",
+                Collections.singletonList("2024-01-01"), FS);
+        fileCache.listDataFiles("db", "t", "file:///wh/db/t/dt=2024-01-02",
+                Collections.singletonList("2024-01-02"), FS);
+        fileCache.listDataFiles("db", "t2", "file:///wh/db/t2/dt=2024-01-01",
+                Collections.singletonList("2024-01-01"), FS);
+        Assertions.assertEquals(3, fileCache.size());
+
+        connector.invalidatePartition(cachingClient, "db", "t", Collections.singletonList("dt=2024-01-01"));
+
+        // Exactly one entry dropped (t's dt=2024-01-01); t's other partition and t2's same-named partition survive.
+        Assertions.assertEquals(2, fileCache.size(),
+                "invalidatePartition must drop ONLY the refreshed partition's listing, not the whole table");
+        // Prove WHICH one was dropped: re-listing dt=2024-01-01 is a miss that re-adds it (size 3 again); had a
+        // survivor been dropped instead, its earlier re-list would already have shown the miss.
+        fileCache.listDataFiles("db", "t", "file:///wh/db/t/dt=2024-01-01",
+                Collections.singletonList("2024-01-01"), FS);
+        Assertions.assertEquals(3, fileCache.size(), "the dropped partition re-lists on the next scan");
+    }
+
+    @Test
+    public void invalidatePartitionDropsOnlyThatPartitionsMetadata() {
+        // The metastore-metadata half mirrors legacy's per-partition partitionEntry.invalidateKey: only the named
+        // partition's cached HmsPartitionInfo is dropped; another partition of the same table stays cached.
+        HiveConnector connector = new HiveConnector(props(), new FakeConnectorContext());
+        RecordingHmsClient raw = new RecordingHmsClient();
+        CachingHmsClient cachingClient = (CachingHmsClient) connector.wrapWithCache(raw);
+
+        // Populate the partition-metadata cache for two partitions (misses fetched in ONE delegate round-trip).
+        cachingClient.getPartitions("db", "t", Arrays.asList("dt=2024-01-01", "dt=2024-01-02"));
+        Assertions.assertEquals(1, raw.getPartitionsCalls);
+
+        connector.invalidatePartition(cachingClient, "db", "t", Collections.singletonList("dt=2024-01-01"));
+
+        // dt=2024-01-01 re-fetches (a new delegate round-trip); dt=2024-01-02 is still served from the cache.
+        cachingClient.getPartitions("db", "t", Collections.singletonList("dt=2024-01-01"));
+        Assertions.assertEquals(2, raw.getPartitionsCalls, "the refreshed partition's metadata must be dropped");
+        cachingClient.getPartitions("db", "t", Collections.singletonList("dt=2024-01-02"));
+        Assertions.assertEquals(2, raw.getPartitionsCalls, "another partition's metadata must NOT be dropped");
+    }
+
     /**
      * Minimal {@link HmsClient} that counts {@code getTable} calls and returns a fresh table info per call (so a
      * cache hit — same instance — is distinguishable from a reload). Only the abstract read methods are stubbed;
@@ -172,6 +227,7 @@ public class HiveConnectorInvalidateTest {
      */
     private static final class RecordingHmsClient implements HmsClient {
         int getTableCalls;
+        int getPartitionsCalls;
 
         @Override
         public HmsTableInfo getTable(String dbName, String tableName) {
@@ -211,7 +267,14 @@ public class HiveConnectorInvalidateTest {
 
         @Override
         public List<HmsPartitionInfo> getPartitions(String dbName, String tableName, List<String> partNames) {
-            return Collections.emptyList();
+            getPartitionsCalls++;
+            List<HmsPartitionInfo> result = new ArrayList<>(partNames.size());
+            for (String name : partNames) {
+                result.add(new HmsPartitionInfo(HiveWriteUtils.toPartitionValues(name),
+                        "file:///wh/" + dbName + "/" + tableName + "/" + name, null, null, null,
+                        Collections.emptyMap()));
+            }
+            return result;
         }
 
         @Override

@@ -33,7 +33,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
-import java.util.function.ToLongFunction;
+import java.util.function.ToLongBiFunction;
 
 /**
  * Tests {@link HiveConnectorMetadata#estimateDataSizeByListingFiles} (§4.2 read-side SPI, layer 3 — the
@@ -64,14 +64,15 @@ public class HiveConnectorMetadataFileListStatsTest {
     @Test
     public void unpartitionedTableSumsTableLocation() {
         long size = metadata(new PartitionFakeHmsClient(Collections.emptyList()))
-                .estimateDataSize(unpartitioned("s3://wh/t"), 30, loc -> "s3://wh/t".equals(loc) ? 1000 : 0);
+                .estimateDataSize(unpartitioned("s3://wh/t"), 30,
+                        (loc, vals) -> "s3://wh/t".equals(loc) ? 1000 : 0);
         Assertions.assertEquals(1000L, size);
     }
 
     @Test
     public void unpartitionedTableWithNoLocationReturnsMinusOne() {
         long size = metadata(new PartitionFakeHmsClient(Collections.emptyList()))
-                .estimateDataSize(unpartitioned(null), 30, loc -> 999);
+                .estimateDataSize(unpartitioned(null), 30, (loc, vals) -> 999);
         Assertions.assertEquals(-1L, size);
     }
 
@@ -79,7 +80,8 @@ public class HiveConnectorMetadataFileListStatsTest {
     public void allPartitionsSummedWhenBelowSampleCap() {
         // 3 partitions (< sample cap): the whole table is listed, no scale-up. 100+200+300 = 600.
         PartitionFakeHmsClient client = new PartitionFakeHmsClient(Arrays.asList("p0", "p1", "p2"));
-        ToLongFunction<String> sizes = loc -> loc.endsWith("p0") ? 100 : loc.endsWith("p1") ? 200 : 300;
+        ToLongBiFunction<String, List<String>> sizes =
+                (loc, vals) -> loc.endsWith("p0") ? 100 : loc.endsWith("p1") ? 200 : 300;
         Assertions.assertEquals(600L, metadata(client).estimateDataSize(partitioned(), 30, sizes));
     }
 
@@ -90,13 +92,13 @@ public class HiveConnectorMetadataFileListStatsTest {
         // pins the legacy scale-up (totalSize * totalPartitions / samplePartitions). MUTATION: dropping the
         // scale-up returns 200 -> red.
         PartitionFakeHmsClient client = new PartitionFakeHmsClient(Arrays.asList("p0", "p1", "p2", "p3"));
-        Assertions.assertEquals(400L, metadata(client).estimateDataSize(partitioned(), 2, loc -> 100));
+        Assertions.assertEquals(400L, metadata(client).estimateDataSize(partitioned(), 2, (loc, vals) -> 100));
     }
 
     @Test
     public void zeroTotalSizeReturnsMinusOne() {
         PartitionFakeHmsClient client = new PartitionFakeHmsClient(Arrays.asList("p0", "p1"));
-        Assertions.assertEquals(-1L, metadata(client).estimateDataSize(partitioned(), 30, loc -> 0));
+        Assertions.assertEquals(-1L, metadata(client).estimateDataSize(partitioned(), 30, (loc, vals) -> 0));
     }
 
     @Test
@@ -105,7 +107,7 @@ public class HiveConnectorMetadataFileListStatsTest {
         // must NOT propagate as a query-killing exception. MUTATION: not catching -> the estimate throws -> red.
         PartitionFakeHmsClient client = new PartitionFakeHmsClient(Arrays.asList("p0"));
         long size = Assertions.assertDoesNotThrow(() -> metadata(client).estimateDataSize(
-                partitioned(), 30, loc -> {
+                partitioned(), 30, (loc, vals) -> {
                     throw new RuntimeException("boom");
                 }));
         Assertions.assertEquals(-1L, size);
@@ -117,7 +119,7 @@ public class HiveConnectorMetadataFileListStatsTest {
         PartitionFakeHmsClient client = new PartitionFakeHmsClient(Arrays.asList("p0", "p1"));
         client.dropLocationFor("p1");
         Assertions.assertEquals(100L, metadata(client).estimateDataSize(
-                partitioned(), 30, loc -> loc.endsWith("p0") ? 100 : 0));
+                partitioned(), 30, (loc, vals) -> loc.endsWith("p0") ? 100 : 0));
     }
 
     @Test
@@ -199,7 +201,7 @@ public class HiveConnectorMetadataFileListStatsTest {
 
         @Override
         public List<HiveFileStatus> listDataFiles(String dbName, String tableName, String location,
-                FileSystem fs) {
+                List<String> partitionValues, FileSystem fs) {
             throw new RuntimeException("simulated listing failure");
         }
     }

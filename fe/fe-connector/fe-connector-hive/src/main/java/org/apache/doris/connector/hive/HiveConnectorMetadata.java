@@ -94,7 +94,7 @@ import java.util.OptionalLong;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.function.Supplier;
-import java.util.function.ToLongFunction;
+import java.util.function.ToLongBiFunction;
 import java.util.stream.Collectors;
 
 /**
@@ -850,7 +850,8 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
             // if getFileSystem throws. (context.getFileSystem returns the cached per-catalog FS, so per-location
             // calls are cheap.)
             return estimateDataSize(hiveHandle, STATS_PARTITION_SAMPLE_SIZE,
-                    location -> sumCachedFileSizes(hiveHandle, location, context.getFileSystem(session)));
+                    (location, values) -> sumCachedFileSizes(
+                            hiveHandle, location, values, context.getFileSystem(session)));
         } finally {
             Thread.currentThread().setContextClassLoader(previous);
         }
@@ -884,9 +885,10 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
             Thread.currentThread().setContextClassLoader(getClass().getClassLoader());
             FileSystem fs = context.getFileSystem(session);
             List<Long> sizes = new ArrayList<>();
-            for (String location : resolvePartitionLocations(hiveHandle)) {
+            for (PartitionRef ref : resolvePartitionRefs(hiveHandle)) {
                 for (HiveFileStatus file : fileListingCache.listDataFiles(
-                        hiveHandle.getDbName(), hiveHandle.getTableName(), location, fs)) {
+                        hiveHandle.getDbName(), hiveHandle.getTableName(),
+                        ref.location, ref.partitionValues, fs)) {
                     sizes.add(file.getLength());
                 }
             }
@@ -919,23 +921,23 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
      * {@code FileSystem} I/O (injected as {@code sizeOf}) so the estimation math is unit-testable. Returns -1
      * when the size cannot be estimated (no listable location, a zero/negative sum, or any error).
      */
-    long estimateDataSize(HiveTableHandle handle, int sampleSize, ToLongFunction<String> sizeOf) {
+    long estimateDataSize(HiveTableHandle handle, int sampleSize, ToLongBiFunction<String, List<String>> sizeOf) {
         try {
-            List<String> locations = resolvePartitionLocations(handle);
-            if (locations.isEmpty()) {
+            List<PartitionRef> refs = resolvePartitionRefs(handle);
+            if (refs.isEmpty()) {
                 return -1;
             }
-            int totalPartitions = locations.size();
+            int totalPartitions = refs.size();
             boolean sampled = sampleSize > 0 && sampleSize < totalPartitions;
-            List<String> chosen = locations;
+            List<PartitionRef> chosen = refs;
             if (sampled) {
-                List<String> shuffled = new ArrayList<>(locations);
+                List<PartitionRef> shuffled = new ArrayList<>(refs);
                 Collections.shuffle(shuffled);
                 chosen = shuffled.subList(0, sampleSize);
             }
             long totalSize = 0;
-            for (String location : chosen) {
-                totalSize += Math.max(0, sizeOf.applyAsLong(location));
+            for (PartitionRef ref : chosen) {
+                totalSize += Math.max(0, sizeOf.applyAsLong(ref.location, ref.partitionValues));
             }
             if (totalSize <= 0) {
                 return -1;
@@ -968,12 +970,13 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
      * partition's location (bounded by {@link #MAX_PARTITIONS_FOR_STATS}). A partition or table with no
      * location contributes nothing.
      */
-    private List<String> resolvePartitionLocations(HiveTableHandle handle) {
+    private List<PartitionRef> resolvePartitionRefs(HiveTableHandle handle) {
         List<String> partKeyNames = handle.getPartitionKeyNames();
         if (partKeyNames == null || partKeyNames.isEmpty()) {
             String location = handle.getLocation();
             return (location == null || location.isEmpty())
-                    ? Collections.emptyList() : Collections.singletonList(location);
+                    ? Collections.emptyList()
+                    : Collections.singletonList(new PartitionRef(location, Collections.emptyList()));
         }
         List<String> partNames = hmsClient.listPartitionNames(
                 handle.getDbName(), handle.getTableName(), MAX_PARTITIONS_FOR_STATS);
@@ -982,14 +985,29 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
         }
         List<HmsPartitionInfo> partitions = hmsClient.getPartitions(
                 handle.getDbName(), handle.getTableName(), partNames);
-        List<String> locations = new ArrayList<>(partitions.size());
+        List<PartitionRef> refs = new ArrayList<>(partitions.size());
         for (HmsPartitionInfo partition : partitions) {
             String location = partition.getLocation();
             if (location != null && !location.isEmpty()) {
-                locations.add(location);
+                refs.add(new PartitionRef(location, partition.getValues()));
             }
         }
-        return locations;
+        return refs;
+    }
+
+    /**
+     * A partition's data location plus its ordered values, so the size-estimate / stats paths carry the same
+     * partition identity into {@link HiveFileListingCache} as the scan path — keeping the two sharing one cached
+     * listing per partition, and letting a partition-level refresh invalidate exactly that entry (legacy parity).
+     */
+    private static final class PartitionRef {
+        final String location;
+        final List<String> partitionValues;
+
+        PartitionRef(String location, List<String> partitionValues) {
+            this.location = location;
+            this.partitionValues = partitionValues == null ? Collections.emptyList() : partitionValues;
+        }
     }
 
     /**
@@ -1000,10 +1018,11 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
      * whole estimate to -1 (legacy's file-list estimate was all-or-nothing best-effort). Routing through the
      * cache keeps the periodic row-count refresh from re-listing directories a scan already cached.
      */
-    private long sumCachedFileSizes(HiveTableHandle handle, String location, FileSystem fs) {
+    private long sumCachedFileSizes(HiveTableHandle handle, String location,
+            List<String> partitionValues, FileSystem fs) {
         long sum = 0;
         for (HiveFileStatus file : fileListingCache.listDataFiles(
-                handle.getDbName(), handle.getTableName(), location, fs)) {
+                handle.getDbName(), handle.getTableName(), location, partitionValues, fs)) {
             sum += file.getLength();
         }
         return sum;

@@ -46,6 +46,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.IOException;
 import java.util.Collections;
 import java.util.EnumSet;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -353,24 +354,32 @@ public class HiveConnector implements Connector {
     }
 
     /**
-     * Invalidates a table's caches on a partition add/drop/alter. The connector's partition caches are
-     * keyed by name-LIST ({@link CachingHmsClient}) and directory LOCATION ({@link HiveFileListingCache}),
-     * neither of which can target a single partition name — so this degrades to a table-level flush, which
-     * is correctness-safe because both caches re-list on the next miss. The names are still carried on the
-     * SPI for future precision. Also forwarded to the already-built embedded siblings.
+     * Invalidates exactly the named partitions on a partition add/drop/alter, mirroring legacy
+     * {@code HiveExternalMetaCache}'s per-partition invalidation. The partition NAMES are parsed into VALUES
+     * purely ({@link HiveWriteUtils#toPartitionValues}, no metastore round-trip), which key both connector
+     * caches: the directory-listing cache ({@link HiveFileListingCache#invalidatePartitions}) and the metastore
+     * partition-metadata cache ({@link CachingHmsClient#invalidatePartitions}). Deriving values from the name
+     * (rather than looking the partition up) is exactly what stops an evicted partition-metadata entry from
+     * leaving a stale file listing — the #65334 failure mode. Table-level column stats and the table object are
+     * intentionally left intact (legacy did not drop them on a partition-level refresh). Also forwarded to the
+     * already-built embedded siblings.
      */
     @Override
     public void invalidatePartition(String dbName, String tableName, List<String> partitionNames) {
-        invalidatePartition(hmsClient, dbName, tableName);
+        invalidatePartition(hmsClient, dbName, tableName, partitionNames);
         forEachBuiltSibling(sibling -> sibling.invalidatePartition(dbName, tableName, partitionNames));
     }
 
     // Package-private seam (mirrors invalidateTable): the metastore half needs an observable CachingHmsClient.
-    void invalidatePartition(HmsClient client, String dbName, String tableName) {
-        if (client instanceof CachingHmsClient) {
-            ((CachingHmsClient) client).flush(dbName, tableName);
+    void invalidatePartition(HmsClient client, String dbName, String tableName, List<String> partitionNames) {
+        Set<List<String>> partitionValues = new HashSet<>();
+        for (String name : partitionNames) {
+            partitionValues.add(HiveWriteUtils.toPartitionValues(name));
         }
-        fileListingCache.invalidateTable(dbName, tableName);
+        if (client instanceof CachingHmsClient) {
+            ((CachingHmsClient) client).invalidatePartitions(dbName, tableName, partitionValues);
+        }
+        fileListingCache.invalidatePartitions(dbName, tableName, partitionValues);
     }
 
     /**

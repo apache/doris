@@ -29,6 +29,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.ForkJoinPool;
 import java.util.function.Function;
 
@@ -287,6 +288,21 @@ public class CachingHmsClient implements HmsClient {
         columnStatsCache.invalidateIf(key -> key.matches(dbName, tableName));
     }
 
+    /**
+     * Per-partition invalidation for a partition add/drop/alter refresh, mirroring legacy
+     * {@code HiveExternalMetaCache}'s per-partition metadata invalidation. Drops exactly the given partitions
+     * from the partition-metadata cache (keyed by values) and re-fetches the partition-NAME list (its membership
+     * may have changed on add/drop, so it must be refreshed whole). Deliberately does NOT touch {@code tableCache}
+     * or {@code columnStatsCache} — legacy did not invalidate the table object or its column statistics on a
+     * partition-level refresh.
+     */
+    public void invalidatePartitions(String dbName, String tableName, Set<List<String>> partitionValues) {
+        partitionNamesCache.invalidateIf(key -> key.matches(dbName, tableName));
+        if (!partitionValues.isEmpty()) {
+            partitionsCache.invalidateIf(key -> key.matchesPartitions(dbName, tableName, partitionValues));
+        }
+    }
+
     /** Drop every cached entry for one database (all its tables). Backs {@code REFRESH DATABASE}. */
     public void flushDb(String dbName) {
         tableCache.invalidateIf(key -> key.matchesDb(dbName));
@@ -519,6 +535,11 @@ public class CachingHmsClient implements HmsClient {
 
         boolean matchesDb(String db) {
             return Objects.equals(dbName, db);
+        }
+
+        /** This partition (its db, table and values) is one of {@code valueSet}. Backs per-partition invalidation. */
+        boolean matchesPartitions(String db, String table, Set<List<String>> valueSet) {
+            return matches(db, table) && valueSet.contains(values);
         }
 
         @Override

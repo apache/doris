@@ -534,7 +534,8 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
             List<ConnectorScanRange> ranges) {
         List<HiveFileStatus> files;
         try {
-            files = fileListingCache.listDataFiles(dbName, tableName, partition.location, fs);
+            files = fileListingCache.listDataFiles(dbName, tableName, partition.location,
+                    new ArrayList<>(partition.partitionValues.values()), fs);
         } catch (HiveDirectoryListingException e) {
             // hive.ignore_absent_partitions=false (non-default): a partition whose LOCATION does not exist
             // must fail the query loud with the legacy message rather than be silently skipped. Only a

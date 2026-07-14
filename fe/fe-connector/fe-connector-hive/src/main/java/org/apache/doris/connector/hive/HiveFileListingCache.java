@@ -33,6 +33,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.ForkJoinPool;
 
 /**
@@ -157,13 +158,42 @@ public class HiveFileListingCache {
      * (immutable elements) — callers must treat it as read-only, the codebase-wide metadata-cache convention.
      */
     public List<HiveFileStatus> listDataFiles(String dbName, String tableName, String location, FileSystem fs) {
-        return cache.get(new FileListingKey(dbName, tableName, location),
+        return listDataFiles(dbName, tableName, location, Collections.emptyList(), fs);
+    }
+
+    /**
+     * As {@link #listDataFiles(String, String, String, FileSystem)}, but tags the entry with the partition's
+     * VALUES so {@link #invalidatePartitions} can drop exactly that partition — mirroring legacy
+     * {@code HiveExternalMetaCache}'s per-partition file-cache invalidation keyed by {@code tableId +
+     * partitionValues}. The values are part of the cache key, so the scan and size-estimate paths must pass the
+     * SAME values for a given partition (both derive them from {@code HmsPartitionInfo.getValues()}); an
+     * unpartitioned table passes an empty list.
+     */
+    public List<HiveFileStatus> listDataFiles(String dbName, String tableName, String location,
+            List<String> partitionValues, FileSystem fs) {
+        return cache.get(new FileListingKey(dbName, tableName, location, partitionValues),
                 key -> lister.list(key.location, fs));
     }
 
     /** Drops every cached listing for one table. Backs {@code REFRESH TABLE}. */
     public void invalidateTable(String dbName, String tableName) {
         cache.invalidateIf(key -> key.matches(dbName, tableName));
+    }
+
+    /**
+     * Drops the cached listings for exactly the given partitions of one table, matched by partition VALUES.
+     * Mirrors legacy {@code HiveExternalMetaCache}'s per-partition file-cache invalidation (its {@code tableId +
+     * partitionValues} predicate). The match is on values carried in the key — which the caller derives purely
+     * from the partition NAME ({@code HiveWriteUtils.toPartitionValues}) — so it needs NO partition-metadata
+     * lookup; that is precisely why an evicted partition-metadata entry can no longer leave a stale file listing
+     * (the #65334 failure mode). Backs a partition add/drop/alter refresh.
+     */
+    public void invalidatePartitions(String dbName, String tableName, Set<List<String>> partitionValues) {
+        if (partitionValues.isEmpty()) {
+            return;
+        }
+        cache.invalidateIf(key -> key.matches(dbName, tableName)
+                && partitionValues.contains(key.partitionValues));
     }
 
     /** Drops every cached listing for one database (all its tables). Backs {@code REFRESH DATABASE}. */
@@ -304,18 +334,25 @@ public class HiveFileListingCache {
     }
 
     /**
-     * Cache key: (db, table, location). db+table let {@link #invalidateTable} select one table's entries;
-     * db alone lets {@link #invalidateDb} select one database's entries.
+     * Cache key: (db, table, location, partitionValues). db+table let {@link #invalidateTable} select one table's
+     * entries; db alone lets {@link #invalidateDb} select one database's entries; the partition values let
+     * {@link #invalidatePartitions} select exactly one partition's entries (legacy per-partition parity). The
+     * values co-vary with the location (a partition has one location), so including both keeps the scan and
+     * size-estimate paths sharing the same entry while making per-partition invalidation possible.
      */
     static final class FileListingKey {
         private final String dbName;
         private final String tableName;
         private final String location;
+        private final List<String> partitionValues;
 
-        FileListingKey(String dbName, String tableName, String location) {
+        FileListingKey(String dbName, String tableName, String location, List<String> partitionValues) {
             this.dbName = dbName;
             this.tableName = tableName;
             this.location = location;
+            this.partitionValues = partitionValues == null
+                    ? Collections.emptyList()
+                    : Collections.unmodifiableList(new ArrayList<>(partitionValues));
         }
 
         boolean matches(String db, String table) {
@@ -337,12 +374,13 @@ public class HiveFileListingCache {
             FileListingKey that = (FileListingKey) o;
             return Objects.equals(dbName, that.dbName)
                     && Objects.equals(tableName, that.tableName)
-                    && Objects.equals(location, that.location);
+                    && Objects.equals(location, that.location)
+                    && Objects.equals(partitionValues, that.partitionValues);
         }
 
         @Override
         public int hashCode() {
-            return Objects.hash(dbName, tableName, location);
+            return Objects.hash(dbName, tableName, location, partitionValues);
         }
     }
 }
