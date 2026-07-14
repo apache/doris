@@ -22,6 +22,7 @@ import org.apache.doris.analysis.ColumnNullableType;
 import org.apache.doris.analysis.TypeDef;
 import org.apache.doris.common.UserException;
 import org.apache.doris.plugin.audit.AuditLoader;
+import org.apache.doris.plugin.audit.BeMetricsLoader;
 import org.apache.doris.statistics.StatisticConstants;
 
 import com.google.common.collect.Lists;
@@ -36,6 +37,7 @@ public class InternalSchema {
     public static final List<ColumnDef> PARTITION_STATS_SCHEMA;
     public static final List<ColumnDef> HISTO_STATS_SCHEMA;
     public static final List<ColumnDef> AUDIT_SCHEMA;
+    public static final List<ColumnDef> QUERY_BE_METRICS_SCHEMA;
 
     static {
         // table statistics table
@@ -169,6 +171,31 @@ public class InternalSchema {
                 new ColumnDef("compute_group", TypeDef.create(PrimitiveType.STRING), ColumnNullableType.NULLABLE));
         // Keep stmt as last column. So that in fe.audit.log, it will be easier to get sql string
         AUDIT_SCHEMA.add(new ColumnDef("stmt", TypeDef.create(PrimitiveType.STRING), ColumnNullableType.NULLABLE));
+
+        // query_be_metrics table: per-BE resource consumption breakdown for each query
+        QUERY_BE_METRICS_SCHEMA = new ArrayList<>();
+        QUERY_BE_METRICS_SCHEMA.add(new ColumnDef("query_id", TypeDef.createVarchar(48),
+            ColumnNullableType.NULLABLE));
+        QUERY_BE_METRICS_SCHEMA.add(new ColumnDef("be_id", TypeDef.create(PrimitiveType.BIGINT),
+            ColumnNullableType.NULLABLE));
+        QUERY_BE_METRICS_SCHEMA.add(new ColumnDef("time", TypeDef.createDatetimeV2(3),
+            ColumnNullableType.NULLABLE));
+        QUERY_BE_METRICS_SCHEMA.add(new ColumnDef("scan_rows", TypeDef.create(PrimitiveType.BIGINT),
+            ColumnNullableType.NULLABLE));
+        QUERY_BE_METRICS_SCHEMA.add(new ColumnDef("scan_bytes", TypeDef.create(PrimitiveType.BIGINT),
+            ColumnNullableType.NULLABLE));
+        QUERY_BE_METRICS_SCHEMA.add(new ColumnDef("cpu_ms", TypeDef.create(PrimitiveType.BIGINT),
+            ColumnNullableType.NULLABLE));
+        QUERY_BE_METRICS_SCHEMA.add(new ColumnDef("peak_memory_bytes", TypeDef.create(PrimitiveType.BIGINT),
+            ColumnNullableType.NULLABLE));
+        QUERY_BE_METRICS_SCHEMA.add(new ColumnDef("shuffle_send_rows", TypeDef.create(PrimitiveType.BIGINT),
+            ColumnNullableType.NULLABLE));
+        QUERY_BE_METRICS_SCHEMA.add(new ColumnDef("shuffle_send_bytes", TypeDef.create(PrimitiveType.BIGINT),
+            ColumnNullableType.NULLABLE));
+        QUERY_BE_METRICS_SCHEMA.add(new ColumnDef("scan_bytes_from_local_storage",
+            TypeDef.create(PrimitiveType.BIGINT), ColumnNullableType.NULLABLE));
+        QUERY_BE_METRICS_SCHEMA.add(new ColumnDef("scan_bytes_from_remote_storage",
+            TypeDef.create(PrimitiveType.BIGINT), ColumnNullableType.NULLABLE));
     }
 
     // Get copied schema for statistic table
@@ -187,6 +214,9 @@ public class InternalSchema {
                 break;
             case AuditLoader.AUDIT_LOG_TABLE:
                 schema = AUDIT_SCHEMA;
+                break;
+            case BeMetricsLoader.BE_METRICS_TABLE:
+                schema = QUERY_BE_METRICS_SCHEMA;
                 break;
             default:
                 throw new UserException("Unknown internal table name: " + tblName);

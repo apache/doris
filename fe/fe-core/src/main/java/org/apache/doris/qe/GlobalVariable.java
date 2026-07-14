@@ -65,6 +65,13 @@ public final class GlobalVariable {
     public static final String AUDIT_PLUGIN_MAX_SQL_LENGTH = "audit_plugin_max_sql_length";
     public static final String AUDIT_PLUGIN_MAX_INSERT_STMT_LENGTH = "audit_plugin_max_insert_stmt_length";
     public static final String AUDIT_PLUGIN_LOAD_TIMEOUT = "audit_plugin_load_timeout";
+    public static final String ENABLE_BE_METRICS_PLUGIN = "enable_be_metrics_plugin";
+    public static final String BE_METRICS_PLUGIN_MAX_BATCH_BYTES =
+        "be_metrics_plugin_max_batch_bytes";
+    public static final String BE_METRICS_PLUGIN_MAX_BATCH_INTERVAL_SEC =
+        "be_metrics_plugin_max_batch_interval_sec";
+    public static final String BE_METRICS_PLUGIN_LOAD_TIMEOUT =
+        "be_metrics_plugin_load_timeout";
 
     public static final String ENABLE_GET_ROW_COUNT_FROM_FILE_LIST = "enable_get_row_count_from_file_list";
     public static final String READ_ONLY = "read_only";
@@ -163,6 +170,16 @@ public final class GlobalVariable {
 
     @VariableMgr.VarAttr(name = AUDIT_PLUGIN_LOAD_TIMEOUT, flag = VariableMgr.GLOBAL)
     public static int auditPluginLoadTimeoutS = 600;
+
+    // BE Metrics Loader plugin — default OFF, enable via SET GLOBAL enable_be_metrics_plugin=true
+    @VariableMgr.VarAttr(name = ENABLE_BE_METRICS_PLUGIN, flag = VariableMgr.GLOBAL)
+    public static boolean enableBeMetricsLoader = false;
+    @VariableMgr.VarAttr(name = BE_METRICS_PLUGIN_MAX_BATCH_BYTES, flag = VariableMgr.GLOBAL)
+    public static long beMetricsPluginMaxBatchBytes = 50 * 1024 * 1024;
+    @VariableMgr.VarAttr(name = BE_METRICS_PLUGIN_MAX_BATCH_INTERVAL_SEC, flag = VariableMgr.GLOBAL)
+    public static long beMetricsPluginMaxBatchInternalSec = 60;
+    @VariableMgr.VarAttr(name = BE_METRICS_PLUGIN_LOAD_TIMEOUT, flag = VariableMgr.GLOBAL)
+    public static int beMetricsPluginLoadTimeoutS = 10;
 
     @VariableMgr.VarAttr(name = ENABLE_GET_ROW_COUNT_FROM_FILE_LIST, flag = VariableMgr.GLOBAL,
             description = {

@@ -29,6 +29,7 @@ import org.apache.doris.plugin.PluginInfo.PluginType;
 import org.apache.doris.plugin.PluginLoader.PluginStatus;
 import org.apache.doris.plugin.audit.AuditLoader;
 import org.apache.doris.plugin.audit.AuditLogBuilder;
+import org.apache.doris.plugin.audit.BeMetricsLoader;
 import org.apache.doris.plugin.dialect.HttpDialectConverterPlugin;
 
 import com.google.common.base.Strings;
@@ -63,6 +64,7 @@ public class PluginMgr implements Writable {
 
     // Save this handler for external call
     private AuditLoader auditLoader = null;
+    private BeMetricsLoader beMetricsLoader = null;
 
     public PluginMgr() {
         plugins = new Map[PluginType.MAX_PLUGIN_TYPE_SIZE];
@@ -119,6 +121,12 @@ public class PluginMgr implements Writable {
         this.auditLoader = new AuditLoader();
         if (!registerBuiltinPlugin(auditLoader.getPluginInfo(), auditLoader)) {
             LOG.warn("failed to register audit log builder");
+        }
+
+        // BeMetricsLoader: log per-BE resource metrics to internal table
+        this.beMetricsLoader = new BeMetricsLoader();
+        if (!registerBuiltinPlugin(beMetricsLoader.getPluginInfo(), beMetricsLoader)) {
+            LOG.warn("failed to register be metrics loader");
         }
 
         // sql dialect converter

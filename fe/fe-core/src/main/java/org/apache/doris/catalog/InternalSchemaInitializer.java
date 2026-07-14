@@ -45,6 +45,7 @@ import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.plugin.audit.AuditLoader;
+import org.apache.doris.plugin.audit.BeMetricsLoader;
 import org.apache.doris.statistics.StatisticConstants;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
@@ -108,6 +109,7 @@ public class InternalSchemaInitializer extends Thread {
         modifyTblReplicaCount(database, StatisticConstants.TABLE_STATISTIC_TBL_NAME);
         modifyTblReplicaCount(database, StatisticConstants.PARTITION_STATISTIC_TBL_NAME);
         modifyTblReplicaCount(database, AuditLoader.AUDIT_LOG_TABLE);
+        modifyTblReplicaCount(database, BeMetricsLoader.BE_METRICS_TABLE);
     }
 
     public void modifyColumnStatsTblSchema() {
@@ -254,6 +256,8 @@ public class InternalSchemaInitializer extends Thread {
                     Lists.newArrayList("catalog_id", "db_id", "tbl_id", "idx_id", "part_name", "part_id", "col_id")));
         // audit table
         Env.getCurrentEnv().getInternalCatalog().createTable(buildAuditTblStmt());
+        // be metrics table
+        Env.getCurrentEnv().getInternalCatalog().createTable(buildBeMetricsTblStmt());
     }
 
     @VisibleForTesting
@@ -325,6 +329,39 @@ public class InternalSchemaInitializer extends Thread {
         return createTableStmt;
     }
 
+    private static CreateTableStmt buildBeMetricsTblStmt() throws UserException {
+        TableName tableName = new TableName("",
+                FeConstants.INTERNAL_DB_NAME, BeMetricsLoader.BE_METRICS_TABLE);
+
+        String engineName = "olap";
+        ArrayList<String> dupKeys = Lists.newArrayList("query_id", "be_id", "time");
+        KeysDesc keysDesc = new KeysDesc(KeysType.DUP_KEYS, dupKeys);
+        // partition
+        PartitionDesc partitionDesc = new RangePartitionDesc(Lists.newArrayList("time"), Lists.newArrayList());
+        // distribution
+        int bucketNum = 10;
+        DistributionDesc distributionDesc = new HashDistributionDesc(bucketNum, Lists.newArrayList("query_id"));
+        Map<String, String> properties = new HashMap<String, String>() {
+            {
+                put("dynamic_partition.time_unit", "DAY");
+                put("dynamic_partition.start", "-7");
+                put("dynamic_partition.end", "3");
+                put("dynamic_partition.prefix", "p");
+                put("dynamic_partition.buckets", String.valueOf(bucketNum));
+                put("dynamic_partition.enable", "true");
+                put("replication_num", String.valueOf(Math.max(1,
+                        Config.min_replication_num_per_tablet)));
+            }
+        };
+
+        PropertyAnalyzer.getInstance().rewriteForceProperties(properties);
+        CreateTableStmt createTableStmt = new CreateTableStmt(true, false,
+                tableName, InternalSchema.getCopiedSchema(BeMetricsLoader.BE_METRICS_TABLE),
+                engineName, keysDesc, partitionDesc, distributionDesc,
+                properties, null, "Doris internal be metrics table, DO NOT MODIFY IT", null);
+        StatisticsUtil.analyze(createTableStmt);
+        return createTableStmt;
+    }
 
     private boolean created() {
         // 1. check database exist
@@ -364,11 +401,16 @@ public class InternalSchemaInitializer extends Thread {
         if (!optionalStatsTbl.isPresent()) {
             return false;
         }
-
         // 4. check and update audit table schema
         OlapTable auditTable = (OlapTable) optionalStatsTbl.get();
 
-        // 5. check if we need to add new columns
+        // 5. check be_metrics table
+        optionalStatsTbl = db.getTable(BeMetricsLoader.BE_METRICS_TABLE);
+        if (!optionalStatsTbl.isPresent()) {
+            return false;
+        }
+
+        // 6. check if we need to add new columns
         return alterAuditSchemaIfNeeded(auditTable);
     }
 
@@ -389,6 +431,12 @@ public class InternalSchemaInitializer extends Thread {
             return true;
         }
 
+        if (LOG.isDebugEnabled()) {
+            LOG.info("Audit table schema needs update. Current columns ({}): {}",
+                currentColumnNames.size(), currentColumnNames);
+            LOG.info("Expected columns ({}): {}", expectedColumnNames.size(), expectedColumnNames);
+        }
+
         List<AlterClause> alterClauses = Lists.newArrayList();
         // add new columns
         List<ColumnDef> addColumnsDef = Lists.newArrayList();
@@ -402,7 +450,7 @@ public class InternalSchemaInitializer extends Thread {
             try {
                 addColumnsClause.analyze(null);
             } catch (Exception e) {
-                LOG.warn("Failed to alter audit table schema", e);
+                LOG.warn("Failed to analyze add columns clause", e);
                 return false;
             }
             alterClauses.add(addColumnsClause);
@@ -412,7 +460,8 @@ public class InternalSchemaInitializer extends Thread {
         removedColumnNames.removeAll(expectedColumnNames);
         List<String> newColumnOrders = Lists.newArrayList(expectedColumnNames);
         newColumnOrders.addAll(removedColumnNames);
-        if (!newColumnOrders.isEmpty()) {
+        // Only reorder if the order is different from current
+        if (!newColumnOrders.equals(currentColumnNames)) {
             ReorderColumnsClause reorderColumnsOp = new ReorderColumnsClause(newColumnOrders, null, Maps.newHashMap());
             alterClauses.add(reorderColumnsOp);
         }

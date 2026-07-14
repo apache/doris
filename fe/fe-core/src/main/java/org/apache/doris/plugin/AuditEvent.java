@@ -17,9 +17,11 @@
 
 package org.apache.doris.plugin;
 
+import org.apache.doris.resource.workloadschedpolicy.WorkloadRuntimeStatusMgr.BeMetrics;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
+import java.util.Map;
 
 /*
  * AuditEvent contains all information about audit log info.
@@ -131,6 +133,11 @@ public class AuditEvent {
     // stmt should be last one
     @AuditField(value = "Stmt", colName = "stmt")
     public String stmt = "";
+
+    // Per-BE resource metrics for drill-down analysis.
+    // Key: backend ID, Value: BeMetrics.
+    // Not annotated with @AuditField — consumed by BeMetricsLoader plugin only.
+    public Map<Long, BeMetrics> beMetricsMap = null;
 
     public long pushToAuditLogQueueTime;
 
@@ -292,6 +299,11 @@ public class AuditEvent {
 
         public AuditEventBuilder setCommandType(String commandType) {
             auditEvent.commandType = commandType;
+            return this;
+        }
+
+        public AuditEventBuilder setBeMetricsMap(Map<Long, BeMetrics> beMetricsMap) {
+            auditEvent.beMetricsMap = beMetricsMap;
             return this;
         }
 

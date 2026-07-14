@@ -22,6 +22,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.plugin.AuditEvent;
+import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.thrift.TQueryStatistics;
 import org.apache.doris.thrift.TReportWorkloadRuntimeStatusParams;
 
@@ -61,6 +62,30 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
         Map<String, Pair<Long, TQueryStatistics>> queryStatsMap = Maps.newConcurrentMap();
     }
 
+    public static class BeMetrics {
+        public long scan_rows = 0;
+        public long scan_bytes = 0;
+        public long cpu_ms = 0;
+        public long max_peak_memory_bytes = 0;
+        public long shuffle_send_rows = 0;
+        public long shuffle_send_bytes = 0;
+        public long scan_bytes_from_local_storage = 0;
+        public long scan_bytes_from_remote_storage = 0;
+
+        public static BeMetrics from(TQueryStatistics src) {
+            BeMetrics m = new BeMetrics();
+            m.scan_rows = src.scan_rows;
+            m.scan_bytes = src.scan_bytes;
+            m.cpu_ms = src.cpu_ms;
+            m.max_peak_memory_bytes = src.max_peak_memory_bytes;
+            m.shuffle_send_rows = src.shuffle_send_rows;
+            m.shuffle_send_bytes = src.shuffle_send_bytes;
+            m.scan_bytes_from_local_storage = src.scan_bytes_from_local_storage;
+            m.scan_bytes_from_remote_storage = src.scan_bytes_from_remote_storage;
+            return m;
+        }
+    }
+
     public WorkloadRuntimeStatusMgr() {
         super("workload-runtime-stats-thread", Config.workload_runtime_status_thread_interval_ms);
     }
@@ -68,7 +93,8 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
     @Override
     protected void runAfterCatalogReady() {
         // 1 merge be query statistics
-        Map<String, TQueryStatistics> queryStatisticsMap = getQueryStatisticsMap();
+        Map<String, Pair<TQueryStatistics, Map<Long, BeMetrics>>> queryStatisticsMap
+            = getQueryStatisticsMap();
 
         // 2 log query audit
         try {
@@ -76,8 +102,10 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
             int missedLogCount = 0;
             int succLogCount = 0;
             for (AuditEvent auditEvent : auditEventList) {
-                TQueryStatistics queryStats = queryStatisticsMap.get(auditEvent.queryId);
-                if (queryStats != null) {
+                Pair<TQueryStatistics, Map<Long, BeMetrics>> queryStatsPair
+                    = queryStatisticsMap.get(auditEvent.queryId);
+                if (queryStatsPair != null) {
+                    TQueryStatistics queryStats = queryStatsPair.first;
                     auditEvent.scanRows = queryStats.scan_rows;
                     auditEvent.scanBytes = queryStats.scan_bytes;
                     auditEvent.scanBytesFromLocalStorage = queryStats.scan_bytes_from_local_storage;
@@ -86,6 +114,10 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
                     auditEvent.cpuTimeMs = queryStats.cpu_ms;
                     auditEvent.shuffleSendBytes = queryStats.shuffle_send_bytes;
                     auditEvent.shuffleSendRows = queryStats.shuffle_send_rows;
+                    // Attach per-BE metrics only when BeMetricsLoader is enabled
+                    if (GlobalVariable.enableBeMetricsLoader) {
+                        auditEvent.beMetricsMap = queryStatsPair.second;
+                    }
                 }
                 boolean ret = Env.getCurrentAuditEventProcessor().handleAuditEvent(auditEvent);
                 if (!ret) {
@@ -111,9 +143,9 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
         try {
             if (queryAuditEventList.size() > Config.audit_event_log_queue_size) {
                 LOG.warn("audit log event queue size {} is full, this may cause audit log missing statistics."
-                                + "you can check whether qps is too high "
-                                + "or reset audit_event_log_queue_size. query id: {}",
-                        queryAuditEventList.size(), event.queryId);
+                        + "you can check whether qps is too high "
+                        + "or reset audit_event_log_queue_size. query id: {}",
+                    queryAuditEventList.size(), event.queryId);
                 Env.getCurrentAuditEventProcessor().handleAuditEvent(event);
                 return;
             }
@@ -195,22 +227,25 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
 
     // NOTE: currently getQueryStatisticsMap must be called before clear beToQueryStatsMap
     // so there is no need lock or null check when visit beToQueryStatsMap
-    public Map<String, TQueryStatistics> getQueryStatisticsMap() {
+    public Map<String, Pair<TQueryStatistics, Map<Long, BeMetrics>>> getQueryStatisticsMap() {
         // 1 merge query stats in all be
         Set<Long> beIdSet = beToQueryStatsMap.keySet();
-        Map<String, TQueryStatistics> resultQueryMap = Maps.newHashMap();
+        Map<String, Pair<TQueryStatistics, Map<Long, BeMetrics>>> resultQueryMap = Maps.newHashMap();
         for (Long beId : beIdSet) {
             BeReportInfo beReportInfo = beToQueryStatsMap.get(beId);
             Set<String> queryIdSet = beReportInfo.queryStatsMap.keySet();
             for (String queryId : queryIdSet) {
                 TQueryStatistics curQueryStats = beReportInfo.queryStatsMap.get(queryId).second;
-
-                TQueryStatistics retQuery = resultQueryMap.get(queryId);
-                if (retQuery == null) {
-                    retQuery = new TQueryStatistics();
-                    resultQueryMap.put(queryId, retQuery);
+                Pair<TQueryStatistics, Map<Long, BeMetrics>> retPair = resultQueryMap.get(queryId);
+                if (retPair == null) {
+                    retPair = Pair.of(new TQueryStatistics(), Maps.newHashMap());
+                    resultQueryMap.put(queryId, retPair);
                 }
-                mergeQueryStatistics(retQuery, curQueryStats);
+                // Merge aggregated stats across all BEs
+                mergeQueryStatistics(retPair.first, curQueryStats);
+                // Per-BE stats: each (beId, queryId) has only one latest snapshot
+                // (updateBeQueryStats uses put(), not merge), so direct construction suffices.
+                retPair.second.put(beId, BeMetrics.from(curQueryStats));
             }
         }
 
