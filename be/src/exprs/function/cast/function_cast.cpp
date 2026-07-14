@@ -351,7 +351,7 @@ public:
 
     String get_name() const override { return name; }
 
-    bool is_use_default_implementation_for_constants() const override { return true; }
+    bool use_default_implementation_for_constants() const override { return true; }
 
 private:
     const char* name = nullptr;

@@ -223,7 +223,7 @@ public:
         return Status::OK();
     }
 
-    virtual bool is_use_default_implementation_for_constants() const = 0;
+    virtual bool use_default_implementation_for_constants() const = 0;
 
     virtual bool is_udf_function() const { return false; }
 
@@ -420,8 +420,10 @@ public:
     /// all constancy check should use this function to do automatically
     ColumnNumbers get_arguments_that_are_always_constant() const override { return {}; }
 
-    bool is_use_default_implementation_for_constants() const override {
-        return use_default_implementation_for_constants();
+    // Resolve ambiguity: IFunctionBase and PreparedFunctionImpl both declare
+    // use_default_implementation_for_constants(). Subclasses override this directly.
+    bool use_default_implementation_for_constants() const override {
+        return PreparedFunctionImpl::use_default_implementation_for_constants();
     }
 
     using PreparedFunctionImpl::execute;
@@ -509,8 +511,8 @@ public:
                                                  analyzer_ctx, bitmap_result);
     }
 
-    bool is_use_default_implementation_for_constants() const override {
-        return function->is_use_default_implementation_for_constants();
+    bool use_default_implementation_for_constants() const override {
+        return function->use_default_implementation_for_constants();
     }
 
     bool can_push_down_to_index() const override { return function->can_push_down_to_index(); }
