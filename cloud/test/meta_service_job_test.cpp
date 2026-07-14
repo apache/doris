@@ -5397,6 +5397,27 @@ TEST(MetaServiceJobTest, RoutineLoadFirstErrorMsgTest) {
     EXPECT_EQ(response.commit_attach().first_error_msg(), "invalid source row");
     EXPECT_EQ(response.commit_attach().loaded_rows(), 2);
     EXPECT_EQ(response.commit_attach().progress().partition_to_offset().at(0), 2);
+
+    ResetRLProgressRequest reset_request;
+    reset_request.set_cloud_unique_id(cloud_unique_id);
+    reset_request.set_db_id(db_id);
+    reset_request.set_job_id(job_id);
+    (*reset_request.mutable_partition_to_offset())[0] = 10;
+    ResetRLProgressResponse reset_response;
+    brpc::Controller reset_cntl;
+    meta_service->reset_rl_progress(&reset_cntl, &reset_request, &reset_response, nullptr);
+    EXPECT_FALSE(reset_cntl.Failed()) << "Error: " << reset_cntl.ErrorText();
+    ASSERT_EQ(reset_response.status().code(), MetaServiceCode::OK);
+
+    GetRLTaskCommitAttachResponse response_after_reset;
+    brpc::Controller cntl_after_reset;
+    meta_service->get_rl_task_commit_attach(&cntl_after_reset, &request, &response_after_reset,
+                                            nullptr);
+    EXPECT_FALSE(cntl_after_reset.Failed()) << "Error: " << cntl_after_reset.ErrorText();
+    ASSERT_EQ(response_after_reset.status().code(), MetaServiceCode::OK);
+    ASSERT_TRUE(response_after_reset.has_commit_attach());
+    EXPECT_EQ(response_after_reset.commit_attach().first_error_msg(), "invalid source row");
+    EXPECT_EQ(response_after_reset.commit_attach().progress().partition_to_offset().at(0), 10);
 }
 
 TEST(MetaServiceJobTest, UpdateStreamingJobMetaTest) {

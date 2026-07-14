@@ -895,6 +895,9 @@ void MetaServiceImpl::reset_rl_progress(::google::protobuf::RpcController* contr
                 }
             }
         }
+        if (prev_progress_info.has_first_error_msg()) {
+            new_progress_info.set_first_error_msg(prev_progress_info.first_error_msg());
+        }
 
         if (!new_progress_info.SerializeToString(&new_progress_val)) {
             code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;

@@ -99,7 +99,6 @@ Status StreamLoadExecutor::execute_plan_fragment(
         ctx->loaded_bytes = state->num_bytes_load_total();
         int64_t num_selected_rows = ctx->number_total_rows - ctx->number_unselected_rows;
         ctx->error_url = to_load_error_http_path(state->get_error_log_file_path());
-        ctx->first_error_msg = state->get_first_error_msg();
         if (status->ok() && !ctx->group_commit && num_selected_rows > 0 &&
             (double)ctx->number_filtered_rows / num_selected_rows > ctx->max_filter_ratio) {
             // NOTE: Do not modify the error message here, for historical reasons,
@@ -110,6 +109,9 @@ Status StreamLoadExecutor::execute_plan_fragment(
             } else {
                 *status = Status::DataQualityError("too many filtered rows");
             }
+        }
+        if (ctx->load_type == TLoadType::ROUTINE_LOAD || !status->ok()) {
+            ctx->first_error_msg = state->get_first_error_msg();
         }
 
         if (status->ok()) {
