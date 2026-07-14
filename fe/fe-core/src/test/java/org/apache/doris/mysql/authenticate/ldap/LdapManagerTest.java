@@ -24,6 +24,7 @@ import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.Role;
 
+import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -47,6 +48,12 @@ public class LdapManagerTest {
     public void setUp() {
         Config.authentication_type = "ldap";
         LdapConfig.ldap_default_roles = new String[0];
+        LdapConfig.ldap_allow_empty_pass = true;
+    }
+
+    @After
+    public void tearDown() {
+        LdapConfig.ldap_allow_empty_pass = true;
     }
 
     private void mockClient(boolean userExist, boolean passwd) {
@@ -106,6 +113,32 @@ public class LdapManagerTest {
 
         mockClient(true, false);
         Assert.assertFalse(ldapManager.checkUserPasswd(USER2, "123"));
+    }
+
+    @Test
+    public void testUserLoginWithEmptyLDAPPasswordDefault() {
+        LdapManager ldapManager = new LdapManager();
+        Assert.assertTrue(ldapManager.checkLoginWithEmptyPasswordForLdapIsAllowed("username", null));
+        Assert.assertTrue(ldapManager.checkLoginWithEmptyPasswordForLdapIsAllowed("username", ""));
+        Assert.assertTrue(ldapManager.checkLoginWithEmptyPasswordForLdapIsAllowed("username", "password"));
+    }
+
+    @Test
+    public void testUserLoginWithEmptyLDAPPasswordEnabled() {
+        LdapManager ldapManager = new LdapManager();
+        LdapConfig.ldap_allow_empty_pass = true;
+        Assert.assertTrue(ldapManager.checkLoginWithEmptyPasswordForLdapIsAllowed("username", null));
+        Assert.assertTrue(ldapManager.checkLoginWithEmptyPasswordForLdapIsAllowed("username", ""));
+        Assert.assertTrue(ldapManager.checkLoginWithEmptyPasswordForLdapIsAllowed("username", "password"));
+    }
+
+    @Test
+    public void testUserLoginWithEmptyLDAPPasswordDisabled() {
+        LdapManager ldapManager = new LdapManager();
+        LdapConfig.ldap_allow_empty_pass = false;
+        Assert.assertFalse(ldapManager.checkLoginWithEmptyPasswordForLdapIsAllowed("username", null));
+        Assert.assertFalse(ldapManager.checkLoginWithEmptyPasswordForLdapIsAllowed("username", ""));
+        Assert.assertTrue(ldapManager.checkLoginWithEmptyPasswordForLdapIsAllowed("username", "password"));
     }
 
     @Test

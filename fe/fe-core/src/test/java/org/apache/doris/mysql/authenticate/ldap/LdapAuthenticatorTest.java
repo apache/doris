@@ -19,7 +19,6 @@ package org.apache.doris.mysql.authenticate.ldap;
 
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.common.LdapConfig;
 import org.apache.doris.mysql.authenticate.AuthenticateRequest;
 import org.apache.doris.mysql.authenticate.AuthenticateResponse;
 import org.apache.doris.mysql.authenticate.password.ClearPassword;
@@ -55,13 +54,11 @@ public class LdapAuthenticatorTest {
         mockedEnvStatic.when(Env::getCurrentEnv).thenReturn(env);
         Mockito.when(env.getAuth()).thenReturn(auth);
         Mockito.when(auth.getLdapManager()).thenReturn(ldapManager);
-        LdapConfig.ldap_allow_empty_pass = true; // restoring default value for other tests
     }
 
     @After
     public void tearDown() {
         mockedEnvStatic.close();
-        LdapConfig.ldap_allow_empty_pass = true; //restoring default value for other tests
     }
 
     private void setCheckPassword(boolean res) {
@@ -137,58 +134,5 @@ public class LdapAuthenticatorTest {
     @Test
     public void testGetPasswordResolver() {
         Assert.assertTrue(ldapAuthenticator.getPasswordResolver() instanceof ClearPasswordResolver);
-    }
-
-    @Test
-    public void testEmptyPasswordWithAllowEmptyPassDefault() throws IOException {
-        setCheckPassword(true);
-        setGetUserInDoris(true);
-        //running test with non-specified value - ldap_allow_empty_pass should be true
-        //test with empty pass - success
-        AuthenticateRequest request = new AuthenticateRequest("user1.1", new ClearPassword(""), IP);
-        Assert.assertTrue(LdapConfig.ldap_allow_empty_pass);
-        AuthenticateResponse response = ldapAuthenticator.authenticate(request);
-        Assert.assertTrue(response.isSuccess());
-        //test with non empty pass - success
-        request = new AuthenticateRequest("user1.2", new ClearPassword("pass"), IP);
-        Assert.assertTrue(LdapConfig.ldap_allow_empty_pass);
-        response = ldapAuthenticator.authenticate(request);
-        Assert.assertTrue(response.isSuccess());
-    }
-
-    @Test
-    public void testEmptyPasswordWithAllowEmptyPassTrue() throws IOException {
-        setCheckPassword(true);
-        setGetUserInDoris(true);
-        //running test with specified value - ldap_allow_empty_pass is true
-        LdapConfig.ldap_allow_empty_pass = true;
-        //test with empty pass - success
-        AuthenticateRequest request = new AuthenticateRequest("user2.1", new ClearPassword(""), IP);
-        Assert.assertTrue(LdapConfig.ldap_allow_empty_pass);
-        AuthenticateResponse response = ldapAuthenticator.authenticate(request);
-        Assert.assertTrue(response.isSuccess());
-        //test with non empty pass - success
-        request = new AuthenticateRequest("user2.2", new ClearPassword("pass"), IP);
-        Assert.assertTrue(LdapConfig.ldap_allow_empty_pass);
-        response = ldapAuthenticator.authenticate(request);
-        Assert.assertTrue(response.isSuccess());
-    }
-
-    @Test
-    public void testEmptyPasswordWithAllowEmptyPassFalse() throws IOException {
-        setCheckPassword(true);
-        setGetUserInDoris(true);
-        //running test with specified value - ldap_allow_empty_pass is false
-        LdapConfig.ldap_allow_empty_pass = false;
-        //test with empty pass - failure
-        AuthenticateRequest request = new AuthenticateRequest("user3.1", new ClearPassword(""), IP);
-        Assert.assertFalse(LdapConfig.ldap_allow_empty_pass);
-        AuthenticateResponse response = ldapAuthenticator.authenticate(request);
-        Assert.assertFalse(response.isSuccess());
-        //test with non empty pass - success
-        request = new AuthenticateRequest("user3.2", new ClearPassword("pass"), IP);
-        Assert.assertFalse(LdapConfig.ldap_allow_empty_pass);
-        response = ldapAuthenticator.authenticate(request);
-        Assert.assertTrue(response.isSuccess());
     }
 }
