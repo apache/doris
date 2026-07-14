@@ -596,4 +596,69 @@ public class PropertyAnalyzerTest {
         Assert.assertEquals("Malformed TZ offset should fall back to MAX",
                 DataProperty.MAX_COOLDOWN_TIME_MS, dp.getCooldownTimeMs());
     }
+
+    @Test
+    public void testStorageCooldownTimeStrictDateValidation() throws AnalysisException {
+        // An invalid calendar date with a valid TZ offset (Feb 29 in a
+        // non-leap year) must be rejected by the STRICT resolver rather
+        // than silently normalized to Feb 28, and should fall back to
+        // MAX_COOLDOWN_TIME_MS.
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM, "SSD");
+        properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_COOLDOWN_TIME,
+                "2027-02-29 00:00:00+00:00");
+        DataProperty dp = PropertyAnalyzer.analyzeDataProperty(properties,
+                new DataProperty(TStorageMedium.SSD));
+        Assert.assertEquals("Invalid date (Feb 29 in non-leap year) should fall back to MAX",
+                DataProperty.MAX_COOLDOWN_TIME_MS, dp.getCooldownTimeMs());
+
+        // Also test an impossible month (month=13)
+        Map<String, String> properties2 = Maps.newHashMap();
+        properties2.put(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM, "SSD");
+        properties2.put(PropertyAnalyzer.PROPERTIES_STORAGE_COOLDOWN_TIME,
+                "2027-13-01 00:00:00+00:00");
+        DataProperty dp2 = PropertyAnalyzer.analyzeDataProperty(properties2,
+                new DataProperty(TStorageMedium.SSD));
+        Assert.assertEquals("Invalid month (13) should fall back to MAX",
+                DataProperty.MAX_COOLDOWN_TIME_MS, dp2.getCooldownTimeMs());
+    }
+
+    @Test
+    public void testStorageCooldownTimeDstFallbackDistinctInstants() throws AnalysisException {
+        // On 2026-11-01 at 2:00 AM CDT, America/Chicago falls back to
+        // 1:00 AM CST.  The wall-clock hour 01:00–02:00 occurs twice:
+        //   01:00 CDT = 06:00 UTC  (earlier)
+        //   01:00 CST = 07:00 UTC  (later)
+        // A bare DATETIME string like "2026-11-01 01:30:00" is ambiguous
+        // without an offset.  With an explicit +00:00 suffix the instant
+        // parser correctly distinguishes the two.
+
+        // Earlier occurrence: 01:30 CDT = 06:30 UTC
+        String earlierStr = "2026-11-01 06:30:00+00:00";
+        Map<String, String> propsEarlier = Maps.newHashMap();
+        propsEarlier.put(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM, "SSD");
+        propsEarlier.put(PropertyAnalyzer.PROPERTIES_STORAGE_COOLDOWN_TIME, earlierStr);
+        DataProperty dpEarlier = PropertyAnalyzer.analyzeDataProperty(propsEarlier,
+                new DataProperty(TStorageMedium.SSD));
+        long earlierMillis = ZonedDateTime.of(2026, 11, 1, 6, 30, 0, 0, ZoneOffset.UTC)
+                .toInstant().toEpochMilli();
+        Assert.assertEquals("Explicit +00:00 should parse earlier DST hour correctly",
+                earlierMillis, dpEarlier.getCooldownTimeMs());
+
+        // Later occurrence: 01:30 CST = 07:30 UTC
+        String laterStr = "2026-11-01 07:30:00+00:00";
+        Map<String, String> propsLater = Maps.newHashMap();
+        propsLater.put(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM, "SSD");
+        propsLater.put(PropertyAnalyzer.PROPERTIES_STORAGE_COOLDOWN_TIME, laterStr);
+        DataProperty dpLater = PropertyAnalyzer.analyzeDataProperty(propsLater,
+                new DataProperty(TStorageMedium.SSD));
+        long laterMillis = ZonedDateTime.of(2026, 11, 1, 7, 30, 0, 0, ZoneOffset.UTC)
+                .toInstant().toEpochMilli();
+        Assert.assertEquals("Explicit +00:00 should parse later DST hour correctly",
+                laterMillis, dpLater.getCooldownTimeMs());
+
+        // The two instants must be distinct (1 hour apart).
+        Assert.assertEquals("DST fall-back hours must differ by exactly 1 hour",
+                3600000L, laterMillis - earlierMillis);
+    }
 }

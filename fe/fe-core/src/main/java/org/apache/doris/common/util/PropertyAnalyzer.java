@@ -68,6 +68,7 @@ import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeFormatterBuilder;
 import java.time.format.DateTimeParseException;
+import java.time.format.ResolverStyle;
 import java.time.temporal.ChronoField;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -246,14 +247,23 @@ public class PropertyAnalyzer {
     /** Formatter for cooldown/baseTime strings that carry an explicit timezone
      *  offset (e.g. "+00:00").  Accepts optional fractional seconds up to
      *  nanosecond precision so that TIMESTAMPTZ(p) values with 0 ≤ p ≤ 6
-     *  are parsed correctly. */
+     *  are parsed correctly.  Uses STRICT resolver style so that invalid
+     *  calendar dates (e.g. Feb 29 in a non-leap year) are rejected rather
+     *  than silently normalized. */
     private static final DateTimeFormatter TZ_FORMATTER = new DateTimeFormatterBuilder()
-            .appendPattern("yyyy-MM-dd HH:mm:ss")
+            .appendPattern("uuuu-MM-dd HH:mm:ss")
             .appendFraction(ChronoField.NANO_OF_SECOND, 0, 6, true)
             .appendOffset("+HH:MM", "+00:00")
-            .toFormatter();
-    /** Precompiled pattern matching a trailing timezone offset "±HH:MM". */
-    private static final Pattern TZ_OFFSET_PATTERN = Pattern.compile("[+-]\\d{2}:\\d{2}$");
+            .toFormatter()
+            .withResolverStyle(ResolverStyle.STRICT);
+    /** Precompiled pattern matching a trailing timezone offset "±HH:MM"
+     *  preceded by a full {@code yyyy-MM-dd HH:mm:ss[.SSSSSS]} datetime,
+     *  i.e. the exact shape produced by {@code convertToUtcTimestamp()} in
+     *  DynamicPartitionScheduler.  Values with a TZ offset but a different
+     *  datetime shape (compact forms, missing seconds, etc.) are
+     *  intentionally left to the legacy DATETIME parser. */
+    private static final Pattern TZ_OFFSET_PATTERN = Pattern.compile(
+            "\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}(\\.\\d{1,6})?[+-]\\d{2}:\\d{2}$");
     public static final String COMMA_SEPARATOR = ",";
     private static final double MAX_FPP = 0.05;
     private static final double MIN_FPP = 0.0001;

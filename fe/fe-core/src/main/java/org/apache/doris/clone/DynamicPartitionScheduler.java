@@ -304,13 +304,14 @@ public class DynamicPartitionScheduler extends MasterDaemon {
 
     private ArrayList<AddPartitionOp> getAddPartitionOp(Database db, OlapTable olapTable,
                                                             Column partitionColumn, String partitionFormat,
-                                                            boolean executeFirstTime) throws DdlException {
+                                                            boolean executeFirstTime,
+                                                            DynamicPartitionTimeContext timeCtx)
+            throws DdlException {
         ArrayList<AddPartitionOp> addPartitionOps = new ArrayList<>();
         DynamicPartitionProperty dynamicPartitionProperty = olapTable.getTableProperty().getDynamicPartitionProperty();
         RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) olapTable.getPartitionInfo();
         // For TIMESTAMPTZ, both partition boundaries and names are UTC-based
         // (00:00—24:00 in UTC). This keeps partition names and values consistent.
-        DynamicPartitionTimeContext timeCtx = setupDynamicPartitionTime(partitionColumn, dynamicPartitionProperty);
         ZonedDateTime now = timeCtx.now;
         TimeZone borderTimeZone = timeCtx.borderTimeZone;
 
@@ -618,7 +619,8 @@ public class DynamicPartitionScheduler extends MasterDaemon {
      * 2. get DropPartitionClause of partitions which range are before this reserved range.
      */
     private ArrayList<DropPartitionOp> getDropPartitionOpForDynamic(Database db, OlapTable olapTable,
-                                                                    Column partitionColumn, String partitionFormat)
+                                                                    Column partitionColumn, String partitionFormat,
+                                                                    DynamicPartitionTimeContext timeCtx)
             throws DdlException {
         ArrayList<DropPartitionOp> dropPartitionOps = new ArrayList<>();
         DynamicPartitionProperty dynamicPartitionProperty = olapTable.getTableProperty().getDynamicPartitionProperty();
@@ -633,7 +635,6 @@ public class DynamicPartitionScheduler extends MasterDaemon {
         int realStart = dynamicPartitionProperty.getStart();
         // For TIMESTAMPTZ, use UTC clock so the drop cutoff aligns with the
         // UTC-midnight partition boundaries created by getAddPartitionOp().
-        DynamicPartitionTimeContext timeCtx = setupDynamicPartitionTime(partitionColumn, dynamicPartitionProperty);
         ZonedDateTime now = timeCtx.now;
         TimeZone borderTimeZone = timeCtx.borderTimeZone;
         String lowerBorder = DynamicPartitionUtil.getPartitionRangeString(dynamicPartitionProperty,
@@ -855,9 +856,21 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                     continue;
                 }
 
+                // Capture a single time context so add and drop phases
+                // use the exact same UTC instant, avoiding a race where
+                // an hourly TIMESTAMPTZ table crosses a boundary between
+                // the two clock reads.
+                DynamicPartitionTimeContext timeCtx = null;
+                if (olapTable.dynamicPartitionExists()
+                        && olapTable.getTableProperty().getDynamicPartitionProperty().getEnable()) {
+                    DynamicPartitionProperty dynProp = olapTable.getTableProperty()
+                            .getDynamicPartitionProperty();
+                    timeCtx = setupDynamicPartitionTime(partitionColumn, dynProp);
+                }
+
                 if (!skipAddPartition) {
                     addPartitionOps = getAddPartitionOp(db, olapTable, partitionColumn, partitionFormat,
-                            executeFirstTime);
+                            executeFirstTime, timeCtx);
                 }
                 clearDropPartitionFailedMsg(olapTable.getId());
                 if (olapTable.getPartitionRetentionCount() > 0) {
@@ -866,7 +879,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                 } else {
                     // Handle dynamic partition cleanup
                     dropPartitionOps = getDropPartitionOpForDynamic(db, olapTable, partitionColumn,
-                            partitionFormat);
+                            partitionFormat, timeCtx);
                 }
                 tableName = olapTable.getName();
             } catch (Exception e) {
