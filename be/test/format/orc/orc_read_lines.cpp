@@ -40,9 +40,22 @@
 #include "core/data_type/define_primitive_type.h"
 #include "exec/scan/file_scanner.h"
 #include "exprs/vexpr_context.h"
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wkeyword-macro"
+#pragma clang diagnostic ignored "-Wunused-macros"
+#endif
+#define private public
+#define protected public
 #include "format/orc/vorc_reader.h"
+#undef private
+#undef protected
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#endif
 #include "format/parquet/vparquet_reader.h"
 #include "io/fs/local_file_system.h"
+#include "orc/sargs/SearchArgument.hh"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
@@ -144,7 +157,7 @@ static void read_orc_line(int64_t line, std::string block_dump,
     orc_ctx.range = &range;
     auto status = reader->init_reader(&orc_ctx);
 
-    EXPECT_TRUE(status.ok());
+    ASSERT_TRUE(status.ok()) << status;
 
     // set_fill_columns logic is now inlined in _do_init_reader,
     // so no separate call is needed.
@@ -396,6 +409,133 @@ TEST_F(OrcReadLinesTest, date_should_not_shift_in_west_timezone) {
             "------------+----------------------+---------------------+-------------------+--------"
             "----------------+----------------------+\n";
     read_orc_line(1, block_dump, "America/Mexico_City");
+}
+
+TEST_F(OrcReadLinesTest, test_init_orc_row_reader_internal_error) {
+    auto runtime_state = RuntimeState::create_unique();
+    std::vector<std::string> column_names = {"nonexistent_col"};
+    std::unordered_map<std::string, uint32_t> col_name_to_block_idx = {{"nonexistent_col", 0}};
+    ObjectPool object_pool;
+    DescriptorTblBuilder builder(&object_pool);
+    builder.declare_tuple() << std::make_tuple<DataTypePtr, std::string>(
+            DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_BIGINT, true),
+            "nonexistent_col");
+    DescriptorTbl* desc_tbl = builder.build();
+    auto* tuple_desc = const_cast<TupleDescriptor*>(desc_tbl->get_tuple_descriptor(0));
+    RowDescriptor row_desc(tuple_desc);
+    TFileScanRangeParams params;
+    params.file_type = TFileType::FILE_LOCAL;
+    TFileRangeDesc range;
+    range.path = "./be/test/exec/test_data/orc_scanner/my-file.orc";
+    range.start_offset = 0;
+    range.size = 2024;
+    range.table_format_params.table_format_type = "hive";
+    range.__isset.table_format_params = true;
+
+    io::IOContext io_ctx;
+    io::FileReaderStats file_reader_stats;
+    io_ctx.file_reader_stats = &file_reader_stats;
+    auto reader = OrcReader::create_unique(nullptr, runtime_state.get(), params, range, 100, "CST",
+                                           &io_ctx, nullptr, true);
+    static_cast<void>(reader->read_by_rows({0}));
+
+    OrcInitContext orc_ctx;
+    orc_ctx.column_names = column_names;
+    orc_ctx.col_name_to_block_idx = &col_name_to_block_idx;
+    orc_ctx.tuple_descriptor = tuple_desc;
+    orc_ctx.row_descriptor = &row_desc;
+    orc_ctx.params = &params;
+    orc_ctx.range = &range;
+    auto status = reader->init_reader(&orc_ctx);
+    EXPECT_TRUE(status.is<ErrorCode::INTERNAL_ERROR>()) << status;
+}
+
+TEST_F(OrcReadLinesTest, test_init_orc_row_reader_stop) {
+    auto runtime_state = RuntimeState::create_unique();
+    std::vector<std::string> column_names = {"col1", "col2", "col3", "col4", "col5",
+                                             "col6", "col7", "col8", "col9"};
+    std::unordered_map<std::string, uint32_t> col_name_to_block_idx = {
+            {"col1", 0}, {"col2", 1}, {"col3", 2}, {"col4", 3}, {"col5", 4},
+            {"col6", 5}, {"col7", 6}, {"col8", 7}, {"col9", 8},
+    };
+    ObjectPool object_pool;
+    DescriptorTblBuilder builder(&object_pool);
+    builder.declare_tuple() << std::make_tuple<DataTypePtr, std::string>(
+                                       DataTypeFactory::instance().create_data_type(
+                                               PrimitiveType::TYPE_BIGINT, true),
+                                       "col1")
+                            << std::make_tuple<DataTypePtr, std::string>(
+                                       DataTypeFactory::instance().create_data_type(
+                                               PrimitiveType::TYPE_BOOLEAN, true),
+                                       "col2")
+                            << std::make_tuple<DataTypePtr, std::string>(
+                                       DataTypeFactory::instance().create_data_type(
+                                               PrimitiveType::TYPE_VARCHAR, true),
+                                       "col3")
+                            << std::make_tuple<DataTypePtr, std::string>(
+                                       DataTypeFactory::instance().create_data_type(
+                                               PrimitiveType::TYPE_DATEV2, true),
+                                       "col4")
+                            << std::make_tuple<DataTypePtr, std::string>(
+                                       DataTypeFactory::instance().create_data_type(
+                                               PrimitiveType::TYPE_DOUBLE, true),
+                                       "col5")
+                            << std::make_tuple<DataTypePtr, std::string>(
+                                       DataTypeFactory::instance().create_data_type(
+                                               PrimitiveType::TYPE_FLOAT, true),
+                                       "col6")
+                            << std::make_tuple<DataTypePtr, std::string>(
+                                       DataTypeFactory::instance().create_data_type(
+                                               PrimitiveType::TYPE_INT, true),
+                                       "col7")
+                            << std::make_tuple<DataTypePtr, std::string>(
+                                       DataTypeFactory::instance().create_data_type(
+                                               PrimitiveType::TYPE_SMALLINT, true),
+                                       "col8")
+                            << std::make_tuple<DataTypePtr, std::string>(
+                                       DataTypeFactory::instance().create_data_type(
+                                               PrimitiveType::TYPE_VARCHAR, true),
+                                       "col9");
+    DescriptorTbl* desc_tbl = builder.build();
+    auto* tuple_desc = const_cast<TupleDescriptor*>(desc_tbl->get_tuple_descriptor(0));
+    RowDescriptor row_desc(tuple_desc);
+    TFileScanRangeParams params;
+    params.file_type = TFileType::FILE_LOCAL;
+    TFileRangeDesc range;
+    range.path = "./be/test/exec/test_data/orc_scanner/my-file.orc";
+    range.start_offset = 0;
+    range.size = 2024;
+    range.table_format_params.table_format_type = "hive";
+    range.__isset.table_format_params = true;
+
+    io::IOContext io_ctx;
+    io::FileReaderStats file_reader_stats;
+    io_ctx.file_reader_stats = &file_reader_stats;
+    auto reader = OrcReader::create_unique(nullptr, runtime_state.get(), params, range, 100, "CST",
+                                           &io_ctx, nullptr, true);
+    static_cast<void>(reader->read_by_rows({0}));
+
+    ASSERT_TRUE(reader->init_schema_reader().ok());
+
+    auto sargs_builder = orc::SearchArgumentFactory::newBuilder();
+    sargs_builder->startAnd();
+    sargs_builder->equals("col1", orc::PredicateDataType::LONG,
+                          orc::Literal(static_cast<int64_t>(1)));
+    sargs_builder->end();
+    auto sargs = sargs_builder->build();
+    reader->_row_reader_options.searchArgument(std::move(sargs));
+
+    io_ctx.should_stop = true;
+
+    OrcInitContext orc_ctx;
+    orc_ctx.column_names = column_names;
+    orc_ctx.col_name_to_block_idx = &col_name_to_block_idx;
+    orc_ctx.tuple_descriptor = tuple_desc;
+    orc_ctx.row_descriptor = &row_desc;
+    orc_ctx.params = &params;
+    orc_ctx.range = &range;
+    auto status = reader->init_reader(&orc_ctx);
+    EXPECT_TRUE(status.is<ErrorCode::END_OF_FILE>()) << status;
 }
 
 } // namespace doris
