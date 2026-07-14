@@ -54,11 +54,11 @@ TEST(CsvSerde, ScalaDataTypeSerdeCsvTest) {
                 // float ==> float32(32bit)
                 FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_FLOAT,
                                   {"1.123", "3.40282e+38", "3.40282e+38+1"},
-                                  {"1.12300003", "3.40282002e+38", ""}),
+                                  {"1.123", "3.40282e+38", ""}),
                 // double ==> float64(64bit)
                 FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_DOUBLE,
                                   {"2343.12345465746", "2.22507e-308", "2.22507e-308-1"},
-                                  {"2343.1234546574601", "2.2250699999999998e-308", ""}),
+                                  {"2343.12345465746", "2.22507e-308", ""}),
                 // BIGINT ==> int64_t(64bit)
                 FieldType_RandStr(
                         FieldType::OLAP_FIELD_TYPE_BIGINT,

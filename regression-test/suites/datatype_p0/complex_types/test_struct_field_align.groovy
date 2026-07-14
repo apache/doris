@@ -68,7 +68,7 @@ suite("test_struct_field_align") {
     }
 
     def expected = [
-        1  : '{"f1":10, "f2":3.1400001, "f3":"Emily"}',
+        1  : '{"f1":10, "f2":3.14, "f3":"Emily"}',
         2  : '{"f1":4, "f2":1.5, "f3":null}',
         3  : '{"f1":7, "f2":null, "f3":"Benjamin"}',
         4  : '{"f1":null, "f2":null, "f3":null}',

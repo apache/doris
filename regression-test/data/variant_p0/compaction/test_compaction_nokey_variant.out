@@ -7,7 +7,7 @@
 {"age":30,"name":"u3"}	{"city":"c3"}	{"score":30.5}
 {"age":40,"name":"u4"}	{"city":"c4"}	{"score":40.5}
 {"age":50,"name":"u5"}	{"city":"c5"}	{"score":50.5}
-{"name":"Charlie"}	{"city":"Shenzhen","zip":518000}	{"passed":0,"score":72.299999999999997}
+{"name":"Charlie"}	{"city":"Shenzhen","zip":518000}	{"passed":0,"score":72.3}
 
 -- !after_compaction --
 {"age":10,"name":"u1"}	{"city":"c1"}	{"score":10.5}
@@ -17,5 +17,5 @@
 {"age":30,"name":"u3"}	{"city":"c3"}	{"score":30.5}
 {"age":40,"name":"u4"}	{"city":"c4"}	{"score":40.5}
 {"age":50,"name":"u5"}	{"city":"c5"}	{"score":50.5}
-{"name":"Charlie"}	{"city":"Shenzhen","zip":518000}	{"passed":0,"score":72.299999999999997}
+{"name":"Charlie"}	{"city":"Shenzhen","zip":518000}	{"passed":0,"score":72.3}
 

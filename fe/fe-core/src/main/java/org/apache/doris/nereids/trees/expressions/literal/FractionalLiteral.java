@@ -111,8 +111,9 @@ public abstract class FractionalLiteral extends NumericLiteral {
         if (object instanceof BigDecimal) {
             return getStringValue();
         }
-        double value = ((Number) object).doubleValue();
-        return FractionalFormat.getFormatStringValue(value, this instanceof DoubleLiteral ? 17 : 9,
-                this instanceof DoubleLiteral ? "%.16E" : "%.8E");
+        if (object instanceof Float) {
+            return FractionalFormat.getFormatStringValue((Float) object);
+        }
+        return FractionalFormat.getFormatStringValue((Double) object);
     }
 }

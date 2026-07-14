@@ -175,7 +175,7 @@ TEST(VariantUtilTest, DoubleSubcolumnUsesRoundTripNumberText) {
     const auto* sub_b = variant->get_subcolumn(PathInData("b"));
     ASSERT_NE(sub_b, nullptr);
     EXPECT_EQ(sub_b->get_least_common_base_type_id(), PrimitiveType::TYPE_DOUBLE);
-    EXPECT_EQ(_serialize_variant_row(*variant, 0), R"({"b":1.2222219999999999})");
+    EXPECT_EQ(_serialize_variant_row(*variant, 0), R"({"b":1.222222})");
 }
 
 TEST(VariantUtilTest, ParseDocValueToSubcolumns_FillsDefaultsAndValues) {

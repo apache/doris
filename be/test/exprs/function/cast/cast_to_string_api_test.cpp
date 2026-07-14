@@ -56,7 +56,7 @@ TEST(CastToStringTest, test) {
     {
         Float32 num = 12345.6789;
         std::string str = CastToString::from_number(num);
-        EXPECT_EQ(str, "12345.6787");
+        EXPECT_EQ(str, "12345.679");
     }
     {
         Float64 num = -123456789.987654321;

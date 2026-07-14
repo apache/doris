@@ -90,7 +90,6 @@ struct CastToString {
     static constexpr size_t string_length = 1;
 
 private:
-    // refer to: https://en.cppreference.com/w/cpp/types/numeric_limits/max_digits10.html
     template <typename T>
         requires(std::is_same_v<T, float> || std::is_same_v<T, double>)
     static inline int _fast_to_buffer(T value, char* buffer) {
@@ -114,13 +113,7 @@ private:
                 end = buffer + neg_inf_str_len;
             }
         } else {
-            if constexpr (std::is_same_v<T, float>) {
-                end = fmt::format_to(buffer, FMT_COMPILE("{:.{}g}"), value,
-                                     std::numeric_limits<float>::max_digits10);
-            } else {
-                end = fmt::format_to(buffer, FMT_COMPILE("{:.{}g}"), value,
-                                     std::numeric_limits<double>::max_digits10);
-            }
+            end = fmt::format_to(buffer, FMT_COMPILE("{}"), value);
         }
         *end = '\0';
         return int(end - buffer);

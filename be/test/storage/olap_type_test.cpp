@@ -242,11 +242,11 @@ TEST_F(OlapTypeTest, ser_deser_float) {
     std::vector<std::pair<float, std::string>> normal_input_values = {
             {
                     1.230F,
-                    "1.23000002",
+                    "1.23",
             },
             {
                     123.456000F,
-                    "123.456001",
+                    "123.456",
             },
             {
                     123.000F,
@@ -264,7 +264,7 @@ TEST_F(OlapTypeTest, ser_deser_float) {
             },
             {
                     1234567.12345F,
-                    "1234567.12",
+                    "1234567.1",
             },
             {
                     12345678.12345F,
@@ -272,27 +272,27 @@ TEST_F(OlapTypeTest, ser_deser_float) {
             },
             {
                     123456789.12345F,
-                    "123456792",
+                    "123456790",
             },
             {
                     1234567890000.12345F,
-                    "1.23456795e+12",
+                    "1234568000000",
             },
             {
                     0.33F,
-                    "0.330000013",
+                    "0.33",
             },
             {
                     123.456F,
-                    "123.456001",
+                    "123.456",
             },
             {
                     123.456789F,
-                    "123.456787",
+                    "123.45679",
             },
             {
                     123.456789123F,
-                    "123.456787",
+                    "123.45679",
             },
             {
                     123456.123456789F,
@@ -300,11 +300,11 @@ TEST_F(OlapTypeTest, ser_deser_float) {
             },
             {
                     1234567.123456789F,
-                    "1234567.12",
+                    "1234567.1",
             },
             {
                     987654336.0F,
-                    "987654336",
+                    "987654340",
             },
             {
                     16777216.0F,
@@ -312,61 +312,59 @@ TEST_F(OlapTypeTest, ser_deser_float) {
             },
             {
                     0.000123456F,
-                    "0.000123456004",
+                    "0.000123456",
             },
             {
                     0.0001234567F,
-                    "0.000123456703",
+                    "0.0001234567",
             },
             {
                     0.00012345678F,
-                    "0.000123456775",
+                    "0.00012345678",
             },
             {
                     0.0000123456F,
-                    "1.23456002e-05", // e < -4
+                    "1.23456e-05", // e < -4
             },
             {
                     0.00001234567F,
-                    "1.23456703e-05", // e < -4
+                    "1.234567e-05", // e < -4
             },
             {
                     0.0000123456789F,
-                    "1.23456794e-05",
+                    "1.2345679e-05",
             },
             {
                     0.000000000000001234567F,
-                    "1.23456704e-15",
+                    "1.234567e-15",
             },
             {
                     0.000000000000001234567890123456F,
-                    "1.23456788e-15",
+                    "1.2345679e-15",
             },
             {
                     0.1234567F,
-                    "0.123456702",
+                    "0.1234567",
             },
             {
                     0.123456789F,
-                    "0.123456791",
+                    "0.12345679",
             },
 
             {
                     1234567890123456.12345F,
-                    "1.23456795e+15",
+                    "1234568000000000",
             },
             {
                     12345678901234567.12345F,
-                    "1.23456784e+16",
+                    "1.2345678e+16",
             }};
-    const std::vector<std::string> expected_e7 = {
-            "1.00000001e-07", "2.00000002e-07", "3.00000011e-07",
-            "4.00000005e-07", "4.99999999e-07", "6.00000021e-07",
-            "6.99999987e-07", "8.00000009e-07", "9.00000032e-07"};
-    const std::vector<std::string> expected_e9 = {
-            "9.99999972e-10", "1.99999994e-09", "2.9999998e-09",
-            "3.99999989e-09", "4.99999997e-09", "5.99999961e-09",
-            "6.99999969e-09", "7.99999977e-09", "8.99999986e-09"};
+    const std::vector<std::string> expected_e7 = {"1e-07", "2e-07", "3e-07",
+                                                  "4e-07", "5e-07", "6e-07",
+                                                  "7e-07", "8e-07", "9.0000003e-07"};
+    const std::vector<std::string> expected_e9 = {"1e-09",         "2e-09", "2.9999998e-09",
+                                                  "4e-09",         "5e-09", "5.9999996e-09",
+                                                  "6.9999997e-09", "8e-09", "9e-09"};
     for (int i = 1; i < 10; ++i) {
         normal_input_values.emplace_back(i * 0.0000001F, expected_e7[i - 1]);
         normal_input_values.emplace_back(i * 0.000000001F, expected_e9[i - 1]);
@@ -385,10 +383,10 @@ TEST_F(OlapTypeTest, ser_deser_float) {
                     -0.0,
                     "-0",
             },
-            {std::numeric_limits<float>::min(), "1.17549435e-38"},
-            {std::numeric_limits<float>::lowest(), "-3.40282347e+38"},
-            {std::numeric_limits<float>::denorm_min(), "1.40129846e-45"},
-            {std::numeric_limits<float>::max(), "3.40282347e+38"},
+            {std::numeric_limits<float>::min(), "1.1754944e-38"},
+            {std::numeric_limits<float>::lowest(), "-3.4028235e+38"},
+            {std::numeric_limits<float>::denorm_min(), "1e-45"},
+            {std::numeric_limits<float>::max(), "3.4028235e+38"},
             {
                     std::numeric_limits<float>::infinity(),
                     "Infinity",
@@ -452,7 +450,7 @@ TEST_F(OlapTypeTest, ser_deser_double) {
             },
             {
                     1234567.12345,
-                    "1234567.1234500001",
+                    "1234567.12345",
             },
             {
                     12345678.12345,
@@ -468,7 +466,7 @@ TEST_F(OlapTypeTest, ser_deser_double) {
             },
             {
                     0.33,
-                    "0.33000000000000002",
+                    "0.33",
             },
             {
                     123.456,
@@ -480,15 +478,15 @@ TEST_F(OlapTypeTest, ser_deser_double) {
             },
             {
                     123.456789123,
-                    "123.45678912299999",
+                    "123.456789123",
             },
             {
                     123456.123456789,
-                    "123456.12345678901",
+                    "123456.123456789",
             },
             {
                     1234567.123456789,
-                    "1234567.1234567889",
+                    "1234567.123456789",
             },
             {
                     987654336.0,
@@ -500,7 +498,7 @@ TEST_F(OlapTypeTest, ser_deser_double) {
             },
             {
                     0.000123456,
-                    "0.00012345600000000001",
+                    "0.000123456",
             },
             {
                     0.0001234567,
@@ -508,15 +506,15 @@ TEST_F(OlapTypeTest, ser_deser_double) {
             },
             {
                     0.00012345678,
-                    "0.00012345678000000001",
+                    "0.00012345678",
             },
             {
                     0.0000123456,
-                    "1.2345599999999999e-05", // e < -4
+                    "1.23456e-05", // e < -4
             },
             {
                     0.00001234567,
-                    "1.2345670000000001e-05", // e < -4
+                    "1.234567e-05", // e < -4
             },
             {
                     0.0000123456789,
@@ -545,18 +543,15 @@ TEST_F(OlapTypeTest, ser_deser_double) {
             },
             {
                     12345678901234567.12345,
-                    "12345678901234568",
+                    "1.2345678901234568e+16",
             },
             {
                     123456789012345678.12345,
                     "1.2345678901234568e+17",
             }};
     const std::vector<std::string> expected_e16 = {
-            "9.9999999999999998e-17", "2e-16",
-            "2.9999999999999999e-16", "3.9999999999999999e-16",
-            "5.0000000000000004e-16", "5.9999999999999999e-16",
-            "6.9999999999999994e-16", "7.9999999999999998e-16",
-            "9.0000000000000003e-16"};
+            "1e-16", "2e-16", "3e-16", "4e-16", "5e-16", "6e-16", "6.999999999999999e-16",
+            "8e-16", "9e-16"};
     for (int i = 1; i < 10; ++i) {
         normal_input_values.emplace_back(i * 0.0000000000000001, expected_e16[i - 1]);
     }
@@ -576,11 +571,11 @@ TEST_F(OlapTypeTest, ser_deser_double) {
             },
             {std::numeric_limits<float>::min(), "1.1754943508222875e-38"},
             {std::numeric_limits<float>::lowest(), "-3.4028234663852886e+38"},
-            {std::numeric_limits<float>::denorm_min(), "1.4012984643248171e-45"},
+            {std::numeric_limits<float>::denorm_min(), "1.401298464324817e-45"},
             {std::numeric_limits<float>::max(), "3.4028234663852886e+38"},
             {std::numeric_limits<double>::min(), "2.2250738585072014e-308"},
             {std::numeric_limits<double>::lowest(), "-1.7976931348623157e+308"},
-            {std::numeric_limits<double>::denorm_min(), "4.9406564584124654e-324"},
+            {std::numeric_limits<double>::denorm_min(), "5e-324"},
             {std::numeric_limits<double>::max(), "1.7976931348623157e+308"},
             {
                     std::numeric_limits<double>::infinity(),
@@ -962,14 +957,10 @@ TEST_F(OlapTypeTest, ser_deser_float_olap_string) {
 
     // Normal float values: to_olap_string → from_zonemap_string round-trip
     std::vector<std::pair<float, std::string>> normal_cases = {
-            {0.0f, "0"},
-            {1.0f, "1"},
-            {-1.0f, "-1"},
-            {123.456f, "123.456001"},
-            {0.001f, "0.00100000005"},
-            {1234567.0f, "1234567"},
-            {1e-10f, "1.00000001e-10"},
-            {3.402823e+38f, "3.40282306e+38"},
+            {0.0f, "0"},       {1.0f, "1"},
+            {-1.0f, "-1"},     {123.456f, "123.456"},
+            {0.001f, "0.001"}, {1234567.0f, "1234567"},
+            {1e-10f, "1e-10"}, {3.402823e+38f, "3.402823e+38"},
     };
 
     for (const auto& [val, expected_str] : normal_cases) {
@@ -1789,14 +1780,14 @@ TEST_F(OlapTypeTest, float_type) {
             {1.5f, "1.5", "1.5"},
             {0.25f, "0.25", "0.25"},
             {100.0f, "100", "100"},
-            {0.001f, "0.00100000005", "0.00100000005"},
+            {0.001f, "0.001", "0.001"},
             {std::numeric_limits<float>::quiet_NaN(), "NaN", "NaN"},
             {std::numeric_limits<float>::infinity(), "Infinity", "Infinity"},
             {-std::numeric_limits<float>::infinity(), "-Infinity", "-Infinity"},
-            {std::numeric_limits<float>::max(), "3.40282347e+38", "3.40282347e+38"},
-            {std::numeric_limits<float>::lowest(), "-3.40282347e+38", "-3.40282347e+38"},
-            {std::numeric_limits<float>::min(), "1.17549435e-38", "1.17549435e-38"},
-            {std::numeric_limits<float>::denorm_min(), "1.40129846e-45", "1.40129846e-45"},
+            {std::numeric_limits<float>::max(), "3.4028235e+38", "3.4028235e+38"},
+            {std::numeric_limits<float>::lowest(), "-3.4028235e+38", "-3.4028235e+38"},
+            {std::numeric_limits<float>::min(), "1.1754944e-38", "1.1754944e-38"},
+            {std::numeric_limits<float>::denorm_min(), "1e-45", "1e-45"},
     };
 
     for (auto& tc : test_cases) {
@@ -1826,7 +1817,7 @@ TEST_F(OlapTypeTest, double_type) {
             {1.5, "1.5", "1.5"},
             {0.25, "0.25", "0.25"},
             {100.0, "100", "100"},
-            {3.141592653589793, "3.1415926535897931", "3.1415926535897931"},
+            {3.141592653589793, "3.141592653589793", "3.141592653589793"},
             {0.001, "0.001", "0.001"},
             {std::numeric_limits<double>::quiet_NaN(), "NaN", "NaN"},
             {std::numeric_limits<double>::infinity(), "Infinity", "Infinity"},
