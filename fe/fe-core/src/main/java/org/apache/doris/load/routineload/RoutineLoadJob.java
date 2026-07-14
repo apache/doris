@@ -1416,8 +1416,12 @@ public abstract class RoutineLoadJob
             routineLoadTaskInfo.handleTaskByTxnCommitAttachment(rlTaskTxnCommitAttachment);
         }
 
-        if (rlTaskTxnCommitAttachment != null) {
-            updateJobInfoFromAttachment(rlTaskTxnCommitAttachment);
+        if (rlTaskTxnCommitAttachment != null
+                && !Strings.isNullOrEmpty(rlTaskTxnCommitAttachment.getErrorLogUrl())) {
+            errorLogUrls.add(rlTaskTxnCommitAttachment.getErrorLogUrl());
+            firstErrorMsg = StringUtils.abbreviate(
+                    Strings.nullToEmpty(rlTaskTxnCommitAttachment.getFirstErrorMsg()),
+                    Config.first_error_msg_max_length);
         }
 
         routineLoadTaskInfo.setTxnStatus(txnStatus);
@@ -1432,15 +1436,6 @@ public abstract class RoutineLoadJob
                 // there will be lots of COMMITTED txns in GlobalTransactionMgr
             }
         }
-    }
-
-    private void updateJobInfoFromAttachment(RLTaskTxnCommitAttachment attachment) {
-        if (Strings.isNullOrEmpty(attachment.getErrorLogUrl())) {
-            return;
-        }
-        errorLogUrls.add(attachment.getErrorLogUrl());
-        firstErrorMsg = StringUtils.abbreviate(
-                Strings.nullToEmpty(attachment.getFirstErrorMsg()), Config.first_error_msg_max_length);
     }
 
     protected static void checkMeta(OlapTable olapTable, RoutineLoadDesc routineLoadDesc) throws UserException {
