@@ -531,6 +531,7 @@ Status FileScannerV2::_prepare_table_reader_split(const TFileRangeDesc& range,
             // A metadata COUNT split may span scheduler turns. Do not enter that irreversible
             // synthetic-row path while a runtime filter can still arrive between batches.
             .all_runtime_filters_applied = _applied_rf_num == _total_rf_num,
+            .condition_cache_digest = _current_condition_cache_digest(),
             .cache = _kv_cache,
             .current_range = range,
             .current_split_format = current_split_format,
