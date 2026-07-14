@@ -2228,6 +2228,16 @@ TEST(TableReaderTest, ConditionCacheAllowsRuntimeFilterCoveredBySplitDigest) {
     ASSERT_TRUE(reader.get_block(&block, &eos).ok());
     ASSERT_NE(fake_state->condition_cache_ctx, nullptr);
     EXPECT_FALSE(fake_state->condition_cache_ctx->is_hit);
+
+    segment_v2::ConditionCacheHandle handle;
+    segment_v2::ConditionCache::ExternalCacheKey initial_digest_key(
+            "fake-table-reader-input", 0, -1, 7, 0, -1,
+            segment_v2::ConditionCache::ExternalCacheKey::BASE_GRANULE_AWARE_VERSION);
+    EXPECT_FALSE(cache.get()->lookup(initial_digest_key, &handle));
+    segment_v2::ConditionCache::ExternalCacheKey split_digest_key(
+            "fake-table-reader-input", 0, -1, 11, 0, -1,
+            segment_v2::ConditionCache::ExternalCacheKey::BASE_GRANULE_AWARE_VERSION);
+    EXPECT_TRUE(cache.get()->lookup(split_digest_key, &handle));
     ASSERT_TRUE(reader.close().ok());
 }
 
