@@ -57,7 +57,6 @@ import org.apache.doris.connector.api.pushdown.FilterApplicationResult;
 import org.apache.doris.connector.api.scan.ConnectorPartitionValues;
 import org.apache.doris.connector.hms.HiveShowCreateTableRenderer;
 import org.apache.doris.connector.hms.HmsClient;
-import org.apache.doris.connector.hms.HmsClientConfig;
 import org.apache.doris.connector.hms.HmsClientException;
 import org.apache.doris.connector.hms.HmsColumnStatistics;
 import org.apache.doris.connector.hms.HmsCreateDatabaseRequest;
@@ -1555,15 +1554,6 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
             if (partitionSpec.hasExplicitPartitionValues()) {
                 throw new DorisConnectorException(
                         "Partition values expressions is not supported in hive catalog.");
-            }
-        }
-
-        // DLF catalogs reject per-column default values (legacy parity).
-        if (HmsClientConfig.METASTORE_TYPE_DLF.equals(properties.get(HmsClientConfig.METASTORE_TYPE_KEY))) {
-            for (ConnectorColumn column : request.getColumns()) {
-                if (column.getDefaultValue() != null) {
-                    throw new DorisConnectorException("Default values are not supported with `DLF` catalog.");
-                }
             }
         }
 

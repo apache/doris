@@ -23,7 +23,6 @@ import org.apache.doris.connector.api.ConnectorMetadata;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.ConnectorValidationContext;
 import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
-import org.apache.doris.connector.metastore.DlfMetaStoreProperties;
 import org.apache.doris.connector.metastore.HmsMetaStoreProperties;
 import org.apache.doris.connector.metastore.spi.JdbcDriverSupport;
 import org.apache.doris.connector.metastore.spi.MetaStoreProviders;
@@ -62,13 +61,13 @@ import java.util.concurrent.ConcurrentHashMap;
  * {@link org.apache.paimon.catalog.Catalog} instance.
  *
  * <p>The Paimon Catalog is lazily created on first metadata access.
- * It supports multiple catalog backends (filesystem, HMS, DLF, REST, JDBC)
+ * It supports multiple catalog backends (filesystem, HMS, REST, JDBC)
  * determined by the {@code paimon.catalog.type} property. The per-flavor option
  * assembly lives in the pure {@link PaimonCatalogFactory}; this class drives the
  * live catalog creation.
  *
  * <p>B1 lands all five flavors live. filesystem/jdbc create a {@link CatalogContext} carrying a
- * minimal Hadoop {@link Configuration} (HDFS/S3 storage), rest is Options-only, and hms/dlf carry a
+ * minimal Hadoop {@link Configuration} (HDFS/S3 storage), rest is Options-only, and hms carries a
  * {@link HiveConf} (metastore=hive). All create calls are wrapped in
  * {@code ConnectorContext.executeAuthenticated} so the FE-injected Kerberos UGI (if any) applies;
  * the default is a no-op. The {@code Configuration}/{@code HiveConf} are assembled by the pure
@@ -385,28 +384,6 @@ public class PaimonConnector implements Connector {
                 return createCatalogFromContext(CatalogContext.create(options, hc), flavor,
                         "Failed to create Paimon catalog with HMS metastore");
             }
-            case PaimonConnectorProperties.DLF: {
-                // Legacy parity: DLF metastore requires an OSS / OSS_HDFS backend specifically (not a
-                // generic S3 one). This is now enforced at CREATE CATALOG by DlfMetaStoreProperties
-                // .validate() (via PaimonConnectorProvider.validateProperties), so a misconfigured
-                // S3-only DLF catalog never reaches this build path (P2-T03; replaces the old build-time
-                // requireOssStorageForDlf call).
-                // DLF storage is OSS (fe-filesystem-bound, in storageHadoopConfig); overlaid by the
-                // shared parser inside toDlfCatalogConf.
-                // NOTE (B1/cutover-blocker P5-B7): same metastore=hive runtime gap as the hms branch
-                // above — the Thrift metastore client (IMetaStoreClient/HiveMetaStoreClient, here the
-                // Aliyun ProxyMetaStoreClient) is host-provided via hive-catalog-shade at cutover, not
-                // bundled; and the child-first Configuration/HiveConf cross-loader identity hazard
-                // applies. Live-e2e MUST verify, before cutover, that a real DLF-backed
-                // metastore=hive paimon catalog created through the plugin throws neither
-                // NoClassDefFoundError (.../IMetaStoreClient) nor a Configuration/HiveConf
-                // LinkageError/ClassCastException.
-                DlfMetaStoreProperties dlf = (DlfMetaStoreProperties)
-                        MetaStoreProviders.bind(properties, storageHadoopConfig);
-                HiveConf hc = PaimonCatalogFactory.assembleHiveConf(null, dlf.toDlfCatalogConf());
-                return createCatalogFromContext(CatalogContext.create(options, hc), flavor,
-                        "Failed to create Paimon catalog with DLF metastore");
-            }
             default:
                 throw new IllegalArgumentException("Unknown paimon.catalog.type value: " + flavor);
         }
@@ -421,7 +398,7 @@ public class PaimonConnector implements Connector {
      * its hadoop.config.resources XML + HA + auth keys (C2; the fe-filesystem HDFS Hadoop map is
      * defaults-free so it never clobbers a co-bound object-store provider's tuned fs.s3a.* here). This
      * replaces the legacy {@code StorageProperties.buildObjectStorageHadoopConfig(properties)} call that
-     * {@link PaimonCatalogFactory#buildHadoopConfiguration}/{@code buildHmsHiveConf}/{@code buildDlfHiveConf}
+     * {@link PaimonCatalogFactory#buildHadoopConfiguration}/{@code buildHmsHiveConf}
      * used to make. Empty for REST (the server owns storage) and for a catalog with no typed storage (it
      * reaches the conf via the raw fs./dfs./hadoop. passthrough).
      */

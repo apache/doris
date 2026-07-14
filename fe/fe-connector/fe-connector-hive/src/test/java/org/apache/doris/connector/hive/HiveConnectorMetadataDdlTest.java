@@ -229,24 +229,6 @@ public class HiveConnectorMetadataDdlTest {
                 client.lastCreateTable.getPartitionKeys());
     }
 
-    // ==================== createTable: DLF default-value guard ====================
-
-    @Test
-    public void createTableRejectsColumnDefaultsOnDlfCatalog() {
-        RecordingHmsClient client = new RecordingHmsClient();
-        Map<String, String> catalogProps = Collections.singletonMap("hive.metastore.type", "dlf");
-        List<ConnectorColumn> cols = Arrays.asList(
-                new ConnectorColumn("id", ConnectorType.of("INT"), null, false, null),
-                new ConnectorColumn("v", ConnectorType.of("INT"), null, true, "5"));
-        // WHY: DLF catalogs cannot honor per-column default values, so a create carrying one is rejected
-        // (legacy parity). This depends on the shared converter now threading the default value onto the
-        // column. MUTATION: dropping the DLF guard, or the column default reaching the connector, flips it.
-        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
-                () -> metadata(client, catalogProps, Collections.emptyMap())
-                        .createTable(session(), request().columns(cols).build()));
-        Assertions.assertTrue(ex.getMessage().contains("DLF"));
-    }
-
     @Test
     public void createTableAllowsColumnDefaultsOnNonDlfCatalog() {
         RecordingHmsClient client = new RecordingHmsClient();

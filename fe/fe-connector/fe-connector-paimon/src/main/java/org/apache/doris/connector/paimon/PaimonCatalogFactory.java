@@ -42,16 +42,16 @@ import java.util.function.BiConsumer;
  * <p>It also holds two PURE Hadoop config helpers: {@link #buildHadoopConfiguration} (the filesystem/jdbc
  * storage {@code Configuration} from the pre-computed canonical object-store config) and
  * {@link #assembleHiveConf} (layers the shared-parser HiveConf overrides over an optional hive-site.xml
- * base for the hms/dlf flavors). The {@code storageHadoopConfig} arg is assembled by
+ * base for the hms flavor). The {@code storageHadoopConfig} arg is assembled by
  * {@code PaimonConnector} from {@code ConnectorContext.getStorageProperties()} (fe-filesystem's
  * {@code toHadoopProperties().toHadoopConfigurationMap()}), so the helpers stay pure (Maps in, conf out)
  * and unit-testable offline; only the {@code CatalogFactory.createCatalog} call in
  * {@code PaimonConnector} needs a live metastore.
  *
- * <p>The metastore CONNECTION facts (validate rules, HMS/DLF HiveConf key sets, JDBC driver-url
+ * <p>The metastore CONNECTION facts (validate rules, HMS HiveConf key sets, JDBC driver-url
  * resolution, alias arrays) were moved to the shared {@code fe-connector-metastore-spi}
- * ({@code MetaStoreProviders.bind} -&gt; {@code HmsMetaStoreProperties.toHiveConfOverrides(String)} /
- * {@code DlfMetaStoreProperties.toDlfCatalogConf()}; {@code JdbcDriverSupport.resolveDriverUrl}) — see P2-T03.
+ * ({@code MetaStoreProviders.bind} -&gt; {@code HmsMetaStoreProperties.toHiveConfOverrides(String)};
+ * {@code JdbcDriverSupport.resolveDriverUrl}) — see P2-T03.
  */
 public final class PaimonCatalogFactory {
 
@@ -116,9 +116,6 @@ public final class PaimonCatalogFactory {
             case PaimonConnectorProperties.JDBC:
                 appendJdbcOptions(props, options);
                 break;
-            case PaimonConnectorProperties.DLF:
-                appendDlfOptions(options);
-                break;
             default:
                 // filesystem: nothing custom.
                 break;
@@ -155,7 +152,6 @@ public final class PaimonCatalogFactory {
             case PaimonConnectorProperties.REST:
                 return "rest";
             case PaimonConnectorProperties.HMS:
-            case PaimonConnectorProperties.DLF:
                 // = org.apache.paimon.hive.HiveCatalogOptions.IDENTIFIER; kept as a literal to
                 // mirror the existing rest/jdbc style (this is a pure option string, not a type ref).
                 return "hive";
@@ -210,12 +206,6 @@ public final class PaimonCatalogFactory {
                 options.set(k, v);
             }
         });
-    }
-
-    private static void appendDlfOptions(Options options) {
-        // String literal avoids the Aliyun datalake compile dep (the live SDK ships at runtime).
-        options.set("metastore.client.class", "com.aliyun.datalake.metastore.hive2.ProxyMetaStoreClient");
-        options.set("client-pool-cache.keys", "conf:dlf.catalog.id");
     }
 
     // ---------------------------------------------------------------------
@@ -300,7 +290,7 @@ public final class PaimonCatalogFactory {
     }
 
     /**
-     * Assembles a {@link HiveConf} for the {@code hms}/{@code dlf} flavors from a neutral key map.
+     * Assembles a {@link HiveConf} for the {@code hms} flavor from a neutral key map.
      * Seeds the optional {@code base} (e.g. an external {@code hive.conf.resources} hive-site.xml,
      * resolved FE-side via {@code ConnectorContext.loadHiveConfResources}) FIRST, then applies the
      * shared-parser {@code overrides} on top (last-write-wins), so the connection/user keys correctly
@@ -309,9 +299,8 @@ public final class PaimonCatalogFactory {
      *
      * <p>The {@code overrides} are produced by the shared metastore parsers
      * ({@code HmsMetaStoreProperties.toHiveConfOverrides(String)} — uri + verbatim {@code hive.*} + auth keys
-     * + socket-timeout default + storage overlay + kerberos block last; or
-     * {@code DlfMetaStoreProperties.toDlfCatalogConf()} — the 8 {@code dlf.catalog.*} keys + OSS storage
-     * overlay), which own the ordering-sensitive logic (storage overlay BEFORE the kerberos block). This
+     * + socket-timeout default + storage overlay + kerberos block last), which owns the ordering-sensitive
+     * logic (storage overlay BEFORE the kerberos block). This
      * method only layers the file base under those facts. The real Kerberos UGI {@code doAs} is injected
      * by the FE via {@code ConnectorContext.executeAuthenticated}; the keys here only describe it.
      *
@@ -329,7 +318,7 @@ public final class PaimonCatalogFactory {
         // PaimonConnector.createCatalogFromContext). Under child-first plugin loading that resolves
         // DefaultMetaStoreFilterHookImpl from the parent while MetaStoreFilterHook is child-loaded, giving
         // "class DefaultMetaStoreFilterHookImpl not MetaStoreFilterHook". Pinning keeps the whole
-        // hive-metastore class graph in one loader (covers both the hms and dlf flavors).
+        // hive-metastore class graph in one loader.
         hiveConf.setClassLoader(PaimonCatalogFactory.class.getClassLoader());
         if (base != null) {
             base.forEach(hiveConf::set);

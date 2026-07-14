@@ -55,11 +55,9 @@ import java.util.regex.Pattern;
  * {@code Iceberg*MetaStoreProperties#initCatalog} — lands in a later task (P6-T05/T06/T07); this task
  * is a structural inversion only, with no behavior change.
  *
- * <p>Note: {@code s3tables} and {@code dlf} are listed here for completeness, but legacy does NOT build
- * them via {@code CatalogUtil.buildIcebergCatalog} (s3tables hand-builds an {@code S3TablesClient};
- * dlf uses {@code new DLFCatalog().setConf(..).initialize(..)}). Routing them through the impl-name
- * path is the existing skeleton behavior, preserved verbatim here; the bespoke instantiation fixes are
- * P6-T06 / P6-T07.
+ * <p>Note: {@code s3tables} is listed here for completeness, but legacy does NOT build it via
+ * {@code CatalogUtil.buildIcebergCatalog} (it hand-builds an {@code S3TablesClient}). Routing it through
+ * the impl-name path is the existing skeleton behavior, preserved verbatim here.
  */
 public final class IcebergCatalogFactory {
 
@@ -304,12 +302,10 @@ public final class IcebergCatalogFactory {
                 return "org.apache.iceberg.jdbc.JdbcCatalog";
             case IcebergConnectorProperties.TYPE_S3_TABLES:
                 return "software.amazon.s3tables.iceberg.S3TablesCatalog";
-            case IcebergConnectorProperties.TYPE_DLF:
-                return "org.apache.doris.connector.iceberg.dlf.DLFCatalog";
             default:
                 throw new DorisConnectorException(
                         "Unknown " + IcebergConnectorProperties.ICEBERG_CATALOG_TYPE + ": " + catalogType
-                                + ". Supported types: rest, hms, glue, hadoop, jdbc, s3tables, dlf");
+                                + ". Supported types: rest, hms, glue, hadoop, jdbc, s3tables");
         }
     }
 
@@ -324,7 +320,7 @@ public final class IcebergCatalogFactory {
      *
      * <p>The metastore connection (HMS {@code HiveConf}) and storage {@code Configuration} are SEPARATE sinks
      * built by the connector ({@link #assembleHiveConf} / {@link #buildHadoopConfiguration}); they are not part
-     * of this options map. {@code s3tables}/{@code dlf} are bespoke (T06/T07) and fall through to the base +
+     * of this options map. {@code s3tables} is bespoke and falls through to the base +
      * impl only here (the existing skeleton behavior), so this method covers exactly the five SDK-built flavors.
      */
     public static Map<String, String> buildCatalogProperties(Map<String, String> props, String flavor,
@@ -356,7 +352,7 @@ public final class IcebergCatalogFactory {
                 appendS3FileIO(opts, props, chosenS3);
                 break;
             default:
-                // s3tables / dlf: bespoke instantiation is T06/T07. Preserve the skeleton's base+impl routing.
+                // s3tables: bespoke instantiation. Preserve the skeleton's base+impl routing.
                 break;
         }
         // The iceberg SDK forbids both "type" and "catalog-impl"; legacy buildIcebergCatalog removes "type".
@@ -660,23 +656,6 @@ public final class IcebergCatalogFactory {
         }
         overrides.forEach(hiveConf::set);
         return hiveConf;
-    }
-
-    /**
-     * Builds the Hadoop {@link Configuration} for the bespoke {@code dlf} flavor, mirroring legacy
-     * {@code IcebergAliyunDLFMetaStoreProperties.initCatalog}: the {@code dlf.catalog.*} keys from the
-     * metastore-spi {@code toDlfCatalogConf()} (= the {@code DataLakeConfig.CATALOG_*} constant values), plus
-     * the two fixed hive keys {@code hive.metastore.type=dlf} and {@code type=hms} that legacy sets on the DLF
-     * {@code Configuration}. The conf classloader is pinned to the plugin loader (metastore client + filter-hook
-     * resolution parity). PURE (a function of {@code dlfCatalogConf}).
-     */
-    public static Configuration buildDlfConfiguration(Map<String, String> dlfCatalogConf) {
-        Configuration conf = new Configuration();
-        conf.setClassLoader(IcebergCatalogFactory.class.getClassLoader());
-        dlfCatalogConf.forEach(conf::set);
-        conf.set("hive.metastore.type", "dlf");
-        conf.set("type", "hms");
-        return conf;
     }
 
     // ---------------------------------------------------------------------

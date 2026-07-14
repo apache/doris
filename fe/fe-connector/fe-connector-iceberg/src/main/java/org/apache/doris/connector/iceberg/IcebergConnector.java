@@ -28,8 +28,6 @@ import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.procedure.ConnectorProcedureOps;
 import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.api.write.ConnectorWritePlanProvider;
-import org.apache.doris.connector.iceberg.dlf.DLFCatalog;
-import org.apache.doris.connector.metastore.DlfMetaStoreProperties;
 import org.apache.doris.connector.metastore.HmsMetaStoreProperties;
 import org.apache.doris.connector.metastore.spi.JdbcDriverSupport;
 import org.apache.doris.connector.metastore.spi.MetaStoreProviders;
@@ -93,7 +91,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * Iceberg connector implementation. Manages the lifecycle of an Iceberg SDK
  * {@link Catalog} instance for all metadata operations.
  *
- * <p>Supports all Iceberg catalog backends: REST, HMS, Glue, DLF, JDBC,
+ * <p>Supports all Iceberg catalog backends: REST, HMS, Glue, JDBC,
  * Hadoop, and S3Tables. The backend is determined by the {@code iceberg.catalog.type}
  * property. The per-flavor catalog-property assembly lives in the pure
  * {@link IcebergCatalogFactory} (mirroring {@code PaimonCatalogFactory}); this class drives the
@@ -104,8 +102,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * <p>Phase 1 provides read-only metadata operations (list databases, list tables,
  * get schema). Write operations, scan planning, actions (compaction, snapshot
  * management), and transaction support remain in fe-core temporarily. {@code s3tables} uses its bespoke
- * 3-arg {@code S3TablesCatalog.initialize(name, opts, client)} path (P6-T06); {@code dlf} still falls through
- * to the generic {@code CatalogUtil} placeholder until its subtree port (P6-T07).</p>
+ * 3-arg {@code S3TablesCatalog.initialize(name, opts, client)} path (P6-T06).</p>
  */
 public class IcebergConnector implements Connector {
 
@@ -687,12 +684,6 @@ public class IcebergConnector implements Connector {
             return createS3TablesCatalog(catalogName, chosenS3);
         }
 
-        // dlf is bespoke too: legacy IcebergAliyunDLFMetaStoreProperties builds a hive-compatible DLFCatalog with
-        // a DataLakeConfig-keyed Configuration and an OSS-backed S3FileIO, NOT via CatalogUtil.buildIcebergCatalog.
-        if (IcebergConnectorProperties.TYPE_DLF.equals(flavor)) {
-            return createDlfCatalog(catalogName, chosenS3);
-        }
-
         Map<String, String> catalogProps =
                 IcebergCatalogFactory.buildCatalogProperties(properties, flavor, chosenS3);
         Map<String, String> storageHadoopConfig = buildStorageHadoopConfig();
@@ -823,32 +814,6 @@ public class IcebergConnector implements Connector {
         return region;
     }
 
-    /**
-     * Creates the bespoke {@code dlf} catalog, mirroring legacy {@code IcebergAliyunDLFMetaStoreProperties}: the
-     * DLF metastore connection {@link Configuration} is built from the shared metastore-spi
-     * ({@code MetaStoreProviders.bindForType("dlf", ...)} -> {@code DlfMetaStoreProperties.toDlfCatalogConf()},
-     * the {@code dlf.catalog.*} = {@code DataLakeConfig.CATALOG_*} keys) plus the two legacy hive keys (see
-     * {@link IcebergCatalogFactory#buildDlfConfiguration}); the OSS-backed {@link DLFCatalog} then reads its
-     * FileIO endpoint/region/credentials from the chosen fe-filesystem OSS storage (D-061). A bound
-     * S3-compatible (OSS) storage is required; a missing one fails loud, before any metastore call.
-     */
-    private Catalog createDlfCatalog(String catalogName, Optional<S3CompatibleFileSystemProperties> chosenS3) {
-        if (!chosenS3.isPresent()) {
-            throw new DorisConnectorException("Iceberg dlf catalog requires OSS storage properties");
-        }
-        S3CompatibleFileSystemProperties oss = chosenS3.get();
-        DlfMetaStoreProperties dlf = (DlfMetaStoreProperties) MetaStoreProviders.bindForType(
-                IcebergConnectorProperties.TYPE_DLF, properties, buildStorageHadoopConfig());
-        Configuration conf = IcebergCatalogFactory.buildDlfConfiguration(dlf.toDlfCatalogConf());
-        Map<String, String> catalogProps = IcebergCatalogFactory.buildBaseCatalogProperties(properties);
-        LOG.info("Creating Iceberg dlf catalog '{}'", catalogName);
-        return buildCatalogAuthenticated(IcebergConnectorProperties.TYPE_DLF, () -> {
-            DLFCatalog dlfCatalog = new DLFCatalog(oss);
-            dlfCatalog.setConf(conf);
-            dlfCatalog.initialize(catalogName, catalogProps);
-            return dlfCatalog;
-        });
-    }
 
     /**
      * Hand-builds the control-plane {@link S3TablesClient}, mirroring legacy
@@ -925,7 +890,7 @@ public class IcebergConnector implements Connector {
     /**
      * Design S8: the iceberg connector owns the {@code warehouse -> fs.defaultFS} storage derivation that used
      * to live in fe-core's {@code IcebergFileSystemMetaStoreProperties.getDerivedStorageProperties}. Only the
-     * hadoop (filesystem) catalog flavor bridges the warehouse; the other flavors (rest/hms/glue/dlf/jdbc/
+     * hadoop (filesystem) catalog flavor bridges the warehouse; the other flavors (rest/hms/glue/jdbc/
      * s3tables) contribute no storage derivation (empty), matching the legacy override which only the hadoop
      * flavor carried. fe-core folds the result into its storage map as defaults, feeding both the fe-filesystem
      * bind and the BE storage map identically.
@@ -938,7 +903,7 @@ public class IcebergConnector implements Connector {
     /**
      * Gate + derivation for {@link #deriveStorageProperties} (static so it is unit-testable without constructing
      * a connector): only the hadoop (filesystem) catalog flavor bridges the warehouse; every other flavor
-     * (rest/hms/glue/dlf/jdbc/s3tables) contributes nothing.
+     * (rest/hms/glue/jdbc/s3tables) contributes nothing.
      */
     static Map<String, String> deriveStorageDefaults(Map<String, String> rawCatalogProps) {
         if (!IcebergConnectorProperties.TYPE_HADOOP.equalsIgnoreCase(

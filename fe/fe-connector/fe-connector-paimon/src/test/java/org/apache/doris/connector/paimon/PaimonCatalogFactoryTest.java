@@ -162,22 +162,16 @@ public class PaimonCatalogFactoryTest {
     }
 
     @Test
-    public void dlfSetsHiveMetastoreClientClassAndPoolKeys() {
-        Options opts = PaimonCatalogFactory.buildCatalogOptions(props(
-                "paimon.catalog.type", "dlf",
-                "warehouse", "/wh",
-                "dlf.access_key", "ak",
-                "dlf.secret_key", "sk",
-                "dlf.endpoint", "dlf.cn.aliyuncs.com"));
-
-        // WHY: dlf is adapted onto paimon's "hive" metastore via the Aliyun ProxyMetaStoreClient;
-        // the legacy DLF flavor always emits that client class plus the conf:dlf.catalog.id pool
-        // key. These two are what make a HiveCatalog talk to DLF. MUTATION: metastore!="hive",
-        // wrong client class, or missing pool key -> red.
-        Assertions.assertEquals("hive", opts.get("metastore"));
-        Assertions.assertEquals("com.aliyun.datalake.metastore.hive2.ProxyMetaStoreClient",
-                opts.get("metastore.client.class"));
-        Assertions.assertEquals("conf:dlf.catalog.id", opts.get("client-pool-cache.keys"));
+    public void removedDlfCatalogTypeNoLongerBuildsOptions() {
+        // WHY: paimon.catalog.type=dlf was removed with the vendored thrift ProxyMetaStoreClient it adapted
+        // onto paimon's "hive" metastore. buildCatalogOptions must now reject it like any unknown type rather
+        // than emit a metastore.client.class naming a class that no longer ships. MUTATION: re-adding the dlf
+        // arm -> red.
+        IllegalArgumentException ex = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> PaimonCatalogFactory.buildCatalogOptions(props(
+                        "paimon.catalog.type", "dlf",
+                        "warehouse", "/wh")));
+        Assertions.assertTrue(ex.getMessage().contains("dlf"), ex.getMessage());
     }
 
     @Test

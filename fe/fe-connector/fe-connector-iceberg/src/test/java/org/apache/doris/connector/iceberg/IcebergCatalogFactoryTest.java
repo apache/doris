@@ -42,8 +42,8 @@ import java.util.Optional;
  * (no env, no clock, no live catalog), so the tests are entirely offline. No Mockito.
  *
  * <p>P6.1 baseline: the per-flavor catalog-impl class names MUST mirror the legacy fe-core
- * {@code IcebergConnector.resolveCatalogImpl} switch. The s3tables/dlf bespoke instantiation fixes
- * are later tasks; here we pin the impl-name routing the current production code performs.
+ * {@code IcebergConnector.resolveCatalogImpl} switch. Here we pin the impl-name routing the current
+ * production code performs.
  */
 public class IcebergCatalogFactoryTest {
 
@@ -132,9 +132,19 @@ public class IcebergCatalogFactoryTest {
     }
 
     @Test
-    public void resolveCatalogImplMapsDlfToDorisDlfCatalog() {
-        Assertions.assertEquals("org.apache.doris.connector.iceberg.dlf.DLFCatalog",
-                IcebergCatalogFactory.resolveCatalogImpl("dlf"));
+    public void resolveCatalogImplRejectsRemovedDlfFlavor() {
+        // WHY: iceberg.catalog.type=dlf (DLF 1.0 over the vendored thrift ProxyMetaStoreClient) was removed, so
+        // it must now hit the default arm and fail loud like any unknown flavor — never resolve to a class that
+        // no longer ships. MUTATION: re-adding a dlf arm -> red.
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                () -> IcebergCatalogFactory.resolveCatalogImpl("dlf"));
+        // Assert on the supported-types LIST only: the message also echoes the rejected input, so a naive
+        // contains("dlf") over the whole message would match the echo and never fail.
+        String supported = ex.getMessage().substring(ex.getMessage().indexOf("Supported types:"));
+        Assertions.assertFalse(supported.contains("dlf"),
+                "the supported-types list must no longer advertise dlf: " + supported);
+        Assertions.assertTrue(supported.contains("glue"),
+                "glue is the iceberg-native backend and must stay supported: " + supported);
     }
 
     @Test
@@ -915,20 +925,4 @@ public class IcebergCatalogFactoryTest {
         Assertions.assertEquals("kept", conf.get("base.only"));
     }
 
-    @Test
-    public void buildDlfConfigurationAddsLegacyHiveKeysOnTopOfDlfCatalogConf() {
-        // WHY: legacy IcebergAliyunDLFMetaStoreProperties.initCatalog sets the DataLakeConfig.CATALOG_* keys (=
-        // the dlf.catalog.* keys toDlfCatalogConf already produces) AND the two fixed hive keys
-        // hive.metastore.type=dlf + type=hms on the DLF Configuration. MUTATION: dropping either hive key, or not
-        // carrying the toDlfCatalogConf entries through, -> red.
-        Map<String, String> dlfConf = new HashMap<>();
-        dlfConf.put("dlf.catalog.accessKeyId", "AK");
-        dlfConf.put("dlf.catalog.endpoint", "dlf-vpc.cn-hangzhou.aliyuncs.com");
-        Configuration conf = IcebergCatalogFactory.buildDlfConfiguration(dlfConf);
-        Assertions.assertEquals("AK", conf.get("dlf.catalog.accessKeyId"));
-        Assertions.assertEquals("dlf-vpc.cn-hangzhou.aliyuncs.com", conf.get("dlf.catalog.endpoint"));
-        Assertions.assertEquals("dlf", conf.get("hive.metastore.type"),
-                "legacy sets hive.metastore.type=dlf on the DLF Configuration");
-        Assertions.assertEquals("hms", conf.get("type"), "legacy sets type=hms on the DLF Configuration");
-    }
 }

@@ -130,18 +130,18 @@ public class IcebergConnectorTest {
     }
 
     @Test
-    public void dlfWithoutStorageFailsLoud() {
-        // WHY: legacy IcebergAliyunDLFMetaStoreProperties always selected an OSS StorageProperties; the connector
-        // needs a bound OSS storage to back the DLFCatalog's S3FileIO. A missing one must fail loud BEFORE any
-        // metastore call, NOT route dlf through the generic CatalogUtil path (which would ClassNotFound on the
-        // dlf impl). MUTATION: dropping the chosenS3 presence check -> a different/cryptic error -> red.
+    public void removedDlfFlavorFailsLoudAtCatalogCreation() {
+        // WHY: iceberg.catalog.type=dlf (DLF 1.0 over the vendored thrift ProxyMetaStoreClient) was removed. A
+        // catalog still carrying it — e.g. one created before the removal and replayed from the image — must
+        // fail loud on first use naming the supported types, never silently route somewhere else. MUTATION:
+        // re-adding a dlf arm to resolveCatalogImpl -> red.
         RecordingConnectorContext ctx = new RecordingConnectorContext();
         IcebergConnector connector = new IcebergConnector(
                 Map.of("iceberg.catalog.type", "dlf", "warehouse", "oss://b/wh"), ctx);
         DorisConnectorException ex =
                 Assertions.assertThrows(DorisConnectorException.class, () -> connector.getMetadata(null));
-        Assertions.assertTrue(ex.getMessage().contains("OSS storage"),
-                "expected a fail-loud message naming the missing OSS storage, got: " + ex.getMessage());
+        Assertions.assertTrue(ex.getMessage().contains("Unknown iceberg.catalog.type"),
+                "expected the unknown-flavor rejection, got: " + ex.getMessage());
     }
 
     @Test

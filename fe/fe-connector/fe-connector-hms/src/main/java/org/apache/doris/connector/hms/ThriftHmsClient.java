@@ -82,8 +82,7 @@ import java.util.stream.Collectors;
  *
  * <p>This mirrors fe-core's {@code ThriftHMSCachedClient} but returns
  * SPI types ({@link HmsTableInfo}, {@link ConnectorColumn}, etc.)
- * instead of fe-core's Column/DatabaseMetadata. It supports standard
- * HMS, Alibaba DLF, and AWS Glue metastores.</p>
+ * instead of fe-core's Column/DatabaseMetadata.</p>
  *
  * <p>Each method borrows a client from the pool, executes the HMS
  * operation, and returns the client. If an error occurs, the client is
@@ -898,10 +897,7 @@ public class ThriftHmsClient implements HmsClient {
         IMetaStoreClient create(HiveConf hiveConf) throws MetaException;
     }
 
-    /**
-     * Default provider using RetryingMetaStoreClient with
-     * auto-detection of standard HMS, DLF, or Glue.
-     */
+    /** Default provider using RetryingMetaStoreClient over the standard HMS thrift client. */
     private static class DefaultMetaStoreClientProvider
             implements MetaStoreClientProvider {
         @Override
@@ -909,20 +905,7 @@ public class ThriftHmsClient implements HmsClient {
                 throws MetaException {
             return RetryingMetaStoreClient.getProxy(
                     hiveConf, DUMMY_HOOK_LOADER,
-                    getMetastoreClientClassName(hiveConf));
-        }
-    }
-
-    /** Alibaba Cloud DLF ProxyMetaStoreClient class name. */
-    private static final String DLF_CLIENT_CLASS =
-            "com.aliyun.datalake.metastore.hive2.ProxyMetaStoreClient";
-
-    static String getMetastoreClientClassName(HiveConf hiveConf) {
-        String type = hiveConf.get(HmsClientConfig.METASTORE_TYPE_KEY);
-        if (HmsClientConfig.METASTORE_TYPE_DLF.equalsIgnoreCase(type)) {
-            return DLF_CLIENT_CLASS;
-        } else {
-            return HiveMetaStoreClient.class.getName();
+                    HiveMetaStoreClient.class.getName());
         }
     }
 }
