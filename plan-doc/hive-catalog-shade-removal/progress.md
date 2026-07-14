@@ -398,3 +398,98 @@ Trino **不走「传类名 → 反射加载」这一跳**：自己实现 `TrinoG
 
 见 `tasklist.md` 「阶段 2 遗留」：regression-test 清理（含**文件级 guard 钉在 glue 专有 conf key** 的坑）·
 `test_connection=true` 顺序坑 · 文案里 `Supported types: hms, dlf` 待阶段 3 去掉 `dlf`。
+
+---
+
+## 2026-07-14（六）— 阶段 3 完成：删 thrift 一代 DLF（DLF 1.0）
+
+**commit**：`a0f65c353a9`（code，独立）· 基线 `ca1f0c4f427`
+**方法**：6-agent 侦察（含 1 路**安全专项**）+ 5 路对抗验证。11/11 完成，0 error。
+
+### 规模
+
+**43 文件改动，-4,095 / +184。** fe-core 的 `com.aliyun.datalake` **归零**；总判据 **7 → 4**。
+
+### 🔴 本轮最重要的发现：照原计划删会**明文泄漏用户凭证**
+
+原计划 T-44 只写「删 `AliyunDLFBaseProperties`」。但它同时挂着 `DatasourcePrintableMap` 的
+**`SHOW CREATE CATALOG` 凭证脱敏注册**。Glue 那次删掉是安全的（S3 属性类逐字覆盖同样别名），
+**DLF 不成立**——javap 逐字段确认，4 个敏感别名的覆盖**不均匀**：
+
+| 别名 | 删掉注册后是否仍脱敏 |
+|---|---|
+| `dlf.secret_key` | ✅ `OSSProperties`/`OSSHdfsProperties` 逐字覆盖 |
+| `dlf.catalog.accessKeySecret` | ❌ **无人覆盖** |
+| `dlf.session_token` | ❌ **无人覆盖**（OSS 的 sessionToken 别名里没有它） |
+| `dlf.catalog.sessionToken` | ❌ **无人覆盖** |
+
+**为什么升级后真的会泄漏**（验证者独立复核确认）：
+- 脱敏是 `SENSITIVE_KEY.contains(key)` 的**原始 key 匹配**，**不按 catalog 类型**，
+  且 `showCreateCatalog` 这条路上**没有兜底启发式**（`MetadataGenerator` 的后缀启发式只服务 `catalogs()` TVF，
+  且它也漏 `dlf.catalog.accessKeySecret`/`dlf.catalog.sessionToken`）。
+- 老 DLF catalog **回放时不被拒绝**（阶段 2 刻意设计：拒绝只在 CREATE + createClient，回放放行否则 FE 起不来）
+  → 它**仍在目录里、仍可 `SHOW CREATE CATALOG`**（该路径**从不调** createClient）。
+- ⇒ 删掉注册 = 那些存着的 token/密钥**从打码变明文**。
+
+**修法（用户 2026-07-14 拍板）**：照同文件 **iceberg REST 块的既有范式**，把 4 个 key 显式列出。
+讽刺的是那段注释早就写着警告：*"the overlap with S3Properties above is uneven and must NOT be relied on ...
+omitting it here would silently unmask it"* —— 同一个陷阱，第二次。
+
+### ✅ DLF 2.0 REST 与被删代码完全不相干（字节码级）
+
+`PaimonRestMetaStoreProperties` `extends AbstractMetaStoreProperties`（**不是** `AbstractDlfMetaStoreProperties`），
+常量池**零** DLF 引用；key 是 `paimon.rest.dlf.*`，与被删的 `dlf.catalog.*` **结构性隔离**；
+token provider 是 **Paimon 自己的**（由 `token.provider=dlf` 选项字符串选中），**Doris 侧无对应类**。
+`AbstractDlfMetaStoreProperties` 的消费者只有被删的 Paimon/Iceberg 两个 DLF 属性类 —— REST 不在其中。
+
+### 侦察挖出的、原计划没有的事
+
+1. **跨模块硬引用**：原以为 fe-core 那棵树只被一个反射字符串引用；实际 **5 处**，其中
+   `DLFClientPool.java:20` 是**硬 import**（iceberg 插件直接编不过）、`PaimonCatalogFactory` 是 prod 字符串。
+   两者都在本阶段范围内 → 一起删即闭合。
+2. **该树寄生在 hive-catalog-shade 上**：它 import 的 `com.aliyun.datalake.metastore.common.*` 就住在那个
+   127MB jar 里（paimon 侧注释亦自证：*"host-provided via hive-catalog-shade at cutover"*）。**删它正是目标。**
+3. **`fe-filesystem-oss` 的 dlf 是良性的**：只是 OSS 凭证的 `@ConnectorProperty` **别名字符串**，零 DLF 类依赖，
+   且**非 DLF 的 OSS catalog 也可能用到** → **不动**（删它有风险无收益）。
+
+### 复用阶段 2 基础设施（零新增落点）
+
+拒绝逻辑直接扩展 `HmsClientConfig.removedMetastoreTypeError`：两个已移除类型收敛成一张
+`REMOVED_METASTORE_TYPES` 表，文案自动收敛为 `Supported types: hms.`。两个调用点
+（`validateProperties` + `createClient`）**原样复用**。iceberg/paimon 侧 default 分支**本就 fail-loud**，
+不需要新增拒绝点。
+
+**偏离原计划**：dlf 分支删光后 `getMetastoreClientClassName` 成了恒返回同一值的空壳 → **连方法一并内联**。
+
+### 测试：7 处「反转」
+
+把「dlf 可被分派/路由」的断言全部反转为「dlf 必须被拒」（含「provider 必须从 ServiceLoader 消失」
+—— 陈旧的 services 条目会复活一个客户端已不存在的后端）。`restDlfTokenProviderRequiresAkSk` **保留**（测 REST）。
+
+### ⚙️ 两个构建坑（**新踩，务必带走**）
+
+1. **maven build cache 静默跳过 surefire**：日志 `Skipping plugin execution (cached): surefire:test` →
+   **BUILD SUCCESS 但 0 个测试执行**。我第一次就被骗了，靠数 `Tests run:` 行数才发现（0 行）。
+   必须 `-Dmaven.build.cache.enabled=false`。**只 grep BUILD SUCCESS 是不够的，要数测试数。**
+2. **依赖 shade 模块的模块必须跑到 `package`**：`fe-connector-paimon` 的 `HiveConf` 来自
+   `fe-connector-paimon-hive-shade`，shade 产物只在 `package` 阶段生成；`test-compile`/`test` 会让 maven 用
+   该模块**空的 target/classes** → 假报 `package org.apache.hadoop.hive.conf does not exist`（**不是代码错**）。
+   `install` 亦不可用（`fe-type` 撞预存 quirk）。**用 `-am package`。**
+3. 又一次漏 `-am` 撞 `${revision}` 假错（memory 早有记载，本 session 第二次）。
+
+### 验证汇总
+
+- `mvn -pl <8 连接器> -am package -Dmaven.build.cache.enabled=false` → **BUILD SUCCESS**，
+  **229 个测试类、零 Failures/Errors**，checkstyle 0
+- `mvn -pl fe-core -am test-compile` → BUILD SUCCESS
+- `tools/check-connector-imports.sh` → exit 0
+- `grep -rn "com\.aliyun\.datalake" fe/fe-core/src/main/java` → **空**
+- 脱敏 4 个 key 逐条核对在位
+
+### 过程中自我纠正 2 次
+
+1. 我给新测试写的断言 `assertFalse(msg.contains("dlf."))` **本身是错的** —— 报错里的 `dlf.` 来自**回显用户输入**
+   （`type: dlf. Supported types:`），不是「supported 列表含 dlf」。测试自己红了才发现 → 改成只截取
+   `Supported types:` 之后的子串再断言。
+2. `git add -A fe/` 把非本线程的 `fe/.mvn/maven.config` 卷了进来 → `git restore --staged` 剔除。
+   **这正是纪律禁止 `git add -A` 的原因**（本 session 亲自复现）。
