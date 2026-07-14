@@ -20,6 +20,7 @@ import java.util.regex.Pattern
 import org.apache.doris.regression.action.ProfileAction
 
 suite("test_expr_zonemap_pruning_p1") {
+    sql """ set enable_expr_zonemap_filter = true """
     sql """ set enable_common_expr_pushdown = true """
     sql """ set enable_profile = true """
     sql """ set profile_level = 2 """

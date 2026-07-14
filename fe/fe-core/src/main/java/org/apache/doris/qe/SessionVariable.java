@@ -2580,11 +2580,11 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(
             name = ENABLE_EXPR_ZONEMAP_FILTER,
             fuzzy = true,
-            description = {"控制 scanner 是否启用表达式 ZoneMap 过滤。默认为 true。",
+            description = {"控制 scanner 是否启用表达式 ZoneMap 过滤。默认为 false。",
                     "Controls whether to enable expression ZoneMap filtering in scanners. "
-                            + "The default value is true."},
+                            + "The default value is false."},
             needForward = true)
-    public boolean enableExprZonemapFilter = true;
+    public boolean enableExprZonemapFilter = false;
 
     @VariableMgr.VarAttr(
             name = CHECK_ORC_INIT_SARGS_SUCCESS,
@@ -3663,6 +3663,7 @@ public class SessionVariable implements Serializable, Writable {
         this.enableSharedExchangeSinkBuffer = random.nextBoolean();
         this.useSerialExchange = random.nextBoolean();
         this.enableCommonExpPushDownForInvertedIndex = random.nextBoolean();
+        this.enableExprZonemapFilter = Config.pull_request_id % 2 == 0;
         this.disableStreamPreaggregations = random.nextBoolean();
         this.enableStreamingAggHashJoinForcePassthrough = random.nextBoolean();
         this.enableDistinctStreamingAggForcePassthrough = random.nextBoolean();
