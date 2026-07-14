@@ -1206,9 +1206,7 @@ public abstract class RoutineLoadJob
     @Override
     public void replayOnCommitted(TransactionState txnState) {
         Preconditions.checkNotNull(txnState.getTxnCommitAttachment(), txnState);
-        RLTaskTxnCommitAttachment attachment = (RLTaskTxnCommitAttachment) txnState.getTxnCommitAttachment();
-        replayUpdateProgress(attachment);
-        updateJobInfoFromAttachment(attachment);
+        replayUpdateProgress((RLTaskTxnCommitAttachment) txnState.getTxnCommitAttachment());
         this.jobStatistic.committedTaskNum++;
         if (LOG.isDebugEnabled()) {
             LOG.debug("replay on committed: {}", txnState);
@@ -1383,13 +1381,11 @@ public abstract class RoutineLoadJob
         // it need check commit info before update progress
         // for follower FE node progress may exceed correct progress
         // the data will lost if FE leader change at this moment
-        if (txnState.getTxnCommitAttachment() != null) {
-            RLTaskTxnCommitAttachment attachment = (RLTaskTxnCommitAttachment) txnState.getTxnCommitAttachment();
-            if (checkCommitInfo(attachment, txnState,
-                    TransactionState.TxnStatusChangeReason.fromString(txnState.getReason()))) {
-                replayUpdateProgress(attachment);
-            }
-            updateJobInfoFromAttachment(attachment);
+        if (txnState.getTxnCommitAttachment() != null
+                && checkCommitInfo((RLTaskTxnCommitAttachment) txnState.getTxnCommitAttachment(),
+                        txnState,
+                        TransactionState.TxnStatusChangeReason.fromString(txnState.getReason()))) {
+            replayUpdateProgress((RLTaskTxnCommitAttachment) txnState.getTxnCommitAttachment());
         }
         this.jobStatistic.abortedTaskNum++;
         if (LOG.isDebugEnabled()) {
