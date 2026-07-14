@@ -142,10 +142,19 @@ struct TableReadOptions {
 struct SplitReadOptions {
     // Split-level information for reader initialization, which may include file path, partition values, delete file info, etc. The content is table format specific and opaque to table reader base class; it's the responsibility of the concrete table reader implementation to parse necessary information for reader initialization and filter pushdown.
     std::map<std::string, Field> partition_values;
-    // Latest scanner conjuncts rewritten to table/global column indices. Runtime filters can
-    // arrive after TableReader::init(), so split preparation must receive a fresh snapshot.
+    // Latest scanner conjuncts rewritten to table/global column indices. Runtime filters may
+    // arrive after TableReader::init(), so scanner-driven splits replace the initial snapshot.
+    // nullopt preserves the initial snapshot for standalone TableReader callers.
+    std::optional<VExprContextSPtrs> conjuncts;
+    // Independent clones used for partition pruning because evaluation prepares and opens them
+    // against a synthetic partition block before the file reader opens its row-level conjuncts.
     VExprContextSPtrs partition_prune_conjuncts;
-    ShardedKVCache* cache;
+    // Table-level COUNT may emit one metadata-derived batch and resume on a later scheduler turn.
+    // It is safe only after every runtime filter assigned to the scanner has arrived; otherwise a
+    // filter could arrive after synthetic rows have already been returned and those rows cannot be
+    // retracted. Standalone TableReader callers have no scanner runtime-filter lifecycle.
+    bool all_runtime_filters_applied = true;
+    ShardedKVCache* cache = nullptr;
     TFileRangeDesc current_range;
     FileFormat current_split_format = FileFormat::PARQUET;
     std::optional<GlobalRowIdContext> global_rowid_context;
@@ -167,12 +176,16 @@ public:
     // FileScannerV2 adjusts this before each get_block() using an adaptive bytes-per-row estimate.
     // Store it here as well as forwarding to the current reader so newly opened split readers start
     // with the latest predicted batch size.
-    void set_batch_size(size_t batch_size) {
+    virtual void set_batch_size(size_t batch_size) {
         _batch_size = std::max<size_t>(1, batch_size);
         if (_data_reader.reader != nullptr) {
             _data_reader.reader->set_batch_size(_batch_size);
         }
     }
+
+#ifdef BE_TEST
+    size_t TEST_batch_size() const { return _batch_size; }
+#endif
 
     // Prepare for reading a new split/task.
     // 1. Pass a new split/task to reader, which will be used in subsequent open_reader() to initialize the underlying file reader.
@@ -252,9 +265,10 @@ public:
             size_t current_rows = 0;
             RETURN_IF_ERROR(_data_reader.reader->get_block(&_data_reader.block_template,
                                                            &current_rows, &current_eof));
+            const bool stopped_during_read = _io_ctx != nullptr && _io_ctx->should_stop;
             if (current_rows == 0) {
                 if (current_eof) {
-                    _current_reader_reached_eof = true;
+                    _current_reader_reached_eof = !stopped_during_read;
                     RETURN_IF_ERROR(close_current_reader());
                 }
                 continue;
@@ -271,7 +285,7 @@ public:
                     _check_table_block_columns("after finalize_chunk", block, current_rows));
 #endif
             if (current_eof) {
-                _current_reader_reached_eof = true;
+                _current_reader_reached_eof = !stopped_during_read;
                 RETURN_IF_ERROR(close_current_reader());
             }
             return Status::OK();
@@ -304,6 +318,9 @@ public:
     }
 
 protected:
+    std::optional<ColumnDefinition> _find_current_table_column_by_field_id(int32_t field_id,
+                                                                           DataTypePtr type) const;
+
     // Parse deletion vector information from table format specific file description.
     virtual Status _parse_deletion_vector_file(const TTableFormatFileDesc& t_desc,
                                                DeleteFileDesc* desc, bool* has_delete_file) {
@@ -413,6 +430,7 @@ protected:
     Status _build_table_filters_from_conjuncts();
     Status _evaluate_partition_prune_conjuncts(const VExprContextSPtrs& conjuncts,
                                                bool* can_filter_all);
+    static bool _is_safe_to_pre_execute(const VExprContextSPtr& conjunct);
     Status _build_partition_prune_block(Block* block) const;
     Status _open_local_filter_exprs(const FileScanRequest& file_request);
     Status _init_reader_condition_cache(const FileScanRequest& file_request);
@@ -421,14 +439,22 @@ protected:
 
     Status _evaluate_constant_filters(bool* can_filter_all) {
         DORIS_CHECK(can_filter_all != nullptr);
+        DORIS_CHECK_LE(_constant_pruning_safe_filter_count, _table_filters.size());
         *can_filter_all = false;
-        for (const auto& table_filter : _table_filters) {
-            if (table_filter.conjunct == nullptr ||
-                // RuntimeFilterExpr does not implement execute_column_impl(); it is evaluated by
-                // the row-level filter path through execute_filter(). Constant split pruning uses
-                // VExprContext::execute() on a one-row synthetic block, so runtime filters must not
-                // be pre-executed here even when their referenced slot maps to a constant value.
-                table_filter.conjunct->root()->is_rf_wrapper() ||
+        // The bound was derived from the original `_conjuncts` order, which includes slotless
+        // expressions omitted from `_table_filters`. Iterating only this prefix therefore cannot
+        // skip an unsafe row-level predicate and pre-execute a later constant predicate.
+        for (size_t i = 0; i < _constant_pruning_safe_filter_count; ++i) {
+            const auto& table_filter = _table_filters[i];
+            if (table_filter.conjunct == nullptr) {
+                continue;
+            }
+            DORIS_CHECK(_is_safe_to_pre_execute(table_filter.conjunct));
+            // RuntimeFilterExpr does not implement execute_column_impl(); it is evaluated by the
+            // row-level filter path through execute_filter(). Constant split pruning uses
+            // VExprContext::execute() on a one-row synthetic block, so runtime filters must not be
+            // pre-executed here even when their referenced slot maps to a constant value.
+            if (table_filter.conjunct->root()->is_rf_wrapper() ||
                 !_table_filter_has_only_constant_entries(table_filter)) {
                 continue;
             }
@@ -610,6 +636,7 @@ protected:
             _data_reader.column_mapper.reset();
         }
         _table_filters.clear();
+        _constant_pruning_safe_filter_count = 0;
         _data_reader.file_schema.clear();
         _data_reader.file_block_layout.clear();
         _data_reader.block_template.clear();
@@ -898,6 +925,20 @@ protected:
     virtual bool _supports_aggregate_pushdown(TPushAggOp::type agg_type) const {
         // Only COUNT and MIN/MAX can be push down.
         if (agg_type != TPushAggOp::type::COUNT && agg_type != TPushAggOp::type::MINMAX) {
+            return false;
+        }
+        // Aggregate pushdown returns reduced synthetic rows and may close the physical reader
+        // before the next scheduler turn. If a runtime filter is still pending, those rows could
+        // escape before the filter arrives and cannot later be reconstructed from real file rows.
+        // This is the same irreversibility constraint as table-level metadata COUNT, and applies
+        // to COUNT and MIN/MAX for Parquet/ORC as well as COUNT for text readers.
+        if (!_all_runtime_filters_applied_for_split) {
+            return false;
+        }
+        // Scanner owns the original conjunct list and evaluates it after TableReader finalizes
+        // rows. Even a slotless conjunct that cannot become a TableFilter must see every source
+        // row before an aggregate reduces the stream to synthetic COUNT/MINMAX rows.
+        if (!_conjuncts.empty()) {
             return false;
         }
         // Only support aggregate pushdown when there is no delete or filter, so
@@ -1516,6 +1557,10 @@ protected:
     std::map<std::string, Field> _partition_values;
     // Predicates built from scan conjuncts before file-level localization.
     std::vector<TableFilter> _table_filters;
+    // Number of localized filters before the first unsafe conjunct in the original row-level
+    // order. This differs from scanning `_table_filters` for safety because slotless predicates are
+    // intentionally absent from that vector but must still act as ordering barriers.
+    size_t _constant_pruning_safe_filter_count = 0;
     VExprContextSPtrs _conjuncts;
     ReadProfile _profile;
     // Parsed from row-position based delete files, including position delete and deletion vector.
@@ -1536,6 +1581,9 @@ protected:
     int64_t _condition_cache_hit_count = 0;
     bool _current_reader_reached_eof = false;
     int64_t _remaining_table_level_count = -1;
+    // Snapshot supplied by FileScannerV2 for the active split. It gates every shortcut that emits
+    // irreversible aggregate rows, not only the table-level row-count shortcut in prepare_split().
+    bool _all_runtime_filters_applied_for_split = true;
     std::optional<GlobalRowIdContext> _global_rowid_context;
     bool _aggregate_pushdown_tried = false;
     bool _current_split_pruned = false;
@@ -1554,7 +1602,10 @@ private:
 
     static bool _can_push_down_minmax_for_mapping(const ColumnMapping& mapping) {
         if (mapping.child_mappings.empty()) {
-            return true;
+            // Direct mappings use a slot-ref projection to materialize the file column. The
+            // projection does not transform ordering; casts and other conversions are already
+            // represented by a non-trivial mapping and must fall back to row scanning.
+            return mapping.is_trivial;
         }
         const auto primitive_type = remove_nullable(mapping.file_type)->get_primitive_type();
         if (primitive_type != TYPE_STRUCT) {

@@ -637,6 +637,15 @@ TEST(PaimonHybridReaderTest, ConvertsNativeSplitFileFormat) {
     EXPECT_NE(std::string::npos, status.to_string().find("Unsupported native Paimon file format"));
 }
 
+TEST(PaimonHybridReaderTest, AdaptiveBatchSizeReachesBothChildReaders) {
+    paimon::PaimonHybridReader reader;
+    reader.TEST_install_batch_size_children();
+    reader.set_batch_size(321);
+    const auto child_batch_sizes = reader.TEST_child_batch_sizes();
+    EXPECT_EQ(child_batch_sizes.first, 321);
+    EXPECT_EQ(child_batch_sizes.second, 321);
+}
+
 TEST(PaimonHybridReaderTest, DispatchesNativeThenJniSplitToMatchingReader) {
     RuntimeProfile profile("test_profile");
     RuntimeState state {TQueryOptions(), TQueryGlobals()};

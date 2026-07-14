@@ -35,6 +35,9 @@ import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.PartitionData;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
+import org.apache.iceberg.Snapshot;
+import org.apache.iceberg.Table;
+import org.apache.iceberg.TableScan;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.util.ScanTaskUtil;
 import org.junit.Assert;
@@ -48,6 +51,7 @@ import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 public class IcebergScanNodeTest {
@@ -55,6 +59,7 @@ public class IcebergScanNodeTest {
 
     private static class TestIcebergScanNode extends IcebergScanNode {
         private final boolean enableMappingVarbinary;
+        private TableScan tableScan;
 
         TestIcebergScanNode(SessionVariable sv) {
             this(sv, false);
@@ -63,6 +68,15 @@ public class IcebergScanNodeTest {
         TestIcebergScanNode(SessionVariable sv, boolean enableMappingVarbinary) {
             super(new PlanNodeId(0), new TupleDescriptor(new TupleId(0)), sv, ScanContext.EMPTY);
             this.enableMappingVarbinary = enableMappingVarbinary;
+        }
+
+        void setTableScan(TableScan tableScan) {
+            this.tableScan = tableScan;
+        }
+
+        @Override
+        public TableScan createTableScan() {
+            return tableScan;
         }
 
         @Override
@@ -74,6 +88,58 @@ public class IcebergScanNodeTest {
         protected boolean getEnableMappingVarbinary() {
             return enableMappingVarbinary;
         }
+    }
+
+    @Test
+    public void testInitialDefaultMetadataUsesSnapshotSchema() throws Exception {
+        Schema snapshotSchema = new Schema(Types.NestedField.optional("historical_binary")
+                .withId(7)
+                .ofType(Types.BinaryType.get())
+                .withInitialDefault(ByteBuffer.wrap(new byte[] {0, 1, 2, (byte) 0xFF}))
+                .build());
+        Schema currentSchema = new Schema(Types.NestedField.optional("current_string")
+                .withId(7)
+                .ofType(Types.StringType.get())
+                .withInitialDefault("not-base64")
+                .build());
+        Snapshot snapshot = Mockito.mock(Snapshot.class);
+        Mockito.when(snapshot.schemaId()).thenReturn(11);
+        Table table = Mockito.mock(Table.class);
+        Mockito.when(table.schemas()).thenReturn(Collections.singletonMap(11, snapshotSchema));
+        TableScan snapshotScan = Mockito.mock(TableScan.class);
+        Mockito.when(snapshotScan.snapshot()).thenReturn(snapshot);
+        Mockito.when(snapshotScan.table()).thenReturn(table);
+        Mockito.when(snapshotScan.schema()).thenReturn(currentSchema);
+
+        TestIcebergScanNode node = new TestIcebergScanNode(new SessionVariable());
+        node.setTableScan(snapshotScan);
+
+        Map<Integer, String> defaults = node.getBase64EncodedInitialDefaultsForScan();
+        Assert.assertEquals(Collections.singletonMap(7, "AAEC/w=="), defaults);
+    }
+
+    @Test
+    public void testInitialDefaultMetadataUsesSystemTableSchemaWithoutTableScan() throws Exception {
+        Schema systemTableSchema = new Schema(Types.NestedField.optional("binary_default")
+                .withId(7)
+                .ofType(Types.BinaryType.get())
+                .withInitialDefault(ByteBuffer.wrap(new byte[] {0, 1, 2, (byte) 0xFF}))
+                .build());
+        Table systemTable = Mockito.mock(Table.class);
+        Mockito.when(systemTable.schema()).thenReturn(systemTableSchema);
+
+        TestIcebergScanNode node = Mockito.spy(new TestIcebergScanNode(new SessionVariable()));
+        Field icebergTableField = IcebergScanNode.class.getDeclaredField("icebergTable");
+        icebergTableField.setAccessible(true);
+        icebergTableField.set(node, systemTable);
+        Field isSystemTableField = IcebergScanNode.class.getDeclaredField("isSystemTable");
+        isSystemTableField.setAccessible(true);
+        isSystemTableField.setBoolean(node, true);
+
+        Map<Integer, String> defaults = node.getBase64EncodedInitialDefaultsForScan();
+
+        Assert.assertEquals(Collections.singletonMap(7, "AAEC/w=="), defaults);
+        Mockito.verify(node, Mockito.never()).createTableScan();
     }
 
     @Test

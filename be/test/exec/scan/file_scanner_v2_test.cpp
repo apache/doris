@@ -29,9 +29,13 @@
 
 #include "common/consts.h"
 #include "core/assert_cast.h"
+#include "core/block/block.h"
+#include "core/column/column_vector.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "exec/operator/file_scan_operator.h"
+#include "exec/scan/file_scanner.h"
+#include "exec/scan/split_source_connector.h"
 #include "exprs/runtime_filter_expr.h"
 #include "exprs/vdirect_in_predicate.h"
 #include "exprs/vslot_ref.h"
@@ -70,8 +74,73 @@ TFileRangeDesc hudi_range_with_delta_logs() {
     return range;
 }
 
+TFileRangeDesc paimon_cpp_jni_range() {
+    auto range = range_with_format("paimon", TFileFormatType::FORMAT_JNI);
+    TPaimonFileDesc paimon_params;
+    paimon_params.__set_reader_type(TPaimonReaderType::PAIMON_CPP);
+    range.table_format_params.__set_paimon_params(std::move(paimon_params));
+    return range;
+}
+
+TFileRangeDesc legacy_paimon_jni_range_without_reader_type() {
+    auto range = range_with_format("paimon", TFileFormatType::FORMAT_JNI);
+    TPaimonFileDesc paimon_params;
+    paimon_params.__set_paimon_split("legacy-split");
+    paimon_params.__set_paimon_predicate("legacy-predicate");
+    range.table_format_params.__set_paimon_params(std::move(paimon_params));
+    return range;
+}
+
+struct RetryableCloseState {
+    int close_calls = 0;
+};
+
+class RetryableCloseTableReader final : public format::TableReader {
+public:
+    explicit RetryableCloseTableReader(std::shared_ptr<RetryableCloseState> state)
+            : _state(std::move(state)) {}
+
+    Status close() override {
+        ++_state->close_calls;
+        if (_state->close_calls == 1) {
+            return Status::InternalError("injected table reader close failure");
+        }
+        return Status::OK();
+    }
+
+private:
+    std::shared_ptr<RetryableCloseState> _state;
+};
+
 VExprSPtr slot_ref(int slot_id, int column_id, DataTypePtr type, const std::string& name) {
     return VSlotRef::create_shared(slot_id, column_id, -1, std::move(type), name);
+}
+
+TExprNode bool_in_pred_node();
+
+class UnsafePartitionPredicate final : public VExpr {
+public:
+    UnsafePartitionPredicate() : VExpr(std::make_shared<DataTypeUInt8>(), false) {}
+
+    Status execute_column_impl(VExprContext*, const Block*, const Selector*, size_t count,
+                               ColumnPtr& result_column) const override {
+        auto result = ColumnUInt8::create();
+        result->get_data().resize_fill(count, 1);
+        result_column = std::move(result);
+        return Status::OK();
+    }
+
+    const std::string& expr_name() const override { return _expr_name; }
+    bool is_safe_to_execute_on_selected_rows() const override { return false; }
+
+private:
+    const std::string _expr_name = "UnsafePartitionPredicate";
+};
+
+VExprContextSPtr runtime_filter_context(VExprSPtr impl, int filter_id) {
+    const auto node = bool_in_pred_node();
+    return VExprContext::create_shared(
+            RuntimeFilterExpr::create_shared(node, std::move(impl), 0.4, false, filter_id));
 }
 
 TExprNode bool_in_pred_node() {
@@ -215,6 +284,41 @@ TEST(FileScannerV2Test, FileScanLocalStateSelectsV2ForSupportedQueriesOnly) {
 
     query_options.__set_enable_file_scanner_v2(false);
     EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
+}
+
+TEST(FileScannerV2Test, JniCompatibilityShapesForceLegacyScanner) {
+    TQueryOptions query_options;
+    query_options.__set_enable_file_scanner_v2(true);
+    query_options.__set_enable_paimon_cpp_reader(true);
+
+    TFileScanRangeParams params;
+    params.__set_format_type(TFileFormatType::FORMAT_JNI);
+    // Rolling upgrades may carry the only Paimon marker and reader type on each split. Since the
+    // scan-level selector cannot inspect that split yet, JNI scans conservatively stay on V1.
+    EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
+    EXPECT_FALSE(FileScannerV2::is_supported(params, paimon_cpp_jni_range()));
+
+    // Older FEs can omit reader_type. The legacy scanner interprets this as Paimon JNI when the C++
+    // reader is disabled, so the scan-level choice must still stay on V1.
+    query_options.__set_enable_paimon_cpp_reader(false);
+    EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
+    EXPECT_FALSE(
+            FileScannerV2::is_supported(params, legacy_paimon_jni_range_without_reader_type()));
+}
+
+TEST(FileScannerV2Test, FailedTableReaderCloseCanBeRetriedThroughScanner) {
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    RuntimeProfile profile("file_scanner_v2_close_retry");
+    auto close_state = std::make_shared<RetryableCloseState>();
+    FileScannerV2 scanner(&state, &profile,
+                          std::make_unique<RetryableCloseTableReader>(close_state));
+
+    EXPECT_FALSE(scanner.close(&state).ok());
+    EXPECT_EQ(close_state->close_calls, 1);
+    EXPECT_TRUE(scanner.close(&state).ok());
+    EXPECT_EQ(close_state->close_calls, 2);
+    EXPECT_TRUE(scanner.close(&state).ok());
+    EXPECT_EQ(close_state->close_calls, 2);
 }
 
 // Scenario: Once FileScannerV2 is selected, an unsupported range must fail instead of falling back
@@ -542,6 +646,26 @@ TEST(FileScannerV2Test, RewriteSlotRefsToGlobalIndexMatrix) {
         EXPECT_EQ(rewritten_child->column_id(), 2);
         EXPECT_EQ(rewritten_child->column_name(), "rf_value");
     }
+}
+
+TEST(FileScannerTest, PartitionPruningStopsAtUnsafePredicate) {
+    const auto bool_type = std::make_shared<DataTypeUInt8>();
+    auto unsafe_predicate = std::make_shared<UnsafePartitionPredicate>();
+    unsafe_predicate->add_child(slot_ref(1, 0, bool_type, "part"));
+    VExprContextSPtrs conjuncts {
+            runtime_filter_context(slot_ref(1, 0, bool_type, "part"), 1),
+            runtime_filter_context(std::move(unsafe_predicate), 2),
+            runtime_filter_context(slot_ref(1, 0, bool_type, "part"), 3),
+    };
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    RuntimeProfile profile("file_scanner");
+    FileScanner scanner(&state, &profile, nullptr, nullptr, nullptr);
+    scanner.TEST_init_runtime_filter_partition_prune_ctxs(conjuncts, {{1, 0}});
+
+    const auto& partition_conjuncts = scanner.TEST_runtime_filter_partition_prune_ctxs();
+    ASSERT_EQ(partition_conjuncts.size(), 1);
+    EXPECT_EQ(partition_conjuncts[0], conjuncts[0]);
 }
 
 } // namespace doris

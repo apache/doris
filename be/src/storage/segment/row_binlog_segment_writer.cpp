@@ -65,10 +65,16 @@ Status RowBinlogSegmentWriter::init() {
         return Status::InternalError("binlog<row> writer missing source_tablet_schema");
     }
 
+    int tso_col_id = _tablet_schema->binlog_tso_col_idx();
     int lsn_col_id = _tablet_schema->binlog_lsn_col_idx();
-    CHECK(lsn_col_id >= 0) << "binlog<row> schema missing __DORIS_BINLOG_LSN__";
-    _binlog_col_start_id = static_cast<uint32_t>(lsn_col_id);
-    _normal_col_start_id = lsn_col_id == 0 ? BINLOG_COLNUM : 0;
+    int op_col_id = _tablet_schema->binlog_op_col_idx();
+    DCHECK(tso_col_id >= 0) << "binlog<row> schema missing " << BINLOG_TSO_COL;
+    DCHECK(lsn_col_id >= 0) << "binlog<row> schema missing " << BINLOG_LSN_COL;
+    DCHECK(op_col_id >= 0) << "binlog<row> schema missing " << BINLOG_OP_COL;
+    _binlog_tso_col_id = static_cast<uint32_t>(tso_col_id);
+    _binlog_lsn_col_id = static_cast<uint32_t>(lsn_col_id);
+    _binlog_op_col_id = static_cast<uint32_t>(op_col_id);
+    _normal_col_start_id = tso_col_id == 0 ? BINLOG_COLNUM : 0;
 
     uint32_t normal_col_num = cast_set<uint32_t>(source_schema->num_visible_columns());
     _before_col_start_id = _normal_col_start_id + normal_col_num;
@@ -294,24 +300,31 @@ Status RowBinlogSegmentWriter::_append_direct_block(const Block* block, size_t r
 
 Status RowBinlogSegmentWriter::_fill_binlog_columns(size_t num_rows,
                                                     const std::vector<int64_t>& op_types) {
-    std::vector<uint32_t> binlog_cids = {_binlog_col_start_id, _binlog_col_start_id + 1,
-                                         _binlog_col_start_id + 2};
+    std::vector<uint32_t> binlog_cids = {_binlog_tso_col_id, _binlog_lsn_col_id, _binlog_op_col_id};
     Block binlog_prefix_block = _tablet_schema->create_block_by_cids(binlog_cids);
     {
         auto binlog_prefix_columns_guard = binlog_prefix_block.mutate_columns_scoped();
         auto& binlog_prefix_columns = binlog_prefix_columns_guard.mutable_columns();
+        // We can't get the real commit tso here (only known after publish). The tso column
+        // is replaced with the real commit_tso at read time
+        // (SegmentIterator::_update_tso_col_if_needed), so its on-disk value is never used.
+        // Write a NULL placeholder.
+        IColumn* ts_col_ptr = binlog_prefix_columns[0].get();
+        auto* ts_nullable_column = check_and_get_column<ColumnNullable>(ts_col_ptr);
+        DCHECK(ts_nullable_column != nullptr);
+        ts_nullable_column->insert_many_defaults(num_rows);
+
         // we can't get correct lsn number before commit, because we can't get the version before commit,
         // but we can fill auto-inc lsn to ensure the order first, then fill version when read single rowset.
-        IColumn* lsn_col_ptr = binlog_prefix_columns[0].get();
+        IColumn* lsn_col_ptr = binlog_prefix_columns[1].get();
         CHECK(_lsn_ids->size() >= num_rows) << _lsn_ids->size() << " vs " << num_rows;
         for (int i = 0; i < num_rows; i++) {
-            assert_cast<ColumnInt128*>(lsn_col_ptr)
-                    ->insert_value(static_cast<int128_t>(_lsn_ids->at(i)));
+            assert_cast<ColumnInt64*>(lsn_col_ptr)->insert_value(_lsn_ids->at(i));
         }
 
         // wrong op only happens when partial-update, it will be fixed by delete bitmap when publish
-        const FieldType op_col_type = _tablet_schema->column(binlog_cids[1]).type();
-        IColumn* op_col_ptr = binlog_prefix_columns[1].get();
+        const FieldType op_col_type = _tablet_schema->column(binlog_cids[2]).type();
+        IColumn* op_col_ptr = binlog_prefix_columns[2].get();
         auto* op_nullable_column = check_and_get_column<ColumnNullable>(op_col_ptr);
         IColumn* op_nested_column = op_nullable_column != nullptr
                                             ? &op_nullable_column->get_nested_column()
@@ -326,19 +339,7 @@ Status RowBinlogSegmentWriter::_fill_binlog_columns(size_t num_rows,
             op_int64_column->insert_value(op_types[i]);
         }
 
-        // We can't get the real commit tso here (only known after publish). The tso column
-        // is replaced with the real commit_tso at read time
-        // (SegmentIterator::_update_tso_col_if_needed), so its on-disk value is never used.
-        // Write a NULL placeholder.
-        IColumn* ts_col_ptr = binlog_prefix_columns[2].get();
-        auto* ts_nullable_column = check_and_get_column<ColumnNullable>(ts_col_ptr);
-        if (ts_nullable_column != nullptr) {
-            ts_nullable_column->insert_many_defaults(num_rows);
-        } else {
-            assert_cast<ColumnInt64*>(ts_col_ptr)->insert_many_defaults(num_rows);
-        }
-
-        // finally update null map for op column (timestamp null map set by insert_many_defaults)
+        // finally update null map for op column (tso null map set by insert_many_defaults)
         for (int i = 0; i < num_rows; i++) {
             if (op_nullable_column != nullptr) {
                 op_nullable_column->get_null_map_data().emplace_back(0);

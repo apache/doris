@@ -924,9 +924,10 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
         configFactory.serverTimeZone(
                 ConfigUtil.getTimeZoneFromProps(cu.getOriginalProperties()).toString());
 
-        // Schema change handling for MySQL is not yet implemented; keep disabled to avoid
-        // unnecessary processing overhead until DDL support is added.
-        configFactory.includeSchemaChanges(false);
+        boolean schemaChangeEnabled =
+                Boolean.parseBoolean(
+                        cdcConfig.getOrDefault(DataSourceConfigKeys.SCHEMA_CHANGE_ENABLED, "true"));
+        configFactory.includeSchemaChanges(schemaChangeEnabled);
 
         // Set table list
         String[] tableList = ConfigUtil.getTableList(databaseName, cdcConfig);
@@ -1310,6 +1311,13 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
                     }
                 } else if (RecordUtils.isHeartbeatEvent(element)) {
                     LOG.debug("Receive heartbeat event: {}", element);
+                    if (splitState.isBinlogSplitState()) {
+                        BinlogOffset position = RecordUtils.getBinlogPosition(element);
+                        splitState.asBinlogSplitState().setStartingOffset(position);
+                    }
+                    nextRecord = element;
+                    return true;
+                } else if (RecordUtils.isSchemaChangeEvent(element)) {
                     if (splitState.isBinlogSplitState()) {
                         BinlogOffset position = RecordUtils.getBinlogPosition(element);
                         splitState.asBinlogSplitState().setStartingOffset(position);

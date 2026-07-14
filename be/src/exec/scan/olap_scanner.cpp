@@ -325,10 +325,10 @@ Status OlapScanner::_init_tso_predicates() {
 
     auto& tablet_schema = _tablet_reader_params.tablet_schema;
     int32_t tso_index = _tablet_reader_params.reader_type == ReaderType::READER_BINLOG
-                                ? tablet_schema->binlog_timestamp_col_idx()
+                                ? tablet_schema->binlog_tso_col_idx()
                                 : tablet_schema->commit_tso_col_idx();
     const std::string& column_name = _tablet_reader_params.reader_type == ReaderType::READER_BINLOG
-                                             ? BINLOG_TIMESTAMP_COL
+                                             ? BINLOG_TSO_COL
                                              : COMMIT_TSO_COL;
     if (tso_index < 0) {
         return Status::InternalError("Column {} not found in tablet schema after append",
@@ -393,7 +393,7 @@ Status OlapScanner::_init_tablet_reader_params(
 
     _tablet_reader_params.push_down_agg_type_opt = _local_state->get_push_down_agg_type();
 
-    // Binlog DETAIL/MIN_DELTA scans widen `return_columns` with key/op/lsn/before
+    // Binlog DETAIL/MIN_DELTA scans widen `return_columns` with key/tso/op/before
     // columns to drive the row-level merge in BlockReader. The storage-layer
     // statistics fast path (VStatisticsIterator, picked when push_down_agg_type
     // is COUNT/MINMAX) bypasses SegmentIterator entirely, returning raw segment
@@ -469,8 +469,8 @@ Status OlapScanner::_init_tablet_reader_params(
     };
 
     // For row-binlog scans that emit BEFORE/AFTER pairs (MIN_DELTA / DETAIL), we must read
-    // every key column, every requested value column, the binlog meta columns (op / lsn /
-    // tso) and their __BEFORE__ mirrors, so the BlockReader can reconstruct change rows.
+    // every key column, every requested value column, the binlog meta columns (tso / op)
+    // and their __BEFORE__ mirrors, so the BlockReader can reconstruct change rows.
     const bool need_before_columns =
             _tablet_reader_params.binlog_scan_type == TBinlogScanType::MIN_DELTA ||
             _tablet_reader_params.binlog_scan_type == TBinlogScanType::DETAIL;
@@ -482,12 +482,11 @@ Status OlapScanner::_init_tablet_reader_params(
             add_return_column_if_absent(cid);
         }
 
-        if (int32_t op_idx = tablet_schema->field_index(std::string(kRowBinlogOpColName));
-            op_idx >= 0) {
-            add_return_column_if_absent(static_cast<uint32_t>(op_idx));
+        if (int32_t tso_idx = tablet_schema->binlog_tso_col_idx(); tso_idx >= 0) {
+            add_return_column_if_absent(static_cast<uint32_t>(tso_idx));
         }
-        if (int32_t lsn_idx = tablet_schema->binlog_lsn_col_idx(); lsn_idx >= 0) {
-            add_return_column_if_absent(static_cast<uint32_t>(lsn_idx));
+        if (int32_t op_idx = tablet_schema->binlog_op_col_idx(); op_idx >= 0) {
+            add_return_column_if_absent(static_cast<uint32_t>(op_idx));
         }
 
         for (auto cid : _return_columns) {

@@ -1392,6 +1392,10 @@ DECLARE_Bool(enable_feature_binlog);
 // enable set in BitmapValue
 DECLARE_Bool(enable_set_in_bitmap_value);
 
+// Enable compact integer tags in row-store JSONB. Once enabled and compact data is written,
+// rollback to code without compact row-store JSONB reader support is not safe.
+DECLARE_Bool(enable_row_store_compact_jsonb);
+
 // max number of hdfs file handle in cache
 DECLARE_Int64(max_hdfs_file_handle_cache_num);
 DECLARE_Int32(max_hdfs_file_handle_cache_time_sec);

@@ -65,6 +65,7 @@ public:
     Status load_nested_levels_batch(int64_t rows) override;
     Status build_nested_column(int64_t length_upper_bound, MutableColumnPtr& column,
                                int64_t* values_read) override;
+    Status consume_nested_column(int64_t length_upper_bound, int64_t* values_consumed) override;
     const std::vector<int16_t>& nested_definition_levels() const override;
     const std::vector<int16_t>& nested_repetition_levels() const override;
     int64_t nested_levels_written() const override;
@@ -72,6 +73,7 @@ public:
 
 private:
     Status append_nested_value(int64_t level_idx, MutableColumnPtr& column) const;
+    Status validate_nested_value(int64_t level_idx, bool require_non_null) const;
     Status read_range_with_dictionary_filter(int64_t rows, const IColumn::Filter& dictionary_filter,
                                              MutableColumnPtr& column, IColumn::Filter* row_filter,
                                              int64_t* rows_read, bool* used_filter);

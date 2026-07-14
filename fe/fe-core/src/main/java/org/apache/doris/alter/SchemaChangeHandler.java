@@ -371,8 +371,8 @@ public class SchemaChangeHandler extends AlterHandler {
             } else {
                 if (columnName.contains(Column.BINLOG_BEFORE_PREFIX)) {
                     lastBeforeValueCol = columnName;
-                } else if (columnName.equals(Column.BINLOG_LSN_COL) || columnName.equals(Column.BINLOG_OPERATION_COL)
-                        || columnName.equals(Column.BINLOG_TIMESTAMP_COL)) {
+                } else if (columnName.equals(Column.BINLOG_TSO_COL) || columnName.equals(Column.BINLOG_LSN_COL)
+                        || columnName.equals(Column.BINLOG_OPERATION_COL)) {
                     continue;
                 } else {
                     lastValueCol = columnName;
