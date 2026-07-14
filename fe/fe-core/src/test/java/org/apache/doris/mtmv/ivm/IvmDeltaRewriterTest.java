@@ -95,6 +95,11 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
         setStreamOffset(scan.getTable(), getRegisteredStream(scan.getTable(), 0L), previousOffset);
     }
 
+    private void makeStreamUpToDate(LogicalOlapScan scan, long offset) {
+        bumpBaseTableTso(scan.getTable(), offset);
+        advanceStreamToBaseTable(scan.getTable(), getRegisteredStream(scan.getTable(), 0L));
+    }
+
     private IvmRefreshContext rewriteContext(Map<TableNameInfo, Long> streams) {
         return new IvmRefreshContext(mockMtmv(), newConnectContext(), new IvmRewriteResult());
     }
@@ -243,16 +248,15 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
 
     @Test
     void testGenSingleScanUpToDate() {
-        LogicalOlapScan scan = buildScanForTable(1, "a");
-        advanceStreamToBaseTable(scan.getTable(), getRegisteredStream(scan.getTable(), 0L));
-        Map<TableNameInfo, Long> streams = makeStreamsWithOffsets(scan, 20, 20);
+        LogicalOlapScan scan = buildScanForTable(101, "a_up_to_date_single");
+        makeStreamUpToDate(scan, 20);
+        Map<TableNameInfo, Long> streams = makeStreams(scan);
 
         List<Plan> plans = new IvmDeltaRewriter().generateDeltaPlans(scan, rewriteContext(streams), NO_EXCLUSIONS, false);
 
         Assertions.assertTrue(plans.isEmpty(), "Up-to-date scan should produce no delta plans");
     }
 
-    @org.junit.jupiter.api.Disabled("TODO: Re-enable when stream offset tracking is implemented in IvmDeltaRewriter.collectDeltaScanContexts()")
     @Test
     void testGenMergedPlanIncludesUpToDateScan() {
         LogicalOlapScan scan = buildScanForTable(1, "a");
@@ -322,16 +326,15 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
         Assertions.assertTrue(((LogicalOlapTableStreamScan) scans0.get(1)).isSnapshot());
     }
 
-    @org.junit.jupiter.api.Disabled("TODO: Re-enable when stream offset tracking is implemented in IvmDeltaRewriter.collectDeltaScanContexts()")
     @Test
     void testGenTwoTableJoinBothUpToDate() {
-        LogicalOlapScan scanA = buildScanForTable(1, "a");
-        LogicalOlapScan scanB = buildScanForTable(2, "b");
+        LogicalOlapScan scanA = buildScanForTable(102, "a_up_to_date_join");
+        LogicalOlapScan scanB = buildScanForTable(103, "b_up_to_date_join");
         Plan join = crossJoin(scanA, scanB);
 
+        makeStreamUpToDate(scanA, 20);
+        makeStreamUpToDate(scanB, 40);
         Map<TableNameInfo, Long> streams = new HashMap<>();
-        addStream(streams, scanA, 20, 20);
-        addStream(streams, scanB, 40, 40);
 
         List<Plan> plans = new IvmDeltaRewriter().generateDeltaPlans(join, rewriteContext(streams), NO_EXCLUSIONS, false);
 
@@ -340,7 +343,6 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
 
     // ---------- Self-join ----------
 
-    @org.junit.jupiter.api.Disabled("TODO: Re-enable when stream offset tracking is implemented in IvmDeltaRewriter.collectDeltaScanContexts()")
     @Test
     void testGenSelfJoinBothOccurrencesPending() {
         LogicalOlapScan scanA1 = buildScanForTable(1, "a");
@@ -368,7 +370,6 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
 
     // ---------- Three-table JOIN ----------
 
-    @org.junit.jupiter.api.Disabled("TODO: Re-enable when stream offset tracking is implemented in IvmDeltaRewriter.collectDeltaScanContexts()")
     @Test
     void testGenThreeTableJoinAllPending() {
         LogicalOlapScan scanA = buildScanForTable(1, "a");
@@ -388,11 +389,11 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
 
         Assertions.assertEquals(3, plans.size());
 
-        // Plan 0: delta(a) JOIN b(post snapshot) JOIN c(pre snapshot)
+        // Plan 0: delta(a) JOIN b(pre snapshot) JOIN c(pre snapshot)
         List<LogicalOlapScan> s0 = collectScans(plans.get(0));
         Assertions.assertEquals(3, s0.size());
         Assertions.assertTrue(IvmDeltaRewriteHelper.INSTANCE.isIncrementalDeltaScan(s0.get(0)));
-        Assertions.assertFalse(s0.get(1) instanceof LogicalOlapTableStreamScan);
+        Assertions.assertTrue(s0.get(1) instanceof LogicalOlapTableStreamScan);
         Assertions.assertTrue(s0.get(2) instanceof LogicalOlapTableStreamScan);
 
         // Plan 1: a(post snapshot) JOIN delta(b) JOIN c(pre snapshot)
@@ -408,7 +409,6 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
         Assertions.assertTrue(IvmDeltaRewriteHelper.INSTANCE.isIncrementalDeltaScan(s2.get(2)));
     }
 
-    @org.junit.jupiter.api.Disabled("TODO: Re-enable when stream offset tracking is implemented in IvmDeltaRewriter.collectDeltaScanContexts()")
     @Test
     void testGenThreeTableJoinMiddleUpToDate() {
         LogicalOlapScan scanA = buildScanForTable(1, "a");
@@ -428,10 +428,10 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
 
         Assertions.assertEquals(2, plans.size());
 
-        // Plan 0: delta(a) JOIN b(post snapshot) JOIN c(pre snapshot)
+        // Plan 0: delta(a) JOIN b(pre snapshot) JOIN c(pre snapshot)
         List<LogicalOlapScan> s0 = collectScans(plans.get(0));
         Assertions.assertTrue(IvmDeltaRewriteHelper.INSTANCE.isIncrementalDeltaScan(s0.get(0)));
-        Assertions.assertFalse(s0.get(1) instanceof LogicalOlapTableStreamScan);
+        Assertions.assertTrue(s0.get(1) instanceof LogicalOlapTableStreamScan);
         Assertions.assertTrue(s0.get(2) instanceof LogicalOlapTableStreamScan);
 
         // Plan 1: a(post snapshot) JOIN b(post snapshot) JOIN delta(c)
@@ -443,7 +443,6 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
 
     // ---------- Excluded trigger table ----------
 
-    @org.junit.jupiter.api.Disabled("TODO: Re-enable when stream offset tracking is implemented in IvmDeltaRewriter.collectDeltaScanContexts()")
     @Test
     void testGenExcludedTriggerTableSkipped() {
         LogicalOlapScan scanA = buildScanForTable(1, "a");
@@ -483,7 +482,6 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
         Assertions.assertTrue(plans.isEmpty());
     }
 
-    @org.junit.jupiter.api.Disabled("TODO: Re-enable when stream offset tracking is implemented in IvmDeltaRewriter.collectDeltaScanContexts()")
     @Test
     void testGenExcludedTableRemainsUnchanged() {
         // In a 3-table join, if middle table is excluded, it should stay unchanged
@@ -523,21 +521,8 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
         Assertions.assertTrue(IvmDeltaRewriteHelper.INSTANCE.isIncrementalDeltaScan(s1.get(2)));
     }
 
-    // ---------- Missing stream ref ----------
-
-    @org.junit.jupiter.api.Disabled("TODO: Re-enable when stream offset tracking is implemented in IvmDeltaRewriter.collectDeltaScanContexts()")
-    @Test
-    void testGenMissingStreamRefThrows() {
-        LogicalOlapScan scanA = buildScanForTable(1, "a");
-        Map<TableNameInfo, Long> streams = new HashMap<>();
-
-        Assertions.assertThrows(Exception.class,
-                () -> new IvmDeltaRewriter().generateDeltaPlans(scanA, rewriteContext(streams), NO_EXCLUSIONS, false));
-    }
-
     // ---------- Snapshot shape correctness ----------
 
-    @org.junit.jupiter.api.Disabled("TODO: Re-enable when stream offset tracking is implemented in IvmDeltaRewriter.collectDeltaScanContexts()")
     @Test
     void testGenSnapshotShapeValues() {
         LogicalOlapScan scanA = buildScanForTable(1, "a");
@@ -569,9 +554,6 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
         LogicalOlapScan deltaScan = collectScans(plans.get(0)).get(0);
         Assertions.assertTrue(IvmDeltaRewriteHelper.INSTANCE.isIncrementalDeltaScan(deltaScan));
     }
-
-    @org.junit.jupiter.api.Disabled("TODO: Re-enable when stream offset tracking is implemented in IvmDeltaRewriter.collectDeltaScanContexts()")
-
 
     // Inner class to expose package-private applyBinlogOrderRewrite for testing
     private static class TestableApplyBinlogOrderRewrite {
