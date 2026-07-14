@@ -411,25 +411,12 @@ file_changed_meta() {
 
 github_utils__maybe_enable_external_stage_timer() {
     local timer_script
-    local main_definition
 
-    if [[ -z "${teamcity_build_checkoutDir:-}" ]]; then
+    if ! github_utils__is_external_inline_shell; then
         return 0
     fi
     timer_script="${teamcity_build_checkoutDir}/regression-test/pipeline/external/external-stage-timer.sh"
     if [[ ! -f "${timer_script}" ]]; then
-        return 0
-    fi
-    if ! declare -F main >/dev/null; then
-        return 0
-    fi
-
-    main_definition="$(declare -f main)"
-    if [[ "${main_definition}" != *"START EXTERNAL DOCKER"* ]] ||
-        [[ "${main_definition}" != *"RUN EXTERNAL CASE"* ]] ||
-        ([[ "${main_definition}" != *"collect_docker_logs"* ]] &&
-            [[ "${main_definition}" != *"COLLECT DOCKER LOGS"* ]]) ||
-        [[ "${main_definition}" != *"deploy_cluster.sh"* ]]; then
         return 0
     fi
 
@@ -438,6 +425,188 @@ github_utils__maybe_enable_external_stage_timer() {
     external_regression_stage_timer_enable_auto_hooks
 }
 
+github_utils__is_external_inline_shell() {
+    local main_definition
+
+    if [[ -z "${teamcity_build_checkoutDir:-}" ]]; then
+        return 1
+    fi
+    if ! declare -F main >/dev/null; then
+        return 1
+    fi
+
+    main_definition="$(declare -f main)"
+    if [[ "${main_definition}" != *"START EXTERNAL DOCKER"* ]] ||
+        [[ "${main_definition}" != *"RUN EXTERNAL CASE"* ]] ||
+        ([[ "${main_definition}" != *"collect_docker_logs"* ]] &&
+            [[ "${main_definition}" != *"COLLECT DOCKER LOGS"* ]]) ||
+        [[ "${main_definition}" != *"deploy_cluster.sh"* ]]; then
+        return 1
+    fi
+    return 0
+}
+
+github_utils__maybe_optimize_external_collect_docker_logs() {
+    local original_definition
+
+    if ! github_utils__is_external_inline_shell; then
+        return 0
+    fi
+    if ! declare -F collect_docker_logs >/dev/null; then
+        return 0
+    fi
+    if [[ "${GITHUB_UTILS_EXTERNAL_COLLECT_DOCKER_LOGS_WRAPPED:-false}" == "true" ]]; then
+        return 0
+    fi
+
+    original_definition="$(declare -f collect_docker_logs)"
+    eval "${original_definition/collect_docker_logs/github_utils__original_collect_docker_logs}"
+    collect_docker_logs() {
+        local collect_on_success="${COLLECT_DOCKER_LOGS_ON_SUCCESS:-false}"
+        local skip_reason=""
+
+        if [[ "${collect_on_success,,}" != "true" ]]; then
+            if skip_reason="$(github_utils__external_success_state)"; then
+                echo "Skip collecting docker logs on ${skip_reason}. Set COLLECT_DOCKER_LOGS_ON_SUCCESS=true to enable."
+                return 0
+            fi
+        fi
+
+        github_utils__original_collect_docker_logs "$@"
+    }
+    GITHUB_UTILS_EXTERNAL_COLLECT_DOCKER_LOGS_WRAPPED=true
+}
+
+github_utils__external_success_state() {
+    local summary=""
+    local test_suites=0
+    local failed_suites=0
+    local fatal_scripts=0
+    local threshold="${failed_suites_threshold:-20}"
+
+    if [[ "${exit_flag:-0}" == "0" ]]; then
+        printf 'success'
+        return 0
+    fi
+
+    summary="$(github_utils__external_regression_summary_line)" || return 1
+    test_suites="$(echo "${summary}" | cut -d ' ' -f 2)"
+    failed_suites="$(echo "${summary}" | cut -d ' ' -f 5)"
+    fatal_scripts="$(echo "${summary}" | cut -d ' ' -f 8)"
+    if [[ ${test_suites} -gt 0 && ${failed_suites} -le ${threshold} && ${fatal_scripts} -eq 0 ]]; then
+        printf 'tolerated success'
+        return 0
+    fi
+    return 1
+}
+
+github_utils__external_is_grace_timeout_target() {
+    if [[ "$#" -ge 5 && "$1" == "-v" && "$2" == "10m" && "$3" == "bash" && "$4" == */be/bin/stop_be.sh && "$5" == "--grace" ]]; then
+        return 0
+    fi
+    if [[ "$#" -ge 4 && "$1" == "10m" && "$2" == "bash" && "$3" == */be/bin/stop_be.sh && "$4" == "--grace" ]]; then
+        return 0
+    fi
+    return 1
+}
+
+github_utils__external_is_final_grace_stop_target() {
+    if [[ "$#" -ge 1 && "$1" == */stop_cluster_grace.sh ]]; then
+        return 0
+    fi
+    if [[ "$#" -ge 1 && "$1" == "stop_cluster_grace.sh" ]]; then
+        return 0
+    fi
+    return 1
+}
+
+github_utils__maybe_optimize_external_shutdown_waits() {
+    if ! github_utils__is_external_inline_shell; then
+        return 0
+    fi
+    if [[ "${GITHUB_UTILS_EXTERNAL_TIMEOUT_SLEEP_WRAPPED:-false}" == "true" ]]; then
+        return 0
+    fi
+
+    timeout() {
+        local state=""
+        local shortened_timeout="${EXTERNAL_BE_STOP_TIMEOUT_ON_SUCCESS:-2m}"
+        local -a args=("$@")
+
+        if state="$(github_utils__external_success_state)" && github_utils__external_is_grace_timeout_target "${args[@]}"; then
+            echo "Use shortened BE grace timeout ${shortened_timeout} on ${state}."
+            if [[ "${args[0]}" == "-v" ]]; then
+                args[1]="${shortened_timeout}"
+            else
+                args[0]="${shortened_timeout}"
+            fi
+        fi
+        command timeout "${args[@]}"
+    }
+
+    bash() {
+        local state=""
+        local -a args=("$@")
+        local forced_target=""
+
+        if state="$(github_utils__external_success_state)" && github_utils__external_is_final_grace_stop_target "${args[@]}"; then
+            forced_target="${args[0]%stop_cluster_grace.sh}stop_cluster.sh"
+            echo "Use force stop_cluster.sh on ${state}."
+            args[0]="${forced_target}"
+        fi
+        command bash "${args[@]}"
+    }
+
+    sleep() {
+        local state=""
+        local shortened_sleep="${EXTERNAL_FE_IMAGE_WAIT_SECONDS_ON_SUCCESS:-180}"
+
+        if [[ "$#" -eq 1 && "$1" == "300" ]] && state="$(github_utils__external_success_state)"; then
+            echo "Use shortened FE image wait ${shortened_sleep}s on ${state}."
+            command sleep "${shortened_sleep}"
+            return 0
+        fi
+        command sleep "$@"
+    }
+
+    GITHUB_UTILS_EXTERNAL_TIMEOUT_SLEEP_WRAPPED=true
+}
+
+github_utils__external_regression_summary_line() {
+    local summary_log
+
+    summary_log="$(github_utils__external_regression_summary_log)" || return 1
+    grep -aoE 'Test ([0-9]+) suites, failed ([0-9]+) suites, fatal ([0-9]+) scripts, skipped ([0-9]+) scripts' \
+        "${summary_log}" | tail -n 1
+}
+
+github_utils__external_regression_summary_log() {
+    local log_dir=""
+    local candidate=""
+
+    if [[ -n "${DORIS_HOME:-}" ]]; then
+        log_dir="${DORIS_HOME}/regression-test/log"
+        candidate="$(find "${log_dir}" -maxdepth 1 -type f -name 'doris-regression-test.*.log' | head -n 1)"
+        if [[ -n "${candidate}" ]]; then
+            printf '%s' "${candidate}"
+            return 0
+        fi
+    fi
+
+    if [[ -n "${case_center:-}" && -n "${cluster_name:-}" ]]; then
+        log_dir="${case_center}/${cluster_name}/output/regression-test/log"
+        candidate="$(find "${log_dir}" -maxdepth 1 -type f -name 'doris-regression-test.*.log' | head -n 1)"
+        if [[ -n "${candidate}" ]]; then
+            printf '%s' "${candidate}"
+            return 0
+        fi
+    fi
+
+    return 1
+}
+
+github_utils__maybe_optimize_external_collect_docker_logs
+github_utils__maybe_optimize_external_shutdown_waits
 github_utils__maybe_enable_external_stage_timer
 
 file_changed_thirdparty() {
