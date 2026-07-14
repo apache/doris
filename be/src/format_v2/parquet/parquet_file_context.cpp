@@ -52,22 +52,65 @@ bool page_cache_range_less(const ParquetPageCacheRange& lhs, const ParquetPageCa
 
 } // namespace
 
+ParquetPageCacheRangeIndex::ParquetPageCacheRangeIndex(size_t max_ranges)
+        : _max_ranges(max_ranges) {
+    DORIS_CHECK(_max_ranges > 0);
+}
+
 void ParquetPageCacheRangeIndex::insert(ParquetPageCacheRange range) {
-    const auto it = std::lower_bound(_ranges.begin(), _ranges.end(), range, page_cache_range_less);
-    if (it == _ranges.end() || it->offset != range.offset || it->size != range.size) {
-        _ranges.insert(it, range);
+    std::lock_guard lock(_mutex);
+    auto it = std::lower_bound(_ranges.begin(), _ranges.end(), range, page_cache_range_less);
+    if (it != _ranges.end() && it->offset == range.offset && it->size == range.size) {
+        return;
     }
+    if (_ranges.size() >= _max_ranges) {
+        _ranges.erase(_ranges.begin());
+        it = std::lower_bound(_ranges.begin(), _ranges.end(), range, page_cache_range_less);
+    }
+    _ranges.insert(it, range);
 }
 
 void ParquetPageCacheRangeIndex::erase(ParquetPageCacheRange range) {
+    std::lock_guard lock(_mutex);
     const auto it = std::lower_bound(_ranges.begin(), _ranges.end(), range, page_cache_range_less);
     if (it != _ranges.end() && it->offset == range.offset && it->size == range.size) {
         _ranges.erase(it);
     }
 }
 
-void ParquetPageCacheRangeIndex::clear() {
-    std::vector<ParquetPageCacheRange>().swap(_ranges);
+std::vector<ParquetPageCacheRange> ParquetPageCacheRangeIndex::ranges() const {
+    std::lock_guard lock(_mutex);
+    return _ranges;
+}
+
+size_t ParquetPageCacheRangeIndex::size() const {
+    std::lock_guard lock(_mutex);
+    return _ranges.size();
+}
+
+ParquetPageCacheRangeDirectory::ParquetPageCacheRangeDirectory(size_t max_files)
+        : _max_files(max_files) {
+    DORIS_CHECK(_max_files > 0);
+}
+
+std::shared_ptr<ParquetPageCacheRangeIndex> ParquetPageCacheRangeDirectory::get_or_create(
+        const std::string& file_key) {
+    DORIS_CHECK(!file_key.empty());
+    std::lock_guard lock(_mutex);
+    if (const auto it = _indexes.find(file_key); it != _indexes.end()) {
+        return it->second;
+    }
+    if (_indexes.size() >= _max_files) {
+        _indexes.erase(_indexes.begin());
+    }
+    auto index = std::make_shared<ParquetPageCacheRangeIndex>();
+    _indexes.emplace(file_key, index);
+    return index;
+}
+
+size_t ParquetPageCacheRangeDirectory::size() const {
+    std::lock_guard lock(_mutex);
+    return _indexes.size();
 }
 
 std::vector<ParquetPageCacheReadPlanEntry> plan_page_cache_range_read(
@@ -158,6 +201,16 @@ bool should_use_merge_range_reader(const std::vector<ParquetPageCacheRange>& ran
 
 namespace {
 
+detail::ParquetPageCacheRangeDirectory& cached_page_range_directory() {
+    // Directory lookup is paid once when a reader opens. ReadAt() then synchronizes only on the
+    // shared index for this file, so unrelated Parquet files no longer serialize on a process-wide
+    // hot-path mutex. Strong references deliberately keep range discovery alive after reader A
+    // closes: reader B can reuse cached [100, 200) for a request [120, 150). The directory and each
+    // per-file index are independently capped, bounding stale metadata left by page-cache eviction.
+    static detail::ParquetPageCacheRangeDirectory directory;
+    return directory;
+}
+
 std::string build_page_cache_file_key(const io::FileReader& file_reader,
                                       const io::FileDescription& file_description) {
     const int64_t mtime =
@@ -185,7 +238,11 @@ public:
               _base_file_reader(_file_reader),
               _io_ctx(io_ctx),
               _enable_page_cache(enable_page_cache),
-              _page_cache_file_key(std::move(page_cache_file_key)) {
+              _page_cache_file_key(std::move(page_cache_file_key)),
+              _cached_page_range_index(
+                      _enable_page_cache && !_page_cache_file_key.empty()
+                              ? cached_page_range_directory().get_or_create(_page_cache_file_key)
+                              : nullptr) {
         DORIS_CHECK(_file_reader != nullptr);
         if (auto tracing_reader = std::dynamic_pointer_cast<io::TracingFileReader>(_file_reader)) {
             _file_reader_stats = tracing_reader->stats();
@@ -199,10 +256,8 @@ public:
         if (!_closed) {
             collect_active_merge_range_profile();
             std::lock_guard lock(_page_cache_mutex);
-            // The cache payload may outlive this reader in StoragePageCache, but the auxiliary
-            // range directory must not. For example, after file A closes, file B must not scan A's
-            // ranges or retain their metadata until process shutdown.
-            _cached_page_range_index.clear();
+            // Page payloads and their bounded per-file range index intentionally outlive this
+            // reader for warm scans. Only reader-specific projected ranges are released here.
             std::vector<ParquetPageCacheRange>().swap(_page_cache_ranges);
             _closed = true;
         }
@@ -341,7 +396,8 @@ public:
 private:
     bool page_cache_enabled() const {
         return _enable_page_cache && !config::disable_storage_page_cache &&
-               StoragePageCache::instance() != nullptr && !_page_cache_file_key.empty();
+               StoragePageCache::instance() != nullptr && !_page_cache_file_key.empty() &&
+               _cached_page_range_index != nullptr;
     }
 
     bool range_in_page_cache_scope(int64_t position, int64_t nbytes) const {
@@ -369,7 +425,7 @@ private:
         if (!StoragePageCache::instance()->lookup(
                     page_cache_key(cached_range.offset, cached_range.size), &handle,
                     segment_v2::DATA_PAGE)) {
-            _cached_page_range_index.erase(cached_range);
+            _cached_page_range_index->erase(cached_range);
             return false;
         }
         Slice cached = handle.data();
@@ -383,7 +439,7 @@ private:
 
     bool try_read_from_cached_ranges(int64_t position, int64_t nbytes, void* out) {
         auto plan = detail::plan_page_cache_range_read(position, nbytes,
-                                                       _cached_page_range_index.ranges());
+                                                       _cached_page_range_index->ranges());
         if (plan.empty()) {
             return false;
         }
@@ -434,7 +490,8 @@ private:
         PageCacheHandle handle;
         StoragePageCache::instance()->insert(page_cache_key(position, nbytes), page, &handle,
                                              segment_v2::DATA_PAGE);
-        _cached_page_range_index.insert(ParquetPageCacheRange {.offset = position, .size = nbytes});
+        _cached_page_range_index->insert(
+                ParquetPageCacheRange {.offset = position, .size = nbytes});
         ++_page_cache_stats.write_count;
         ++_page_cache_stats.compressed_write_count;
     }
@@ -492,7 +549,7 @@ private:
     std::string _page_cache_file_key;
     mutable std::mutex _page_cache_mutex;
     std::vector<ParquetPageCacheRange> _page_cache_ranges;
-    detail::ParquetPageCacheRangeIndex _cached_page_range_index;
+    std::shared_ptr<detail::ParquetPageCacheRangeIndex> _cached_page_range_index;
     ParquetPageCacheStats _page_cache_stats;
 };
 

@@ -81,4 +81,20 @@ suite("test_file_scanner_v2_review_fixes", "p0,external") {
         ORDER BY id
     """
 
+    // A requested unsupported leaf must fail before metadata pruning. The fixture stores positive
+    // TIME_MILLIS values, so `unsupported_time < 0` can be eliminated from INT32 row-group
+    // statistics. Without the early validation, this query incorrectly returns an empty result
+    // instead of preserving the unsupported logical-type contract.
+    test {
+        sql """
+            SELECT unsupported_time
+            FROM local(
+                "file_path" = "${remotePath}/file_scanner_v2_unsupported_time.parquet",
+                "backend_id" = "${backendId}",
+                "format" = "parquet")
+            WHERE unsupported_time < 0
+        """
+        exception "Parquet TIME with isAdjustedToUTC=true is not supported"
+    }
+
 }

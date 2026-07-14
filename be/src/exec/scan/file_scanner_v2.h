@@ -87,7 +87,7 @@ public:
     static void TEST_report_file_cache_profile(
             RuntimeProfile* profile, const io::FileCacheStatistics& file_cache_statistics);
     static bool TEST_should_skip_not_found(const Status& status, bool ignore_not_found);
-    static bool TEST_should_skip_empty(const Status& status);
+    static bool TEST_should_skip_empty(const Status& status, bool stopped);
 #endif
 
     FileScannerV2(RuntimeState* state, FileScanLocalState* parent, int64_t limit,
@@ -122,7 +122,7 @@ private:
     Status _prepare_table_reader_split(const TFileRangeDesc& range,
                                        std::map<std::string, Field> partition_values);
     static bool _should_skip_not_found(const Status& status, bool ignore_not_found);
-    static bool _should_skip_empty(const Status& status);
+    static bool _should_skip_empty(const Status& status, bool stopped);
     bool _should_enable_file_meta_cache() const;
     std::optional<format::GlobalRowIdContext> _create_global_rowid_context(
             const TFileRangeDesc& range) const;

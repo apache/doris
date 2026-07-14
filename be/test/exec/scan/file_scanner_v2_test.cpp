@@ -708,9 +708,13 @@ TEST(FileScannerV2Test, NotFoundIsSkippedOnlyWhenConfigured) {
 }
 
 TEST(FileScannerV2Test, EndOfFileIsSkippedAsEmptySplit) {
-    EXPECT_TRUE(FileScannerV2::TEST_should_skip_empty(Status::EndOfFile("empty file")));
-    EXPECT_FALSE(FileScannerV2::TEST_should_skip_empty(Status::InternalError("read failed")));
-    EXPECT_FALSE(FileScannerV2::TEST_should_skip_empty(Status::OK()));
+    EXPECT_TRUE(FileScannerV2::TEST_should_skip_empty(Status::EndOfFile("empty file"), false));
+    // Deletion-vector and Parquet readers also use EOF to unwind an interrupted read. Once either
+    // scanner stop flag is visible, the same status is no longer evidence of an empty file.
+    EXPECT_FALSE(FileScannerV2::TEST_should_skip_empty(Status::EndOfFile("stop read."), true));
+    EXPECT_FALSE(
+            FileScannerV2::TEST_should_skip_empty(Status::InternalError("read failed"), false));
+    EXPECT_FALSE(FileScannerV2::TEST_should_skip_empty(Status::OK(), false));
 }
 
 // Scenario: partition slots are identified from the explicit FE category when present, otherwise

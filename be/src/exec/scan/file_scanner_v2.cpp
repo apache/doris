@@ -273,8 +273,8 @@ bool FileScannerV2::TEST_should_skip_not_found(const Status& status, bool ignore
     return _should_skip_not_found(status, ignore_not_found);
 }
 
-bool FileScannerV2::TEST_should_skip_empty(const Status& status) {
-    return _should_skip_empty(status);
+bool FileScannerV2::TEST_should_skip_empty(const Status& status, bool stopped) {
+    return _should_skip_empty(status, stopped);
 }
 #endif
 
@@ -400,7 +400,7 @@ Status FileScannerV2::_get_block_impl(RuntimeState* state, Block* block, bool* e
                 *eof = false;
                 continue;
             }
-            if (_should_skip_empty(status)) {
+            if (_should_skip_empty(status, _should_stop || _io_ctx->should_stop)) {
                 // END_OF_FILE here means the reader discovered a valid split with no data while
                 // opening or probing it, not that the Scanner has exhausted all splits. Examples
                 // are a zero-byte CSV with an explicit schema and a Doris Native file containing
@@ -458,7 +458,7 @@ Status FileScannerV2::_prepare_next_split(bool* eos) {
             _state->update_num_finished_scan_range(1);
             continue;
         }
-        if (_should_skip_empty(status)) {
+        if (_should_skip_empty(status, _should_stop || _io_ctx->should_stop)) {
             // Schema discovery can reach EOF before a split becomes prepared. A header-only Native
             // file follows this path, while a reader that discovers emptiness on its first
             // get_block() follows the symmetric branch in _get_block_impl(). Both paths must
@@ -570,8 +570,12 @@ bool FileScannerV2::_should_skip_not_found(const Status& status, bool ignore_not
     return ignore_not_found && status.is<ErrorCode::NOT_FOUND>();
 }
 
-bool FileScannerV2::_should_skip_empty(const Status& status) {
-    return status.is<ErrorCode::END_OF_FILE>();
+bool FileScannerV2::_should_skip_empty(const Status& status, bool stopped) {
+    // Several readers use END_OF_FILE both for a valid zero-row split and for an interrupted IO.
+    // For example, DeletionVectorReader returns END_OF_FILE("stop read.") after try_stop() marks
+    // the shared IOContext. That status must unwind the stopped scanner; counting it as an empty
+    // file would incorrectly finish the scan range and increment EmptyFileNum.
+    return !stopped && status.is<ErrorCode::END_OF_FILE>();
 }
 
 bool FileScannerV2::_should_enable_file_meta_cache() const {

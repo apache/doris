@@ -118,6 +118,60 @@ void collect_request_leaf_column_ids(
     }
 }
 
+Status validate_all_projected_leaves_supported(const ParquetColumnSchema& column_schema) {
+    if (column_schema.kind == ParquetColumnSchemaKind::PRIMITIVE) {
+        if (!column_schema.type_descriptor.unsupported_reason.empty()) {
+            return Status::NotSupported("Unsupported parquet column '{}': {}", column_schema.name,
+                                        column_schema.type_descriptor.unsupported_reason);
+        }
+        return Status::OK();
+    }
+    for (const auto& child : column_schema.children) {
+        DORIS_CHECK(child != nullptr);
+        RETURN_IF_ERROR(validate_all_projected_leaves_supported(*child));
+    }
+    return Status::OK();
+}
+
+Status validate_projected_leaves_supported(const ParquetColumnSchema& column_schema,
+                                           const format::LocalColumnIndex& projection) {
+    if (column_schema.kind == ParquetColumnSchemaKind::PRIMITIVE ||
+        projection.project_all_children || projection.children.empty()) {
+        return validate_all_projected_leaves_supported(column_schema);
+    }
+    for (const auto& child_projection : projection.children) {
+        const auto child_it =
+                std::ranges::find_if(column_schema.children, [&](const auto& child_schema) {
+                    return child_schema->local_id == child_projection.local_id();
+                });
+        DORIS_CHECK(child_it != column_schema.children.end());
+        RETURN_IF_ERROR(validate_projected_leaves_supported(**child_it, child_projection));
+    }
+    return Status::OK();
+}
+
+Status validate_requested_columns_supported(
+        const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
+        const format::FileScanRequest& request) {
+    auto validate_scan_column = [&](const format::LocalColumnIndex& projection) -> Status {
+        const auto local_id = projection.local_id();
+        if (local_id == format::ROW_POSITION_COLUMN_ID ||
+            local_id == format::GLOBAL_ROWID_COLUMN_ID) {
+            return Status::OK();
+        }
+        DORIS_CHECK(local_id >= 0 && local_id < static_cast<int32_t>(file_schema.size()));
+        DORIS_CHECK(file_schema[local_id] != nullptr);
+        return validate_projected_leaves_supported(*file_schema[local_id], projection);
+    };
+    for (const auto& column : request.predicate_columns) {
+        RETURN_IF_ERROR(validate_scan_column(column));
+    }
+    for (const auto& column : request.non_predicate_columns) {
+        RETURN_IF_ERROR(validate_scan_column(column));
+    }
+    return Status::OK();
+}
+
 std::vector<ParquetPageCacheRange> build_page_cache_ranges(
         const ::parquet::FileMetaData& metadata,
         const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
@@ -454,6 +508,12 @@ Status ParquetReader::open(std::shared_ptr<format::FileScanRequest> request) {
         DORIS_CHECK(local_id >= 0 && local_id < num_fields);
     }
 
+    // Reject requested unsupported logical leaves before row-group statistics, dictionaries,
+    // bloom filters or page indexes inspect their physical fallback type. For example, a predicate
+    // on TIME_MILLIS must fail here even when its INT32 statistics would prune every row group;
+    // otherwise the same unsupported SELECT could fail or silently succeed depending on data.
+    RETURN_IF_ERROR(validate_requested_columns_supported(_state->file_schema, *request_snapshot));
+
     RowGroupScanPlan row_group_plan;
     ParquetScanRange scan_range;
     scan_range.start_offset = _file_description->range_start_offset;
@@ -596,6 +656,19 @@ Status ParquetReader::get_aggregate_result(const format::FileAggregateRequest& r
         request.agg_type != TPushAggOp::type::MINMAX) {
         return Status::NotSupported("Unsupported parquet aggregate pushdown type {}",
                                     request.agg_type);
+    }
+
+    for (const auto& aggregate_column : request.columns) {
+        const auto local_id = aggregate_column.projection.local_id();
+        if (local_id < 0 || local_id >= static_cast<int32_t>(_state->file_schema.size())) {
+            return Status::InvalidArgument("Invalid parquet aggregate column id {}", local_id);
+        }
+        DORIS_CHECK(_state->file_schema[local_id] != nullptr);
+        // Aggregate pushdown can return directly from footer statistics without constructing a
+        // column reader. Validate first so MIN/MAX(TIME_MILLIS), or an all-pruned COUNT request,
+        // cannot expose the physical INT32 fallback as a supported logical value.
+        RETURN_IF_ERROR(validate_projected_leaves_supported(*_state->file_schema[local_id],
+                                                            aggregate_column.projection));
     }
 
     // Aggregate row count in all selected row groups. For MIN/MAX aggregate, this is used to determine whether there is no row group selected.
