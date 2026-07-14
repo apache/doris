@@ -946,13 +946,17 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
 
     using namespace std::chrono;
     int64_t now = duration_cast<seconds>(system_clock::now().time_since_epoch()).count();
-    if (recorded_compaction->expiration() > 0 && recorded_compaction->expiration() < now) {
+    if (recorded_compaction->expiration() > 0 && recorded_compaction->expiration() < now &&
+        request->action() != FinishTabletJobRequest::ABORT) {
+        // An expired compaction job can never COMMIT (rejected here), but ABORT
+        // must still be allowed to erase it: the recycler aborts the job of a
+        // PREPARED rowset before recycling, and refusing to abort an expired job
+        // leaves that rowset unrecyclable forever, pinning the recycle_rowset
+        // queue watermark.
         code = MetaServiceCode::JOB_EXPIRED;
         SS << "expired compaction job, tablet_id=" << tablet_id
            << " job=" << proto_to_json(*recorded_compaction);
         msg = ss.str();
-        // FIXME: Just remove or notify to abort?
-        // LOG(INFO) << "remove expired job, tablet_id=" << tablet_id << " key=" << hex(job_key);
         return;
     }
 
