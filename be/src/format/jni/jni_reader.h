@@ -135,6 +135,14 @@ protected:
         _column_names = std::move(column_names);
     }
 
+    Jni::GlobalObject& jni_scanner_obj() { return _jni_scanner_obj; }
+    const Jni::MethodId& jni_scanner_prepare_for_split() const {
+        return _jni_scanner_prepare_for_split;
+    }
+    const Jni::MethodId& jni_scanner_reset_current_split() const {
+        return _jni_scanner_reset_current_split;
+    }
+
     const std::vector<SlotDescriptor*>& _file_slot_descs;
     RuntimeState* _state = nullptr;
     RuntimeProfile* _profile = nullptr;
@@ -182,6 +190,8 @@ private:
     Jni::MethodId _jni_scanner_release_table;
     Jni::MethodId _jni_scanner_get_statistics;
     Jni::MethodId _jni_scanner_set_batch_size;
+    Jni::MethodId _jni_scanner_prepare_for_split;
+    Jni::MethodId _jni_scanner_reset_current_split;
 
     JniDataBridge::TableMetaAddress _table_meta;
     size_t _batch_size = 0;

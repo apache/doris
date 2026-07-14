@@ -322,6 +322,10 @@ Status JniReader::_init_jni_scanner(JNIEnv* env, int batch_size) {
                                                 &_jni_scanner_get_statistics));
     RETURN_IF_ERROR(
             _jni_scanner_cls.get_method(env, "setBatchSize", "(I)V", &_jni_scanner_set_batch_size));
+    RETURN_IF_ERROR(_jni_scanner_cls.get_method(env, "prepareForSplit", "(Ljava/util/Map;)V",
+                                                &_jni_scanner_prepare_for_split));
+    RETURN_IF_ERROR(_jni_scanner_cls.get_method(env, "resetCurrentSplit", "()V",
+                                                &_jni_scanner_reset_current_split));
     return Status::OK();
 }
 

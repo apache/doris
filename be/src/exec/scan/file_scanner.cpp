@@ -1012,8 +1012,15 @@ void FileScanner::_fill_base_init_context(ReaderInitContext* ctx) {
 Status FileScanner::_get_next_reader() {
     while (true) {
         if (_cur_reader) {
-            _cur_reader->collect_profile_before_close();
-            RETURN_IF_ERROR(_cur_reader->close());
+            if (auto* paimon_jni_reader = dynamic_cast<PaimonJniReader*>(_cur_reader.get());
+                paimon_jni_reader != nullptr) {
+                RETURN_IF_ERROR(paimon_jni_reader->finish_split());
+                DORIS_CHECK(_cached_paimon_jni_reader == nullptr);
+                _cached_paimon_jni_reader = std::move(_cur_reader);
+            } else {
+                _cur_reader->collect_profile_before_close();
+                RETURN_IF_ERROR(_cur_reader->close());
+            }
             _state->update_num_finished_scan_range(1);
         }
         _cur_reader.reset(nullptr);
@@ -1134,11 +1141,29 @@ Status FileScanner::_get_next_reader() {
                             static_cast<GenericReader*>(cpp_reader.get())->init_reader(&jni_ctx);
                     _cur_reader = std::move(cpp_reader);
                 } else {
-                    auto paimon_reader = PaimonJniReader::create_unique(_file_slot_descs, _state,
-                                                                        _profile, range, _params);
-                    init_status =
-                            static_cast<GenericReader*>(paimon_reader.get())->init_reader(&jni_ctx);
-                    _cur_reader = std::move(paimon_reader);
+                    if (_cached_paimon_jni_reader != nullptr) {
+                        auto* cached_reader =
+                                dynamic_cast<PaimonJniReader*>(_cached_paimon_jni_reader.get());
+                        DORIS_CHECK(cached_reader != nullptr);
+                        if (cached_reader->can_reuse_for(range)) {
+                            _cur_reader = std::move(_cached_paimon_jni_reader);
+                            init_status = cached_reader->prepare_split(range, &jni_ctx);
+                        } else {
+                            _cached_paimon_jni_reader->collect_profile_before_close();
+                            RETURN_IF_ERROR(_cached_paimon_jni_reader->close());
+                            _cached_paimon_jni_reader.reset();
+                        }
+                    }
+                    if (_cur_reader == nullptr) {
+                        auto paimon_reader = PaimonJniReader::create_unique(
+                                _file_slot_descs, _state, _profile, range, _params);
+                        init_status = static_cast<GenericReader*>(paimon_reader.get())
+                                              ->init_reader(&jni_ctx);
+                        if (init_status.ok()) {
+                            init_status = paimon_reader->prepare_split(range, &jni_ctx);
+                        }
+                        _cur_reader = std::move(paimon_reader);
+                    }
                 }
             } else if (range.__isset.table_format_params &&
                        range.table_format_params.table_format_type == "hudi") {
@@ -2059,6 +2084,9 @@ Status FileScanner::close(RuntimeState* state) {
     if (_cur_reader) {
         RETURN_IF_ERROR(_cur_reader->close());
     }
+    if (_cached_paimon_jni_reader) {
+        RETURN_IF_ERROR(_cached_paimon_jni_reader->close());
+    }
 
     RETURN_IF_ERROR(Scanner::close(state));
     return Status::OK();
@@ -2144,6 +2172,9 @@ void FileScanner::_collect_profile_before_close() {
 
     if (_cur_reader != nullptr) {
         _cur_reader->collect_profile_before_close();
+    }
+    if (_cached_paimon_jni_reader != nullptr) {
+        _cached_paimon_jni_reader->collect_profile_before_close();
     }
 
     FileScanLocalState* local_state = static_cast<FileScanLocalState*>(_local_state);

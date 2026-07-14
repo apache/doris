@@ -18,14 +18,12 @@
 #pragma once
 
 #include <cstddef>
+#include <map>
 #include <string>
-#include <unordered_map>
-#include <unordered_set>
 #include <vector>
 
 #include "common/status.h"
 #include "format/jni/jni_reader.h"
-#include "storage/olap_scan_common.h"
 
 namespace doris {
 class RuntimeProfile;
@@ -58,12 +56,25 @@ public:
     Status _do_get_next_block(Block* block, size_t* read_rows, bool* eof) override;
 
     Status init_reader();
+    Status prepare_split(const TFileRangeDesc& range, ReaderInitContext* ctx);
+    Status finish_split();
+    bool can_reuse_for(const TFileRangeDesc& range) const;
 
 protected:
     Status _do_init_reader(ReaderInitContext* /*ctx*/) override { return init_reader(); }
 
 private:
+    Status prepare_jni_scanner_for_split(const TFileRangeDesc& range);
+    Status reset_jni_scanner_current_split();
+    static std::map<std::string, std::string> build_scanner_params(
+            const std::vector<SlotDescriptor*>& file_slot_descs, RuntimeState* state,
+            const TFileRangeDesc& range, const TFileScanRangeParams* range_params);
+    void set_remaining_table_level_row_count(const TFileRangeDesc& range);
+
+    const TFileScanRangeParams* _range_params = nullptr;
+    std::map<std::string, std::string> _scanner_params_signature;
     int64_t _remaining_table_level_row_count;
+    bool _current_split_prepared = false;
 };
 
 } // namespace doris
