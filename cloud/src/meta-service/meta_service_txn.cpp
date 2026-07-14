@@ -578,12 +578,6 @@ void put_routine_load_progress(MetaServiceCode& code, std::string& msg,
             new_progress_info.mutable_partition_to_offset()->insert(elem);
         }
     }
-    if (commit_attachment.has_first_error_msg()) {
-        new_progress_info.set_first_error_msg(commit_attachment.first_error_msg());
-    } else if (prev_progress_info.has_first_error_msg()) {
-        new_progress_info.set_first_error_msg(prev_progress_info.first_error_msg());
-    }
-
     std::string new_statistic_val;
     RoutineLoadJobStatisticPB* new_statistic_info = new_progress_info.mutable_stat();
     if (prev_progress_info.has_stat()) {
@@ -755,9 +749,6 @@ void MetaServiceImpl::get_rl_task_commit_attach(::google::protobuf::RpcControlle
         commit_attach->set_received_bytes(statistic_info.received_bytes());
         commit_attach->set_task_execution_time_ms(statistic_info.task_execution_time_ms());
     }
-    if (progress_info->has_first_error_msg()) {
-        commit_attach->set_first_error_msg(progress_info->first_error_msg());
-    }
 }
 
 void MetaServiceImpl::get_streaming_task_commit_attach(
@@ -895,10 +886,6 @@ void MetaServiceImpl::reset_rl_progress(::google::protobuf::RpcController* contr
                 }
             }
         }
-        if (prev_progress_info.has_first_error_msg()) {
-            new_progress_info.set_first_error_msg(prev_progress_info.first_error_msg());
-        }
-
         if (!new_progress_info.SerializeToString(&new_progress_val)) {
             code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
             ss << "failed to serialize new progress val"

@@ -3638,6 +3638,11 @@ public class Config extends ConfigBase {
             "The maximum length of the first row error message when data quality error occurs, default is 256 bytes"})
     public static int first_error_msg_max_length = 256;
 
+    @ConfField(mutable = true, description = {
+            "Retention time for routine load error log URLs and first error messages, in hours. "
+                    + "It should be consistent with the BE load_error_log_reserve_hours setting."})
+    public static long load_error_log_reserve_hours = 48;
+
     @ConfField(mutable = false, description = {
         "Whether to enable file cache admission control(Blocklist and Allowlist)"
     })
