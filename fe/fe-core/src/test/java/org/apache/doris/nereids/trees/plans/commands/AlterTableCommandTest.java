@@ -210,6 +210,47 @@ public class AlterTableCommandTest {
     }
 
     @Test
+    void testRejectRollupForNestedIcebergColumnOperations() {
+        IcebergExternalTable table = Mockito.mock(IcebergExternalTable.class);
+        for (String sql : Arrays.asList(
+                "ALTER TABLE t ADD COLUMN s.c STRING NULL TO r1",
+                "ALTER TABLE t ADD COLUMN s.c STRING NULL IN r1",
+                "ALTER TABLE t DROP COLUMN s.c FROM r1",
+                "ALTER TABLE t MODIFY COLUMN s.c STRING FROM r1")) {
+            AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                    () -> AlterTableCommand.checkNestedColumnPathSupported(table, parseAlter(sql).getOps()));
+            Assertions.assertTrue(exception.getMessage()
+                    .contains("Rollup is not supported for nested Iceberg column operation"));
+        }
+    }
+
+    @Test
+    void testRejectKeyForNestedIcebergAddAndModify() {
+        IcebergExternalTable table = Mockito.mock(IcebergExternalTable.class);
+        for (String sql : Arrays.asList(
+                "ALTER TABLE t ADD COLUMN s.c INT KEY NULL",
+                "ALTER TABLE t MODIFY COLUMN s.c BIGINT KEY")) {
+            AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                    () -> AlterTableCommand.checkNestedColumnPathSupported(table, parseAlter(sql).getOps()));
+            Assertions.assertTrue(exception.getMessage()
+                    .contains("KEY is not supported for nested Iceberg ADD/MODIFY COLUMN"));
+        }
+    }
+
+    @Test
+    void testRejectGeneratedColumnForNestedIcebergAddAndModify() {
+        IcebergExternalTable table = Mockito.mock(IcebergExternalTable.class);
+        for (String sql : Arrays.asList(
+                "ALTER TABLE t ADD COLUMN s.c INT AS (id + 1) NULL",
+                "ALTER TABLE t MODIFY COLUMN s.c BIGINT AS (id + 1)")) {
+            AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                    () -> AlterTableCommand.checkNestedColumnPathSupported(table, parseAlter(sql).getOps()));
+            Assertions.assertTrue(exception.getMessage()
+                    .contains("Generated columns are not supported for nested Iceberg ADD/MODIFY COLUMN"));
+        }
+    }
+
+    @Test
     void testModifyColumnTracksExplicitNullability() {
         ModifyColumnOp omitted = (ModifyColumnOp) parseAlter(
                 "ALTER TABLE t MODIFY COLUMN s.a BIGINT").getOps().get(0);

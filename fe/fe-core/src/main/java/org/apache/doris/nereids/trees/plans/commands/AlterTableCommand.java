@@ -144,14 +144,28 @@ public class AlterTableCommand extends Command implements ForwardWithSync {
             throws AnalysisException {
         if (table instanceof IcebergExternalTable) {
             for (AlterTableOp alterTableOp : alterTableOps) {
-                if (alterTableOp instanceof ModifyColumnOp) {
-                    ModifyColumnOp modifyColumnOp = (ModifyColumnOp) alterTableOp;
-                    if (modifyColumnOp.getColumnPath().isNested()
-                            && (modifyColumnOp.getColumnDef().hasDefaultValue()
-                                || modifyColumnOp.getColumnDef().hasOnUpdateDefaultValue())) {
-                        throw new AnalysisException("DEFAULT and ON UPDATE are not supported for nested Iceberg "
-                                + "MODIFY COLUMN: " + modifyColumnOp.getColumnPath().getFullPath());
-                    }
+                ColumnPath columnPath = getNestedColumnPath(alterTableOp);
+                if (columnPath == null) {
+                    continue;
+                }
+                if (getRollupName(alterTableOp) != null) {
+                    throw new AnalysisException("Rollup is not supported for nested Iceberg column operation: "
+                            + columnPath.getFullPath());
+                }
+                ColumnDefinition columnDefinition = getColumnDefinition(alterTableOp);
+                if (columnDefinition != null && columnDefinition.isKey()) {
+                    throw new AnalysisException("KEY is not supported for nested Iceberg ADD/MODIFY COLUMN: "
+                            + columnPath.getFullPath());
+                }
+                if (columnDefinition != null && columnDefinition.getGeneratedColumnDesc().isPresent()) {
+                    throw new AnalysisException("Generated columns are not supported for nested Iceberg "
+                            + "ADD/MODIFY COLUMN: " + columnPath.getFullPath());
+                }
+                if (alterTableOp instanceof ModifyColumnOp && columnDefinition != null
+                        && (columnDefinition.hasDefaultValue()
+                            || columnDefinition.hasOnUpdateDefaultValue())) {
+                    throw new AnalysisException("DEFAULT and ON UPDATE are not supported for nested Iceberg "
+                            + "MODIFY COLUMN: " + columnPath.getFullPath());
                 }
             }
             return;
@@ -179,6 +193,29 @@ public class AlterTableCommand extends Command implements ForwardWithSync {
             columnPath = ((ModifyColumnCommentOp) alterTableOp).getColumnPath();
         }
         return columnPath != null && columnPath.isNested() ? columnPath : null;
+    }
+
+    private static ColumnDefinition getColumnDefinition(AlterTableOp alterTableOp) {
+        if (alterTableOp instanceof AddColumnOp) {
+            return ((AddColumnOp) alterTableOp).getColumnDef();
+        }
+        if (alterTableOp instanceof ModifyColumnOp) {
+            return ((ModifyColumnOp) alterTableOp).getColumnDef();
+        }
+        return null;
+    }
+
+    private static String getRollupName(AlterTableOp alterTableOp) {
+        if (alterTableOp instanceof AddColumnOp) {
+            return ((AddColumnOp) alterTableOp).getRollupName();
+        }
+        if (alterTableOp instanceof DropColumnOp) {
+            return ((DropColumnOp) alterTableOp).getRollupName();
+        }
+        if (alterTableOp instanceof ModifyColumnOp) {
+            return ((ModifyColumnOp) alterTableOp).getRollupName();
+        }
+        return null;
     }
 
     private void rewriteAlterOpForOlapTable(ConnectContext ctx, OlapTable table) throws UserException {

@@ -78,6 +78,10 @@ public class AddColumnOp extends AlterTableOp {
         return column;
     }
 
+    public ColumnDefinition getColumnDef() {
+        return columnDef;
+    }
+
     public ColumnPath getColumnPath() {
         return columnPath;
     }
