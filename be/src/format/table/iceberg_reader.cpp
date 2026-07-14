@@ -222,7 +222,7 @@ Status IcebergParquetReader::on_before_init_reader(ReaderInitContext* ctx) {
 
     // Create column IDs from field descriptor
     auto column_id_result =
-            _create_column_ids(field_desc, ctx->tuple_descriptor, ctx->table_info_node);
+            _create_column_ids(field_desc, ctx->tuple_descriptor);
     ctx->column_ids = std::move(column_id_result.column_ids);
     ctx->filter_column_ids = std::move(column_id_result.filter_column_ids);
 
@@ -337,9 +337,8 @@ Status IcebergParquetReader::on_before_init_reader(ReaderInitContext* ctx) {
 // ============================================================================
 // IcebergParquetReader: _create_column_ids
 // ============================================================================
-ColumnIdResult IcebergParquetReader::_create_column_ids(
-        const FieldDescriptor* field_desc, const TupleDescriptor* tuple_descriptor,
-        const std::shared_ptr<TableSchemaChangeHelper::Node>& table_info_node) {
+ColumnIdResult IcebergParquetReader::_create_column_ids(const FieldDescriptor* field_desc,
+                                                        const TupleDescriptor* tuple_descriptor) {
     auto* mutable_field_desc = const_cast<FieldDescriptor*>(field_desc);
     mutable_field_desc->assign_ids();
 
@@ -365,32 +364,14 @@ ColumnIdResult IcebergParquetReader::_create_column_ids(
     };
 
     for (const auto* slot : tuple_descriptor->slots()) {
-        const FieldSchema* field_schema = nullptr;
-        if (table_info_node != nullptr) {
-            if (table_info_node->children_column_exists(slot->col_name())) {
-                // Use the physical child selected by the schema-mapping pass. This keeps partial-id
-                // files in BY_NAME mode from binding a projected column through an unrelated stale
-                // field id.
-                const auto& file_column_name =
-                        table_info_node->children_file_column_name(slot->col_name());
-                for (int i = 0; i < field_desc->size(); ++i) {
-                    const auto* candidate = field_desc->get_column(i);
-                    if (candidate != nullptr && candidate->name == file_column_name) {
-                        field_schema = candidate;
-                        break;
-                    }
-                }
-                DORIS_CHECK(field_schema != nullptr);
-            }
-        } else {
-            auto it = iceberg_id_to_field_schema_map.find(slot->col_unique_id());
-            if (it != iceberg_id_to_field_schema_map.end()) {
-                field_schema = it->second;
-            }
-        }
-        if (field_schema == nullptr) {
+        // Match projected slots to file columns by Iceberg field id. Synthesized/metadata slots
+        // (e.g. the TopN global row-id or the $row_id column) carry a sentinel col_unique_id that
+        // is not a real field id, so they miss the map and are skipped.
+        auto it = iceberg_id_to_field_schema_map.find(slot->col_unique_id());
+        if (it == iceberg_id_to_field_schema_map.end()) {
             continue;
         }
+        const auto* field_schema = it->second;
 
         if ((slot->col_type() != TYPE_STRUCT && slot->col_type() != TYPE_ARRAY &&
              slot->col_type() != TYPE_MAP)) {
@@ -555,7 +536,7 @@ Status IcebergOrcReader::on_before_init_reader(ReaderInitContext* ctx) {
 
     // Create column IDs from ORC type
     auto column_id_result =
-            _create_column_ids(orc_type_ptr, ctx->tuple_descriptor, ctx->table_info_node);
+            _create_column_ids(orc_type_ptr, ctx->tuple_descriptor);
     ctx->column_ids = std::move(column_id_result.column_ids);
     ctx->filter_column_ids = std::move(column_id_result.filter_column_ids);
 
@@ -662,9 +643,8 @@ Status IcebergOrcReader::on_before_init_reader(ReaderInitContext* ctx) {
 // ============================================================================
 // IcebergOrcReader: _create_column_ids
 // ============================================================================
-ColumnIdResult IcebergOrcReader::_create_column_ids(
-        const orc::Type* orc_type, const TupleDescriptor* tuple_descriptor,
-        const std::shared_ptr<TableSchemaChangeHelper::Node>& table_info_node) {
+ColumnIdResult IcebergOrcReader::_create_column_ids(const orc::Type* orc_type,
+                                                    const TupleDescriptor* tuple_descriptor) {
     std::unordered_map<int, const orc::Type*> iceberg_id_to_orc_type_map;
     for (uint64_t i = 0; i < orc_type->getSubtypeCount(); ++i) {
         const auto* orc_sub_type = orc_type->getSubtype(i);
@@ -692,31 +672,14 @@ ColumnIdResult IcebergOrcReader::_create_column_ids(
     };
 
     for (const auto* slot : tuple_descriptor->slots()) {
-        const orc::Type* orc_field = nullptr;
-        if (table_info_node != nullptr) {
-            if (table_info_node->children_column_exists(slot->col_name())) {
-                // Select the physical child resolved by the shared schema-mapping pass. Hidden
-                // equality keys and projected columns must obey the same BY_NAME decision for
-                // partial-id ORC files.
-                const auto& file_column_name =
-                        table_info_node->children_file_column_name(slot->col_name());
-                for (uint64_t i = 0; i < orc_type->getSubtypeCount(); ++i) {
-                    if (orc_type->getFieldName(i) == file_column_name) {
-                        orc_field = orc_type->getSubtype(i);
-                        break;
-                    }
-                }
-                DORIS_CHECK(orc_field != nullptr);
-            }
-        } else {
-            auto it = iceberg_id_to_orc_type_map.find(slot->col_unique_id());
-            if (it != iceberg_id_to_orc_type_map.end()) {
-                orc_field = it->second;
-            }
-        }
-        if (orc_field == nullptr) {
+        // Match projected slots to file columns by Iceberg field id. Synthesized/metadata slots
+        // (e.g. the TopN global row-id or the $row_id column) carry a sentinel col_unique_id that
+        // is not a real field id, so they miss the map and are skipped.
+        auto it = iceberg_id_to_orc_type_map.find(slot->col_unique_id());
+        if (it == iceberg_id_to_orc_type_map.end()) {
             continue;
         }
+        const orc::Type* orc_field = it->second;
 
         if ((slot->col_type() != TYPE_STRUCT && slot->col_type() != TYPE_ARRAY &&
              slot->col_type() != TYPE_MAP)) {
