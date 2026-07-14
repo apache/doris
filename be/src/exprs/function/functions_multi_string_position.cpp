@@ -47,6 +47,7 @@
 #include "core/pod_array_fwd.h"
 #include "core/string_ref.h"
 #include "core/types.h"
+#include "exec/common/multi_string_searcher.h"
 #include "exec/common/string_searcher.h"
 #include "exprs/aggregate/aggregate_function.h"
 #include "exprs/function/function.h"
@@ -186,14 +187,14 @@ public:
         }
 
         const size_t needles_size = needles_arr.size();
-        std::vector<SingleSearcher> searchers;
-        searchers.reserve(needles_size);
+        std::vector<StringRef> needles;
+        needles.reserve(needles_size);
         for (const auto& needle : needles_arr) {
             if (!is_string_type(needle.get_type())) {
                 return Status::InvalidArgument("invalid type of needle {}", needle.get_type_name());
             }
-            searchers.emplace_back(needle.get<TYPE_STRING>().data(),
-                                   needle.get<TYPE_STRING>().size());
+            const auto& needle_string = needle.get<TYPE_STRING>();
+            needles.emplace_back(needle_string.data(), needle_string.size());
         }
 
         const size_t haystack_size = haystack_offsets.size();
@@ -202,22 +203,17 @@ public:
 
         std::fill(vec_res.begin(), vec_res.end(), 0);
 
-        // we traverse to generator answer by Vector's slot of ColumnVector, not by Vector.
-        // TODO: check if the order of loop is best. The large data may make us writing across the line which size out of L2 cache.
-        for (size_t ans_slot_in_row = 0; ans_slot_in_row < searchers.size(); ans_slot_in_row++) {
-            //  is i.e. answer slot index in one Vector(row) of answer
-            auto& searcher = searchers[ans_slot_in_row];
+        MultiStringSearcher searcher(needles);
+        while (searcher.has_more_to_search()) {
             size_t prev_haystack_offset = 0;
-
-            for (size_t haystack_index = 0, res_index = ans_slot_in_row;
-                 haystack_index < haystack_size; ++haystack_index, res_index += needles_size) {
+            for (size_t haystack_index = 0; haystack_index < haystack_size; ++haystack_index) {
                 const auto* haystack = &haystack_data[prev_haystack_offset];
                 const auto* haystack_end =
                         haystack - prev_haystack_offset + haystack_offsets[haystack_index];
 
-                const auto* ans_now = searcher.search(haystack, haystack_end);
-                vec_res[res_index] =
-                        ans_now >= haystack_end ? 0 : (Int32)std::distance(haystack, ans_now) + 1;
+                searcher.search_one_all(reinterpret_cast<const uint8_t*>(haystack),
+                                        reinterpret_cast<const uint8_t*>(haystack_end),
+                                        &vec_res[haystack_index * needles_size]);
                 prev_haystack_offset = haystack_offsets[haystack_index];
             }
         }
