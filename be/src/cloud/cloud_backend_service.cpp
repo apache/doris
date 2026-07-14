@@ -219,7 +219,8 @@ void CloudBackendService::_warm_up_cache(const TWarmUpCacheAsyncRequest& request
     }
     std::string brpc_addr = get_host_port(host, request.brpc_port);
     std::shared_ptr<PBackendService_Stub> brpc_stub =
-            _exec_env->brpc_internal_client_cache()->get_new_client_no_cache(brpc_addr);
+            _exec_env->brpc_internal_client_cache()->get_new_client_no_cache(
+                    brpc_addr, "", "", "", request.host);
     if (!brpc_stub) {
         LOG(WARNING) << "warm_up_cache_async: failed to get brpc_stub for addr " << brpc_addr;
         return;

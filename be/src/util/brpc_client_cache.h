@@ -30,6 +30,7 @@
 #include <parallel_hashmap/phmap.h>
 #include <stddef.h>
 
+#include <algorithm>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -65,25 +66,57 @@ using StubMap = phmap::parallel_flat_hash_map<
         std::allocator<std::pair<const std::string, StubEntry<T>>>, 8, std::mutex>;
 
 namespace doris {
+inline bool is_brpc_network_fault(int errcode) {
+    switch (errcode) {
+    case EHOSTDOWN:
+    case ETIMEDOUT:
+    case ECONNREFUSED:
+    case ECONNRESET:
+    case EHOSTUNREACH:
+    case ENETUNREACH:
+    case ENOTCONN:
+    case EPIPE:
+        return true;
+    default:
+        return false;
+    }
+}
+
+inline void on_brpc_network_fault(const std::shared_ptr<AtomicStatus>& channel_st,
+                                  const std::string& hostname, brpc::Controller* cntl) {
+    Status error_st = Status::NetworkError(
+            "Failed to send brpc, error={}, error_text={}, client: {}, latency = {}",
+            berror(cntl->ErrorCode()), cntl->ErrorText(), BackendOptions::get_localhost(),
+            cntl->latency_us());
+    LOG(WARNING) << error_st;
+    channel_st->update(error_st);
+
+    if (!hostname.empty() && !is_valid_ip(hostname)) {
+        auto* env = ExecEnv::GetInstance();
+        auto* dns_cache = (env != nullptr) ? env->dns_cache() : nullptr;
+        if (dns_cache != nullptr) {
+            dns_cache->invalidate(hostname);
+        }
+    }
+}
+
 class FailureDetectClosure : public ::google::protobuf::Closure {
 public:
-    FailureDetectClosure(std::shared_ptr<AtomicStatus>& channel_st,
+    FailureDetectClosure(std::shared_ptr<AtomicStatus>& channel_st, std::string hostname,
                          ::google::protobuf::RpcController* controller,
                          ::google::protobuf::Closure* done)
-            : _channel_st(channel_st), _controller(controller), _done(done) {}
+            : _channel_st(channel_st),
+              _hostname(std::move(hostname)),
+              _controller(controller),
+              _done(done) {}
 
     void Run() override {
         Defer defer {[&]() { delete this; }};
         // All brpc related API will use brpc::Controller, so that it is safe
         // to do static cast here.
         auto* cntl = static_cast<brpc::Controller*>(_controller);
-        if (cntl->Failed() && cntl->ErrorCode() == EHOSTDOWN) {
-            Status error_st = Status::NetworkError(
-                    "Failed to send brpc, error={}, error_text={}, client: {}, latency = {}",
-                    berror(cntl->ErrorCode()), cntl->ErrorText(), BackendOptions::get_localhost(),
-                    cntl->latency_us());
-            LOG(WARNING) << error_st;
-            _channel_st->update(error_st);
+        if (cntl->Failed() && is_brpc_network_fault(cntl->ErrorCode())) {
+            on_brpc_network_fault(_channel_st, _hostname, cntl);
         }
         // Sometimes done == nullptr, for example hand_shake API.
         if (_done != nullptr) {
@@ -95,6 +128,7 @@ public:
 
 private:
     std::shared_ptr<AtomicStatus> _channel_st;
+    std::string _hostname;
     ::google::protobuf::RpcController* _controller;
     ::google::protobuf::Closure* _done;
 };
@@ -108,6 +142,8 @@ public:
     FailureDetectChannel() : ::brpc::Channel() {
         _channel_st = std::make_shared<AtomicStatus>(); // default OK
     }
+    void set_hostname(std::string hostname) { _hostname = std::move(hostname); }
+
     void CallMethod(const google::protobuf::MethodDescriptor* method,
                     google::protobuf::RpcController* controller,
                     const google::protobuf::Message* request, google::protobuf::Message* response,
@@ -116,19 +152,15 @@ public:
         if (done != nullptr) {
             // If done == nullptr, then it means the call is sync call, so that should not
             // gen a failure detect closure for it. Or it will core.
-            failure_detect_closure = new FailureDetectClosure(_channel_st, controller, done);
+            failure_detect_closure =
+                    new FailureDetectClosure(_channel_st, _hostname, controller, done);
         }
         ::brpc::Channel::CallMethod(method, controller, request, response, failure_detect_closure);
         // Done == nullptr, it is a sync call, should also deal with the bad channel.
         if (done == nullptr) {
             auto* cntl = static_cast<brpc::Controller*>(controller);
-            if (cntl->Failed() && cntl->ErrorCode() == EHOSTDOWN) {
-                Status error_st = Status::NetworkError(
-                        "Failed to send brpc, error={}, error_text={}, client: {}, latency = {}",
-                        berror(cntl->ErrorCode()), cntl->ErrorText(),
-                        BackendOptions::get_localhost(), cntl->latency_us());
-                LOG(WARNING) << error_st;
-                _channel_st->update(error_st);
+            if (cntl->Failed() && is_brpc_network_fault(cntl->ErrorCode())) {
+                on_brpc_network_fault(_channel_st, _hostname, cntl);
             }
         }
     }
@@ -137,6 +169,7 @@ public:
 
 private:
     std::shared_ptr<AtomicStatus> _channel_st;
+    std::string _hostname;
 };
 
 template <class T>
@@ -166,66 +199,94 @@ public:
     }
 
     std::shared_ptr<T> get_client(const std::string& host, int port) {
-        std::string realhost = host;
-        auto dns_cache = ExecEnv::GetInstance()->dns_cache();
-        if (dns_cache == nullptr) {
-            LOG(WARNING) << "DNS cache is not initialized, skipping hostname resolve";
-        } else if (!is_valid_ip(host)) {
-            Status status = dns_cache->get(host, &realhost);
-            if (!status.ok()) {
-                LOG(WARNING) << "failed to get ip from host:" << status.to_string();
+        return get_client(host, port, config::enable_brpc_get_client_handshake);
+    }
+
+    std::shared_ptr<T> get_client(const std::string& host, int port, bool enable_handshake) {
+        const int max_attempts = enable_handshake
+                                         ? std::max(1, config::brpc_get_client_handshake_max_retries)
+                                         : 1;
+        // Use original host:port as key (like Java's TNetworkAddress address).
+        std::string host_port = fmt::format("{}:{}", host, port);
+        std::string real_host_port;
+
+        for (int attempt = 1; attempt <= max_attempts; ++attempt) {
+            std::string realhost = host;
+            auto dns_cache = ExecEnv::GetInstance()->dns_cache();
+            if (dns_cache == nullptr) {
+                LOG(WARNING) << "DNS cache is not initialized, skipping hostname resolve";
+            } else if (!is_valid_ip(host)) {
+                Status status = dns_cache->get(host, &realhost);
+                if (!status.ok()) {
+                    LOG(WARNING) << "failed to get ip from host:" << status.to_string();
+                    return nullptr;
+                }
+            }
+
+            std::shared_ptr<T> stub_ptr;
+            bool need_remove = false;
+
+            auto check_entry = [&](const auto& v) {
+                const StubEntry<T>& entry = v.second;
+                // Check if cached IP matches current resolved IP.
+                if (entry.real_ip != realhost) {
+                    // IP changed (DNS resolution changed).
+                    LOG(WARNING) << "Cached ip changed for " << host
+                                 << ", before ip: " << entry.real_ip
+                                 << ", current ip: " << realhost;
+                    need_remove = true;
+                } else if (!static_cast<FailureDetectChannel*>(entry.stub->channel())
+                                    ->channel_status()
+                                    ->ok()) {
+                    // Client is not in normal state, need to recreate.
+                    // At this point we cannot judge the progress of reconnecting the underlying
+                    // channel. In the worst case, it may take two minutes. But we can't stand
+                    // connection refused for two minutes, so rebuild the channel directly.
+                    need_remove = true;
+                } else {
+                    // Cache hit: IP matches and client is healthy.
+                    stub_ptr = entry.stub;
+                }
+            };
+
+            if (LIKELY(_stub_map.if_contains(host_port, check_entry))) {
+                if (stub_ptr != nullptr) {
+                    return stub_ptr;
+                }
+                if (need_remove) {
+                    _stub_map.erase(host_port);
+                }
+            }
+
+            // Create new stub using resolved IP for actual connection.
+            real_host_port = get_host_port(realhost, port);
+            auto stub = get_new_client_no_cache(real_host_port, "", "", "", host);
+            if (stub == nullptr) {
+                LOG(WARNING) << "failed to build brpc stub to " << real_host_port
+                             << ", attempt=" << attempt << "/" << max_attempts;
+                if (enable_handshake) {
+                    continue;
+                }
                 return nullptr;
             }
-        }
 
-        // Use original host:port as key (like Java's TNetworkAddress address)
-        // This allows us to detect IP changes when DNS resolution changes
-        std::string host_port = fmt::format("{}:{}", host, port);
-
-        std::shared_ptr<T> stub_ptr;
-        bool need_remove = false;
-
-        auto check_entry = [&](const auto& v) {
-            const StubEntry<T>& entry = v.second;
-            // Check if cached IP matches current resolved IP
-            if (entry.real_ip != realhost) {
-                // IP changed (DNS resolution changed)
-                LOG(WARNING) << "Cached ip changed for " << host << ", before ip: " << entry.real_ip
-                             << ", current ip: " << realhost;
-                need_remove = true;
-            } else if (!static_cast<FailureDetectChannel*>(entry.stub->channel())
-                                ->channel_status()
-                                ->ok()) {
-                // Client is not in normal state, need to recreate
-                // At this point we cannot judge the progress of reconnecting the underlying channel.
-                // In the worst case, it may take two minutes. But we can't stand the connection refused
-                // for two minutes, so rebuild the channel directly.
-                need_remove = true;
-            } else {
-                // Cache hit: IP matches and client is healthy
-                stub_ptr = entry.stub;
+            if (enable_handshake && !available(stub, real_host_port)) {
+                LOG(WARNING) << "handshake failed to " << real_host_port
+                             << ", attempt=" << attempt << "/" << max_attempts;
+                if (dns_cache != nullptr && !is_valid_ip(host)) {
+                    dns_cache->invalidate(host);
+                }
+                continue;
             }
-        };
 
-        if (LIKELY(_stub_map.if_contains(host_port, check_entry))) {
-            if (stub_ptr != nullptr) {
-                return stub_ptr;
-            }
-            // IP changed or client unhealthy, need to remove old entry
-            if (need_remove) {
-                _stub_map.erase(host_port);
-            }
-        }
-
-        // Create new stub using resolved IP for actual connection
-        std::string real_host_port = get_host_port(realhost, port);
-        auto stub = get_new_client_no_cache(real_host_port);
-        if (stub != nullptr) {
             StubEntry<T> entry {realhost, stub};
             _stub_map.try_emplace_l(
                     host_port, [&stub](const auto& v) { stub = v.second.stub; }, entry);
+            return stub;
         }
-        return stub;
+        LOG(WARNING) << "get_client gave up after " << max_attempts
+                     << " handshake attempts to " << real_host_port;
+        return nullptr;
     }
 
     std::shared_ptr<T> get_client(const std::string& host_port) {
@@ -244,7 +305,8 @@ public:
     std::shared_ptr<T> get_new_client_no_cache(const std::string& host_port,
                                                const std::string& protocol = "",
                                                const std::string& connection_type = "",
-                                               const std::string& connection_group = "") {
+                                               const std::string& connection_group = "",
+                                               const std::string& original_hostname = "") {
         brpc::ChannelOptions options;
         Status status = doris::client::configure_brpc_channel_options(&options);
         if (!status.ok()) {
@@ -272,6 +334,9 @@ public:
         options.max_retry = 10;
 
         std::unique_ptr<FailureDetectChannel> channel(new FailureDetectChannel());
+        if (!original_hostname.empty()) {
+            channel->set_hostname(original_hostname);
+        }
         int ret_code = 0;
         if (host_port.find("://") == std::string::npos) {
             ret_code = channel->Init(host_port.c_str(), &options);
