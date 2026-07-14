@@ -117,6 +117,7 @@ std::string current_file_debug_string(const std::unique_ptr<ScanTask>& task) {
     out << "FileDescription{path=" << file.path << ", file_size=" << file.file_size
         << ", range_start_offset=" << file.range_start_offset << ", range_size=" << file.range_size
         << ", mtime=" << file.mtime << ", fs_name=" << file.fs_name
+        << ", is_immutable=" << file.is_immutable
         << ", file_cache_admission=" << file.file_cache_admission << "}";
     return out.str();
 }
