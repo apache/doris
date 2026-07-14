@@ -158,6 +158,12 @@ public final class HiveTextProperties {
         result.put(PROP_PREFIX + "line_delimiter", getLineDelimiter(params));
         String quoteChar = getParamOrDefault(params, QUOTE_CHAR, "\"");
         result.put(PROP_PREFIX + "enclose", quoteChar);
+        // #65501: BE strips the wrapping quotes only when the enclose char is exactly the double-quote '"'.
+        // The connector owns this CSV serde semantics, so decide here and pass an explicit flag; the generic
+        // PluginDrivenScanNode then just applies it instead of trimming for any enclose char. Compare the
+        // first byte, matching how the node sets enclose (enclose.getBytes()[0]) and BE's getEnclose() == '"'.
+        boolean trimDoubleQuotes = !quoteChar.isEmpty() && quoteChar.getBytes()[0] == (byte) '"';
+        result.put(PROP_PREFIX + "trim_double_quotes", String.valueOf(trimDoubleQuotes));
         String escapeChar = getParamOrDefault(params, ESCAPE_CHAR, "\\");
         result.put(PROP_PREFIX + "escape", escapeChar);
         result.put(PROP_PREFIX + "null_format", "");

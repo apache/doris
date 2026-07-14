@@ -729,6 +729,11 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         String enclose = props.get(PROP_HIVE_TEXT_PREFIX + "enclose");
         if (enclose != null && !enclose.isEmpty()) {
             textParams.setEnclose(enclose.getBytes()[0]);
+        }
+        // #65501: trimming wrapping double quotes is valid only when the enclose char is '"'. The connector
+        // owns that CSV-serde decision (HiveTextProperties.extractCsvSerDeProps) and passes it as an explicit
+        // flag; the generic node just applies it (rather than trimming for any enclose char).
+        if ("true".equals(props.get(PROP_HIVE_TEXT_PREFIX + "trim_double_quotes"))) {
             attrs.setTrimDoubleQuotes(true);
         }
 

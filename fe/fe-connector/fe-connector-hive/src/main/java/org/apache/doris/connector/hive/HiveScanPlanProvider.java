@@ -31,6 +31,8 @@ import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.filesystem.FileEntry;
 import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.thrift.TFileCompressType;
+import org.apache.doris.thrift.TFileScanRangeParams;
+import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -80,6 +82,11 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
     public static final String PROP_FILE_FORMAT_TYPE = "file_format_type";
     public static final String PROP_PATH_PARTITION_KEYS = "path_partition_keys";
     public static final String PROP_LOCATION_PREFIX = "location.";
+    /**
+     * Connector-internal signal (consumed by {@link #populateScanLevelParams}) marking a full-ACID
+     * (transactional) Hive scan; drives the scan-level {@code table_format_type} stamp. Not a BE-facing key.
+     */
+    public static final String PROP_TRANSACTIONAL_HIVE = "transactional_hive";
 
     /** Input format of a full-ACID (ORC) transactional Hive table; other formats are rejected. */
     private static final String ORC_ACID_INPUT_FORMAT = "org.apache.hadoop.hive.ql.io.orc.OrcInputFormat";
@@ -419,7 +426,37 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
             props.putAll(textProps);
         }
 
+        // #65437: BE selects the file scanner from SCAN-LEVEL params before the per-range splits arrive, and its
+        // FileScannerV2 gate excludes scans whose scan-level table_format_type is "transactional_hive" (V2 does
+        // not apply ACID delete deltas). Signal a full-ACID scan so populateScanLevelParams stamps it at scan
+        // level; gate on isFullAcid() to match the per-range marker (insert-only tables keep the V2 fast path).
+        if (hiveHandle.isFullAcid()) {
+            props.put(PROP_TRANSACTIONAL_HIVE, "true");
+        }
+
         return props;
+    }
+
+    /**
+     * Stamps the SCAN-LEVEL table format for a full-ACID Hive scan (signalled by {@link #PROP_TRANSACTIONAL_HIVE}
+     * from {@link #getScanNodeProperties}). BE's FileScannerV2 selection reads {@code table_format_type} from the
+     * scan-level params (before per-range splits are fetched); without this stamp a transactional Hive read would
+     * wrongly use FileScannerV2, which does not apply ACID delete deltas — deleted rows would reappear. Mirrors the
+     * legacy {@code HiveScanNode.markTransactionalHiveScanParams} (#65437); the generic {@code PluginDrivenScanNode}
+     * invokes this hook after building the scan-level params.
+     */
+    @Override
+    public void populateScanLevelParams(TFileScanRangeParams params, Map<String, String> nodeProperties) {
+        if ("true".equals(nodeProperties.get(PROP_TRANSACTIONAL_HIVE))) {
+            markTransactionalHiveScanParams(params);
+        }
+    }
+
+    static void markTransactionalHiveScanParams(TFileScanRangeParams params) {
+        TTableFormatFileDesc tableFormatFileDesc = new TTableFormatFileDesc();
+        // Same literal the per-range marker uses (HiveScanRange); BE matches table_format_type == "transactional_hive".
+        tableFormatFileDesc.setTableFormatType("transactional_hive");
+        params.setTableFormatParams(tableFormatFileDesc);
     }
 
     /**

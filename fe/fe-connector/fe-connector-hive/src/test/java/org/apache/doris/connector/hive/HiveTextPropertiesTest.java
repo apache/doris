@@ -40,6 +40,7 @@ public class HiveTextPropertiesTest {
     private static final String MULTI_DELIMIT_SERDE = "org.apache.hadoop.hive.serde2.MultiDelimitSerDe";
     private static final String OPENX_JSON_SERDE = "org.openx.data.jsonserde.JsonSerDe";
     private static final String HCATALOG_JSON_SERDE = "org.apache.hive.hcatalog.data.JsonSerDe";
+    private static final String OPEN_CSV_SERDE = "org.apache.hadoop.hive.serde2.OpenCSVSerde";
     private static final String PREFIX = "hive.text.";
 
     private static String colSep(String serde, Map<String, String> sd) {
@@ -148,5 +149,31 @@ public class HiveTextPropertiesTest {
         Map<String, String> r = HiveTextProperties.extract(HCATALOG_JSON_SERDE, sd(), new HashMap<>());
         Assertions.assertFalse(r.containsKey(PREFIX + "openx_ignore_malformed"));
         Assertions.assertEquals("true", r.get(PREFIX + "is_json"));
+    }
+
+    // ---- #65501: trim_double_quotes must be emitted ONLY when the enclose char is the double-quote '"' ----
+
+    @Test
+    public void testCsvDefaultQuoteCharTrimsDoubleQuotes() {
+        // OpenCSVSerde with no quoteChar -> default '"' -> BE must trim the wrapping double quotes.
+        Map<String, String> r = HiveTextProperties.extract(OPEN_CSV_SERDE, sd(), new HashMap<>());
+        Assertions.assertEquals("\"", r.get(PREFIX + "enclose"));
+        Assertions.assertEquals("true", r.get(PREFIX + "trim_double_quotes"));
+    }
+
+    @Test
+    public void testCsvNonDoubleQuoteEncloseDoesNotTrim() {
+        // A single-quote quoteChar must NOT set trim_double_quotes; otherwise BE would strip literal '"'
+        // characters from the data (the exact pre-#65501 bug the master fix corrected).
+        Map<String, String> r = HiveTextProperties.extract(OPEN_CSV_SERDE, sd("quoteChar", "'"), new HashMap<>());
+        Assertions.assertEquals("'", r.get(PREFIX + "enclose"));
+        Assertions.assertEquals("false", r.get(PREFIX + "trim_double_quotes"));
+    }
+
+    @Test
+    public void testCsvExplicitDoubleQuoteEncloseTrims() {
+        // An explicit quoteChar="\"" is the double-quote case and must still trim.
+        Map<String, String> r = HiveTextProperties.extract(OPEN_CSV_SERDE, sd("quoteChar", "\""), new HashMap<>());
+        Assertions.assertEquals("true", r.get(PREFIX + "trim_double_quotes"));
     }
 }

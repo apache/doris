@@ -26,6 +26,7 @@ import org.apache.doris.connector.hms.HmsPartitionInfo;
 import org.apache.doris.connector.hms.HmsTableInfo;
 import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.thrift.TFileCompressType;
+import org.apache.doris.thrift.TFileScanRangeParams;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -205,6 +206,74 @@ public class HiveScanBatchModeTest {
                 "BE-canonical AWS_* creds must be emitted for the native reader (legacy parity)");
         // the raw s3. alias is still forwarded (harmless, ignored by BE), so no configured key is dropped
         Assertions.assertEquals("aliasAK", props.get("location.s3.access_key"));
+    }
+
+    // ============ #65437: scan-level transactional_hive marker (FileScannerV2 exclusion) ============
+    // Sibling to supportsBatchScan's ACID exclusion above. BE picks FileScannerV2 from SCAN-LEVEL params before the
+    // per-range splits arrive, and V2 does not apply ACID delete deltas. A full-ACID hive scan must therefore carry
+    // the "transactional_hive" marker at scan level (not only per-range) so BE keeps it on FileScanner V1 —
+    // otherwise deleted rows reappear.
+
+    @Test
+    public void getScanNodePropertiesEmitsTransactionalHiveForFullAcid() {
+        HiveScanPlanProvider provider = provider(new FakeHmsClient(), new CountingLister());
+        Map<String, String> txnParams = new HashMap<>();
+        txnParams.put("transactional", "true"); // full-ACID: transactional AND not insert_only
+        HiveTableHandle handle = new HiveTableHandle.Builder("db", "t", HiveTableType.HIVE)
+                .inputFormat(PARQUET_INPUT_FORMAT)
+                .serializationLib(PARQUET_SERDE)
+                .tableParameters(txnParams)
+                .build();
+        Map<String, String> props = provider.getScanNodeProperties(
+                new FakeSession(), handle, Collections.<ConnectorColumnHandle>emptyList(), Optional.empty());
+        // WHY (Rule 9): drives the scan-level stamp so BE excludes the full-ACID read from FileScannerV2.
+        Assertions.assertEquals("true", props.get(HiveScanPlanProvider.PROP_TRANSACTIONAL_HIVE));
+    }
+
+    @Test
+    public void getScanNodePropertiesOmitsTransactionalHiveForInsertOnly() {
+        HiveScanPlanProvider provider = provider(new FakeHmsClient(), new CountingLister());
+        Map<String, String> params = new HashMap<>();
+        params.put("transactional", "true");
+        params.put("transactional_properties", "insert_only");
+        HiveTableHandle handle = new HiveTableHandle.Builder("db", "t", HiveTableType.HIVE)
+                .inputFormat(PARQUET_INPUT_FORMAT)
+                .serializationLib(PARQUET_SERDE)
+                .tableParameters(params)
+                .build();
+        Map<String, String> props = provider.getScanNodeProperties(
+                new FakeSession(), handle, Collections.<ConnectorColumnHandle>emptyList(), Optional.empty());
+        // Insert-only ACID reads have no delete deltas, so FileScannerV2 is correct for them: the marker gates on
+        // isFullAcid() (NOT isTransactional()), so it must be ABSENT here to keep the V2 fast path.
+        Assertions.assertNull(props.get(HiveScanPlanProvider.PROP_TRANSACTIONAL_HIVE));
+    }
+
+    @Test
+    public void getScanNodePropertiesOmitsTransactionalHiveForNonTransactional() {
+        HiveScanPlanProvider provider = provider(new FakeHmsClient(), new CountingLister());
+        HiveTableHandle handle = new HiveTableHandle.Builder("db", "t", HiveTableType.HIVE)
+                .inputFormat(PARQUET_INPUT_FORMAT)
+                .serializationLib(PARQUET_SERDE)
+                .build();
+        Map<String, String> props = provider.getScanNodeProperties(
+                new FakeSession(), handle, Collections.<ConnectorColumnHandle>emptyList(), Optional.empty());
+        Assertions.assertNull(props.get(HiveScanPlanProvider.PROP_TRANSACTIONAL_HIVE));
+    }
+
+    @Test
+    public void populateScanLevelParamsStampsTransactionalHiveOnlyWhenSignalled() {
+        HiveScanPlanProvider provider = provider(new FakeHmsClient(), new CountingLister());
+        // With the signal -> scan-level table_format_type = "transactional_hive" (the exact string BE matches on,
+        // identical to the per-range HiveScanRange marker).
+        TFileScanRangeParams marked = new TFileScanRangeParams();
+        provider.populateScanLevelParams(marked,
+                Collections.singletonMap(HiveScanPlanProvider.PROP_TRANSACTIONAL_HIVE, "true"));
+        Assertions.assertTrue(marked.isSetTableFormatParams());
+        Assertions.assertEquals("transactional_hive", marked.getTableFormatParams().getTableFormatType());
+        // Without the signal -> untouched, so non-ACID hive keeps the FileScannerV2 fast path.
+        TFileScanRangeParams unmarked = new TFileScanRangeParams();
+        provider.populateScanLevelParams(unmarked, Collections.<String, String>emptyMap());
+        Assertions.assertFalse(unmarked.isSetTableFormatParams());
     }
 
     // ===== helpers =====
