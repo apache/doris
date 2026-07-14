@@ -257,7 +257,7 @@ public abstract class LogicalCatalogRelation extends LogicalRelation implements 
         if (other == null || getClass() != other.getClass()) {
             return false;
         }
-        if (!new TableIdentifier(table).equals(new TableIdentifier(other.table))) {
+        if (!hasSameTableIdentity(other)) {
             return false;
         }
         if (getOutput().size() != other.getOutput().size()) {
@@ -269,6 +269,10 @@ public abstract class LogicalCatalogRelation extends LogicalRelation implements 
             }
         }
         return hasSameScanState(other);
+    }
+
+    protected boolean hasSameTableIdentity(LogicalCatalogRelation other) {
+        return new TableIdentifier(table).equals(new TableIdentifier(other.table));
     }
 
     protected boolean hasSameScanState(LogicalCatalogRelation other) {

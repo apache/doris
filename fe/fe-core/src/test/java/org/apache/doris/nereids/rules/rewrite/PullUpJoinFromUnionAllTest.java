@@ -26,6 +26,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.stream.OlapTableStreamWrapper;
 import org.apache.doris.catalog.stream.StreamReadMode;
+import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
@@ -142,6 +143,42 @@ class PullUpJoinFromUnionAllTest {
         PullUpJoinFromUnionAll.LogicalPlanComparator comparator =
                 new PullUpJoinFromUnionAll().new LogicalPlanComparator();
         Assertions.assertFalse(comparator.isLogicalEqual(incrementalScan, snapshotScan));
+    }
+
+    @Test
+    void comparatorRejectsDifferentStreamOffsets() {
+        LogicalOlapTableStreamScan left = newStreamScanWithOffsets(45, "common_stream_offset", 1000L, 2000L,
+                KeysType.UNIQUE_KEYS, ImmutableMap.of(1L, Pair.of(10L, 20L)));
+        LogicalOlapTableStreamScan right = newStreamScanWithOffsets(45, "common_stream_offset", 1000L, 2000L,
+                KeysType.UNIQUE_KEYS, ImmutableMap.of(1L, Pair.of(30L, 40L)));
+
+        PullUpJoinFromUnionAll.LogicalPlanComparator comparator =
+                new PullUpJoinFromUnionAll().new LogicalPlanComparator();
+        Assertions.assertFalse(comparator.isLogicalEqual(left, right));
+    }
+
+    @Test
+    void comparatorRejectsDifferentStreamKeysTypes() {
+        LogicalOlapTableStreamScan uniqueKeyScan = newStreamScanWithOffsets(46, "common_stream_keys", 1000L, 2000L,
+                KeysType.UNIQUE_KEYS, ImmutableMap.of(1L, Pair.of(10L, 20L)));
+        LogicalOlapTableStreamScan dupKeyScan = newStreamScanWithOffsets(46, "common_stream_keys", 1000L, 2000L,
+                KeysType.DUP_KEYS, ImmutableMap.of(1L, Pair.of(10L, 20L)));
+
+        PullUpJoinFromUnionAll.LogicalPlanComparator comparator =
+                new PullUpJoinFromUnionAll().new LogicalPlanComparator();
+        Assertions.assertFalse(comparator.isLogicalEqual(uniqueKeyScan, dupKeyScan));
+    }
+
+    @Test
+    void comparatorRejectsDifferentStreamIdentities() {
+        LogicalOlapTableStreamScan left = newStreamScanWithOffsets(47, "common_stream_identity", 1000L, 2000L,
+                KeysType.UNIQUE_KEYS, ImmutableMap.of(1L, Pair.of(10L, 20L)));
+        LogicalOlapTableStreamScan right = newStreamScanWithOffsets(47, "common_stream_identity", 1000L, 3000L,
+                KeysType.UNIQUE_KEYS, ImmutableMap.of(1L, Pair.of(10L, 20L)));
+
+        PullUpJoinFromUnionAll.LogicalPlanComparator comparator =
+                new PullUpJoinFromUnionAll().new LogicalPlanComparator();
+        Assertions.assertFalse(comparator.isLogicalEqual(left, right));
     }
 
     @Test
@@ -291,6 +328,29 @@ class PullUpJoinFromUnionAllTest {
         Mockito.when(table.getBaseSchema()).thenReturn(ImmutableList.of(new Column("id", Type.INT, true)));
         return new LogicalOlapTableStreamScan(PlanConstructor.getNextRelationId(),
                 table, ImmutableList.of("db"),
+                ImmutableList.of(), ImmutableList.of(), Optional.empty(), ImmutableList.of());
+    }
+
+    private static LogicalOlapTableStreamScan newStreamScanWithOffsets(long tableId, String tableName,
+            long streamDbId, long streamId, KeysType keysType, ImmutableMap<Long, Pair<Long, Long>> offsets) {
+        OlapTable baseTable = Mockito.mock(OlapTable.class);
+        Mockito.when(baseTable.getId()).thenReturn(tableId);
+        Mockito.when(baseTable.getDatabase()).thenReturn(null);
+        Mockito.when(baseTable.getName()).thenReturn(tableName);
+
+        OlapTableStreamWrapper table = Mockito.mock(OlapTableStreamWrapper.class);
+        Mockito.when(table.getId()).thenReturn(tableId);
+        Mockito.when(table.getDatabase()).thenReturn(null);
+        Mockito.when(table.getName()).thenReturn(tableName);
+        Mockito.when(table.getBaseTable()).thenReturn(baseTable);
+        Mockito.when(table.getStreamDbId()).thenReturn(streamDbId);
+        Mockito.when(table.getStreamId()).thenReturn(streamId);
+        Mockito.when(table.getStreamKeysType()).thenReturn(keysType);
+        Mockito.when(table.getBaseSchema(false)).thenReturn(ImmutableList.of(new Column("id", Type.INT, true)));
+        Mockito.when(table.getBaseSchema()).thenReturn(ImmutableList.of(new Column("id", Type.INT, true)));
+        Mockito.when(table.getOutputUpdateMap()).thenReturn(offsets);
+        return new LogicalOlapTableStreamScan(PlanConstructor.getNextRelationId(),
+                table, ImmutableList.of("db"), ImmutableList.of(1L),
                 ImmutableList.of(), ImmutableList.of(), Optional.empty(), ImmutableList.of());
     }
 
