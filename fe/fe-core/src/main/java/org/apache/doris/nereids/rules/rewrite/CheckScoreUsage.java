@@ -22,6 +22,7 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.SearchExpression;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Score;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
@@ -66,8 +67,30 @@ public class CheckScoreUsage implements RewriteRuleFactory {
                             "score() function cannot be used in aggregate functions. "
                             + "score() requires WHERE clause with MATCH function, "
                             + "ORDER BY and LIMIT for optimization");
+                }).toRule(RuleType.CHECK_SCORE_USAGE),
+
+            any()
+                .when(this::hasNestedSearchAndScore)
+                .then(plan -> {
+                    throw new AnalysisException(
+                            "score() is not supported with a NESTED search clause");
                 }).toRule(RuleType.CHECK_SCORE_USAGE)
         );
+    }
+
+    private boolean hasNestedSearchAndScore(Plan plan) {
+        return containsNestedSearch(plan) && containsScoreFunction(plan);
+    }
+
+    private boolean containsNestedSearch(Plan plan) {
+        return plan.getExpressions().stream().anyMatch(this::containsNestedSearch)
+                || plan.children().stream().anyMatch(this::containsNestedSearch);
+    }
+
+    private boolean containsNestedSearch(Expression expression) {
+        return (expression instanceof SearchExpression
+                && ((SearchExpression) expression).containsNestedQuery())
+                || expression.children().stream().anyMatch(this::containsNestedSearch);
     }
 
     private boolean hasScoreFunction(LogicalProject<?> project) {
@@ -95,6 +118,11 @@ public class CheckScoreUsage implements RewriteRuleFactory {
             return true;
         }
         return expr.children().stream().anyMatch(this::containsScoreFunction);
+    }
+
+    private boolean containsScoreFunction(Plan plan) {
+        return plan.getExpressions().stream().anyMatch(this::containsScoreFunction)
+                || plan.children().stream().anyMatch(this::containsScoreFunction);
     }
 
     private boolean isScoreAlreadyOptimized(LogicalProject<?> project) {

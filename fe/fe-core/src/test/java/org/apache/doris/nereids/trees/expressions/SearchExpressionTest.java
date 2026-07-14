@@ -76,6 +76,30 @@ public class SearchExpressionTest {
     }
 
     @Test
+    public void testContainsNestedQuery() {
+        SearchDslParser.QsNode nestedRoot = new SearchDslParser.QsNode(
+                SearchDslParser.QsClauseType.NESTED, Collections.emptyList());
+        SearchDslParser.QsPlan nestedPlan = new SearchDslParser.QsPlan(nestedRoot,
+                Collections.emptyList());
+        SearchExpression nestedSearch = new SearchExpression(
+                "NESTED(items, title:hello)", nestedPlan, Collections.emptyList());
+
+        Assertions.assertTrue(nestedSearch.containsNestedQuery());
+
+        SearchDslParser.QsNode wrappedRoot = new SearchDslParser.QsNode(
+                SearchDslParser.QsClauseType.OR, Arrays.asList(nestedRoot));
+        SearchExpression wrappedNestedSearch = new SearchExpression(
+                "NESTED(items, title:hello)",
+                new SearchDslParser.QsPlan(wrappedRoot, Collections.emptyList()),
+                Collections.emptyList());
+        Assertions.assertTrue(wrappedNestedSearch.containsNestedQuery());
+
+        SearchExpression ordinarySearch = new SearchExpression(
+                "title:hello", createTestPlan(), Collections.emptyList());
+        Assertions.assertFalse(ordinarySearch.containsNestedQuery());
+    }
+
+    @Test
     public void testFoldable() {
         String dsl = "title:hello";
         SearchDslParser.QsPlan plan = createTestPlan();
