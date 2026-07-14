@@ -23,15 +23,37 @@
 #include "cloud/cloud_tablet_hotspot.h"
 #include "cloud/config.h"
 #include "common/status.h"
+#include "io/io_common.h"
 #include "olap/base_tablet.h"
 #include "olap/rowset/beta_rowset.h"
 #include "olap/segment_loader.h"
 #include "pipeline/exec/olap_scan_operator.h"
+#include "runtime/query_context.h"
 #include "vec/exec/scan/olap_scanner.h"
 
 namespace doris {
 
 using namespace vectorized;
+
+namespace {
+
+io::IOContext create_preload_io_context(RuntimeState* state, OlapReaderStatistics* preload_stats) {
+    io::IOContext io_ctx;
+    io_ctx.reader_type = ReaderType::READER_QUERY;
+    io_ctx.file_cache_stats = preload_stats ? &preload_stats->file_cache_stats : nullptr;
+    if (state == nullptr) {
+        return io_ctx;
+    }
+    io_ctx.query_id = &state->query_id();
+    io_ctx.read_file_cache = state->query_options().enable_file_cache;
+    io_ctx.is_disposable = state->query_options().disable_file_cache;
+    if (auto* query_ctx = state->get_query_ctx(); query_ctx != nullptr) {
+        io_ctx.remote_scan_cache_write_limiter = query_ctx->remote_scan_cache_write_limiter();
+    }
+    return io_ctx;
+}
+
+} // namespace
 
 Status ParallelScannerBuilder::build_scanners(std::list<ScannerSPtr>& scanners) {
     RETURN_IF_ERROR(_load());
@@ -235,8 +257,9 @@ Status ParallelScannerBuilder::_load() {
 
             auto beta_rowset = std::dynamic_pointer_cast<BetaRowset>(rowset);
             std::vector<uint32_t> segment_rows;
+            auto preload_io_ctx = create_preload_io_context(_state, &_builder_stats);
             RETURN_IF_ERROR(beta_rowset->get_segment_num_rows(&segment_rows, enable_segment_cache,
-                                                              &_builder_stats));
+                                                              &_builder_stats, &preload_io_ctx));
             auto segment_count = rowset->num_segments();
             for (int64_t i = 0; i != segment_count; i++) {
                 _all_segments_rows[rowset_id].emplace_back(segment_rows[i]);

@@ -44,6 +44,10 @@
 
 namespace doris {
 
+namespace io {
+class RemoteScanCacheWriteLimiter;
+} // namespace io
+
 namespace pipeline {
 class PipelineFragmentContext;
 class PipelineTask;
@@ -248,6 +252,10 @@ public:
 
     std::shared_ptr<ResourceContext> resource_ctx() { return _resource_ctx; }
 
+    io::RemoteScanCacheWriteLimiter* remote_scan_cache_write_limiter() const {
+        return _remote_scan_cache_write_limiter.get();
+    }
+
     // plan node id -> TFileScanRangeParams
     // only for file scan node
     std::map<int, TFileScanRangeParams> file_scan_range_params_map;
@@ -377,6 +385,7 @@ private:
 
     // file cache context holders
     std::vector<io::BlockFileCache::QueryFileCacheContextHolderPtr> _query_context_holders;
+    std::unique_ptr<io::RemoteScanCacheWriteLimiter> _remote_scan_cache_write_limiter;
 
 public:
     // when fragment of pipeline is closed, it will register its profile to this map by using add_fragment_profile

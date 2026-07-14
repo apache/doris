@@ -52,6 +52,8 @@ io::FileCacheStatistics make_file_cache_stats(int64_t multiplier) {
     stats.inverted_index_remote_io_timer = multiplier * 26;
     stats.inverted_index_peer_io_timer = multiplier * 27;
     stats.inverted_index_io_timer = multiplier * 28;
+    stats.remote_only_on_miss_triggered = multiplier * 29;
+    stats.remote_only_on_miss_threshold_bytes = multiplier * 30;
     return stats;
 }
 
@@ -89,6 +91,9 @@ void expect_file_cache_stats_eq(const io::FileCacheStatistics& actual,
     EXPECT_EQ(actual.inverted_index_remote_io_timer, expected.inverted_index_remote_io_timer);
     EXPECT_EQ(actual.inverted_index_peer_io_timer, expected.inverted_index_peer_io_timer);
     EXPECT_EQ(actual.inverted_index_io_timer, expected.inverted_index_io_timer);
+    EXPECT_EQ(actual.remote_only_on_miss_triggered, expected.remote_only_on_miss_triggered);
+    EXPECT_EQ(actual.remote_only_on_miss_threshold_bytes,
+              expected.remote_only_on_miss_threshold_bytes);
 }
 
 } // namespace

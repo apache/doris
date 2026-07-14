@@ -47,7 +47,7 @@ Status HierarchicalDataIterator::create(ColumnIteratorUPtr* reader, int32_t col_
                                         std::unique_ptr<SubstreamIterator>&& sparse_reader,
                                         std::unique_ptr<SubstreamIterator>&& root_column_reader,
                                         ColumnReaderCache* column_reader_cache,
-                                        OlapReaderStatistics* stats) {
+                                        OlapReaderStatistics* stats, const io::IOContext* io_ctx) {
     // None leave node need merge with root
     std::unique_ptr<HierarchicalDataIterator> stream_iter(new HierarchicalDataIterator(path));
     if (node != nullptr) {
@@ -59,8 +59,8 @@ Status HierarchicalDataIterator::create(ColumnIteratorUPtr* reader, int32_t col_
                 // use set_root to share instead
                 continue;
             }
-            RETURN_IF_ERROR(
-                    stream_iter->add_stream(col_uid, leaves[i], column_reader_cache, stats));
+            RETURN_IF_ERROR(stream_iter->add_stream(col_uid, leaves[i], column_reader_cache, stats,
+                                                    io_ctx));
         }
     }
     // need read from root column if not null
@@ -139,7 +139,8 @@ Status HierarchicalDataIterator::read_by_rowids(const rowid_t* rowids, const siz
 Status HierarchicalDataIterator::add_stream(int32_t col_uid,
                                             const SubcolumnColumnMetaInfo::Node* node,
                                             ColumnReaderCache* column_reader_cache,
-                                            OlapReaderStatistics* stats) {
+                                            OlapReaderStatistics* stats,
+                                            const io::IOContext* io_ctx) {
     if (_substream_reader.find_leaf(node->path)) {
         VLOG_DEBUG << "Already exist sub column " << node->path.get_path();
         return Status::OK();
@@ -148,7 +149,7 @@ Status HierarchicalDataIterator::add_stream(int32_t col_uid,
     ColumnIteratorUPtr it;
     std::shared_ptr<ColumnReader> column_reader;
     RETURN_IF_ERROR(column_reader_cache->get_path_column_reader(col_uid, node->path, &column_reader,
-                                                                stats, node));
+                                                                stats, node, io_ctx));
     RETURN_IF_ERROR(column_reader->new_iterator(&it, nullptr));
     SubstreamIterator reader(node->data.file_column_type->create_column(), std::move(it),
                              node->data.file_column_type);

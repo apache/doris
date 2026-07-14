@@ -269,10 +269,11 @@ Status VariantColumnReader::_create_hierarchical_reader(ColumnIteratorUPtr* read
                                                         const SubcolumnColumnMetaInfo::Node* node,
                                                         const SubcolumnColumnMetaInfo::Node* root,
                                                         ColumnReaderCache* column_reader_cache,
-                                                        OlapReaderStatistics* stats) {
+                                                        OlapReaderStatistics* stats,
+                                                        const io::IOContext* io_ctx) {
     // make sure external meta is loaded otherwise can't find any meta data for extracted columns
     // TODO(lhy): this will load all external meta if not loaded, and memory will be consumed.
-    RETURN_IF_ERROR(load_external_meta_once());
+    RETURN_IF_ERROR(load_external_meta_once(stats, io_ctx));
 
     stats->variant_subtree_hierarchical_iter_count++;
     // After external meta is loaded, protect reads from `_statistics` and
@@ -310,7 +311,7 @@ Status VariantColumnReader::_create_hierarchical_reader(ColumnIteratorUPtr* read
     }
     RETURN_IF_ERROR(HierarchicalDataIterator::create(
             reader, col_uid, path, node, std::move(sparse_iter), std::move(root_column_reader),
-            column_reader_cache, stats));
+            column_reader_cache, stats, io_ctx));
     return Status::OK();
 }
 
@@ -354,7 +355,7 @@ Status VariantColumnReader::_create_sparse_merge_reader(ColumnIteratorUPtr* iter
         std::shared_ptr<ColumnReader> column_reader;
         RETURN_IF_ERROR(column_reader_cache->get_path_column_reader(
                 target_col.parent_unique_id(), subcolumn_reader->path, &column_reader, opts->stats,
-                subcolumn_reader.get()));
+                subcolumn_reader.get(), &opts->io_ctx));
         ColumnIteratorUPtr it;
         RETURN_IF_ERROR(column_reader->new_iterator(&it, nullptr));
         // Create substream reader and add to tree
@@ -402,7 +403,8 @@ Status VariantColumnReader::_new_default_iter_with_same_nested(
         std::unique_ptr<ColumnIterator> sibling_iter;
         std::shared_ptr<ColumnReader> column_reader;
         RETURN_IF_ERROR(column_reader_cache->get_path_column_reader(
-                tablet_column.parent_unique_id(), leaf->path, &column_reader, opt->stats, leaf));
+                tablet_column.parent_unique_id(), leaf->path, &column_reader, opt->stats, leaf,
+                &opt->io_ctx));
         RETURN_IF_ERROR(column_reader->new_iterator(&sibling_iter, nullptr));
         *iterator = std::make_unique<DefaultNestedColumnIterator>(std::move(sibling_iter),
                                                                   leaf->data.file_column_type);
@@ -444,11 +446,11 @@ Status VariantColumnReader::_build_read_plan_flat_leaves(
         ColumnReaderCache* column_reader_cache, PathToSparseColumnCache* sparse_column_cache_ptr) {
     // make sure external meta is loaded otherwise can't find any meta data for extracted columns
     // TODO(lhy): this will load all external meta if not loaded, and memory will be consumed.
-    RETURN_IF_ERROR(load_external_meta_once());
+    DCHECK(opts != nullptr);
+    RETURN_IF_ERROR(load_external_meta_once(opts->stats, &opts->io_ctx));
 
     std::shared_lock<std::shared_mutex> lock(_subcolumns_meta_mutex);
 
-    DCHECK(opts != nullptr);
     auto relative_path = target_col.path_info_ptr()->copy_pop_front();
     // compaction need to read flat leaves nodes data to prevent from amplification
     const auto* node =
@@ -529,8 +531,9 @@ Status VariantColumnReader::_build_read_plan_flat_leaves(
     }
     VLOG_DEBUG << "new iterator: " << target_col.path_info_ptr()->get_path();
     std::shared_ptr<ColumnReader> column_reader;
-    RETURN_IF_ERROR(column_reader_cache->get_path_column_reader(
-            target_col.parent_unique_id(), node->path, &column_reader, opts->stats, node));
+    RETURN_IF_ERROR(column_reader_cache->get_path_column_reader(target_col.parent_unique_id(),
+                                                                node->path, &column_reader,
+                                                                opts->stats, node, &opts->io_ctx));
     plan->kind = ReadKind::LEAF;
     plan->type = column_reader->get_vec_data_type();
     plan->relative_path = relative_path;
@@ -538,13 +541,16 @@ Status VariantColumnReader::_build_read_plan_flat_leaves(
     return Status::OK();
 }
 
-bool VariantColumnReader::has_prefix_path(const vectorized::PathInData& relative_path) const {
+bool VariantColumnReader::has_prefix_path(const vectorized::PathInData& relative_path,
+                                          OlapReaderStatistics* stats,
+                                          const io::IOContext* io_ctx) const {
     std::shared_lock<std::shared_mutex> lock(_subcolumns_meta_mutex);
-    return _has_prefix_path_unlocked(relative_path);
+    return _has_prefix_path_unlocked(relative_path, stats, io_ctx);
 }
 
-bool VariantColumnReader::_has_prefix_path_unlocked(
-        const vectorized::PathInData& relative_path) const {
+bool VariantColumnReader::_has_prefix_path_unlocked(const vectorized::PathInData& relative_path,
+                                                    OlapReaderStatistics* stats,
+                                                    const io::IOContext* io_ctx) const {
     if (relative_path.empty()) {
         return true;
     }
@@ -573,7 +579,7 @@ bool VariantColumnReader::_has_prefix_path_unlocked(
     if (_ext_meta_reader && _ext_meta_reader->available()) {
         bool has = false;
         // Pass strict prefix `p.` to avoid false positives like `a.b` matching `a.bc`.
-        if (_ext_meta_reader->has_prefix(dot_prefix, &has).ok() && has) {
+        if (_ext_meta_reader->has_prefix(dot_prefix, &has, stats, io_ctx).ok() && has) {
             return true;
         }
     }
@@ -643,7 +649,7 @@ Status VariantColumnReader::_build_read_plan(ReadPlan* plan, const TabletColumn&
 
     // Check if path is prefix, example sparse columns path: a.b.c, a.b.e, access prefix: a.b.
     // Or access root path
-    if (_has_prefix_path_unlocked(relative_path)) {
+    if (_has_prefix_path_unlocked(relative_path, opt->stats, &opt->io_ctx)) {
         // Example {"b" : {"c":456,"e":7.111}}
         // b.c is sparse column, b.e is subcolumn, so b is both the prefix of sparse column and
         // subcolumn
@@ -680,8 +686,9 @@ Status VariantColumnReader::_build_read_plan(ReadPlan* plan, const TabletColumn&
         // Direct read extracted columns
         const auto* leaf_node = _subcolumns_meta_info->find_leaf(relative_path);
         std::shared_ptr<ColumnReader> leaf_column_reader;
-        RETURN_IF_ERROR(column_reader_cache->get_path_column_reader(
-                col_uid, leaf_node->path, &leaf_column_reader, opt->stats, leaf_node));
+        RETURN_IF_ERROR(column_reader_cache->get_path_column_reader(col_uid, leaf_node->path,
+                                                                    &leaf_column_reader, opt->stats,
+                                                                    leaf_node, &opt->io_ctx));
         plan->kind = ReadKind::LEAF;
         plan->type = leaf_column_reader->get_vec_data_type();
         plan->relative_path = relative_path;
@@ -691,8 +698,8 @@ Status VariantColumnReader::_build_read_plan(ReadPlan* plan, const TabletColumn&
             // Get path reader from external meta
             std::shared_ptr<ColumnReader> leaf_column_reader;
             Status st = column_reader_cache->get_path_column_reader(
-                    col_uid, relative_path, &leaf_column_reader, opt->stats, nullptr);
-            DCHECK(!_has_prefix_path_unlocked(relative_path));
+                    col_uid, relative_path, &leaf_column_reader, opt->stats, nullptr, &opt->io_ctx);
+            DCHECK(!_has_prefix_path_unlocked(relative_path, opt->stats, &opt->io_ctx));
             if (st.ok()) {
                 // Try external meta fallback: build a leaf reader on demand from externalized meta
                 plan->kind = ReadKind::LEAF;
@@ -739,7 +746,7 @@ Status VariantColumnReader::_create_iterator_from_plan(
                                                       : target_col.parent_unique_id();
         RETURN_IF_ERROR(_create_hierarchical_reader(iterator, col_uid, plan.relative_path,
                                                     plan.node, plan.root, column_reader_cache,
-                                                    opt->stats));
+                                                    opt->stats, &opt->io_ctx));
         return Status::OK();
     }
     case ReadKind::LEAF: {
@@ -820,7 +827,8 @@ Status VariantColumnReader::new_iterator(ColumnIteratorUPtr* iterator,
 
 Status VariantColumnReader::init(const ColumnReaderOptions& opts, ColumnMetaAccessor* accessor,
                                  const std::shared_ptr<SegmentFooterPB>& footer, int32_t column_uid,
-                                 uint64_t num_rows, io::FileReaderSPtr file_reader) {
+                                 uint64_t num_rows, io::FileReaderSPtr file_reader,
+                                 OlapReaderStatistics* stats, const io::IOContext* source_io_ctx) {
     // init sub columns
     _subcolumns_meta_info = std::make_unique<SubcolumnColumnMetaInfo>();
     _statistics = std::make_unique<VariantStatistics>();
@@ -829,7 +837,8 @@ Status VariantColumnReader::init(const ColumnReaderOptions& opts, ColumnMetaAcce
     ColumnMetaPB self_column_pb;
     {
         // Locate root column meta by unique id; this hides inline vs external CMO layout.
-        RETURN_IF_ERROR(accessor->get_column_meta_by_uid(*footer, column_uid, &self_column_pb));
+        RETURN_IF_ERROR(accessor->get_column_meta_by_uid(*footer, column_uid, &self_column_pb,
+                                                         stats, source_io_ctx));
         // root column
         // root subcolumn is ColumnVariant::MostCommonType which is jsonb
         vectorized::DataTypePtr root_type =
@@ -995,43 +1004,45 @@ Status VariantColumnReader::init(const ColumnReaderOptions& opts, ColumnMetaAcce
     _num_rows = num_rows;
     // try build external meta readers (optional)
     _ext_meta_reader = std::make_unique<VariantExternalMetaReader>();
-    RETURN_IF_ERROR(_ext_meta_reader->init_from_footer(footer, file_reader, _root_unique_id));
+    RETURN_IF_ERROR(_ext_meta_reader->init_from_footer(footer, file_reader, _root_unique_id, stats,
+                                                       source_io_ctx));
     return Status::OK();
 }
 Status VariantColumnReader::create_reader_from_external_meta(const std::string& path,
                                                              const ColumnReaderOptions& opts,
                                                              const io::FileReaderSPtr& file_reader,
                                                              uint64_t num_rows,
-                                                             std::shared_ptr<ColumnReader>* out) {
+                                                             std::shared_ptr<ColumnReader>* out,
+                                                             OlapReaderStatistics* stats,
+                                                             const io::IOContext* source_io_ctx) {
     if (!_ext_meta_reader || !_ext_meta_reader->available()) {
         return Status::Error<ErrorCode::NOT_FOUND, false>("no external variant meta");
     }
     ColumnMetaPB meta;
-    RETURN_IF_ERROR(_ext_meta_reader->lookup_meta_by_path(path, &meta));
+    RETURN_IF_ERROR(_ext_meta_reader->lookup_meta_by_path(path, &meta, stats, source_io_ctx));
     return ColumnReader::create(opts, meta, num_rows, file_reader, out);
 }
 
-Status VariantColumnReader::create_path_reader(const vectorized::PathInData& relative_path,
-                                               const ColumnReaderOptions& opts,
-                                               ColumnMetaAccessor* accessor,
-                                               const SegmentFooterPB& footer,
-                                               const io::FileReaderSPtr& file_reader,
-                                               uint64_t num_rows,
-                                               std::shared_ptr<ColumnReader>* out) {
+Status VariantColumnReader::create_path_reader(
+        const vectorized::PathInData& relative_path, const ColumnReaderOptions& opts,
+        ColumnMetaAccessor* accessor, const SegmentFooterPB& footer,
+        const io::FileReaderSPtr& file_reader, uint64_t num_rows,
+        std::shared_ptr<ColumnReader>* out, OlapReaderStatistics* stats,
+        const io::IOContext* source_io_ctx) {
     // 1) Try inline subcolumn meta if available (footer_ordinal >= 0)
     const auto* node = get_subcolumn_meta_by_path(relative_path);
     if (node != nullptr && node->data.footer_ordinal >= 0) {
         // leaf node, get the column meta by footer ordinal
         const int32_t column_ordinal = node->data.footer_ordinal;
         ColumnMetaPB meta;
-        RETURN_IF_ERROR(
-                accessor->get_column_meta_by_column_ordinal_id(footer, column_ordinal, &meta));
+        RETURN_IF_ERROR(accessor->get_column_meta_by_column_ordinal_id(
+                footer, column_ordinal, &meta, stats, source_io_ctx));
         return ColumnReader::create(opts, meta, num_rows, file_reader, out);
     }
 
     // 2) Try external meta layout (if available)
     Status st = create_reader_from_external_meta(relative_path.get_path(), opts, file_reader,
-                                                 num_rows, out);
+                                                 num_rows, out, stats, source_io_ctx);
     if (st.is<ErrorCode::NOT_FOUND>()) {
         *out = nullptr;
         return st;
@@ -1039,7 +1050,8 @@ Status VariantColumnReader::create_path_reader(const vectorized::PathInData& rel
     return st;
 }
 
-Status VariantColumnReader::load_external_meta_once() {
+Status VariantColumnReader::load_external_meta_once(OlapReaderStatistics* stats,
+                                                    const io::IOContext* source_io_ctx) {
     if (!_ext_meta_reader || !_ext_meta_reader->available()) {
         return Status::OK();
     }
@@ -1047,7 +1059,8 @@ Status VariantColumnReader::load_external_meta_once() {
     // while readers of these structures hold shared locks.
     // english only in comments
     std::unique_lock<std::shared_mutex> lock(_subcolumns_meta_mutex);
-    return _ext_meta_reader->load_all_once(_subcolumns_meta_info.get(), _statistics.get());
+    return _ext_meta_reader->load_all_once(_subcolumns_meta_info.get(), _statistics.get(), stats,
+                                           source_io_ctx);
 }
 
 TabletIndexes VariantColumnReader::find_subcolumn_tablet_indexes(

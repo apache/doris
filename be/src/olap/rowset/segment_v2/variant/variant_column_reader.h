@@ -207,7 +207,9 @@ public:
 
     Status init(const ColumnReaderOptions& opts, ColumnMetaAccessor* accessor,
                 const std::shared_ptr<SegmentFooterPB>& footer, int32_t column_uid,
-                uint64_t num_rows, io::FileReaderSPtr file_reader);
+                uint64_t num_rows, io::FileReaderSPtr file_reader,
+                OlapReaderStatistics* stats = nullptr,
+                const io::IOContext* source_io_ctx = nullptr);
 
     Status new_iterator(ColumnIteratorUPtr* iterator, const TabletColumn* col,
                         const StorageReadOptions* opt) override;
@@ -265,7 +267,9 @@ public:
     Status create_path_reader(const vectorized::PathInData& relative_path,
                               const ColumnReaderOptions& opts, ColumnMetaAccessor* accessor,
                               const SegmentFooterPB& footer, const io::FileReaderSPtr& file_reader,
-                              uint64_t num_rows, std::shared_ptr<ColumnReader>* out);
+                              uint64_t num_rows, std::shared_ptr<ColumnReader>* out,
+                              OlapReaderStatistics* stats = nullptr,
+                              const io::IOContext* source_io_ctx = nullptr);
 
     // Try create a ColumnReader from externalized meta (path -> ColumnMetaPB bytes) if present.
     // Only used internally by create_path_reader. External callers should not rely
@@ -273,23 +277,30 @@ public:
     Status create_reader_from_external_meta(const std::string& path,
                                             const ColumnReaderOptions& opts,
                                             const io::FileReaderSPtr& file_reader,
-                                            uint64_t num_rows, std::shared_ptr<ColumnReader>* out);
+                                            uint64_t num_rows, std::shared_ptr<ColumnReader>* out,
+                                            OlapReaderStatistics* stats = nullptr,
+                                            const io::IOContext* source_io_ctx = nullptr);
 
     // Ensure external meta is loaded only once across concurrent callers.
-    Status load_external_meta_once();
+    Status load_external_meta_once(OlapReaderStatistics* stats = nullptr,
+                                   const io::IOContext* source_io_ctx = nullptr);
 
     // Determine whether `path` is a strict prefix of any existing subcolumn path.
     // Consider three sources:
     // 1) Extracted subcolumns in `_subcolumns_meta_info`
     // 2) Sparse column statistics in `_statistics->sparse_column_non_null_size`
     // 3) Externalized metas via `_ext_meta_reader`
-    bool has_prefix_path(const vectorized::PathInData& relative_path) const;
+    bool has_prefix_path(const vectorized::PathInData& relative_path,
+                         OlapReaderStatistics* stats = nullptr,
+                         const io::IOContext* io_ctx = nullptr) const;
 
 private:
     // Internal unlocked helpers. Caller must hold `_subcolumns_meta_mutex` when using them.
     // english only in comments
     bool _is_exceeded_sparse_column_limit_unlocked() const;
-    bool _has_prefix_path_unlocked(const vectorized::PathInData& relative_path) const;
+    bool _has_prefix_path_unlocked(const vectorized::PathInData& relative_path,
+                                   OlapReaderStatistics* stats = nullptr,
+                                   const io::IOContext* io_ctx = nullptr) const;
 
     // Describe how a variant sub-path should be read. This is a logical plan only and
     // does not create any concrete ColumnIterator.
@@ -353,7 +364,7 @@ private:
                                        const SubcolumnColumnMetaInfo::Node* node,
                                        const SubcolumnColumnMetaInfo::Node* root,
                                        ColumnReaderCache* column_reader_cache,
-                                       OlapReaderStatistics* stats);
+                                       OlapReaderStatistics* stats, const io::IOContext* io_ctx);
     // Create a reader that merges subcolumns into the destination sparse column.
     // If bucket_index is set, only subcolumns whose path belongs to this bucket will be merged.
     Status _create_sparse_merge_reader(ColumnIteratorUPtr* iterator, const StorageReadOptions* opts,

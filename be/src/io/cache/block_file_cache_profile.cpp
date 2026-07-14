@@ -98,6 +98,8 @@ FileCacheStatistics diff_file_cache_statistics(const FileCacheStatistics& curren
     SUBTRACT_FIELD(inverted_index_remote_io_timer);
     SUBTRACT_FIELD(inverted_index_peer_io_timer);
     SUBTRACT_FIELD(inverted_index_io_timer);
+    SUBTRACT_FIELD(inverted_index_write_cache_io_timer);
+    SUBTRACT_FIELD(inverted_index_bytes_write_into_cache);
 
     SUBTRACT_FIELD(segment_footer_index_num_local_io_total);
     SUBTRACT_FIELD(segment_footer_index_num_remote_io_total);
@@ -108,6 +110,10 @@ FileCacheStatistics diff_file_cache_statistics(const FileCacheStatistics& curren
     SUBTRACT_FIELD(segment_footer_index_local_io_timer);
     SUBTRACT_FIELD(segment_footer_index_remote_io_timer);
     SUBTRACT_FIELD(segment_footer_index_peer_io_timer);
+    SUBTRACT_FIELD(segment_footer_index_write_cache_io_timer);
+    SUBTRACT_FIELD(segment_footer_index_bytes_write_into_cache);
+    SUBTRACT_FIELD(remote_only_on_miss_triggered);
+    SUBTRACT_FIELD(remote_only_on_miss_threshold_bytes);
 #undef SUBTRACT_FIELD
     return diff;
 }
@@ -145,6 +151,10 @@ FileCacheProfileReporter::FileCacheProfileReporter(RuntimeProfile* profile) {
     lock_wait_timer = ADD_CHILD_TIMER_WITH_LEVEL(profile, "LockWaitTimer", cache_profile, 1);
     get_timer = ADD_CHILD_TIMER_WITH_LEVEL(profile, "GetTimer", cache_profile, 1);
     set_timer = ADD_CHILD_TIMER_WITH_LEVEL(profile, "SetTimer", cache_profile, 1);
+    remote_only_on_miss_triggered = profile->AddHighWaterMarkCounter("RemoteOnlyOnMissTriggered",
+                                                                     TUnit::UNIT, cache_profile, 1);
+    remote_only_on_miss_threshold_bytes = profile->AddHighWaterMarkCounter(
+            "RemoteOnlyOnMissThresholdBytes", TUnit::BYTES, cache_profile, 1);
 
     inverted_index_num_local_io_total = ADD_CHILD_COUNTER_WITH_LEVEL(
             profile, "InvertedIndexNumLocalIOTotal", TUnit::UNIT, cache_profile, 1);
@@ -166,6 +176,10 @@ FileCacheProfileReporter::FileCacheProfileReporter(RuntimeProfile* profile) {
             ADD_CHILD_TIMER_WITH_LEVEL(profile, "InvertedIndexPeerIOUseTimer", cache_profile, 1);
     inverted_index_io_timer =
             ADD_CHILD_TIMER_WITH_LEVEL(profile, "InvertedIndexIOTimer", cache_profile, 1);
+    inverted_index_write_cache_io_timer = ADD_CHILD_TIMER_WITH_LEVEL(
+            profile, "InvertedIndexWriteCacheIOUseTimer", cache_profile, 1);
+    inverted_index_bytes_write_into_cache = ADD_CHILD_COUNTER_WITH_LEVEL(
+            profile, "InvertedIndexBytesWriteIntoCache", TUnit::BYTES, cache_profile, 1);
 
     segment_footer_index_num_local_io_total = ADD_CHILD_COUNTER_WITH_LEVEL(
             profile, "SegmentFooterIndexNumLocalIOTotal", TUnit::UNIT, cache_profile, 1);
@@ -185,6 +199,10 @@ FileCacheProfileReporter::FileCacheProfileReporter(RuntimeProfile* profile) {
             profile, "SegmentFooterIndexRemoteIOUseTimer", cache_profile, 1);
     segment_footer_index_peer_io_timer = ADD_CHILD_TIMER_WITH_LEVEL(
             profile, "SegmentFooterIndexPeerIOUseTimer", cache_profile, 1);
+    segment_footer_index_write_cache_io_timer = ADD_CHILD_TIMER_WITH_LEVEL(
+            profile, "SegmentFooterIndexWriteCacheIOUseTimer", cache_profile, 1);
+    segment_footer_index_bytes_write_into_cache = ADD_CHILD_COUNTER_WITH_LEVEL(
+            profile, "SegmentFooterIndexBytesWriteIntoCache", TUnit::BYTES, cache_profile, 1);
 }
 
 void FileCacheProfileReporter::update(const FileCacheStatistics* statistics) const {
@@ -206,6 +224,8 @@ void FileCacheProfileReporter::update(const FileCacheStatistics* statistics) con
     COUNTER_UPDATE(lock_wait_timer, statistics->lock_wait_timer);
     COUNTER_UPDATE(get_timer, statistics->get_timer);
     COUNTER_UPDATE(set_timer, statistics->set_timer);
+    remote_only_on_miss_triggered->set(statistics->remote_only_on_miss_triggered);
+    remote_only_on_miss_threshold_bytes->set(statistics->remote_only_on_miss_threshold_bytes);
 
     COUNTER_UPDATE(inverted_index_num_local_io_total,
                    statistics->inverted_index_num_local_io_total);
@@ -222,6 +242,10 @@ void FileCacheProfileReporter::update(const FileCacheStatistics* statistics) con
     COUNTER_UPDATE(inverted_index_remote_io_timer, statistics->inverted_index_remote_io_timer);
     COUNTER_UPDATE(inverted_index_peer_io_timer, statistics->inverted_index_peer_io_timer);
     COUNTER_UPDATE(inverted_index_io_timer, statistics->inverted_index_io_timer);
+    COUNTER_UPDATE(inverted_index_write_cache_io_timer,
+                   statistics->inverted_index_write_cache_io_timer);
+    COUNTER_UPDATE(inverted_index_bytes_write_into_cache,
+                   statistics->inverted_index_bytes_write_into_cache);
 
     COUNTER_UPDATE(segment_footer_index_num_local_io_total,
                    statistics->segment_footer_index_num_local_io_total);
@@ -241,6 +265,10 @@ void FileCacheProfileReporter::update(const FileCacheStatistics* statistics) con
                    statistics->segment_footer_index_remote_io_timer);
     COUNTER_UPDATE(segment_footer_index_peer_io_timer,
                    statistics->segment_footer_index_peer_io_timer);
+    COUNTER_UPDATE(segment_footer_index_write_cache_io_timer,
+                   statistics->segment_footer_index_write_cache_io_timer);
+    COUNTER_UPDATE(segment_footer_index_bytes_write_into_cache,
+                   statistics->segment_footer_index_bytes_write_into_cache);
 }
 
 } // namespace doris::io

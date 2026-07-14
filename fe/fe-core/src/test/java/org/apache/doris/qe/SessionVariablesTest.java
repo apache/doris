@@ -17,9 +17,13 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.analysis.IntLiteral;
+import org.apache.doris.analysis.SetType;
+import org.apache.doris.analysis.SetVar;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.utframe.TestWithFeService;
 
 import mockit.Mock;
@@ -116,5 +120,17 @@ public class SessionVariablesTest extends TestWithFeService {
         // Users can disable it.
         sv.enableStrictConsistencyDml = false;
         Assertions.assertFalse(sv.isEnableStrictConsistencyDml());
+    }
+
+    @Test
+    public void testFileCacheQueryLimitBytesToThrift() throws Exception {
+        SessionVariable variable = new SessionVariable();
+        VariableMgr.setVar(variable, new SetVar(SetType.SESSION,
+                SessionVariable.FILE_CACHE_QUERY_LIMIT_BYTES,
+                new IntLiteral(262144)));
+
+        TQueryOptions queryOptions = variable.toThrift();
+        Assertions.assertTrue(queryOptions.isSetFileCacheQueryLimitBytes());
+        Assertions.assertEquals(262144L, queryOptions.getFileCacheQueryLimitBytes());
     }
 }

@@ -52,9 +52,18 @@ class ScanLocalStateBase;
 struct FilterPredicates;
 } // namespace pipeline
 
+namespace io {
+struct FileCacheStatistics;
+struct IOContext;
+} // namespace io
+
 namespace vectorized {
 
 class Block;
+
+io::IOContext build_score_runtime_collection_io_context(RuntimeState* state, ReaderType reader_type,
+                                                        int64_t expiration_time,
+                                                        io::FileCacheStatistics* file_cache_stats);
 
 class OlapScanner : public Scanner {
     ENABLE_FACTORY_CREATOR(OlapScanner);

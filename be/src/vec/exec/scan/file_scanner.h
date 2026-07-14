@@ -39,6 +39,7 @@
 #include "vec/exec/format/generic_reader.h"
 #include "vec/exec/format/orc/vorc_reader.h"
 #include "vec/exec/format/parquet/vparquet_reader.h"
+#include "vec/exec/scan/file_scan_io_context.h"
 #include "vec/exprs/vexpr_fwd.h"
 
 namespace doris {
@@ -270,8 +271,7 @@ private:
     };
 
     Status _init_io_ctx() {
-        _io_ctx.reset(new io::IOContext());
-        _io_ctx->query_id = &_state->query_id();
+        _io_ctx = create_file_scan_io_context(_state);
         return Status::OK();
     };
 

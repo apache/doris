@@ -89,12 +89,12 @@ public class ExecuteCommand extends Command {
                 logicalPlan, executor.getContext().getStatementContext());
         executor.setParsedStmt(planAdapter);
         // If it's not a short circuit query or schema version is different(indicates schema changed) or
-        // has nondeterministic functions in statement, then need to do reanalyze and plan
+        // file cache query limit changed or has nondeterministic functions in statement, then need
+        // to do reanalyze and plan.
         if (executor.getContext().getStatementContext().isShortCircuitQuery()
                 && preparedStmtCtx.shortCircuitQueryContext.isPresent()
-                && preparedStmtCtx.shortCircuitQueryContext.get().tbl.getBaseSchemaVersion()
-                == preparedStmtCtx.shortCircuitQueryContext.get().schemaVersion && !executor.getContext()
-                .getStatementContext().hasNondeterministic()) {
+                && preparedStmtCtx.shortCircuitQueryContext.get().isReusable(ctx)
+                && !executor.getContext().getStatementContext().hasNondeterministic()) {
             PointQueryExecutor.directExecuteShortCircuitQuery(executor, preparedStmtCtx, statementContext);
             return;
         }
