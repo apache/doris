@@ -93,6 +93,19 @@ int get_base_thread_num() {
     return std::min(std::max(int(num_cores * config::base_compaction_thread_num_factor), 1), 10);
 }
 
+static void log_compaction_submit_failure(int64_t tablet_id, const Status& status) {
+    const bool debug_log_enabled = VLOG_DEBUG_IS_ON;
+    if (status.is<ErrorCode::CUMULATIVE_NO_SUITABLE_VERSION>() && !debug_log_enabled) {
+        LOG_EVERY_N(INFO, 100) << "failed to submit cumulative compaction task for tablet: "
+                               << tablet_id << ", err: " << status;
+        return;
+    }
+    if (!status.is<ErrorCode::BE_NO_SUITABLE_VERSION>() || debug_log_enabled) {
+        LOG(WARNING) << "failed to submit compaction task for tablet: " << tablet_id
+                     << ", err: " << status;
+    }
+}
+
 CloudStorageEngine::CloudStorageEngine(const EngineOptions& options)
         : BaseStorageEngine(Type::CLOUD, options.backend_uid),
           _meta_mgr(std::make_unique<cloud::CloudMetaMgr>()),
@@ -597,13 +610,10 @@ void CloudStorageEngine::_compaction_tasks_producer_callback() {
             /// thus cannot be collected by the garbage collector. (TabletManager::start_trash_sweep)
             for (const auto& tablet : tablets_compaction) {
                 Status status = submit_compaction_task(tablet, compaction_type);
-                if (status.ok()) continue;
-                if ((!status.is<ErrorCode::BE_NO_SUITABLE_VERSION>() &&
-                     !status.is<ErrorCode::CUMULATIVE_NO_SUITABLE_VERSION>()) ||
-                    VLOG_DEBUG_IS_ON) {
-                    LOG(WARNING) << "failed to submit compaction task for tablet: "
-                                 << tablet->tablet_id() << ", err: " << status;
+                if (status.ok()) {
+                    continue;
                 }
+                log_compaction_submit_failure(tablet->tablet_id(), status);
             }
             interval = config::generate_compaction_tasks_interval_ms;
         } else {
