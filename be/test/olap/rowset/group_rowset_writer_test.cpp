@@ -285,8 +285,7 @@ TEST_F(GroupRowsetWriterTest, success) {
     ASSERT_EQ(rowsets[1]->rowset_meta()->tablet_id(), _row_binlog_tablet->tablet_id());
     ASSERT_EQ(rowsets[1]->rowset_meta()->tablet_schema_hash(),
               _row_binlog_request.tablet_schema.schema_hash);
-    ASSERT_GE(rowsets[1]->rowset_meta()->tablet_schema()->field_index(
-                      std::string(kRowBinlogLsnColName)),
+    ASSERT_GE(rowsets[1]->rowset_meta()->tablet_schema()->field_index(BINLOG_LSN_COL),
               0);
     EXPECT_FALSE(rowsets[1]->rowset_meta()->is_segments_key_bounds_aggregated());
     std::vector<KeyBoundsPB> row_binlog_key_bounds;

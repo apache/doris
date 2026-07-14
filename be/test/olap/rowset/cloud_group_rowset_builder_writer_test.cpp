@@ -326,8 +326,7 @@ protected:
         ASSERT_EQ(row_binlog_rowset->rowset_meta()->tablet_id(), _row_binlog_tablet->tablet_id());
         ASSERT_EQ(row_binlog_rowset->rowset_meta()->tablet_schema_hash(),
                   _row_binlog_request.tablet_schema.schema_hash);
-        ASSERT_GE(row_binlog_rowset->rowset_meta()->tablet_schema()->field_index(
-                          std::string(kRowBinlogLsnColName)),
+        ASSERT_GE(row_binlog_rowset->rowset_meta()->tablet_schema()->field_index(BINLOG_LSN_COL),
                   0);
     }
 
