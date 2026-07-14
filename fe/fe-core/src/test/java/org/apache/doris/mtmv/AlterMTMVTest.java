@@ -37,6 +37,11 @@ import java.util.Set;
 
 public class AlterMTMVTest extends TestWithFeService {
 
+    @Override
+    protected void runBeforeAll() throws Exception {
+        Config.enable_table_stream = true;
+    }
+
     @Test
     public void testAlterMTMV() throws Exception {
         createDatabaseAndUse("test");
@@ -275,9 +280,9 @@ public class AlterMTMVTest extends TestWithFeService {
                 .getDb("alter_ivm_test").get()
                 .getTableOrMetaException("ivm_alter_mv");
 
-        // Verify initial state
+        // Incremental MTMV persists plan signature at create time.
         IvmInfo initialInfo = mtmv.getIvmInfo();
-        Assertions.assertNull(initialInfo.getPlanSignature());
+        Assertions.assertNotNull(initialInfo.getPlanSignature());
 
         // Build a modified IvmInfo with planSignature
         IvmInfo newInfo = new IvmInfo();
@@ -302,7 +307,6 @@ public class AlterMTMVTest extends TestWithFeService {
 
     @Test
     public void testCreateIncrementalMtmvAutoCreatesStream() throws Exception {
-        Config.enable_table_stream = true;
         createDatabaseAndUse("stream_test");
         createTable("CREATE TABLE stream_test.stream_base (k1 int, v1 int)\n"
                 + "UNIQUE KEY(k1)\n"
@@ -331,7 +335,6 @@ public class AlterMTMVTest extends TestWithFeService {
 
     @Test
     public void testCreateIncrementalMtmvExcludeTriggerTableSkipsStream() throws Exception {
-        Config.enable_table_stream = true;
         createDatabaseAndUse("stream_excl_test");
         createTable("CREATE TABLE stream_excl_test.excl_base1 (k1 int, v1 int)\n"
                 + "UNIQUE KEY(k1)\n"
