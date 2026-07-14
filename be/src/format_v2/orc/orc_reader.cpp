@@ -748,6 +748,7 @@ struct OrcReaderScanState {
     bool enable_filter_by_min_max = true;
     bool orc_lazy_read_enabled = false;
     bool orc_lazy_selection_valid = false;
+    OrcSargBuildOptions sarg_build_options;
 
     std::vector<StripeRange> selected_stripe_ranges;
     size_t current_stripe_range = 0;
@@ -881,6 +882,10 @@ Status OrcReader::init(RuntimeState* state) {
         _state->enable_filter_by_min_max = state->query_options().enable_orc_filter_by_min_max;
         _state->timezone = state->timezone();
         _state->timezone_obj = state->timezone_obj();
+        if (state->query_options().__isset.max_pushdown_conditions_per_column) {
+            _state->sarg_build_options.max_pushdown_conditions_per_column =
+                    state->query_options().max_pushdown_conditions_per_column;
+        }
     }
 
     ::orc::ReaderOptions options;
@@ -1378,10 +1383,10 @@ Status OrcReader::_init_search_argument_from_local_filters() {
             if (conjunct == nullptr) {
                 continue;
             }
-            has_pushdown =
-                    build_orc_search_argument(*_request, *_state->root_type, _state->timezone_obj,
-                                              conjunct->root(), builder) ||
-                    has_pushdown;
+            has_pushdown = build_orc_search_argument(
+                                   *_request, *_state->root_type, _state->timezone_obj,
+                                   _state->sarg_build_options, conjunct->root(), builder) ||
+                           has_pushdown;
         }
         if (!has_pushdown) {
             return Status::OK();

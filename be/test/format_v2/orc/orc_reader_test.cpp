@@ -699,6 +699,22 @@ private:
     const std::string _expr_name;
 };
 
+class CountingIntHybridSet final : public HybridSet<TYPE_INT> {
+public:
+    using HybridSet<TYPE_INT>::HybridSet;
+
+    HybridSetBase::IteratorBase* begin() override {
+        ++_begin_calls;
+        return HybridSet<TYPE_INT>::begin();
+    }
+
+    void reset_begin_calls() { _begin_calls = 0; }
+    size_t begin_calls() const { return _begin_calls; }
+
+private:
+    size_t _begin_calls = 0;
+};
+
 class NullableInt32CastToInt64GreaterThanExpr final : public VExpr {
 public:
     NullableInt32CastToInt64GreaterThanExpr(int column_id, int64_t value)
@@ -4453,6 +4469,21 @@ format::LocalColumnIndex struct_child_projection(int32_t root_field_id, int32_t 
 
 class NewOrcReaderTest : public testing::Test {
 protected:
+    enum class DirectInPredicateShape {
+        ROOT,
+        AND,
+        OR,
+        OR_WITH_NULL_SAFE_EQUAL,
+    };
+
+    struct DirectInScanResult {
+        std::vector<int32_t> ids;
+        size_t materialize_calls = 0;
+        size_t prepare_literals_calls = 0;
+        int64_t filtered_row_groups = 0;
+        int64_t filtered_row_groups_by_min_max = 0;
+    };
+
     void SetUp() override {
         _test_dir = unique_test_dir("doris_new_orc_reader_test");
         std::filesystem::remove_all(_test_dir);
@@ -4505,6 +4536,88 @@ protected:
         file_description->range_size = range_size;
         return std::make_unique<format::orc::OrcReader>(system_properties, file_description,
                                                         nullptr, profile, std::nullopt);
+    }
+
+    Status scan_direct_in_filter(const std::string& file_path, int32_t in_list_size,
+                                 bool enable_sarg, int max_pushdown_conditions_per_column,
+                                 DirectInPredicateShape shape, DirectInScanResult* result) const {
+        DORIS_CHECK(result != nullptr);
+        *result = {};
+
+        auto reader = create_reader_for_path(file_path);
+        TQueryOptions query_options;
+        query_options.__set_enable_orc_filter_by_min_max(enable_sarg);
+        query_options.__set_max_pushdown_conditions_per_column(max_pushdown_conditions_per_column);
+        RuntimeState state {query_options, TQueryGlobals()};
+        RETURN_IF_ERROR(reader->init(&state));
+
+        std::vector<format::ColumnDefinition> schema;
+        RETURN_IF_ERROR(reader->get_schema(&schema));
+        DORIS_CHECK(schema.size() == 2);
+
+        constexpr int32_t in_list_start = 1000;
+        auto filter = std::make_shared<CountingIntHybridSet>(false);
+        for (int32_t value = in_list_start; value < in_list_start + in_list_size; ++value) {
+            filter->insert(&value);
+        }
+
+        auto node = make_filter_in_node(TExprNodeType::IN_PRED);
+        auto direct_in = VDirectInPredicate::create_shared(node, filter, true);
+        direct_in->add_child(TableSlotRef::create_shared(0, 0, -1, schema[0].type, "id"));
+        VExprSPtr predicate = RuntimeFilterExpr::create_shared(node, direct_in, 0.0, false, 7);
+        if (shape == DirectInPredicateShape::AND) {
+            predicate = std::make_shared<CompoundPredicateExpr>(
+                    TExprOpcode::COMPOUND_AND,
+                    VExprSPtrs {std::move(predicate),
+                                std::make_shared<NullableInt32GreaterThanExpr>(0, 500)});
+        } else if (shape == DirectInPredicateShape::OR) {
+            predicate = std::make_shared<CompoundPredicateExpr>(
+                    TExprOpcode::COMPOUND_OR,
+                    VExprSPtrs {std::move(predicate),
+                                std::make_shared<NullableInt32LessThanExpr>(0, 0)});
+        } else if (shape == DirectInPredicateShape::OR_WITH_NULL_SAFE_EQUAL) {
+            predicate = std::make_shared<CompoundPredicateExpr>(
+                    TExprOpcode::COMPOUND_OR,
+                    VExprSPtrs {std::move(predicate),
+                                std::make_shared<NullableInt32NullSafeEqualsLiteralExpr>(0, -1,
+                                                                                         false)});
+        } else {
+            DORIS_CHECK(shape == DirectInPredicateShape::ROOT);
+        }
+        auto context = VExprContext::create_shared(std::move(predicate));
+        RETURN_IF_ERROR(context->prepare(&state, RowDescriptor()));
+        RETURN_IF_ERROR(context->open(&state));
+
+        auto request = std::make_shared<format::FileScanRequest>();
+        request->predicate_columns = {field_projection(0)};
+        request->conjuncts.push_back(std::move(context));
+
+        ScopedDebugPoint debug_point("OrcSearchArgument.make_in_literals_for_sarg",
+                                     [&]() { ++result->prepare_literals_calls; });
+        filter->reset_begin_calls();
+        RETURN_IF_ERROR(reader->open(request));
+
+        bool eof = false;
+        while (!eof) {
+            Block block = build_file_block({schema[0]});
+            size_t rows = 0;
+            RETURN_IF_ERROR(reader->get_block(&block, &rows, &eof));
+            if (rows == 0) {
+                continue;
+            }
+            const auto& ids_nullable =
+                    assert_cast<const ColumnNullable&>(*block.get_by_position(0).column);
+            const auto& ids = assert_cast<const ColumnInt32&>(ids_nullable.get_nested_column());
+            for (size_t row = 0; row < rows; ++row) {
+                result->ids.push_back(ids.get_element(row));
+            }
+        }
+
+        result->materialize_calls = filter->begin_calls();
+        result->filtered_row_groups = reader->reader_statistics().filtered_row_groups;
+        result->filtered_row_groups_by_min_max =
+                reader->reader_statistics().filtered_row_groups_by_min_max;
+        return Status::OK();
     }
 
     std::filesystem::path _test_dir;
@@ -6722,6 +6835,99 @@ TEST_F(NewOrcReaderTest, SargRuntimeFilterWrapperConjunctPrunesStripes) {
     EXPECT_EQ(reader->reader_statistics().filtered_row_groups, 1);
     EXPECT_EQ(reader->reader_statistics().filtered_row_groups_by_min_max, 1);
     EXPECT_EQ(reader->reader_statistics().filtered_group_rows, 200);
+}
+
+TEST_F(NewOrcReaderTest, SargDirectInCompoundMaterializesLiteralsOnce) {
+    const auto multi_stripe_file_path = (_test_dir / "sarg_direct_in_prepared_once.orc").string();
+    write_multi_stripe_orc_int_file(multi_stripe_file_path);
+    ASSERT_EQ(get_orc_stripe_count(multi_stripe_file_path), 2);
+
+    constexpr int32_t in_list_size = 1024;
+    for (const auto shape : {DirectInPredicateShape::AND, DirectInPredicateShape::OR}) {
+        SCOPED_TRACE(shape == DirectInPredicateShape::AND ? "AND" : "OR");
+        DirectInScanResult enabled;
+        DirectInScanResult disabled;
+        ASSERT_TRUE(scan_direct_in_filter(multi_stripe_file_path, in_list_size, true, in_list_size,
+                                          shape, &enabled)
+                            .ok());
+        ASSERT_TRUE(scan_direct_in_filter(multi_stripe_file_path, in_list_size, false, in_list_size,
+                                          shape, &disabled)
+                            .ok());
+
+        EXPECT_EQ(enabled.materialize_calls, 1);
+        EXPECT_EQ(enabled.prepare_literals_calls, 1);
+        EXPECT_EQ(enabled.filtered_row_groups, 1);
+        EXPECT_EQ(enabled.filtered_row_groups_by_min_max, 1);
+        EXPECT_EQ(disabled.materialize_calls, 0);
+        EXPECT_EQ(disabled.prepare_literals_calls, 0);
+        EXPECT_EQ(disabled.filtered_row_groups, 0);
+        EXPECT_EQ(disabled.filtered_row_groups_by_min_max, 0);
+        ASSERT_EQ(enabled.ids, disabled.ids);
+        ASSERT_EQ(enabled.ids.size(), 200);
+        EXPECT_EQ(enabled.ids.front(), 1000);
+        EXPECT_EQ(enabled.ids.back(), 1199);
+    }
+}
+
+TEST_F(NewOrcReaderTest, SargDirectInNullSafeOrFallsBackBeforeLiteralConversion) {
+    const auto multi_stripe_file_path = (_test_dir / "sarg_direct_in_null_safe_or.orc").string();
+    write_multi_stripe_orc_int_file(multi_stripe_file_path);
+    ASSERT_EQ(get_orc_stripe_count(multi_stripe_file_path), 2);
+
+    constexpr int32_t in_list_size = 1024;
+    DirectInScanResult enabled;
+    DirectInScanResult disabled;
+    ASSERT_TRUE(scan_direct_in_filter(multi_stripe_file_path, in_list_size, true, in_list_size,
+                                      DirectInPredicateShape::OR_WITH_NULL_SAFE_EQUAL, &enabled)
+                        .ok());
+    ASSERT_TRUE(scan_direct_in_filter(multi_stripe_file_path, in_list_size, false, in_list_size,
+                                      DirectInPredicateShape::OR_WITH_NULL_SAFE_EQUAL, &disabled)
+                        .ok());
+
+    EXPECT_EQ(enabled.materialize_calls, 1);
+    EXPECT_EQ(enabled.prepare_literals_calls, 0);
+    EXPECT_EQ(enabled.filtered_row_groups, 0);
+    EXPECT_EQ(enabled.filtered_row_groups_by_min_max, 0);
+    EXPECT_EQ(disabled.materialize_calls, 0);
+    EXPECT_EQ(disabled.prepare_literals_calls, 0);
+    EXPECT_EQ(disabled.filtered_row_groups, 0);
+    EXPECT_EQ(disabled.filtered_row_groups_by_min_max, 0);
+    ASSERT_EQ(enabled.ids, disabled.ids);
+    ASSERT_EQ(enabled.ids.size(), 200);
+    EXPECT_EQ(enabled.ids.front(), 1000);
+    EXPECT_EQ(enabled.ids.back(), 1199);
+}
+
+TEST_F(NewOrcReaderTest, SargDirectInOverLimitFallsBackBeforeMaterialization) {
+    const auto multi_stripe_file_path = (_test_dir / "sarg_direct_in_over_limit.orc").string();
+    write_multi_stripe_orc_int_file(multi_stripe_file_path);
+    ASSERT_EQ(get_orc_stripe_count(multi_stripe_file_path), 2);
+
+    constexpr int32_t max_pushdown_conditions_per_column = 1024;
+    constexpr int32_t in_list_size = max_pushdown_conditions_per_column + 1;
+    DirectInScanResult enabled;
+    DirectInScanResult disabled;
+    ASSERT_TRUE(scan_direct_in_filter(multi_stripe_file_path, in_list_size, true,
+                                      max_pushdown_conditions_per_column,
+                                      DirectInPredicateShape::ROOT, &enabled)
+                        .ok());
+    ASSERT_TRUE(scan_direct_in_filter(multi_stripe_file_path, in_list_size, false,
+                                      max_pushdown_conditions_per_column,
+                                      DirectInPredicateShape::ROOT, &disabled)
+                        .ok());
+
+    EXPECT_EQ(enabled.materialize_calls, 0);
+    EXPECT_EQ(enabled.prepare_literals_calls, 0);
+    EXPECT_EQ(enabled.filtered_row_groups, 0);
+    EXPECT_EQ(enabled.filtered_row_groups_by_min_max, 0);
+    EXPECT_EQ(disabled.materialize_calls, 0);
+    EXPECT_EQ(disabled.prepare_literals_calls, 0);
+    EXPECT_EQ(disabled.filtered_row_groups, 0);
+    EXPECT_EQ(disabled.filtered_row_groups_by_min_max, 0);
+    ASSERT_EQ(enabled.ids, disabled.ids);
+    ASSERT_EQ(enabled.ids.size(), 200);
+    EXPECT_EQ(enabled.ids.front(), 1000);
+    EXPECT_EQ(enabled.ids.back(), 1199);
 }
 
 TEST_F(NewOrcReaderTest, SargNullAwareRuntimeFilterDoesNotPruneNullStripe) {
