@@ -476,7 +476,7 @@ class EagerAggRewriterTest extends TestWithFeService implements MemoPatternMatch
             PushDownAggContext context = new PushDownAggContext(
                     Collections.emptyList(), Collections.emptyList(), Collections.emptyMap(),
                     planChecker.getCascadesContext(),
-                    true, false, false, new BilateralState(), false,true);
+                    true, false, false, new BilateralState(), false, true);
 
             Plan rewritten = relation.accept(new EagerAggRewriter(), context);
 

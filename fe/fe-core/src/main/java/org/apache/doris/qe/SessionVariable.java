@@ -2371,7 +2371,7 @@ public class SessionVariable implements Serializable, Writable {
     )
     private int eagerAggregationMode = 0;
 
-    @VarAttrDef.VarAttr(name = "force_eager_agg_hint", needForward = true, setter = "setForceEagerAggHint",
+    @VariableMgr.VarAttr(name = "force_eager_agg_hint", needForward = true, setter = "setForceEagerAggHint",
             description = {
                     "用于测试/调试 eager aggregation 下推的匹配 hint。"
                             + "格式：`<func>:<qualifier.column | *>=<push|nopush>`，"
@@ -2394,10 +2394,10 @@ public class SessionVariable implements Serializable, Writable {
     public String forceEagerAggHint = "";
     private Map<String, Action> forceEagerAggHintMap = ImmutableMap.of();
 
-    @VarAttrDef.VarAttr(name = "eager_agg_broadcast_row_count", needForward = true)
+    @VariableMgr.VarAttr(name = "eager_agg_broadcast_row_count", needForward = true)
     public int eagerAggBroadcastRowCount = 25_0000;
 
-    @VarAttrDef.VarAttr(name = "eager_aggregation_on_broadcast_join", needForward = true)
+    @VariableMgr.VarAttr(name = "eager_aggregation_on_broadcast_join", needForward = true)
     public boolean eagerAggregationOnBroadcastJoin = true;
 
     public static int getEagerAggregationMode() {
