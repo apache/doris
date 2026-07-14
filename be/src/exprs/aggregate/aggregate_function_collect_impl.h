@@ -27,7 +27,8 @@
 namespace doris {
 
 template <PrimitiveType T, bool HasLimit>
-AggregateFunctionPtr do_create_agg_function_collect(bool distinct, const DataTypes& argument_types,
+AggregateFunctionPtr do_create_agg_function_collect(bool distinct, const std::string& name,
+                                                    const DataTypes& argument_types,
                                                     const bool result_is_nullable,
 
                                                     const AggregateFunctionAttr& attr) {
@@ -38,12 +39,12 @@ AggregateFunctionPtr do_create_agg_function_collect(bool distinct, const DataTyp
         } else {
             return creator_without_type::create<AggregateFunctionCollect<
                     AggregateFunctionCollectSetData<T, HasLimit>, HasLimit>>(
-                    argument_types, result_is_nullable, attr);
+                    argument_types, result_is_nullable, attr, name);
         }
     } else {
         return creator_without_type::create<
                 AggregateFunctionCollect<AggregateFunctionCollectListData<T, HasLimit>, HasLimit>>(
-                argument_types, result_is_nullable, attr);
+                argument_types, result_is_nullable, attr, name);
     }
 }
 
@@ -53,20 +54,22 @@ AggregateFunctionPtr create_aggregate_function_collect_impl(const std::string& n
                                                             const bool result_is_nullable,
 
                                                             const AggregateFunctionAttr& attr) {
-    bool distinct = name == "collect_set";
+    // multi_distinct_collect_list must dedup in the aggregate state: the Nereids multi-distinct
+    // plan does not push the distinct argument into the group-by key, so the Set path is required.
+    bool distinct = name == "collect_set" || name == "multi_distinct_collect_list";
 
     AggregateFunctionPtr agg_fn;
     auto call = [&](const auto& type) -> bool {
         using DispatcType = std::decay_t<decltype(type)>;
         agg_fn = do_create_agg_function_collect<DispatcType::PType, HasLimit>(
-                distinct, argument_types, result_is_nullable, attr);
+                distinct, name, argument_types, result_is_nullable, attr);
         return true;
     };
 
     if (!dispatch_switch_all(argument_types[0]->get_primitive_type(), call)) {
         // We do not care what the real type is.
-        agg_fn = do_create_agg_function_collect<INVALID_TYPE, HasLimit>(distinct, argument_types,
-                                                                        result_is_nullable, attr);
+        agg_fn = do_create_agg_function_collect<INVALID_TYPE, HasLimit>(
+                distinct, name, argument_types, result_is_nullable, attr);
     }
     return agg_fn;
 }

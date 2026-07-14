@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisit
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.UnaryPlan;
 import org.apache.doris.nereids.trees.plans.logical.OutputPrunable;
+import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableSet;
@@ -207,6 +208,10 @@ public interface Aggregate<CHILD_TYPE extends Plan> extends UnaryPlan<CHILD_TYPE
                 && aggregateFunctions.iterator().next().isSkew()
                 && aggregateFunctions.iterator().next().arity() == 1
                 && aggregateFunctions.iterator().next().child(0) instanceof Slot
+                // Array-returning aggregates (array_agg/collect_list) can't take the skew path:
+                // its third phase re-wraps the array intermediate in another array_agg, which
+                // would yield a nested ARRAY<ARRAY<T>>. Let them fall back to the normal plan.
+                && !(aggregateFunctions.iterator().next().getDataType() instanceof ArrayType)
                 && !getGroupByExpressions().isEmpty()
                 && !(new HashSet<>(getGroupByExpressions()).containsAll(distinctArguments));
     }

@@ -48,6 +48,12 @@ public class CheckMultiDistinct extends OneRewriteRuleFactory {
                 if (func.isDistinct() && !(func instanceof SupportMultiDistinct)) {
                     throw new AnalysisException(func.toString() + " can't support multi distinct.");
                 }
+                // Some multi-distinct implementations only support a subset of the types their FE
+                // signature advertises (e.g. array_agg / collect_list). Reject the unsupported
+                // ones here with a user-facing error instead of failing later at BE runtime.
+                if (func.isDistinct() && func instanceof SupportMultiDistinct) {
+                    ((SupportMultiDistinct) func).checkSupportMultiDistinct();
+                }
             }
         }
 

@@ -18,14 +18,12 @@
 package org.apache.doris.nereids.trees.expressions.functions.agg;
 
 import org.apache.doris.catalog.FunctionSignature;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
-import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
 import org.apache.doris.nereids.types.coercion.FollowToAnyDataType;
 
@@ -35,37 +33,32 @@ import com.google.common.collect.ImmutableList;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * AggregateFunction 'array_agg'.
- */
-public class ArrayAgg extends NotNullableAggregateFunction
-        implements UnaryExpression, ExplicitlyCastableSignature, SupportMultiDistinct {
+/** MultiDistinctArrayAgg */
+public class MultiDistinctArrayAgg extends NotNullableAggregateFunction
+        implements UnaryExpression, ExplicitlyCastableSignature, MultiDistinction {
+
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(ArrayType.of(new FollowToAnyDataType(0))).args(new AnyDataType(0))
     );
 
-    public ArrayAgg(Expression arg0) {
-        super("array_agg", arg0);
-    }
-
-    public ArrayAgg(boolean distinct, Expression arg0) {
-        super("array_agg", distinct, arg0);
+    public MultiDistinctArrayAgg(Expression arg0) {
+        super("multi_distinct_array_agg", arg0);
     }
 
     /** constructor for withChildren and reuse signature */
-    private ArrayAgg(AggregateFunctionParams functionParams) {
+    private MultiDistinctArrayAgg(AggregateFunctionParams functionParams) {
         super(functionParams);
     }
 
     @Override
-    public AggregateFunction withDistinctAndChildren(boolean distinct, List<Expression> children) {
+    public MultiDistinctArrayAgg withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new ArrayAgg(getFunctionParams(distinct, children));
+        return new MultiDistinctArrayAgg(getFunctionParams(false, children));
     }
 
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return visitor.visitArrayAgg(this, context);
+        return visitor.visitMultiDistinctArrayAgg(this, context);
     }
 
     @Override
@@ -76,25 +69,5 @@ public class ArrayAgg extends NotNullableAggregateFunction
     @Override
     public Expression resultForEmptyInput() {
         return new ArrayLiteral(new ArrayList<>(), this.getDataType());
-    }
-
-    @Override
-    public AggregateFunction convertToMultiDistinct() {
-        Preconditions.checkArgument(distinct,
-                "can't convert to multi_distinct_array_agg because there is no distinct args");
-        return new MultiDistinctArrayAgg(children.get(0));
-    }
-
-    @Override
-    public void checkSupportMultiDistinct() {
-        // multi_distinct_array_agg dedups through a hash-set (AggregateFunctionCollectSetData) that
-        // only supports scalar/string element types; complex/object types (array, map, struct,
-        // json, variant, bitmap, hll, ...) would fail with an internal error at BE runtime.
-        DataType argType = child(0).getDataType();
-        if (argType.isOnlyMetricType()) {
-            throw new AnalysisException(
-                    "array_agg(distinct) does not support type " + argType + " when it is rewritten "
-                            + "to multi_distinct_array_agg (multiple distinct aggregates in one query)");
-        }
     }
 }
