@@ -39,6 +39,27 @@ export TP_LIB_DIR="${DORIS_THIRDPARTY}/installed/lib"
 HADOOP_DEPS_NAME="hadoop-deps"
 . "${DORIS_HOME}/env.sh"
 
+ORIGINAL_BUILD_TYPE="${BUILD_TYPE:-}"
+export BUILD_TYPE='Release'
+echo "Force BUILD_TYPE to ${BUILD_TYPE} for test${ORIGINAL_BUILD_TYPE:+ (was ${ORIGINAL_BUILD_TYPE})}"
+
+ORIGINAL_EXTRA_CXX_FLAGS="${EXTRA_CXX_FLAGS:-}"
+if [[ -n "${ORIGINAL_EXTRA_CXX_FLAGS}" ]]; then
+    FILTERED_EXTRA_CXX_FLAGS=()
+    read -r -a extra_cxx_flags <<< "${ORIGINAL_EXTRA_CXX_FLAGS}"
+    for extra_cxx_flag in "${extra_cxx_flags[@]}"; do
+        if [[ "${extra_cxx_flag}" == '-O1' ]]; then
+            continue
+        fi
+        FILTERED_EXTRA_CXX_FLAGS+=("${extra_cxx_flag}")
+    done
+    EXTRA_CXX_FLAGS="${FILTERED_EXTRA_CXX_FLAGS[*]}"
+    export EXTRA_CXX_FLAGS
+    if [[ "${EXTRA_CXX_FLAGS}" != "${ORIGINAL_EXTRA_CXX_FLAGS}" ]]; then
+        echo "Drop -O1 from EXTRA_CXX_FLAGS for test${ORIGINAL_EXTRA_CXX_FLAGS:+ (was ${ORIGINAL_EXTRA_CXX_FLAGS})}"
+    fi
+fi
+
 # ===== Build Profile =====
 if [[ "${DORIS_BUILD_PROFILE}" == "1" ]]; then
     _BP_STATE="${DORIS_HOME}/.build_profile_state.$$"
@@ -811,6 +832,8 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
     echo "-- Build fs benchmark tool: ${BUILD_FS_BENCHMARK}"
     echo "-- Build task executor simulator: ${BUILD_TASK_EXECUTOR_SIMULATOR}"
     echo "-- Build file cache lru tool: ${BUILD_FILE_CACHE_LRU_TOOL}"
+    echo "-- Enable Exprs ASAN: ${ENABLE_EXPR_ASAN:-OFF}"
+    echo "-- BE ASAN sources: ${DORIS_BE_ASAN_SOURCES:-}"
 
     mkdir -p "${CMAKE_BUILD_DIR}"
     cd "${CMAKE_BUILD_DIR}"
@@ -834,6 +857,8 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         -DSTRIP_DEBUG_INFO="${STRIP_DEBUG_INFO}" \
         -DDISPLAY_BUILD_TIME="${DISPLAY_BUILD_TIME}" \
         -DENABLE_PCH="${ENABLE_PCH}" \
+        -DENABLE_EXPR_ASAN="${ENABLE_EXPR_ASAN:-OFF}" \
+        -DDORIS_BE_ASAN_SOURCES="${DORIS_BE_ASAN_SOURCES:-}" \
         -DUSE_JEMALLOC="${USE_JEMALLOC}" \
         -DUSE_AVX2="${USE_AVX2}" \
         -DARM_MARCH="${ARM_MARCH}" \

@@ -253,17 +253,22 @@ trigger_build() {
     local COMMIT_ID_FROM_TRIGGER="${COMMIT_ID_FROM_TRIGGER:-$2}"
     local COMMENT_TRIGGER_TYPE="${COMMENT_TRIGGER_TYPE:-$3}"
     local COMMENT_REPEAT_TIMES="${COMMENT_REPEAT_TIMES:-$4}"
+    local TEAMCITY_BUILD_TYPE_OVERRIDE="${TEAMCITY_BUILD_TYPE_OVERRIDE:-}"
+    local extra_teamcity_params=""
     if [[ -z "${PULL_REQUEST_NUM}" || -z "${COMMIT_ID_FROM_TRIGGER}" || -z "${COMMENT_TRIGGER_TYPE}" ]]; then
         echo "Usage: add_build PULL_REQUEST_NUM COMMIT_ID_FROM_TRIGGER COMMENT_TRIGGER_TYPE [COMMENT_REPEAT_TIMES]"
         return 1
     fi
     local PIPELINE="${comment_to_pipeline[${COMMENT_TRIGGER_TYPE}]}"
+    if [[ -n "${TEAMCITY_BUILD_TYPE_OVERRIDE}" ]]; then
+        extra_teamcity_params="&name=env.BUILD_TYPE&value=${TEAMCITY_BUILD_TYPE_OVERRIDE}"
+    fi
     set -x
     if curl -s -X POST \
         -u OneMoreChance:OneMoreChance \
         -H "Content-Type:text/plain" \
         -H "Accept: application/json" \
-        "http://43.132.222.7:8111/httpAuth/action.html?add2Queue=${PIPELINE}&branchName=pull/${PULL_REQUEST_NUM}&name=env.pr_num_from_trigger&value=${PULL_REQUEST_NUM:-}&name=env.commit_id_from_trigger&value=${COMMIT_ID_FROM_TRIGGER:-}&name=env.repeat_times_from_trigger&value=${COMMENT_REPEAT_TIMES:-1}"; then
+        "http://43.132.222.7:8111/httpAuth/action.html?add2Queue=${PIPELINE}&branchName=pull/${PULL_REQUEST_NUM}&name=env.pr_num_from_trigger&value=${PULL_REQUEST_NUM:-}&name=env.commit_id_from_trigger&value=${COMMIT_ID_FROM_TRIGGER:-}&name=env.repeat_times_from_trigger&value=${COMMENT_REPEAT_TIMES:-1}${extra_teamcity_params}"; then
         set +x
         echo "INFO: Add new build to PIPELINE ${PIPELINE} of PR ${PULL_REQUEST_NUM} with COMMENT_REPEAT_TIMES ${COMMENT_REPEAT_TIMES:-1}"
     else
