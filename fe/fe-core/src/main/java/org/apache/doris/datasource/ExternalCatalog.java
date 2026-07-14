@@ -1206,14 +1206,11 @@ public abstract class ExternalCatalog
         if (LOG.isDebugEnabled()) {
             LOG.debug("unregister database [{}]", dbName);
         }
-        // When lower_case_database_names = 2, database lookup is case-insensitive but the database
-        // object cache still uses the preserved remote/original-case name as its key. Event replay
-        // passes that same preserved name here, so invalidation intentionally follows the same key
-        // convention before cleaning local state.
+        String localDbName = resolveDatabaseNameForInvalidation(dbName);
         if (isInitialized()) {
-            invalidateDatabaseCache(dbName);
+            invalidateDatabaseCache(localDbName);
         }
-        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateDb(getId(), dbName);
+        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateDb(getId(), localDbName);
     }
 
     public void registerDatabase(long dbId, String dbName) {
@@ -1360,6 +1357,30 @@ public abstract class ExternalCatalog
         NameCacheValue namesValue = java.util.Objects.requireNonNull(
                 getDatabaseNamesValue(true), "database names cache can not be null");
         return namesValue.localNames();
+    }
+
+    private String resolveDatabaseNameForInvalidation(String dbName) {
+        int mode = getLowerCaseDatabaseNames();
+        if (mode == 1) {
+            return dbName.toLowerCase();
+        }
+        if (mode != 2 || !isInitialized()) {
+            return dbName;
+        }
+
+        String localDbName = getLocalDatabaseName(dbName, true);
+        if (localDbName != null) {
+            return localDbName;
+        }
+        ExternalDatabase<? extends ExternalTable> cachedDb =
+                databases.findIfPresent(key -> key.equalsIgnoreCase(dbName));
+        if (cachedDb != null) {
+            return cachedDb.getFullName();
+        }
+        return dbIdToName.values().stream()
+                .filter(name -> name.equalsIgnoreCase(dbName))
+                .findFirst()
+                .orElse(dbName);
     }
 
     @Nullable

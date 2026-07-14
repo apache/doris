@@ -654,6 +654,25 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         return localTableName.equals(requestedTableName);
     }
 
+    private String resolveTableNameForInvalidation(String tableName) {
+        if (!isTableNamesCaseInsensitive()) {
+            return toLocalTableName(tableName);
+        }
+
+        String localTableName = getLocalTableName(tableName, true);
+        if (localTableName != null) {
+            return localTableName;
+        }
+        T cachedTable = tables.findIfPresent(key -> key.equalsIgnoreCase(tableName));
+        if (cachedTable != null) {
+            return cachedTable.getName();
+        }
+        return tableIdToName.values().stream()
+                .filter(name -> name.equalsIgnoreCase(tableName))
+                .findFirst()
+                .orElse(tableName);
+    }
+
     private void updateTableCache(T table, String remoteTableName, String localTableName) {
         updateTableCache(table, remoteTableName, localTableName, false);
     }
@@ -732,19 +751,13 @@ public abstract class ExternalDatabase<T extends ExternalTable>
             LOG.debug("unregister table {}.{}", this.name, tableName);
         }
         setLastUpdateTime(System.currentTimeMillis());
-        // Mode 2 keeps the preserved remote/original-case name as the object-cache key, and the
-        // unregister path intentionally follows the same key convention before invalidating local state.
-        String localTableName = toLocalTableName(tableName);
-        ExternalTable dorisTable = getTableForReplay(localTableName).orElse(null);
+        String localTableName = resolveTableNameForInvalidation(tableName);
         // Always clean local names/object/ID state, even when the object entry is cold or already evicted.
         if (isInitialized()) {
             invalidateTableCache(localTableName);
         }
-        if (dorisTable == null) {
-            return;
-        }
-
-        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache(dorisTable);
+        Env.getCurrentEnv().getExtMetaCacheMgr()
+                .invalidateTable(extCatalog.getId(), getFullName(), localTableName);
     }
 
     @Override

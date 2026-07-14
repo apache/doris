@@ -109,6 +109,50 @@ public class ExternalDatabaseTest extends TestWithFeService {
     }
 
     @Test
+    public void testCaseInsensitiveTableUnregisterClearsCanonicalHotEntries() {
+        NameMissTableCatalogProvider.reset();
+        try {
+            NameMissTableCatalogProvider.putTable("db_ci", "Foo");
+            CaseInsensitiveCatalog catalog = new CaseInsensitiveCatalog();
+            InspectableDatabase db = new InspectableDatabase(catalog, 220L, "db_ci", "db_ci");
+            db.setInitializedForTest(true);
+
+            TestExternalTable table = db.getTableNullable("foo");
+            Assertions.assertNotNull(table);
+            Assertions.assertTrue(db.getCachedTableNamesForTest().containsLocalName("Foo"));
+            Assertions.assertSame(table, db.getCachedTableForTest("Foo"));
+            Assertions.assertEquals("Foo", db.getCachedTableNameByIdForTest(table.getId()));
+
+            db.unregisterTable("foo");
+
+            Assertions.assertFalse(db.getCachedTableNamesForTest().containsLocalName("Foo"));
+            Assertions.assertNull(db.getCachedTableForTest("Foo"));
+            Assertions.assertNull(db.getCachedTableNameByIdForTest(table.getId()));
+        } finally {
+            NameMissTableCatalogProvider.reset();
+        }
+    }
+
+    @Test
+    public void testCaseInsensitiveTableUnregisterClearsCanonicalColdIdMap() {
+        CaseInsensitiveCatalog catalog = new CaseInsensitiveCatalog();
+        InspectableDatabase db = new InspectableDatabase(catalog, 230L, "db_ci", "db_ci");
+        db.setInitializedForTest(true);
+        TestExternalTable table = new TestExternalTable(231L, "Foo", "Foo", catalog, db);
+        db.registerTable(table);
+
+        Assertions.assertNull(db.getCachedTableNamesForTest());
+        Assertions.assertNull(db.getCachedTableForTest("Foo"));
+        Assertions.assertEquals("Foo", db.getCachedTableNameByIdForTest(231L));
+
+        db.unregisterTable("foo");
+
+        Assertions.assertNull(db.getCachedTableNamesForTest());
+        Assertions.assertNull(db.getCachedTableForTest("Foo"));
+        Assertions.assertNull(db.getCachedTableNameByIdForTest(231L));
+    }
+
+    @Test
     public void testGetTableNullableUpdatesIdMapWithActualTableId() {
         InspectableCatalog catalog = new InspectableCatalog();
         InspectableDatabase db = new InspectableDatabase(catalog, 300L, "db1", "db1");
