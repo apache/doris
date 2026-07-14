@@ -18,6 +18,7 @@
 package org.apache.doris.jdbc;
 
 import org.apache.doris.cloud.security.SecurityChecker;
+import org.apache.doris.common.jdbc.JdbcDriverUtils;
 import org.apache.doris.common.jni.JniScanner;
 import org.apache.doris.common.jni.vec.ColumnType;
 
@@ -25,8 +26,6 @@ import com.zaxxer.hikari.HikariDataSource;
 import org.apache.log4j.Logger;
 
 import java.io.IOException;
-import java.net.URL;
-import java.net.URLClassLoader;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -45,7 +44,7 @@ import java.util.Map;
  *
  * <p>Parameters:
  * <ul>
- *   <li>jdbc_url, jdbc_user, jdbc_password, jdbc_driver_class, jdbc_driver_url</li>
+ *   <li>jdbc_url, jdbc_user, jdbc_password, jdbc_driver_class, jdbc_driver_url, jdbc_driver_checksum</li>
  *   <li>query_sql — the test query to run</li>
  *   <li>catalog_id, connection_pool_min_size, connection_pool_max_size, etc.</li>
  *   <li>clean_datasource — if "true", close the datasource pool on close()</li>
@@ -59,6 +58,7 @@ public class JdbcConnectionTester extends JniScanner {
     private final String jdbcPassword;
     private final String jdbcDriverClass;
     private final String jdbcDriverUrl;
+    private final String jdbcDriverChecksum;
     private final String querySql;
     private final long catalogId;
     private final int connectionPoolMinSize;
@@ -80,6 +80,7 @@ public class JdbcConnectionTester extends JniScanner {
         this.jdbcPassword = params.getOrDefault("jdbc_password", "");
         this.jdbcDriverClass = params.getOrDefault("jdbc_driver_class", "");
         this.jdbcDriverUrl = params.getOrDefault("jdbc_driver_url", "");
+        this.jdbcDriverChecksum = params.getOrDefault("jdbc_driver_checksum", "");
         this.querySql = params.getOrDefault("query_sql", "SELECT 1");
         this.catalogId = Long.parseLong(params.getOrDefault("catalog_id", "0"));
         this.connectionPoolMinSize = Integer.parseInt(
@@ -111,9 +112,8 @@ public class JdbcConnectionTester extends JniScanner {
     public void open() throws IOException {
         ClassLoader oldClassLoader = Thread.currentThread().getContextClassLoader();
         try {
-            URL[] urls = {new URL(jdbcDriverUrl)};
-            ClassLoader parent = getClass().getClassLoader();
-            this.classLoader = URLClassLoader.newInstance(urls, parent);
+            this.classLoader = JdbcDriverUtils.prepareDriverClassLoader(
+                    jdbcDriverUrl, jdbcDriverChecksum, getClass().getClassLoader());
             Thread.currentThread().setContextClassLoader(classLoader);
 
             String cacheKey = createCacheKey();
