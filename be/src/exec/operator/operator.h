@@ -348,6 +348,13 @@ protected:
     bool _closed = false;
     std::atomic<bool> _terminated = false;
     Block _origin_block;
+#ifndef NDEBUG
+    // The original block is returned one call after its empty clone so every operator boundary
+    // sees an empty block before processing data.
+    Block _debug_pending_block;
+    bool _debug_has_pending_block = false;
+    bool _debug_pending_eos = false;
+#endif
 };
 
 template <typename SharedStateArg = FakeSharedState>
@@ -618,6 +625,11 @@ public:
         RETURN_IF_ERROR(block->check_column_and_type_not_null());
         RETURN_IF_ERROR(block->check_no_column_string64());
         RETURN_IF_ERROR(block->check_type_and_column());
+#ifndef NDEBUG
+        auto empty_block = block->clone_empty();
+        // The injected empty block must not finish the sink before the original block is consumed.
+        RETURN_IF_ERROR(sink_impl(state, &empty_block, false));
+#endif
         return sink_impl(state, block, eos);
     }
 
@@ -877,7 +889,23 @@ public:
 
     Status terminate(RuntimeState* state) override;
     [[nodiscard]] Status get_block(RuntimeState* state, Block* block, bool* eos) {
+#ifndef NDEBUG
+        auto* local_state = state->get_local_state(operator_id());
+        if (local_state->_debug_has_pending_block) {
+            *block = std::move(local_state->_debug_pending_block);
+            *eos = local_state->_debug_pending_eos;
+            local_state->_debug_has_pending_block = false;
+        } else {
+            RETURN_IF_ERROR(get_block_impl(state, block, eos));
+            local_state->_debug_pending_block = std::move(*block);
+            *block = local_state->_debug_pending_block.clone_empty();
+            local_state->_debug_pending_eos = *eos;
+            local_state->_debug_has_pending_block = true;
+            *eos = false;
+        }
+#else
         RETURN_IF_ERROR(get_block_impl(state, block, eos));
+#endif
         RETURN_IF_ERROR(block->check_column_and_type_not_null());
         RETURN_IF_ERROR(block->check_no_column_string64());
         RETURN_IF_ERROR(block->check_type_and_column());
