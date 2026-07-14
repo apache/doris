@@ -946,11 +946,17 @@ Status OrcReader::_init_orc_reader(RuntimeState* state) {
             VLOG_DEBUG << "ignore invalid ORC v2 file meta persistent cache payload: " << status;
             ++_reader_statistics.file_footer_read_calls;
             RETURN_IF_ERROR(_create_orc_reader(nullptr, state));
-            cached_file_tail =
-                    std::make_unique<std::string>(_state->reader->getSerializedFileTail());
             _file_meta_cache->invalidate_persistent_cache(file_meta_cache_context);
-            _file_meta_cache->insert(file_meta_cache_context, cached_file_tail, &meta_cache_handle,
-                                     *cached_file_tail, &file_meta_cache_profile);
+            const uint64_t file_tail_size = _state->reader->getFileFooterLength() +
+                                            _state->reader->getFilePostscriptLength();
+            if (file_meta_cache_context.enable_memory_cache ||
+                FileMetaCache::is_persistent_cache_payload_size_allowed(file_tail_size)) {
+                cached_file_tail =
+                        std::make_unique<std::string>(_state->reader->getSerializedFileTail());
+                _file_meta_cache->insert(file_meta_cache_context, cached_file_tail,
+                                         &meta_cache_handle, *cached_file_tail,
+                                         &file_meta_cache_profile);
+            }
         } else if (file_meta_cache_context.enable_memory_cache) {
             _file_meta_cache->insert(memory_cache_key, cached_file_tail, &meta_cache_handle);
         }

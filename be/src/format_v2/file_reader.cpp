@@ -70,6 +70,8 @@ Status FileReader::init(RuntimeState* state) {
     _init_profile();
     SCOPED_RAW_TIMER(&_reader_statistics.file_reader_create_time);
     ++_reader_statistics.open_file_num;
+    _file_description->fs_name =
+            FileFactory::get_file_system_identity(*_system_properties, *_file_description);
     io::FileReaderOptions reader_options =
             FileFactory::get_reader_options(state->query_options(), *_file_description);
     _file_reader = DORIS_TRY(io::DelegateReader::create_file_reader(

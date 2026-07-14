@@ -1258,9 +1258,8 @@ TEST_F(NewParquetReaderTest, UsesFileMetaCacheForFooterMetadata) {
     EXPECT_TRUE(handle.valid());
 
     RuntimeProfile second_profile("new_parquet_reader_file_meta_cache_second");
-    auto second_reader =
-            create_reader(0, -1, &second_profile, false, nullptr, std::nullopt, false,
-                          &file_meta_cache);
+    auto second_reader = create_reader(0, -1, &second_profile, false, nullptr, std::nullopt, false,
+                                       &file_meta_cache);
     ASSERT_TRUE(second_reader->init(&state).ok());
     ASSERT_NE(second_profile.get_counter("FileFooterReadCalls"), nullptr);
     ASSERT_NE(second_profile.get_counter("FileFooterHitCache"), nullptr);
@@ -1785,9 +1784,8 @@ TEST_F(NewParquetReaderTest, UnknownMtimeUsesPageCacheForImmutableFile) {
 
     RuntimeProfile first_profile("new_parquet_reader_first_unknown_mtime");
     {
-        auto reader =
-                create_reader(0, -1, &first_profile, false, nullptr, std::nullopt, true, nullptr,
-                              true, 0);
+        auto reader = create_reader(0, -1, &first_profile, false, nullptr, std::nullopt, true,
+                                    nullptr, true, 0);
         TQueryOptions query_options;
         query_options.__set_enable_parquet_file_page_cache(true);
         RuntimeState state {query_options, TQueryGlobals()};
@@ -1813,8 +1811,8 @@ TEST_F(NewParquetReaderTest, UnknownMtimeUsesPageCacheForImmutableFile) {
     EXPECT_GT(first_profile.get_counter("PageCacheWriteCount")->value(), 0);
 
     RuntimeProfile second_profile("new_parquet_reader_second_unknown_mtime");
-    auto reader = create_reader(0, -1, &second_profile, false, nullptr, std::nullopt, true,
-                                nullptr, true, 0);
+    auto reader = create_reader(0, -1, &second_profile, false, nullptr, std::nullopt, true, nullptr,
+                                true, 0);
     TQueryOptions query_options;
     query_options.__set_enable_parquet_file_page_cache(true);
     RuntimeState state {query_options, TQueryGlobals()};

@@ -502,6 +502,8 @@ void ParquetReader::_init_file_description() {
     if (_scan_range.__isset.fs_name) {
         _file_description.fs_name = _scan_range.fs_name;
     }
+    _file_description.fs_name =
+            FileFactory::get_file_system_identity(_system_properties, _file_description);
     if (_scan_range.__isset.file_cache_admission) {
         _file_description.file_cache_admission = _scan_range.file_cache_admission;
     }

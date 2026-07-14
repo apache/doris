@@ -4620,6 +4620,40 @@ TEST_F(NewOrcReaderTest, InvalidPersistentFileMetaCachePayloadFallsBackToFile) {
               "not a serialized orc file tail");
 }
 
+TEST_F(NewOrcReaderTest, InvalidPersistentPayloadDoesNotRewriteOversizedTail) {
+    const bool old_enable_external_file_meta_disk_cache =
+            config::enable_external_file_meta_disk_cache;
+    const int64_t old_external_file_meta_disk_cache_max_entry_bytes =
+            config::external_file_meta_disk_cache_max_entry_bytes;
+    Defer defer {[&] {
+        config::enable_external_file_meta_disk_cache = old_enable_external_file_meta_disk_cache;
+        config::external_file_meta_disk_cache_max_entry_bytes =
+                old_external_file_meta_disk_cache_max_entry_bytes;
+    }};
+    config::enable_external_file_meta_disk_cache = true;
+    config::external_file_meta_disk_cache_max_entry_bytes = 7;
+
+    auto persistent_cache = std::make_unique<TestPersistentFileMetaCache>();
+    TestPersistentFileMetaCache* persistent_cache_ptr = persistent_cache.get();
+    FileMetaCache file_meta_cache(0, std::move(persistent_cache));
+    const auto file_size = static_cast<int64_t>(std::filesystem::file_size(_file_path));
+    const std::string file_meta_cache_key = FileMetaCache::get_key(_file_path, 123, file_size);
+    ASSERT_TRUE(persistent_cache_ptr
+                        ->write(FileMetaCacheFormat::ORC_V2, file_meta_cache_key, 123, file_size,
+                                "invalid")
+                        .ok());
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto reader = create_reader(nullptr, std::nullopt, &file_meta_cache, false);
+    ASSERT_TRUE(reader->init(&state).ok());
+    EXPECT_EQ(reader->reader_statistics().file_footer_hit_disk_cache, 1);
+    EXPECT_EQ(reader->reader_statistics().file_footer_read_calls, 1);
+    EXPECT_EQ(reader->reader_statistics().file_footer_write_disk_cache, 0);
+    EXPECT_EQ(persistent_cache_ptr->write_count(), 1);
+    EXPECT_EQ(persistent_cache_ptr->remove_count(), 1);
+    EXPECT_FALSE(persistent_cache_ptr->contains(FileMetaCacheFormat::ORC_V2, file_meta_cache_key));
+}
+
 TEST_F(NewOrcReaderTest, PersistentFileMetaCacheCanSkipMemoryCache) {
     const bool old_enable_external_file_meta_disk_cache =
             config::enable_external_file_meta_disk_cache;

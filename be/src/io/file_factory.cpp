@@ -51,11 +51,28 @@
 #include "runtime/runtime_state.h"
 #include "util/s3_uri.h"
 #include "util/s3_util.h"
+#include "util/string_util.h"
 #include "util/uid_util.h"
 
 namespace doris {
 
 constexpr std::string_view RANDOM_CACHE_BASE_PATH = "random";
+
+namespace {
+
+void append_identity_property(const StringCaseMap<std::string>& properties, const char* name,
+                              std::string* identity) {
+    auto it = properties.find(name);
+    if (it == properties.end()) {
+        return;
+    }
+    identity->push_back('\0');
+    identity->append(name);
+    identity->push_back('=');
+    identity->append(it->second);
+}
+
+} // namespace
 
 io::FileReaderOptions FileFactory::get_reader_options(const TQueryOptions& option,
                                                       const io::FileDescription& fd) {
@@ -119,7 +136,7 @@ Result<io::FileSystemSPtr> FileFactory::create_fs(const io::FSPropertiesRef& fs_
         return io::S3FileSystem::create(std::move(s3_conf), io::FileSystem::TMP_FS_ID);
     }
     case TFileType::FILE_HDFS: {
-        std::string fs_name = _get_fs_name(file_description);
+        std::string fs_name = get_fs_name(file_description);
         return io::HdfsFileSystem::create(*fs_properties.properties, fs_name,
                                           io::FileSystem::TMP_FS_ID, nullptr);
     }
@@ -137,7 +154,7 @@ Result<io::FileSystemSPtr> FileFactory::create_fs(const io::FSPropertiesRef& fs_
     }
 }
 
-std::string FileFactory::_get_fs_name(const io::FileDescription& file_description) {
+std::string FileFactory::get_fs_name(const io::FileDescription& file_description) {
     // If the destination path contains a schema, use the schema directly.
     // If not, use origin file_description.fs_name
     // Because the default fsname in file_description.fs_name maybe different from
@@ -154,6 +171,30 @@ std::string FileFactory::_get_fs_name(const io::FileDescription& file_descriptio
         }
     }
     return fs_name;
+}
+
+std::string FileFactory::get_file_system_identity(const io::FileSystemProperties& system_properties,
+                                                  const io::FileDescription& file_description) {
+    switch (system_properties.system_type) {
+    case TFileType::FILE_HDFS: {
+        io::FileDescription identity_description = file_description;
+        if (identity_description.fs_name.empty()) {
+            identity_description.fs_name = system_properties.hdfs_params.fs_name;
+        }
+        return get_fs_name(identity_description);
+    }
+    case TFileType::FILE_S3: {
+        StringCaseMap<std::string> properties(system_properties.properties.begin(),
+                                              system_properties.properties.end());
+        std::string identity = "s3";
+        append_identity_property(properties, "AWS_ENDPOINT", &identity);
+        append_identity_property(properties, "AWS_REGION", &identity);
+        append_identity_property(properties, "provider", &identity);
+        return identity;
+    }
+    default:
+        return file_description.fs_name;
+    }
 }
 
 Result<io::FileWriterPtr> FileFactory::create_file_writer(
@@ -238,15 +279,10 @@ Result<io::FileReaderSPtr> FileFactory::_create_file_reader_internal(
     }
     case TFileType::FILE_HDFS: {
         std::shared_ptr<io::HdfsHandler> handler;
-        // FIXME(plat1ko): Explain the difference between `system_properties.hdfs_params.fs_name`
-        // and `file_description.fs_name`, it's so confused.
-        const auto* fs_name = &file_description.fs_name;
-        if (fs_name->empty()) {
-            fs_name = &system_properties.hdfs_params.fs_name;
-        }
+        const std::string fs_name = get_file_system_identity(system_properties, file_description);
         RETURN_IF_ERROR_RESULT(ExecEnv::GetInstance()->hdfs_mgr()->get_or_create_fs(
-                system_properties.hdfs_params, *fs_name, &handler));
-        return io::HdfsFileReader::create(file_description.path, handler->hdfs_fs, *fs_name,
+                system_properties.hdfs_params, fs_name, &handler));
+        return io::HdfsFileReader::create(file_description.path, handler->hdfs_fs, fs_name,
                                           reader_options, profile)
                 .and_then([&](auto&& reader) {
                     return io::create_cached_file_reader(std::move(reader), reader_options);

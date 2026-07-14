@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <array>
+#include <shared_mutex>
 #include <string>
 #include <string_view>
 
@@ -42,11 +44,16 @@ public:
     void remove(FileMetaCacheFormat format, const std::string& key) override;
 
 private:
+    static constexpr size_t ENTRY_LOCK_SHARDS = 64;
+
     static std::string get_key(FileMetaCacheFormat format, std::string_view file_meta_cache_key);
+
+    std::shared_mutex& get_entry_lock(const io::UInt128Wrapper& hash);
 
     io::BlockFileCache* get_cache(const io::UInt128Wrapper& hash) const;
 
     io::BlockFileCache* _cache = nullptr;
+    static std::array<std::shared_mutex, ENTRY_LOCK_SHARDS> _entry_locks;
 };
 
 } // namespace doris

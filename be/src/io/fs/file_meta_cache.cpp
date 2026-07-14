@@ -55,8 +55,18 @@ std::string FileMetaCache::get_key(const std::string file_name, int64_t modifica
 
 std::string FileMetaCache::get_key(io::FileReaderSPtr file_reader,
                                    const io::FileDescription& _file_description) {
+    const std::string& file_path = file_reader->path().native();
+    std::string file_identity;
+    if (_file_description.fs_name.empty()) {
+        file_identity = file_path;
+    } else {
+        file_identity.reserve(_file_description.fs_name.size() + 1 + file_path.size());
+        file_identity.append(_file_description.fs_name);
+        file_identity.push_back('\0');
+        file_identity.append(file_path);
+    }
     return FileMetaCache::get_key(
-            file_reader->path().native(), _file_description.mtime,
+            file_identity, _file_description.mtime,
             _file_description.file_size == -1 ? file_reader->size() : _file_description.file_size);
 }
 
