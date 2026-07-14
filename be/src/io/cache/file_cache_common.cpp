@@ -20,11 +20,46 @@
 
 #include "io/cache/file_cache_common.h"
 
+#include <cerrno>
+#include <cstring>
+#include <limits>
+
+#if defined(__APPLE__)
+#include <sys/mount.h>
+#else
+#include <sys/statfs.h>
+#endif
+
 #include "common/config.h"
+#include "cpp/sync_point.h"
 #include "exec/common/hex.h"
 #include "io/cache/block_file_cache.h"
 
 namespace doris::io {
+
+std::string file_cache_capacity_mode_to_string(FileCacheCapacityMode mode) {
+    switch (mode) {
+    case FileCacheCapacityMode::AUTO:
+        return "AUTO";
+    case FileCacheCapacityMode::MANUAL:
+        return "MANUAL";
+    }
+    return "MANUAL";
+}
+
+std::string file_cache_resize_source_to_string(FileCacheResizeSource source) {
+    switch (source) {
+    case FileCacheResizeSource::STARTUP:
+        return "STARTUP";
+    case FileCacheResizeSource::AUTO_REFRESH:
+        return "AUTO_REFRESH";
+    case FileCacheResizeSource::HTTP:
+        return "HTTP";
+    case FileCacheResizeSource::RELOAD:
+        return "RELOAD";
+    }
+    return "STARTUP";
+}
 
 std::string cache_type_to_surfix(FileCacheType type) {
     switch (type) {
@@ -82,7 +117,8 @@ std::string cache_type_to_string(FileCacheType type) {
 
 std::string FileCacheSettings::to_string() const {
     std::stringstream ss;
-    ss << "capacity: " << capacity << ", max_file_block_size: " << max_file_block_size
+    ss << "capacity: " << capacity << ", requested_capacity: " << requested_capacity
+       << ", max_file_block_size: " << max_file_block_size
        << ", max_query_cache_size: " << max_query_cache_size
        << ", disposable_queue_size: " << disposable_queue_size
        << ", disposable_queue_elements: " << disposable_queue_elements
@@ -90,7 +126,10 @@ std::string FileCacheSettings::to_string() const {
        << ", index_queue_elements: " << index_queue_elements
        << ", ttl_queue_size: " << ttl_queue_size << ", ttl_queue_elements: " << ttl_queue_elements
        << ", query_queue_size: " << query_queue_size
-       << ", query_queue_elements: " << query_queue_elements << ", storage: " << storage;
+       << ", query_queue_elements: " << query_queue_elements
+       << ", normal_percent: " << normal_percent << ", disposable_percent: " << disposable_percent
+       << ", index_percent: " << index_percent << ", ttl_percent: " << ttl_percent
+       << ", auto_capacity: " << auto_capacity << ", storage: " << storage;
     return ss.str();
 }
 
@@ -99,34 +138,212 @@ FileCacheSettings get_file_cache_settings(size_t capacity, size_t max_query_cach
                                           size_t index_percent, size_t ttl_percent,
                                           const std::string& storage) {
     io::FileCacheSettings settings;
-    if (capacity == 0) {
-        return settings;
-    }
-    settings.capacity = capacity;
+    settings.requested_capacity = capacity;
     settings.max_file_block_size = config::file_cache_each_block_size;
     settings.max_query_cache_size = max_query_cache_size;
-    size_t per_size = settings.capacity / 100;
-    settings.disposable_queue_size = per_size * disposable_percent;
-    settings.disposable_queue_elements =
-            std::max(settings.disposable_queue_size / settings.max_file_block_size,
-                     REMOTE_FS_OBJECTS_CACHE_DEFAULT_ELEMENTS);
-
-    settings.index_queue_size = per_size * index_percent;
-    settings.index_queue_elements =
-            std::max(settings.index_queue_size / settings.max_file_block_size,
-                     REMOTE_FS_OBJECTS_CACHE_DEFAULT_ELEMENTS);
-
-    settings.ttl_queue_size = per_size * ttl_percent;
-    settings.ttl_queue_elements = std::max(settings.ttl_queue_size / settings.max_file_block_size,
-                                           REMOTE_FS_OBJECTS_CACHE_DEFAULT_ELEMENTS);
-
-    settings.query_queue_size = settings.capacity - settings.disposable_queue_size -
-                                settings.index_queue_size - settings.ttl_queue_size;
-    settings.query_queue_elements =
-            std::max(settings.query_queue_size / settings.max_file_block_size,
-                     REMOTE_FS_OBJECTS_CACHE_DEFAULT_ELEMENTS);
+    settings.normal_percent = normal_percent;
+    settings.disposable_percent = disposable_percent;
+    settings.index_percent = index_percent;
+    settings.ttl_percent = ttl_percent;
     settings.storage = storage;
+    if (capacity > 0) {
+        FileCacheCapacityPolicy policy;
+        policy.mode = FileCacheCapacityMode::MANUAL;
+        policy.requested_capacity = capacity;
+        policy.normal_percent = normal_percent;
+        policy.disposable_percent = disposable_percent;
+        policy.index_percent = index_percent;
+        policy.ttl_percent = ttl_percent;
+        policy.max_query_cache_size = max_query_cache_size;
+        policy.max_file_block_size = settings.max_file_block_size;
+        policy.storage = storage;
+        auto st = build_file_cache_settings(capacity, policy, &settings);
+        DCHECK(st.ok()) << st;
+    }
     return settings;
+}
+
+Status get_file_cache_disk_state(const std::string& path, FileCacheDiskState* state) {
+    DCHECK(state != nullptr);
+    Status injected_status;
+    TEST_SYNC_POINT_CALLBACK("BlockFileCache::get_file_cache_disk_state:status", &injected_status);
+    RETURN_IF_ERROR(injected_status);
+
+    struct statfs stat;
+    if (statfs(path.c_str(), &stat) != 0) {
+        return Status::IOError("{} statfs error {}", path, strerror(errno));
+    }
+#if defined(__APPLE__)
+    const auto block_size = stat.f_bsize;
+#else
+    const auto block_size = stat.f_frsize ? stat.f_frsize : stat.f_bsize;
+#endif
+    const auto checked_bytes = [&](uint64_t blocks, uint64_t* bytes) -> Status {
+        const auto size = static_cast<uint64_t>(block_size);
+        if (size != 0 && blocks > std::numeric_limits<uint64_t>::max() / size) {
+            return Status::IOError("{} statfs capacity overflows uint64", path);
+        }
+        *bytes = blocks * size;
+        return Status::OK();
+    };
+    RETURN_IF_ERROR(checked_bytes(static_cast<uint64_t>(stat.f_blocks), &state->total_capacity));
+    RETURN_IF_ERROR(
+            checked_bytes(static_cast<uint64_t>(stat.f_bavail), &state->available_capacity));
+
+    const uintmax_t used_blocks = stat.f_blocks - stat.f_bfree;
+    const uintmax_t nonroot_total = used_blocks + stat.f_bavail;
+    const unsigned __int128 used_times_100 = static_cast<unsigned __int128>(used_blocks) * 100;
+    state->disk_used_percent = nonroot_total == 0
+                                       ? 0
+                                       : static_cast<int>(used_times_100 / nonroot_total +
+                                                          (used_times_100 % nonroot_total != 0));
+    state->inode_used_percent =
+            stat.f_files == 0 ? 0
+                              : 100 - static_cast<int>(static_cast<uintmax_t>(stat.f_ffree) * 100 /
+                                                       static_cast<uintmax_t>(stat.f_files));
+
+    std::pair<int, int> legacy_percent {state->disk_used_percent, state->inode_used_percent};
+    TEST_SYNC_POINT_CALLBACK("BlockFileCache::disk_used_percentage:1", &legacy_percent);
+    state->disk_used_percent = legacy_percent.first;
+    state->inode_used_percent = legacy_percent.second;
+    TEST_SYNC_POINT_CALLBACK("BlockFileCache::get_file_cache_disk_state", state, &path);
+    return Status::OK();
+}
+
+FileCacheCapacityPolicy make_file_cache_capacity_policy(const FileCacheSettings& settings) {
+    FileCacheCapacityPolicy policy;
+    policy.mode =
+            settings.auto_capacity ? FileCacheCapacityMode::AUTO : FileCacheCapacityMode::MANUAL;
+    policy.requested_capacity =
+            policy.mode == FileCacheCapacityMode::AUTO
+                    ? 0
+                    : (settings.requested_capacity == 0 ? settings.capacity
+                                                        : settings.requested_capacity);
+    policy.normal_percent = settings.normal_percent;
+    policy.disposable_percent = settings.disposable_percent;
+    policy.index_percent = settings.index_percent;
+    policy.ttl_percent = settings.ttl_percent;
+    policy.max_query_cache_size = settings.max_query_cache_size;
+    policy.max_file_block_size = settings.max_file_block_size == 0
+                                         ? config::file_cache_each_block_size
+                                         : settings.max_file_block_size;
+    policy.storage = settings.storage == "memory" ? "memory" : "disk";
+    return policy;
+}
+
+Status resolve_file_cache_capacity(const FileCacheCapacityPolicy& policy,
+                                   const std::optional<FileCacheDiskState>& disk_state,
+                                   uint64_t* effective_capacity, bool* clamped_by_disk) {
+    DCHECK(effective_capacity != nullptr);
+    DCHECK(clamped_by_disk != nullptr);
+    *clamped_by_disk = false;
+
+    if (policy.storage == "memory") {
+        if (policy.mode == FileCacheCapacityMode::AUTO) {
+            return Status::InvalidArgument("memory file cache does not support automatic capacity");
+        }
+        *effective_capacity = policy.requested_capacity;
+    } else {
+        if (!disk_state.has_value()) {
+            return Status::IOError("file cache disk state is unavailable");
+        }
+        if (disk_state->total_capacity == 0) {
+            return Status::IOError("file cache disk capacity is zero");
+        }
+        if (policy.mode == FileCacheCapacityMode::AUTO) {
+            *effective_capacity = disk_state->total_capacity;
+        } else {
+            *effective_capacity = std::min(policy.requested_capacity, disk_state->total_capacity);
+            *clamped_by_disk = policy.requested_capacity > disk_state->total_capacity;
+        }
+    }
+
+    if (*effective_capacity == 0) {
+        return Status::InvalidArgument("file cache capacity must be greater than zero");
+    }
+    if (*effective_capacity > std::numeric_limits<size_t>::max()) {
+        return Status::InvalidArgument("file cache capacity exceeds size_t");
+    }
+    return Status::OK();
+}
+
+Status build_file_cache_settings(uint64_t effective_capacity, const FileCacheCapacityPolicy& policy,
+                                 FileCacheSettings* settings) {
+    DCHECK(settings != nullptr);
+    if (effective_capacity == 0 || effective_capacity > std::numeric_limits<size_t>::max()) {
+        return Status::InvalidArgument("invalid effective file cache capacity {}",
+                                       effective_capacity);
+    }
+    if (policy.max_file_block_size == 0) {
+        return Status::InvalidArgument("max file cache block size must be greater than zero");
+    }
+    if (policy.normal_percent + policy.disposable_percent + policy.index_percent +
+                policy.ttl_percent !=
+        100) {
+        return Status::InvalidArgument("file cache queue percentages must sum to 100");
+    }
+
+    FileCacheSettings next;
+    next.capacity = static_cast<size_t>(effective_capacity);
+    next.requested_capacity = policy.requested_capacity;
+    next.max_file_block_size = policy.max_file_block_size;
+    next.max_query_cache_size = policy.max_query_cache_size;
+    next.normal_percent = policy.normal_percent;
+    next.disposable_percent = policy.disposable_percent;
+    next.index_percent = policy.index_percent;
+    next.ttl_percent = policy.ttl_percent;
+    next.auto_capacity = policy.mode == FileCacheCapacityMode::AUTO;
+    next.storage = policy.storage;
+
+    const size_t per_size = next.capacity / 100;
+    next.disposable_queue_size = per_size * policy.disposable_percent;
+    next.index_queue_size = per_size * policy.index_percent;
+    next.ttl_queue_size = per_size * policy.ttl_percent;
+    next.query_queue_size = next.capacity - next.disposable_queue_size - next.index_queue_size -
+                            next.ttl_queue_size;
+    const auto queue_elements = [&](size_t queue_size) {
+        return std::max(queue_size / next.max_file_block_size,
+                        REMOTE_FS_OBJECTS_CACHE_DEFAULT_ELEMENTS);
+    };
+    next.disposable_queue_elements = queue_elements(next.disposable_queue_size);
+    next.index_queue_elements = queue_elements(next.index_queue_size);
+    next.ttl_queue_elements = queue_elements(next.ttl_queue_size);
+    next.query_queue_elements = queue_elements(next.query_queue_size);
+    *settings = std::move(next);
+    return Status::OK();
+}
+
+Status build_file_cache_resize_plan(const FileCacheCapacityPolicy& current_policy,
+                                    const BlockFileCacheResetRequest& request,
+                                    const std::optional<FileCacheDiskState>& disk_state,
+                                    FileCacheResizePlan* plan) {
+    DCHECK(plan != nullptr);
+    FileCacheCapacityPolicy next_policy = current_policy;
+    if (request.source == FileCacheResizeSource::AUTO_REFRESH) {
+        if (current_policy.mode != FileCacheCapacityMode::AUTO) {
+            return Status::InvalidArgument("manual file cache cannot be auto refreshed");
+        }
+    } else {
+        next_policy.mode = request.requested_capacity == 0 ? FileCacheCapacityMode::AUTO
+                                                           : FileCacheCapacityMode::MANUAL;
+        next_policy.requested_capacity = request.requested_capacity;
+    }
+
+    uint64_t effective_capacity = 0;
+    bool clamped_by_disk = false;
+    RETURN_IF_ERROR(resolve_file_cache_capacity(next_policy, disk_state, &effective_capacity,
+                                                &clamped_by_disk));
+
+    FileCacheResizePlan next_plan;
+    next_plan.next_policy = next_policy;
+    RETURN_IF_ERROR(
+            build_file_cache_settings(effective_capacity, next_policy, &next_plan.next_settings));
+    next_plan.disk_state = disk_state;
+    next_plan.expected_generation = request.expected_generation;
+    next_plan.source = request.source;
+    next_plan.clamped_by_disk = clamped_by_disk;
+    *plan = std::move(next_plan);
+    return Status::OK();
 }
 
 std::string UInt128Wrapper::to_string() const {

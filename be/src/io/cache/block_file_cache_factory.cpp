@@ -22,20 +22,15 @@
 
 #include <glog/logging.h>
 
-#include <string>
-#include <vector>
-#if defined(__APPLE__)
-#include <sys/mount.h>
-#else
-#include <sys/statfs.h>
-#endif
-
 #include <algorithm>
 #include <atomic>
 #include <execution>
 #include <ostream>
+#include <string>
 #include <utility>
+#include <vector>
 
+#include "common/cast_set.h"
 #include "common/config.h"
 #include "core/block/block.h"
 #include "information_schema/schema_scanner_helper.h"
@@ -72,7 +67,14 @@ size_t FileCacheFactory::try_release(const std::string& base_path) {
 
 Status FileCacheFactory::create_file_cache(const std::string& cache_base_path,
                                            FileCacheSettings file_cache_settings) {
-    if (file_cache_settings.storage == "memory") {
+    std::lock_guard reset_lock(_reset_mtx);
+    if (file_cache_settings.storage != "memory" && file_cache_settings.capacity == 0) {
+        file_cache_settings.auto_capacity = true;
+        file_cache_settings.requested_capacity = 0;
+    }
+    auto policy = make_file_cache_capacity_policy(file_cache_settings);
+    file_cache_settings.storage = policy.storage;
+    if (policy.storage == "memory") {
         if (cache_base_path != "memory") {
             LOG(WARNING) << "memory storage must use memory path";
             return Status::InvalidArgument("memory storage must use memory path");
@@ -89,73 +91,123 @@ Status FileCacheFactory::create_file_cache(const std::string& cache_base_path,
             RETURN_IF_ERROR(fs->delete_directory(cache_base_path));
             RETURN_IF_ERROR(fs->create_directory(cache_base_path));
         }
-
-        struct statfs stat;
-        if (statfs(cache_base_path.c_str(), &stat) < 0) {
-            LOG_ERROR("").tag("file cache path", cache_base_path).tag("error", strerror(errno));
-            return Status::IOError("{} statfs error {}", cache_base_path, strerror(errno));
-        }
-#if defined(__APPLE__)
-        const auto block_size = stat.f_bsize;
-#else
-        const auto block_size = stat.f_frsize ? stat.f_frsize : stat.f_bsize;
-#endif
-        size_t disk_capacity = static_cast<size_t>(stat.f_blocks) * static_cast<size_t>(block_size);
-        if (file_cache_settings.capacity == 0 || disk_capacity < file_cache_settings.capacity) {
-            LOG_INFO(
-                    "The cache {} config size {} is larger than disk size {} or zero, recalc "
-                    "it.",
-                    cache_base_path, file_cache_settings.capacity, disk_capacity);
-            file_cache_settings = get_file_cache_settings(disk_capacity,
-                                                          file_cache_settings.max_query_cache_size);
-        }
-        LOG(INFO) << "[FileCache] path: " << cache_base_path
-                  << " total_size: " << file_cache_settings.capacity
-                  << " disk_total_size: " << disk_capacity;
     }
+
+    std::optional<FileCacheDiskState> disk_state;
+    if (policy.storage != "memory") {
+        FileCacheDiskState state;
+        RETURN_IF_ERROR(get_file_cache_disk_state(cache_base_path, &state));
+        disk_state = state;
+    }
+    uint64_t effective_capacity = 0;
+    bool clamped_by_disk = false;
+    RETURN_IF_ERROR(
+            resolve_file_cache_capacity(policy, disk_state, &effective_capacity, &clamped_by_disk));
+    if (file_cache_settings.capacity != effective_capacity ||
+        policy.mode == FileCacheCapacityMode::AUTO) {
+        RETURN_IF_ERROR(
+                build_file_cache_settings(effective_capacity, policy, &file_cache_settings));
+    } else {
+        file_cache_settings.requested_capacity = policy.requested_capacity;
+        file_cache_settings.auto_capacity = policy.mode == FileCacheCapacityMode::AUTO;
+        file_cache_settings.max_file_block_size = policy.max_file_block_size;
+    }
+    if (clamped_by_disk) {
+        LOG(WARNING) << "File cache capacity is clamped by disk. path=" << cache_base_path
+                     << " requested_capacity=" << policy.requested_capacity
+                     << " disk_total_capacity=" << disk_state->total_capacity;
+    }
+
     auto cache = std::make_unique<BlockFileCache>(cache_base_path, file_cache_settings);
+    FileCacheResizePlan initial_plan;
+    initial_plan.next_policy = policy;
+    initial_plan.next_settings = file_cache_settings;
+    initial_plan.disk_state = disk_state;
+    initial_plan.source = FileCacheResizeSource::STARTUP;
+    initial_plan.clamped_by_disk = clamped_by_disk;
+    FileCachePathResizeResult initial_result;
+    RETURN_IF_ERROR(cache->apply_reset_capacity(initial_plan, &initial_result));
     RETURN_IF_ERROR(cache->initialize());
     {
         std::lock_guard lock(_mtx);
         _path_to_cache[cache_base_path] = cache.get();
         _caches.push_back(std::move(cache));
-        _capacity += file_cache_settings.capacity;
     }
 
     return Status::OK();
 }
 
 Status FileCacheFactory::reload_file_cache(const std::vector<CachePath>& cache_base_paths) {
+    std::lock_guard reset_lock(_reset_mtx);
     {
-        std::unique_lock lock(_mtx);
+        std::lock_guard topology_lock(_mtx);
         for (const auto& cache_path : cache_base_paths) {
             if (_path_to_cache.find(cache_path.path) == _path_to_cache.end()) {
                 return Status::InternalError(
                         "Current file cache not support file cache num changes");
             }
         }
+    }
 
-        for (const auto& cache_path : cache_base_paths) {
-            auto cache_map_iter = _path_to_cache.find(cache_path.path);
-            auto cache_iter = std::find_if(_caches.begin(), _caches.end(),
-                                           [cache_map_iter](const auto& cache_uptr) {
-                                               return cache_uptr.get() == cache_map_iter->second;
-                                           });
-
-            if (cache_iter == _caches.end()) {
-                return Status::InternalError("Target relaod cache in path {} may has been released",
-                                             cache_path.path);
-            }
-
-            // deconstruct target reload first
-            *cache_iter = std::unique_ptr<BlockFileCache>();
-            // after deconstruct the BlockFileCache, construct the BlockFileCache again
-            *cache_iter =
-                    std::make_unique<BlockFileCache>(cache_path.path, cache_path.init_settings());
-            cache_map_iter->second = cache_iter->get();
-
-            RETURN_IF_ERROR(cache_iter->get()->initialize());
+    struct PreparedReplacement {
+        std::string path;
+        FileCacheSettings settings;
+        FileCacheCapacityPolicy policy;
+        std::optional<FileCacheDiskState> disk_state;
+        bool clamped_by_disk = false;
+    };
+    std::vector<PreparedReplacement> replacements;
+    replacements.reserve(cache_base_paths.size());
+    for (const auto& cache_path : cache_base_paths) {
+        auto settings = cache_path.init_settings();
+        auto policy = make_file_cache_capacity_policy(settings);
+        std::optional<FileCacheDiskState> disk_state;
+        if (policy.storage != "memory") {
+            FileCacheDiskState state;
+            RETURN_IF_ERROR(get_file_cache_disk_state(cache_path.path, &state));
+            disk_state = state;
         }
+        uint64_t effective_capacity = 0;
+        bool clamped_by_disk = false;
+        RETURN_IF_ERROR(resolve_file_cache_capacity(policy, disk_state, &effective_capacity,
+                                                    &clamped_by_disk));
+        if (settings.capacity != effective_capacity || policy.mode == FileCacheCapacityMode::AUTO) {
+            RETURN_IF_ERROR(build_file_cache_settings(effective_capacity, policy, &settings));
+        }
+
+        replacements.push_back({.path = cache_path.path,
+                                .settings = std::move(settings),
+                                .policy = std::move(policy),
+                                .disk_state = disk_state,
+                                .clamped_by_disk = clamped_by_disk});
+    }
+
+    std::lock_guard topology_lock(_mtx);
+    for (auto& prepared : replacements) {
+        auto cache_map_iter = _path_to_cache.find(prepared.path);
+        auto cache_iter = std::find_if(_caches.begin(), _caches.end(),
+                                       [cache_map_iter](const auto& cache_uptr) {
+                                           return cache_uptr.get() == cache_map_iter->second;
+                                       });
+
+        if (cache_iter == _caches.end()) {
+            return Status::InternalError("Target reload cache in path {} may have been released",
+                                         prepared.path);
+        }
+        cache_map_iter->second = nullptr;
+        cache_iter->reset();
+        auto replacement = std::make_unique<BlockFileCache>(prepared.path, prepared.settings);
+        FileCacheResizePlan initial_plan;
+        initial_plan.next_policy = prepared.policy;
+        initial_plan.next_settings = prepared.settings;
+        initial_plan.disk_state = prepared.disk_state;
+        initial_plan.source = FileCacheResizeSource::RELOAD;
+        initial_plan.clamped_by_disk = prepared.clamped_by_disk;
+        FileCachePathResizeResult initial_result;
+        RETURN_IF_ERROR(replacement->apply_reset_capacity(initial_plan, &initial_result));
+        RETURN_IF_ERROR(replacement->initialize());
+        *cache_iter = std::move(replacement);
+        cache_map_iter->second = cache_iter->get();
     }
 
     return Status::OK();
@@ -312,66 +364,107 @@ std::vector<std::string> FileCacheFactory::get_base_paths() {
     return paths;
 }
 
-std::string validate_capacity(const std::string& path, int64_t new_capacity,
-                              int64_t& valid_capacity) {
-    struct statfs stat;
-    if (statfs(path.c_str(), &stat) < 0) {
-        auto ret = fmt::format("reset capacity {} statfs error {}. ", path, strerror(errno));
-        LOG_ERROR(ret);
-        valid_capacity = 0; // caller will handle the error
-        return ret;
-    }
-#if defined(__APPLE__)
-    const auto block_size = stat.f_bsize;
-#else
-    const auto block_size = stat.f_frsize ? stat.f_frsize : stat.f_bsize;
-#endif
-    size_t disk_capacity = static_cast<size_t>(stat.f_blocks) * static_cast<size_t>(block_size);
-    if (new_capacity == 0 || disk_capacity < new_capacity) {
-        auto ret = fmt::format(
-                "The cache {} config size {} is larger than disk size {} or zero, recalc "
-                "it to disk size. ",
-                path, new_capacity, disk_capacity);
-        valid_capacity = disk_capacity;
-        LOG_WARNING(ret);
-        return ret;
-    }
-    valid_capacity = new_capacity;
-    return "";
+std::string FileCacheFactory::reset_capacity(const std::string& path, int64_t new_capacity) {
+    std::string result;
+    auto st = reset_capacity(path, new_capacity, &result);
+    return st.ok() ? result : st.to_string();
 }
 
-std::string FileCacheFactory::reset_capacity(const std::string& path, int64_t new_capacity) {
-    std::stringstream ss;
-    size_t total_capacity = 0;
-    if (path.empty()) {
-        for (auto& [p, cache] : _path_to_cache) {
-            int64_t valid_capacity = 0;
-            ss << validate_capacity(p, new_capacity, valid_capacity);
-            if (valid_capacity <= 0) {
-                return ss.str();
-            }
-            ss << cache->reset_capacity(valid_capacity);
-            total_capacity += cache->capacity();
-        }
-        _capacity = total_capacity;
-        return ss.str();
-    } else {
-        if (auto iter = _path_to_cache.find(path); iter != _path_to_cache.end()) {
-            int64_t valid_capacity = 0;
-            ss << validate_capacity(path, new_capacity, valid_capacity);
-            if (valid_capacity <= 0) {
-                return ss.str();
-            }
-            ss << iter->second->reset_capacity(valid_capacity);
+Status FileCacheFactory::reset_capacity(const std::string& path, int64_t new_capacity,
+                                        std::string* result) {
+    DCHECK(result != nullptr);
+    if (new_capacity < 0) {
+        return Status::InvalidArgument("file cache capacity must not be negative");
+    }
 
-            for (auto& [p, cache] : _path_to_cache) {
-                total_capacity += cache->capacity();
+    FileCacheResetResult reset_result;
+    RETURN_IF_ERROR(reset_capacity(path, cast_set<uint64_t>(new_capacity), &reset_result));
+    std::stringstream ss;
+    for (const auto& cache : reset_result.caches) {
+        ss << fmt::format(
+                "finish reset_capacity, path={} old_capacity={} new_capacity={} mode={} "
+                "pending_eviction_bytes={} clamped_by_disk={} changed={}\n",
+                cache.path, cache.old_capacity, cache.new_capacity,
+                file_cache_capacity_mode_to_string(cache.mode), cache.pending_eviction_bytes,
+                cache.clamped_by_disk, cache.changed);
+    }
+    *result = ss.str();
+    return Status::OK();
+}
+
+Status FileCacheFactory::reset_capacity(const std::string& path, uint64_t new_capacity,
+                                        FileCacheResetResult* result) {
+    DCHECK(result != nullptr);
+    std::lock_guard reset_lock(_reset_mtx);
+
+    std::vector<BlockFileCache*> caches;
+    {
+        std::lock_guard topology_lock(_mtx);
+        if (!path.empty()) {
+            auto iter = _path_to_cache.find(path);
+            if (iter == _path_to_cache.end()) {
+                return Status::InvalidArgument("unknown file cache path {}", path);
             }
-            _capacity = total_capacity;
-            return ss.str();
+            caches.push_back(iter->second);
+        } else {
+            caches.reserve(_caches.size());
+            for (const auto& cache : _caches) {
+                caches.push_back(cache.get());
+            }
         }
     }
-    return "Unknown the cache path " + path;
+    std::ranges::sort(caches, {}, &BlockFileCache::get_base_path);
+
+    BlockFileCacheResetRequest request;
+    request.requested_capacity = new_capacity;
+    request.source = FileCacheResizeSource::HTTP;
+    std::vector<FileCacheResizePlan> plans;
+    plans.reserve(caches.size());
+    for (auto* cache : caches) {
+        plans.emplace_back();
+        RETURN_IF_ERROR(cache->prepare_reset_capacity(request, std::nullopt, &plans.back()));
+    }
+
+    result->caches.clear();
+    result->caches.reserve(caches.size());
+    for (size_t i = 0; i < caches.size(); ++i) {
+        result->caches.emplace_back();
+        RETURN_IF_ERROR(caches[i]->apply_reset_capacity(plans[i], &result->caches.back()));
+    }
+    result->total_capacity = get_capacity();
+    return Status::OK();
+}
+
+size_t FileCacheFactory::get_capacity() const {
+    std::lock_guard lock(_mtx);
+    size_t total_capacity = 0;
+    for (const auto& cache : _caches) {
+        total_capacity += cache->capacity();
+    }
+    return total_capacity;
+}
+
+Status FileCacheFactory::get_cache_infos(const std::string& path,
+                                         std::vector<FileCacheRuntimeInfo>* infos) const {
+    DCHECK(infos != nullptr);
+    infos->clear();
+    std::lock_guard lock(_mtx);
+    if (!path.empty()) {
+        auto iter = _path_to_cache.find(path);
+        if (iter == _path_to_cache.end()) {
+            return Status::InvalidArgument("unknown file cache path {}", path);
+        }
+        infos->emplace_back();
+        return iter->second->get_runtime_info(&infos->back());
+    }
+
+    infos->reserve(_caches.size());
+    for (const auto& cache : _caches) {
+        infos->emplace_back();
+        RETURN_IF_ERROR(cache->get_runtime_info(&infos->back()));
+    }
+    std::ranges::sort(*infos, {}, &FileCacheRuntimeInfo::path);
+    return Status::OK();
 }
 
 void FileCacheFactory::get_cache_stats_block(Block* block) {

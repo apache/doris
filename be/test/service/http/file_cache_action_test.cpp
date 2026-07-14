@@ -28,6 +28,7 @@
 #include <thread>
 
 #include "common/config.h"
+#include "cpp/sync_point.h"
 #include "io/cache/block_file_cache.h"
 #include "io/cache/block_file_cache_factory.h"
 #include "io/cache/file_cache_common.h"
@@ -102,6 +103,7 @@ public:
         if (doris::ExecEnv::GetInstance()->file_cache_factory() != nullptr) {
             reset_file_cache_factory();
         }
+        (void)std::filesystem::remove_all(_base_path);
     }
 
 protected:
@@ -118,7 +120,6 @@ protected:
         factory->clear_file_caches(true);
         factory->_caches.clear();
         factory->_path_to_cache.clear();
-        factory->_capacity = 0;
         _cache = nullptr;
     }
 
@@ -240,6 +241,137 @@ TEST_F(FileCacheActionTest, clear_value_uses_async_remove) {
     EXPECT_TRUE(json_metrics.empty());
     EXPECT_EQ(_cache->_cur_cache_size, 0);
     EXPECT_TRUE(_cache->get_blocks_by_key(hash).empty());
+}
+
+TEST_F(FileCacheActionTest, info_returns_capacity_policy_and_queues) {
+    HttpRequest req(_evhttp_req);
+    std::string json_metrics;
+    req._params["op"] = "info";
+
+    Status status = _action->_handle_header(&req, &json_metrics);
+
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_NE(json_metrics.find("\"status\":\"OK\""), std::string::npos);
+    EXPECT_NE(json_metrics.find("\"path\":\"memory\""), std::string::npos);
+    EXPECT_NE(json_metrics.find("\"storage\":\"memory\""), std::string::npos);
+    EXPECT_NE(json_metrics.find("\"capacity_mode\":\"MANUAL\""), std::string::npos);
+    EXPECT_NE(json_metrics.find("\"requested_capacity\":1048576"), std::string::npos);
+    EXPECT_NE(json_metrics.find("\"effective_capacity\":1048576"), std::string::npos);
+    EXPECT_NE(json_metrics.find("\"disk_total_bytes\":null"), std::string::npos);
+    EXPECT_NE(json_metrics.find("\"normal\":{"), std::string::npos);
+    EXPECT_NE(json_metrics.find("\"last_resize\":{"), std::string::npos);
+}
+
+TEST_F(FileCacheActionTest, info_by_path_and_unknown_path) {
+    HttpRequest req(_evhttp_req);
+    std::string json_metrics;
+    req._params["op"] = "info";
+    req._params["path"] = _base_path;
+    ASSERT_TRUE(_action->_handle_header(&req, &json_metrics));
+    EXPECT_NE(json_metrics.find("\"path\":\"memory\""), std::string::npos);
+
+    req._params["path"] = "/not/a/cache";
+    Status status = _action->_handle_header(&req, &json_metrics);
+    EXPECT_TRUE(status.is<ErrorCode::INVALID_ARGUMENT>());
+    EXPECT_NE(status.to_string().find("unknown file cache path"), std::string::npos);
+}
+
+TEST_F(FileCacheActionTest, reset_manual_returns_structured_result) {
+    HttpRequest req(_evhttp_req);
+    std::string json_metrics;
+    req._params["op"] = "reset";
+    req._params["path"] = _base_path;
+    req._params["capacity"] = "9007199254740993";
+
+    Status status = _action->_handle_header(&req, &json_metrics);
+
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_EQ(_cache->capacity(), 9007199254740993ULL);
+    EXPECT_NE(json_metrics.find("\"capacity_mode\":\"MANUAL\""), std::string::npos);
+    EXPECT_NE(json_metrics.find("\"requested_capacity\":9007199254740993"), std::string::npos);
+    EXPECT_NE(json_metrics.find("\"old_capacity\":1048576"), std::string::npos);
+    EXPECT_NE(json_metrics.find("\"effective_capacity\":9007199254740993"), std::string::npos);
+    EXPECT_NE(json_metrics.find("\"changed\":true"), std::string::npos);
+}
+
+TEST_F(FileCacheActionTest, reset_rejects_invalid_values_and_unknown_path) {
+    HttpRequest req(_evhttp_req);
+    req._params["op"] = "reset";
+    req._params["path"] = _base_path;
+    for (const std::string& value : {"", "-1", "abc", "1junk", "9223372036854775808"}) {
+        std::string json_metrics;
+        req._params["capacity"] = value;
+        Status status = _action->_handle_header(&req, &json_metrics);
+        EXPECT_TRUE(status.is<ErrorCode::INVALID_ARGUMENT>()) << value << ": " << status;
+        EXPECT_EQ(_cache->capacity(), 1024 * 1024);
+    }
+
+    std::string json_metrics;
+    req._params["capacity"] = "1024";
+    req._params["path"] = "/not/a/cache";
+    Status status = _action->_handle_header(&req, &json_metrics);
+    EXPECT_TRUE(status.is<ErrorCode::INVALID_ARGUMENT>());
+    EXPECT_EQ(_cache->capacity(), 1024 * 1024);
+}
+
+TEST_F(FileCacheActionTest, reset_zero_enables_auto_mode_for_disk_cache) {
+    reset_file_cache_factory();
+    std::filesystem::create_directories(_base_path);
+
+    auto* sync_point = SyncPoint::get_instance();
+    SyncPoint::CallbackGuard disk_state_guard;
+    SyncPoint::CallbackGuard sleep_guard;
+    sync_point->set_call_back(
+            "BlockFileCache::get_file_cache_disk_state",
+            [](auto&& args) {
+                auto* state = try_any_cast<io::FileCacheDiskState*>(args[0]);
+                state->total_capacity = 4096;
+                state->available_capacity = 2048;
+                state->disk_used_percent = 10;
+                state->inode_used_percent = 10;
+            },
+            &disk_state_guard);
+    sync_point->set_call_back(
+            "BlockFileCache::set_sleep_time",
+            [](auto&& args) { *try_any_cast<int64_t*>(args[0]) = 60 * 60 * 1000; }, &sleep_guard);
+    sync_point->enable_processing();
+
+    io::FileCacheCapacityPolicy policy;
+    policy.mode = io::FileCacheCapacityMode::MANUAL;
+    policy.requested_capacity = 1024;
+    policy.max_file_block_size = 64;
+    policy.storage = "disk";
+    io::FileCacheSettings settings;
+    ASSERT_TRUE(io::build_file_cache_settings(1024, policy, &settings));
+    ASSERT_TRUE(io::FileCacheFactory::instance()->create_file_cache(_base_path, settings));
+    _cache = io::FileCacheFactory::instance()->get_by_path(_base_path);
+    ASSERT_NE(_cache, nullptr);
+
+    HttpRequest req(_evhttp_req);
+    std::string json_metrics;
+    req._params["op"] = "reset";
+    req._params["path"] = _base_path;
+    req._params["capacity"] = "0";
+    Status status = _action->_handle_header(&req, &json_metrics);
+
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_EQ(_cache->capacity(), 4096);
+    EXPECT_NE(json_metrics.find("\"capacity_mode\":\"AUTO\""), std::string::npos);
+    EXPECT_NE(json_metrics.find("\"requested_capacity\":0"), std::string::npos);
+    EXPECT_NE(json_metrics.find("\"effective_capacity\":4096"), std::string::npos);
+}
+
+TEST_F(FileCacheActionTest, reset_zero_rejects_memory_cache) {
+    HttpRequest req(_evhttp_req);
+    std::string json_metrics;
+    req._params["op"] = "reset";
+    req._params["path"] = _base_path;
+    req._params["capacity"] = "0";
+
+    Status status = _action->_handle_header(&req, &json_metrics);
+
+    EXPECT_TRUE(status.is<ErrorCode::INVALID_ARGUMENT>());
+    EXPECT_EQ(_cache->capacity(), 1024 * 1024);
 }
 
 } // namespace doris

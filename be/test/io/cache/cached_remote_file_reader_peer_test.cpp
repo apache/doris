@@ -109,7 +109,6 @@ FileCacheSettings create_peer_test_settings(size_t block_size, std::string stora
 void clear_cached_remote_reader_factory() {
     FileCacheFactory::instance()->_caches.clear();
     FileCacheFactory::instance()->_path_to_cache.clear();
-    FileCacheFactory::instance()->_capacity = 0;
 }
 
 BlockFileCache* create_peer_test_cache(const fs::path& cache_path, size_t block_size,

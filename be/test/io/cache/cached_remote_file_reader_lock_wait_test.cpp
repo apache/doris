@@ -172,7 +172,6 @@ public:
             factory->clear_file_caches(true);
             factory->_caches.clear();
             factory->_path_to_cache.clear();
-            factory->_capacity = 0;
         }
         if (_owns_factory) {
             ExecEnv::GetInstance()->_file_cache_factory = nullptr;
@@ -193,7 +192,6 @@ public:
             factory->clear_file_caches(true);
             factory->_caches.clear();
             factory->_path_to_cache.clear();
-            factory->_capacity = 0;
         }
     }
 
@@ -204,7 +202,6 @@ protected:
         factory->clear_file_caches(true);
         factory->_caches.clear();
         factory->_path_to_cache.clear();
-        factory->_capacity = 0;
 
         constexpr size_t kCapacityBytes = 512ULL * 1024ULL * 1024ULL;
         auto settings = get_file_cache_settings(kCapacityBytes, 0, DEFAULT_NORMAL_PERCENT,

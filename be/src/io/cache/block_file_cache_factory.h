@@ -62,7 +62,7 @@ public:
         return _caches[cur_index % _caches.size()]->get_base_path();
     }
 
-    [[nodiscard]] size_t get_capacity() const { return _capacity; }
+    [[nodiscard]] size_t get_capacity() const;
 
     [[nodiscard]] size_t get_cache_instance_size() const { return _caches.size(); }
 
@@ -103,6 +103,11 @@ public:
      * @return summary message
      */
     std::string reset_capacity(const std::string& path, int64_t new_capacity);
+    Status reset_capacity(const std::string& path, int64_t new_capacity, std::string* result);
+    Status reset_capacity(const std::string& path, uint64_t new_capacity,
+                          FileCacheResetResult* result);
+
+    Status get_cache_infos(const std::string& path, std::vector<FileCacheRuntimeInfo>* infos) const;
 
     void get_cache_stats_block(Block* block);
 
@@ -114,10 +119,10 @@ public:
     FileCacheFactory(const FileCacheFactory&) = delete;
 
 private:
-    std::mutex _mtx;
+    std::mutex _reset_mtx;
+    mutable std::mutex _mtx;
     std::vector<std::unique_ptr<BlockFileCache>> _caches;
     std::unordered_map<std::string, BlockFileCache*> _path_to_cache;
-    size_t _capacity = 0;
     std::atomic_size_t _next_index {0}; // use for round-robin
 };
 

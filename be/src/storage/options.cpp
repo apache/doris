@@ -306,8 +306,12 @@ Status parse_conf_cache_paths(const std::string& config_path, std::vector<CacheP
 }
 
 io::FileCacheSettings CachePath::init_settings() const {
-    return io::get_file_cache_settings(total_bytes, query_limit_bytes, normal_percent,
-                                       disposable_percent, index_percent, ttl_percent, storage);
+    auto settings =
+            io::get_file_cache_settings(total_bytes, query_limit_bytes, normal_percent,
+                                        disposable_percent, index_percent, ttl_percent, storage);
+    settings.auto_capacity = storage == CACHE_STORAGE_DISK && total_bytes == 0;
+    settings.requested_capacity = total_bytes;
+    return settings;
 }
 
 } // end namespace doris
