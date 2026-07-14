@@ -1299,7 +1299,16 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
         Table table = resolveTable(session, iceHandle);
         Map<String, String> props = new LinkedHashMap<>();
-        props.put("file_format_type", "jni");
+        boolean systemTable = iceHandle.isSystemTable();
+        // Scan-level file_format_type is NOT merely a per-range default: BE selects FileScannerV2 vs the V1
+        // FileScanner from it (FileScanLocalState::_should_use_file_scanner_v2), and that selector runs before
+        // any split is fetched -> FORMAT_JNI here pins the ENTIRE scan to V1 whatever IcebergScanRange sets per
+        // range. V1 is the only tree carrying TableSchemaChangeHelper, so pinning there also re-exposes every
+        // V1-only reader bug. Emit the table's real data format (legacy IcebergScanNode.getFileFormatType
+        // parity, same IcebergUtils.getFileFormat resolution, which throws on a non-parquet/orc table); the
+        // per-file format still travels per range, since one table may mix parquet and orc data files.
+        props.put("file_format_type",
+                systemTable ? "jni" : IcebergWriterHelper.getFileFormat(table).name().toLowerCase(Locale.ROOT));
         // [D-065] System (metadata) tables ($snapshots/$files/...) read via the JNI serialized-split path
         // (planSystemTableScan): the metadata-table schema travels INSIDE the serialized FileScanTask, so BE
         // needs neither the base-table path_partition_keys (a metadata table is not base-spec partitioned ->
@@ -1310,7 +1319,6 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         // metadata files). Mirrors paimon, whose getScanNodeProperties skips both for a metadata table
         // (empty partitionKeys + null schema-dict table). resolveTable still loads the base table here for
         // the credential overlay below (the metadata table shares the base table's FileIO).
-        boolean systemTable = iceHandle.isSystemTable();
         if (!systemTable) {
             List<String> partitionKeys = IcebergPartitionUtils.getIdentityPartitionColumns(table);
             if (!partitionKeys.isEmpty()) {

@@ -525,7 +525,7 @@ public class IcebergScanPlanProviderTest {
     }
 
     @Test
-    public void getScanNodePropertiesEmitsPathPartitionKeysAndJniFormat() {
+    public void getScanNodePropertiesEmitsPathPartitionKeysAndRealDataFormat() {
         Schema schema = new Schema(
                 Types.NestedField.required(1, "id", Types.IntegerType.get()),
                 Types.NestedField.required(2, "P", Types.IntegerType.get()),
@@ -538,11 +538,32 @@ public class IcebergScanPlanProviderTest {
                 null, new IcebergTableHandle("db1", "pt"), Collections.emptyList(), Optional.empty());
 
         // path_partition_keys = case-preserved, comma-joined identity columns (the CI #968880 double-fill guard);
-        // file_format_type=jni makes the parent default to FORMAT_JNI, overridden per native range.
         // MUTATION: omitting path_partition_keys -> BE double-fills partition columns -> DCHECK -> this red.
         // MUTATION: re-lowercasing "P" -> "p,region" != "P,region" -> red.
         Assertions.assertEquals("P,region", props.get("path_partition_keys"));
-        Assertions.assertEquals("jni", props.get("file_format_type"));
+        // A base table MUST NOT report jni here: BE reads the scan-level format to pick FileScannerV2 vs V1
+        // (_should_use_file_scanner_v2) before it can see any split, so "jni" would pin every iceberg scan to
+        // the V1 tree -- the only one carrying TableSchemaChangeHelper, whose StructNode DCHECK then SIGABRTs
+        // the BE on a Top-N lazy-materialization rowid slot (TeamCity 995122). No write.format.default and no
+        // snapshot on this fixture -> IcebergUtils.getFileFormat parity default = parquet.
+        // MUTATION: reverting to a hardcoded "jni" -> red here, and V2 is silently lost in production.
+        Assertions.assertEquals("parquet", props.get("file_format_type"));
+    }
+
+    @Test
+    public void getScanNodePropertiesResolvesOrcTableFormat() {
+        Schema schema = new Schema(Types.NestedField.required(1, "id", Types.IntegerType.get()));
+        Table table = createTable("orct", schema, PartitionSpec.unpartitioned(),
+                Collections.singletonMap(TableProperties.DEFAULT_FILE_FORMAT, "orc"));
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table));
+
+        Map<String, String> props = provider.getScanNodeProperties(
+                null, new IcebergTableHandle("db1", "orct"), Collections.emptyList(), Optional.empty());
+
+        // Pins that the scan-level format is RESOLVED from the table, not a constant: an orc table must say orc
+        // so BE's genSlotToSchemaIdMapForOrc / V2 selection see the truth (legacy getFileFormatType parity).
+        // MUTATION: hardcoding "parquet" instead of IcebergWriterHelper.getFileFormat(table) -> red.
+        Assertions.assertEquals("orc", props.get("file_format_type"));
     }
 
     @Test
@@ -2296,8 +2317,12 @@ public class IcebergScanPlanProviderTest {
     // --- T09 helpers ---
 
     private static FakeIcebergTable fakeTable(String name) {
+        // write.format.default: getScanNodeProperties now resolves the scan-level format off the table (it
+        // drives BE's FileScannerV2-vs-V1 pick -- see getScanNodePropertiesEmitsPathPartitionKeysAndRealDataFormat).
+        // A declared format keeps these credential tests off IcebergUtils' last-resort planFiles() inference,
+        // which FakeIcebergTable deliberately refuses; a real table normally declares it too.
         return new FakeIcebergTable(name, SCHEMA, PartitionSpec.unpartitioned(),
-                "s3://b/" + name, Collections.emptyMap());
+                "s3://b/" + name, Collections.singletonMap(TableProperties.DEFAULT_FILE_FORMAT, "parquet"));
     }
 
     /** Catalog props with BOTH the REST flavor and the vended flag on — the two-part legacy gate. */
