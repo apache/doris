@@ -1419,9 +1419,7 @@ public abstract class RoutineLoadJob
         if (rlTaskTxnCommitAttachment != null
                 && !Strings.isNullOrEmpty(rlTaskTxnCommitAttachment.getErrorLogUrl())) {
             errorLogUrls.add(rlTaskTxnCommitAttachment.getErrorLogUrl());
-            firstErrorMsg = StringUtils.abbreviate(
-                    Strings.nullToEmpty(rlTaskTxnCommitAttachment.getFirstErrorMsg()),
-                    Config.first_error_msg_max_length);
+            firstErrorMsg = Strings.nullToEmpty(rlTaskTxnCommitAttachment.getFirstErrorMsg());
         }
 
         routineLoadTaskInfo.setTxnStatus(txnStatus);
