@@ -26,6 +26,7 @@ namespace doris {
 
 class MockVExpr : public VExpr {
 public:
+    MockVExpr() { _node_type = TExprNodeType::BOOL_LITERAL; }
     MOCK_CONST_METHOD0(clone, VExprSPtr());
     MOCK_CONST_METHOD0(expr_name, const std::string&());
     MOCK_CONST_METHOD3(execute, Status(VExprContext* context, Block* block, int* result_column_id));
