@@ -188,6 +188,26 @@ public class AlterTableCommandTest {
                 parseAlter("ALTER TABLE t ADD COLUMN s.c STRING NULL").getOps());
     }
 
+    @Test
+    void testRejectDefaultMetadataForNestedIcebergModify() throws AnalysisException {
+        IcebergExternalTable table = Mockito.mock(IcebergExternalTable.class);
+        for (String sql : Arrays.asList(
+                "ALTER TABLE t MODIFY COLUMN s.a BIGINT DEFAULT 7",
+                "ALTER TABLE t MODIFY COLUMN s.a BIGINT DEFAULT NULL",
+                "ALTER TABLE t MODIFY COLUMN s.ts DATETIME DEFAULT CURRENT_TIMESTAMP "
+                        + "ON UPDATE CURRENT_TIMESTAMP")) {
+            AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                    () -> AlterTableCommand.checkNestedColumnPathSupported(table, parseAlter(sql).getOps()));
+            Assertions.assertTrue(exception.getMessage()
+                    .contains("DEFAULT and ON UPDATE are not supported for nested Iceberg MODIFY COLUMN"));
+        }
+
+        AlterTableCommand.checkNestedColumnPathSupported(table,
+                parseAlter("ALTER TABLE t MODIFY COLUMN s.a BIGINT").getOps());
+        AlterTableCommand.checkNestedColumnPathSupported(table,
+                parseAlter("ALTER TABLE t ADD COLUMN s.b BIGINT NULL DEFAULT 7").getOps());
+    }
+
     private AlterTableCommand parseAlter(String sql) {
         Plan plan = parser.parseSingle(sql);
         Assertions.assertInstanceOf(AlterTableCommand.class, plan);

@@ -103,11 +103,17 @@ public class IcebergNestedSchemaEvolutionParserTest {
                 "ALTER TABLE t ADD COLUMN info.`New``Field` INT NULL AFTER `Old``Field`",
                 AddColumnOp.class, "info.New`Field");
         Assertions.assertEquals("Old`Field", add.getColPos().getLastCol());
+        AddColumnOp reparsedAdd = assertSingleClausePath(
+                "ALTER TABLE t " + add.toSql(), AddColumnOp.class, "info.New`Field");
+        Assertions.assertEquals("Old`Field", reparsedAdd.getColPos().getLastCol());
 
         RenameColumnOp rename = assertSingleClausePath(
-                "ALTER TABLE t RENAME COLUMN info.`Metric` TO `New``Metric`",
-                RenameColumnOp.class, "info.Metric");
+                "ALTER TABLE t RENAME COLUMN info.`Metric``Name` TO `New``Metric`",
+                RenameColumnOp.class, "info.Metric`Name");
         Assertions.assertEquals("New`Metric", rename.getNewColName());
+        RenameColumnOp reparsedRename = assertSingleClausePath(
+                "ALTER TABLE t " + rename.toSql(), RenameColumnOp.class, "info.Metric`Name");
+        Assertions.assertEquals("New`Metric", reparsedRename.getNewColName());
     }
 
     private <T extends AlterTableOp> T assertSingleClausePath(String sql, Class<T> clauseClass,

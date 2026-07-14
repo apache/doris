@@ -194,6 +194,98 @@ public class IcebergMetadataOpsValidationTest {
     }
 
     @Test
+    public void testRejectUnsupportedIcebergTargetTypesBeforeUpdateSchema() {
+        Schema schema = requiredNestedSchema();
+        ExternalTable dorisTable = Mockito.mock(ExternalTable.class);
+        Table icebergTable = Mockito.mock(Table.class);
+        Mockito.when(icebergTable.schema()).thenReturn(schema);
+
+        StructType unsupportedStruct = new StructType(new StructField("value", Type.LARGEINT));
+        ArrayType unsupportedArray = ArrayType.create(Type.LARGEINT, true);
+        MapType unsupportedMap = new MapType(Type.STRING, Type.LARGEINT);
+
+        try (MockedStatic<IcebergUtils> mockedIcebergUtils =
+                Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
+            mockedIcebergUtils.when(() -> IcebergUtils.getIcebergTable(dorisTable)).thenReturn(icebergTable);
+
+            assertUserException(() -> ops.addColumn(dorisTable, ColumnPath.fromDotName("info.new_field"),
+                            new Column("new_field", Type.LARGEINT, true), null, 1L),
+                    "is not supported for Iceberg column new_field");
+            assertUserException(() -> ops.modifyColumn(dorisTable, ColumnPath.fromDotName("info.metric"),
+                            new Column("metric", Type.LARGEINT, true), null, 1L),
+                    "is not supported for Iceberg column metric");
+            assertUserException(() -> ops.modifyColumn(dorisTable, ColumnPath.fromDotName("info.child"),
+                            new Column("child", unsupportedStruct, false), null, 1L),
+                    "is not supported for Iceberg column child");
+            assertUserException(() -> ops.modifyColumn(dorisTable, ColumnPath.fromDotName("info.events"),
+                            new Column("events", unsupportedArray, false), null, 1L),
+                    "is not supported for Iceberg column events");
+            assertUserException(() -> ops.modifyColumn(dorisTable, ColumnPath.fromDotName("info.attrs"),
+                            new Column("attrs", unsupportedMap, false), null, 1L),
+                    "is not supported for Iceberg column attrs");
+        }
+
+        Mockito.verify(icebergTable, Mockito.never()).updateSchema();
+    }
+
+    @Test
+    public void testComplexModifyPreservesRequiredNestedFields() throws Throwable {
+        Schema schema = requiredNestedSchema();
+        ExternalTable dorisTable = Mockito.mock(ExternalTable.class);
+        Table icebergTable = Mockito.mock(Table.class);
+        UpdateSchema updateSchema = Mockito.mock(UpdateSchema.class);
+        Mockito.when(dorisTable.getRemoteDbName()).thenReturn("db");
+        Mockito.when(icebergTable.schema()).thenReturn(schema);
+        Mockito.when(icebergTable.updateSchema()).thenReturn(updateSchema);
+
+        try (MockedStatic<IcebergUtils> mockedIcebergUtils =
+                Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
+            mockedIcebergUtils.when(() -> IcebergUtils.getIcebergTable(dorisTable)).thenReturn(icebergTable);
+
+            ops.modifyColumn(dorisTable, ColumnPath.fromDotName("info.child"),
+                    new Column("child", new StructType(new StructField("value", Type.BIGINT)), true), null, 1L);
+            ops.modifyColumn(dorisTable, ColumnPath.fromDotName("info.events"),
+                    new Column("events", ArrayType.create(Type.BIGINT, true), true), null, 1L);
+            ops.modifyColumn(dorisTable, ColumnPath.fromDotName("info.attrs"),
+                    new Column("attrs", new MapType(Type.STRING, Type.BIGINT), true), null, 1L);
+        }
+
+        Mockito.verify(updateSchema).updateColumn("info.child.value", Types.LongType.get(), null);
+        Mockito.verify(updateSchema).updateColumn("info.events.element", Types.LongType.get(), null);
+        Mockito.verify(updateSchema).updateColumn("info.attrs.value", Types.LongType.get(), null);
+        Mockito.verify(updateSchema, Mockito.never()).makeColumnOptional(Mockito.anyString());
+        Mockito.verify(updateSchema, Mockito.times(3)).commit();
+    }
+
+    @Test
+    public void testModifyColumnRejectsDefaultMetadata() {
+        Schema schema = nestedSchema();
+        ExternalTable dorisTable = Mockito.mock(ExternalTable.class);
+        Table icebergTable = Mockito.mock(Table.class);
+        UpdateSchema updateSchema = Mockito.mock(UpdateSchema.class);
+        Mockito.when(icebergTable.schema()).thenReturn(schema);
+        Mockito.when(icebergTable.updateSchema()).thenReturn(updateSchema);
+
+        Column defaultColumn = new Column("a", Type.BIGINT, false, null, true, "7", "");
+        Column onUpdateColumn = Mockito.spy(new Column("a", Type.BIGINT, true));
+        Mockito.doReturn(true).when(onUpdateColumn).hasOnUpdateDefaultValue();
+
+        try (MockedStatic<IcebergUtils> mockedIcebergUtils =
+                Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
+            mockedIcebergUtils.when(() -> IcebergUtils.getIcebergTable(dorisTable)).thenReturn(icebergTable);
+
+            assertUserException(() -> ops.modifyColumn(dorisTable, ColumnPath.fromDotName("s.a"),
+                            defaultColumn, null, 1L),
+                    "Modifying default values is not supported for Iceberg columns: s.a");
+            assertUserException(() -> ops.modifyColumn(dorisTable, ColumnPath.fromDotName("s.a"),
+                            onUpdateColumn, null, 1L),
+                    "Modifying default values is not supported for Iceberg columns: s.a");
+        }
+
+        Mockito.verifyNoInteractions(updateSchema);
+    }
+
+    @Test
     public void testModifyComplexColumnRejectsCaseInsensitiveStructFieldAdditions() {
         Schema schema = mixedCaseNestedSchema();
         ExternalTable dorisTable = Mockito.mock(ExternalTable.class);
@@ -479,8 +571,9 @@ public class IcebergMetadataOpsValidationTest {
             runnable.run();
             Assert.fail("expected UserException");
         } catch (Throwable t) {
-            Assert.assertTrue(t instanceof UserException);
-            Assert.assertTrue(t.getMessage().contains(expectedMessage));
+            Assert.assertTrue("expected UserException but got " + t, t instanceof UserException);
+            Assert.assertTrue("expected message containing '" + expectedMessage + "' but was '"
+                    + t.getMessage() + "'", t.getMessage().contains(expectedMessage));
         }
     }
 
@@ -520,5 +613,16 @@ public class IcebergMetadataOpsValidationTest {
                         Types.ListType.ofOptional(2, Types.IntegerType.get())),
                 Types.NestedField.optional(3, "m", Types.MapType.ofOptional(
                         4, 5, Types.StringType.get(), Types.IntegerType.get())));
+    }
+
+    private Schema requiredNestedSchema() {
+        return new Schema(Types.NestedField.optional(1, "info", Types.StructType.of(
+                Types.NestedField.optional(2, "metric", Types.IntegerType.get()),
+                Types.NestedField.required(3, "child", Types.StructType.of(
+                        Types.NestedField.required(4, "value", Types.IntegerType.get()))),
+                Types.NestedField.required(5, "events", Types.ListType.ofRequired(
+                        6, Types.IntegerType.get())),
+                Types.NestedField.required(7, "attrs", Types.MapType.ofRequired(
+                        8, 9, Types.StringType.get(), Types.IntegerType.get())))));
     }
 }

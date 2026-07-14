@@ -143,6 +143,17 @@ public class AlterTableCommand extends Command implements ForwardWithSync {
     static void checkNestedColumnPathSupported(TableIf table, List<AlterTableOp> alterTableOps)
             throws AnalysisException {
         if (table instanceof IcebergExternalTable) {
+            for (AlterTableOp alterTableOp : alterTableOps) {
+                if (alterTableOp instanceof ModifyColumnOp) {
+                    ModifyColumnOp modifyColumnOp = (ModifyColumnOp) alterTableOp;
+                    if (modifyColumnOp.getColumnPath().isNested()
+                            && (modifyColumnOp.getColumnDef().hasDefaultValue()
+                                || modifyColumnOp.getColumnDef().hasOnUpdateDefaultValue())) {
+                        throw new AnalysisException("DEFAULT and ON UPDATE are not supported for nested Iceberg "
+                                + "MODIFY COLUMN: " + modifyColumnOp.getColumnPath().getFullPath());
+                    }
+                }
+            }
             return;
         }
         for (AlterTableOp alterTableOp : alterTableOps) {

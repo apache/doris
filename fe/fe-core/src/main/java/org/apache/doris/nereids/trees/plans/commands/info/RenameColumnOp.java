@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
@@ -94,7 +95,7 @@ public class RenameColumnOp extends AlterTableOp {
 
     @Override
     public String toSql() {
-        return "RENAME COLUMN " + columnPath.toSql() + " " + newColName;
+        return "RENAME COLUMN " + columnPath.toSql() + " " + SqlUtils.getIdentSql(newColName);
     }
 
     @Override

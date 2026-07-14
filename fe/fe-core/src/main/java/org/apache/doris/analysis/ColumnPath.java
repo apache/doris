@@ -17,6 +17,8 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.common.util.SqlUtils;
+
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
@@ -80,7 +82,7 @@ public class ColumnPath {
     }
 
     public String toSql() {
-        return parts.stream().map(part -> "`" + part + "`").collect(Collectors.joining("."));
+        return parts.stream().map(SqlUtils::getIdentSql).collect(Collectors.joining("."));
     }
 
     @Override

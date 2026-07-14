@@ -1041,14 +1041,16 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         NestedField currentCol = resolvedPath.getField();
 
         validateCommonColumnInfo(column);
+        if (column.hasDefaultValue() || column.hasOnUpdateDefaultValue()) {
+            throw new UserException("Modifying default values is not supported for Iceberg columns: " + columnPath);
+        }
         UpdateSchema updateSchema = icebergTable.updateSchema();
 
         if (column.getType().isComplexType()) {
             validateForModifyComplexColumn(column, currentCol, columnPath.getFullPath());
             applyComplexTypeChange(updateSchema, resolvedPath.getFullPath(), currentCol.type(), column.getType());
-            if (column.isAllowNull()) {
-                updateSchema.makeColumnOptional(resolvedPath.getFullPath());
-            }
+            // Column does not preserve whether NULL was explicit or omitted for MODIFY.
+            // Keep the existing target requiredness instead of silently relaxing it.
             if (!Objects.equals(currentCol.doc(), column.getComment())) {
                 updateSchema.updateColumnDoc(resolvedPath.getFullPath(), column.getComment());
             }
@@ -1360,10 +1362,6 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
                     updateSchema.updateColumnDoc(fieldPath, newField.getComment());
                 }
             }
-
-            if (!oldField.isOptional() && newField.getContainsNull()) {
-                updateSchema.makeColumnOptional(fieldPath);
-            }
         }
 
         for (int i = oldFields.size(); i < newFields.size(); i++) {
@@ -1396,9 +1394,6 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         } else {
             applyComplexTypeChange(updateSchema, elementPath, oldElementType, newElementType);
         }
-        if (!oldListType.isElementOptional() && newArrayType.getContainsNull()) {
-            updateSchema.makeColumnOptional(elementPath);
-        }
     }
 
     private void applyMapChange(UpdateSchema updateSchema, String path,
@@ -1429,9 +1424,6 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         } else {
             applyComplexTypeChange(updateSchema, valuePath, oldValueType, newValueType);
         }
-        if (!oldMapType.isValueOptional() && newMapType.getIsValueContainsNull()) {
-            updateSchema.makeColumnOptional(valuePath);
-        }
     }
 
     private void validateCommonColumnInfo(Column column) throws UserException {
@@ -1442,6 +1434,12 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         // check auto inc
         if (column.isAutoInc()) {
             throw new UserException("Can not specify auto incremental iceberg table column");
+        }
+        try {
+            IcebergUtils.dorisTypeToIcebergType(column.getType());
+        } catch (UnsupportedOperationException | IllegalArgumentException e) {
+            throw new UserException("Type " + column.getType().toSql()
+                    + " is not supported for Iceberg column " + column.getName(), e);
         }
     }
 
