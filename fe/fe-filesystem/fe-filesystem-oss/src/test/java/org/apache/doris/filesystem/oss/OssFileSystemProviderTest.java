@@ -64,4 +64,30 @@ class OssFileSystemProviderTest {
         props.put("oss.endpoint", "oss-cn-beijing.aliyuncs.com");
         Assertions.assertTrue(provider.supports(props));
     }
+
+    @Test
+    void explicitOssHdfsFlagsAreNotClaimed() {
+        // StorageProperties.createPrimary treats these flags as OSS-HDFS before native OSS,
+        // even when the endpoint is a plain (non-dls) Aliyun endpoint.
+        Map<String, String> props = new HashMap<>();
+        props.put("fs.oss-hdfs.support", "true");
+        props.put("oss.endpoint", "oss-cn-hangzhou.aliyuncs.com");
+        Assertions.assertFalse(provider.supports(props),
+                "explicit OSS-HDFS flag belongs to OssHdfsFileSystemProvider: " + props);
+
+        Map<String, String> deprecated = new HashMap<>();
+        deprecated.put("oss.hdfs.enabled", "true");
+        deprecated.put("oss.endpoint", "oss-cn-hangzhou.aliyuncs.com");
+        Assertions.assertFalse(provider.supports(deprecated),
+                "deprecated OSS-HDFS flag belongs to OssHdfsFileSystemProvider: " + deprecated);
+    }
+
+    @Test
+    void ossHdfsFlagWinsOverNativeOssFlag() {
+        // Kernel precedence: OSS-HDFS flags are checked before fs.oss.support.
+        Map<String, String> props = new HashMap<>();
+        props.put("fs.oss-hdfs.support", "true");
+        props.put("fs.oss.support", "true");
+        Assertions.assertFalse(provider.supports(props));
+    }
 }

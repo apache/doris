@@ -40,6 +40,11 @@ import java.util.regex.Pattern;
  * <p>Self-contained port of the kernel {@code OSSHdfsProperties}, with zero fe-core / fe-common
  * dependency. The Jindo impl class names are kept as string constants (loaded reflectively by the
  * backend), so no compile dependency on the Jindo SDK is introduced.</p>
+ *
+ * <p>The normalized {@code fs.oss.*} backend keys are accepted as aliases so the binder is a
+ * fixpoint for converter-produced maps: fe-core's StoragePropertiesConverter hands the plugin
+ * {@code getBackendConfigProperties()} output (plus the {@code _STORAGE_TYPE_} marker), not the
+ * raw user keys, and rebinding that map must yield the same configuration.</p>
  */
 public class OssHdfsProperties extends HdfsCompatibleProperties {
 
@@ -60,21 +65,24 @@ public class OssHdfsProperties extends HdfsCompatibleProperties {
 
     private static final Set<String> SUPPORT_SCHEMA = ImmutableSet.of("oss", "hdfs");
 
-    @ConnectorProperty(names = {"oss.hdfs.endpoint", "oss.endpoint", "dlf.endpoint", "dlf.catalog.endpoint"},
+    @ConnectorProperty(names = {"oss.hdfs.endpoint", "oss.endpoint", "dlf.endpoint", "dlf.catalog.endpoint",
+            "fs.oss.endpoint"},
             description = "The endpoint of OSS.")
     private String endpoint = "";
 
-    @ConnectorProperty(names = {"oss.hdfs.access_key", "oss.access_key", "dlf.access_key", "dlf.catalog.accessKeyId"},
+    @ConnectorProperty(names = {"oss.hdfs.access_key", "oss.access_key", "dlf.access_key", "dlf.catalog.accessKeyId",
+            "fs.oss.accessKeyId"},
             sensitive = true,
             description = "The access key of OSS.")
     private String accessKey = "";
 
-    @ConnectorProperty(names = {"oss.hdfs.secret_key", "oss.secret_key", "dlf.secret_key", "dlf.catalog.secret_key"},
+    @ConnectorProperty(names = {"oss.hdfs.secret_key", "oss.secret_key", "dlf.secret_key", "dlf.catalog.secret_key",
+            "fs.oss.accessKeySecret"},
             sensitive = true,
             description = "The secret key of OSS.")
     private String secretKey = "";
 
-    @ConnectorProperty(names = {"oss.hdfs.region", "oss.region", "dlf.region"},
+    @ConnectorProperty(names = {"oss.hdfs.region", "oss.region", "dlf.region", "fs.oss.region"},
             required = false,
             description = "The region of OSS.")
     private String region = "";
@@ -87,7 +95,7 @@ public class OssHdfsProperties extends HdfsCompatibleProperties {
             description = "The xml files of Hadoop configuration.")
     private String hadoopConfigResources = "";
 
-    @ConnectorProperty(names = {"oss.hdfs.security_token", "oss.security_token"},
+    @ConnectorProperty(names = {"oss.hdfs.security_token", "oss.security_token", "fs.oss.securityToken"},
             required = false,
             sensitive = true,
             description = "The security token of OSS.")

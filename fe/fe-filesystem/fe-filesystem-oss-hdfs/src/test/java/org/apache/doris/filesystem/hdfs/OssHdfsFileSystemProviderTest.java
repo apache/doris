@@ -58,4 +58,39 @@ class OssHdfsFileSystemProviderTest {
         // A native-OSS (S3-compatible) marker belongs to OssFileSystemProvider, never here.
         Assertions.assertFalse(provider.supports(props("_STORAGE_TYPE_", "OSS")));
     }
+
+    @Test
+    void claimsExplicitOssHdfsFlagsLikeKernel() {
+        // StorageProperties.createPrimary treats these flags as OSS-HDFS before native OSS,
+        // even with a plain (non-dls) Aliyun endpoint.
+        Assertions.assertTrue(provider.supports(props(
+                "fs.oss-hdfs.support", "true", "oss.endpoint", "oss-cn-hangzhou.aliyuncs.com")));
+        Assertions.assertTrue(provider.supports(props(
+                "oss.hdfs.enabled", "true", "oss.endpoint", "oss-cn-hangzhou.aliyuncs.com")));
+    }
+
+    @Test
+    void yieldsExplicitNativeOssEvenWithOssUri() {
+        // fs.oss.support=true declares native OSS; the bare oss:// URI fallback must not steal it.
+        Assertions.assertFalse(provider.supports(props(
+                "fs.oss.support", "true", "fs.defaultFS", "oss://bucket/p")));
+    }
+
+    @Test
+    void ossHdfsFlagsWinOverNativeOssFlag() {
+        // Kernel precedence: the OSS-HDFS flags are checked before fs.oss.support.
+        Assertions.assertTrue(provider.supports(props(
+                "fs.oss-hdfs.support", "true", "fs.oss.support", "true")));
+    }
+
+    @Test
+    void sensitivePropertyKeysCoverSecretsButNotEndpoint() {
+        java.util.Set<String> keys = provider.sensitivePropertyKeys();
+        Assertions.assertTrue(keys.contains("oss.hdfs.access_key"));
+        Assertions.assertTrue(keys.contains("oss.hdfs.secret_key"));
+        Assertions.assertTrue(keys.contains("oss.hdfs.security_token"));
+        Assertions.assertTrue(keys.contains("oss.security_token"));
+        Assertions.assertTrue(keys.contains("fs.oss.accessKeySecret"));
+        Assertions.assertFalse(keys.contains("oss.hdfs.endpoint"));
+    }
 }

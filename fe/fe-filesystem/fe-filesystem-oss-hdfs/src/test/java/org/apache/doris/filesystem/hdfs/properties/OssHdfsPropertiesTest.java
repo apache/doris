@@ -80,6 +80,38 @@ class OssHdfsPropertiesTest {
         Assertions.assertThrows(IllegalArgumentException.class, () -> resolve(raw));
     }
 
+    /**
+     * fe-core's StoragePropertiesConverter hands the plugin the normalized backend map
+     * ({@code fs.oss.*} keys), not the raw user keys; rebinding it must yield the same config.
+     */
+    @Test
+    void convertedBackendMapRoundTrips() {
+        Map<String, String> raw = new HashMap<>();
+        raw.put("fs.oss.endpoint", "cn-beijing.oss-dls.aliyuncs.com");
+        raw.put("fs.oss.accessKeyId", "ak");
+        raw.put("fs.oss.accessKeySecret", "sk");
+        raw.put("fs.oss.region", "cn-beijing");
+        raw.put("_STORAGE_TYPE_", "OSS_HDFS");
+
+        Map<String, String> resolved = resolve(raw);
+
+        Assertions.assertEquals("cn-beijing.oss-dls.aliyuncs.com", resolved.get("fs.oss.endpoint"));
+        Assertions.assertEquals("ak", resolved.get("fs.oss.accessKeyId"));
+        Assertions.assertEquals("sk", resolved.get("fs.oss.accessKeySecret"));
+        Assertions.assertEquals("cn-beijing", resolved.get("fs.oss.region"));
+    }
+
+    @Test
+    void convertedSecurityTokenRoundTrips() {
+        Map<String, String> raw = new HashMap<>();
+        raw.put("fs.oss.endpoint", "cn-beijing.oss-dls.aliyuncs.com");
+        raw.put("fs.oss.accessKeyId", "ak");
+        raw.put("fs.oss.accessKeySecret", "sk");
+        raw.put("fs.oss.securityToken", "token");
+
+        Assertions.assertEquals("token", resolve(raw).get("fs.oss.securityToken"));
+    }
+
     @Test
     void guessIsMeTrueForOssDlsEndpoint() {
         Map<String, String> raw = new HashMap<>();

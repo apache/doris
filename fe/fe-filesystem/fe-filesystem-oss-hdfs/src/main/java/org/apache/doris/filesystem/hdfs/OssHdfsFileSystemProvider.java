@@ -21,10 +21,12 @@ import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.filesystem.hdfs.properties.OssHdfsProperties;
 import org.apache.doris.filesystem.properties.FileSystemProperties;
 import org.apache.doris.filesystem.spi.FileSystemProvider;
+import org.apache.doris.foundation.property.ConnectorPropertiesUtils;
 
 import java.io.IOException;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * SPI provider for Aliyun OSS-HDFS (JindoFS), addressed with {@code oss://} URIs and served by an
@@ -39,6 +41,10 @@ import java.util.Map;
  */
 public class OssHdfsFileSystemProvider implements FileSystemProvider<FileSystemProperties> {
 
+    private static final String FS_OSS_HDFS_SUPPORT = "fs.oss-hdfs.support";
+    private static final String DEPRECATED_OSS_HDFS_SUPPORT = "oss.hdfs.enabled";
+    private static final String FS_OSS_SUPPORT = "fs.oss.support";
+
     @Override
     public boolean supports(Map<String, String> properties) {
         String storageType = properties.get("_STORAGE_TYPE_");
@@ -51,6 +57,15 @@ public class OssHdfsFileSystemProvider implements FileSystemProvider<FileSystemP
         }
         if ("OSS".equals(storageType)) {
             // A native-OSS (S3-compatible) marker belongs to OssFileSystemProvider, never here.
+            return false;
+        }
+        // Explicit kernel flags, mirroring StorageProperties.createPrimary precedence:
+        // fs.oss-hdfs.support / oss.hdfs.enabled declare OSS-HDFS and win over everything below,
+        // while fs.oss.support declares native OSS, so the bare oss:// URI fallback must yield.
+        if (isFlagTrue(properties, FS_OSS_HDFS_SUPPORT) || isFlagTrue(properties, DEPRECATED_OSS_HDFS_SUPPORT)) {
+            return true;
+        }
+        if (isFlagTrue(properties, FS_OSS_SUPPORT)) {
             return false;
         }
         // No authoritative marker: fall back to the same detection fe-core uses to pick
@@ -75,5 +90,14 @@ public class OssHdfsFileSystemProvider implements FileSystemProvider<FileSystemP
     @Override
     public String name() {
         return "OSS_HDFS";
+    }
+
+    @Override
+    public Set<String> sensitivePropertyKeys() {
+        return ConnectorPropertiesUtils.getSensitiveKeys(OssHdfsProperties.class);
+    }
+
+    private static boolean isFlagTrue(Map<String, String> properties, String key) {
+        return Boolean.parseBoolean(properties.getOrDefault(key, "false"));
     }
 }

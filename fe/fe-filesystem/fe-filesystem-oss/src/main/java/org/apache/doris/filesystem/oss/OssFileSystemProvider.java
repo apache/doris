@@ -42,6 +42,8 @@ public class OssFileSystemProvider implements FileSystemProvider<OssFileSystemPr
     private static final String STORAGE_TYPE_OSS_HDFS = "OSS_HDFS";
     private static final String PROVIDER_KEY = "provider";
     private static final String FS_OSS_SUPPORT = "fs.oss.support";
+    private static final String FS_OSS_HDFS_SUPPORT = "fs.oss-hdfs.support";
+    private static final String DEPRECATED_OSS_HDFS_SUPPORT = "oss.hdfs.enabled";
     // OSS-HDFS (JindoFS) endpoints live on the *.oss-dls.aliyuncs.com host; they contain
     // "aliyuncs.com" but are served by OssHdfsFileSystemProvider, not native OSS.
     private static final String OSS_HDFS_ENDPOINT_MARKER = "oss-dls.aliyuncs.com";
@@ -54,6 +56,15 @@ public class OssFileSystemProvider implements FileSystemProvider<OssFileSystemPr
         // OSS-HDFS (JindoFS) is served by OssHdfsFileSystemProvider. Routing is first-match-wins over
         // an unordered list, so native OSS must positively disclaim any OSS-HDFS config to stay disjoint.
         if (STORAGE_TYPE_OSS_HDFS.equalsIgnoreCase(properties.get(STORAGE_TYPE_KEY))) {
+            return false;
+        }
+        if (STORAGE_TYPE_OSS.equalsIgnoreCase(properties.get(STORAGE_TYPE_KEY))) {
+            return true;
+        }
+        // Explicit OSS-HDFS flags outrank even fs.oss.support in the kernel's
+        // StorageProperties.createPrimary; mirror that precedence here.
+        if (Boolean.parseBoolean(properties.getOrDefault(FS_OSS_HDFS_SUPPORT, "false"))
+                || Boolean.parseBoolean(properties.getOrDefault(DEPRECATED_OSS_HDFS_SUPPORT, "false"))) {
             return false;
         }
         if (isExplicitOss(properties)) {
@@ -92,8 +103,7 @@ public class OssFileSystemProvider implements FileSystemProvider<OssFileSystemPr
     }
 
     private boolean isExplicitOss(Map<String, String> properties) {
-        return STORAGE_TYPE_OSS.equalsIgnoreCase(properties.get(STORAGE_TYPE_KEY))
-                || STORAGE_TYPE_OSS.equalsIgnoreCase(properties.get(PROVIDER_KEY))
+        return STORAGE_TYPE_OSS.equalsIgnoreCase(properties.get(PROVIDER_KEY))
                 || Boolean.parseBoolean(properties.getOrDefault(FS_OSS_SUPPORT, "false"));
     }
 
