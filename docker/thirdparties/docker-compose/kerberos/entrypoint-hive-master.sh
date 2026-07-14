@@ -79,6 +79,10 @@ create_keytab() {
 }
 
 mkdir -p /data/hdfs/data /data/hdfs/name /data/kdc /data/keytabs /data/metastore /keytabs
+rm -rf /tmp/hadoop-server-conf
+cp -R "${HADOOP_CONF_DIR}" /tmp/hadoop-server-conf
+sed -i "s#hdfs://${HOST}:${FS_PORT}#hdfs://127.0.0.1:${FS_PORT}#" \
+    /tmp/hadoop-server-conf/core-site.xml
 
 kdb5_util create -s -r "${REALM}" -P doris-kerberos-test
 create_keytab "${HDFS_PRINCIPAL}" /data/keytabs/hdfs.keytab
@@ -89,20 +93,28 @@ create_keytab "${PRESTO_CLIENT_PRINCIPAL}" "/keytabs/${PRESTO_CLIENT_KEYTAB}"
 chmod 644 /keytabs/*.keytab
 
 start_service krb5kdc -n -r "${REALM}"
-wait_for_port "${HOST}" "${KDC_PORT}" "Kerberos KDC"
+wait_for_port 127.0.0.1 "${KDC_PORT}" "Kerberos KDC"
 
 export HDFS_NAMENODE_OPTS="-Xms128m -Xmx256m"
 export HDFS_DATANODE_OPTS="-Xms96m -Xmx192m"
 hdfs namenode -format -force -nonInteractive
 start_service hdfs namenode
 wait_for_port "${HOST}" "${FS_PORT}" "HDFS NameNode"
-start_service hdfs datanode
+start_service env HADOOP_CONF_DIR=/tmp/hadoop-server-conf hdfs datanode
+wait_for_port "${HOST}" "${DFS_DN_PORT}" "HDFS DataNode"
 
-kinit -kt /data/keytabs/hive.keytab "${HIVE_PRINCIPAL}"
-hdfs dfsadmin -safemode wait
-hdfs dfs -mkdir -p /tmp /user/hive/warehouse
-hdfs dfs -chmod 1777 /tmp
-hdfs dfs -chmod 777 /user/hive/warehouse
+export KRB5CCNAME=FILE:/tmp/hdfs-admin.ccache
+kinit -kt /data/keytabs/hdfs.keytab "${HDFS_PRINCIPAL}"
+for _ in {1..120}; do
+    if hdfs dfsadmin -Dfs.defaultFS="hdfs://127.0.0.1:${FS_PORT}" -report 2>/dev/null \
+            | grep -q '^Live datanodes (1):'; then
+        break
+    fi
+    sleep 1
+done
+hdfs dfsadmin -Dfs.defaultFS="hdfs://127.0.0.1:${FS_PORT}" -report \
+    | grep -q '^Live datanodes (1):'
+kdestroy
 
 schematool -dbType derby -initSchema
 start_service hive --service metastore -p "${HMS_PORT}"

@@ -47,6 +47,10 @@ under the License.
         <value>hdfs/${HOST}@${REALM}</value>
     </property>
     <property>
+        <name>dfs.namenode.rpc-bind-host</name>
+        <value>0.0.0.0</value>
+    </property>
+    <property>
         <name>dfs.namenode.keytab.file</name>
         <value>/data/keytabs/hdfs.keytab</value>
     </property>
@@ -84,18 +88,26 @@ under the License.
     </property>
     <property>
         <name>dfs.datanode.address</name>
-        <value>${HOST}:${DFS_DN_PORT}</value>
+        <value>0.0.0.0:${DFS_DN_PORT}</value>
     </property>
     <property>
         <name>dfs.datanode.http.address</name>
-        <value>${HOST}:${DFS_DN_HTTP_PORT}</value>
+        <value>0.0.0.0:${DFS_DN_HTTP_PORT}</value>
     </property>
     <property>
         <name>dfs.datanode.ipc.address</name>
-        <value>${HOST}:${DFS_DN_IPC_PORT}</value>
+        <value>0.0.0.0:${DFS_DN_IPC_PORT}</value>
+    </property>
+    <property>
+        <name>dfs.datanode.hostname</name>
+        <value>${HOST}</value>
+    </property>
+    <property>
+        <name>dfs.client.use.datanode.hostname</name>
+        <value>true</value>
     </property>
     <property>
         <name>dfs.namenode.http-address</name>
-        <value>${HOST}:${DFS_NN_HTTP_PORT}</value>
+        <value>0.0.0.0:${DFS_NN_HTTP_PORT}</value>
     </property>
 </configuration>

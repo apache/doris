@@ -28,7 +28,7 @@
 
 [realms]
  ${REALM} = {
-  kdc = ${HOST}:${KDC_PORT}
+  kdc = 127.0.0.1:${KDC_PORT}
  }
 
 [domain_realm]
