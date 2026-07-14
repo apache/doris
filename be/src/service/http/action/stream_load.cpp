@@ -786,7 +786,11 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
         request.__set_group_commit_mode(ctx->group_commit_mode);
     }
 
-    set_stream_load_compute_group(*http_req, request);
+    if (_exec_env->cluster_info()->backend_id != 0) {
+        request.__set_backend_id(_exec_env->cluster_info()->backend_id);
+    } else {
+        LOG(WARNING) << "_exec_env->cluster_info not set backend_id";
+    }
 
     if (!http_req->header(HTTP_EMPTY_FIELD_AS_NULL).empty()) {
         if (iequal(http_req->header(HTTP_EMPTY_FIELD_AS_NULL), "true")) {

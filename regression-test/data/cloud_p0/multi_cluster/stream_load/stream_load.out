@@ -13,3 +13,6 @@
 
 -- !http_stream_compute_group --
 40
+
+-- !direct_be_compute_group --
+60

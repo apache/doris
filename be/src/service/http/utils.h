@@ -27,7 +27,6 @@ struct bufferevent_rate_limit_group;
 namespace doris {
 
 struct AuthInfo;
-class TStreamLoadPutRequest;
 
 std::string encode_basic_auth(const std::string& user, const std::string& passwd);
 // parse Basic authorization
@@ -47,9 +46,6 @@ void do_dir_response(const std::string& dir_path, HttpRequest* req,
 std::string get_content_type(const std::string& file_name);
 
 bool load_size_smaller_than_wal_limit(int64_t content_length);
-
-void set_stream_load_compute_group(const HttpRequest& http_request,
-                                   TStreamLoadPutRequest& put_request);
 
 // Whether a backend supports batch download
 Status is_support_batch_download(const std::string& address);

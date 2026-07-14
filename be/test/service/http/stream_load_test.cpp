@@ -17,7 +17,6 @@
 
 #include "service/http/action/stream_load.h"
 
-#include <gen_cpp/FrontendService_types.h>
 #include <gtest/gtest.h>
 
 #include <memory>
@@ -123,26 +122,5 @@ TEST_F(StreamLoadTest, TestHeader) {
         evhttp_req->uri_elems = nullptr;
         evhttp_request_free(evhttp_req);
     }
-}
-
-TEST_F(StreamLoadTest, TestSetStreamLoadComputeGroup) {
-    HttpRequest req(nullptr);
-    req.set_header(HTTP_COMPUTE_GROUP, "compute_group_1");
-    req.set_header(HTTP_CLOUD_CLUSTER, "cloud_cluster_1");
-    TStreamLoadPutRequest request;
-
-    set_stream_load_compute_group(req, request);
-
-    EXPECT_TRUE(request.__isset.cloud_cluster);
-    EXPECT_EQ(request.cloud_cluster, "compute_group_1");
-
-    HttpRequest legacy_req(nullptr);
-    legacy_req.set_header(HTTP_CLOUD_CLUSTER, "cloud_cluster_1");
-    TStreamLoadPutRequest legacy_request;
-
-    set_stream_load_compute_group(legacy_req, legacy_request);
-
-    EXPECT_TRUE(legacy_request.__isset.cloud_cluster);
-    EXPECT_EQ(legacy_request.cloud_cluster, "cloud_cluster_1");
 }
 } // namespace doris

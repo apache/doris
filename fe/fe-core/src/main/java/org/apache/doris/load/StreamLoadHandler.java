@@ -137,11 +137,13 @@ public class StreamLoadHandler {
         if (!request.isSetToken() && !request.isSetAuthCode() && !Strings.isNullOrEmpty(userName)) {
             ctx.setCurrentUserIdentity(resolveCloudLoadUserIdentity(userName));
         }
-        if ((request.isSetToken() || request.isSetAuthCode()) && request.isSetBackendId()) {
+        if (request.isSetBackendId()) {
             long backendId = request.getBackendId();
             Backend backend = Env.getCurrentSystemInfo().getBackend(backendId);
             Preconditions.checkNotNull(backend);
-            ctx.setCloudCluster(backend.getCloudClusterName());
+            String computeGroup = backend.getCloudClusterName();
+            ctx.setCloudCluster(computeGroup);
+            request.setCloudCluster(computeGroup);
             return;
         }
         if (!Strings.isNullOrEmpty(request.getCloudCluster())) {

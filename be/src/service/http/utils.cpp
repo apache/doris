@@ -19,7 +19,6 @@
 
 #include <absl/strings/str_split.h>
 #include <fcntl.h>
-#include <gen_cpp/FrontendService_types.h>
 #include <stdint.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -250,20 +249,6 @@ bool load_size_smaller_than_wal_limit(int64_t content_length) {
     // these blocks within the limited space. So we need to set group_commit = false to avoid dead lock.
     size_t max_available_size = ExecEnv::GetInstance()->wal_mgr()->get_max_available_size();
     return (content_length < 0.8 * max_available_size);
-}
-
-void set_stream_load_compute_group(const HttpRequest& http_request,
-                                   TStreamLoadPutRequest& put_request) {
-    const auto& compute_group = http_request.header(HTTP_COMPUTE_GROUP);
-    if (!compute_group.empty()) {
-        put_request.__set_cloud_cluster(compute_group);
-        return;
-    }
-
-    const auto& cloud_cluster = http_request.header(HTTP_CLOUD_CLUSTER);
-    if (!cloud_cluster.empty()) {
-        put_request.__set_cloud_cluster(cloud_cluster);
-    }
 }
 
 Status is_support_batch_download(const std::string& endpoint) {

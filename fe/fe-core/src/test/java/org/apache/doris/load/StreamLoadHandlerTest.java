@@ -19,9 +19,13 @@ package org.apache.doris.load;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.thrift.TStreamLoadPutRequest;
+import org.apache.doris.thrift.TStreamLoadPutResult;
 
 import org.junit.Assert;
 import org.junit.Test;
@@ -48,6 +52,38 @@ public class StreamLoadHandlerTest {
         }
     }
 
+    @Test
+    public void testSetCloudClusterUsesBackendComputeGroup() throws Exception {
+        SystemInfoService originalSystemInfoService = Env.getCurrentSystemInfo();
+        String originalCloudUniqueId = Config.cloud_unique_id;
+        Backend backend = createBackend(10001L, "127.0.0.1");
+        backend.setCloudClusterName("backend_compute_group");
+        CloudSystemInfoService systemInfoService =
+                new TestCloudSystemInfoService(Arrays.asList(backend));
+        TStreamLoadPutRequest request = new TStreamLoadPutRequest();
+        request.setUser("");
+        request.setBackendId(backend.getId());
+        request.setCloudCluster("header_compute_group");
+
+        try {
+            Config.cloud_unique_id = "test_cloud_unique_id";
+            Deencapsulation.setField(Env.getCurrentEnv(), "systemInfo", systemInfoService);
+            ConnectContext.remove();
+
+            StreamLoadHandler handler = new StreamLoadHandler(
+                    request, null, new TStreamLoadPutResult(), "127.0.0.1");
+            handler.setCloudCluster();
+
+            Assert.assertEquals("backend_compute_group",
+                    ConnectContext.get().getSessionVariable().getCloudCluster());
+            Assert.assertEquals("backend_compute_group", request.getCloudCluster());
+        } finally {
+            ConnectContext.remove();
+            Config.cloud_unique_id = originalCloudUniqueId;
+            Deencapsulation.setField(Env.getCurrentEnv(), "systemInfo", originalSystemInfoService);
+        }
+    }
+
     private Backend createBackend(long id, String host) {
         Backend backend = new Backend(id, host, 9050);
         backend.setAlive(true);
@@ -64,6 +100,11 @@ public class StreamLoadHandlerTest {
         @Override
         public List<Backend> getBackendsByClusterName(final String clusterName) {
             return backends;
+        }
+
+        @Override
+        public Backend getBackend(long backendId) {
+            return backends.stream().filter(backend -> backend.getId() == backendId).findFirst().orElse(null);
         }
     }
 }
