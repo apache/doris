@@ -21,9 +21,9 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.constraint.TableIdentifier;
 import org.apache.doris.catalog.constraint.ConstraintManager;
 import org.apache.doris.catalog.constraint.PrimaryKeyConstraint;
+import org.apache.doris.catalog.constraint.TableIdentifier;
 import org.apache.doris.catalog.constraint.UniqueConstraint;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.catalog.stream.StreamReadMode;
@@ -252,6 +252,7 @@ public abstract class LogicalCatalogRelation extends LogicalRelation implements 
         return this;
     }
 
+    /** Compare whether two catalog relations read the same data with the same output semantics. */
     public final boolean hasSameScanSemantics(LogicalCatalogRelation other) {
         if (other == null || getClass() != other.getClass()) {
             return false;
