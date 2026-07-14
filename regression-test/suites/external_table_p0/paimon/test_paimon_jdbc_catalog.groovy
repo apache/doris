@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import java.util.concurrent.TimeUnit
+
 suite("test_paimon_jdbc_catalog", "p0,external") {
     String enabled = context.config.otherConfigs.get("enablePaimonTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
@@ -66,82 +68,128 @@ suite("test_paimon_jdbc_catalog", "p0,external") {
 
     assertTrue(jdbcDriversDir != null && !jdbcDriversDir.isEmpty(), "jdbc_drivers_dir must be configured")
 
-    def executeCommand = { String cmd, Boolean mustSuc, int timeoutSeconds = 300 ->
+    def runCommand = { List<String> command, Boolean mustSuc, int timeoutSeconds = 300 ->
         StringBuilder stdout = new StringBuilder()
         StringBuilder stderr = new StringBuilder()
+        List<String> commandArgs = command.collect { it.toString() }
+        String commandText = commandArgs.join(" ")
         try {
-            logger.info("execute ${cmd}")
-            def proc = new ProcessBuilder("/bin/bash", "-c", cmd).start()
+            logger.info("execute ${commandText}")
+            def proc = new ProcessBuilder(commandArgs).start()
             proc.consumeProcessOutput(stdout, stderr)
-            proc.waitForOrKill(timeoutSeconds * 1000)
-            int exitcode = proc.exitValue()
+            boolean finished = proc.waitFor(timeoutSeconds, TimeUnit.SECONDS)
             String output = stdout.toString()
             String error = stderr.toString()
+            if (!finished) {
+                proc.destroyForcibly()
+                proc.waitFor(10, TimeUnit.SECONDS)
+                String message = "Execute timeout after ${timeoutSeconds}s: ${commandText}" +
+                        "\nstdout:\n${output}\nstderr:\n${error}"
+                logger.info(message)
+                if (mustSuc) {
+                    assertTrue(false, message)
+                }
+                return output
+            }
+
+            int exitcode = proc.exitValue()
             if (exitcode != 0) {
                 logger.info("exit code: ${exitcode}, stdout\n: ${output}\nstderr\n: ${error}")
                 if (mustSuc) {
-                    assertTrue(false, "Execute failed: ${cmd}\nstdout:\n${output}\nstderr:\n${error}")
+                    assertTrue(false, "Execute failed: ${commandText}\nstdout:\n${output}\nstderr:\n${error}")
                 }
             }
             return output
         } catch (IOException e) {
-            assertTrue(false, "Execute failed: ${cmd}, err: ${e.message}")
+            assertTrue(false, "Execute failed: ${commandText}, err: ${e.message}")
         }
     }
 
-    executeCommand("mkdir -p ${localDriverDir}", false, 60)
-    executeCommand("mkdir -p ${jdbcDriversDir}", true, 60)
+    assertTrue(new File(localDriverDir).mkdirs() || new File(localDriverDir).exists())
+    assertTrue(new File(jdbcDriversDir).mkdirs() || new File(jdbcDriversDir).exists())
     if (!new File(localDriverPath).exists()) {
-        executeCommand("/usr/bin/curl --max-time 600 ${driverDownloadUrl} --output ${localDriverPath}", true, 660)
+        runCommand([
+                "/usr/bin/curl",
+                "--fail",
+                "--show-error",
+                "--location",
+                "--max-time",
+                "600",
+                driverDownloadUrl,
+                "--output",
+                localDriverPath
+        ], true, 660)
     }
-    executeCommand("cp -f ${localDriverPath} ${jdbcDriversDir}/${driverName}", true, 60)
+    java.nio.file.Files.copy(
+            java.nio.file.Paths.get(localDriverPath),
+            java.nio.file.Paths.get(jdbcDriversDir, driverName),
+            java.nio.file.StandardCopyOption.REPLACE_EXISTING
+    )
 
-    String sparkContainerName = executeCommand("docker ps --filter name=spark-iceberg --format {{.Names}}", false, 30)
-            ?.trim()
+    String sparkContainerName = runCommand(
+            ["docker", "ps", "--filter", "name=spark-iceberg", "--format", "{{.Names}}"],
+            false,
+            30
+    )?.trim()
     if (sparkContainerName == null || sparkContainerName.isEmpty()) {
         logger.info("spark-iceberg container not found, skip this test")
         return
     }
-    executeCommand("docker cp ${localDriverPath} ${sparkContainerName}:${sparkDriverPath}", true, 60)
+    runCommand(["docker", "cp", localDriverPath, "${sparkContainerName}:${sparkDriverPath}"], true, 60)
 
-    String sparkMinioEndpoint = "http://${externalEnvIp}:${minioPort}"
-    if (sparkContainerName.contains("spark-iceberg")) {
-        String sparkMinioContainerName = sparkContainerName.replaceFirst("spark-iceberg", "minio")
-        String resolvedSparkMinioContainer = executeCommand(
-                "docker ps --filter name=${sparkMinioContainerName} --format {{.Names}}",
-                false,
-                30
-        )?.trim()
-        if (resolvedSparkMinioContainer == sparkMinioContainerName) {
-            // Spark runs inside the docker network and may not be able to reach the host-mapped MinIO port.
-            sparkMinioEndpoint = "http://${resolvedSparkMinioContainer}:9000"
-        }
-    }
+    String sparkMinioEndpoint = "http://minio:9000"
     logger.info("spark seed minio endpoint: ${sparkMinioEndpoint}")
 
-    def sparkPaimonJdbc = { String sqlText ->
-        String escapedSql = sqlText.replaceAll('"', '\\\\"')
-        String command = """docker exec ${sparkContainerName} spark-sql --master spark://${sparkContainerName}:7077 \
---jars ${sparkDriverPath} \
---driver-class-path ${sparkDriverPath} \
---conf spark.driver.extraClassPath=${sparkDriverPath} \
---conf spark.executor.extraClassPath=${sparkDriverPath} \
---conf spark.sql.extensions=org.apache.paimon.spark.extensions.PaimonSparkSessionExtensions \
---conf spark.sql.catalog.${sparkSeedCatalogName}=org.apache.paimon.spark.SparkCatalog \
---conf spark.sql.catalog.${sparkSeedCatalogName}.warehouse=s3://${warehouseBucket}/paimon_jdbc_catalog/ \
---conf spark.sql.catalog.${sparkSeedCatalogName}.metastore=jdbc \
---conf spark.sql.catalog.${sparkSeedCatalogName}.uri=jdbc:postgresql://${externalEnvIp}:${jdbcPort}/postgres \
---conf spark.sql.catalog.${sparkSeedCatalogName}.catalog-key=${catalogName} \
---conf spark.sql.catalog.${sparkSeedCatalogName}.jdbc.user=postgres \
---conf spark.sql.catalog.${sparkSeedCatalogName}.jdbc.password=123456 \
---conf spark.sql.catalog.${sparkSeedCatalogName}.lock.enabled=false \
---conf spark.sql.catalog.${sparkSeedCatalogName}.s3.endpoint=${sparkMinioEndpoint} \
---conf spark.sql.catalog.${sparkSeedCatalogName}.s3.access-key=${minioAk} \
---conf spark.sql.catalog.${sparkSeedCatalogName}.s3.secret-key=${minioSk} \
---conf spark.sql.catalog.${sparkSeedCatalogName}.s3.region=us-east-1 \
---conf spark.sql.catalog.${sparkSeedCatalogName}.s3.path.style.access=true \
--e "${escapedSql}" """
-        executeCommand(command, true, 300)
+    def sparkPaimonJdbc = { String sqlText, int timeoutSeconds = 300 ->
+        runCommand([
+                "docker",
+                "exec",
+                sparkContainerName,
+                "timeout",
+                "--kill-after=30s",
+                "${timeoutSeconds}s",
+                "spark-sql",
+                "--master",
+                "spark://${sparkContainerName}:7077",
+                "--jars",
+                sparkDriverPath,
+                "--driver-class-path",
+                sparkDriverPath,
+                "--conf",
+                "spark.driver.extraClassPath=${sparkDriverPath}",
+                "--conf",
+                "spark.executor.extraClassPath=${sparkDriverPath}",
+                "--conf",
+                "spark.sql.extensions=org.apache.paimon.spark.extensions.PaimonSparkSessionExtensions",
+                "--conf",
+                "spark.sql.catalog.${sparkSeedCatalogName}=org.apache.paimon.spark.SparkCatalog",
+                "--conf",
+                "spark.sql.catalog.${sparkSeedCatalogName}.warehouse=s3://${warehouseBucket}/paimon_jdbc_catalog/",
+                "--conf",
+                "spark.sql.catalog.${sparkSeedCatalogName}.metastore=jdbc",
+                "--conf",
+                "spark.sql.catalog.${sparkSeedCatalogName}.uri=jdbc:postgresql://${externalEnvIp}:${jdbcPort}/postgres",
+                "--conf",
+                "spark.sql.catalog.${sparkSeedCatalogName}.catalog-key=${catalogName}",
+                "--conf",
+                "spark.sql.catalog.${sparkSeedCatalogName}.jdbc.user=postgres",
+                "--conf",
+                "spark.sql.catalog.${sparkSeedCatalogName}.jdbc.password=123456",
+                "--conf",
+                "spark.sql.catalog.${sparkSeedCatalogName}.lock.enabled=false",
+                "--conf",
+                "spark.sql.catalog.${sparkSeedCatalogName}.s3.endpoint=${sparkMinioEndpoint}",
+                "--conf",
+                "spark.sql.catalog.${sparkSeedCatalogName}.s3.access-key=${minioAk}",
+                "--conf",
+                "spark.sql.catalog.${sparkSeedCatalogName}.s3.secret-key=${minioSk}",
+                "--conf",
+                "spark.sql.catalog.${sparkSeedCatalogName}.s3.region=us-east-1",
+                "--conf",
+                "spark.sql.catalog.${sparkSeedCatalogName}.s3.path.style.access=true",
+                "-e",
+                sqlText
+        ], true, timeoutSeconds + 60)
     }
 
     def assertSystemTableReadable = { String tableExpr, List<String> expectedColumns = [], Integer minCount = null ->
