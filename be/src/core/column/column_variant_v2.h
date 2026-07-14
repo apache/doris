@@ -189,8 +189,6 @@ public:
     MutableColumnPtr clone_resized(size_t size) const override;
     void resize(size_t size) override;
 
-    int compare_at(size_t lhs, size_t rhs, const IColumn& rhs_column,
-                   int nan_direction_hint) const override;
     void get_permutation(bool reverse, size_t limit, int nan_direction_hint, HybridSorter& sorter,
                          Permutation& result) const override;
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override;

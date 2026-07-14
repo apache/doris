@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_variant_ordering_comparison_error") {
+suite("test_variant_ordering_comparison_error", "p0,nonConcurrent") {
     sql "SET enable_nereids_planner = true"
     sql "SET enable_fallback_to_original_planner = false"
     setBeConfigTemporary([enable_variant_v2: true]) {

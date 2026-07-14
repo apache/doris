@@ -1538,10 +1538,6 @@ void ColumnVariantV2::resize(size_t new_size) {
     }
 }
 
-int ColumnVariantV2::compare_at(size_t, size_t, const IColumn&, int) const {
-    throw_unsupported("compare_at");
-}
-
 void ColumnVariantV2::get_permutation(bool, size_t, int, HybridSorter&, Permutation&) const {
     throw_unsupported("get_permutation");
 }

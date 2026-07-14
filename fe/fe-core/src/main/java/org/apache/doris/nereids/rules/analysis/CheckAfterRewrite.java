@@ -193,7 +193,10 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
         } else if (plan instanceof LogicalJoin) {
             LogicalJoin<?, ?> join = (LogicalJoin<?, ?>) plan;
             for (Expression conjunct : join.getHashJoinConjuncts()) {
-                if (conjunct.anyMatch(e -> ((Expression) e).getDataType().isVarBinaryType())) {
+                if (containsVariantTypeOutsideCast(conjunct)) {
+                    throw new AnalysisException("variant type could not in join equal conditions: "
+                            + conjunct.toSql());
+                } else if (conjunct.anyMatch(e -> ((Expression) e).getDataType().isVarBinaryType())) {
                     throw new AnalysisException(
                             "varbinary type could not in join equal conditions: " + conjunct.toSql());
                 }

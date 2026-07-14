@@ -2843,8 +2843,6 @@ TEST(ColumnVariantV2Test, TypedUnsupportedInterfacesStayUnsupported) {
     expect_not_implemented([&] { typed->insert(field); }, "T1.7b");
     expect_not_implemented([&] { static_cast<void>(typed->get_data_at(0)); },
                            "intentionally unsupported");
-    expect_not_implemented([&] { static_cast<void>(typed->compare_at(0, 0, *typed, 0)); },
-                           "intentionally unsupported");
     HybridSorter sorter;
     IColumn::Permutation result;
     expect_not_implemented([&] { typed->get_permutation(false, 0, 0, sorter, result); },
@@ -2888,8 +2886,6 @@ TEST(ColumnVariantV2Test, DeferredAndUnsupportedInterfaces) {
     expect_not_implemented([&] { column->insert_duplicate_fields(field, 1); }, "T1.7b");
 
     expect_not_implemented([&] { static_cast<void>(column->get_data_at(0)); },
-                           "intentionally unsupported");
-    expect_not_implemented([&] { static_cast<void>(column->compare_at(0, 0, *source, 0)); },
                            "intentionally unsupported");
     HybridSorter sorter;
     IColumn::Permutation result;
