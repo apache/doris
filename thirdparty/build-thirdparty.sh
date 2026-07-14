@@ -49,7 +49,7 @@ usage() {
 Usage: $0 [options...] [packages...]
   Optional options:
      -j <num>               build thirdparty parallel
-     --clean                clean the extracted data
+     --clean                clean the extracted data 
      --continue <package>   continue to build the remaining packages (starts from the specified package)
   "
     exit 1
