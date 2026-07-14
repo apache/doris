@@ -135,6 +135,9 @@ struct TableReadOptions {
     const std::vector<SlotDescriptor*>* file_slot_descs = nullptr;
     // Push-down aggregate type.
     const TPushAggOp::type push_down_agg_type = TPushAggOp::type::NONE;
+    // Table/global indices of explicit COUNT arguments. Empty means COUNT(*)/COUNT(1), not "infer
+    // the argument from projected_columns": COUNT(*) still projects one arbitrary placeholder.
+    const std::vector<GlobalIndex> push_down_count_columns = {};
     // Initial digest of predicates available during scanner open. Scanner-driven splits override it
     // with SplitReadOptions::condition_cache_digest after collecting late-arrival runtime filters.
     // A zero digest disables condition cache.
@@ -147,7 +150,7 @@ struct SplitReadOptions {
     // Latest scanner conjuncts rewritten to table/global column indices. Runtime filters may
     // arrive after TableReader::init(), so scanner-driven splits replace the initial snapshot.
     // nullopt preserves the initial snapshot for standalone TableReader callers.
-    std::optional<VExprContextSPtrs> conjuncts;
+    std::optional<VExprContextSPtrs> conjuncts = std::nullopt;
     // Independent clones used for partition pruning because evaluation prepares and opens them
     // against a synthetic partition block before the file reader opens its row-level conjuncts.
     VExprContextSPtrs partition_prune_conjuncts;
@@ -979,7 +982,19 @@ protected:
             return false;
         }
         if (agg_type == TPushAggOp::type::COUNT) {
-            return true;
+            // COUNT(*) needs no column metadata. COUNT(col) currently supports one direct file
+            // column; multiple COUNT arguments fall back to the normal scan so every upper
+            // aggregate receives the original rows.
+            if (_push_down_count_columns.empty()) {
+                return true;
+            }
+            if (_push_down_count_columns.size() != 1) {
+                return false;
+            }
+            const auto& mapping = _push_down_count_mapping();
+            return mapping.file_local_id.has_value() && mapping.file_type != nullptr &&
+                   mapping.virtual_column_type == TableVirtualColumnType::INVALID &&
+                   mapping.default_expr == nullptr;
         }
         // For MIN/MAX, only support direct file-to-table column mappings. The two emitted rows
         // must be enough for the upper MIN/MAX aggregate without evaluating default expressions or
@@ -1462,23 +1477,16 @@ protected:
         request->agg_type = agg_type;
         request->columns.clear();
         if (agg_type == TPushAggOp::type::COUNT) {
-            // COUNT pushdown historically meant COUNT(*) and therefore carried no columns. For
-            // COUNT(col), Nereids retains exactly the counted slot in the file scan. Pass that
-            // single direct mapping for both scalar and complex columns: besides allowing nullable
-            // complex values to be counted from levels, it lets the file reader validate logical
-            // types before returning footer row counts. For example, a required TIME_MILLIS leaf
-            // has the same count as COUNT(*), but it must still fail as an unsupported requested
-            // column rather than silently returning the row-group count.
-            if (_data_reader.column_mapper->mappings().size() == 1) {
-                const auto& mapping = _data_reader.column_mapper->mappings()[0];
-                if (mapping.file_local_id.has_value() && mapping.file_type != nullptr &&
-                    mapping.virtual_column_type == TableVirtualColumnType::INVALID &&
-                    mapping.default_expr == nullptr) {
-                    FileAggregateRequest::Column column;
-                    column.projection =
-                            LocalColumnIndex::top_level(LocalColumnId(*mapping.file_local_id));
-                    request->columns.push_back(std::move(column));
-                }
+            // An empty explicit list is the semantic signal for COUNT(*). Do not inspect the
+            // mapping count: `SELECT COUNT(*) FROM t` may still project one nullable column because
+            // the planner keeps a placeholder slot, and counting that slot would return COUNT(col).
+            if (!_push_down_count_columns.empty()) {
+                const auto& mapping = _push_down_count_mapping();
+                DORIS_CHECK(mapping.file_local_id.has_value());
+                FileAggregateRequest::Column column;
+                column.projection =
+                        LocalColumnIndex::top_level(LocalColumnId(*mapping.file_local_id));
+                request->columns.push_back(std::move(column));
             }
             return Status::OK();
         }
@@ -1493,6 +1501,17 @@ protected:
             request->columns.push_back(std::move(column));
         }
         return Status::OK();
+    }
+
+    const ColumnMapping& _push_down_count_mapping() const {
+        DORIS_CHECK(_push_down_count_columns.size() == 1);
+        const auto mapping_it =
+                std::ranges::find(_data_reader.column_mapper->mappings(),
+                                  _push_down_count_columns.front(), &ColumnMapping::global_index);
+        // FileScannerV2 translates FE SlotIds through the same projected-column list used to build
+        // the mapper, so a missing mapping is an FE/BE contract violation rather than a fallback.
+        DORIS_CHECK(mapping_it != _data_reader.column_mapper->mappings().end());
+        return *mapping_it;
     }
 
     Status _materialize_aggregate_pushdown_rows(TPushAggOp::type agg_type,
@@ -1599,6 +1618,7 @@ protected:
     const std::vector<SlotDescriptor*>* _file_slot_descs = nullptr;
     FileFormat _format;
     TPushAggOp::type _push_down_agg_type = TPushAggOp::type::NONE;
+    std::vector<GlobalIndex> _push_down_count_columns;
     size_t _batch_size = 0;
     uint64_t _initial_condition_cache_digest = 0;
     uint64_t _condition_cache_digest = 0;

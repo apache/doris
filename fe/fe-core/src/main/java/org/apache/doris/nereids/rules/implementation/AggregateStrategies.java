@@ -34,6 +34,7 @@ import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -690,6 +691,12 @@ public class AggregateStrategies implements ImplementationRuleFactory {
 
         List<SlotReference> usedSlotInTable = (List<SlotReference>) Project.findProject(aggUsedSlots,
                 logicalScan.getOutput());
+        // COUNT(*) has no aggregate arguments, even though later column pruning retains one
+        // arbitrary scan slot. Preserve the semantic arguments here so the BE never needs to infer
+        // COUNT(col) from the post-pruning scan shape.
+        List<ExprId> countArgumentExprIds = mergeOp == PushDownAggOp.COUNT
+                ? usedSlotInTable.stream().map(SlotReference::getExprId).collect(Collectors.toList())
+                : ImmutableList.of();
 
         for (SlotReference slot : usedSlotInTable) {
             Optional<Column> optionalColumn = slot.getOriginalColumn();
@@ -738,11 +745,12 @@ public class AggregateStrategies implements ImplementationRuleFactory {
             if (project != null) {
                 return aggregate.withChildren(ImmutableList.of(
                     project.withChildren(
-                        ImmutableList.of(new PhysicalStorageLayerAggregate(physicalScan, mergeOp)))
+                        ImmutableList.of(new PhysicalStorageLayerAggregate(
+                                physicalScan, mergeOp, countArgumentExprIds)))
                 ));
             } else {
                 return aggregate.withChildren(ImmutableList.of(
-                    new PhysicalStorageLayerAggregate(physicalScan, mergeOp)
+                    new PhysicalStorageLayerAggregate(physicalScan, mergeOp, countArgumentExprIds)
                 ));
             }
 
@@ -754,11 +762,12 @@ public class AggregateStrategies implements ImplementationRuleFactory {
             if (project != null) {
                 return aggregate.withChildren(ImmutableList.of(
                     project.withChildren(
-                        ImmutableList.of(new PhysicalStorageLayerAggregate(physicalScan, mergeOp)))
+                        ImmutableList.of(new PhysicalStorageLayerAggregate(
+                                physicalScan, mergeOp, countArgumentExprIds)))
                 ));
             } else {
                 return aggregate.withChildren(ImmutableList.of(
-                    new PhysicalStorageLayerAggregate(physicalScan, mergeOp)
+                    new PhysicalStorageLayerAggregate(physicalScan, mergeOp, countArgumentExprIds)
                 ));
             }
 

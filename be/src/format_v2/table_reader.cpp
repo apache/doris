@@ -527,6 +527,7 @@ Status TableReader::init(TableReadOptions&& options) {
     _scanner_profile = options.scanner_profile;
     _file_slot_descs = options.file_slot_descs;
     _push_down_agg_type = options.push_down_agg_type;
+    _push_down_count_columns = options.push_down_count_columns;
     _initial_condition_cache_digest = options.condition_cache_digest;
     _condition_cache_digest = _initial_condition_cache_digest;
     _projected_columns = std::move(options.projected_columns);
