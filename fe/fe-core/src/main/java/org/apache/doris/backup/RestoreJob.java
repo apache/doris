@@ -302,6 +302,14 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         this.showState = state;
     }
 
+    public String getClusterName() {
+        return "";
+    }
+
+    public String getStorageVaultName() {
+        return "";
+    }
+
     public int getMetaVersion() {
         return metaVersion;
     }
@@ -2406,6 +2414,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         }
         info.add(status.toString());
         info.add(String.valueOf(timeoutMs / 1000));
+        info.add(getClusterName());
+        info.add(getStorageVaultName());
         return info;
     }
 
