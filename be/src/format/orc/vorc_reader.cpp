@@ -82,6 +82,7 @@
 #include "exprs/vruntimefilter_wrapper.h"
 #include "format/orc/orc_file_reader.h"
 #include "format/table/iceberg_reader.h"
+#include "format/table/partition_column_filler.h"
 #include "format/table/transactional_hive_common.h"
 #include "io/fs/buffered_reader.h"
 #include "io/fs/file_reader.h"
@@ -1194,8 +1195,10 @@ bool OrcReader::_init_search_argument(const VExprSPtrs& exprs) {
 Status OrcReader::set_fill_columns(
         const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
                 partition_columns,
-        const std::unordered_map<std::string, VExprContextSPtr>& missing_columns) {
+        const std::unordered_map<std::string, VExprContextSPtr>& missing_columns,
+        const std::unordered_map<std::string, bool>& partition_value_is_null) {
     SCOPED_RAW_TIMER(&_statistics.set_fill_column_time);
+    _lazy_read_ctx.partition_value_is_null = partition_value_is_null;
 
     // std::unordered_map<column_name, std::pair<col_id, slot_id>>
     std::unordered_map<std::string, std::pair<uint32_t, int>> predicate_table_columns;
@@ -1531,23 +1534,12 @@ Status OrcReader::_fill_partition_columns(
         auto column_guard = block->mutate_column_scoped((*_col_name_to_block_idx)[kv.first]);
         auto& col_ptr = column_guard.mutable_column();
         const auto& [value, slot_desc] = kv.second;
-        auto _text_serde = slot_desc->get_data_type_ptr()->get_serde();
-        Slice slice(value.data(), value.size());
-        uint64_t num_deserialized = 0;
-        if (_text_serde->deserialize_column_from_fixed_json(*col_ptr, slice, rows,
-                                                            &num_deserialized,
-                                                            _text_formatOptions) != Status::OK()) {
-            return Status::InternalError("Failed to fill partition column: {}={}",
-                                         slot_desc->col_name(), value);
-        }
-        if (num_deserialized != rows) {
-            return Status::InternalError(
-                    "Failed to fill partition column: {}={} ."
-                    "Number of rows expected to be written : {}, number of rows actually "
-                    "written : "
-                    "{}",
-                    slot_desc->col_name(), value, num_deserialized, rows);
-        }
+        auto null_it = _lazy_read_ctx.partition_value_is_null.find(kv.first);
+        RETURN_IF_ERROR(fill_partition_column_from_path_value(
+                *col_ptr, *slot_desc, value, rows,
+                null_it != _lazy_read_ctx.partition_value_is_null.end(),
+                null_it != _lazy_read_ctx.partition_value_is_null.end() && null_it->second,
+                _text_formatOptions));
     }
     return Status::OK();
 }

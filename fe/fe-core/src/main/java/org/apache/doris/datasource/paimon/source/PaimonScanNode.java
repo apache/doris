@@ -52,6 +52,7 @@ import org.apache.doris.thrift.TPushAggOp;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Preconditions;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.paimon.data.BinaryRow;
@@ -70,6 +71,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
@@ -233,6 +235,52 @@ public class PaimonScanNode extends FileQueryScanNode {
         }
     }
 
+    private List<String> getOrderedPathPartitionKeys() {
+        if (source == null) {
+            return Collections.emptyList();
+        }
+        ExternalTable externalTable = source.getExternalTable();
+        if (externalTable instanceof PaimonSysExternalTable
+                && !((PaimonSysExternalTable) externalTable).isDataTable()) {
+            return Collections.emptyList();
+        }
+        return source.getPaimonTable().partitionKeys().stream()
+                .map(key -> key.toLowerCase(Locale.ROOT))
+                .collect(Collectors.toList());
+    }
+
+    @VisibleForTesting
+    void setPartitionValues(TFileRangeDesc rangeDesc, Map<String, String> partitionValues) {
+        rangeDesc.unsetColumnsFromPathKeys();
+        rangeDesc.unsetColumnsFromPath();
+        rangeDesc.unsetColumnsFromPathIsNull();
+
+        List<String> orderedPartitionKeys = getOrderedPathPartitionKeys();
+        if (orderedPartitionKeys.isEmpty()) {
+            return;
+        }
+        Preconditions.checkState(partitionValues != null,
+                "Missing partition values for Paimon partitioned table");
+
+        Map<String, String> normalizedPartitionValues = new HashMap<>();
+        for (Map.Entry<String, String> entry : partitionValues.entrySet()) {
+            normalizedPartitionValues.put(entry.getKey().toLowerCase(Locale.ROOT), entry.getValue());
+        }
+
+        List<String> fromPathValues = new ArrayList<>(orderedPartitionKeys.size());
+        List<Boolean> fromPathIsNull = new ArrayList<>(orderedPartitionKeys.size());
+        for (String partitionKey : orderedPartitionKeys) {
+            Preconditions.checkState(normalizedPartitionValues.containsKey(partitionKey),
+                    "Missing partition value for Paimon partition key: %s", partitionKey);
+            String partitionValue = normalizedPartitionValues.get(partitionKey);
+            fromPathValues.add(partitionValue == null ? "" : partitionValue);
+            fromPathIsNull.add(partitionValue == null);
+        }
+        rangeDesc.setColumnsFromPathKeys(orderedPartitionKeys);
+        rangeDesc.setColumnsFromPath(fromPathValues);
+        rangeDesc.setColumnsFromPathIsNull(fromPathIsNull);
+    }
+
     private void setPaimonParams(TFileRangeDesc rangeDesc, PaimonSplit paimonSplit) {
         TTableFormatFileDesc tableFormatFileDesc = new TTableFormatFileDesc();
         tableFormatFileDesc.setTableFormatType(paimonSplit.getTableFormatType().value());
@@ -290,20 +338,7 @@ public class PaimonScanNode extends FileQueryScanNode {
             tableFormatFileDesc.setTableLevelRowCount(-1);
         }
         tableFormatFileDesc.setPaimonParams(fileDesc);
-        Map<String, String> partitionValues = paimonSplit.getPaimonPartitionValues();
-        if (partitionValues != null) {
-            List<String> fromPathKeys = new ArrayList<>();
-            List<String> fromPathValues = new ArrayList<>();
-            List<Boolean> fromPathIsNull = new ArrayList<>();
-            for (Map.Entry<String, String> entry : partitionValues.entrySet()) {
-                fromPathKeys.add(entry.getKey());
-                fromPathValues.add(entry.getValue() != null ? entry.getValue() : "");
-                fromPathIsNull.add(entry.getValue() == null);
-            }
-            rangeDesc.setColumnsFromPathKeys(fromPathKeys);
-            rangeDesc.setColumnsFromPath(fromPathValues);
-            rangeDesc.setColumnsFromPathIsNull(fromPathIsNull);
-        }
+        setPartitionValues(rangeDesc, paimonSplit.getPaimonPartitionValues());
         rangeDesc.setTableFormatParams(tableFormatFileDesc);
     }
 
@@ -371,6 +406,7 @@ public class PaimonScanNode extends FileQueryScanNode {
         // partition data.
         // And for counting the number of selected partitions for this paimon table.
         Map<BinaryRow, Map<String, String>> partitionInfoMaps = new HashMap<>();
+        boolean needPartitionMetadata = !getOrderedPathPartitionKeys().isEmpty();
         // if applyCountPushdown is true, we can't split the DataSplit
         boolean hasDeterminedTargetFileSplitSize = false;
         long targetFileSplitSize = 0;
@@ -380,9 +416,7 @@ public class PaimonScanNode extends FileQueryScanNode {
 
             BinaryRow partitionValue = dataSplit.partition();
             Map<String, String> partitionInfoMap = null;
-            if (sessionVariable.isEnableRuntimeFilterPartitionPrune()) {
-                // If the partition value is not in the map, we need to calculate the partition
-                // info map and store it in the map.
+            if (needPartitionMetadata) {
                 partitionInfoMap = partitionInfoMaps.computeIfAbsent(partitionValue, k -> {
                     return PaimonUtil.getPartitionInfoMap(
                             source.getPaimonTable(), partitionValue, sessionVariable.getTimeZone());
@@ -605,10 +639,7 @@ public class PaimonScanNode extends FileQueryScanNode {
 
     @Override
     public List<String> getPathPartitionKeys() throws DdlException, MetaNotFoundException {
-        // return new ArrayList<>(source.getPaimonTable().partitionKeys());
-        // Paimon is not aware of partitions and bypasses some existing logic by
-        // returning an empty list
-        return new ArrayList<>();
+        return getOrderedPathPartitionKeys();
     }
 
     @Override

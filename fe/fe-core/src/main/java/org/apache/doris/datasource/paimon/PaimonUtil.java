@@ -577,6 +577,16 @@ public class PaimonUtil {
                     return null;
                 }
                 return value.toString();
+            case FLOAT:
+                if (value == null) {
+                    return null;
+                }
+                return Float.toString((Float) value);
+            case DOUBLE:
+                if (value == null) {
+                    return null;
+                }
+                return Double.toString((Double) value);
             // case binary:
             // case varbinary: should not supported, because if return string with utf8,
             // the data maybe be corrupted
