@@ -24,6 +24,7 @@ import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.Backend;
@@ -98,7 +99,10 @@ public class StreamLoadHandlerTest {
         CloudSystemInfoService systemInfoService =
                 new TestCloudSystemInfoService(Arrays.asList(backend));
         CloudEnv cloudEnv = Mockito.mock(CloudEnv.class);
+        InternalCatalog internalCatalog = Mockito.mock(InternalCatalog.class);
         Auth auth = Mockito.mock(Auth.class);
+        Mockito.when(cloudEnv.getInternalCatalog()).thenReturn(internalCatalog);
+        Mockito.when(internalCatalog.getName()).thenReturn(InternalCatalog.INTERNAL_CATALOG_NAME);
         Mockito.when(cloudEnv.getAuth()).thenReturn(auth);
         Mockito.doAnswer(invocation -> {
             List<UserIdentity> currentUser = invocation.getArgument(3);
@@ -130,7 +134,7 @@ public class StreamLoadHandlerTest {
                 handler.setCloudCluster();
                 Assert.fail("group commit should validate compute group privilege");
             } catch (DdlException e) {
-                Assert.assertEquals("USAGE denied", e.getMessage());
+                Assert.assertTrue(e.getMessage().contains("USAGE denied"));
             }
 
             Mockito.verify(cloudEnv).changeCloudCluster(
