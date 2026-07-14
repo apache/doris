@@ -27,6 +27,8 @@
 #include <utility>
 #include <vector>
 
+#include "cloud/config.h"
+#include "common/config.h"
 #include "common/consts.h"
 #include "core/assert_cast.h"
 #include "core/block/block.h"
@@ -34,12 +36,14 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "exec/operator/file_scan_operator.h"
+#include "exec/scan/file_scan_io_context.h"
 #include "exec/scan/file_scanner.h"
 #include "exec/scan/split_source_connector.h"
 #include "exprs/runtime_filter_expr.h"
 #include "exprs/vdirect_in_predicate.h"
 #include "exprs/vslot_ref.h"
 #include "format_v2/expr/cast.h"
+#include "testutil/mock/mock_runtime_state.h"
 
 namespace doris {
 namespace {
@@ -130,6 +134,36 @@ VExprContextSPtr runtime_filter_context(VExprSPtr impl, int filter_id) {
     const auto node = bool_in_pred_node();
     return VExprContext::create_shared(
             RuntimeFilterExpr::create_shared(node, std::move(impl), 0.4, false, filter_id));
+}
+
+class CloudFileCacheConfigGuard {
+public:
+    CloudFileCacheConfigGuard()
+            : _cloud_unique_id(config::cloud_unique_id),
+              _enable_file_cache(config::enable_file_cache) {}
+
+    ~CloudFileCacheConfigGuard() {
+        config::cloud_unique_id = _cloud_unique_id;
+        config::enable_file_cache = _enable_file_cache;
+    }
+
+private:
+    std::string _cloud_unique_id;
+    bool _enable_file_cache;
+};
+
+TUniqueId make_query_id() {
+    TUniqueId query_id;
+    query_id.hi = 100;
+    query_id.lo = 200;
+    return query_id;
+}
+
+TNetworkAddress make_fe_addr() {
+    TNetworkAddress fe_addr;
+    fe_addr.hostname = "127.0.0.1";
+    fe_addr.port = 9030;
+    return fe_addr;
 }
 
 TExprNode bool_in_pred_node() {
@@ -302,6 +336,55 @@ TEST(FileScannerV2Test, ValidateScanRangeRejectsUnsupportedRange) {
     const auto status = FileScannerV2::TEST_validate_scan_range(params, unsupported);
     EXPECT_TRUE(status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>());
     EXPECT_NE(status.to_string().find("lakesoul"), std::string::npos);
+}
+
+// Scenario: external file scan IO contexts are query readers for SELECT so the shared file-cache
+// gate can apply the query-level remote scan write limiter.
+TEST(FileScannerV2Test, FileScanIoContextPropagatesQueryLimiterForSelect) {
+    CloudFileCacheConfigGuard config_guard;
+    config::cloud_unique_id = "file_scanner_io_context_ut";
+    config::enable_file_cache = true;
+
+    TQueryOptions query_options;
+    query_options.__set_query_type(TQueryType::SELECT);
+    query_options.__set_file_cache_query_limit_bytes(0);
+
+    const auto query_id = make_query_id();
+    const auto fe_addr = make_fe_addr();
+    auto query_ctx = MockQueryContext::create(query_id, ExecEnv::GetInstance(), query_options,
+                                              fe_addr, true, fe_addr);
+    ASSERT_NE(query_ctx->remote_scan_cache_write_limiter(), nullptr);
+
+    MockRuntimeState state;
+    state._query_id = query_id;
+    state.set_query_options(query_options);
+    state._query_ctx_uptr = query_ctx;
+    state._query_ctx = query_ctx.get();
+
+    auto io_ctx = create_file_scan_io_context(&state);
+
+    EXPECT_EQ(io_ctx->query_id, &state.query_id());
+    EXPECT_EQ(io_ctx->reader_type, ReaderType::READER_QUERY);
+    EXPECT_EQ(io_ctx->remote_scan_cache_write_limiter,
+              query_ctx->remote_scan_cache_write_limiter());
+}
+
+// Scenario: LOAD file scans keep non-query reader semantics even when the byte-limit option exists.
+TEST(FileScannerV2Test, FileScanIoContextDoesNotMarkLoadAsQueryReader) {
+    TQueryOptions query_options;
+    query_options.__set_query_type(TQueryType::LOAD);
+    query_options.__set_file_cache_query_limit_bytes(0);
+
+    MockRuntimeState state;
+    state._query_id = make_query_id();
+    state.set_query_options(query_options);
+    state._query_ctx = nullptr;
+
+    auto io_ctx = create_file_scan_io_context(&state);
+
+    EXPECT_EQ(io_ctx->query_id, &state.query_id());
+    EXPECT_EQ(io_ctx->reader_type, ReaderType::UNKNOWN);
+    EXPECT_EQ(io_ctx->remote_scan_cache_write_limiter, nullptr);
 }
 
 // Scenario: FileScannerV2 converts only the file formats implemented by format_v2 readers and

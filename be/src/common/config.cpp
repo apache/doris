@@ -72,6 +72,9 @@ DEFINE_Int32(brpc_port, "8060");
 
 DEFINE_Int32(arrow_flight_sql_port, "8050");
 
+// Validate Arrow input buffers in opted-in Arrow readers before converting them to Doris columns.
+DEFINE_Bool(enable_arrow_input_validation, "true");
+
 DEFINE_Int32(cdc_client_port, "9096");
 
 DEFINE_String(cdc_client_java_opts, "");
@@ -1218,6 +1221,8 @@ DEFINE_Int64(file_cache_each_block_size, "1048576"); // 1MB
 
 DEFINE_Bool(clear_file_cache, "false");
 DEFINE_mBool(enable_file_cache_query_limit, "false");
+// Whether segment footer and segment metadata count toward file cache query limit.
+DEFINE_mBool(enable_file_cache_query_limit_segment_meta, "false");
 DEFINE_mInt32(file_cache_enter_disk_resource_limit_mode_percent, "90");
 DEFINE_mInt32(file_cache_exit_disk_resource_limit_mode_percent, "88");
 DEFINE_mBool(enable_evict_file_cache_in_advance, "true");

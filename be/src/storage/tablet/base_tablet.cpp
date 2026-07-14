@@ -83,7 +83,8 @@ Status _get_segment_column_iterator(const BetaRowsetSharedPtr& rowset, uint32_t 
                                     std::unique_ptr<segment_v2::ColumnIterator>* column_iterator,
                                     OlapReaderStatistics* stats,
                                     const io::IOContext* input_io_ctx = nullptr) {
-    RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(rowset, segment_cache_handle, true));
+    RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(rowset, segment_cache_handle, true,
+                                                             false, stats, input_io_ctx));
     // find segment
     auto it = std::find_if(
             segment_cache_handle->get_segments().begin(),
@@ -475,7 +476,7 @@ Status BaseTablet::lookup_row_key(const Slice& encoded_key, TabletSchema* latest
                                   std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
                                   RowsetSharedPtr* rowset, bool with_rowid,
                                   std::string* encoded_seq_value, OlapReaderStatistics* stats,
-                                  DeleteBitmapPtr delete_bitmap) {
+                                  DeleteBitmapPtr delete_bitmap, const io::IOContext* io_ctx) {
     SCOPED_BVAR_LATENCY(g_tablet_lookup_rowkey_latency);
     size_t seq_col_length = 0;
     // use the latest tablet schema to decide if the tablet has sequence column currently
@@ -526,14 +527,15 @@ Status BaseTablet::lookup_row_key(const Slice& encoded_key, TabletSchema* latest
         if (UNLIKELY(segment_caches[i] == nullptr)) {
             segment_caches[i] = std::make_unique<SegmentCacheHandle>();
             RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(
-                    std::static_pointer_cast<BetaRowset>(rs), segment_caches[i].get(), true, true));
+                    std::static_pointer_cast<BetaRowset>(rs), segment_caches[i].get(), true, true,
+                    stats, io_ctx));
         }
         auto& segments = segment_caches[i]->get_segments();
         DCHECK_EQ(segments.size(), num_segments);
 
         for (auto id : picked_segments) {
             Status s = segments[id]->lookup_row_key(encoded_key, schema, with_seq_col, with_rowid,
-                                                    &loc, stats, encoded_seq_value);
+                                                    &loc, stats, encoded_seq_value, io_ctx);
             if (s.is<KEY_NOT_FOUND>()) {
                 continue;
             }

@@ -47,7 +47,8 @@ public:
 
     // Mock methods for footer - make it virtual and public
     MOCK_METHOD(Status, _get_segment_footer,
-                (std::shared_ptr<SegmentFooterPB>&, OlapReaderStatistics*), ());
+                (std::shared_ptr<SegmentFooterPB>&, OlapReaderStatistics*, const io::IOContext*),
+                (override));
 
     // Helper methods for test setup
     void add_column_uid_mapping(int32_t col_uid, int32_t footer_ordinal) {

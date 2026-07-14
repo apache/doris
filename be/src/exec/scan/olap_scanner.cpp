@@ -49,6 +49,7 @@
 #include "io/io_common.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
+#include "runtime/query_context.h"
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
 #include "service/backend_options.h"
@@ -154,6 +155,22 @@ static bool has_file_cache_statistics(const io::FileCacheStatistics& stats) {
            stats.inverted_index_bytes_read_from_peer != 0 ||
            stats.inverted_index_local_io_timer != 0 || stats.inverted_index_remote_io_timer != 0 ||
            stats.inverted_index_peer_io_timer != 0 || stats.inverted_index_io_timer != 0;
+}
+
+io::IOContext build_score_runtime_collection_io_context(RuntimeState* state, ReaderType reader_type,
+                                                        int64_t expiration_time,
+                                                        io::FileCacheStatistics* file_cache_stats) {
+    io::IOContext io_ctx {
+            .reader_type = reader_type,
+            .expiration_time = expiration_time,
+            .query_id = &state->query_id(),
+            .file_cache_stats = file_cache_stats,
+            .is_inverted_index = true,
+    };
+    if (auto* query_ctx = state->get_query_ctx(); query_ctx != nullptr) {
+        io_ctx.remote_scan_cache_write_limiter = query_ctx->remote_scan_cache_write_limiter();
+    }
+    return io_ctx;
 }
 
 Status OlapScanner::_prepare_impl() {
@@ -277,13 +294,9 @@ Status OlapScanner::_prepare_impl() {
         SCOPED_TIMER(local_state->_statistics_collect_timer);
         _tablet_reader_params.collection_statistics = std::make_shared<CollectionStatistics>();
 
-        io::IOContext io_ctx {
-                .reader_type = _tablet_reader_params.reader_type,
-                .expiration_time = tablet->ttl_seconds(),
-                .query_id = &_state->query_id(),
-                .file_cache_stats = &_tablet_reader->mutable_stats()->file_cache_stats,
-                .is_inverted_index = true,
-        };
+        auto io_ctx = build_score_runtime_collection_io_context(
+                _state, _tablet_reader_params.reader_type, tablet->ttl_seconds(),
+                &_tablet_reader->mutable_stats()->file_cache_stats);
 
         RETURN_IF_ERROR(_tablet_reader_params.collection_statistics->collect(
                 _state, _tablet_reader_params.rs_splits, _tablet_reader_params.tablet_schema,
