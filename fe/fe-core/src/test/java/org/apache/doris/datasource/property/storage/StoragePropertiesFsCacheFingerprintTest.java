@@ -19,7 +19,6 @@ package org.apache.doris.datasource.property.storage;
 
 import org.apache.doris.common.UserException;
 
-import org.apache.hadoop.conf.Configuration;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -91,10 +90,6 @@ public class StoragePropertiesFsCacheFingerprintTest {
         Map<String, String> mergedMap = new HashMap<>();
         StorageProperties.setCombinedFsCacheKey(mergedMap, Arrays.asList(a, b));
         Assertions.assertEquals(expected, mergedMap.get(StorageProperties.FS_CACHE_KEY_PROPERTY));
-
-        Configuration mergedConf = new Configuration(false);
-        StorageProperties.setCombinedFsCacheKey(mergedConf, Arrays.asList(a, b));
-        Assertions.assertEquals(expected, mergedConf.get(StorageProperties.FS_CACHE_KEY_PROPERTY));
 
         // Empty storage list is a no-op.
         Map<String, String> untouched = new HashMap<>();

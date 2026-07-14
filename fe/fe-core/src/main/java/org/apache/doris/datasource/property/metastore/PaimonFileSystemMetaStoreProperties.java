@@ -48,7 +48,6 @@ public class PaimonFileSystemMetaStoreProperties extends AbstractPaimonPropertie
             }
         });
         appendUserHadoopConfig(conf);
-        StorageProperties.setCombinedFsCacheKey(conf, storagePropertiesList);
         CatalogContext catalogContext = CatalogContext.create(catalogOptions, conf);
         try {
             return this.executionAuthenticator.execute(() -> CatalogFactory.createCatalog(catalogContext));

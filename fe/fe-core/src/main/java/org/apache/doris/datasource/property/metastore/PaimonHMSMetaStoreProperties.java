@@ -82,7 +82,6 @@ public class PaimonHMSMetaStoreProperties extends AbstractPaimonProperties {
                 conf.addResource(sp.getHadoopStorageConfig());
             }
         }
-        StorageProperties.setCombinedFsCacheKey(conf, storagePropertiesList);
         return conf;
     }
 
