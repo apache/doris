@@ -63,6 +63,24 @@ public class SqlCacheTest extends TestWithFeService {
     }
 
     @Test
+    public void testCacheKeyIncludesAnnTopnPredicatePrefilter() {
+        UserIdentity admin = new UserIdentity("admin", "127.0.0.1");
+
+        SessionVariable prefilterEnabled = new SessionVariable();
+        SqlCacheContext enabledContext = new SqlCacheContext(admin);
+        enabledContext.setOriginSql("SELECT * FROM tbl");
+        PUniqueId enabledKey = enabledContext.doComputeCacheKeyMd5(ImmutableSet.of(), prefilterEnabled);
+
+        SessionVariable prefilterDisabled = new SessionVariable();
+        prefilterDisabled.enableAnnTopnPredicatePrefilter = false;
+        SqlCacheContext disabledContext = new SqlCacheContext(admin);
+        disabledContext.setOriginSql("SELECT * FROM tbl");
+        PUniqueId disabledKey = disabledContext.doComputeCacheKeyMd5(ImmutableSet.of(), prefilterDisabled);
+
+        Assertions.assertNotEquals(enabledKey, disabledKey);
+    }
+
+    @Test
     public void testSqlCache() throws Exception {
         connectContext.getSessionVariable().setEnableSqlCache(true);
         executeNereidsSql("select 100");

@@ -3494,7 +3494,8 @@ public class SessionVariable implements Serializable, Writable {
     })
     public boolean enableAnnIndexResultCache = true;
 
-    @VarAttrDef.VarAttr(name = ENABLE_ANN_TOPN_PREDICATE_PREFILTER, needForward = true, description = {
+    @VarAttrDef.VarAttr(name = ENABLE_ANN_TOPN_PREDICATE_PREFILTER, needForward = true,
+            affectQueryResultInExecution = true, description = {
         "开启后，带列谓词的 ANN TopN 查询会先把谓词求值成候选位图喂给 ANN 索引（IDSelector），"
                 + "而不是退化为暴力距离扫描",
         "When enabled, an ANN TopN query that carries a column predicate pre-filters the predicate "
