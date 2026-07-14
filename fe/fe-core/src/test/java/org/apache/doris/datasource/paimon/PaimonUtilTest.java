@@ -100,6 +100,19 @@ public class PaimonUtilTest {
     }
 
     @Test
+    public void testSystemTableSchemaPreservesNonLowercaseColumnNames() {
+        RowType rowType = DataTypes.ROW(
+                DataTypes.FIELD(0, "_ROW_ID", DataTypes.BIGINT()),
+                DataTypes.FIELD(1, "_SEQUENCE_NUMBER", DataTypes.BIGINT()));
+
+        List<Column> columns = PaimonSysExternalTable.buildFullSchema(
+                rowType.getFields(), false, false);
+
+        Assert.assertEquals("_ROW_ID", columns.get(0).getName());
+        Assert.assertEquals("_SEQUENCE_NUMBER", columns.get(1).getName());
+    }
+
+    @Test
     public void testGetPartitionInfoMapPreservesNonLowercaseKeys() {
         DataField mixedCasePartition = DataTypes.FIELD(0, "Dt", DataTypes.STRING());
         Table table = Mockito.mock(Table.class);

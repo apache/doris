@@ -446,20 +446,8 @@ static bool table_filter_has_only_local_entries(
     return true;
 }
 
-static VExprSPtr unwrap_literal_for_file_cast(const VExprSPtr& expr,
-                                              const DataTypePtr& table_type) {
-    if (expr == nullptr) {
-        return nullptr;
-    }
-    if (expr->is_literal()) {
-        return expr;
-    }
-    if (is_cast_expr(expr) && expr->get_num_children() == 1 && expr->children()[0]->is_literal() &&
-        expr->children()[0]->data_type()->equals(*table_type)) {
-        return expr->children()[0];
-    }
-    return nullptr;
-}
+static bool is_lossless_file_to_table_numeric_cast(const DataTypePtr& file_type,
+                                                   const DataTypePtr& table_type);
 
 static Field literal_field_from_expr(const VExpr& literal_expr) {
     DORIS_CHECK(literal_expr.is_literal());
@@ -468,6 +456,44 @@ static Field literal_field_from_expr(const VExpr& literal_expr) {
     Field field;
     literal->get_column_ptr()->get(0, field);
     return field;
+}
+
+static VExprSPtr unwrap_literal_for_file_cast(const VExprSPtr& expr, const DataTypePtr& table_type,
+                                              RewriteContext* rewrite_context) {
+    if (expr == nullptr) {
+        return nullptr;
+    }
+    if (expr->is_literal()) {
+        return expr;
+    }
+    if (!is_cast_expr(expr) || expr->get_num_children() != 1 ||
+        !expr->children()[0]->is_literal()) {
+        return nullptr;
+    }
+
+    const auto& child = expr->children()[0];
+    if (child->data_type()->equals(*table_type)) {
+        return child;
+    }
+    if (!expr->data_type()->equals(*table_type) ||
+        !is_lossless_file_to_table_numeric_cast(child->data_type(), table_type)) {
+        return nullptr;
+    }
+
+    Field table_field;
+    try {
+        convert_field_to_type(literal_field_from_expr(*child), *table_type, &table_field,
+                              child->data_type().get());
+    } catch (const Exception&) {
+        return nullptr;
+    }
+    if (table_field.is_null() ||
+        table_field.get_type() != remove_nullable(table_type)->get_primitive_type()) {
+        return nullptr;
+    }
+    auto literal = VLiteral::create_shared(table_type, std::move(table_field));
+    rewrite_context->add_created_expr(literal);
+    return literal;
 }
 
 // Table filter localization clones an already-prepared table expr and then rewrites it to file
@@ -673,8 +699,8 @@ static bool rewrite_binary_slot_literal_predicate(
     if (rewrite_info == nullptr || slot_ref == nullptr) {
         return false;
     }
-    auto literal_expr =
-            unwrap_literal_for_file_cast(children[literal_child_idx], rewrite_info->table_type);
+    auto literal_expr = unwrap_literal_for_file_cast(children[literal_child_idx],
+                                                     rewrite_info->table_type, rewrite_context);
     if (literal_expr == nullptr) {
         return false;
     }
@@ -711,8 +737,8 @@ static bool rewrite_in_slot_literal_predicate(
     VExprSPtrs rewritten_literals;
     rewritten_literals.reserve(children.size() - 1);
     for (size_t child_idx = 1; child_idx < children.size(); ++child_idx) {
-        auto literal_expr =
-                unwrap_literal_for_file_cast(children[child_idx], rewrite_info->table_type);
+        auto literal_expr = unwrap_literal_for_file_cast(children[child_idx],
+                                                         rewrite_info->table_type, rewrite_context);
         if (literal_expr == nullptr) {
             return false;
         }
@@ -720,8 +746,8 @@ static bool rewrite_in_slot_literal_predicate(
                 rewrite_literal_to_file_type(literal_expr, *rewrite_info, rewrite_context);
         if (rewritten_literal == nullptr) {
             for (size_t restore_idx = 1; restore_idx < children.size(); ++restore_idx) {
-                auto restore_literal = unwrap_literal_for_file_cast(children[restore_idx],
-                                                                    rewrite_info->table_type);
+                auto restore_literal = unwrap_literal_for_file_cast(
+                        children[restore_idx], rewrite_info->table_type, rewrite_context);
                 if (restore_literal != nullptr) {
                     children[restore_idx] =
                             original_table_literal(restore_literal, rewrite_context);

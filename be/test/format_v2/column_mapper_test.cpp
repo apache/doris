@@ -3549,6 +3549,50 @@ TEST_F(ColumnMapperCastTest, ColumnMapperCastsLiteralForLiteralSlotPredicateType
     file_request.conjuncts[0]->close();
 }
 
+// Scenario: Nereids may represent `BIGINT value = 1` as `value = CAST(INT 1 AS BIGINT)`.
+// Strip a provably lossless literal widening so metadata readers can recognize slot-literal
+// predicates for zone-map pruning.
+TEST_F(ColumnMapperCastTest, ColumnMapperLocalizesImplicitlyCastLiteral) {
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_NAME});
+    auto table_column = name_col("value", i64());
+    std::vector<ColumnDefinition> projected_columns {table_column};
+    auto file_field = name_col("value", i64(), 0);
+    std::vector<ColumnDefinition> file_schema {file_field};
+
+    auto status = mapper.create_mapping(projected_columns, {}, file_schema);
+    ASSERT_TRUE(status.ok()) << status;
+
+    auto predicate = std::make_shared<Int64BinaryPredicateExpr>(TExprOpcode::GT);
+    predicate->add_child(VSlotRef::create_shared(0, 0, -1, table_column.type, "value"));
+    predicate->add_child(cast_expr(VLiteral::create_shared(i32(), Field::create_field<TYPE_INT>(1)),
+                                   table_column.type));
+    TableFilter table_filter;
+    table_filter.conjunct = VExprContext::create_shared(predicate);
+    table_filter.global_indices = {GlobalIndex(0)};
+
+    FileScanRequest file_request;
+    ASSERT_TRUE(mapper.create_scan_request({table_filter}, projected_columns, &file_request, &state)
+                        .ok());
+    ASSERT_EQ(file_request.conjuncts.size(), 1);
+    const auto& localized_expr = file_request.conjuncts[0]->root();
+    ASSERT_EQ(localized_expr->get_num_children(), 2);
+    EXPECT_TRUE(localized_expr->children()[1]->is_literal());
+    EXPECT_TRUE(localized_expr->children()[1]->data_type()->equals(*file_field.type));
+
+    Block block;
+    block.insert(ColumnHelper::create_column_with_name<DataTypeInt64>({1, 2}));
+    auto* conjunct = file_request.conjuncts[0].get();
+    ASSERT_TRUE(conjunct->prepare(&state, RowDescriptor()).ok());
+    ASSERT_TRUE(conjunct->open(&state).ok());
+    IColumn::Filter filter(block.rows(), 1);
+    bool can_filter_all = false;
+    ASSERT_TRUE(
+            conjunct->execute_filter(&block, filter.data(), block.rows(), false, &can_filter_all)
+                    .ok());
+    EXPECT_EQ(filter, IColumn::Filter({0, 1}));
+    conjunct->close();
+}
+
 // Scenario: a fractional table literal cannot be localized to an integral file type without
 // changing the predicate boundary, so the mapper must cast the file slot instead.
 TEST_F(ColumnMapperCastTest, ColumnMapperRejectsLossyBinaryLiteralConversion) {

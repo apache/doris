@@ -469,7 +469,7 @@ public class PaimonScanNode extends FileQueryScanNode {
                                 file.length(),
                                 -1,
                                 !applyCountPushdown,
-                                null,
+                                Collections.emptyList(),
                                 PaimonSplit.PaimonSplitCreator.DEFAULT);
                         for (Split dorisSplit : dorisSplits) {
                             PaimonSplit paimonSplit = (PaimonSplit) dorisSplit;

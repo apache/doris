@@ -57,6 +57,7 @@
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
 #include "storage/olap_scan_common.h"
+#include "util/debug_points.h"
 #include "util/timezone_utils.h"
 
 namespace doris {
@@ -1090,6 +1091,33 @@ TEST_F(IcebergReaderTest, missing_equality_key_rejects_pruned_schema_metadata) {
             reader.TEST_register_missing_equality_delete_column(1, "hidden_key", int_type);
     ASSERT_FALSE(status.ok());
     EXPECT_NE(status.to_string().find("field id 1"), std::string::npos);
+}
+
+TEST_F(IcebergReaderTest, deletion_vector_debug_points) {
+    const bool old_enable_debug_points = config::enable_debug_points;
+    config::enable_debug_points = true;
+    TFileScanRangeParams scan_params;
+    TFileRangeDesc scan_range;
+    RuntimeProfile profile("test_profile");
+    RuntimeState runtime_state {TQueryOptions(), TQueryGlobals()};
+    io::IOContext io_ctx;
+    ShardedKVCache kv_cache(8);
+    IcebergParquetReader reader(nullptr, &profile, &runtime_state, scan_params, scan_range,
+                                &kv_cache, &io_ctx, cache.get());
+    TIcebergDeleteFileDesc delete_file_desc;
+
+    DebugPoints::instance()->add("IcebergDeleteFileReader.read_deletion_vector.io_error");
+    auto status = reader.read_deletion_vector("data.parquet", delete_file_desc);
+    DebugPoints::instance()->remove("IcebergDeleteFileReader.read_deletion_vector.io_error");
+    EXPECT_TRUE(status.is<ErrorCode::IO_ERROR>());
+    EXPECT_NE(status.to_string().find("injected Iceberg deletion vector read failure"),
+              std::string::npos);
+
+    DebugPoints::instance()->add("IcebergDeleteFileReader.read_deletion_vector.should_stop");
+    status = reader.read_deletion_vector("data.parquet", delete_file_desc);
+    DebugPoints::instance()->remove("IcebergDeleteFileReader.read_deletion_vector.should_stop");
+    EXPECT_TRUE(status.is<ErrorCode::END_OF_FILE>());
+    config::enable_debug_points = old_enable_debug_points;
 }
 
 } // namespace doris

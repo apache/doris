@@ -42,6 +42,7 @@ import org.apache.paimon.stats.SimpleStats;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.source.DataSplit;
 import org.apache.paimon.table.source.RawFile;
+import org.apache.paimon.types.DataTypes;
 import org.junit.Assert;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -652,6 +653,42 @@ public class PaimonScanNodeTest {
         Assert.assertEquals(Arrays.asList("Pt", "Dt"), rangeDesc.getColumnsFromPathKeys());
         Assert.assertEquals(Arrays.asList("p1", "2025-01-01"), rangeDesc.getColumnsFromPath());
         Assert.assertEquals(Arrays.asList(false, false), rangeDesc.getColumnsFromPathIsNull());
+    }
+
+    @Test
+    public void testNativeSplitCarriesPartitionMetadataWithoutRuntimeFilterPruning() throws Exception {
+        PaimonScanNode node = newTestNode(new PlanNodeId(0), new TupleId(0), sv);
+        PaimonScanNode spyNode = Mockito.spy(node);
+        PaimonSource source = Mockito.mock(PaimonSource.class);
+        Table table = Mockito.mock(Table.class);
+        PaimonSysExternalTable externalTable = Mockito.mock(PaimonSysExternalTable.class);
+        Mockito.when(source.getPaimonTable()).thenReturn(table);
+        Mockito.when(source.getExternalTable()).thenReturn(externalTable);
+        Mockito.when(table.partitionKeys()).thenReturn(Collections.singletonList("par"));
+        Mockito.when(table.rowType()).thenReturn(DataTypes.ROW(
+                DataTypes.FIELD(0, "par", DataTypes.INT())));
+        Mockito.when(externalTable.isDataTable()).thenReturn(true);
+        spyNode.setSource(source);
+
+        Mockito.doReturn(Collections.singletonList(createDataSplit("partitioned.parquet")))
+                .when(spyNode).getPaimonSplitFromAPI();
+        mockNativeReader(spyNode);
+        setField(FileQueryScanNode.class, spyNode, "fileSplitter",
+                new FileSplitter(32L * 1024 * 1024, 64L * 1024 * 1024, 0));
+        setField(PaimonScanNode.class, spyNode, "storagePropertiesMap", Collections.emptyMap());
+        Mockito.when(sv.isForceJniScanner()).thenReturn(false);
+        Mockito.when(sv.getIgnoreSplitType()).thenReturn("NONE");
+        Mockito.when(sv.getMaxInitialSplitSize()).thenReturn(32L * 1024 * 1024);
+        Mockito.when(sv.getMaxSplitSize()).thenReturn(64L * 1024 * 1024);
+        Mockito.when(sv.getTimeZone()).thenReturn("UTC");
+
+        List<org.apache.doris.spi.Split> splits = spyNode.getSplits(1);
+
+        Assert.assertEquals(1, splits.size());
+        PaimonSplit split = (PaimonSplit) splits.get(0);
+        Assert.assertEquals(Collections.singletonMap("par", "1"),
+                split.getPaimonPartitionValues());
+        Assert.assertEquals(Collections.emptyList(), split.getPartitionValues());
     }
 
     @Test

@@ -55,6 +55,7 @@
 #include "format/table/table_format_reader.h"
 #include "runtime/runtime_state.h"
 #include "util/coding.h"
+#include "util/debug_points.h"
 #include "util/url_coding.h"
 
 namespace cctz {
@@ -1206,6 +1207,10 @@ ColumnIdResult IcebergOrcReader::_create_column_ids(
 // compress any blobs, we can temporarily skip parsing the Puffin footer.
 Status IcebergTableReader::read_deletion_vector(const std::string& data_file_path,
                                                 const TIcebergDeleteFileDesc& delete_file_desc) {
+    DBUG_EXECUTE_IF("IcebergDeleteFileReader.read_deletion_vector.io_error",
+                    { return Status::IOError("injected Iceberg deletion vector read failure"); });
+    DBUG_EXECUTE_IF("IcebergDeleteFileReader.read_deletion_vector.should_stop",
+                    { return Status::EndOfFile("stop read."); });
     Status create_status = Status::OK();
     SCOPED_TIMER(_iceberg_profile.delete_files_read_time);
     bool decoded_cache_hit = false;
