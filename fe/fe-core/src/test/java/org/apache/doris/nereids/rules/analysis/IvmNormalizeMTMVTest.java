@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.rewrite;
+package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.BinlogConfig;
@@ -427,7 +427,8 @@ class IvmNormalizeMTMVTest {
 
         IvmRewriteResult rewriteResult = jobContext.getCascadesContext().getIvmRewriteResult().get();
         Assertions.assertFalse(rewriteResult.isDeterministic(rewrittenAlias.getOutput().get(0)));
-        Assertions.assertFalse(rewriteResult.getRowId(rewrittenAlias.getOutput().get(0)).second);
+        Assertions.assertEquals(Boolean.FALSE,
+                rewriteResult.getRowIdDeterminism().get(rewrittenAlias.getOutput().get(0)));
     }
 
     @Test
