@@ -38,7 +38,6 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.LdapConfig;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.PatternMatcherException;
 import org.apache.doris.common.UserException;
@@ -236,18 +235,16 @@ public class Auth implements Writable {
     public void checkPlainPassword(String remoteUser, String remoteHost, String remotePasswd,
             List<UserIdentity> currentUser) throws AuthenticationException {
         // Check the LDAP password when the user exists in the LDAP service.
-        if (getLdapManager().doesUserExist(remoteUser)) {
-            //not allow to login in case when empty password is specified but such mode is disabled by configuration
-            if (Strings.isNullOrEmpty(remotePasswd) && !LdapConfig.ldap_allow_empty_pass) {
-                LOG.info("User {}@{} login rejected: empty LDAP password is prohibited (ldap_allow_empty_pass=false)",
-                        remoteUser, remoteHost);
-                throw new AuthenticationException(ErrorCode.ERR_EMPTY_PASSWORD, remoteUser + "@" + remoteHost);
-            }
-
-            if (!getLdapManager().checkUserPasswd(remoteUser, remotePasswd, remoteHost, currentUser)) {
-                throw new AuthenticationException(ErrorCode.ERR_ACCESS_DENIED_ERROR,
+        if (ldapManager.doesUserExist(remoteUser)) {
+            if (!ldapManager.checkUserPasswd(remoteUser, remotePasswd, remoteHost, currentUser)) {
+                if (Strings.isNullOrEmpty(remotePasswd)) {
+                    // extra check for login with empty LDAP password was added in checkUserPasswd
+                    throw new AuthenticationException(ErrorCode.ERR_EMPTY_PASSWORD, remoteUser + "@" + remoteHost);
+                } else {
+                    throw new AuthenticationException(ErrorCode.ERR_ACCESS_DENIED_ERROR,
                         remoteUser + "@" + remoteHost + " via LDAP",
                         Strings.isNullOrEmpty(remotePasswd) ? "NO" : "YES");
+                }
             }
         } else {
             readLock();

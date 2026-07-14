@@ -21,7 +21,6 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
-import org.apache.doris.common.LdapConfig;
 import org.apache.doris.mysql.authenticate.AuthenticateRequest;
 import org.apache.doris.mysql.authenticate.AuthenticateResponse;
 import org.apache.doris.mysql.authenticate.Authenticator;
@@ -107,21 +106,18 @@ public class LdapAuthenticator implements Authenticator {
             LOG.debug("user:{}", userName);
         }
 
-        //not allow to login in case when empty password is specified but such mode is disabled by configuration
-        if (Strings.isNullOrEmpty(password) && !LdapConfig.ldap_allow_empty_pass) {
-            LOG.info("User:{} login rejected: empty LDAP password is prohibited (ldap_allow_empty_pass=false)",
-                    userName);
-            ErrorReport.report(ErrorCode.ERR_EMPTY_PASSWORD, qualifiedUser + "@" + remoteIp);
-            return AuthenticateResponse.failedResponse;
-        }
-
         // check user password by ldap server.
+        // extra check for login with empty LDAP password was added in checkUserPasswd.
         try {
             if (!Env.getCurrentEnv().getAuth().getLdapManager().checkUserPasswd(qualifiedUser, password)) {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("internalAuthenticate: user={}, success=false", userName);
                 }
-                ErrorReport.report(ErrorCode.ERR_ACCESS_DENIED_ERROR, qualifiedUser, remoteIp, usePasswd);
+                if (Strings.isNullOrEmpty(password)) {
+                    ErrorReport.report(ErrorCode.ERR_EMPTY_PASSWORD, qualifiedUser + "@" + remoteIp);
+                } else {
+                    ErrorReport.report(ErrorCode.ERR_ACCESS_DENIED_ERROR, qualifiedUser, remoteIp, usePasswd);
+                }
                 return AuthenticateResponse.failedResponse;
             }
         } catch (Exception e) {
