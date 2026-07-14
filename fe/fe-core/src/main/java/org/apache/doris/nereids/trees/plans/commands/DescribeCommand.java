@@ -55,6 +55,7 @@ import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.tablefunction.BackendsTableValuedFunction;
 import org.apache.doris.tablefunction.LocalTableValuedFunction;
+import org.apache.doris.tablefunction.TableValuedFunctionIf;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -91,6 +92,8 @@ public class DescribeCommand extends ShowCommand {
     private PartitionNamesInfo partitionNames;
 
     private TableValuedFunctionRefInfo tableValuedFunctionRefInfo;
+    private String tvfName;
+    private Map<String, String> tvfParams;
     private boolean isTableValuedFunction;
 
     private List<List<String>> rows = new LinkedList<List<String>>();
@@ -105,6 +108,14 @@ public class DescribeCommand extends ShowCommand {
     public DescribeCommand(TableValuedFunctionRefInfo tableValuedFunctionRefInfo) {
         super(PlanType.DESCRIBE);
         this.tableValuedFunctionRefInfo = tableValuedFunctionRefInfo;
+        this.isTableValuedFunction = true;
+        this.isAllTables = false;
+    }
+
+    public DescribeCommand(String tvfName, Map<String, String> tvfParams) {
+        super(PlanType.DESCRIBE);
+        this.tvfName = tvfName;
+        this.tvfParams = tvfParams;
         this.isTableValuedFunction = true;
         this.isAllTables = false;
     }
@@ -235,8 +246,16 @@ public class DescribeCommand extends ShowCommand {
         }
 
         if (!isAllTables && isTableValuedFunction) {
-            validateTableValuedFunction(ctx, tableValuedFunctionRefInfo.getTableFunction().getTableName());
-            List<Column> columns = tableValuedFunctionRefInfo.getTableFunction().getTableColumns();
+            String funcName;
+            List<Column> columns;
+            if (tvfName != null) {
+                funcName = tvfName;
+                columns = TableValuedFunctionIf.getTableColumnsForDescribe(tvfName, tvfParams);
+            } else {
+                funcName = tableValuedFunctionRefInfo.getTableFunction().getTableName();
+                columns = tableValuedFunctionRefInfo.getTableFunction().getTableColumns();
+            }
+            validateTableValuedFunction(ctx, funcName);
             for (Column column : columns) {
                 List<String> row = Arrays.asList(
                         column.getName(),

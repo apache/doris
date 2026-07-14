@@ -383,6 +383,29 @@ public class ParquetMetadataTableValuedFunction extends MetadataTableValuedFunct
 
     @Override
     public List<Column> getTableColumns() {
+        return getSchemaForDescribe(mode);
+    }
+
+    public static List<Column> getSchemaForDescribe(String funcName, Map<String, String> params) {
+        String mode = MODE_METADATA;
+        if (funcName.equalsIgnoreCase(NAME_FILE_METADATA)) {
+            mode = MODE_FILE_METADATA;
+        } else if (funcName.equalsIgnoreCase(NAME_KV_METADATA)) {
+            mode = MODE_KV_METADATA;
+        } else if (funcName.equalsIgnoreCase(NAME_BLOOM_PROBE)) {
+            mode = MODE_BLOOM_PROBE;
+        } else {
+            for (Map.Entry<String, String> entry : params.entrySet()) {
+                if (MODE.equalsIgnoreCase(entry.getKey())) {
+                    mode = entry.getValue().toLowerCase();
+                    break;
+                }
+            }
+        }
+        return getSchemaForDescribe(mode);
+    }
+
+    private static List<Column> getSchemaForDescribe(String mode) {
         if (MODE_SCHEMA.equals(mode)) {
             return PARQUET_SCHEMA_COLUMNS;
         }

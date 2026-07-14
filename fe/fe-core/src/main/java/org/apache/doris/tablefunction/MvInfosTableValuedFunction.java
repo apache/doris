@@ -128,6 +128,10 @@ public class MvInfosTableValuedFunction extends MetadataTableValuedFunction {
 
     @Override
     public List<Column> getTableColumns() throws AnalysisException {
+        return getSchemaForDescribe();
+    }
+
+    public static List<Column> getSchemaForDescribe() {
         return SCHEMA;
     }
 }
