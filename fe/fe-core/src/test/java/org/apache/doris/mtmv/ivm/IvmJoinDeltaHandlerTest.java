@@ -540,11 +540,21 @@ class IvmJoinDeltaHandlerTest extends IvmDeltaTestBase {
     }
 
     private void assertSnapshotBranch(Plan branch, boolean postSnapshot) {
-        List<LogicalOlapScan> scans = branch.collectToList(node -> node instanceof LogicalOlapScan);
-        Assertions.assertTrue(scans.stream().noneMatch(IvmDeltaRewriteHelper.INSTANCE::isIncrementalDeltaScan));
+        Assertions.assertInstanceOf(LogicalProject.class, branch);
+        LogicalProject<?> project = (LogicalProject<?>) branch;
+        Assertions.assertInstanceOf(LogicalJoin.class, project.child());
+        LogicalJoin<?, ?> antiJoin = (LogicalJoin<?, ?>) project.child();
+        List<LogicalOlapScan> affectedKeyScans = antiJoin.left()
+                .collectToList(node -> node instanceof LogicalOlapScan);
+        Assertions.assertTrue(affectedKeyScans.stream().anyMatch(IvmDeltaRewriteHelper.INSTANCE::isIncrementalDeltaScan),
+                "Affected-key side should still read delta rows: " + affectedKeyScans);
+
+        List<LogicalOlapScan> scans = antiJoin.right().collectToList(node -> node instanceof LogicalOlapScan);
+        Assertions.assertTrue(scans.stream().noneMatch(IvmDeltaRewriteHelper.INSTANCE::isIncrementalDeltaScan),
+                "Snapshot side should replace incremental delta scan: " + scans);
         if (postSnapshot) {
             Assertions.assertTrue(scans.stream().noneMatch(scan -> scan instanceof LogicalOlapTableStreamScan),
-                    "Post-snapshot branch should not contain stream scans: " + scans);
+                    "Post-snapshot side should not contain stream scans: " + scans);
         }
 
         LogicalOlapScan otherSnapshot = scans.stream()
