@@ -18,6 +18,7 @@
 #include "storage/compaction/cumulative_compaction_policy.h"
 
 #include <algorithm>
+#include <iterator>
 #include <list>
 #include <ostream>
 #include <string>
@@ -334,7 +335,9 @@ int SizeBasedCumulativeCompactionPolicy::pick_input_rowsets(
 
     auto rs_begin = input_rowsets->begin();
     size_t new_compaction_score = *compaction_score;
-    while (input_rowsets->size() > 1 && rs_begin != input_rowsets->end()) {
+    const bool can_handle_exhausted_input =
+            *compaction_score >= static_cast<size_t>(max_compaction_score);
+    while (rs_begin != input_rowsets->end()) {
         auto& rs_meta = (*rs_begin)->rowset_meta();
         int64_t current_level = _level_size(rs_meta->total_disk_size());
         int64_t remain_level = _level_size(total_size - rs_meta->total_disk_size());
@@ -343,9 +346,16 @@ int SizeBasedCumulativeCompactionPolicy::pick_input_rowsets(
         if (current_level <= remain_level) {
             break;
         }
+
+        auto next = std::next(rs_begin);
+        // Keep the last suffix rowset for the singleton checks unless the exhausted-input
+        // fallback below can select a useful input.
+        if (next == input_rowsets->end() && !can_handle_exhausted_input) {
+            break;
+        }
         total_size -= rs_meta->total_disk_size();
         new_compaction_score -= rs_meta->get_compaction_score();
-        ++rs_begin;
+        rs_begin = next;
     }
     if (rs_begin == input_rowsets->end() && *compaction_score >= max_compaction_score) {
         // No suitable level size found in `input_rowsets` but score of `input_rowsets` exceed max compaction score,
