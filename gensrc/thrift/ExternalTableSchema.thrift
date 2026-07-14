@@ -49,7 +49,16 @@ struct TField {
     3: optional string name,          // Field name
     4: optional Types.TColumnType type,  // Corresponding Doris column type
     5: optional TNestedField nestedField  // Nested field definition (for array, struct, or map types)     
-    6: optional list<string> name_mapping // iceberg : schema.name-mapping.default, for missing column id.
+    6: optional list<string> name_mapping, // iceberg : schema.name-mapping.default, for missing column id.
+    // Iceberg initial default normalized for transport to BE. Binary-like Iceberg values use
+    // Base64 because Thrift's Java string carrier cannot preserve arbitrary bytes; other primitive
+    // values use Doris' FE string representation. An old data file that predates this field
+    // logically contains this value rather than NULL.
+    7: optional string initial_default_value,
+    // True when initial_default_value is Base64 and must be decoded before constructing the Doris
+    // STRING/CHAR/VARBINARY value. This cannot be inferred from the Doris type because Iceberg
+    // UUID/BINARY/FIXED may map either to VARBINARY or to STRING/CHAR.
+    8: optional bool initial_default_value_is_base64
 }
 
 

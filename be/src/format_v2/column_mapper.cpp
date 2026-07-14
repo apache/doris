@@ -20,6 +20,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <memory>
+#include <optional>
 #include <sstream>
 #include <string_view>
 #include <utility>
@@ -228,6 +229,11 @@ std::string join_debug_strings(const std::vector<T>& values, Formatter formatter
 }
 
 } // namespace
+
+const ColumnDefinition* find_column_by_name(const ColumnDefinition& table_column,
+                                            const std::vector<ColumnDefinition>& file_schema) {
+    return matcher_for_mode(TableColumnMappingMode::BY_NAME).find(table_column, file_schema);
+}
 
 const Field* find_partition_value(const ColumnDefinition& table_column,
                                   const std::map<std::string, Field>& partition_values) {
@@ -530,6 +536,71 @@ static void collect_top_level_slot_columns(const VExprSPtr& expr,
     }
 }
 
+static std::optional<uint8_t> signed_integer_width(PrimitiveType type) {
+    switch (type) {
+    case TYPE_TINYINT:
+        return 8;
+    case TYPE_SMALLINT:
+        return 16;
+    case TYPE_INT:
+        return 32;
+    case TYPE_BIGINT:
+        return 64;
+    case TYPE_LARGEINT:
+        return 128;
+    default:
+        return std::nullopt;
+    }
+}
+
+static std::optional<uint8_t> floating_width(PrimitiveType type) {
+    switch (type) {
+    case TYPE_FLOAT:
+        return 32;
+    case TYPE_DOUBLE:
+        return 64;
+    default:
+        return std::nullopt;
+    }
+}
+
+static std::optional<uint8_t> floating_exact_integer_width(PrimitiveType type) {
+    switch (type) {
+    case TYPE_FLOAT:
+        return 24;
+    case TYPE_DOUBLE:
+        return 53;
+    default:
+        return std::nullopt;
+    }
+}
+
+static bool is_lossless_file_to_table_numeric_cast(const DataTypePtr& file_type,
+                                                   const DataTypePtr& table_type) {
+    const auto file_nested_type = remove_nullable(file_type);
+    const auto table_nested_type = remove_nullable(table_type);
+    if (file_nested_type->equals(*table_nested_type)) {
+        return true;
+    }
+
+    const auto file_primitive_type = file_nested_type->get_primitive_type();
+    const auto table_primitive_type = table_nested_type->get_primitive_type();
+    if (const auto file_width = signed_integer_width(file_primitive_type)) {
+        if (const auto table_width = signed_integer_width(table_primitive_type)) {
+            return *table_width >= *file_width;
+        }
+        if (const auto table_width = floating_exact_integer_width(table_primitive_type)) {
+            return *table_width >= *file_width;
+        }
+        return false;
+    }
+    if (const auto file_width = floating_width(file_primitive_type)) {
+        const auto table_width = floating_width(table_primitive_type);
+        return table_width.has_value() && *table_width >= *file_width;
+    }
+    return false;
+}
+
 static VExprSPtr rewrite_literal_to_file_type(const VExprSPtr& literal_expr,
                                               const FileSlotRewriteInfo& rewrite_info,
                                               RewriteContext* rewrite_context) {
@@ -539,6 +610,16 @@ static VExprSPtr rewrite_literal_to_file_type(const VExprSPtr& literal_expr,
     const Field original_field = literal_field(original_literal);
     if (rewrite_info.file_type->equals(*original_literal->data_type())) {
         return original_literal;
+    }
+    // A literal round trip alone cannot prove that file-local evaluation is safe: the file slot
+    // itself may lose information when materialized as the table type. For example, DOUBLE 1.5
+    // becomes BIGINT 1, so table predicate `value = 1` is true while file predicate
+    // `value = 1.0` is false. Complex Field equality also does not compare nested contents.
+    // Restrict localization to scalar numeric casts that preserve every file value; unsupported
+    // and complex casts keep the table predicate and evaluate after materialization.
+    if (!is_lossless_file_to_table_numeric_cast(rewrite_info.file_type,
+                                                original_literal->data_type())) {
+        return nullptr;
     }
     Field file_field;
     try {
@@ -551,6 +632,18 @@ static VExprSPtr rewrite_literal_to_file_type(const VExprSPtr& literal_expr,
         return nullptr;
     }
     if (file_field.get_type() != remove_nullable(rewrite_info.file_type)->get_primitive_type()) {
+        return nullptr;
+    }
+    Field round_trip_field;
+    try {
+        convert_field_to_type(file_field, *original_literal->data_type(), &round_trip_field,
+                              rewrite_info.file_type.get());
+    } catch (const Exception&) {
+        return nullptr;
+    }
+    // The file-to-table type check protects every possible file value. This round trip separately
+    // proves that the specific predicate boundary is exactly representable in the file type.
+    if (round_trip_field != original_field) {
         return nullptr;
     }
     auto literal = std::make_shared<SplitLocalFileLiteral>(
@@ -990,6 +1083,61 @@ static bool mapping_can_use_file_column_directly(const ColumnMapping& mapping) {
     return !needs_complex_rematerialize(mapping);
 }
 
+static bool type_contains_varbinary(const DataTypePtr& type) {
+    DORIS_CHECK(type != nullptr);
+    const auto nested_type = remove_nullable(type);
+    switch (nested_type->get_primitive_type()) {
+    case TYPE_VARBINARY:
+        return true;
+    case TYPE_ARRAY:
+        return type_contains_varbinary(
+                assert_cast<const DataTypeArray&>(*nested_type).get_nested_type());
+    case TYPE_MAP: {
+        const auto& map_type = assert_cast<const DataTypeMap&>(*nested_type);
+        return type_contains_varbinary(map_type.get_key_type()) ||
+               type_contains_varbinary(map_type.get_value_type());
+    }
+    case TYPE_STRUCT:
+        return std::ranges::any_of(
+                assert_cast<const DataTypeStruct&>(*nested_type).get_elements(),
+                [](const DataTypePtr& child_type) { return type_contains_varbinary(child_type); });
+    default:
+        return false;
+    }
+}
+
+static FilterConversionType direct_filter_conversion(const ColumnMapping& mapping) {
+    DORIS_CHECK(mapping.table_type != nullptr);
+    DORIS_CHECK(mapping.file_type != nullptr);
+    // FileScanOperator deliberately keeps VARBINARY predicates above external readers. Their
+    // physical binary representations are not uniformly supported by reader-side expression and
+    // metadata filtering, so localizing a late runtime filter here can incorrectly reject rows.
+    // Apply the same rule to a complex root because generic array/map/struct expressions rewrite
+    // the root slot and can otherwise expose a nested VARBINARY child to the reader.
+    if (type_contains_varbinary(mapping.table_type)) {
+        return FilterConversionType::FINALIZE_ONLY;
+    }
+    const auto table_type = remove_nullable(mapping.table_type);
+    const auto file_type = remove_nullable(mapping.file_type);
+    // TIMESTAMPTZ scale mismatch is intentionally materialized as pass-through: a SQL cast rounds
+    // fractional seconds. A file-local cast would therefore filter different instants from the
+    // scanner-level predicate evaluated on the pass-through value.
+    if (table_type->get_primitive_type() == TYPE_TIMESTAMPTZ &&
+        file_type->get_primitive_type() == TYPE_TIMESTAMPTZ &&
+        !mapping.table_type->equals(*mapping.file_type)) {
+        return FilterConversionType::FINALIZE_ONLY;
+    }
+    return mapping.is_trivial ? FilterConversionType::COPY_DIRECTLY
+                              : FilterConversionType::CAST_FILTER;
+}
+
+static FilterConversionType projected_filter_conversion(const ColumnMapping& mapping) {
+    const auto conversion = direct_filter_conversion(mapping);
+    return !mapping.is_trivial && conversion != FilterConversionType::FINALIZE_ONLY
+                   ? FilterConversionType::READER_EXPRESSION
+                   : conversion;
+}
+
 static const ColumnDefinition* find_file_child_for_mapping(const ColumnDefinition& table_child,
                                                            const ColumnDefinition& file_parent,
                                                            TableColumnMappingMode mode,
@@ -1094,6 +1242,26 @@ static std::vector<ColumnDefinition> synthesize_complex_children_from_type(
     return children;
 }
 
+static void align_struct_child_types_with_parent(const DataTypePtr& parent_type,
+                                                 std::vector<ColumnDefinition>& children) {
+    const auto nested_parent_type = remove_nullable(parent_type);
+    DORIS_CHECK(nested_parent_type->get_primitive_type() == TYPE_STRUCT);
+    const auto type_children = synthesize_complex_children_from_type(parent_type);
+    for (auto& child : children) {
+        const auto type_child = std::ranges::find_if(
+                type_children, [&](const auto& candidate) { return candidate.name == child.name; });
+        DORIS_CHECK(type_child != type_children.end())
+                << "Complex child '" << child.name
+                << "' is absent from its parent table type: " << parent_type->get_name();
+        // The parent DataType is the authoritative output contract. Nested schema descriptors can
+        // omit child nullability even though the parent struct still declares Nullable(String).
+        // For example, the Iceberg full-schema-change case maps nullable `location` to `city`, but
+        // its child descriptor carries String. Keeping String here makes rematerialization strip
+        // the child's null map and creates Struct(String) under a Struct(Nullable(String)) type.
+        child.type = type_child->type;
+    }
+}
+
 static bool has_table_child_named(const std::vector<ColumnDefinition>& children,
                                   std::string_view name) {
     return std::ranges::any_of(children, [&](const ColumnDefinition& child) {
@@ -1102,8 +1270,7 @@ static bool has_table_child_named(const std::vector<ColumnDefinition>& children,
 }
 
 static void complete_required_complex_children_from_type(const DataTypePtr& type,
-                                                         std::vector<ColumnDefinition>* children) {
-    DORIS_CHECK(children != nullptr);
+                                                         std::vector<ColumnDefinition>& children) {
     if (type == nullptr) {
         return;
     }
@@ -1118,8 +1285,8 @@ static void complete_required_complex_children_from_type(const DataTypePtr& type
         // In that shape the scanner keeps the value stream readable, but the table projection can
         // carry only the key child. Add the missing value child so recursive mapping can evolve the
         // value type instead of letting TableReader cast old/new value structs directly.
-        if (has_table_child_named(*children, "key") && !has_table_child_named(*children, "value")) {
-            children->push_back(synthetic_child_definition("value", map_type->get_value_type(), 1));
+        if (has_table_child_named(children, "key") && !has_table_child_named(children, "value")) {
+            children.push_back(synthetic_child_definition("value", map_type->get_value_type(), 1));
         }
         break;
     }
@@ -1134,6 +1301,37 @@ static void complete_required_complex_children_from_type(const DataTypePtr& type
     default:
         break;
     }
+}
+
+struct PreparedTableChildren {
+    std::vector<ColumnDefinition> children;
+    bool synthesized_from_type = false;
+};
+
+static PreparedTableChildren prepare_table_children_for_mapping(
+        const ColumnDefinition& table_column, const DataTypePtr& file_type) {
+    PreparedTableChildren prepared {.children = table_column.children};
+    const auto nested_table_type = remove_nullable(table_column.type);
+
+    // Some scan paths, especially SELECT *, only carry the complete complex DataType for a table
+    // column and leave ColumnDefinition::children empty. Synthesize the hierarchy so recursive
+    // mapping can evolve nested fields instead of falling back to an invalid whole-column cast.
+    prepared.synthesized_from_type = prepared.children.empty() &&
+                                     is_complex_type(nested_table_type->get_primitive_type()) &&
+                                     !table_column.type->equals(*file_type);
+    if (prepared.synthesized_from_type) {
+        prepared.children = synthesize_complex_children_from_type(table_column.type);
+    } else if (!prepared.children.empty() && !table_column.type->equals(*file_type)) {
+        complete_required_complex_children_from_type(table_column.type, prepared.children);
+    }
+
+    if (!prepared.children.empty() && nested_table_type->get_primitive_type() == TYPE_STRUCT) {
+        // Struct children are table fields, so the parent Struct type is authoritative for their
+        // nullability. ARRAY and MAP children are format-level structural wrappers and keep the
+        // descriptor types used by their recursive mappings.
+        align_struct_child_types_with_parent(table_column.type, prepared.children);
+    }
+    return prepared;
 }
 
 static Status validate_file_schema_children(const ColumnDefinition& file_field) {
@@ -1870,33 +2068,11 @@ Status TableColumnMapper::_create_direct_mapping(const ColumnDefinition& table_c
     mapping->projected_file_children = file_field.children;
     mapping->file_type = file_field.type;
     mapping->is_trivial = mapping_can_use_file_column_directly(*mapping);
-    mapping->filter_conversion = mapping->is_trivial ? FilterConversionType::COPY_DIRECTLY
-                                                     : FilterConversionType::CAST_FILTER;
+    mapping->filter_conversion = direct_filter_conversion(*mapping);
     mapping->child_mappings.clear();
 
-    auto table_children = table_column.children;
-    const auto nested_table_type = remove_nullable(mapping->table_type);
-    // Some scan paths, especially SELECT *, only carry the complete complex DataType for a table
-    // column and leave ColumnDefinition::children empty. If the file type is an older complex
-    // schema, treating this as a leaf mapping would make TableReader fall back to a plain CAST.
-    // That is invalid for evolved structs with different field counts.
-    //
-    // Example:
-    //   table column type: Map(String, Struct(age, full_name, gender))
-    //   old file type:    Map(String, Struct(age, name))
-    //   table children:   empty
-    //
-    // Synthesize key/value/struct-field children from the table type so the normal recursive
-    // mapping path can rematerialize `name -> full_name` and fill missing `gender` with defaults,
-    // instead of trying to CAST Struct(age, name) to Struct(age, full_name, gender).
-    const bool synthesized_table_children =
-            table_children.empty() && is_complex_type(nested_table_type->get_primitive_type()) &&
-            !mapping->table_type->equals(*mapping->file_type);
-    if (synthesized_table_children) {
-        table_children = synthesize_complex_children_from_type(mapping->table_type);
-    } else if (!table_children.empty() && !mapping->table_type->equals(*mapping->file_type)) {
-        complete_required_complex_children_from_type(mapping->table_type, &table_children);
-    }
+    auto [table_children, synthesized_table_children] =
+            prepare_table_children_for_mapping(table_column, mapping->file_type);
 
     if (!table_children.empty()) {
         if (!is_complex_type(remove_nullable(mapping->file_type)->get_primitive_type())) {
@@ -1955,10 +2131,7 @@ Status TableColumnMapper::_create_direct_mapping(const ColumnDefinition& table_c
                     &mapping->projected_file_children, &mapping->file_type));
             DCHECK(mapping->table_type != nullptr);
             mapping->is_trivial = mapping_can_use_file_column_directly(*mapping);
-            // TODO: ? READER_EXPRESSION
-            mapping->filter_conversion = mapping->is_trivial
-                                                 ? FilterConversionType::COPY_DIRECTLY
-                                                 : FilterConversionType::READER_EXPRESSION;
+            mapping->filter_conversion = projected_filter_conversion(*mapping);
         }
     }
     return Status::OK();

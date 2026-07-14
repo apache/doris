@@ -43,7 +43,7 @@ public:
                               int64_t ms_cumulative_point);
     void set_tablet_state(int64_t tablet_state);
 
-    Status handle() const;
+    Status handle(int64_t queue_time_us) const;
 
 private:
     Status _handle_rowset(std::shared_ptr<CloudTablet> tablet, int64_t version,

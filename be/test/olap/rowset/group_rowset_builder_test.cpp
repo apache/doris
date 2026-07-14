@@ -148,7 +148,7 @@ TEST_F(GroupRowsetBuilderTest, buildWithRowBinlogMeta) {
     ASSERT_EQ(index_id, data_meta->index_id());
 
     // Row-binlog schema must contain LSN column so that RowBinlogSegmentWriter can locate it.
-    ASSERT_GE(row_binlog_meta->tablet_schema()->field_index(std::string(kRowBinlogLsnColName)), 0);
+    ASSERT_GE(row_binlog_meta->tablet_schema()->binlog_lsn_col_idx(), 0);
 
     res = engine_ref->tablet_manager()->drop_tablet(request.tablet_id, request.replica_id, false);
     ASSERT_TRUE(res.ok());

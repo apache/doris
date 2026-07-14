@@ -33,12 +33,15 @@
 #include <unordered_map>
 #include <vector>
 
+#include "cloud/config.h"
+#include "common/config.h"
 #include "exec/common/endian.h"
 #include "io/fs/file_meta_cache.h"
 #include "roaring/roaring64map.hh"
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
+#include "testutil/mock/mock_runtime_state.h"
 
 namespace doris {
 
@@ -49,6 +52,36 @@ constexpr const char* kMixedPositionDeleteFile =
         "mixed_encoding_position_delete.parquet";
 constexpr const char* kTargetDataFilePath =
         "s3://warehouse/wh/test_db/000_target_data_file.parquet";
+
+class CloudFileCacheConfigGuard {
+public:
+    CloudFileCacheConfigGuard()
+            : _cloud_unique_id(config::cloud_unique_id),
+              _enable_file_cache(config::enable_file_cache) {}
+
+    ~CloudFileCacheConfigGuard() {
+        config::cloud_unique_id = _cloud_unique_id;
+        config::enable_file_cache = _enable_file_cache;
+    }
+
+private:
+    std::string _cloud_unique_id;
+    bool _enable_file_cache;
+};
+
+TUniqueId make_query_id() {
+    TUniqueId query_id;
+    query_id.hi = 300;
+    query_id.lo = 400;
+    return query_id;
+}
+
+TNetworkAddress make_fe_addr() {
+    TNetworkAddress fe_addr;
+    fe_addr.hostname = "127.0.0.1";
+    fe_addr.port = 9030;
+    return fe_addr;
+}
 
 class CollectPositionDeleteVisitor final : public IcebergPositionDeleteVisitor {
 public:
@@ -139,7 +172,7 @@ void write_position_delete_parquet(const std::string& path,
     std::shared_ptr<arrow::io::FileOutputStream> output;
     ASSERT_TRUE(arrow::io::FileOutputStream::Open(path).Value(&output).ok());
     PARQUET_THROW_NOT_OK(
-            parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), output, 1024));
+            ::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), output, 1024));
 }
 
 IcebergDeleteFileReaderOptions make_delete_file_reader_options(
@@ -417,6 +450,56 @@ TEST(IcebergDeleteFileReaderHelperTest, ReadDeletionVectorConcurrentReadsAreStab
         EXPECT_TRUE(status.ok()) << status;
     }
     std::filesystem::remove_all(test_dir);
+}
+
+TEST(IcebergDeleteFileReaderHelperTest, IoContextPropagatesQueryLimiterForSelect) {
+    CloudFileCacheConfigGuard config_guard;
+    config::cloud_unique_id = "iceberg_delete_file_io_context_ut";
+    config::enable_file_cache = true;
+
+    TQueryOptions query_options;
+    query_options.__set_query_type(TQueryType::SELECT);
+    query_options.__set_file_cache_query_limit_bytes(0);
+
+    const auto query_id = make_query_id();
+    const auto fe_addr = make_fe_addr();
+    auto query_ctx = MockQueryContext::create(query_id, ExecEnv::GetInstance(), query_options,
+                                              fe_addr, true, fe_addr);
+    ASSERT_NE(query_ctx->remote_scan_cache_write_limiter(), nullptr);
+
+    MockRuntimeState state;
+    state._query_id = query_id;
+    state.set_query_options(query_options);
+    state._query_ctx_uptr = query_ctx;
+    state._query_ctx = query_ctx.get();
+
+    IcebergDeleteFileIOContext io_context(&state);
+
+    EXPECT_EQ(io_context.io_ctx.query_id, &state.query_id());
+    EXPECT_EQ(io_context.io_ctx.reader_type, ReaderType::READER_QUERY);
+    EXPECT_EQ(io_context.io_ctx.file_cache_stats, &io_context.file_cache_stats);
+    EXPECT_EQ(io_context.io_ctx.file_reader_stats, &io_context.file_reader_stats);
+    EXPECT_EQ(io_context.io_ctx.remote_scan_cache_write_limiter,
+              query_ctx->remote_scan_cache_write_limiter());
+}
+
+TEST(IcebergDeleteFileReaderHelperTest, IoContextDoesNotMarkLoadAsQueryReader) {
+    TQueryOptions query_options;
+    query_options.__set_query_type(TQueryType::LOAD);
+    query_options.__set_file_cache_query_limit_bytes(0);
+
+    MockRuntimeState state;
+    state._query_id = make_query_id();
+    state.set_query_options(query_options);
+    state._query_ctx = nullptr;
+
+    IcebergDeleteFileIOContext io_context(&state);
+
+    EXPECT_EQ(io_context.io_ctx.query_id, &state.query_id());
+    EXPECT_EQ(io_context.io_ctx.reader_type, ReaderType::UNKNOWN);
+    EXPECT_EQ(io_context.io_ctx.file_cache_stats, &io_context.file_cache_stats);
+    EXPECT_EQ(io_context.io_ctx.file_reader_stats, &io_context.file_reader_stats);
+    EXPECT_EQ(io_context.io_ctx.remote_scan_cache_write_limiter, nullptr);
 }
 
 TEST(IcebergDeleteFileReaderHelperTest, ReadMixedEncodingParquetPositionDeleteFile) {

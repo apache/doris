@@ -34,7 +34,17 @@ Status HudiReader::prepare_split(const format::SplitReadOptions& options) {
         options.current_range.table_format_params.hudi_params.__isset.schema_id) {
         _split_schema_id = options.current_range.table_format_params.hudi_params.schema_id;
     }
-    return format::TableReader::prepare_split(options);
+    RETURN_IF_ERROR(format::TableReader::prepare_split(options));
+    if (current_split_pruned()) {
+        return Status::OK();
+    }
+    // This native reader only receives Hudi base-file splits that do not require merging delta
+    // logs. Hudi creates a new versioned base file for updates and compaction instead of modifying
+    // an existing Parquet/ORC base file in place, so missing mtime does not make its page-cache key
+    // ambiguous. Merge-on-read log files remain on the JNI path because they may be appended and
+    // must never be marked immutable here.
+    mark_current_data_file_immutable();
+    return Status::OK();
 }
 
 format::TableColumnMappingMode HudiReader::mapping_mode() const {
@@ -91,6 +101,16 @@ Status HudiHybridReader::close() {
     return close_status;
 }
 
+void HudiHybridReader::set_batch_size(size_t batch_size) {
+    format::TableReader::set_batch_size(batch_size);
+    if (_native_reader != nullptr) {
+        _native_reader->set_batch_size(_batch_size);
+    }
+    if (_jni_reader != nullptr) {
+        _jni_reader->set_batch_size(_batch_size);
+    }
+}
+
 Status HudiHybridReader::_ensure_current_split_reader(const format::SplitReadOptions& options) {
     DORIS_CHECK(_scan_params != nullptr);
     if (_is_jni_split(*_scan_params, options.current_range)) {
@@ -116,7 +136,7 @@ Status HudiHybridReader::_init_child_reader(format::TableReader* reader,
     DORIS_CHECK(reader != nullptr);
     VExprContextSPtrs conjuncts;
     RETURN_IF_ERROR(_clone_conjuncts(&conjuncts));
-    return reader->init({
+    RETURN_IF_ERROR(reader->init({
             .projected_columns = _projected_columns,
             .conjuncts = std::move(conjuncts),
             .format = file_format,
@@ -126,7 +146,13 @@ Status HudiHybridReader::_init_child_reader(format::TableReader* reader,
             .scanner_profile = _scanner_profile,
             .push_down_agg_type = _push_down_agg_type,
             .condition_cache_digest = _condition_cache_digest,
-    });
+    }));
+    // Zero means no adaptive prediction has been produced yet. Preserve the child's normal
+    // runtime default until FileScannerV2 supplies the first positive prediction.
+    if (_batch_size > 0) {
+        reader->set_batch_size(_batch_size);
+    }
+    return Status::OK();
 }
 
 Status HudiHybridReader::_clone_conjuncts(VExprContextSPtrs* conjuncts) const {

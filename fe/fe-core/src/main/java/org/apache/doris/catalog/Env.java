@@ -214,6 +214,7 @@ import org.apache.doris.persist.BackendTabletsInfo;
 import org.apache.doris.persist.BinlogGcInfo;
 import org.apache.doris.persist.CleanQueryStatsInfo;
 import org.apache.doris.persist.CreateDbInfo;
+import org.apache.doris.persist.CreateFunctionInfo;
 import org.apache.doris.persist.DropDbInfo;
 import org.apache.doris.persist.DropPartitionInfo;
 import org.apache.doris.persist.EditLog;
@@ -6769,6 +6770,12 @@ public class Env {
         String dbName = function.getFunctionName().getDb();
         Database db = getInternalCatalog().getDbOrMetaException(dbName);
         db.replayAddFunction(function);
+    }
+
+    public void replayCreateFunctions(CreateFunctionInfo info) throws MetaNotFoundException {
+        for (Function function : info.getFunctions()) {
+            replayCreateFunction(function);
+        }
     }
 
     public void replayCreateGlobalFunction(Function function) {

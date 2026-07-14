@@ -81,6 +81,7 @@ import org.apache.iceberg.ManifestFile;
 import org.apache.iceberg.PartitionData;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.PartitionSpecParser;
+import org.apache.iceberg.Schema;
 import org.apache.iceberg.SchemaParser;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
@@ -454,20 +455,26 @@ public class IcebergScanNode extends FileQueryScanNode {
         // Extract name mapping from Iceberg table properties
         Map<Integer, List<String>> nameMapping = extractNameMapping();
 
-        boolean haveTopnLazyMatCol = false;
-        for (SlotDescriptor slot : desc.getSlots()) {
-            String colName = slot.getColumn().getName();
-            if (colName.startsWith(Column.GLOBAL_ROWID_COL)) {
-                haveTopnLazyMatCol = true;
-                break;
-            }
-        }
-        if (haveTopnLazyMatCol) {
-            ExternalUtil.initSchemaInfoForAllColumn(params, -1L, source.getTargetTable().getColumns(), nameMapping);
-        } else {
-            // Use new initSchemaInfo method that only includes needed columns based on slots and pruned type
-            ExternalUtil.initSchemaInfoForPrunedColumn(params, -1L, desc.getSlots(), nameMapping);
-        }
+        // Equality-delete keys are hidden scan dependencies and need not appear in the query
+        // projection. Both scanners need the complete current schema to resolve field ids,
+        // historical names, types, and initial defaults when an old data file lacks such a key.
+        ExternalUtil.initSchemaInfoForAllColumn(params, -1L, source.getTargetTable().getColumns(),
+                nameMapping, getBase64EncodedInitialDefaultsForScan());
+    }
+
+    @VisibleForTesting
+    Map<Integer, String> getBase64EncodedInitialDefaultsForScan() throws UserException {
+        TableScan tableScan = createTableScan();
+        Snapshot snapshot = tableScan.snapshot();
+        // TableScan.schema() starts from the table's current schema even for useSnapshot/useRef.
+        // Resolve the selected snapshot's schema id explicitly so this metadata describes the same
+        // snapshot as source.getTargetTable().getColumns(). Otherwise a later type change can make
+        // BE decode a historical non-binary default as Base64, or fail to decode a binary default.
+        Schema scanSchema = snapshot == null
+                ? tableScan.schema()
+                : tableScan.table().schemas().get(snapshot.schemaId());
+        return IcebergUtils.getBase64EncodedInitialDefaults(
+                Preconditions.checkNotNull(scanSchema, "Schema for Iceberg scan snapshot is null"));
     }
 
     @Override

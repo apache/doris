@@ -29,6 +29,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <orc/OrcFile.hh>
@@ -38,6 +39,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/config.h"
 #include "core/assert_cast.h"
 #include "core/block/block.h"
 #include "core/column/column_array.h"
@@ -69,11 +71,13 @@
 #include "format_v2/expr/delete_predicate.h"
 #include "format_v2/file_reader.h"
 #include "gen_cpp/Types_types.h"
+#include "io/fs/buffered_reader.h"
 #include "io/io_common.h"
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
 #include "storage/segment/condition_cache.h"
 #include "storage/utils.h"
+#include "util/timezone_utils.h"
 
 namespace doris {
 namespace {
@@ -131,6 +135,24 @@ DateV2Value<DateTimeV2ValueType> make_datetime_v2(uint16_t year, uint8_t month, 
     DateV2Value<DateTimeV2ValueType> value;
     value.unchecked_set_time(year, month, day, hour, minute, second, microsecond);
     return value;
+}
+
+TEST(OrcStatisticsBoundsTest, RejectsInvertedAndNanDecodedBounds) {
+    EXPECT_TRUE(format::orc::detail::valid_statistics_bounds(Field::create_field<TYPE_INT>(1),
+                                                             Field::create_field<TYPE_INT>(10)));
+    EXPECT_FALSE(format::orc::detail::valid_statistics_bounds(Field::create_field<TYPE_INT>(10),
+                                                              Field::create_field<TYPE_INT>(1)));
+    EXPECT_FALSE(format::orc::detail::valid_statistics_bounds(
+            Field::create_field<TYPE_DOUBLE>(std::numeric_limits<double>::quiet_NaN()),
+            Field::create_field<TYPE_DOUBLE>(10)));
+    EXPECT_FALSE(format::orc::detail::valid_statistics_bounds(
+            Field::create_field<TYPE_STRING>("z"), Field::create_field<TYPE_STRING>("a")));
+    EXPECT_FALSE(format::orc::detail::valid_statistics_bounds(
+            Field::create_field<TYPE_DATEV2>(make_date_v2(2026, 7, 13)),
+            Field::create_field<TYPE_DATEV2>(make_date_v2(2026, 7, 12))));
+    EXPECT_FALSE(format::orc::detail::valid_statistics_bounds(
+            Field::create_field<TYPE_DECIMAL128I>(Decimal128V3(10)),
+            Field::create_field<TYPE_DECIMAL128I>(Decimal128V3(1))));
 }
 
 class TableLiteral : public VLiteral {
@@ -235,6 +257,7 @@ constexpr int64_t COMPLEX_ROW_COUNT = 3;
 constexpr int64_t DEEP_NESTED_ROW_COUNT = 4;
 constexpr int64_t DEEP_NESTED_BATCH_CAPACITY = 16;
 constexpr int64_t NULL_ROW = 1;
+constexpr int64_t PREFETCH_ROW_COUNT = 256;
 
 VExprSPtr function_expr(const std::string& function_name, const DataTypePtr& return_type,
                         const std::vector<DataTypePtr>& arg_types,
@@ -2456,6 +2479,49 @@ private:
 };
 
 template <PrimitiveType Primitive>
+class NullableEqualsExpr final : public VExpr {
+public:
+    using ColumnType = typename PrimitiveTypeTraits<Primitive>::ColumnType;
+    using ValueType = typename PrimitiveTypeTraits<Primitive>::CppType;
+
+    NullableEqualsExpr(int column_id, DataTypePtr type, const Field& value, std::string column_name)
+            : VExpr(std::make_shared<DataTypeUInt8>(), false),
+              _column_id(column_id),
+              _value(value.get<Primitive>()),
+              _expr_name("NullableEqualsExpr") {
+        _node_type = TExprNodeType::BINARY_PRED;
+        _opcode = TExprOpcode::EQ;
+        add_child(TableSlotRef::create_shared(column_id, column_id, -1, make_nullable(type),
+                                              std::move(column_name)));
+        add_child(TableLiteral::create_shared(std::move(type), value));
+    }
+
+    Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
+                               size_t count, ColumnPtr& result_column) const override {
+        const auto& nullable_column =
+                assert_cast<const ColumnNullable&>(*block->get_by_position(_column_id).column);
+        const auto& input = assert_cast<const ColumnType&>(nullable_column.get_nested_column());
+        auto result = ColumnUInt8::create();
+        auto& result_data = result->get_data();
+        result_data.resize(count);
+        for (size_t row = 0; row < count; ++row) {
+            const size_t input_row = selector == nullptr ? row : (*selector)[row];
+            result_data[row] = !nullable_column.is_null_at(input_row) &&
+                               input.get_element(input_row) == _value;
+        }
+        result_column = std::move(result);
+        return Status::OK();
+    }
+
+    const std::string& expr_name() const override { return _expr_name; }
+
+private:
+    const int _column_id;
+    const ValueType _value;
+    const std::string _expr_name;
+};
+
+template <PrimitiveType Primitive>
 class NullableInExpr final : public VExpr {
 public:
     using ColumnType = typename PrimitiveTypeTraits<Primitive>::ColumnType;
@@ -2767,6 +2833,94 @@ void write_orc_file(const std::string& file_path) {
 
     std::ofstream out(file_path, std::ios::binary);
     out.write(memory_stream.getData(), static_cast<std::streamsize>(memory_stream.getLength()));
+}
+
+void write_orc_prefetch_file(const std::string& file_path) {
+    auto type = std::unique_ptr<::orc::Type>(
+            ::orc::Type::buildTypeFromString("struct<a:int,b:int,c:int,payload:string>"));
+
+    MemoryOutputStream memory_stream(4 * 1024 * 1024);
+    ::orc::WriterOptions options;
+    options.setCompression(::orc::CompressionKind_NONE);
+    options.setMemoryPool(::orc::getDefaultPool());
+    options.setDictionaryKeySizeThreshold(0);
+    options.setStripeSize(64 * 1024 * 1024);
+    auto writer = ::orc::createWriter(*type, &memory_stream, options);
+    auto batch = writer->createRowBatch(PREFETCH_ROW_COUNT);
+    auto& struct_batch = dynamic_cast<::orc::StructVectorBatch&>(*batch);
+    auto& a_batch = dynamic_cast<::orc::LongVectorBatch&>(*struct_batch.fields[0]);
+    auto& b_batch = dynamic_cast<::orc::LongVectorBatch&>(*struct_batch.fields[1]);
+    auto& c_batch = dynamic_cast<::orc::LongVectorBatch&>(*struct_batch.fields[2]);
+    auto& payload_batch = dynamic_cast<::orc::StringVectorBatch&>(*struct_batch.fields[3]);
+
+    std::vector<std::string> payloads;
+    payloads.reserve(PREFETCH_ROW_COUNT);
+    for (int64_t row = 0; row < PREFETCH_ROW_COUNT; ++row) {
+        a_batch.data[row] = row;
+        b_batch.data[row] = row * 2;
+        c_batch.data[row] = row * 3;
+        payloads.push_back("payload-" + std::to_string(row));
+        set_string_value(payload_batch, row, payloads.back());
+    }
+    struct_batch.numElements = PREFETCH_ROW_COUNT;
+    a_batch.numElements = PREFETCH_ROW_COUNT;
+    b_batch.numElements = PREFETCH_ROW_COUNT;
+    c_batch.numElements = PREFETCH_ROW_COUNT;
+    payload_batch.numElements = PREFETCH_ROW_COUNT;
+
+    writer->add(*batch);
+    writer->close();
+
+    std::ofstream out(file_path, std::ios::binary);
+    out.write(memory_stream.getData(), static_cast<std::streamsize>(memory_stream.getLength()));
+}
+
+bool has_mergeable_orc_stream_cluster(const std::string& file_path,
+                                      int64_t max_merge_distance_bytes,
+                                      int64_t once_max_read_bytes) {
+    std::ifstream in(file_path, std::ios::binary | std::ios::ate);
+    const auto file_size = in.tellg();
+    in.seekg(0);
+    std::vector<char> data(static_cast<size_t>(file_size));
+    in.read(data.data(), file_size);
+
+    ::orc::ReaderOptions options;
+    options.setMemoryPool(*::orc::getDefaultPool());
+    auto input_stream = std::make_unique<MemoryInputStream>(data.data(), data.size());
+    auto reader = ::orc::createReader(std::move(input_stream), options);
+    if (reader->getNumberOfStripes() != 1) {
+        return false;
+    }
+
+    auto stripe = reader->getStripe(0);
+    std::vector<io::PrefetchRange> small_ranges;
+    for (uint64_t stream_id = 0; stream_id < stripe->getNumberOfStreams(); ++stream_id) {
+        const auto stream = stripe->getStreamInformation(stream_id);
+        if (stream->getLength() > 0 &&
+            stream->getLength() <= static_cast<uint64_t>(once_max_read_bytes)) {
+            small_ranges.emplace_back(stream->getOffset(),
+                                      stream->getOffset() + stream->getLength());
+        }
+    }
+    if (small_ranges.size() < 2) {
+        return false;
+    }
+
+    const auto merged_ranges = io::PrefetchRange::merge_adjacent_seq_ranges(
+            small_ranges, max_merge_distance_bytes, once_max_read_bytes);
+    for (const auto& merged_range : merged_ranges) {
+        size_t member_count = 0;
+        for (const auto& range : small_ranges) {
+            if (range.start_offset >= merged_range.start_offset &&
+                range.end_offset <= merged_range.end_offset) {
+                ++member_count;
+            }
+        }
+        if (member_count > 1) {
+            return true;
+        }
+    }
+    return false;
 }
 
 void write_primitive_orc_file(const std::string& file_path) {
@@ -4036,7 +4190,9 @@ void write_multi_stripe_orc_sarg_types_file(const std::string& file_path) {
     out.write(memory_stream.getData(), static_cast<std::streamsize>(memory_stream.getLength()));
 }
 
-void write_multi_stripe_orc_timestamp_instant_sarg_file(const std::string& file_path) {
+void write_multi_stripe_orc_timestamp_instant_sarg_file(
+        const std::string& file_path, int64_t first_timestamp_second = 0,
+        int64_t second_timestamp_second = 1609459200) {
     auto type = std::unique_ptr<::orc::Type>(::orc::Type::buildTypeFromString(
             "struct<timestamp_instant_col:timestamp with local time zone,payload:string>"));
 
@@ -4068,8 +4224,8 @@ void write_multi_stripe_orc_timestamp_instant_sarg_file(const std::string& file_
         writer->add(*batch);
     };
 
-    add_batch(0);
-    add_batch(1609459200);
+    add_batch(first_timestamp_second);
+    add_batch(second_timestamp_second);
     writer->close();
 
     std::ofstream out(file_path, std::ios::binary);
@@ -4743,6 +4899,158 @@ TEST_F(NewOrcReaderTest, ReadFileLocalColumnsThenEof) {
     EXPECT_TRUE(eof);
     EXPECT_EQ(rows, 0);
     EXPECT_EQ(block.rows(), 0);
+}
+
+TEST_F(NewOrcReaderTest, StripePrefetchPublishesMergedReadProfile) {
+    static constexpr int64_t MAX_MERGE_DISTANCE_BYTES = 1L * 1024L * 1024L;
+    static constexpr int64_t ONCE_MAX_READ_BYTES = 8L * 1024L * 1024L;
+    const auto file_path = (_test_dir / "stripe_prefetch.orc").string();
+    write_orc_prefetch_file(file_path);
+    ASSERT_TRUE(has_mergeable_orc_stream_cluster(file_path, MAX_MERGE_DISTANCE_BYTES,
+                                                 ONCE_MAX_READ_BYTES));
+
+    RuntimeProfile profile("orc_v2_stripe_prefetch");
+    io::FileReaderStats file_reader_stats;
+    auto io_ctx = std::make_shared<io::IOContext>();
+    io_ctx->file_reader_stats = &file_reader_stats;
+    auto reader = create_reader_for_path(file_path, &profile, io_ctx);
+
+    TQueryOptions query_options;
+    query_options.__set_orc_once_max_read_bytes(ONCE_MAX_READ_BYTES);
+    query_options.__set_orc_max_merge_distance_bytes(MAX_MERGE_DISTANCE_BYTES);
+    RuntimeState state {query_options, TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    ASSERT_EQ(schema.size(), 4);
+
+    auto request = std::make_shared<format::FileScanRequest>();
+    for (const auto& field : schema) {
+        request->non_predicate_columns.push_back(make_projection(field));
+    }
+    ASSERT_TRUE(reader->open(request).ok());
+
+    size_t result_rows = 0;
+    std::vector<int32_t> first_values;
+    std::vector<int32_t> second_values;
+    std::vector<int32_t> third_values;
+    std::vector<std::string> payload_values;
+    bool eof = false;
+    while (!eof) {
+        Block block = build_file_block(schema);
+        size_t rows = 0;
+        ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+        if (rows > 0) {
+            const auto& first_column = assert_cast<const ColumnInt32&>(
+                    assert_cast<const ColumnNullable&>(*block.get_by_position(0).column)
+                            .get_nested_column());
+            const auto& second_column = assert_cast<const ColumnInt32&>(
+                    assert_cast<const ColumnNullable&>(*block.get_by_position(1).column)
+                            .get_nested_column());
+            const auto& third_column = assert_cast<const ColumnInt32&>(
+                    assert_cast<const ColumnNullable&>(*block.get_by_position(2).column)
+                            .get_nested_column());
+            const auto& payload_column = assert_cast<const ColumnString&>(
+                    assert_cast<const ColumnNullable&>(*block.get_by_position(3).column)
+                            .get_nested_column());
+            for (size_t row = 0; row < rows; ++row) {
+                first_values.push_back(first_column.get_element(row));
+                second_values.push_back(second_column.get_element(row));
+                third_values.push_back(third_column.get_element(row));
+                payload_values.push_back(payload_column.get_data_at(row).to_string());
+            }
+        }
+        result_rows += rows;
+    }
+    EXPECT_EQ(result_rows, PREFETCH_ROW_COUNT);
+    ASSERT_EQ(first_values.size(), PREFETCH_ROW_COUNT);
+    ASSERT_EQ(second_values.size(), PREFETCH_ROW_COUNT);
+    ASSERT_EQ(third_values.size(), PREFETCH_ROW_COUNT);
+    ASSERT_EQ(payload_values.size(), PREFETCH_ROW_COUNT);
+    for (size_t row : std::array<size_t, 3> {0, PREFETCH_ROW_COUNT / 2, PREFETCH_ROW_COUNT - 1}) {
+        EXPECT_EQ(first_values[row], row);
+        EXPECT_EQ(second_values[row], row * 2);
+        EXPECT_EQ(third_values[row], row * 3);
+        EXPECT_EQ(payload_values[row], "payload-" + std::to_string(row));
+    }
+    ASSERT_TRUE(reader->close().ok());
+
+    ASSERT_NE(profile.get_counter("RequestIO"), nullptr);
+    ASSERT_NE(profile.get_counter("MergedIO"), nullptr);
+    ASSERT_NE(profile.get_counter("ApplyBytes"), nullptr);
+    ASSERT_NE(profile.get_counter("ClusterNum"), nullptr);
+    ASSERT_NE(profile.get_counter("OverReadBytes"), nullptr);
+    EXPECT_GT(profile.get_counter("RequestIO")->value(), profile.get_counter("MergedIO")->value());
+    EXPECT_GT(profile.get_counter("MergedIO")->value(), 0);
+    EXPECT_GT(profile.get_counter("ApplyBytes")->value(), 0);
+    EXPECT_GT(profile.get_counter("ClusterNum")->value(), 0);
+    EXPECT_GE(profile.get_counter("OverReadBytes")->value(), 0);
+}
+
+TEST_F(NewOrcReaderTest, StripePrefetchCanBeDisabledByZeroOnceMaxReadBytes) {
+    static constexpr int64_t MAX_MERGE_DISTANCE_BYTES = 1L * 1024L * 1024L;
+    const auto file_path = (_test_dir / "stripe_prefetch_disabled.orc").string();
+    write_orc_prefetch_file(file_path);
+
+    RuntimeProfile profile("orc_v2_stripe_prefetch_disabled");
+    auto reader = create_reader_for_path(file_path, &profile);
+
+    TQueryOptions query_options;
+    query_options.__set_orc_once_max_read_bytes(0);
+    query_options.__set_orc_max_merge_distance_bytes(MAX_MERGE_DISTANCE_BYTES);
+    RuntimeState state {query_options, TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    ASSERT_EQ(schema.size(), 4);
+
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->non_predicate_columns = {make_projection(schema[0]), make_projection(schema[3])};
+    ASSERT_TRUE(reader->open(request).ok());
+
+    Block block = build_file_block({schema[0], schema[3]});
+    size_t rows = 0;
+    bool eof = false;
+    ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+    ASSERT_GT(rows, 0);
+
+    const auto& first_column = assert_cast<const ColumnInt32&>(
+            assert_cast<const ColumnNullable&>(*block.get_by_position(0).column)
+                    .get_nested_column());
+    const auto& payload_column = assert_cast<const ColumnString&>(
+            assert_cast<const ColumnNullable&>(*block.get_by_position(1).column)
+                    .get_nested_column());
+    EXPECT_EQ(first_column.get_element(0), 0);
+    EXPECT_EQ(payload_column.get_data_at(0).to_string(), "payload-0");
+    EXPECT_EQ(first_column.get_element(rows - 1), rows - 1);
+    EXPECT_EQ(payload_column.get_data_at(rows - 1).to_string(),
+              "payload-" + std::to_string(rows - 1));
+
+    size_t result_rows = rows;
+    while (!eof) {
+        Block next_block = build_file_block({schema[0], schema[3]});
+        rows = 0;
+        ASSERT_TRUE(reader->get_block(&next_block, &rows, &eof).ok());
+        result_rows += rows;
+    }
+    EXPECT_EQ(result_rows, PREFETCH_ROW_COUNT);
+    ASSERT_TRUE(reader->close().ok());
+
+    EXPECT_EQ(profile.get_counter("MergedIO"), nullptr);
+}
+
+TEST_F(NewOrcReaderTest, RejectsInvalidNaturalReadSizeConfig) {
+    const auto old_natural_read_size_mb = config::orc_natural_read_size_mb;
+    config::orc_natural_read_size_mb = 0;
+    auto reader = create_reader();
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    const auto status = reader->init(&state);
+    config::orc_natural_read_size_mb = old_natural_read_size_mb;
+
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("orc_natural_read_size_mb"), std::string::npos);
 }
 
 TEST_F(NewOrcReaderTest, GetBlockStopsWhenIoContextShouldStop) {
@@ -8326,6 +8634,49 @@ TEST_F(NewOrcReaderTest, SargTimestampInstantConjunctUsesSessionTimezone) {
     EXPECT_EQ(reader->reader_statistics().filtered_row_groups, 1);
     EXPECT_EQ(reader->reader_statistics().filtered_row_groups_by_min_max, 1);
     EXPECT_EQ(reader->reader_statistics().filtered_group_rows, 200);
+}
+
+TEST_F(NewOrcReaderTest, SargTimestampInstantRepeatedCivilTimeDoesNotPruneStripes) {
+    const auto multi_stripe_file_path =
+            (_test_dir / "sarg_timestamp_instant_dst_rollback.orc").string();
+    // These UTC instants both decode to 2021-11-07 01:30:00.123 in America/New_York,
+    // once before and once after the UTC-04:00 to UTC-05:00 rollback.
+    write_multi_stripe_orc_timestamp_instant_sarg_file(multi_stripe_file_path, 1636263000,
+                                                       1636266600);
+    ASSERT_EQ(get_orc_stripe_count(multi_stripe_file_path), 2);
+
+    auto reader = create_reader_for_path(multi_stripe_file_path);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    TimezoneUtils::load_timezones_to_cache();
+    state.set_timezone("America/New_York");
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    ASSERT_EQ(schema.size(), 2);
+
+    const auto literal =
+            Field::create_field<TYPE_DATETIMEV2>(make_datetime_v2(2021, 11, 7, 1, 30, 0, 123000));
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->predicate_columns = {field_projection(0)};
+    request->conjuncts.push_back(
+            VExprContext::create_shared(std::make_shared<NullableEqualsExpr<TYPE_DATETIMEV2>>(
+                    0, remove_nullable(schema[0].type), literal, "timestamp_instant_col")));
+    ASSERT_TRUE(reader->open(request).ok());
+
+    bool eof = false;
+    size_t result_rows = 0;
+    while (!eof) {
+        Block block = build_file_block({schema[0]});
+        size_t rows = 0;
+        ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+        result_rows += rows;
+    }
+
+    EXPECT_EQ(result_rows, 2);
+    EXPECT_EQ(reader->reader_statistics().filtered_row_groups, 0);
+    EXPECT_EQ(reader->reader_statistics().filtered_row_groups_by_min_max, 0);
+    EXPECT_EQ(reader->reader_statistics().filtered_group_rows, 0);
 }
 
 TEST_F(NewOrcReaderTest, SargTimestampLowerPrecisionCastDoesNotPruneStripes) {

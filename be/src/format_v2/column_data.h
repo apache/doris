@@ -258,6 +258,12 @@ struct ColumnDefinition {
     // Expression used to materialize missing/default/generated values when the column is not read
     // directly from the file.
     VExprContextSPtr default_expr = nullptr;
+    // Table-format initial default normalized for transport from FE. Binary-like values use Base64
+    // and set initial_default_value_is_base64 because they can map to STRING/CHAR or VARBINARY.
+    // Unlike default_expr, this metadata is also available for hidden delete-predicate columns
+    // that are absent from the query projection.
+    std::optional<std::string> initial_default_value = std::nullopt;
+    bool initial_default_value_is_base64 = false;
     // Partition columns are constants from split metadata and should not be matched against file
     // schema unless table-format logic explicitly asks for it.
     bool is_partition_key = false;

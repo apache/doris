@@ -42,6 +42,7 @@
 #include "exec/common/util.hpp"
 #include "exec/operator/scan_operator.h"
 #include "exec/scan/access_path_parser.h"
+#include "exec/scan/file_scan_io_context.h"
 #include "exprs/runtime_filter_expr.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
@@ -212,6 +213,10 @@ Status rewrite_slot_refs_to_global_index(
 } // namespace
 
 #ifdef BE_TEST
+FileScannerV2::FileScannerV2(RuntimeState* state, RuntimeProfile* profile,
+                             std::unique_ptr<format::TableReader> table_reader)
+        : Scanner(state, profile), _table_reader(std::move(table_reader)) {}
+
 Status FileScannerV2::TEST_validate_scan_range(const TFileScanRangeParams& params,
                                                const TFileRangeDesc& range) {
     return _validate_scan_range(params, range);
@@ -407,6 +412,13 @@ Status FileScannerV2::_prepare_next_split(bool* eos) {
         DORIS_CHECK(_table_reader != nullptr);
         _current_range_path = _current_range.path;
 
+        const auto format_type = get_range_format_type(*_params, _current_range);
+        _init_adaptive_batch_size_state(format_type);
+        if (_should_run_adaptive_batch_size()) {
+            // JNI readers open eagerly in prepare_split(). Seed the probe size first so readers
+            // such as Paimon also use it for their first physical read batch.
+            _table_reader->set_batch_size(_predict_reader_batch_rows());
+        }
         std::map<std::string, Field> partition_values;
         RETURN_IF_ERROR(_generate_partition_values(_current_range, &partition_values));
         const auto status =
@@ -422,7 +434,6 @@ Status FileScannerV2::_prepare_next_split(bool* eos) {
             _state->update_num_finished_scan_range(1);
             continue;
         }
-        _init_adaptive_batch_size_state(get_range_format_type(*_params, _current_range));
         COUNTER_UPDATE(_file_counter, 1);
         _has_prepared_split = true;
         *eos = false;
@@ -492,13 +503,19 @@ Status FileScannerV2::_prepare_table_reader_split(const TFileRangeDesc& range,
                                                   std::map<std::string, Field> partition_values) {
     format::FileFormat current_split_format;
     RETURN_IF_ERROR(_to_file_format(get_range_format_type(*_params, range), &current_split_format));
+    VExprContextSPtrs conjuncts;
+    RETURN_IF_ERROR(_build_table_conjuncts(&conjuncts));
     VExprContextSPtrs partition_prune_conjuncts;
     if (_state->query_options().enable_runtime_filter_partition_prune) {
         RETURN_IF_ERROR(_build_table_conjuncts(&partition_prune_conjuncts));
     }
     RETURN_IF_ERROR(_table_reader->prepare_split({
             .partition_values = std::move(partition_values),
+            .conjuncts = std::move(conjuncts),
             .partition_prune_conjuncts = std::move(partition_prune_conjuncts),
+            // A metadata COUNT split may span scheduler turns. Do not enter that irreversible
+            // synthetic-row path while a runtime filter can still arrive between batches.
+            .all_runtime_filters_applied = _applied_rf_num == _total_rf_num,
             .cache = _kv_cache,
             .current_range = range,
             .current_split_format = current_split_format,
@@ -730,8 +747,7 @@ Status FileScannerV2::_to_file_format(TFileFormatType::type format_type,
 }
 
 Status FileScannerV2::_init_io_ctx() {
-    _io_ctx = std::make_shared<io::IOContext>();
-    _io_ctx->query_id = &_state->query_id();
+    _io_ctx = create_file_scan_io_context(_state);
     return Status::OK();
 }
 
@@ -818,7 +834,13 @@ Status FileScannerV2::close(RuntimeState* state) {
         return Status::OK();
     }
     if (_table_reader != nullptr) {
-        RETURN_IF_ERROR(_table_reader->close());
+        const auto close_status = _table_reader->close();
+        if (!close_status.ok()) {
+            // Reserve the close attempt with _try_close(), but commit the scanner-level closed
+            // state only after the retained table reader has completed its retryable cleanup.
+            _is_closed.store(false);
+            return close_status;
+        }
         _report_condition_cache_profile();
         _table_reader.reset();
     }

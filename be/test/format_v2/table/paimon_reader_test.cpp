@@ -549,6 +549,21 @@ TEST(PaimonReaderTest, ResetsSplitSchemaIdBeforePreparingNextSplit) {
     EXPECT_EQ(reader.TEST_mapping_mode(), TableColumnMappingMode::BY_NAME);
 }
 
+TEST(PaimonReaderTest, NativeDataFilesAreMarkedImmutableForPageCache) {
+    paimon::PaimonReader reader;
+
+    for (const auto format : {FileFormat::PARQUET, FileFormat::ORC}) {
+        SplitReadOptions split_options;
+        split_options.current_split_format = format;
+        split_options.current_range.__set_path("paimon-data-file");
+        split_options.current_range.__set_table_format_params(
+                make_paimon_schema_table_format_desc(100));
+
+        ASSERT_TRUE(reader.prepare_split(split_options).ok());
+        EXPECT_TRUE(reader.TEST_current_data_file_is_immutable());
+    }
+}
+
 // Scenario: Paimon reader should parse its bitmap deletion vector and let TableReader apply the
 // generated row-position delete predicate before returning table rows.
 TEST(PaimonReaderTest, AppliesBitmapDeletionVectorFile) {
@@ -635,6 +650,15 @@ TEST(PaimonHybridReaderTest, ConvertsNativeSplitFileFormat) {
             paimon::PaimonHybridReader::TEST_to_file_format(make_paimon_jni_range(), &file_format);
     EXPECT_FALSE(status.ok());
     EXPECT_NE(std::string::npos, status.to_string().find("Unsupported native Paimon file format"));
+}
+
+TEST(PaimonHybridReaderTest, AdaptiveBatchSizeReachesBothChildReaders) {
+    paimon::PaimonHybridReader reader;
+    reader.TEST_install_batch_size_children();
+    reader.set_batch_size(321);
+    const auto child_batch_sizes = reader.TEST_child_batch_sizes();
+    EXPECT_EQ(child_batch_sizes.first, 321);
+    EXPECT_EQ(child_batch_sizes.second, 321);
 }
 
 TEST(PaimonHybridReaderTest, DispatchesNativeThenJniSplitToMatchingReader) {

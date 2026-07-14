@@ -33,8 +33,10 @@
 #include "common/status.h"
 #include "core/assert_cast.h"
 #include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_struct.h"
+#include "core/data_type/primitive_type.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vslot_ref.h"
 #include "format/table/deletion_vector_reader.h"
@@ -115,6 +117,7 @@ std::string current_file_debug_string(const std::unique_ptr<ScanTask>& task) {
     out << "FileDescription{path=" << file.path << ", file_size=" << file.file_size
         << ", range_start_offset=" << file.range_start_offset << ", range_size=" << file.range_size
         << ", mtime=" << file.mtime << ", fs_name=" << file.fs_name
+        << ", is_immutable=" << file.is_immutable
         << ", file_cache_admission=" << file.file_cache_admission << "}";
     return out.str();
 }
@@ -160,8 +163,27 @@ DataTypePtr find_struct_child_type_by_external_field(const DataTypeStruct& struc
     return nullptr;
 }
 
+DataTypePtr restore_current_primitive_type(const schema::external::TField& field,
+                                           DataTypePtr fallback_type) {
+    if (!field.__isset.type) {
+        return fallback_type;
+    }
+    const auto primitive_type = thrift_to_type(field.type.type);
+    if (is_complex_type(primitive_type)) {
+        return fallback_type;
+    }
+    // The delete file can expose an older physical type, but initial defaults belong to the
+    // current table field. Restore that type from FE before parsing the default and let the table
+    // reader apply the normal promotion cast to the delete-key type.
+    return DataTypeFactory::instance().create_data_type(
+            primitive_type, false, field.type.__isset.precision ? field.type.precision : 0,
+            field.type.__isset.scale ? field.type.scale : 0,
+            field.type.__isset.len ? field.type.len : -1);
+}
+
 ColumnDefinition build_schema_column_from_external_field(const schema::external::TField& field,
                                                          DataTypePtr type) {
+    type = restore_current_primitive_type(field, std::move(type));
     ColumnDefinition column {
             .identifier = field.__isset.id ? Field::create_field<TYPE_INT>(field.id) : Field {},
             .name = field.__isset.name ? field.name : "",
@@ -170,6 +192,11 @@ ColumnDefinition build_schema_column_from_external_field(const schema::external:
             .type = std::move(type),
             .children = {},
             .default_expr = nullptr,
+            .initial_default_value = field.__isset.initial_default_value
+                                             ? std::make_optional(field.initial_default_value)
+                                             : std::nullopt,
+            .initial_default_value_is_base64 = field.__isset.initial_default_value_is_base64 &&
+                                               field.initial_default_value_is_base64,
             .is_partition_key = false,
     };
     if (column.type == nullptr || !field.__isset.nestedField) {
@@ -464,6 +491,34 @@ Status TableReader::annotate_projected_column(const TFileScanSlotInfo& slot_info
     return Status::OK();
 }
 
+std::optional<ColumnDefinition> TableReader::_find_current_table_column_by_field_id(
+        int32_t field_id, DataTypePtr type) const {
+    if (_scan_params == nullptr || !_scan_params->__isset.history_schema_info ||
+        _scan_params->history_schema_info.empty()) {
+        return std::nullopt;
+    }
+    const auto* schema = &_scan_params->history_schema_info.front();
+    if (_scan_params->__isset.current_schema_id) {
+        for (const auto& candidate_schema : _scan_params->history_schema_info) {
+            if (candidate_schema.__isset.schema_id &&
+                candidate_schema.schema_id == _scan_params->current_schema_id) {
+                schema = &candidate_schema;
+                break;
+            }
+        }
+    }
+    if (!schema->__isset.root_field || !schema->root_field.__isset.fields) {
+        return std::nullopt;
+    }
+    for (const auto& field_ptr : schema->root_field.fields) {
+        const auto* field = get_field_ptr(field_ptr);
+        if (field != nullptr && field->__isset.id && field->id == field_id) {
+            return build_schema_column_from_external_field(*field, std::move(type));
+        }
+    }
+    return std::nullopt;
+}
+
 Status TableReader::init(TableReadOptions&& options) {
     _scan_params = options.scan_params;
     _format = options.format;
@@ -523,9 +578,24 @@ Status TableReader::init(TableReadOptions&& options) {
 
 Status TableReader::_build_table_filters_from_conjuncts() {
     _table_filters.clear();
+    _constant_pruning_safe_filter_count = 0;
+    bool in_safe_prefix = true;
     for (const auto& conjunct : _conjuncts) {
+        DORIS_CHECK(conjunct != nullptr);
+        DORIS_CHECK(conjunct->root() != nullptr);
+        // `_table_filters` omits expressions without slot references, but such an expression still
+        // occupies a position in the row-level conjunct order. Record how many localized filters
+        // precede the first unsafe original conjunct so constant pruning cannot jump over a
+        // slotless non-deterministic/error-preserving barrier.
+        if (in_safe_prefix && !_is_safe_to_pre_execute(conjunct)) {
+            in_safe_prefix = false;
+        }
+        if (!in_safe_prefix) {
+            continue;
+        }
         RETURN_IF_ERROR(
                 build_table_filters_from_conjunct(conjunct, _runtime_state, &_table_filters));
+        _constant_pruning_safe_filter_count = _table_filters.size();
     }
     return Status::OK();
 }
@@ -757,6 +827,10 @@ std::unique_ptr<io::FileDescription> create_file_description(const TFileRangeDes
 Status TableReader::prepare_split(const SplitReadOptions& options) {
     SCOPED_TIMER(_profile.prepare_split_timer);
     _current_split_pruned = false;
+    _all_runtime_filters_applied_for_split = options.all_runtime_filters_applied;
+    if (options.conjuncts.has_value()) {
+        _conjuncts = *options.conjuncts;
+    }
     // Update to current split format to handle ORC/PARQUET files in one table.
     _format = options.current_split_format;
     _partition_values = std::move(options.partition_values);
@@ -784,8 +858,12 @@ Status TableReader::prepare_split(const SplitReadOptions& options) {
     _current_task = std::make_unique<ScanTask>();
     _current_task->data_file = create_file_description(options.current_range);
     _current_file_description = *_current_task->data_file;
-    if (_push_down_agg_type == TPushAggOp::type::COUNT &&
-        options.current_range.__isset.table_format_params &&
+    // A table-level row count is only equivalent to scanning the split when no row predicate is
+    // active and no predicate can arrive later. The metadata path can return several batches for
+    // one split; after its first synthetic batch there is no way to recover the real rows if a
+    // runtime filter arrives before the next scheduler turn.
+    if (_push_down_agg_type == TPushAggOp::type::COUNT && options.all_runtime_filters_applied &&
+        _conjuncts.empty() && options.current_range.__isset.table_format_params &&
         options.current_range.table_format_params.__isset.table_level_row_count) {
         DORIS_CHECK(options.current_range.table_format_params.table_level_row_count >= -1);
         _remaining_table_level_count =
@@ -810,6 +888,12 @@ Status TableReader::_evaluate_partition_prune_conjuncts(const VExprContextSPtrs&
     for (const auto& conjunct : conjuncts) {
         DORIS_CHECK(conjunct != nullptr);
         DORIS_CHECK(conjunct->root() != nullptr);
+        // Keep only the safe prefix of the original conjunct order. If an unsafe conjunct is
+        // skipped, a later predicate could prune the split before the unsafe one reaches its
+        // normal row-level evaluation point.
+        if (!_is_safe_to_pre_execute(conjunct)) {
+            break;
+        }
         std::set<GlobalIndex> global_indices;
         collect_global_indices(conjunct->root(), &global_indices);
         if (global_indices.empty()) {
@@ -841,6 +925,18 @@ Status TableReader::_evaluate_partition_prune_conjuncts(const VExprContextSPtrs&
     IColumn::Filter result_filter(block.rows(), 1);
     return VExprContext::execute_conjuncts(partition_conjuncts, nullptr, &block, &result_filter,
                                            can_filter_all);
+}
+
+bool TableReader::_is_safe_to_pre_execute(const VExprContextSPtr& conjunct) {
+    DORIS_CHECK(conjunct != nullptr);
+    DORIS_CHECK(conjunct->root() != nullptr);
+    const auto root = conjunct->root();
+    const auto impl = root->get_impl();
+    const auto predicate = impl != nullptr ? impl : root;
+    // Split pruning evaluates a predicate once before any file rows are read. Reordering
+    // non-deterministic or error-preserving expressions can change their row-level semantics,
+    // even when every referenced slot is a partition column or maps to a constant entry.
+    return predicate->is_safe_to_execute_on_selected_rows();
 }
 
 Status TableReader::_build_partition_prune_block(Block* block) const {

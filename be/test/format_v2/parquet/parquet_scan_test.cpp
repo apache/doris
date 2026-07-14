@@ -222,6 +222,25 @@ std::shared_ptr<arrow::Array> build_int32_array(const std::vector<int32_t>& valu
     return finish_array(&builder);
 }
 
+std::shared_ptr<arrow::Array> build_string_array(const std::vector<std::string>& values) {
+    arrow::StringBuilder builder;
+    for (const auto& value : values) {
+        EXPECT_TRUE(builder.Append(value).ok());
+    }
+    return finish_array(&builder);
+}
+
+std::shared_ptr<arrow::Array> build_fixed_binary_array(const std::vector<std::string>& values,
+                                                       int byte_width) {
+    auto type = arrow::fixed_size_binary(byte_width);
+    arrow::FixedSizeBinaryBuilder builder(type, arrow::default_memory_pool());
+    for (const auto& value : values) {
+        EXPECT_EQ(value.size(), byte_width);
+        EXPECT_TRUE(builder.Append(reinterpret_cast<const uint8_t*>(value.data())).ok());
+    }
+    return finish_array(&builder);
+}
+
 std::shared_ptr<arrow::Array> build_struct_array(const std::vector<int32_t>& ids,
                                                  const std::vector<std::string>& names) {
     auto struct_type = arrow::struct_({arrow::field("id", arrow::int32(), false),
@@ -293,6 +312,16 @@ void write_int_pair_parquet_file(const std::string& file_path, int64_t row_group
     auto table = arrow::Table::Make(schema, {build_int32_array({1, 2, 3, 4, 5, 6}),
                                              build_int32_array({10, 20, 30, 40, 50, 60})});
     write_table(file_path, table, row_group_size, false, false, enable_statistics);
+}
+
+void write_binary_minmax_parquet_file(const std::string& file_path) {
+    auto schema = arrow::schema({
+            arrow::field("text", arrow::utf8(), false),
+            arrow::field("fixed", arrow::fixed_size_binary(4), false),
+    });
+    auto table = arrow::Table::Make(schema, {build_string_array({"alpha", "omega"}),
+                                             build_fixed_binary_array({"aaaa", "zzzz"}, 4)});
+    write_table(file_path, table, 2);
 }
 
 void write_struct_parquet_file(const std::string& file_path) {
@@ -712,6 +741,23 @@ TEST_F(ParquetScanTest, AggregateCountAndMinMaxUseAllSelectedRowGroups) {
     EXPECT_EQ(minmax_result.columns[0].max_value.get<TYPE_INT>(), 6);
     EXPECT_EQ(minmax_result.columns[1].min_value.get<TYPE_INT>(), 10);
     EXPECT_EQ(minmax_result.columns[1].max_value.get<TYPE_INT>(), 60);
+}
+
+TEST_F(ParquetScanTest, AggregateMinMaxRejectsInexactBinaryStatistics) {
+    write_binary_minmax_parquet_file(_file_path);
+    auto reader = create_reader();
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+    open_all_row_groups(reader.get());
+
+    for (int32_t column_id = 0; column_id < 2; ++column_id) {
+        format::FileAggregateRequest request;
+        request.agg_type = TPushAggOp::MINMAX;
+        request.columns.push_back({.projection = field_projection(column_id)});
+        format::FileAggregateResult result;
+        const auto status = reader->get_aggregate_result(request, &result);
+        EXPECT_TRUE(status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) << status;
+    }
 }
 
 TEST_F(ParquetScanTest, AggregateRespectsStatisticsPrunedRowGroups) {

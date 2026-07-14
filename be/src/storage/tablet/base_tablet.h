@@ -181,7 +181,8 @@ public:
                           RowsetSharedPtr* rowset = nullptr, bool with_rowid = true,
                           std::string* encoded_seq_value = nullptr,
                           OlapReaderStatistics* stats = nullptr,
-                          DeleteBitmapPtr tablet_delete_bitmap = nullptr);
+                          DeleteBitmapPtr tablet_delete_bitmap = nullptr,
+                          const io::IOContext* io_ctx = nullptr);
 
     // calc delete bitmap when flush memtable, use a fake version to calc
     // For example, cur max version is 5, and we use version 6 to calc but
@@ -202,12 +203,13 @@ public:
                                       const std::vector<RowsetSharedPtr>& specified_rowsets,
                                       DeleteBitmapPtr delete_bitmap, int64_t end_version,
                                       RowsetWriter* rowset_writer,
-                                      DeleteBitmapPtr tablet_delete_bitmap = nullptr);
+                                      DeleteBitmapPtr tablet_delete_bitmap = nullptr,
+                                      int64_t queue_time_us = 0);
 
     Status calc_delete_bitmap_between_segments(
             TabletSchemaSPtr schema, RowsetId rowset_id,
             const std::vector<segment_v2::SegmentSharedPtr>& segments,
-            DeleteBitmapPtr delete_bitmap);
+            DeleteBitmapPtr delete_bitmap, int64_t queue_time_us = 0);
 
     static Status commit_phase_update_delete_bitmap(
             const BaseTabletSPtr& tablet, const RowsetSharedPtr& rowset,
@@ -373,7 +375,8 @@ protected:
     static bool _key_is_not_in_segment(Slice key, const KeyBoundsPB& segment_key_bounds,
                                        bool is_segments_key_bounds_truncated);
 
-    Status sort_block(Block& in_block, Block& output_block);
+    Status sort_block(Block& in_block, Block& output_block,
+                      std::vector<uint32_t>* permutation = nullptr);
 
     Result<CaptureRowsetResult> _remote_capture_rowsets(const Version& version_range) const;
 
