@@ -98,7 +98,7 @@ suite('test_balance_warm_up_with_compaction_use_peer_cache', 'docker') {
             )
             DUPLICATE KEY(`id`)
             DISTRIBUTED BY HASH(`id`) BUCKETS 2 
-            PROPERTIES ("replication_num" = "1");
+            PROPERTIES ("replication_num" = "1", "disable_auto_compaction" = "true");
         """
         sql """
             insert into $table values  (344083, 1, 'comment', 'spez', '2008-10-26 13:49:29', 'Stay tuned...',  0, 343906, 0, [31, 454446], '', 0, '', [], 0), (33, 0, 'comment', 'spez', '2006-10-10 23:50:40', 'winnar winnar chicken dinnar!',  0, 31, 0, [34, 454450], '', 0, '', [], 0);
