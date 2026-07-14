@@ -17,35 +17,48 @@
 
 package org.apache.doris.nereids.trees.plans.physical;
 
+import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.statistics.Statistics;
 
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Optional;
 
-/**
-    wrapper for FileScan used for lazy materialization
- */
+/** File scan wrapper that replaces deferred columns with a row-id used by the materialize node. */
 public class PhysicalLazyMaterializeFileScan extends PhysicalFileScan {
-    private PhysicalFileScan scan;
-    private SlotReference rowId;
+    private final PhysicalFileScan scan;
+    private final SlotReference rowId;
     private final List<Slot> lazySlots;
-    private List<Slot> output;
 
-    /**
-     * PhysicalLazyMaterializeFileScan
-     */
     public PhysicalLazyMaterializeFileScan(PhysicalFileScan scan, SlotReference rowId, List<Slot> lazySlots) {
+        this(scan, rowId, lazySlots, scan.getGroupExpression(), null,
+                scan.getPhysicalProperties(), scan.getStats());
+    }
+
+    private PhysicalLazyMaterializeFileScan(PhysicalFileScan scan, SlotReference rowId, List<Slot> lazySlots,
+            Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
+            PhysicalProperties physicalProperties, Statistics statistics) {
         super(scan.getRelationId(), scan.getTable(), scan.getQualifier(), scan.getDistributionSpec(),
-                Optional.empty(), null, null, scan.getStats(),
-                scan.selectedPartitions, scan.getTableSample(),
+                groupExpression, logicalProperties, physicalProperties, statistics,
+                scan.getSelectedPartitions(), scan.getTableSample(),
                 scan.getTableSnapshot(), scan.getOperativeSlots(),
                 scan.getScanParams());
         this.scan = scan;
         this.rowId = rowId;
-        this.lazySlots = lazySlots;
+        this.lazySlots = ImmutableList.copyOf(lazySlots);
+    }
+
+    @Override
+    public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
+        return visitor.visitPhysicalLazyMaterializeFileScan(this, context);
     }
 
     @Override
@@ -55,16 +68,25 @@ public class PhysicalLazyMaterializeFileScan extends PhysicalFileScan {
 
     @Override
     public List<Slot> computeOutput() {
-        if (output == null) {
-            ImmutableList.Builder<Slot> outputBuilder = ImmutableList.builder();
-            for (Slot slot : scan.getOutput()) {
-                if (!lazySlots.contains(slot)) {
-                    outputBuilder.add(slot);
-                }
+        ImmutableList.Builder<Slot> outputBuilder = ImmutableList.builder();
+        for (Slot slot : scan.getOutput()) {
+            if (!lazySlots.contains(slot)) {
+                outputBuilder.add(slot);
             }
-            output = outputBuilder.add(rowId).build();
         }
-        return output;
+        return outputBuilder.add(rowId).build();
+    }
+
+    public PhysicalFileScan getScan() {
+        return scan;
+    }
+
+    public SlotReference getRowId() {
+        return rowId;
+    }
+
+    public List<Slot> getLazySlots() {
+        return lazySlots;
     }
 
     @Override
@@ -78,5 +100,32 @@ public class PhysicalLazyMaterializeFileScan extends PhysicalFileScan {
         }
         sb.append("]");
         return sb.toString();
+    }
+
+    @Override
+    public PhysicalLazyMaterializeFileScan withGroupExpression(Optional<GroupExpression> groupExpression) {
+        PhysicalFileScan copiedScan = scan.withGroupExpression(groupExpression);
+        return AbstractPlan.copyWithSameId(this,
+                () -> new PhysicalLazyMaterializeFileScan(copiedScan, rowId, lazySlots,
+                        groupExpression, getLogicalProperties(), physicalProperties, statistics));
+    }
+
+    @Override
+    public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+        PhysicalFileScan copiedScan = (PhysicalFileScan) scan.withGroupExprLogicalPropChildren(
+                groupExpression, logicalProperties, children);
+        return AbstractPlan.copyWithSameId(this,
+                () -> new PhysicalLazyMaterializeFileScan(copiedScan, rowId, lazySlots,
+                        groupExpression, logicalProperties.orElse(null), physicalProperties, statistics));
+    }
+
+    @Override
+    public PhysicalLazyMaterializeFileScan withPhysicalPropertiesAndStats(
+            PhysicalProperties physicalProperties, Statistics statistics) {
+        PhysicalFileScan copiedScan = scan.withPhysicalPropertiesAndStats(physicalProperties, statistics);
+        return AbstractPlan.copyWithSameId(this,
+                () -> new PhysicalLazyMaterializeFileScan(copiedScan, rowId, lazySlots,
+                        groupExpression, getLogicalProperties(), physicalProperties, statistics));
     }
 }

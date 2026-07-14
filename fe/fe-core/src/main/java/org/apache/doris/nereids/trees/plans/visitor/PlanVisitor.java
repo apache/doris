@@ -301,15 +301,15 @@ public abstract class PlanVisitor<R, C> implements CommandVisitor<R, C>, Relatio
     }
 
     public R visitPhysicalLazyMaterializeFileScan(PhysicalLazyMaterializeFileScan scan, C context) {
-        return visit(scan, context);
+        return visitPhysicalFileScan(scan, context);
     }
 
     public R visitPhysicalLazyMaterializeTVFScan(PhysicalLazyMaterializeTVFScan scan, C context) {
-        return visit(scan, context);
+        return visitPhysicalTVFRelation(scan, context);
     }
 
     public R visitPhysicalLazyMaterializeOlapScan(PhysicalLazyMaterializeOlapScan scan, C context) {
-        return visit(scan, context);
+        return visitPhysicalOlapScan(scan, context);
     }
 
     public R visitLogicalWindow(LogicalWindow<? extends Plan> window, C context) {

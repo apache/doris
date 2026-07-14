@@ -208,9 +208,9 @@ suite("test_hive_topn_lazy_mat", "p0,external") {
         explain {
             sql "select * from  orc_topn_lazy_mat_table order by id limit 10; "
             contains("projectList:[id, name, value, active, score, file_id]")
-            contains("column_descs_lists[[`name` text NULL, `value` double NULL, `active` boolean NULL, `score` double NULL, `file_id` int NULL]]")
+            contains("column_descs_lists[[`active` boolean NULL, `file_id` int NULL, `name` text NULL, `score` double NULL, `value` double NULL]]")
             contains("locations: [[1, 2, 3, 4, 5]]")
-            contains("column_idxs_lists: [[1, 2, 3, 4, 5]]")
+            contains("column_idxs_lists: [[3, 5, 1, 4, 2]]")
             contains("row_ids: [__DORIS_GLOBAL_ROWID_COL__orc_topn_lazy_mat_table]")
         }
        

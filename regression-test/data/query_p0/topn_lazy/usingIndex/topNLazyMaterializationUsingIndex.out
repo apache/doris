@@ -41,3 +41,6 @@ PhysicalResultSink
 ------------filter((t1.user_id > 0))
 --------------PhysicalLazyMaterializeOlapScan[t1 lazySlots:(t1.username,t1.age,t1.addr)]
 
+-- !filter_order_key_not_pruned --
+1	10	\N	a
+

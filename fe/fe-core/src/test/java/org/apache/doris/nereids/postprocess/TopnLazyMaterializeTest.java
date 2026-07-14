@@ -119,10 +119,10 @@ public class TopnLazyMaterializeTest extends SSBTestBase {
 
     @Test
     public void testLightSchemaChangeFalse() throws Exception {
-        this.createTable("create table tm_lsc_false (k int, v int) duplicate key(k) "
-                + "distributed by hash(k) buckets 1 "
+        this.createTable("create table tm_lsc_false (id int, k int, pad varchar(32)) duplicate key(id, k) "
+                + "distributed by hash(id) buckets 1 "
                 + "properties('replication_num' = '1', 'light_schema_change' = 'false')");
-        String sql = "select * from tm_lsc_false order by k limit 1";
+        String sql = "select pad from tm_lsc_false order by k limit 1";
         PlanChecker checker = PlanChecker.from(connectContext)
                 .analyze(sql)
                 .rewrite()
@@ -139,13 +139,13 @@ public class TopnLazyMaterializeTest extends SSBTestBase {
         Assertions.assertTrue(materializationNodes.isEmpty(),
                 "TopN lazy materialization should be skipped for light_schema_change=false");
 
-        // All columns should be in the scan output (no lazy pruned columns).
+        // Both required columns should be in the scan output (no lazy pruned columns).
         List<OlapScanNode> scanNodes = Lists.newArrayList();
         fragment.getPlanRoot().collect(OlapScanNode.class, scanNodes);
         Assertions.assertEquals(1, scanNodes.size());
         List<SlotDescriptor> slots = scanNodes.get(0).getTupleDesc().getSlots();
         Assertions.assertEquals(2, slots.size());
         Assertions.assertTrue(slots.stream().anyMatch(s -> s.getColumn().getName().equals("k")));
-        Assertions.assertTrue(slots.stream().anyMatch(s -> s.getColumn().getName().equals("v")));
+        Assertions.assertTrue(slots.stream().anyMatch(s -> s.getColumn().getName().equals("pad")));
     }
 }

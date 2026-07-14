@@ -24,9 +24,6 @@ import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.functions.NoneMovableFunction;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.L2DistanceApproximate;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.Score;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -42,6 +39,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.TopNLazyExpressionEligibility;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 
@@ -278,26 +276,7 @@ public class PullUpProjectExprUnderTopN implements CustomRewriter {
      * Eligible: Alias with non-trivial child, not blocked, no NoneMovableFunction.
      */
     static boolean canPullUp(NamedExpression ne) {
-        if (!(ne instanceof Alias)) {
-            return false;
-        }
-        Expression child = ((Alias) ne).child();
-        if (child instanceof Slot || child instanceof Literal) {
-            return false;
-        }
-        if (ne.anyMatch(e -> e instanceof NoneMovableFunction)) {
-            return false;
-        }
-        if (ne.containsVolatileExpression()) {
-            return false;
-        }
-        if (ne.anyMatch(e -> e instanceof Score)) {
-            return false;
-        }
-        if (ne.anyMatch(e -> e instanceof L2DistanceApproximate)) {
-            return false;
-        }
-        return true;
+        return TopNLazyExpressionEligibility.canPullAboveTopN(ne);
     }
 
     private static boolean shouldBlockProjectInputs(
