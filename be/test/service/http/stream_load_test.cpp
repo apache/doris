@@ -125,13 +125,13 @@ TEST_F(StreamLoadTest, TestHeader) {
     }
 }
 
-TEST_F(StreamLoadTest, TestSetStreamLoadCloudCluster) {
+TEST_F(StreamLoadTest, TestSetStreamLoadComputeGroup) {
     HttpRequest req(nullptr);
     req.set_header(HTTP_COMPUTE_GROUP, "compute_group_1");
     req.set_header(HTTP_CLOUD_CLUSTER, "cloud_cluster_1");
     TStreamLoadPutRequest request;
 
-    set_stream_load_cloud_cluster(req, request);
+    set_stream_load_compute_group(req, request);
 
     EXPECT_TRUE(request.__isset.cloud_cluster);
     EXPECT_EQ(request.cloud_cluster, "compute_group_1");
@@ -140,7 +140,7 @@ TEST_F(StreamLoadTest, TestSetStreamLoadCloudCluster) {
     legacy_req.set_header(HTTP_CLOUD_CLUSTER, "cloud_cluster_1");
     TStreamLoadPutRequest legacy_request;
 
-    set_stream_load_cloud_cluster(legacy_req, legacy_request);
+    set_stream_load_compute_group(legacy_req, legacy_request);
 
     EXPECT_TRUE(legacy_request.__isset.cloud_cluster);
     EXPECT_EQ(legacy_request.cloud_cluster, "cloud_cluster_1");

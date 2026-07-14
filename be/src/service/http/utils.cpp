@@ -252,7 +252,7 @@ bool load_size_smaller_than_wal_limit(int64_t content_length) {
     return (content_length < 0.8 * max_available_size);
 }
 
-void set_stream_load_cloud_cluster(const HttpRequest& http_request,
+void set_stream_load_compute_group(const HttpRequest& http_request,
                                    TStreamLoadPutRequest& put_request) {
     const auto& compute_group = http_request.header(HTTP_COMPUTE_GROUP);
     if (!compute_group.empty()) {

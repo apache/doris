@@ -350,7 +350,7 @@ Status HttpStreamAction::process_put(HttpRequest* http_req,
             bool value = iequal(http_req->header(HTTP_MEMTABLE_ON_SINKNODE), "true");
             request.__set_memtable_on_sink_node(value);
         }
-        set_stream_load_cloud_cluster(*http_req, request);
+        set_stream_load_compute_group(*http_req, request);
     } else {
         request.__set_token(ctx->auth.token);
         request.__set_load_sql(ctx->sql_str);

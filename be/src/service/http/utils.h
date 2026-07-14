@@ -48,7 +48,7 @@ std::string get_content_type(const std::string& file_name);
 
 bool load_size_smaller_than_wal_limit(int64_t content_length);
 
-void set_stream_load_cloud_cluster(const HttpRequest& http_request,
+void set_stream_load_compute_group(const HttpRequest& http_request,
                                    TStreamLoadPutRequest& put_request);
 
 // Whether a backend supports batch download

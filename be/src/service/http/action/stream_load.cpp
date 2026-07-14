@@ -786,7 +786,7 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
         request.__set_group_commit_mode(ctx->group_commit_mode);
     }
 
-    set_stream_load_cloud_cluster(*http_req, request);
+    set_stream_load_compute_group(*http_req, request);
 
     if (!http_req->header(HTTP_EMPTY_FIELD_AS_NULL).empty()) {
         if (iequal(http_req->header(HTTP_EMPTY_FIELD_AS_NULL), "true")) {
