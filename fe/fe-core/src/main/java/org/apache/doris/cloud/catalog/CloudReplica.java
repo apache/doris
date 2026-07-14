@@ -57,8 +57,6 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
             = new ConcurrentHashMap<String, List<Long>>();
     @SerializedName(value = "be")
     private ConcurrentHashMap<String, Long> primaryClusterToBackend = null;
-    @SerializedName(value = "dbId")
-    private long dbId = -1;
     @SerializedName(value = "tableId")
     private long tableId = -1;
     @SerializedName(value = "partitionId")
@@ -103,7 +101,6 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
     public CloudReplica(long replicaId, Long backendId, ReplicaState state, long version, int schemaHash,
             long dbId, long tableId, long partitionId, long indexId, long idx) {
         super(replicaId, -1, state, version, schemaHash);
-        this.dbId = dbId;
         this.tableId = tableId;
         this.partitionId = partitionId;
         this.indexId = indexId;
@@ -489,10 +486,6 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
         // depends this feature to implement snapshot partition version. See comments in
         // OlapScanNode.addScanRangeLocations for details.
         return true;
-    }
-
-    public long getDbId() {
-        return dbId;
     }
 
     public long getTableId() {
