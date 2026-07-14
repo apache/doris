@@ -1996,6 +1996,8 @@ Status OrcReader::get_block(Block* file_block, size_t* rows, bool* eof) {
     return Status::OK();
 }
 
+// COUNT and MIN/MAX share selected-stripe metadata and the same conservative fallback contract.
+// NOLINTNEXTLINE(readability-function-size)
 Status OrcReader::get_aggregate_result(const format::FileAggregateRequest& request,
                                        format::FileAggregateResult* result) {
     DORIS_CHECK(result != nullptr);
@@ -2104,6 +2106,11 @@ Status OrcReader::get_aggregate_result(const format::FileAggregateRequest& reque
         RETURN_IF_ERROR(find_projected_minmax_leaf(*_state->root_type, request_column.projection,
                                                    &leaf_type));
         DORIS_CHECK(leaf_type != nullptr);
+        if (leaf_type->getKind() == ::orc::TypeKind::TIMESTAMP &&
+            _state->reader->getWriterVersion() < ::orc::WriterVersion_ORC_135) {
+            return Status::NotSupported(
+                    "ORC TIMESTAMP min/max statistics are unsafe before writer version ORC-135");
+        }
 
         auto& aggregate_column = result->columns[column_idx];
         aggregate_column.projection = request_column.projection;
