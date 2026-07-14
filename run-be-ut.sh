@@ -19,14 +19,15 @@
 #####################################################################
 # This script is used to run unit test of Doris Backend
 # Usage: $0 <options>
-#  Optional options:
-#     --clean            clean and build ut
-#     --run              build and run all ut
-#     --run --filter=xx  build and run specified ut
-#     --gdb              debug with gdb, does not take effect if --run is not specified
-#     --coverage         generate coverage report, does not take effect if --gdb is specified
-#     -j                 build parallel
-#     -h                 print this help message
+#   Optional options:
+#     --clean                clean and build ut
+#     --run                  build and run all ut
+#     --run --filter=xx      build and run specified ut
+#     --gdb                  debug with gdb, does not take effect if --run is not specified
+#     --coverage             generate coverage report, does not take effect if --gdb is specified
+#     --parallel-test=N      run tests with N parallel shards (default: 1, i.e. single-process)
+#     -j                     build parallel
+#     -h                     print this help message
 #
 # All BE tests must use "_test" as the file suffix, and add the file
 # to be/test/CMakeLists.txt.
@@ -38,7 +39,6 @@ set -eo pipefail
 set +o posix
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
-
 export ROOT
 export DORIS_HOME="${ROOT}"
 if [[ -z "${DORIS_THIRDPARTY}" ]]; then
@@ -116,34 +116,37 @@ usage() {
     echo "
 Usage: $0 <options>
   Optional options:
-     --clean            clean and build ut
-     --run              build and run all ut
-     --run --filter=xx  build and run specified ut
-     --run --gen_out    generate expected check data for test
-     --run --gen_regression_case    generate regression test cases corrresponding to ut cases for ut cases that support it
-     --gdb              debug with gdb, DOES NOT take effect if --run is not specified
-     --coverage         generage coverage after run ut, DOES NOT take effect if --gdb is specified
-     -j                 build parallel
-     -h                 print this help message
+     --clean                clean and build ut
+     --run                  build and run all ut
+     --run --filter=xx      build and run specified ut
+     --run --gen_out        generate expected check data for test
+     --run --gen_regression_case  generate regression test cases corrresponding to ut cases for ut cases that support it
+     --gdb                  debug with gdb, DOES NOT take effect if --run is not specified
+     --coverage             generage coverage after run ut, DOES NOT take effect if --gdb is specified
+     --parallel-test=N      run tests using N parallel shards (default: 1, single-process)
+                            set N>1 to enable parallel test execution
+     -j                     build parallel
+     -h                     print this help message
 
-  Eg.
-    $0                                                              build tests
-    $0 --run                                                        build and run all tests
-    $0 --run --filter=*                                             also runs everything
-    $0 --run --filter=FooTest.*                                     runs everything in test suite FooTest
-    $0 --run --filter=*Null*:*Constructor*                          runs any test whose full name contains either 'Null' or 'Constructor'
-    $0 --run --filter=-*DeathTest.*                                 runs all non-death tests
-    $0 --run --filter=FooTest.*-FooTest.Bar                         runs everything in test suite FooTest except FooTest.Bar
-    $0 --run --filter=FooTest.*:BarTest.*-FooTest.Bar:BarTest.Foo   runs everything in test suite FooTest except FooTest.Bar and everything in test suite BarTest except BarTest.Foo
-    $0 --clean                                                      clean and build tests
-    $0 --clean --run                                                clean, build and run all tests
-    $0 --clean --run --coverage                                     clean, build, run all tests and generate coverage report
-    $0 --clean --run --gdb --filter=FooTest.*-FooTest.Bar           clean, build, run all tests and debug FooTest with gdb
-  "
+Eg.
+  $0                           build tests
+  $0 --run                     build and run all tests
+  $0 --run --filter=*          also runs everything
+  $0 --run --filter=FooTest.*  runs everything in test suite FooTest
+  $0 --run --filter=*Null*:*Constructor*  runs any test whose full name contains either 'Null' or 'Constructor'
+  $0 --run --filter=-*DeathTest.*  runs all non-death tests
+  $0 --run --filter=FooTest.*-FooTest.Bar  runs everything in test suite FooTest except FooTest.Bar
+  $0 --run --filter=FooTest.*:BarTest.*-FooTest.Bar:BarTest.Foo  runs everything in test suite FooTest except FooTest.Bar and everything in test suite BarTest except BarTest.Foo
+  $0 --clean                   clean and build tests
+  $0 --clean --run             clean, build and run all tests
+  $0 --clean --run --coverage  clean, build, run all tests and generate coverage report
+  $0 --clean --run --gdb --filter=FooTest.*-FooTest.Bar  clean, build, run all tests and debug FooTest with gdb
+  $0 --run --parallel-test=8   build and run all tests using 8 parallel shards
+"
     exit 1
 }
 
-if ! OPTS="$(getopt -n "$0" -o vhj:f: -l gen_out,gen_regression_case,coverage,benchmark,run,gdb,clean,filter: -- "$@")"; then
+if ! OPTS="$(getopt -n "$0" -o vhj:f: -l gen_out,gen_regression_case,coverage,benchmark,run,gdb,clean,filter:,parallel-test: -- "$@")"; then
     usage
 fi
 
@@ -157,6 +160,8 @@ BUILD_AZURE='ON'
 FILTER=""
 GEN_OUT=""
 GEN_REGRESSION_CASE=""
+PARALLEL_TEST=""
+
 if [[ "$#" != 1 ]]; then
     while true; do
         case "$1" in
@@ -192,6 +197,10 @@ if [[ "$#" != 1 ]]; then
             PARALLEL="$2"
             shift 2
             ;;
+        --parallel-test)
+            PARALLEL_TEST="$2"
+            shift 2
+            ;;
         --)
             shift
             break
@@ -205,6 +214,12 @@ fi
 
 if [[ -z "${PARALLEL}" ]]; then
     PARALLEL="$(($(nproc) / 5 + 1))"
+fi
+
+# Default parallel test shards: 1 (single-process, preserving original behavior).
+# Set --parallel-test=N (N>1) to enable parallel sharding.
+if [[ -z "${PARALLEL_TEST}" ]]; then
+    PARALLEL_TEST=1
 fi
 
 CMAKE_BUILD_TYPE="${BUILD_TYPE_UT:-ASAN}"
@@ -222,17 +237,18 @@ done
 
 echo "Get params:
     PARALLEL            -- ${PARALLEL}
+    PARALLEL_TEST       -- ${PARALLEL_TEST}
     CLEAN               -- ${CLEAN}
     ENABLE_PCH          -- ${ENABLE_PCH}
     EXTRA_BE_MODULES    -- ${EXTRA_BE_MODULES}
 "
+
 echo "Build Backend UT"
 
 update_submodule() {
     local submodule_path=$1
     local submodule_name=$2
     local archive_url=$3
-
     set +e
     cd "${DORIS_HOME}"
     echo "Update ${submodule_name} submodule ..."
@@ -242,10 +258,8 @@ update_submodule() {
     if [[ "${exit_code}" -ne 0 ]]; then
         # try to get submodule's current commit
         submodule_commit=$(git ls-tree HEAD "${submodule_path}" | awk '{print $3}')
-
         commit_specific_url=$(echo "${archive_url}" | sed "s/refs\/heads/${submodule_commit}/")
         echo "Update ${submodule_name} submodule failed, start to download and extract ${commit_specific_url}"
-
         mkdir -p "${DORIS_HOME}/${submodule_path}"
         curl -L "${commit_specific_url}" | tar -xz -C "${DORIS_HOME}/${submodule_path}" --strip-components=1
     fi
@@ -272,11 +286,11 @@ fi
 if [[ -z ${CMAKE_BUILD_DIR} ]]; then
     CMAKE_BUILD_DIR="${DORIS_HOME}/be/ut_build_${CMAKE_BUILD_TYPE}"
 fi
+
 if [[ "${CLEAN}" -eq 1 ]]; then
     pushd "${DORIS_HOME}/gensrc"
     make clean
     popd
-
     rm -rf "${CMAKE_BUILD_DIR}"
     rm -rf "${DORIS_HOME}/be/output"
 fi
@@ -346,6 +360,7 @@ cd "${CMAKE_BUILD_DIR}"
     -DBUILD_AZURE="${BUILD_AZURE}" \
     "${BE_EXTRA_CMAKE_ARGS[@]}" \
     "${DORIS_HOME}/be"
+
 "${BUILD_SYSTEM}" -j "${PARALLEL}"
 
 if [[ "${RUN}" -ne 1 ]]; then
@@ -354,7 +369,7 @@ if [[ "${RUN}" -ne 1 ]]; then
 fi
 
 echo "******************************"
-echo "   Running Backend Unit Test  "
+echo " Running Backend Unit Test    "
 echo "******************************"
 
 # build running dir env
@@ -370,6 +385,7 @@ cp "${DORIS_HOME}/conf/be.conf" "${CONF_DIR}"/
 export TERM="xterm"
 export UDF_RUNTIME_DIR="${DORIS_TEST_BINARY_DIR}/lib/udf-runtime"
 export LOG_DIR="${DORIS_TEST_BINARY_DIR}/log"
+
 while read -r variable; do
     eval "export ${variable}"
 done < <(sed 's/[[:space:]]*\(=\)[[:space:]]*/\1/' "${DORIS_TEST_BINARY_DIR}/conf/be.conf" | grep -E "^[[:upper:]]([[:upper:]]|_|[[:digit:]])*=")
@@ -396,10 +412,12 @@ setup_java_env() {
     if [[ "$(uname -m)" == 'aarch64' ]]; then
         jvm_arch='aarch64'
     fi
+
     java_version="$(
         set -e
         jdk_version "${JAVA_HOME}/bin/java"
     )"
+
     if [[ "${java_version}" -gt 8 ]]; then
         export LD_LIBRARY_PATH="${JAVA_HOME}/lib/server:${JAVA_HOME}/lib:${LD_LIBRARY_PATH}"
         # JAVA_HOME is jdk
@@ -440,9 +458,11 @@ touch "${UT_TMP_DIR}/tmp_file"
 LIB_DIR="${DORIS_TEST_BINARY_DIR}/lib/"
 rm -rf "${LIB_DIR}"
 mkdir "${LIB_DIR}"
+
 if [[ -d "${DORIS_THIRDPARTY}/installed/lib/hadoop_hdfs/" ]]; then
     cp -r "${DORIS_THIRDPARTY}/installed/lib/hadoop_hdfs/" "${LIB_DIR}"
 fi
+
 if [[ -f "${DORIS_HOME}/output/be/lib/java-udf-jar-with-dependencies.jar" ]]; then
     cp "${DORIS_HOME}/output/be/lib/java-udf-jar-with-dependencies.jar" "${LIB_DIR}/"
 fi
@@ -506,7 +526,6 @@ java_version="$(
     set -e
     jdk_version "${JAVA_HOME}/bin/java"
 )"
-
 CUR_DATE=$(date +%Y%m%d-%H%M%S)
 LOG_PATH="-DlogPath=${DORIS_TEST_BINARY_DIR}/log/jni.log"
 COMMON_OPTS="-Dsun.java.command=DorisBETEST -XX:-CriticalJNINatives"
@@ -527,11 +546,9 @@ fi
 MACHINE_OS=$(uname -s)
 if [[ "${MACHINE_OS}" == "Darwin" ]]; then
     max_fd_limit='-XX:-MaxFDLimit'
-
     if ! echo "${final_java_opt}" | grep "${max_fd_limit/-/\\-}" >/dev/null; then
         final_java_opt="${final_java_opt} ${max_fd_limit}"
     fi
-
     if [[ -n "${JAVA_OPTS}" ]] && ! echo "${JAVA_OPTS}" | grep "${max_fd_limit/-/\\-}" >/dev/null; then
         JAVA_OPTS="${JAVA_OPTS} ${max_fd_limit}"
     fi
@@ -545,6 +562,7 @@ export ORC_EXAMPLE_DIR="${DORIS_HOME}/contrib/apache-orc/examples"
 
 # set asan and ubsan env to generate core file
 export DORIS_HOME="${DORIS_TEST_BINARY_DIR}/"
+
 ## detect_container_overflow=0, https://github.com/google/sanitizers/issues/193
 export ASAN_OPTIONS=symbolize=1:abort_on_error=1:disable_coredump=0:unmap_shadow_on_exit=1:detect_container_overflow=0:check_malloc_usable_size=0
 export UBSAN_OPTIONS=print_stacktrace=1
@@ -552,9 +570,10 @@ export JAVA_OPTS="-Xmx1024m -DlogPath=${DORIS_HOME}/log/jni.log -Xloggc:${DORIS_
 
 # find all executable test files
 test="${DORIS_TEST_BINARY_DIR}/doris_be_test"
-profraw=${DORIS_TEST_BINARY_DIR}/doris_be_test.profraw
-profdata=${DORIS_TEST_BINARY_DIR}/doris_be_test.profdata
 
+# profraw dir holds per-shard profraw files; profdata is the merged result
+profraw_dir="${DORIS_TEST_BINARY_DIR}/profraw"
+profdata="${DORIS_TEST_BINARY_DIR}/doris_be_test.profdata"
 
 if [[ ${GDB} -ge 1 ]]; then
     gdb --args "${test}" "${FILTER}"
@@ -562,25 +581,125 @@ if [[ ${GDB} -ge 1 ]]; then
 fi
 
 file_name="${test##*/}"
-if [[ -f "${test}" ]]; then
-    if [[ "_${DENABLE_CLANG_COVERAGE}" == "_ON" ]]; then
-        LLVM_PROFILE_FILE="${profraw}" "${test}" --gtest_output="xml:${GTEST_OUTPUT_DIR}/${file_name}.xml" --gtest_print_time=true "${FILTER}" "${GEN_OUT}" "${GEN_REGRESSION_CASE}"
-        if [[ -d "${DORIS_TEST_BINARY_DIR}"/report ]]; then
-            rm -rf "${DORIS_TEST_BINARY_DIR}"/report
-        fi
-        cmd1="${LLVM_PROFDATA} merge -o ${profdata} ${profraw}"
-        echo "${cmd1}"
-        eval "${cmd1}"
-        cmd2="${LLVM_COV} show -output-dir=${DORIS_TEST_BINARY_DIR}/report -format=html \
-            -ignore-filename-regex='(.*gensrc/.*)|(.*_test\.cpp$)|(.*be/test.*)|(.*apache-orc/.*)|(.*clucene/.*)' \
-            -instr-profile=${profdata} \
-            -object=${test}"
-        echo "${cmd2}"
-        eval "${cmd2}"
-    else
-        "${test}" --gtest_output="xml:${GTEST_OUTPUT_DIR}/${file_name}.xml" --gtest_print_time=true "${FILTER}" "${GEN_OUT}" "${GEN_REGRESSION_CASE}"
-    fi
-    echo "=== Finished. Gtest output: ${GTEST_OUTPUT_DIR}"
-else
+
+if [[ ! -f "${test}" ]]; then
     echo "unit test file: ${test} does not exist."
+    exit 1
 fi
+
+# Build gtest extra args array, omitting empty variables to avoid passing
+# bare "" tokens to the binary (fixes: empty FILTER/GEN_OUT/GEN_REGRESSION_CASE
+# being forwarded as literal empty-string arguments).
+GTEST_EXTRA_ARGS=()
+[[ -n "${FILTER}" ]] && GTEST_EXTRA_ARGS+=("${FILTER}")
+[[ -n "${GEN_OUT}" ]] && GTEST_EXTRA_ARGS+=("${GEN_OUT}")
+[[ -n "${GEN_REGRESSION_CASE}" ]] && GTEST_EXTRA_ARGS+=("${GEN_REGRESSION_CASE}")
+
+# Determine whether to run in single-process mode.
+# Forced single-process when:
+#   - --filter is set (subset run, sharding would mis-distribute cases)
+#   - --gen_out / --gen_regression_case is set (writes shared output files,
+#     parallel writes would corrupt results)
+#   - --parallel-test=1 (explicitly disabled)
+USE_SINGLE_PROCESS=0
+if [[ -n "${FILTER}" ]] || [[ -n "${GEN_OUT}" ]] || [[ -n "${GEN_REGRESSION_CASE}" ]] || [[ "${PARALLEL_TEST}" -le 1 ]]; then
+    USE_SINGLE_PROCESS=1
+fi
+
+# run_one_shard <shard_idx> <total_shards> <xml_out> [<log_out>]
+# Unified entry point for both single-process and parallel modes.
+# When log_out is supplied, stdout+stderr are redirected there (parallel mode).
+# Coverage: each invocation writes its own profraw via %p (pid) placeholder.
+run_one_shard() {
+    local shard_idx="$1"
+    local total_shards="$2"
+    local xml_out="$3"
+    local log_out="${4:-}"
+
+    local coverage_env=()
+    if [[ "_${DENABLE_CLANG_COVERAGE}" == "_ON" ]]; then
+        # %p expands to the process PID -- each shard gets a unique profraw file
+        coverage_env=(env "LLVM_PROFILE_FILE=${profraw_dir}/shard_%p.profraw")
+    fi
+
+    if [[ -n "${log_out}" ]]; then
+        GTEST_TOTAL_SHARDS="${total_shards}" GTEST_SHARD_INDEX="${shard_idx}" \
+            "${coverage_env[@]}" "${test}" \
+            --gtest_output="xml:${xml_out}" \
+            --gtest_print_time=true \
+            "${GTEST_EXTRA_ARGS[@]}" \
+            >"${log_out}" 2>&1
+    else
+        GTEST_TOTAL_SHARDS="${total_shards}" GTEST_SHARD_INDEX="${shard_idx}" \
+            "${coverage_env[@]}" "${test}" \
+            --gtest_output="xml:${xml_out}" \
+            --gtest_print_time=true \
+            "${GTEST_EXTRA_ARGS[@]}"
+    fi
+}
+
+if [[ "${USE_SINGLE_PROCESS}" -eq 1 ]]; then
+    echo "Running tests in single-process mode..."
+    [[ "_${DENABLE_CLANG_COVERAGE}" == "_ON" ]] && mkdir -p "${profraw_dir}"
+    run_one_shard 0 1 "${GTEST_OUTPUT_DIR}/${file_name}.xml"
+else
+    # Parallel shard mode: split tests across PARALLEL_TEST processes using
+    # gtest native sharding (GTEST_TOTAL_SHARDS / GTEST_SHARD_INDEX).
+    # Coverage: each shard writes profraw/shard_<pid>.profraw, merged below.
+    echo "Running tests with ${PARALLEL_TEST} parallel shards..."
+    mkdir -p "${profraw_dir}"
+    PIDS=()
+
+    for ((shard_idx = 0; shard_idx < PARALLEL_TEST; shard_idx++)); do
+        run_one_shard \
+            "${shard_idx}" "${PARALLEL_TEST}" \
+            "${GTEST_OUTPUT_DIR}/${file_name}_shard${shard_idx}.xml" \
+            "${LOG_DIR}/ut_shard_${shard_idx}.log" &
+        PIDS+=($!)
+    done
+
+    # Wait for all shards and collect failures
+    FAILED_SHARDS=()
+    for ((shard_idx = 0; shard_idx < PARALLEL_TEST; shard_idx++)); do
+        if wait "${PIDS[$shard_idx]}"; then
+            echo "[shard ${shard_idx}] PASSED"
+        else
+            echo "[shard ${shard_idx}] FAILED"
+            FAILED_SHARDS+=("${shard_idx}")
+        fi
+    done
+
+    # Print logs of failed shards before exiting
+    if [[ "${#FAILED_SHARDS[@]}" -gt 0 ]]; then
+        echo ""
+        echo "===== Failed shard logs ====="
+        for shard_idx in "${FAILED_SHARDS[@]}"; do
+            echo "----- shard ${shard_idx} -----"
+            cat "${LOG_DIR}/ut_shard_${shard_idx}.log"
+        done
+        echo "============================="
+        echo "${#FAILED_SHARDS[@]} shard(s) failed: ${FAILED_SHARDS[*]}"
+        exit 1
+    fi
+fi
+
+# Generate coverage report after all shards complete
+if [[ "_${DENABLE_CLANG_COVERAGE}" == "_ON" ]]; then
+    if [[ -d "${DORIS_TEST_BINARY_DIR}/report" ]]; then
+        rm -rf "${DORIS_TEST_BINARY_DIR}/report"
+    fi
+
+    # Merge all per-shard profraw files into one profdata
+    cmd1="${LLVM_PROFDATA} merge -o ${profdata} ${profraw_dir}/shard_*.profraw"
+    echo "${cmd1}"
+    eval "${cmd1}"
+
+    cmd2="${LLVM_COV} show -output-dir=${DORIS_TEST_BINARY_DIR}/report -format=html \
+        -ignore-filename-regex='(.*gensrc/.*)|(.*_test\.cpp$)|(.*be/test.*)|(.*apache-orc/.*)|(.*clucene/.*)' \
+        -instr-profile=${profdata} \
+        -object=${test}"
+    echo "${cmd2}"
+    eval "${cmd2}"
+fi
+
+echo "=== Finished. Gtest output: ${GTEST_OUTPUT_DIR}"
