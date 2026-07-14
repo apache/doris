@@ -1333,17 +1333,8 @@ bool ParquetScanScheduler::prepare_current_row_group_reader(
     if (file_context.metadata == nullptr) {
         return false;
     }
-    // MergeRangeFileReader can merge forward from the range containing the current ReadAt() into
-    // later registered ranges. Registering lazy chunks before predicate evaluation would therefore
-    // let a predicate read fetch output bytes that a fully filtered row group never materializes.
-    // Keep filtered scans predicate-only here. Reads for a surviving batch's lazy columns fall
-    // outside these ranges and use the underlying reader directly; unfiltered scans can still
-    // coalesce all projected chunks because every output column is guaranteed to be consumed.
-    const auto merge_range_columns = request.conjuncts.empty() && request.delete_conjuncts.empty()
-                                             ? request_scan_columns(request)
-                                             : request.predicate_columns;
-    const auto ranges = build_row_group_prefetch_ranges(*file_context.metadata, file_schema,
-                                                        merge_range_columns, row_group_idx);
+    const auto ranges = build_row_group_prefetch_ranges(
+            *file_context.metadata, file_schema, request_scan_columns(request), row_group_idx);
     const size_t avg_io_size = detail::average_prefetch_range_size(ranges);
     return file_context.set_random_access_ranges(ranges, avg_io_size, _profile,
                                                  _merge_read_slice_size);

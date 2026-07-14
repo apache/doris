@@ -1083,15 +1083,6 @@ TEST_F(ParquetScanTest, PredicateColumnsSkipUnreadColumnsWhenFirstPredicateFilte
 // reader and its pending lag instead of issuing SkipRecords for values that can never be observed.
 TEST_F(ParquetScanTest, FullyFilteredRowGroupsDropPendingLazyReaders) {
     write_int_pair_parquet_file(_file_path, 2, false);
-    auto parquet_file_reader = ::parquet::ParquetFileReader::OpenFile(_file_path, false);
-    int64_t predicate_chunk_bytes = 0;
-    for (int row_group_idx = 0; row_group_idx < parquet_file_reader->metadata()->num_row_groups();
-         ++row_group_idx) {
-        predicate_chunk_bytes += parquet_file_reader->metadata()
-                                         ->RowGroup(row_group_idx)
-                                         ->ColumnChunk(0)
-                                         ->total_compressed_size();
-    }
     RuntimeProfile profile("profile");
     auto reader = create_reader(0, -1, &profile);
     reader->set_batch_size(1);
@@ -1121,12 +1112,6 @@ TEST_F(ParquetScanTest, FullyFilteredRowGroupsDropPendingLazyReaders) {
     EXPECT_EQ(counter_value(profile, "ReaderSkipRows"), 0);
     ASSERT_NE(profile.get_counter("ArrowSkipRecordsTime"), nullptr);
     EXPECT_EQ(profile.get_counter("ArrowSkipRecordsTime")->value(), 0);
-    // Merge-range is active for these small chunks, but a predicate read must not merge forward
-    // into the adjacent lazy score chunk. Its physical bytes are therefore bounded by the total
-    // compressed size of the id predicate chunks across all row groups.
-    ASSERT_NE(profile.get_counter("MergedBytes"), nullptr);
-    EXPECT_GT(profile.get_counter("MergedBytes")->value(), 0);
-    EXPECT_LE(profile.get_counter("MergedBytes")->value(), predicate_chunk_bytes);
 }
 
 // Scenario: row group 0 is fully filtered and leaves two pending lazy rows. Reset must discard that
