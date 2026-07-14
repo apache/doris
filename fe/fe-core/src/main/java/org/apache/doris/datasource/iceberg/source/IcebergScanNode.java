@@ -684,9 +684,9 @@ public class IcebergScanNode extends FileQueryScanNode {
         // required ordinal, and append filter-only columns after them for Iceberg residual evaluation.
         if (isSystemTable) {
             Schema projectedSchema = getSystemTableProjectedSchema(expressions, scan.isCaseSensitive());
-            if (!projectedSchema.columns().isEmpty()) {
-                scan = scan.project(projectedSchema);
-            }
+            // COUNT(*) has no required fields, so an empty projection is valid and must still be applied.
+            // Skipping it would make Iceberg use the full metadata schema and materialize readable_metrics.
+            scan = scan.project(projectedSchema);
         }
 
         icebergTableScan = scan.planWith(source.getCatalog().getThreadPoolWithPreAuth());

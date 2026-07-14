@@ -63,6 +63,11 @@ suite("test_iceberg_system_table_projection", "p0,external,iceberg") {
             (1, MAP(true, false), 20260702);
         """
 
+        // COUNT(*) has no required slots. Its empty SDK projection must not fall back to the full
+        // files schema and materialize readable_metrics for the boolean-map column.
+        sql """SELECT COUNT(*) FROM ${tableName}\$data_files"""
+        sql """SELECT COUNT(*) FROM ${tableName}\$files"""
+
         List<List<Object>> dataFiles = sql """
             SELECT file_size_in_bytes
             FROM ${tableName}\$data_files
