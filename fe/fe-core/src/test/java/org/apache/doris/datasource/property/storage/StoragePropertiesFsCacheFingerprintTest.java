@@ -71,6 +71,16 @@ public class StoragePropertiesFsCacheFingerprintTest {
     }
 
     @Test
+    public void testPatchedFileSystemShadowIsActive() throws Exception {
+        // fe-core ships a patched copy of org.apache.hadoop.fs.FileSystem (start_fe.sh puts
+        // doris-fe.jar ahead of fe/lib jars, so it shadows hadoop-common's). The fingerprint
+        // injected above only isolates credentials if that patched Cache.Key is in effect.
+        Class<?> keyClass = Class.forName("org.apache.hadoop.fs.FileSystem$Cache$Key");
+        Assertions.assertDoesNotThrow(() -> keyClass.getDeclaredField("dorisCacheKey"),
+                "patched FileSystem.Cache.Key (DORIS-PATCH) is not on the FE classpath");
+    }
+
+    @Test
     public void testCombinedFingerprintOfSingleStorageIsItsOwn() throws UserException {
         StorageProperties a = hdfs("userA");
         Assertions.assertEquals(a.getFsCacheFingerprint(),

@@ -224,11 +224,6 @@ public class AzureProperties extends StorageProperties {
     @Override
     public void initializeHadoopStorageConfig() {
         hadoopStorageConfig = new Configuration();
-        //disable azure cache
-        // Disable all Azure ABFS/WASB FileSystem caching to ensure fresh instances per configuration
-        for (String scheme : new String[]{"abfs", "abfss", "wasb", "wasbs"}) {
-            hadoopStorageConfig.set("fs." + scheme + ".impl.disable.cache", "true");
-        }
         origProps.forEach((k, v) -> {
             if (k.startsWith("fs.azure.")) {
                 hadoopStorageConfig.set(k, v);

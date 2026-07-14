@@ -188,9 +188,10 @@ public class COSPropertiesTest {
         Map<String, String> props = Maps.newHashMap();
         props.put("cos.endpoint", "cos.ap-beijing.myqcloud.com");
         COSProperties s3Properties = (COSProperties) StorageProperties.createPrimary(props);
-        Assertions.assertEquals("true", s3Properties.hadoopStorageConfig.get("fs.cos.impl.disable.cache"));
-        Assertions.assertEquals("true", s3Properties.hadoopStorageConfig.get("fs.s3.impl.disable.cache"));
-        Assertions.assertEquals("true", s3Properties.hadoopStorageConfig.get("fs.cosn.impl.disable.cache"));
+        // No longer disabled by default: the patched FileSystem keys its cache by doris.fs.cache.key.
+        Assertions.assertNull(s3Properties.hadoopStorageConfig.get("fs.cos.impl.disable.cache"));
+        Assertions.assertNull(s3Properties.hadoopStorageConfig.get("fs.s3.impl.disable.cache"));
+        Assertions.assertNull(s3Properties.hadoopStorageConfig.get("fs.cosn.impl.disable.cache"));
         props.put("fs.cos.impl.disable.cache", "true");
         props.put("fs.cosn.impl.disable.cache", "false");
         s3Properties = (COSProperties) StorageProperties.createPrimary(props);

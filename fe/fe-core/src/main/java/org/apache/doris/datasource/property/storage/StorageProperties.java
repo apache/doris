@@ -385,7 +385,7 @@ public abstract class StorageProperties extends ConnectionProperties {
             return;
         }
         appendUserFsConfig(origProps);
-        ensureDisableCache(hadoopStorageConfig, origProps);
+        applyUserFsCacheOverrides(hadoopStorageConfig, origProps);
         // Covers the channels that bake this Configuration into BE-bound artifacts
         // (Hudi hadoop_conf.*, Paimon/Iceberg FileIO options); see FS_CACHE_KEY_PROPERTY.
         hadoopStorageConfig.set(FS_CACHE_KEY_PROPERTY, getFsCacheFingerprint());
@@ -404,33 +404,24 @@ public abstract class StorageProperties extends ConnectionProperties {
     protected abstract Set<String> schemas();
 
     /**
-     * By default, Hadoop caches FileSystem instances per scheme and authority (e.g. s3a://bucket/), meaning that all
-     * subsequent calls using the same URI will reuse the same FileSystem object.
-     * In multi-tenant or dynamic credential environments — where different users may access the same bucket using
-     * different access keys or tokens — this cache reuse can lead to cross-credential contamination.
+     * Hadoop caches FileSystem instances per scheme/authority/UGI, which used to cause cross-credential
+     * contamination when different catalogs/TVFs accessed the same bucket or namenode with different
+     * credentials. Doris therefore used to force fs.&lt;schema&gt;.impl.disable.cache=true everywhere.
      * <p>
-     * Specifically, if the cache is not disabled, a FileSystem instance initialized with one set of credentials may
-     * be reused by another session targeting the same bucket but with a different AK/SK. This results in:
+     * That blanket disable is gone: both FE and BE now load a patched {@link org.apache.hadoop.fs.FileSystem}
+     * whose cache key additionally carries {@link #FS_CACHE_KEY_PROPERTY} (a per-storage credential
+     * fingerprint injected right after this method runs), so instances with different credentials never
+     * collide while identical definitions safely share one cached instance.
      * <p>
-     * Incorrect authentication (using stale credentials)
-     * <p>
-     * Unexpected permission errors or access denial
-     * <p>
-     * Potential data leakage between users
-     * <p>
-     * To avoid such risks, the configuration property
-     * fs.<schema>.impl.disable.cache
-     * must be set to true for all object storage backends (e.g., S3A, OSS, COS, OBS), ensuring that each new access
-     * creates an isolated FileSystem instance with its own credentials and configuration context.
+     * Users can still opt out per schema by explicitly setting fs.&lt;schema&gt;.impl.disable.cache;
+     * this method only forwards such explicit choices.
      */
-    private void ensureDisableCache(Configuration conf, Map<String, String> origProps) {
+    private void applyUserFsCacheOverrides(Configuration conf, Map<String, String> origProps) {
         for (String schema : schemas()) {
             String key = "fs." + schema + ".impl.disable.cache";
             String userValue = origProps.get(key);
             if (StringUtils.isNotBlank(userValue)) {
                 conf.setBoolean(key, BooleanUtils.toBoolean(userValue));
-            } else {
-                conf.setBoolean(key, true);
             }
         }
     }
