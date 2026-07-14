@@ -140,6 +140,26 @@ public abstract class StorageProperties extends ConnectionProperties {
     }
 
     /**
+     * Merging several storages' hadoop configs (addResource / put-all loops) keeps only the
+     * last storage's {@link #FS_CACHE_KEY_PROPERTY}; call this after such a merge to replace
+     * it with the order-independent combined fingerprint. No-op for an empty storage list.
+     */
+    public static void setCombinedFsCacheKey(Configuration conf, Collection<StorageProperties> spList) {
+        if (conf != null && spList != null && !spList.isEmpty()) {
+            conf.set(FS_CACHE_KEY_PROPERTY, combinedFsCacheFingerprint(spList));
+        }
+    }
+
+    /**
+     * Map flavor of {@link #setCombinedFsCacheKey(Configuration, Collection)}.
+     */
+    public static void setCombinedFsCacheKey(Map<String, String> props, Collection<StorageProperties> spList) {
+        if (props != null && spList != null && !spList.isEmpty()) {
+            props.put(FS_CACHE_KEY_PROPERTY, combinedFsCacheFingerprint(spList));
+        }
+    }
+
+    /**
      * Hadoop storage configuration used for interacting with HDFS-based systems.
      * <p>
      * Currently, some underlying APIs in Hive and Iceberg still rely on the HDFS protocol directly.

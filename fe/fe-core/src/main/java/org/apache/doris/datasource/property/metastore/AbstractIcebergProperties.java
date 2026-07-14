@@ -229,6 +229,7 @@ public abstract class AbstractIcebergProperties extends MetastoreProperties {
                 }
             }
         }
+        StorageProperties.setCombinedFsCacheKey(conf, storagePropertiesList);
         AbstractS3CompatibleProperties chosen = s3Target != null ? s3Target : s3Fallback;
         if (chosen != null) {
             toS3FileIOProperties(chosen, fileIOProperties);

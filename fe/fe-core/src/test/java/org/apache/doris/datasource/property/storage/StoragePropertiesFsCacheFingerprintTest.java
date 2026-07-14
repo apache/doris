@@ -19,10 +19,12 @@ package org.apache.doris.datasource.property.storage;
 
 import org.apache.doris.common.UserException;
 
+import org.apache.hadoop.conf.Configuration;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -78,6 +80,26 @@ public class StoragePropertiesFsCacheFingerprintTest {
         Class<?> keyClass = Class.forName("org.apache.hadoop.fs.FileSystem$Cache$Key");
         Assertions.assertDoesNotThrow(() -> keyClass.getDeclaredField("dorisCacheKey"),
                 "patched FileSystem.Cache.Key (DORIS-PATCH) is not on the FE classpath");
+    }
+
+    @Test
+    public void testSetCombinedFsCacheKeyOnMergedTargets() throws UserException {
+        StorageProperties a = hdfs("userA");
+        StorageProperties b = hdfs("userB");
+        String expected = StorageProperties.combinedFsCacheFingerprint(Arrays.asList(a, b));
+
+        Map<String, String> mergedMap = new HashMap<>();
+        StorageProperties.setCombinedFsCacheKey(mergedMap, Arrays.asList(a, b));
+        Assertions.assertEquals(expected, mergedMap.get(StorageProperties.FS_CACHE_KEY_PROPERTY));
+
+        Configuration mergedConf = new Configuration(false);
+        StorageProperties.setCombinedFsCacheKey(mergedConf, Arrays.asList(a, b));
+        Assertions.assertEquals(expected, mergedConf.get(StorageProperties.FS_CACHE_KEY_PROPERTY));
+
+        // Empty storage list is a no-op.
+        Map<String, String> untouched = new HashMap<>();
+        StorageProperties.setCombinedFsCacheKey(untouched, Collections.emptyList());
+        Assertions.assertTrue(untouched.isEmpty());
     }
 
     @Test

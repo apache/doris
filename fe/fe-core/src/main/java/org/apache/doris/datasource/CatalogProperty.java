@@ -268,12 +268,7 @@ public class CatalogProperty {
                         backendProps.entrySet().stream().filter(e -> e.getValue() != null)
                                 .forEach(e -> result.put(e.getKey(), e.getValue()));
                     }
-                    if (!storageMap.isEmpty()) {
-                        // Merging maps above keeps only the last storage's fs cache key; replace it with
-                        // an order-independent fingerprint covering every storage of this catalog.
-                        result.put(StorageProperties.FS_CACHE_KEY_PROPERTY,
-                                StorageProperties.combinedFsCacheFingerprint(storageMap.values()));
-                    }
+                    StorageProperties.setCombinedFsCacheKey(result, storageMap.values());
 
                     this.backendStorageProperties = result;
                 }
@@ -304,6 +299,7 @@ public class CatalogProperty {
                             });
                         }
                     }
+                    StorageProperties.setCombinedFsCacheKey(hadoopProperties, storageMap.values());
                 }
             }
         }

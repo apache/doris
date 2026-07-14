@@ -175,6 +175,7 @@ public class IcebergTableSink extends BaseExternalTableDataSink {
         for (StorageProperties storageProperties : storagePropertiesMap.values()) {
             props.putAll(storageProperties.getBackendConfigProperties());
         }
+        StorageProperties.setCombinedFsCacheKey(props, storagePropertiesMap.values());
         tSink.setHadoopConfig(props);
 
         // location

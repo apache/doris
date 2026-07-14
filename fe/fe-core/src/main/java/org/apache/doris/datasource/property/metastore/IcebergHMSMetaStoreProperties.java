@@ -89,6 +89,7 @@ public class IcebergHMSMetaStoreProperties extends AbstractIcebergProperties {
                 conf.addResource(sp.getHadoopStorageConfig());
             }
         }
+        StorageProperties.setCombinedFsCacheKey(conf, storagePropertiesList);
         return conf;
     }
 }
