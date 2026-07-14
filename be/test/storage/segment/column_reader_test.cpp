@@ -629,6 +629,126 @@ TEST_F(ColumnReaderTest, PlaceHolderRecoveryAfterColumnReplacement) {
     EXPECT_EQ(2, dst->size());
 }
 
+namespace {
+void check_default_value_lazy_output(bool read_by_rowids) {
+    SCOPED_TRACE(read_by_rowids ? "read_by_rowids" : "next_batch");
+
+    DefaultValueColumnIterator iterator(true, "7", false, FieldType::OLAP_FIELD_TYPE_INT, 0, 0,
+                                        sizeof(int32_t));
+    ColumnIteratorOptions iter_opts;
+    ASSERT_TRUE(iterator.init(iter_opts).ok());
+    iterator.set_read_requirement(ColumnIterator::ReadRequirement::LAZY_OUTPUT);
+    iterator.set_read_phase(ColumnIterator::ReadPhase::PREDICATE);
+
+    MutableColumnPtr dst = ColumnInt32::create();
+    size_t rows = 3;
+    bool has_null = false;
+    ASSERT_TRUE(iterator.next_batch(&rows, dst, &has_null).ok());
+    EXPECT_TRUE(iterator._has_place_holder_column);
+
+    IColumn::Filter filter;
+    filter.resize(3);
+    filter[0] = 1;
+    filter[1] = 0;
+    filter[2] = 1;
+    dst = IColumn::mutate(dst->filter(filter, 2));
+    ASSERT_EQ(2, dst->size());
+
+    iterator.set_read_phase(ColumnIterator::ReadPhase::LAZY);
+    if (read_by_rowids) {
+        const rowid_t rowids[] = {2, 8};
+        ASSERT_TRUE(iterator.read_by_rowids(rowids, std::size(rowids), dst).ok());
+    } else {
+        rows = 2;
+        ASSERT_TRUE(iterator.next_batch(&rows, dst, &has_null).ok());
+    }
+
+    ASSERT_EQ(2, dst->size());
+    EXPECT_FALSE(iterator._has_place_holder_column);
+    const auto& result = assert_cast<const ColumnInt32&>(*dst);
+    EXPECT_EQ(7, result.get_element(0));
+    EXPECT_EQ(7, result.get_element(1));
+}
+
+void check_default_value_predicate_not_read_again(bool read_by_rowids) {
+    SCOPED_TRACE(read_by_rowids ? "read_by_rowids" : "next_batch");
+
+    DefaultValueColumnIterator iterator(true, "7", false, FieldType::OLAP_FIELD_TYPE_INT, 0, 0,
+                                        sizeof(int32_t));
+    ColumnIteratorOptions iter_opts;
+    ASSERT_TRUE(iterator.init(iter_opts).ok());
+    iterator.set_read_requirement(ColumnIterator::ReadRequirement::PREDICATE);
+    iterator.set_read_phase(ColumnIterator::ReadPhase::PREDICATE);
+
+    MutableColumnPtr dst = ColumnInt32::create();
+    size_t rows = 3;
+    bool has_null = true;
+    ASSERT_TRUE(iterator.next_batch(&rows, dst, &has_null).ok());
+    EXPECT_FALSE(has_null);
+    EXPECT_FALSE(iterator._has_place_holder_column);
+
+    IColumn::Filter filter;
+    filter.resize(3);
+    filter[0] = 1;
+    filter[1] = 0;
+    filter[2] = 1;
+    dst = IColumn::mutate(dst->filter(filter, 2));
+    ASSERT_EQ(2, dst->size());
+
+    iterator.set_read_phase(ColumnIterator::ReadPhase::LAZY);
+    if (read_by_rowids) {
+        const rowid_t rowids[] = {2, 8};
+        ASSERT_TRUE(iterator.read_by_rowids(rowids, std::size(rowids), dst).ok());
+    } else {
+        rows = 2;
+        ASSERT_TRUE(iterator.next_batch(&rows, dst, &has_null).ok());
+    }
+
+    ASSERT_EQ(2, dst->size());
+    const auto& result = assert_cast<const ColumnInt32&>(*dst);
+    EXPECT_EQ(7, result.get_element(0));
+    EXPECT_EQ(7, result.get_element(1));
+}
+} // namespace
+
+TEST_F(ColumnReaderTest, DefaultValueLazyOutputRecoversFilteredPlaceholder) {
+    check_default_value_lazy_output(false);
+    check_default_value_lazy_output(true);
+}
+
+TEST_F(ColumnReaderTest, DefaultValueLazyOutputFinalizesEmptySelection) {
+    DefaultValueColumnIterator iterator(true, "7", false, FieldType::OLAP_FIELD_TYPE_INT, 0, 0,
+                                        sizeof(int32_t));
+    ColumnIteratorOptions iter_opts;
+    ASSERT_TRUE(iterator.init(iter_opts).ok());
+    iterator.set_read_requirement(ColumnIterator::ReadRequirement::LAZY_OUTPUT);
+    iterator.set_read_phase(ColumnIterator::ReadPhase::PREDICATE);
+
+    MutableColumnPtr dst = ColumnInt32::create();
+    size_t rows = 3;
+    bool has_null = false;
+    ASSERT_TRUE(iterator.next_batch(&rows, dst, &has_null).ok());
+    EXPECT_TRUE(iterator._has_place_holder_column);
+
+    IColumn::Filter filter;
+    filter.resize(3);
+    filter[0] = 0;
+    filter[1] = 0;
+    filter[2] = 0;
+    dst = IColumn::mutate(dst->filter(filter, 0));
+    ASSERT_EQ(0, dst->size());
+
+    iterator.set_read_phase(ColumnIterator::ReadPhase::LAZY);
+    iterator.finalize_lazy_phase(dst);
+    EXPECT_EQ(0, dst->size());
+    EXPECT_FALSE(iterator._has_place_holder_column);
+}
+
+TEST_F(ColumnReaderTest, DefaultValuePredicateIsNotReadAgainInLazyPhase) {
+    check_default_value_predicate_not_read_again(false);
+    check_default_value_predicate_not_read_again(true);
+}
+
 TEST_F(ColumnReaderTest, SetReadRequirementPropagatesToNestedIterators) {
     auto null_iter = std::make_unique<FileColumnIterator>(std::make_shared<ColumnReader>());
     std::vector<ColumnIteratorUPtr> struct_sub_iters;
