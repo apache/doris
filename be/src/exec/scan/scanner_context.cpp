@@ -166,7 +166,6 @@ Status ScannerContext::init() {
             }
         }
     }
-    _min_scan_concurrency = std::min(_min_scan_concurrency, _max_scan_concurrency);
 
     COUNTER_SET(_local_state->_max_scan_concurrency, (int64_t)_max_scan_concurrency);
     COUNTER_SET(_local_state->_min_scan_concurrency, (int64_t)_min_scan_concurrency);
@@ -258,7 +257,6 @@ void ScannerContext::push_back_scan_task(std::shared_ptr<ScanTask> scan_task) {
     }
     _tasks_queue.push_back(scan_task);
     _num_scheduled_scanners--;
-    _scan_starving = false;
 
     _dependency->set_ready();
 }
@@ -318,13 +316,9 @@ Status ScannerContext::get_block_from_queue(RuntimeState* state, Block* block, b
             if (scan_task->is_eos()) {
                 // 1. if eos, record a finished scanner.
                 _num_finished_scanners++;
-                _scan_starving = _tasks_queue.empty() &&
-                                 _num_finished_scanners < cast_set<int32_t>(_all_scanners.size()) &&
-                                 (_num_scheduled_scanners > 0 || !_pending_scanners.empty());
                 RETURN_IF_ERROR(
                         _scanner_scheduler->schedule_scan_task(shared_from_this(), nullptr, l));
             } else {
-                _scan_starving = _tasks_queue.empty();
                 RETURN_IF_ERROR(
                         _scanner_scheduler->schedule_scan_task(shared_from_this(), scan_task, l));
             }
@@ -339,12 +333,7 @@ Status ScannerContext::get_block_from_queue(RuntimeState* state, Block* block, b
     *eos = done();
 
     if (_tasks_queue.empty()) {
-        _scan_starving = !done() &&
-                         _num_finished_scanners < cast_set<int32_t>(_all_scanners.size()) &&
-                         (_num_scheduled_scanners > 0 || !_pending_scanners.empty());
         _dependency->block();
-    } else {
-        _scan_starving = false;
     }
 
     return Status::OK();
@@ -380,7 +369,6 @@ void ScannerContext::stop_scanners(RuntimeState* state) {
         return;
     }
     _should_stop = true;
-    _scan_starving = false;
     _set_scanner_done();
     for (const std::weak_ptr<ScannerDelegate>& scanner : _all_scanners) {
         if (std::shared_ptr<ScannerDelegate> sc = scanner.lock()) {
@@ -463,13 +451,8 @@ void ScannerContext::update_peak_running_scanner(int num) {
 
 int32_t ScannerContext::_get_margin(std::unique_lock<std::mutex>& transfer_lock,
                                     std::unique_lock<std::shared_mutex>& scheduler_lock) {
-    int32_t target_scan_concurrency = _min_scan_concurrency;
-    if (_scan_starving && _tasks_queue.empty()) {
-        target_scan_concurrency = _max_scan_concurrency;
-    }
-
-    // margin_1 is used to ensure each scan operator could have enough scan tasks.
-    int32_t margin_1 = target_scan_concurrency -
+    // margin_1 is used to ensure each scan operator could have at least _min_scan_concurrency scan tasks.
+    int32_t margin_1 = _min_scan_concurrency -
                        (cast_set<int32_t>(_tasks_queue.size()) + _num_scheduled_scanners);
 
     // margin_2 is used to ensure the scan scheduler could have at least _min_scan_concurrency_of_scan_scheduler scan tasks.
@@ -491,11 +474,10 @@ int32_t ScannerContext::_get_margin(std::unique_lock<std::mutex>& transfer_lock,
 
     VLOG_DEBUG << fmt::format(
             "[{}|{}] schedule scan task, margin_1: {} = {} - ({} + {}), margin_2: {} = {} - "
-            "({} + {}), margin: {}, scan starving: {}",
-            print_id(_query_id), ctx_id, margin_1, target_scan_concurrency, _tasks_queue.size(),
+            "({} + {}), margin: {}",
+            print_id(_query_id), ctx_id, margin_1, _min_scan_concurrency, _tasks_queue.size(),
             _num_scheduled_scanners, margin_2, _min_scan_concurrency_of_scan_scheduler,
-            _scanner_scheduler->get_active_threads(), _scanner_scheduler->get_queue_size(), margin,
-            _scan_starving);
+            _scanner_scheduler->get_active_threads(), _scanner_scheduler->get_queue_size(), margin);
 
     return margin;
 }

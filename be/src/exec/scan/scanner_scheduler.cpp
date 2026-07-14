@@ -397,7 +397,7 @@ int ScannerScheduler::get_remote_scan_thread_queue_size() {
 int ScannerScheduler::default_min_active_scan_threads() {
     return config::min_active_scan_threads > 0
                    ? config::min_active_scan_threads
-                   : config::min_active_scan_threads = default_local_scan_thread_num();
+                   : config::min_active_scan_threads = CpuInfo::num_cores() * 2;
 }
 
 int ScannerScheduler::default_min_active_file_scan_threads() {

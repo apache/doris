@@ -423,31 +423,6 @@ TEST_F(ScannerContextTest, get_margin) {
     scanner_context->_num_scheduled_scanners = 20;
     margin = scanner_context->_get_margin(transfer_lock, scheduler_lock);
     ASSERT_EQ(margin, 0);
-
-    // Downstream is waiting for scan data while scheduler is busy. The scan operator should
-    // refill up to max scan concurrency instead of being limited by min scan concurrency.
-    scheduler = std::make_unique<MockSimplifiedScanScheduler>(cgroup_cpu_ctl);
-    EXPECT_CALL(*scheduler, get_active_threads()).WillOnce(testing::Return(50));
-    EXPECT_CALL(*scheduler, get_queue_size()).WillOnce(testing::Return(10));
-    scanner_context->_scanner_scheduler = scheduler.get();
-    scanner_context->_min_scan_concurrency_of_scan_scheduler = 20;
-    scanner_context->_num_scheduled_scanners = 0;
-    scanner_context->_min_scan_concurrency = 1;
-    scanner_context->_max_scan_concurrency = 8;
-    scanner_context->_scan_starving = true;
-    margin = scanner_context->_get_margin(transfer_lock, scheduler_lock);
-    ASSERT_EQ(margin, scanner_context->_max_scan_concurrency);
-
-    // If there is already a produced task waiting in the queue, downstream is not scan-starved.
-    scheduler = std::make_unique<MockSimplifiedScanScheduler>(cgroup_cpu_ctl);
-    EXPECT_CALL(*scheduler, get_active_threads()).WillOnce(testing::Return(50));
-    EXPECT_CALL(*scheduler, get_queue_size()).WillOnce(testing::Return(10));
-    scanner_context->_scanner_scheduler = scheduler.get();
-    scanner_context->_tasks_queue.push_back(
-            std::make_shared<ScanTask>(std::make_shared<ScannerDelegate>(scanner)));
-    margin = scanner_context->_get_margin(transfer_lock, scheduler_lock);
-    ASSERT_EQ(margin, 0);
-    scanner_context->_tasks_queue.clear();
 }
 
 TEST_F(ScannerContextTest, pull_next_scan_task) {

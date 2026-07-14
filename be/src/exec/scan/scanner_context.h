@@ -251,8 +251,7 @@ protected:
     // Each scan operator can submit _max_scan_concurrency scanner to scheduelr if scheduler has enough resource.
     // So that for a single query, we can make sure it could make full utilization of the resource.
     int32_t _max_scan_concurrency = 0;
-    int32_t _min_scan_concurrency = 1;
-    bool _scan_starving = false;
+    MOCK_REMOVE(const) int32_t _min_scan_concurrency = 1;
 
     std::shared_ptr<ScanTask> _pull_next_scan_task(std::shared_ptr<ScanTask> current_scan_task,
                                                    int32_t current_concurrency);
