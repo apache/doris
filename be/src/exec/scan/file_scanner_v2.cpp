@@ -54,6 +54,7 @@
 #include "format_v2/jni/trino_connector_jni_reader.h"
 #include "format_v2/table/hive_reader.h"
 #include "format_v2/table/hudi_reader.h"
+#include "format_v2/table/iceberg_position_delete_sys_table_reader.h"
 #include "format_v2/table/iceberg_reader.h"
 #include "format_v2/table/paimon_reader.h"
 #include "format_v2/table/remote_doris_reader.h"
@@ -69,6 +70,9 @@
 
 namespace doris {
 namespace {
+
+constexpr int kIcebergPositionDeleteContent = 1;
+constexpr int kIcebergDeletionVectorContent = 3;
 
 std::string table_format_name(const TFileRangeDesc& range) {
     return range.__isset.table_format_params ? range.table_format_params.table_format_type
@@ -108,6 +112,15 @@ bool is_supported_jni_table_format(const TFileRangeDesc& range) {
     }
     return table_format == "jdbc" || table_format == "iceberg" || table_format == "hudi" ||
            table_format == "max_compute" || table_format == "trino_connector";
+}
+
+bool is_iceberg_position_deletes_sys_table(const TFileRangeDesc& range) {
+    return range.__isset.table_format_params &&
+           range.table_format_params.table_format_type == "iceberg" &&
+           range.table_format_params.__isset.iceberg_params &&
+           range.table_format_params.iceberg_params.__isset.content &&
+           (range.table_format_params.iceberg_params.content == kIcebergPositionDeleteContent ||
+            range.table_format_params.iceberg_params.content == kIcebergDeletionVectorContent);
 }
 
 bool is_csv_format(TFileFormatType::type format_type) {
@@ -463,7 +476,9 @@ Status FileScannerV2::_create_table_reader_for_format(
     } else if (table_format == "hive") {
         *reader = format::hive::HiveReader::create_unique();
     } else if (table_format == "iceberg") {
-        if (get_range_format_type(*_params, range) == TFileFormatType::FORMAT_JNI) {
+        if (is_iceberg_position_deletes_sys_table(range)) {
+            *reader = std::make_unique<format::iceberg::IcebergPositionDeleteSysTableV2Reader>();
+        } else if (get_range_format_type(*_params, range) == TFileFormatType::FORMAT_JNI) {
             *reader = std::make_unique<format::iceberg::IcebergSysTableJniReader>();
         } else {
             *reader = std::make_unique<format::iceberg::IcebergTableReader>();

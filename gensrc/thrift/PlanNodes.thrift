@@ -297,6 +297,10 @@ struct TIcebergDeleteFileDesc {
     6: optional i64 content_offset;
     7: optional i64 content_size_in_bytes;
     8: optional TFileFormatType file_format;
+    // Original Iceberg delete file path before Doris storage path normalization.
+    9: optional string original_path;
+    // Referenced data file path. Required to materialize rows from deletion vectors.
+    10: optional string referenced_data_file_path;
 }
 
 struct TIcebergFileDesc {

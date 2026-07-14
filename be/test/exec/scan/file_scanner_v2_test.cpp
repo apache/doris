@@ -48,6 +48,9 @@
 namespace doris {
 namespace {
 
+constexpr int kIcebergPositionDeleteContent = 1;
+constexpr int kIcebergDeletionVectorContent = 3;
+
 TFileRangeDesc range_with_format(std::string table_format, TFileFormatType::type format_type) {
     TFileRangeDesc range;
     range.__set_format_type(format_type);
@@ -56,6 +59,14 @@ TFileRangeDesc range_with_format(std::string table_format, TFileFormatType::type
         table_desc.__set_table_format_type(std::move(table_format));
         range.__set_table_format_params(std::move(table_desc));
     }
+    return range;
+}
+
+TFileRangeDesc iceberg_position_deletes_range(TFileFormatType::type format_type, int content) {
+    auto range = range_with_format("iceberg", format_type);
+    TIcebergFileDesc iceberg_params;
+    iceberg_params.__set_content(content);
+    range.table_format_params.__set_iceberg_params(std::move(iceberg_params));
     return range;
 }
 
@@ -313,6 +324,27 @@ TEST(FileScannerV2Test, ConditionCacheDigestIncludesRuntimeFilterPayload) {
     EXPECT_EQ(digest(seed,
                      runtime_filter_context(std::make_shared<UndigestibleRuntimePredicate>(), 4)),
               0);
+}
+
+// Scenario: Iceberg position-delete system table splits use FileScannerV2 for both native delete
+// formats and V3 deletion vectors. Avro remains unsupported and is rejected by FE before routing.
+TEST(FileScannerV2Test, IcebergPositionDeletesSupportNativeFormats) {
+    TFileScanRangeParams params;
+    params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
+
+    const auto parquet_position_delete = iceberg_position_deletes_range(
+            TFileFormatType::FORMAT_PARQUET, kIcebergPositionDeleteContent);
+    const auto parquet_deletion_vector = iceberg_position_deletes_range(
+            TFileFormatType::FORMAT_PARQUET, kIcebergDeletionVectorContent);
+    const auto orc_position_delete = iceberg_position_deletes_range(TFileFormatType::FORMAT_ORC,
+                                                                    kIcebergPositionDeleteContent);
+    const auto avro_position_delete = iceberg_position_deletes_range(TFileFormatType::FORMAT_AVRO,
+                                                                     kIcebergPositionDeleteContent);
+
+    EXPECT_TRUE(FileScannerV2::is_supported(params, parquet_position_delete));
+    EXPECT_TRUE(FileScannerV2::is_supported(params, parquet_deletion_vector));
+    EXPECT_TRUE(FileScannerV2::is_supported(params, orc_position_delete));
+    EXPECT_FALSE(FileScannerV2::is_supported(params, avro_position_delete));
 }
 
 TEST(FileScannerV2Test, FileScanLocalStateSelectsV2ForSupportedQueriesOnly) {
