@@ -23,8 +23,8 @@ import org.apache.doris.datasource.maxcompute.MaxComputeExternalTable;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DistributionSpecHiveTableSinkHashPartitioned;
 import org.apache.doris.nereids.properties.LogicalProperties;
-import org.apache.doris.nereids.properties.MustLocalSortOrderSpec;
 import org.apache.doris.nereids.properties.OrderKey;
+import org.apache.doris.nereids.properties.OrderSpec;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -141,15 +141,16 @@ public class PhysicalMaxComputeTableSink<CHILD_TYPE extends Plan> extends Physic
             DistributionSpecHiveTableSinkHashPartitioned shuffleInfo
                     = new DistributionSpecHiveTableSinkHashPartitioned();
             shuffleInfo.setOutputColExprIds(exprIds);
-            // Require local sort by partition columns so that rows for the same partition
-            // are grouped together. MaxCompute Storage API streams dynamic partition data
-            // and will close a partition writer once it sees a different partition;
-            // unsorted data causes "writer has been closed" errors.
+            // Sort after the partition shuffle so rows for the same partition are grouped
+            // in each final writer stream. MaxCompute Storage API closes a partition writer
+            // once it sees another partition, so unsorted data causes "writer has been closed".
+            // A regular OrderSpec is intentional: MustLocalSortOrderSpec would sort before
+            // the shuffle and add an unnecessary merging exchange afterwards.
             List<OrderKey> orderKeys = columnIdx.stream()
                     .map(idx -> new OrderKey(child().getOutput().get(idx), true, false))
                     .collect(Collectors.toList());
             return new PhysicalProperties(shuffleInfo)
-                    .withOrderSpec(new MustLocalSortOrderSpec(orderKeys));
+                    .withOrderSpec(new OrderSpec(orderKeys));
         }
         return PhysicalProperties.SINK_RANDOM_PARTITIONED;
     }

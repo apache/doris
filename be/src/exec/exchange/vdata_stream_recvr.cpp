@@ -546,17 +546,7 @@ void VDataStreamRecvr::SenderQueue::sub_blocks_memory_usage(int64_t size) {
     DCHECK(size >= 0);
     _recvr->_mem_tracker->release(size);
     _queue_mem_tracker->release(size);
-    // Release the local-channel backpressure once the queue can accept data again.
-    // An EMPTY queue must always release it: an empty `_block_queue` cannot legitimately
-    // hold a sender back, so emptiness is a sufficient release condition on its own.
-    // Relying solely on the byte-based `exceeds_limit()` here is not enough -- if the
-    // `_queue_mem_tracker` byte accounting ever drifts above `_block_queue` (so
-    // `exceeds_limit()` stays true while the queue is already drained), the dependency
-    // would stay blocked forever. That deadlocks the local sender (which then never
-    // delivers its remaining data / EOS) against the merging exchange source dependency,
-    // which in turn waits forever on the now-empty queue -- the whole query hangs until
-    // the client-side socket timeout.
-    if (_local_channel_dependency && (_block_queue.empty() || !exceeds_limit())) {
+    if (_local_channel_dependency && (!exceeds_limit())) {
         _local_channel_dependency->set_ready();
     }
 }
