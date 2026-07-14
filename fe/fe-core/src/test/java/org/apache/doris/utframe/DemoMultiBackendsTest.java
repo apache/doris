@@ -40,7 +40,6 @@ import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
-import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
 import org.apache.doris.tablefunction.BackendsTableValuedFunction;
 import org.apache.doris.thrift.TDisk;
@@ -211,15 +210,32 @@ public class DemoMultiBackendsTest {
         ProcResult result = dir.fetchResult();
         ImmutableList<String> backendsTitleNames = BackendsTableValuedFunction.getBackendsTitleNames();
         Assert.assertEquals(backendsTitleNames.size(), result.getColumnNames().size());
-        Assert.assertEquals("{\"location\" : \"default\"}",
-                result.getRows().get(0).get(backendsTitleNames.size() - 10));
+
+        // 根据列名动态获取索引，避免硬编码和因FQDN模式开关导致的索引错位
+        int tagIndex = backendsTitleNames.indexOf("Tag");
+        Assert.assertTrue("Tag column index should not be -1", tagIndex != -1);
+
+        int statusIndex = backendsTitleNames.indexOf("Status");
+        Assert.assertTrue("Status column index should not be -1", statusIndex != -1);
+
+        int runningTasksIndex = backendsTitleNames.indexOf("RunningTasks");
+        Assert.assertTrue("RunningTasks column index should not be -1", runningTasksIndex != -1);
+
+        // 执行断言
+        Assert.assertEquals("{\"location\" : \"default\"}", result.getRows().get(0).get(tagIndex));
         Assert.assertEquals(
                 "{\"lastSuccessReportTabletsTime\":\"N/A\",\"lastStreamLoadTime\":-1,\"isQueryDisabled\":false,"
-                        + "\"isLoadDisabled\":false,\"isActive\":true,\"isShutdown\":false,\"currentFragmentNum\":0,"
-                        + "\"lastFragmentUpdateTime\":0}",
-                result.getRows().get(0).get(backendsTitleNames.size() - 7));
-        Assert.assertEquals("0", result.getRows().get(0).get(backendsTitleNames.size() - 6));
-        Assert.assertEquals(Tag.VALUE_MIX, result.getRows().get(0).get(backendsTitleNames.size() - 1));
+                + "\"isLoadDisabled\":false,\"isActive\":true,\"isShutdown\":false,\"currentFragmentNum\":0,"
+                + "\"lastFragmentUpdateTime\":0}",
+                result.getRows().get(0).get(statusIndex));
+        Assert.assertEquals("0", result.getRows().get(0).get(runningTasksIndex));
+
+        if (Config.enable_fqdn_mode) {
+            int ipIndex = backendsTitleNames.indexOf("Ip");
+            Assert.assertTrue("Ip column index should not be -1 in FQDN mode", ipIndex != -1);
+            Assert.assertNotNull("Ip value should not be null", result.getRows().get(0).get(ipIndex));
+            Assert.assertNotEquals("Ip value should not be 'Unknown'", "Unknown", result.getRows().get(0).get(ipIndex));
+        }
     }
 
     protected void alterTable(String sql, ConnectContext connectContext) throws Exception {

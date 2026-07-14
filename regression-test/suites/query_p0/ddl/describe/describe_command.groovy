@@ -39,6 +39,13 @@ suite("describe_command") {
     qt_cmd("""describe t1 all;""")
 //    qt_cmd("""describe t1 partition t1;""")
 //    qt_cmd("""describe t1 partition (t1);""")
-    qt_cmd("""describe function backends();""")
+    def fqdnResult = sql "SHOW FRONTEND CONFIG LIKE '%enable_fqdn_mode%'"
+    def isFqdnEnabled = fqdnResult.size() > 0 && fqdnResult[0][1].toLowerCase() == "true"
+    logger.info("isFqdnEnabled value set as: ${isFqdnEnabled}")
+    if (isFqdnEnabled) {
+        qt_cmd1("""describe function backends();""")
+    } else {
+        qt_cmd2("""describe function backends();""")
+    }
     qt_cmd("""drop table if exists t1;""")
 }

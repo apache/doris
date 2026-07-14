@@ -164,7 +164,9 @@ public class FrontendsProcNode implements ProcNodeInterface {
             // To indicate which FE we currently connected
             info.add(fe.getHost().equals(selfNode) ? "Yes" : "No");
             info.add(TimeUtils.longToTimeString(fe.getLiveSince()));
-
+            if (Config.enable_fqdn_mode) {
+                info.add(Env.getCurrentEnv().getDnsCache().get(fe.getHost()));
+            }
             infos.add(info);
         }
     }
@@ -193,6 +195,9 @@ public class FrontendsProcNode implements ProcNodeInterface {
                     info.add(DiskUtils.sizeFormat(disk.getSpaceInfo().available * 1024));
                     info.add(Integer.toString(disk.getSpaceInfo().useRate) + "%");
                     info.add(disk.getSpaceInfo().mountedOn);
+                    if (Config.enable_fqdn_mode) {
+                        info.add(Env.getCurrentEnv().getDnsCache().get(fe.getHost()));
+                    }
                     infos.add(info);
                 }
             }
