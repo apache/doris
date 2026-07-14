@@ -35,6 +35,9 @@
 #include "io/fs/file_system.h"
 #include "storage/index/index_file_writer.h"
 #include "storage/index/inverted/inverted_index_desc.h"
+#include "storage/index/snii/reader/logical_index_reader.h"
+#include "storage/index/snii/reader/snii_segment_reader.h"
+#include "storage/index/snii/snii_doris_adapter.h"
 
 namespace doris {
 class TabletIndex;
@@ -60,13 +63,15 @@ public:
             : _fs(std::move(fs)),
               _index_path_prefix(std::move(index_path_prefix)),
               _storage_format(storage_format),
-              _idx_file_info(idx_file_info),
+              _idx_file_info(std::move(idx_file_info)),
               _tablet_id(tablet_id) {}
     virtual ~IndexFileReader() = default;
 
     MOCK_FUNCTION Status init(int32_t read_buffer_size = config::inverted_index_read_buffer_size,
                               const io::IOContext* io_ctx = nullptr);
     MOCK_FUNCTION Result<std::unique_ptr<DorisCompoundReader, DirectoryDeleter>> open(
+            const TabletIndex* index_meta, const io::IOContext* io_ctx = nullptr) const;
+    Result<std::unique_ptr<doris::snii::reader::LogicalIndexReader>> open_snii_index(
             const TabletIndex* index_meta, const io::IOContext* io_ctx = nullptr) const;
     void debug_file_entries();
     std::string get_index_file_cache_key(const TabletIndex* index_meta) const;
@@ -75,12 +80,19 @@ public:
     Status has_null(const TabletIndex* index_meta, bool* res) const;
     Result<InvertedIndexDirectoryMap> get_all_directories();
     // open file v2, init _stream
-    int64_t get_inverted_file_size() const { return _stream == nullptr ? 0 : _stream->length(); }
+    int64_t get_inverted_file_size() const {
+        if (_storage_format == InvertedIndexStorageFormatPB::SNII) {
+            return _snii_file_reader == nullptr ? 0 : _snii_file_reader->size();
+        }
+        return _stream == nullptr ? 0 : _stream->length();
+    }
     const std::string& get_index_path_prefix() const { return _index_path_prefix; }
+    InvertedIndexStorageFormatPB get_storage_format() const { return _storage_format; }
     friend IndexFileWriter;
 
 protected:
     Status _init_from(int32_t read_buffer_size, const io::IOContext* io_ctx);
+    Status _init_snii(const io::IOContext* io_ctx);
     Result<std::unique_ptr<DorisCompoundReader, DirectoryDeleter>> _open(
             int64_t index_id, const std::string& index_suffix,
             const io::IOContext* io_ctx = nullptr) const;
@@ -88,6 +100,8 @@ protected:
 private:
     IndicesEntriesMap _indices_entries;
     std::unique_ptr<CL_NS(store)::IndexInput> _stream = nullptr;
+    std::shared_ptr<snii_doris::DorisSniiFileReader> _snii_file_reader;
+    std::unique_ptr<doris::snii::reader::SniiSegmentReader> _snii_segment_reader;
     const io::FileSystemSPtr _fs;
     std::string _index_path_prefix;
     int32_t _read_buffer_size = -1;

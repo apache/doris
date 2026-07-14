@@ -74,6 +74,7 @@ struct ReadStatistics {
     int64_t bytes_read_from_local = 0;
     int64_t bytes_read_from_remote = 0;
     int64_t bytes_read_from_peer = 0;
+    int64_t remote_physical_read_bytes = 0;
     int64_t bytes_write_into_file_cache = 0;
     int64_t remote_read_timer = 0;
     int64_t peer_read_timer = 0;

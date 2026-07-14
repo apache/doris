@@ -153,7 +153,10 @@ static bool has_file_cache_statistics(const io::FileCacheStatistics& stats) {
            stats.inverted_index_bytes_read_from_remote != 0 ||
            stats.inverted_index_bytes_read_from_peer != 0 ||
            stats.inverted_index_local_io_timer != 0 || stats.inverted_index_remote_io_timer != 0 ||
-           stats.inverted_index_peer_io_timer != 0 || stats.inverted_index_io_timer != 0;
+           stats.inverted_index_peer_io_timer != 0 || stats.inverted_index_io_timer != 0 ||
+           stats.inverted_index_request_bytes != 0 || stats.inverted_index_read_bytes != 0 ||
+           stats.inverted_index_range_read_count != 0 ||
+           stats.inverted_index_serial_read_rounds != 0;
 }
 
 Status OlapScanner::_prepare_impl() {

@@ -20,8 +20,11 @@
 #include <memory>
 #include <utility>
 
+#include "common/cast_set.h"
+#include "common/config.h"
 #include "storage/index/inverted/inverted_index_compound_reader.h"
 #include "storage/index/inverted/inverted_index_fs_directory.h"
+#include "storage/index/snii/format/per_index_meta.h"
 #include "storage/tablet/tablet_schema.h"
 #include "util/debug_points.h"
 
@@ -31,7 +34,9 @@ Status IndexFileReader::init(int32_t read_buffer_size, const io::IOContext* io_c
     std::unique_lock<std::shared_mutex> lock(_mutex); // Lock for writing
     if (!_inited) {
         _read_buffer_size = read_buffer_size;
-        if (_storage_format >= InvertedIndexStorageFormatPB::V2) {
+        if (_storage_format == InvertedIndexStorageFormatPB::SNII) {
+            RETURN_IF_ERROR(_init_snii(io_ctx));
+        } else if (_storage_format >= InvertedIndexStorageFormatPB::V2) {
             RETURN_IF_ERROR(_init_from(read_buffer_size, io_ctx));
         }
         _inited = true;
@@ -136,7 +141,46 @@ Status IndexFileReader::_init_from(int32_t read_buffer_size, const io::IOContext
     return Status::OK();
 }
 
+Status IndexFileReader::_init_snii(const io::IOContext* io_ctx) {
+    auto index_file_full_path = InvertedIndexDescriptor::get_index_file_path_v2(_index_path_prefix);
+    int64_t file_size = -1;
+    if (_idx_file_info.has_index_size()) {
+        file_size = _idx_file_info.index_size();
+    }
+    file_size = file_size == 0 ? -1 : file_size;
+
+    io::FileReaderOptions opts;
+    // DIAGNOSTIC: inverted_index_read_bypass_file_cache forces NO_CACHE (precise S3
+    // range GETs) for the SNII index reader only, without touching the global
+    // enable_file_cache (cloud mode requires the latter). Default path keeps the
+    // block cache.
+    opts.cache_type = (config::enable_file_cache && !config::inverted_index_read_bypass_file_cache)
+                              ? io::FileCachePolicy::FILE_BLOCK_CACHE
+                              : io::FileCachePolicy::NO_CACHE;
+    opts.is_doris_table = true;
+    opts.file_size = file_size;
+    opts.tablet_id = _tablet_id;
+    io::FileReaderSPtr reader;
+    RETURN_IF_ERROR(_fs->open_file(index_file_full_path, &reader, &opts));
+    _snii_file_reader = std::make_shared<snii_doris::DorisSniiFileReader>(std::move(reader));
+    _snii_segment_reader = std::make_unique<doris::snii::reader::SniiSegmentReader>();
+    io::IOContext meta_io_ctx;
+    if (io_ctx != nullptr) {
+        meta_io_ctx = *io_ctx;
+    }
+    meta_io_ctx.is_inverted_index = true;
+    meta_io_ctx.is_index_data = true;
+    snii_doris::DorisSniiFileReader::ScopedIOContext io_context_scope(&meta_io_ctx);
+    RETURN_IF_ERROR(doris::snii::reader::SniiSegmentReader::open(_snii_file_reader.get(),
+                                                                 _snii_segment_reader.get()));
+    return Status::OK();
+}
+
 Result<InvertedIndexDirectoryMap> IndexFileReader::get_all_directories() {
+    if (_storage_format == InvertedIndexStorageFormatPB::SNII) {
+        return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
+                "SNII format does not expose CLucene directories"));
+    }
     InvertedIndexDirectoryMap res;
     std::shared_lock<std::shared_mutex> lock(_mutex); // Lock for reading
     for (auto& [index, _] : _indices_entries) {
@@ -154,6 +198,11 @@ Result<InvertedIndexDirectoryMap> IndexFileReader::get_all_directories() {
 Result<std::unique_ptr<DorisCompoundReader, DirectoryDeleter>> IndexFileReader::_open(
         int64_t index_id, const std::string& index_suffix, const io::IOContext* io_ctx) const {
     std::unique_ptr<DorisCompoundReader, DirectoryDeleter> compound_reader;
+
+    if (_storage_format == InvertedIndexStorageFormatPB::SNII) {
+        return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
+                "SNII format does not open CLucene compound readers"));
+    }
 
     if (_storage_format == InvertedIndexStorageFormatPB::V1) {
         auto index_file_path = InvertedIndexDescriptor::get_index_file_path_v1(
@@ -229,6 +278,47 @@ Result<std::unique_ptr<DorisCompoundReader, DirectoryDeleter>> IndexFileReader::
     return compound_reader;
 }
 
+Result<std::unique_ptr<doris::snii::reader::LogicalIndexReader>> IndexFileReader::open_snii_index(
+        const TabletIndex* index_meta, const io::IOContext* io_ctx) const {
+    DCHECK(_storage_format == InvertedIndexStorageFormatPB::SNII);
+    std::shared_lock<std::shared_mutex> lock(_mutex);
+    if (_snii_segment_reader == nullptr) {
+        return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>(
+                "SNII index file {} is not opened",
+                InvertedIndexDescriptor::get_index_file_path_v2(_index_path_prefix)));
+    }
+    io::IOContext meta_io_ctx;
+    if (io_ctx != nullptr) {
+        meta_io_ctx = *io_ctx;
+    }
+    meta_io_ctx.is_inverted_index = true;
+    meta_io_ctx.is_index_data = true;
+    snii_doris::DorisSniiFileReader::ScopedIOContext io_context_scope(&meta_io_ctx);
+
+    std::vector<uint8_t> meta_bytes;
+    auto status =
+            _snii_segment_reader->read_index_meta(cast_set<uint64_t>(index_meta->index_id()),
+                                                  index_meta->get_index_suffix(), &meta_bytes);
+    auto doris_status = status;
+    if (!doris_status.ok()) {
+        return ResultError(doris_status);
+    }
+    doris::snii::format::PerIndexMetaReader meta;
+    status = doris::snii::format::PerIndexMetaReader::open(doris::snii::Slice(meta_bytes), &meta);
+    doris_status = status;
+    if (!doris_status.ok()) {
+        return ResultError(doris_status);
+    }
+    auto logical_reader = std::make_unique<doris::snii::reader::LogicalIndexReader>();
+    status = _snii_segment_reader->open_index_from_meta(doris::snii::Slice(meta_bytes),
+                                                        logical_reader.get());
+    doris_status = status;
+    if (!doris_status.ok()) {
+        return ResultError(doris_status);
+    }
+    return logical_reader;
+}
+
 Result<std::unique_ptr<DorisCompoundReader, DirectoryDeleter>> IndexFileReader::open(
         const TabletIndex* index_meta, const io::IOContext* io_ctx) const {
     auto index_id = index_meta->index_id();
@@ -254,6 +344,19 @@ Status IndexFileReader::index_file_exist(const TabletIndex* index_meta, bool* re
         auto index_file_path = InvertedIndexDescriptor::get_index_file_path_v1(
                 _index_path_prefix, index_meta->index_id(), index_meta->get_index_suffix());
         return _fs->exists(index_file_path, res);
+    } else if (_storage_format == InvertedIndexStorageFormatPB::SNII) {
+        auto index_file_path = InvertedIndexDescriptor::get_index_file_path_v2(_index_path_prefix);
+        RETURN_IF_ERROR(_fs->exists(index_file_path, res));
+        if (!*res) {
+            return Status::OK();
+        }
+        std::shared_lock<std::shared_mutex> lock(_mutex);
+        if (_snii_segment_reader == nullptr) {
+            *res = false;
+            return Status::OK();
+        }
+        return _snii_segment_reader->index_exists(cast_set<uint64_t>(index_meta->index_id()),
+                                                  index_meta->get_index_suffix(), res);
     } else {
         std::shared_lock<std::shared_mutex> lock(_mutex); // Lock for reading
         if (_stream == nullptr) {
@@ -277,6 +380,30 @@ Status IndexFileReader::index_file_exist(const TabletIndex* index_meta, bool* re
 Status IndexFileReader::has_null(const TabletIndex* index_meta, bool* res) const {
     if (_storage_format == InvertedIndexStorageFormatPB::V1) {
         *res = true;
+        return Status::OK();
+    }
+    if (_storage_format == InvertedIndexStorageFormatPB::SNII) {
+        std::shared_lock<std::shared_mutex> lock(_mutex);
+        if (_snii_segment_reader == nullptr) {
+            return Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>(
+                    "SNII index file {} is not opened",
+                    InvertedIndexDescriptor::get_index_file_path_v2(_index_path_prefix));
+        }
+        io::IOContext meta_io_ctx;
+        meta_io_ctx.is_inverted_index = true;
+        meta_io_ctx.is_index_data = true;
+        snii_doris::DorisSniiFileReader::ScopedIOContext io_context_scope(&meta_io_ctx);
+
+        std::vector<uint8_t> meta_bytes;
+        auto status =
+                _snii_segment_reader->read_index_meta(cast_set<uint64_t>(index_meta->index_id()),
+                                                      index_meta->get_index_suffix(), &meta_bytes);
+        RETURN_IF_ERROR(status);
+        doris::snii::format::PerIndexMetaReader meta;
+        status = doris::snii::format::PerIndexMetaReader::open(doris::snii::Slice(meta_bytes),
+                                                               &meta);
+        RETURN_IF_ERROR(status);
+        *res = meta.section_refs().null_bitmap.length > 0;
         return Status::OK();
     }
     std::shared_lock<std::shared_mutex> lock(_mutex); // Lock for reading

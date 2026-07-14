@@ -1315,8 +1315,7 @@ class MockRowsetWriter : public RowsetWriter {
 public:
     MockRowsetWriter(const io::FileSystemSPtr& fs, const std::string& segment_path_prefix,
                      const RowsetId& rowset_id, TabletSchemaSPtr tablet_schema,
-                     ReaderType compaction_type = ReaderType::READER_QUERY)
-            : RowsetWriter() {
+                     ReaderType compaction_type = ReaderType::READER_QUERY) {
         _context.rowset_id = rowset_id;
         _context.tablet_schema = tablet_schema;
         _context.compaction_type = compaction_type;
@@ -1344,8 +1343,8 @@ public:
     RowsetSharedPtr manual_build(const RowsetMetaSharedPtr& rowset_meta) override {
         return nullptr;
     }
-    PUniqueId load_id() override { return PUniqueId(); }
-    Version version() override { return Version(); }
+    PUniqueId load_id() override { return {}; }
+    Version version() override { return {}; }
     int64_t num_rows() const override { return 0; }
     int64_t num_rows_updated() const override { return 0; }
     int64_t num_rows_deleted() const override { return 0; }
@@ -1725,8 +1724,12 @@ TEST_F(IndexFileWriterTest, GetIndexFileNamesTest) {
         bool found_1 = false;
         bool found_2 = false;
         for (const auto& name : file_names) {
-            if (name == expected_name_1) found_1 = true;
-            if (name == expected_name_2) found_2 = true;
+            if (name == expected_name_1) {
+                found_1 = true;
+            }
+            if (name == expected_name_2) {
+                found_2 = true;
+            }
         }
 
         EXPECT_TRUE(found_1);
@@ -2179,6 +2182,29 @@ TEST_F(IndexFileWriterTest, EmptyIndexV2Test) {
     ASSERT_TRUE(close_status.ok());
     close_status = writer.finish_close();
     ASSERT_TRUE(close_status.ok());
+}
+
+TEST_F(IndexFileWriterTest, EmptySniiBeginCloseClosesUnderlyingWriter) {
+    io::FileWriterPtr file_writer;
+    std::string snii_index_path_prefix = _index_path_prefix + "_snii";
+    std::string index_path =
+            InvertedIndexDescriptor::get_index_file_path_v2(snii_index_path_prefix);
+    io::FileWriterOptions opts;
+    Status st = _fs->create_file(index_path, &file_writer, &opts);
+    ASSERT_TRUE(st.ok());
+
+    io::FileWriter* raw_file_writer = file_writer.get();
+    IndexFileWriter writer(_fs, snii_index_path_prefix, _rowset_id, _seg_id,
+                           InvertedIndexStorageFormatPB::SNII, std::move(file_writer));
+    ASSERT_EQ(raw_file_writer->state(), io::FileWriter::State::OPENED);
+
+    Status close_status = writer.begin_close();
+    ASSERT_TRUE(close_status.ok());
+    EXPECT_EQ(raw_file_writer->state(), io::FileWriter::State::ASYNC_CLOSING);
+
+    close_status = writer.finish_close();
+    ASSERT_TRUE(close_status.ok());
+    EXPECT_EQ(raw_file_writer->state(), io::FileWriter::State::CLOSED);
 }
 
 // Test for StreamSinkFileWriter path in close()

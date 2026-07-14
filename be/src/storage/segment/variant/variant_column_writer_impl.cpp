@@ -455,6 +455,8 @@ Status prepare_materialized_subcolumn_writer(
     opts.rowset_ctx = base_opts.rowset_ctx;
     opts.file_writer = base_opts.file_writer;
     opts.storage_format = base_opts.storage_format;
+    // keep the segment writer's direct-load marking for subcolumn index writers
+    opts.is_direct_load = base_opts.is_direct_load;
     std::unique_ptr<ColumnWriter> writer;
     variant_util::inherit_column_attributes(parent_column, tablet_column);
 
@@ -1482,6 +1484,8 @@ Status prepare_subcolumn_writer_target(
     opts.rowset_ctx = base_opts.rowset_ctx;
     opts.file_writer = base_opts.file_writer;
     opts.storage_format = base_opts.storage_format;
+    // keep the segment writer's direct-load marking for subcolumn index writers
+    opts.is_direct_load = base_opts.is_direct_load;
     variant_util::inherit_column_attributes(parent_column, tablet_column);
 
     bool need_record_none_null_value_size =

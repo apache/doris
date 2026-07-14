@@ -35,6 +35,7 @@
 #include "runtime/memory/lru_cache_policy.h"
 #include "runtime/memory/mem_tracker.h"
 #include "storage/index/inverted/inverted_index_searcher.h"
+#include "storage/index/snii/reader/logical_index_reader.h"
 #include "util/lru_cache.h"
 #include "util/slice.h"
 #include "util/time.h"
@@ -42,6 +43,7 @@
 namespace doris {
 namespace segment_v2 {
 class InvertedIndexCacheHandle;
+class IndexFileReader;
 
 class InvertedIndexSearcherCache {
 public:
@@ -56,12 +58,22 @@ public:
     class CacheValue : public LRUCacheValueBase {
     public:
         IndexSearcherPtr index_searcher;
+        std::shared_ptr<IndexFileReader> snii_index_file_reader;
+        std::unique_ptr<doris::snii::reader::LogicalIndexReader> snii_logical_reader;
         size_t size = 0;
         int64_t last_visit_time;
 
         CacheValue() = default;
         explicit CacheValue(IndexSearcherPtr searcher, size_t mem_size, int64_t visit_time)
                 : index_searcher(std::move(searcher)) {
+            size = mem_size;
+            last_visit_time = visit_time;
+        }
+        explicit CacheValue(std::unique_ptr<doris::snii::reader::LogicalIndexReader> logical_reader,
+                            size_t mem_size, int64_t visit_time,
+                            std::shared_ptr<IndexFileReader> index_file_reader)
+                : snii_index_file_reader(std::move(index_file_reader)),
+                  snii_logical_reader(std::move(logical_reader)) {
             size = mem_size;
             last_visit_time = visit_time;
         }
@@ -164,6 +176,11 @@ public:
 
     IndexSearcherPtr get_index_searcher() {
         return ((InvertedIndexSearcherCache::CacheValue*)_cache->value(_handle))->index_searcher;
+    }
+
+    doris::snii::reader::LogicalIndexReader* get_snii_logical_reader() {
+        return ((InvertedIndexSearcherCache::CacheValue*)_cache->value(_handle))
+                ->snii_logical_reader.get();
     }
 
     InvertedIndexSearcherCache::CacheValue* get_index_cache_value() {

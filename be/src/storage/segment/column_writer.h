@@ -78,6 +78,13 @@ struct ColumnWriterOptions {
     BloomFilterOptions bf_options;
     std::vector<const TabletIndex*> inverted_indexes;
     IndexFileWriter* index_file_writer = nullptr;
+    // The owning segment serves a direct load (stream/broker load,
+    // DataWriteType::TYPE_DIRECT) rather than compaction / schema change. Set
+    // once by the segment writer and propagated to variant subcolumn writers;
+    // forwarded to every created IndexColumnWriter via set_direct_load() so a
+    // write-type-aware index build (SNII bigram deferral) can tell loads apart
+    // without plumbing DataWriteType itself down here.
+    bool is_direct_load = false;
 
     SegmentFooterPB* footer = nullptr;
     io::FileWriter* file_writer = nullptr;

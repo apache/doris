@@ -17,6 +17,7 @@
 
 #include "io/cache/block_file_cache_profile.h"
 
+#include <array>
 #include <functional>
 #include <memory>
 #include <string>
@@ -106,10 +107,16 @@ FileCacheStatistics diff_file_cache_statistics(const FileCacheStatistics& curren
     SUBTRACT_FIELD(inverted_index_bytes_read_from_local);
     SUBTRACT_FIELD(inverted_index_bytes_read_from_remote);
     SUBTRACT_FIELD(inverted_index_bytes_read_from_peer);
+    SUBTRACT_FIELD(inverted_index_remote_physical_read_bytes);
+    SUBTRACT_FIELD(inverted_index_bytes_write_into_cache);
     SUBTRACT_FIELD(inverted_index_local_io_timer);
     SUBTRACT_FIELD(inverted_index_remote_io_timer);
     SUBTRACT_FIELD(inverted_index_peer_io_timer);
     SUBTRACT_FIELD(inverted_index_io_timer);
+    SUBTRACT_FIELD(inverted_index_request_bytes);
+    SUBTRACT_FIELD(inverted_index_read_bytes);
+    SUBTRACT_FIELD(inverted_index_range_read_count);
+    SUBTRACT_FIELD(inverted_index_serial_read_rounds);
 
     SUBTRACT_FIELD(segment_footer_index_num_local_io_total);
     SUBTRACT_FIELD(segment_footer_index_num_remote_io_total);
@@ -124,6 +131,7 @@ FileCacheStatistics diff_file_cache_statistics(const FileCacheStatistics& curren
     return diff;
 }
 
+// NOLINTBEGIN(readability-function-size): Counter registration stays grouped by profile layout.
 FileCacheProfileReporter::FileCacheProfileReporter(RuntimeProfile* profile) : _profile(profile) {
     static const char* cache_profile = "FileCache";
     ADD_TIMER_WITH_LEVEL(profile, cache_profile, 2);
@@ -170,6 +178,10 @@ FileCacheProfileReporter::FileCacheProfileReporter(RuntimeProfile* profile) : _p
             profile, "InvertedIndexBytesScannedFromRemote", TUnit::BYTES, cache_profile, 1);
     inverted_index_bytes_scanned_from_peer = ADD_CHILD_COUNTER_WITH_LEVEL(
             profile, "InvertedIndexBytesScannedFromPeer", TUnit::BYTES, cache_profile, 1);
+    inverted_index_remote_physical_read_bytes = ADD_CHILD_COUNTER_WITH_LEVEL(
+            profile, "InvertedIndexRemotePhysicalReadBytes", TUnit::BYTES, cache_profile, 1);
+    inverted_index_bytes_write_into_cache = ADD_CHILD_COUNTER_WITH_LEVEL(
+            profile, "InvertedIndexBytesWriteIntoCache", TUnit::BYTES, cache_profile, 1);
     inverted_index_local_io_timer =
             ADD_CHILD_TIMER_WITH_LEVEL(profile, "InvertedIndexLocalIOUseTimer", cache_profile, 1);
     inverted_index_remote_io_timer =
@@ -178,6 +190,14 @@ FileCacheProfileReporter::FileCacheProfileReporter(RuntimeProfile* profile) : _p
             ADD_CHILD_TIMER_WITH_LEVEL(profile, "InvertedIndexPeerIOUseTimer", cache_profile, 1);
     inverted_index_io_timer =
             ADD_CHILD_TIMER_WITH_LEVEL(profile, "InvertedIndexIOTimer", cache_profile, 1);
+    inverted_index_request_bytes = ADD_CHILD_COUNTER_WITH_LEVEL(
+            profile, "InvertedIndexRequestBytes", TUnit::BYTES, cache_profile, 1);
+    inverted_index_read_bytes = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "InvertedIndexReadBytes",
+                                                             TUnit::BYTES, cache_profile, 1);
+    inverted_index_range_read_count = ADD_CHILD_COUNTER_WITH_LEVEL(
+            profile, "InvertedIndexRangeReadCount", TUnit::UNIT, cache_profile, 1);
+    inverted_index_serial_read_rounds = ADD_CHILD_COUNTER_WITH_LEVEL(
+            profile, "InvertedIndexSerialReadRounds", TUnit::UNIT, cache_profile, 1);
 
     segment_footer_index_num_local_io_total = ADD_CHILD_COUNTER_WITH_LEVEL(
             profile, "SegmentFooterIndexNumLocalIOTotal", TUnit::UNIT, cache_profile, 1);
@@ -219,7 +239,9 @@ FileCacheProfileReporter::FileCacheProfileReporter(RuntimeProfile* profile) : _p
     peer_lazy_fetch_timer =
             ADD_CHILD_TIMER_WITH_LEVEL(profile, "PeerLazyFetchTime", cache_profile, 1);
 }
+// NOLINTEND(readability-function-size)
 
+// NOLINTNEXTLINE(readability-function-size): Counter updates stay grouped by profile layout.
 void FileCacheProfileReporter::update(const FileCacheStatistics* statistics) const {
     COUNTER_UPDATE(num_local_io_total, statistics->num_local_io_total);
     COUNTER_UPDATE(num_remote_io_total, statistics->num_remote_io_total);
@@ -251,10 +273,19 @@ void FileCacheProfileReporter::update(const FileCacheStatistics* statistics) con
                    statistics->inverted_index_bytes_read_from_remote);
     COUNTER_UPDATE(inverted_index_bytes_scanned_from_peer,
                    statistics->inverted_index_bytes_read_from_peer);
+    COUNTER_UPDATE(inverted_index_remote_physical_read_bytes,
+                   statistics->inverted_index_remote_physical_read_bytes);
+    COUNTER_UPDATE(inverted_index_bytes_write_into_cache,
+                   statistics->inverted_index_bytes_write_into_cache);
     COUNTER_UPDATE(inverted_index_local_io_timer, statistics->inverted_index_local_io_timer);
     COUNTER_UPDATE(inverted_index_remote_io_timer, statistics->inverted_index_remote_io_timer);
     COUNTER_UPDATE(inverted_index_peer_io_timer, statistics->inverted_index_peer_io_timer);
     COUNTER_UPDATE(inverted_index_io_timer, statistics->inverted_index_io_timer);
+    COUNTER_UPDATE(inverted_index_request_bytes, statistics->inverted_index_request_bytes);
+    COUNTER_UPDATE(inverted_index_read_bytes, statistics->inverted_index_read_bytes);
+    COUNTER_UPDATE(inverted_index_range_read_count, statistics->inverted_index_range_read_count);
+    COUNTER_UPDATE(inverted_index_serial_read_rounds,
+                   statistics->inverted_index_serial_read_rounds);
 
     COUNTER_UPDATE(segment_footer_index_num_local_io_total,
                    statistics->segment_footer_index_num_local_io_total);

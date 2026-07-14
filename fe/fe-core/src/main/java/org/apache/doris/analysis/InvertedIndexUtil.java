@@ -105,6 +105,12 @@ public class InvertedIndexUtil {
             checkInvertedIndexProperties(properties, colType, invertedIndexFileStorageFormat);
         }
 
+        if (invertedIndexFileStorageFormat == TInvertedIndexFileStorageFormat.SNII
+                && !colType.isStringType() && !colType.isArrayType()) {
+            throw new AnalysisException("SNII inverted index storage format only supports string columns, column: "
+                    + indexColName + " type: " + colType);
+        }
+
         // default is "none" if not set
         if (parser == null) {
             parser = INVERTED_INDEX_PARSER_NONE;

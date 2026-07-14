@@ -22,6 +22,7 @@
 #include <filesystem>
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "io/fs/local_file_system.h"
 #include "runtime/exec_env.h"
@@ -31,6 +32,9 @@
 #include "storage/index/inverted/inverted_index_cache.h"
 #include "storage/index/inverted/inverted_index_desc.h"
 #include "storage/index/inverted/inverted_index_fs_directory.h"
+#include "storage/index/snii/snii_doris_adapter.h"
+#include "storage/index/snii/writer/snii_compound_writer.h"
+#include "storage/index/snii/writer/spimi_term_buffer.h"
 #include "storage/options.h"
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet_schema.h"
@@ -214,6 +218,44 @@ public:
         create_v2_file_with_null_bitmap(file_path, index_id, index_suffix, false);
     }
 
+    void create_snii_file_with_null_bitmap(const std::string& file_path, uint64_t index_id,
+                                           const std::string& index_suffix, bool has_null_bitmap) {
+        std::filesystem::path parent_path = std::filesystem::path(file_path).parent_path();
+        if (!std::filesystem::exists(parent_path)) {
+            std::filesystem::create_directories(parent_path);
+        }
+
+        io::FileWriterPtr file_writer;
+        io::FileWriterOptions opts;
+        Status st = io::global_local_filesystem()->create_file(file_path, &file_writer, &opts);
+        ASSERT_TRUE(st.ok()) << st;
+
+        snii_doris::DorisSniiFileWriter snii_file_writer(file_writer.get());
+        doris::snii::writer::SniiCompoundWriter writer(&snii_file_writer);
+        doris::snii::writer::TermPostings term;
+        term.term = "apple";
+        term.docids = {0};
+        term.freqs = {1};
+        term.positions_flat = {0};
+
+        doris::snii::writer::SniiIndexInput input;
+        input.index_id = index_id;
+        input.index_suffix = index_suffix;
+        input.config = doris::snii::format::IndexConfig::kDocsPositions;
+        input.doc_count = 2;
+        input.terms = {std::move(term)};
+        if (has_null_bitmap) {
+            input.null_docids = {1};
+        }
+
+        st = writer.add_logical_index(input);
+        ASSERT_TRUE(st.ok()) << st;
+        st = writer.finish();
+        ASSERT_TRUE(st.ok()) << st;
+        st = file_writer->close(false);
+        ASSERT_TRUE(st.ok()) << st;
+    }
+
 private:
     StorageEngine* _engine_ref = nullptr;
     std::unique_ptr<DataDir> _data_dir = nullptr;
@@ -374,6 +416,42 @@ TEST_F(InvertedIndexFileReaderTest, TestHasNullV2WithSmallNullBitmap) {
     Status status = reader.has_null(&tablet_index, &res);
     EXPECT_TRUE(status.ok());
     EXPECT_FALSE(res); // Small bitmap should return false
+}
+
+TEST_F(InvertedIndexFileReaderTest, TestHasNullSniiWithNullBitmap) {
+    std::string index_path = kTestDir + "/has_null_snii";
+    create_snii_file_with_null_bitmap(index_path + ".idx", 1, "test", true);
+
+    InvertedIndexFileInfo file_info;
+    IndexFileReader reader(io::global_local_filesystem(), index_path,
+                           InvertedIndexStorageFormatPB::SNII, file_info);
+
+    Status init_status = reader.init(4096);
+    EXPECT_TRUE(init_status.ok());
+
+    MockTabletIndex tablet_index(1, "test");
+    bool res = false;
+    Status status = reader.has_null(&tablet_index, &res);
+    EXPECT_TRUE(status.ok());
+    EXPECT_TRUE(res);
+}
+
+TEST_F(InvertedIndexFileReaderTest, TestHasNullSniiWithoutNullBitmap) {
+    std::string index_path = kTestDir + "/has_null_snii_without_nulls";
+    create_snii_file_with_null_bitmap(index_path + ".idx", 1, "test", false);
+
+    InvertedIndexFileInfo file_info;
+    IndexFileReader reader(io::global_local_filesystem(), index_path,
+                           InvertedIndexStorageFormatPB::SNII, file_info);
+
+    Status init_status = reader.init(4096);
+    EXPECT_TRUE(init_status.ok());
+
+    MockTabletIndex tablet_index(1, "test");
+    bool res = true;
+    Status status = reader.has_null(&tablet_index, &res);
+    EXPECT_TRUE(status.ok());
+    EXPECT_FALSE(res);
 }
 
 // Test case for has_null method with V2 format stream nullptr

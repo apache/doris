@@ -1300,6 +1300,89 @@ DEFINE_mDouble(inverted_index_ram_buffer_size, "512");
 // -1 indicates not working.
 // Normally we should not change this, it's useful for testing.
 DEFINE_mInt32(inverted_index_max_buffered_docs, "-1");
+// SNII phrase-bigram df-prune threshold: <0 auto (max(64, doc_count/10000)),
+// 0 disable min-df pruning (full legacy layout ALSO needs
+// snii_bigram_prune_max_df_ratio outside (0, 1)), >0 fixed min-df.
+DEFINE_mInt32(snii_bigram_prune_min_df, "-1");
+// SNII phrase-bigram df-prune UPPER bound, as a fraction of the segment doc
+// count (G15): pairs whose final df exceeds ratio * doc_count are pruned from
+// the hidden bigram dict (their 2-term phrase queries fall back to the
+// positions path, same as min-df pruning); only a ratio in (0, 1) arms the
+// gate (<= 0 disables; >= 1 can never prune, so it resolves to no gate).
+// 0.25 keeps the 20-25% df band on the bigram fastpath (bench: "united
+// states" sits at 21.2% df in wikipedia; pruning it costs a 2.7x cold-phrase
+// cliff, keeping the whole band costs +0.85% table size on textbench).
+DEFINE_mDouble(snii_bigram_prune_max_df_ratio, "0.25");
+// Defer the SNII hidden phrase-bigram build to compaction (default ON since
+// the 4-corpus write-parity campaign: import index CPU -3.5%..-35% at zero
+// compaction overhead; fresh segments answer phrases through the identical-
+// results positions fallback until compaction rebuilds the bigrams).
+// Full behavioral contract documented at the DECLARE in config.h (single
+// source of truth: deferral scope, capture-once semantics, segcompaction
+// caveat, and the never-compacted perf-cliff disclosure).
+DEFINE_mBool(snii_bigram_defer_build_to_compaction, "true");
+// DIAGNOSTIC (default off): force SNII inverted-index reads onto NO_CACHE
+// (precise S3 range GETs) instead of the 1MiB FILE_BLOCK_CACHE. Per-open on the
+// SNII reader only -- does NOT touch global enable_file_cache, so cloud mode
+// still boots. Measures the block-cache read amplification's true cost. Warm
+// queries lose the local cache under this flag, so it is a measurement knob, not
+// a production setting.
+DEFINE_mBool(inverted_index_read_bypass_file_cache, "false");
+// G16-c: whether plain positions-tier (non-scoring) SNII indexes lay out freq
+// regions. Freq bytes serve ONLY BM25 scoring, which the Doris integration
+// does not reach yet (scoring_query has no production caller), so the default
+// drops them (textbench: -2.2 GB index). Scoring-config indexes always write
+// freq regardless. Applies at segment build (write side only); existing
+// segments keep whatever layout they were written with (self-describing).
+DEFINE_mBool(snii_positions_index_write_freq, "false");
+// G16-h: zstd levels for the SNII dict-block compression and the .prx window
+// auto mode. Level 9 (vs the historical 3) shrinks the two largest compressed
+// sections -- textbench: index -457 MB (0.918x -> 0.891x V3) -- for an import
+// CPU cost inside the run-to-run variance band; zstd decode speed does not
+// depend on the level, and warm/cold benches measured no query change.
+// Write side only; segments self-describe their compression.
+// Default 3 since the all-level-3 evaluation (2026-07-11, 4 corpora): vs
+// level 9 the settled index grows only +0.6%..+6.3% (whole table
+// +0.3%..+1.9%) while import index CPU drops 17-24% and full-compaction CPU
+// 8-24%; settled cold-query latency is unchanged (interleaved A/B). The
+// delta+varint-encoded payloads are high-entropy, so level 9's extra search
+// buys almost no ratio. Raise only for size-critical deployments.
+DEFINE_mInt32(snii_dict_block_zstd_level, "3");
+DEFINE_mInt32(snii_prx_zstd_level, "3");
+// Patch C prx tiering: zstd level for the prx region of DIRECT-LOAD segments
+// only (stream/broker load, see IndexColumnWriter::set_direct_load). Inert at
+// the defaults (both levels 3); it exists for size-critical deployments that
+// RAISE snii_prx_zstd_level (e.g. 9) and still want cheap loads: compaction
+// rewrites every segment at snii_prx_zstd_level, so SETTLED data (and the
+// cold-query path over it) is unaffected by the load tier -- measured -290s
+// (httplogs) / -204s (agentlogs) of import index CPU at 3 vs 9. Same clamp
+// [3, 19]. Read at index flush like snii_prx_zstd_level (a mid-load change
+// lands on in-flight segments); the direct-load BIT itself is captured once.
+DEFINE_mInt32(snii_prx_zstd_level_direct_load, "3");
+// G16-d: target SNII dict block size in bytes; 0 uses the format default
+// (64 KiB). Larger blocks compress better under the per-block zstd (the dict
+// is the dominant physical section on high-cardinality corpora) at the cost
+// of a larger fetch+decompress unit per cold dict-block miss. Write side
+// only; the block size is self-described by the on-disk directory.
+DEFINE_mInt32(snii_target_dict_block_bytes, "0");
+// SNII per-writer bigram intern-vocabulary cap (bytes): df==1 bigram terms are
+// incrementally evicted (and bloom-recorded for the flush-time drop) once the
+// live bigram intern storage crosses this. 0 = uncapped. Effective only when
+// snii_bigram_prune_min_df != 0. Default 512 MiB.
+DEFINE_mInt64(snii_bigram_vocab_cap_bytes, "536870912");
+// Process-wide SNII index-build RAM budget across ALL live segment writers
+// (G09); the largest writers are asked to spill early once the sum crosses it.
+// 0 disables. Default 8 GiB.
+DEFINE_mInt64(snii_index_writer_global_memory_bytes, "0");
+// Minimum reclaimable posting-arena bytes before a G09 forced spill is honored
+// (and before a writer is eligible as a spill victim): forced spills reclaim
+// ONLY the arena, so smaller triggers cut tiny runs for near-zero relief.
+// Default 64 MiB.
+DEFINE_mInt64(snii_forced_spill_min_arena_bytes, "67108864");
+// Max spill-run files one SNII writer accumulates before its runs are
+// merge-compacted into one (bounds the k-way merge fan-in and its open fds;
+// every run is held open for the whole merge). 0 = uncapped. Default 64.
+DEFINE_mInt32(snii_spill_max_run_files_per_buffer, "64");
 // dict path for chinese analyzer
 DEFINE_String(inverted_index_dict_path, "${DORIS_HOME}/dict");
 DEFINE_Int32(inverted_index_read_buffer_size, "4096");

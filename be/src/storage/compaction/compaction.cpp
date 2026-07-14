@@ -1222,6 +1222,12 @@ static bool check_rowset_has_inverted_index(const RowsetSharedPtr& src_rs, int32
 }
 
 void Compaction::construct_index_compaction_columns(RowsetWriterContext& ctx) {
+    if (_cur_tablet_schema->get_inverted_index_storage_format() ==
+        InvertedIndexStorageFormatPB::SNII) {
+        LOG(INFO) << "tablet[" << _tablet->tablet_id()
+                  << "] uses SNII inverted index storage format, skip CLucene index compaction";
+        return;
+    }
     for (const auto& index : _cur_tablet_schema->inverted_indexes()) {
         auto col_unique_ids = index->col_unique_ids();
         // check if column unique ids is empty to avoid crash

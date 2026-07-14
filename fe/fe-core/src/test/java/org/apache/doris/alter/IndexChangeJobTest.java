@@ -46,6 +46,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskQueue;
+import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TTaskType;
 import org.apache.doris.transaction.FakeTransactionIDGenerator;
@@ -193,6 +194,47 @@ public class IndexChangeJobTest {
         Map<Long, IndexChangeJob> indexChangeJobMap = schemaChangeHandler.getIndexChangeJobs();
         Assert.assertEquals(1, indexChangeJobMap.size());
         Assert.assertEquals(OlapTableState.NORMAL, olapTable.getState());
+    }
+
+    @Test
+    public void testBuildIndexRejectedForSniiStorageFormat() throws UserException {
+        if (fakeEnv != null) {
+            fakeEnv.close();
+        }
+        fakeEnv = new FakeEnv();
+        if (fakeEditLog != null) {
+            fakeEditLog.close();
+        }
+        fakeEditLog = new FakeEditLog();
+        FakeEnv.setEnv(masterEnv);
+        SchemaChangeHandler schemaChangeHandler = Env.getCurrentEnv().getSchemaChangeHandler();
+        ArrayList<AlterOp> alterOps = new ArrayList<>();
+        Database db = masterEnv.getInternalCatalog().getDbOrDdlException(CatalogTestUtil.testDbId1);
+        OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId1);
+        String indexName = "index1";
+        TableNameInfo tableNameInfo = new TableNameInfo(masterEnv.getInternalCatalog().getName(), db.getName(),
+                olapTable.getName());
+        IndexDefinition indexDefinition = new IndexDefinition(indexName, false,
+                Lists.newArrayList(olapTable.getBaseSchema().get(1).getName()),
+                "INVERTED",
+                Maps.newHashMap(), "balabala");
+        CreateIndexOp createIndexClause = new CreateIndexOp(tableNameInfo, indexDefinition, false);
+        ConnectContext connectContext = new ConnectContext();
+        createIndexClause.validate(connectContext);
+        alterOps.add(createIndexClause);
+        schemaChangeHandler.process(alterOps, db, olapTable);
+        TInvertedIndexFileStorageFormat originalFormat = olapTable.getInvertedIndexFileStorageFormat();
+        try {
+            olapTable.setInvertedIndexFileStorageFormat(TInvertedIndexFileStorageFormat.SNII);
+            BuildIndexOp buildIndexClause = new BuildIndexOp(tableNameInfo, indexName, null, false);
+            buildIndexClause.validate(connectContext);
+            Assert.fail("BUILD INDEX should be rejected for SNII inverted index storage format.");
+        } catch (AnalysisException e) {
+            Assert.assertTrue(e.getMessage().contains(
+                    "BUILD INDEX is not supported for SNII inverted index storage format yet"));
+        } finally {
+            olapTable.setInvertedIndexFileStorageFormat(originalFormat);
+        }
     }
 
     @Test

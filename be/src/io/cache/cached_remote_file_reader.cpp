@@ -316,7 +316,11 @@ Status execute_s3_read(size_t empty_start, size_t& size, std::unique_ptr<char[]>
     s3_read_counter << 1;
     SCOPED_RAW_TIMER(&stats.remote_read_timer);
     stats.from_peer_cache = false;
-    return remote_file_reader->read_at(empty_start, Slice(buffer.get(), size), &size, io_ctx);
+    auto st = remote_file_reader->read_at(empty_start, Slice(buffer.get(), size), &size, io_ctx);
+    if (st.ok()) {
+        stats.remote_physical_read_bytes += size;
+    }
+    return st;
 }
 
 CloudWarmUpManager& get_warm_up_manager() {
@@ -1390,6 +1394,8 @@ void CachedRemoteFileReader::_update_stats(const ReadStatistics& read_stats,
                 statis->inverted_index_bytes_read_from_remote,
                 statis->inverted_index_bytes_read_from_peer, statis->inverted_index_local_io_timer,
                 statis->inverted_index_remote_io_timer, statis->inverted_index_peer_io_timer);
+        statis->inverted_index_remote_physical_read_bytes += read_stats.remote_physical_read_bytes;
+        statis->inverted_index_bytes_write_into_cache += read_stats.bytes_write_into_file_cache;
         break;
     case FileCacheReadType::SEGMENT_FOOTER_INDEX:
         update_index_stats(statis->segment_footer_index_num_local_io_total,

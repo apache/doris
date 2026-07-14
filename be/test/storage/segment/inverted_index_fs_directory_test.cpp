@@ -287,6 +287,58 @@ TEST_F(DorisFSDirectoryTest, FSIndexInputReadInternalWithBytesReadError) {
     _CLDELETE(input);
 }
 
+TEST_F(DorisFSDirectoryTest, FSIndexInputReadInternalRecordsIndexIOStatsAndContext) {
+    std::filesystem::path test_file = _tmp_dir / "test_file_with_stats";
+    std::ofstream ofs(test_file);
+    ofs << "test content for stats";
+    ofs.close();
+
+    lucene::store::IndexInput* input = nullptr;
+    CLuceneError error;
+
+    bool result =
+            DorisFSDirectory::FSIndexInput::open(_fs, test_file.string().c_str(), input, error);
+    EXPECT_TRUE(result);
+
+    io::FileCacheStatistics stats;
+    io::IOContext io_ctx;
+    io_ctx.is_disposable = true;
+    io_ctx.is_index_data = false;
+    io_ctx.read_file_cache = false;
+    io_ctx.file_cache_stats = &stats;
+
+    input->setIoContext(&io_ctx);
+    input->setIndexFile(true);
+
+    uint8_t buffer[6];
+    input->readBytes(buffer, 6, false);
+    EXPECT_EQ(std::string(reinterpret_cast<char*>(buffer), 6), "test c");
+
+    const auto* captured = static_cast<const io::IOContext*>(input->getIoContext());
+    EXPECT_TRUE(captured->is_inverted_index);
+    EXPECT_TRUE(captured->is_index_data);
+    EXPECT_FALSE(captured->read_file_cache);
+    EXPECT_TRUE(captured->is_disposable);
+    EXPECT_EQ(captured->file_cache_stats, &stats);
+
+    EXPECT_EQ(stats.inverted_index_request_bytes, 6);
+    EXPECT_EQ(stats.inverted_index_read_bytes, 6);
+    EXPECT_EQ(stats.inverted_index_range_read_count, 1);
+    EXPECT_EQ(stats.inverted_index_serial_read_rounds, 1);
+
+    input->setIoContext(nullptr);
+    captured = static_cast<const io::IOContext*>(input->getIoContext());
+    EXPECT_TRUE(captured->is_inverted_index);
+    EXPECT_TRUE(captured->is_index_data);
+    EXPECT_EQ(captured->file_cache_stats, nullptr);
+
+    input->setIndexFile(false);
+    captured = static_cast<const io::IOContext*>(input->getIoContext());
+    EXPECT_FALSE(captured->is_index_data);
+
+    _CLDELETE(input);
+}
+
 // Test 19: FSIndexOutput init error
 TEST_F(DorisFSDirectoryTest, FSIndexOutputInitError) {
     DebugPoints::instance()->add(

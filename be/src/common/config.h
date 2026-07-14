@@ -1342,6 +1342,130 @@ DECLARE_Int32(ann_index_result_cache_stale_sweep_time_sec);
 // inverted index
 DECLARE_mDouble(inverted_index_ram_buffer_size);
 DECLARE_mInt32(inverted_index_max_buffered_docs);
+// SNII phrase-bigram df-prune threshold (G01 "bigram diet"). Hidden adjacent-pair
+// bigram terms whose final segment df is below the effective threshold are not
+// materialized (their 2-term phrases fall back to positions verification), and
+// surviving bigram postings are written docs+freq only (no positions).
+//   < 0 : auto -- max(64, segment_doc_count / 10000) per segment (default)
+//   = 0 : disable MIN-df pruning. NOTE (G15): the full legacy layout (every
+//         bigram materialized with positions, dict miss == "no adjacency")
+//         additionally requires snii_bigram_prune_max_df_ratio to resolve to
+//         no gate; with the default ratio the upper gate stays active.
+//   > 0 : use this fixed min-df threshold
+DECLARE_mInt32(snii_bigram_prune_min_df);
+// SNII phrase-bigram df-prune UPPER bound (G15), as a fraction of the segment
+// doc count. A hidden adjacent-pair bigram term whose FINAL segment df exceeds
+// ratio * segment_doc_count is pruned from the bigram dict at flush --
+// near-ubiquitous (stopword-like) pairs pay dict + posting bytes for almost no
+// selectivity -- and its 2-term phrase queries fall back to the generic
+// positions-verification path, exactly like min-df-pruned pairs (the reader
+// falls back on any bigram dict miss once the meta declares either gate). The
+// resolved absolute threshold is floored at 2 * effective min-df when the
+// min-df gate is active, so the two gates never overlap; it is applied only at
+// flush, where the final df and final doc count are both known (a partial
+// mid-feed df can never prove the final df will exceed a doc-count-scaled
+// bound). Only a ratio in (0, 1) arms the gate: <= 0 disables it, and >= 1
+// resolves to no gate too (df never exceeds the doc count, so such a bound
+// could never prune -- recording it would only arm pointless dict-miss
+// fallbacks).
+DECLARE_mDouble(snii_bigram_prune_max_df_ratio);
+// Defer the SNII hidden phrase-bigram build to compaction. When true, a direct
+// non-ARRAY load (stream/broker load, DataWriteType::TYPE_DIRECT) skips feeding
+// the hidden adjacent-pair bigram tokens AND the bigram sentinel term entirely
+// -- measured at ~3/4 of the SNII import-index CPU gap vs V3 -- and persists a
+// resident capability flag, so phrase queries on such a fresh segment skip
+// impossible pair probes before taking the full-fidelity positions-verification
+// fallback (results are identical, only slower) until compaction rewrites the
+// segment. The omitted sentinel retains the existing fallback for older readers.
+// ARRAY indexes keep the full build to preserve existing SNII full-build phrase
+// behavior at element boundaries.
+// Compaction re-feeds every token through the same writer with a
+// non-TYPE_DIRECT write type, so it rebuilds the bigram index with zero extra
+// mechanism; schema change and ADD INDEX builds likewise keep the full build.
+// Captured once per index writer when the segment writer marks it direct-load
+// (before any row is fed); a mid-load flip does not change an in-flight
+// segment. NOTE: local-mode segcompaction (enable_segcompaction) rewrites
+// merged segments as TYPE_COMPACTION during the load itself, so those segments
+// still build the full bigram inside the load window -- the deferral saving
+// applies only to segments that are not segcompacted; cloud mode has no
+// segcompaction, so the saving is complete there.
+// PERF-CLIFF DISCLOSURE (default is ON): compaction is the ONLY mechanism
+// that rebuilds a deferred segment's bigrams, and nothing guarantees it ever
+// runs -- a load-once-then-cold tablet (single rowset under the cumulative
+// thresholds, compaction disabled, or policies that skip a lone rowset) keeps
+// its phrase queries on the positions-verification path indefinitely (results
+// identical, slower), and BUILD INDEX cannot rebuild an already-existing
+// index. DISABLE this on deployments whose compaction policy cannot cover
+// lone-load rowsets (until the deferred-rowset compaction backstop lands).
+DECLARE_mBool(snii_bigram_defer_build_to_compaction);
+// DIAGNOSTIC: force SNII inverted-index reads to bypass the 1MiB FILE_BLOCK_CACHE
+// and issue precise S3 range GETs (NO_CACHE) instead. Applies ONLY to the SNII
+// index file reader (per-open cache_type), NOT the global enable_file_cache, so
+// cloud mode does not FATAL. Default false (keep block cache). Used to measure
+// whether the block-cache read amplification hurts cold reads at the cost of
+// re-reading S3 on every (warm) query. Not for production: warm loses the local
+// cache. Read-side only.
+DECLARE_mBool(inverted_index_read_bypass_file_cache);
+// G16-c: whether plain positions-tier (non-scoring) SNII indexes lay out freq
+// regions. Freq serves ONLY BM25 scoring (no production caller yet), so the
+// default (false) drops the layout; scoring-config indexes always keep freq.
+// Write-side only; segments are self-describing either way.
+DECLARE_mBool(snii_positions_index_write_freq);
+// G16-h: zstd levels for SNII dict blocks / prx windows. Default 3 (the
+// all-level-3 evaluation showed level 9 buys <=6.3% index size for 17-24%
+// import CPU; see the DEFINEs in config.cpp).
+DECLARE_mInt32(snii_dict_block_zstd_level);
+DECLARE_mInt32(snii_prx_zstd_level);
+// Patch C: prx zstd level for DIRECT-LOAD segments only (default 3, cheaper
+// import); compaction rewrites at snii_prx_zstd_level so settled segments are
+// unaffected. Full contract at the DEFINE in config.cpp.
+DECLARE_mInt32(snii_prx_zstd_level_direct_load);
+// G16-d: target SNII dict block size in bytes; 0 = format default (64 KiB).
+// Bigger blocks -> better per-block zstd on the dict region, larger cold
+// fetch+decompress unit per dict-block miss. Write side only.
+DECLARE_mInt32(snii_target_dict_block_bytes);
+// SNII phrase-bigram vocabulary cap in bytes, PER index writer (G04 "bigram
+// diet" phase 2). The SPIMI intern table otherwise accumulates every distinct
+// hidden bigram string for the whole segment (the dominant import RSS
+// overshoot on long-document corpora). When the live bigram intern storage
+// (strings + fixed per-term overhead) crosses this cap, bigram terms whose
+// current df == 1 (the Zipf long tail) are incrementally EVICTED from the
+// intern table and postings buffer and recorded in an ever-dropped bloom; at
+// flush any bigram in the bloom is dropped IN ADDITION to the df threshold
+// (safe: a dropped bigram's 2-term phrase falls back to positions
+// verification per the G01 reader contract). Only takes effect when bigram
+// pruning is enabled (snii_bigram_prune_min_df != 0); 0 disables the cap
+// (unbounded vocabulary, pre-G04 behavior).
+DECLARE_mInt64(snii_bigram_vocab_cap_bytes);
+// PROCESS-WIDE budget in bytes for SNII index-build RAM, summed across every
+// live SNII segment writer of the BE (all tablets x all concurrent loads; G09).
+// The per-writer cap (inverted_index_ram_buffer_size) bounds ONE writer, but a
+// concurrent load keeps (tablets x concurrency) writers alive at once, none of
+// which may ever reach its own cap -- their SUM is what this bounds. When the
+// registered total exceeds the budget, the LARGEST writers are asked to spill
+// their posting buffers to disk early (async-safe advisory requests, honored
+// on each writer's own thread; output stays byte-identical). 0 disables the
+// global limiter (per-writer spilling only). Checked at index-writer creation:
+// a change applies to writers created afterwards.
+DECLARE_mInt64(snii_index_writer_global_memory_bytes);
+// G09 forced-spill floor: minimum reclaimable posting-arena bytes a SNII
+// writer must hold before a process-wide forced-spill request is honored, and
+// before the global limiter selects it as a spill victim. A forced spill
+// reclaims ONLY the posting arena -- the persistent vocab / pair-map
+// structures survive it -- so honoring below a real floor degenerates into a
+// storm of tiny runs whenever the budget is dominated by persistent bytes
+// (each run then costs a file, a sort and a merge-fd for near-zero memory
+// relief). The global budget therefore bounds SPILLABLE memory, not
+// persistent memory. Default 64 MiB.
+DECLARE_mInt64(snii_forced_spill_min_arena_bytes);
+// G09 run-file cap: maximum spill-run files one SNII writer may accumulate;
+// on the next spill past the cap, the existing runs are merge-compacted into
+// a single run first (term stream unchanged). Bounds the final k-way merge's
+// fan-in and, decisively, its simultaneously-open file descriptors -- every
+// run of a buffer is reopened and held open for the whole merge, so unbounded
+// run counts across ~100 concurrent writers can exhaust the BE nofile rlimit
+// ("Too many open files" at run reopen). 0 disables the cap. Default 64.
+DECLARE_mInt32(snii_spill_max_run_files_per_buffer);
 // dict path for chinese analyzer
 DECLARE_String(inverted_index_dict_path);
 DECLARE_Int32(inverted_index_read_buffer_size);

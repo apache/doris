@@ -1,0 +1,533 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+#include "storage/index/snii/reader/logical_index_reader.h"
+
+#include <cstdlib>
+#include <limits>
+#include <memory>
+#include <utility>
+#include <vector>
+
+#include "storage/index/snii/encoding/crc32c.h"
+#include "storage/index/snii/encoding/zstd_codec.h"
+#include "storage/index/snii/format/dict_block.h"
+#include "storage/index/snii/format/dict_block_directory.h"
+#include "storage/index/snii/reader/dict_block_cache.h"
+
+namespace doris::snii::reader {
+
+using format::BlockRef;
+using format::bsbf_hash;
+using format::DictBlockDirectoryReader;
+using format::DictBlockReader;
+using format::DictEntry;
+using format::IndexTier;
+using format::kBsbfBytesPerBlock;
+using format::kBsbfHeaderSize;
+using format::PerIndexMetaReader;
+using format::RegionRef;
+using format::SampledTermIndexReader;
+
+namespace {
+constexpr uint64_t kMaxDictBlockUncompBytes = 256ULL * 1024 * 1024;
+constexpr uint64_t kDefaultDictResidentMaxBytes = 256ULL * 1024;
+
+// L0/L1 tiering threshold (bytes). Defaults to kBsbfResidentMaxBytes; the env
+// SNII_BSBF_RESIDENT_MAX overrides it for tuning and for exercising the
+// on-demand L1 path in tests without a 250K-term corpus. Read fresh each open.
+uint64_t bsbf_resident_max_bytes() {
+    const char* s = std::getenv("SNII_BSBF_RESIDENT_MAX");
+    if (s != nullptr) {
+        char* end = nullptr;
+        const unsigned long long v = std::strtoull(s, &end, 10);
+        if (end != s) {
+            return v;
+        }
+    }
+    return format::kBsbfResidentMaxBytes;
+}
+
+uint64_t dict_resident_max_bytes() {
+    const char* s = std::getenv("SNII_DICT_RESIDENT_MAX");
+    if (s != nullptr) {
+        char* end = nullptr;
+        const unsigned long long v = std::strtoull(s, &end, 10);
+        if (end != s) {
+            return v;
+        }
+    }
+    return kDefaultDictResidentMaxBytes;
+}
+
+Status checked_size(uint64_t value, const char* error, size_t* out) {
+    if (value > std::numeric_limits<size_t>::max()) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(error);
+    }
+    *out = static_cast<size_t>(value);
+    return Status::OK();
+}
+
+Status dict_block_memory_bytes(const BlockRef& ref, uint64_t* out) {
+    if ((ref.flags & format::block_ref_flags::kZstd) == 0) {
+        *out = ref.length;
+        return Status::OK();
+    }
+    if (ref.uncomp_len == 0 || ref.uncomp_len > kMaxDictBlockUncompBytes) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "dict block: zstd uncomp_len out of range");
+    }
+    *out = ref.uncomp_len;
+    return Status::OK();
+}
+
+// Decompresses a zstd dict block from its on-disk bytes into *out. The decode
+// buffer in zstd_decompress is resize_uninitialized'd (T19) then fully written.
+Status zstd_decompress_dict_block(Slice on_disk, const BlockRef& ref, std::vector<uint8_t>* out) {
+    uint64_t memory_bytes = 0;
+    RETURN_IF_ERROR(dict_block_memory_bytes(ref, &memory_bytes));
+    size_t uncomp_len = 0;
+    RETURN_IF_ERROR(
+            checked_size(memory_bytes, "dict block: zstd length out of range", &uncomp_len));
+    return zstd_decompress(on_disk, uncomp_len, out);
+}
+
+// Materializes the usable (uncompressed) bytes of a dict block from a view over
+// its on-disk bytes -- a raw block is copied, a zstd block is decompressed. Used
+// by the resident single-range path, where on_disk is a sub-slice of the shared
+// region buffer (so a raw block must be copied, not aliased).
+Status decompress_dict_block_payload(Slice on_disk, const BlockRef& ref,
+                                     std::vector<uint8_t>* out) {
+    if ((ref.flags & format::block_ref_flags::kZstd) == 0) {
+        out->assign(on_disk.data(), on_disk.data() + on_disk.size());
+        return Status::OK();
+    }
+    return zstd_decompress_dict_block(on_disk, ref, out);
+}
+
+Status read_dict_block_bytes(io::FileReader* reader, const BlockRef& ref,
+                             std::vector<uint8_t>* out) {
+    size_t read_len = 0;
+    RETURN_IF_ERROR(checked_size(ref.length, "dict block: on-disk length out of range", &read_len));
+
+    std::vector<uint8_t> block_bytes;
+    RETURN_IF_ERROR(reader->read_at(ref.offset, read_len, &block_bytes));
+    if (block_bytes.size() != read_len) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "dict block: short read");
+    }
+
+    // Raw on-demand block: move the freshly read buffer in (no copy).
+    if ((ref.flags & format::block_ref_flags::kZstd) == 0) {
+        *out = std::move(block_bytes);
+        return Status::OK();
+    }
+    return zstd_decompress_dict_block(Slice(block_bytes), ref, out);
+}
+
+Status open_dict_block(io::FileReader* reader, const BlockRef& ref, IndexTier tier,
+                       bool has_positions, std::vector<uint8_t>* bytes, DictBlockReader* out) {
+    RETURN_IF_ERROR(read_dict_block_bytes(reader, ref, bytes));
+    return DictBlockReader::open(Slice(*bytes), tier, has_positions, out);
+}
+
+// Validates that block `ref` lies fully within dict_region and returns its byte
+// range relative to the start of the region. Defends the single-range resident
+// read against a corrupt directory ref (offset before the region, or a range
+// that runs past it) before it is used to index the region buffer.
+Status slice_dict_block_in_region(const BlockRef& ref, const RegionRef& dict_region,
+                                  size_t region_len, size_t* rel_off, size_t* len) {
+    if (ref.offset < dict_region.offset) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "dict block: ref before dict region");
+    }
+    size_t rel = 0;
+    size_t block_len = 0;
+    RETURN_IF_ERROR(
+            checked_size(ref.offset - dict_region.offset, "dict block: ref offset OOR", &rel));
+    RETURN_IF_ERROR(checked_size(ref.length, "dict block: ref length OOR", &block_len));
+    if (rel > region_len || block_len > region_len - rel) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "dict block: ref past dict region");
+    }
+    *rel_off = rel;
+    *len = block_len;
+    return Status::OK();
+}
+} // namespace
+
+Status LogicalIndexReader::load_resident_dict_blocks() {
+    resident_dict_blocks_.clear();
+
+    const uint64_t max_bytes = dict_resident_max_bytes();
+    if (max_bytes == 0 || dbd_.n_blocks() == 0) {
+        return Status::OK();
+    }
+
+    uint64_t total_bytes = 0;
+    for (uint32_t ord = 0; ord < dbd_.n_blocks(); ++ord) {
+        BlockRef ref {};
+        RETURN_IF_ERROR(dbd_.get(ord, &ref));
+        uint64_t block_bytes = 0;
+        RETURN_IF_ERROR(dict_block_memory_bytes(ref, &block_bytes));
+        if (block_bytes > max_bytes - total_bytes) {
+            return Status::OK();
+        }
+        total_bytes += block_bytes;
+    }
+
+    // The resident blocks are physically contiguous within dict_region, so read
+    // the whole region in a SINGLE range read (was one read_at per block -> up to
+    // ~4 serial S3 rounds on a cold open) and decode each block from a sub-slice.
+    // The region buffer is <= the resident byte cap (<=256KB) and freed on return;
+    // each ResidentDictBlock keeps its own decoded copy.
+    const RegionRef& dict_region = section_refs().dict_region;
+    size_t region_len = 0;
+    RETURN_IF_ERROR(
+            checked_size(dict_region.length, "dict region: length out of range", &region_len));
+    std::vector<uint8_t> region;
+    RETURN_IF_ERROR(reader_->read_at(dict_region.offset, region_len, &region));
+    if (region.size() != region_len) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "dict region: short read");
+    }
+
+    resident_dict_blocks_.reserve(dbd_.n_blocks());
+    for (uint32_t ord = 0; ord < dbd_.n_blocks(); ++ord) {
+        BlockRef ref {};
+        RETURN_IF_ERROR(dbd_.get(ord, &ref));
+        size_t rel_off = 0;
+        size_t block_len = 0;
+        RETURN_IF_ERROR(
+                slice_dict_block_in_region(ref, dict_region, region_len, &rel_off, &block_len));
+        const Slice on_disk(region.data() + rel_off, block_len);
+        ResidentDictBlock block;
+        RETURN_IF_ERROR(decompress_dict_block_payload(on_disk, ref, &block.bytes));
+        RETURN_IF_ERROR(
+                DictBlockReader::open(Slice(block.bytes), tier_, has_positions_, &block.reader));
+        resident_dict_blocks_.push_back(std::move(block));
+    }
+    return Status::OK();
+}
+
+Status LogicalIndexReader::dict_block_reader_for_ordinal(
+        uint32_t ordinal, DictBlockCache* cache, std::shared_ptr<const DecodedDictBlock>* pin,
+        const DictBlockReader** out) const {
+    pin->reset();
+    if (!resident_dict_blocks_.empty()) {
+        if (resident_dict_blocks_.size() != dbd_.n_blocks() ||
+            ordinal >= resident_dict_blocks_.size()) {
+            return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                    "logical_index: incomplete resident dict");
+        }
+        // Resident blocks live for the reader lifetime: no pin needed.
+        *out = &resident_dict_blocks_[ordinal].reader;
+        return Status::OK();
+    }
+
+    // On-demand: decode into a heap-allocated DecodedDictBlock held by *pin so the
+    // reader's Slice never dangles. The loader (file read + optional zstd + CRC +
+    // anchor parse) runs OUTSIDE any cache bookkeeping; on a cache hit it is not
+    // called, so a block shared by several terms of one query decodes only once.
+    DictBlockCache::Loader loader = [&](std::shared_ptr<const DecodedDictBlock>* slot) -> Status {
+        BlockRef ref {};
+        RETURN_IF_ERROR(dbd_.get(ordinal, &ref));
+        auto block = std::make_shared<DecodedDictBlock>();
+        RETURN_IF_ERROR(open_dict_block(reader_, ref, tier_, has_positions_, &block->bytes,
+                                        &block->reader));
+        *slot = std::move(block);
+        return Status::OK();
+    };
+    if (cache != nullptr) {
+        RETURN_IF_ERROR(cache->get_or_load(ordinal, loader, pin));
+    } else {
+        RETURN_IF_ERROR(loader(pin));
+    }
+    *out = &(*pin)->reader;
+    return Status::OK();
+}
+
+Status LogicalIndexReader::open(io::FileReader* file_reader, IndexTier tier, bool has_positions,
+                                Slice meta_block, LogicalIndexReader* out) {
+    if (file_reader == nullptr) {
+        return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("logical_index: null file reader");
+    }
+    if (out == nullptr) {
+        return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("logical_index: null out");
+    }
+    if (meta_block.empty()) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "logical_index: empty meta block");
+    }
+    *out = LogicalIndexReader {};
+
+    out->reader_ = file_reader;
+    out->tier_ = tier;
+    out->has_positions_ = has_positions;
+    out->meta_block_.assign(meta_block.data(), meta_block.data() + meta_block.size());
+    const Slice owned_meta(out->meta_block_);
+
+    RETURN_IF_ERROR(PerIndexMetaReader::open(owned_meta, &out->meta_));
+    // G13: large sti/dbd frames are stored zstd-compressed in the meta blob; the
+    // frame accessors materialize the original frames (raw frames alias the meta
+    // block and leave the scratch untouched). The scratches are transient:
+    // SampledTermIndexReader / DictBlockDirectoryReader fully materialize their
+    // decoded state on open and retain no view into the input frame.
+    {
+        std::vector<uint8_t> scratch;
+        Slice frame;
+        RETURN_IF_ERROR(out->meta_.sampled_term_index_frame(&scratch, &frame));
+        RETURN_IF_ERROR(SampledTermIndexReader::open(frame, &out->sti_));
+    }
+    {
+        std::vector<uint8_t> scratch;
+        Slice frame;
+        RETURN_IF_ERROR(out->meta_.dict_block_directory_frame(&scratch, &frame));
+        RETURN_IF_ERROR(DictBlockDirectoryReader::open(frame, &out->dbd_));
+    }
+    RETURN_IF_ERROR(out->load_resident_dict_blocks());
+
+    // Block-split bloom XFilter -- gated on RESIDENCY (P1 cold-read fix, see
+    // docs/perf/P1-cold-read-amplification.md). The bloom is set up and used ONLY
+    // when the whole (small) filter fits under the resident cap: it is read in
+    // full, verified, and kept in memory so probes are in-memory and enter the
+    // Doris searcher cache with the rest of the logical-index metadata.
+    //
+    // When NON-resident (the common case for a real text column, where the filter
+    // is many MB) the bloom is skipped ENTIRELY: not even the 28B header is read,
+    // and has_bsbf_ stays false. Every term then falls through to sti -> dict,
+    // which yields the true found/absent. At 1 MiB cache-block granularity a
+    // non-resident bloom never saves a physical block (an absent term still costs
+    // one dict block either way), so its 28B header + per-term 32B probes were pure
+    // cold read amplification.
+    const RegionRef& bsbf = out->meta_.section_refs().bsbf;
+    if (bsbf.length > 0 && bsbf.length <= bsbf_resident_max_bytes()) {
+        if (bsbf.length <= kBsbfHeaderSize) {
+            return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                    "logical_index: bsbf section too small");
+        }
+        const uint64_t num_bytes = bsbf.length - kBsbfHeaderSize;
+        std::vector<uint8_t> head;
+        RETURN_IF_ERROR(file_reader->read_at(bsbf.offset, bsbf.length, &head));
+        if (head.size() < bsbf.length) {
+            return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                    "logical_index: short bsbf resident read");
+        }
+        RETURN_IF_ERROR(format::BsbfHeader::parse(Slice(head.data(), kBsbfHeaderSize), bsbf.offset,
+                                                  &out->bsbf_header_));
+        // Cross-check the header geometry against the section ref.
+        if (out->bsbf_header_.num_bytes != num_bytes) {
+            return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                    "logical_index: bsbf header/section size mismatch");
+        }
+        const Slice bitset(head.data() + kBsbfHeaderSize, out->bsbf_header_.num_bytes);
+        if (crc32c(bitset) != out->bsbf_header_.bitset_crc) {
+            return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                    "logical_index: bsbf bitset crc mismatch");
+        }
+        out->bsbf_resident_bitset_.assign(bitset.data(), bitset.data() + bitset.size());
+        out->has_bsbf_ = true;
+        out->bsbf_resident_ = true;
+    }
+    return Status::OK();
+}
+
+size_t LogicalIndexReader::memory_usage() const {
+    // meta_block_ retains the raw per-index meta bytes that sti_/dbd_ were decoded
+    // from, so it ALREADY (conservatively) double-counts their ENCODED size. The
+    // sti_/dbd_ heap_bytes() added below charge the DECODED resident copies -- an
+    // over-count, never an under-count. Do NOT drop meta_block_ to "de-dup" this:
+    // the charge feeds InvertedIndexSearcherCache and must not under-report RSS
+    // (which was the pre-fix bug: the derived sti_/dbd_/anchor heap was omitted, so
+    // the cache under-charged and over-committed).
+    size_t bytes = sizeof(*this) + meta_block_.capacity() + bsbf_resident_bitset_.capacity();
+    bytes += sti_.heap_bytes();
+    bytes += dbd_.heap_bytes();
+    for (const auto& block : resident_dict_blocks_) {
+        bytes += sizeof(block) + block.bytes.capacity() + block.reader.heap_bytes();
+    }
+    return bytes;
+}
+
+Status LogicalIndexReader::lookup(std::string_view term, bool* found, DictEntry* entry,
+                                  uint64_t* frq_base, uint64_t* prx_base,
+                                  DictBlockCache* cache) const {
+    *found = false;
+    if (reader_ == nullptr) {
+        return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("logical_index: not opened");
+    }
+
+    // 1. XFilter fast rejection. A DEFINITELY-ABSENT term returns empty without the
+    // DICT read. The bloom is consulted ONLY when resident (loaded in memory at
+    // open) -- the in-memory bitset probe adds no disk read. A non-resident bloom is
+    // never set up (has_bsbf_ == false, P1 cold-read fix), so the lookup falls
+    // through to sti -> dict, which yields the true found/absent for every term.
+    if (has_bsbf_) {
+        const uint64_t h = bsbf_hash(term);
+        bool maybe = true;
+        if (bsbf_resident_) {
+            const uint32_t blk = format::bsbf_block_index(h, bsbf_header_.num_blocks);
+            maybe = format::bsbf_block_contains(
+                    h,
+                    bsbf_resident_bitset_.data() + static_cast<size_t>(blk) * kBsbfBytesPerBlock);
+        }
+        if (!maybe) {
+            return Status::OK();
+        }
+    }
+
+    // 2. SampledTermIndex -> candidate block ordinal.
+    bool maybe = false;
+    uint32_t ordinal = 0;
+    RETURN_IF_ERROR(sti_.locate(term, &maybe, &ordinal));
+    if (!maybe) {
+        return Status::OK();
+    }
+
+    // 3. Use a resident small-DICT block when present; otherwise read the DICT
+    //    block on demand and parse it with the same validation path used at open.
+    //    `pin` keeps an on-demand block alive through find_term (resident: null).
+    const DictBlockReader* br = nullptr;
+    std::shared_ptr<const DecodedDictBlock> pin;
+    RETURN_IF_ERROR(dict_block_reader_for_ordinal(ordinal, cache, &pin, &br));
+
+    bool hit = false;
+    RETURN_IF_ERROR(br->find_term(term, &hit, entry));
+    if (!hit) {
+        return Status::OK();
+    }
+
+    *found = true;
+    *frq_base = br->frq_base();
+    *prx_base = br->prx_base();
+    return Status::OK();
+}
+
+Status LogicalIndexReader::visit_prefix_terms(std::string_view prefix,
+                                              const PrefixHitVisitor& visitor,
+                                              DictBlockCache* cache) const {
+    if (!visitor) {
+        return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
+                "logical_index: null prefix visitor");
+    }
+    if (reader_ == nullptr) {
+        return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("logical_index: not opened");
+    }
+
+    // Seek the start block: the SampledTermIndex block whose first term <= prefix
+    // (terms with `prefix` are >= prefix, so they begin in that block or later).
+    // If the prefix sorts before every sample (or is empty), start at block 0.
+    uint32_t start = 0;
+    if (!prefix.empty()) {
+        bool maybe = false;
+        uint32_t ordinal = 0;
+        RETURN_IF_ERROR(sti_.locate(prefix, &maybe, &ordinal));
+        if (maybe) {
+            start = ordinal;
+        }
+    }
+
+    for (uint32_t ord = start; ord < dbd_.n_blocks(); ++ord) {
+        const DictBlockReader* br = nullptr;
+        std::shared_ptr<const DecodedDictBlock> pin;
+        RETURN_IF_ERROR(dict_block_reader_for_ordinal(ord, cache, &pin, &br));
+
+        // Stream this block's prefix range: anchor-jump past pre-prefix segments,
+        // decode only the bodies we keep, and stop at the first term past the
+        // range (decode_all materialized every entry of every scanned block).
+        // The visitor still owns final term acceptance, so results are identical;
+        // `br`/`pin` stay alive across this synchronous call.
+        bool prefix_exhausted = false;
+        bool visitor_stopped = false;
+        RETURN_IF_ERROR(br->visit_prefix_range(
+                prefix, /*accept_key=*/ {},
+                [&](DictEntry&& e, bool* stop) -> Status {
+                    PrefixHit hit;
+                    hit.term = e.term;
+                    hit.entry = std::move(e);
+                    hit.frq_base = br->frq_base();
+                    hit.prx_base = br->prx_base();
+                    RETURN_IF_ERROR(visitor(std::move(hit), stop));
+                    visitor_stopped = *stop;
+                    return Status::OK();
+                },
+                &prefix_exhausted));
+        if (visitor_stopped || prefix_exhausted) {
+            return Status::OK();
+        }
+    }
+    return Status::OK();
+}
+
+Status LogicalIndexReader::prefix_terms(std::string_view prefix, std::vector<PrefixHit>* const out,
+                                        int32_t max_terms, DictBlockCache* cache) const {
+    if (out == nullptr) {
+        return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("logical_index: null out");
+    }
+    out->clear();
+    return visit_prefix_terms(
+            prefix,
+            [&](PrefixHit&& hit, bool* stop) {
+                out->push_back(std::move(hit));
+                *stop = max_terms > 0 && out->size() >= static_cast<size_t>(max_terms);
+                return Status::OK();
+            },
+            cache);
+}
+
+namespace {
+
+// Validates a pod_ref window locator against the posting region and returns the
+// absolute window range (after the prelude). Rejects corrupt locators rather
+// than letting size_t underflow / uint64 overflow reach read_at.
+Status resolve_window(const format::RegionRef& section, uint64_t base, uint64_t off_delta,
+                      uint64_t total_len, uint64_t prelude_len, uint64_t* abs_off, uint64_t* len) {
+    if (prelude_len > total_len) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "logical_index: prelude_len exceeds window len");
+    }
+    const uint64_t in_region = base + off_delta;
+    if (in_region < base) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "logical_index: locator overflow");
+    }
+    if (in_region > section.length || total_len > section.length - in_region) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "logical_index: window past posting region");
+    }
+    *abs_off = section.offset + in_region + prelude_len;
+    *len = total_len - prelude_len;
+    return Status::OK();
+}
+
+} // namespace
+
+Status LogicalIndexReader::resolve_frq_window(const format::DictEntry& entry, uint64_t frq_base,
+                                              uint64_t* abs_off, uint64_t* len) const {
+    return resolve_window(section_refs().posting_region, frq_base, entry.frq_off_delta,
+                          entry.frq_len, entry.prelude_len, abs_off, len);
+}
+
+Status LogicalIndexReader::resolve_prx_window(const format::DictEntry& entry, uint64_t prx_base,
+                                              uint64_t* abs_off, uint64_t* len) const {
+    // .prx windows carry no prelude (prelude_len = 0); both spans live in the
+    // same posting region (prx span precedes frq span for the same term).
+    return resolve_window(section_refs().posting_region, prx_base, entry.prx_off_delta,
+                          entry.prx_len, 0, abs_off, len);
+}
+
+} // namespace doris::snii::reader

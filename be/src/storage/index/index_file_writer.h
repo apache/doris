@@ -24,6 +24,7 @@
 
 #include <string>
 #include <utility>
+#include <vector>
 
 #include "common/be_mock_util.h"
 #include "io/fs/file_system.h"
@@ -33,12 +34,24 @@
 #include "storage/index/inverted/inverted_index_common.h"
 #include "storage/index/inverted/inverted_index_compound_reader.h"
 #include "storage/index/inverted/inverted_index_searcher.h"
+#include "storage/index/snii/format/format_constants.h"
+#include "storage/index/snii/snii_doris_adapter.h"
+#include "storage/index/snii/writer/snii_compound_writer.h"
+
+namespace doris::snii::writer {
+class MemoryReporter;
+class SpimiTermBuffer;
+class SniiCompoundWriter;
+} // namespace doris::snii::writer
 
 namespace doris {
 class TabletIndex;
 
 namespace segment_v2 {
 class DorisFSDirectory;
+namespace snii_doris {
+class DorisSniiFileWriter;
+} // namespace snii_doris
 
 using InvertedIndexDirectoryMap =
         std::map<std::pair<int64_t, std::string>, std::shared_ptr<lucene::store::Directory>>;
@@ -55,6 +68,26 @@ public:
     virtual ~IndexFileWriter() = default;
 
     MOCK_FUNCTION Result<std::shared_ptr<DorisFSDirectory>> open(const TabletIndex* index_meta);
+    // Write-path facts for one SNII index flush, captured per writer by
+    // SniiIndexColumnWriter::set_direct_load (latched before the first row).
+    struct SniiAddIndexOptions {
+        // The fresh direct-load segment deliberately omitted the hidden
+        // phrase-bigram build (pair postings + sentinel); persisted as the
+        // resident kPhraseBigramsDeferred capability flag.
+        bool phrase_bigrams_deferred = false;
+        // This flush serves a stream/broker load (DataWriteType::TYPE_DIRECT):
+        // the prx region compresses at snii_prx_zstd_level_direct_load;
+        // compaction / schema change / ADD INDEX keep snii_prx_zstd_level.
+        bool is_direct_load = false;
+    };
+    Status add_snii_index(const TabletIndex* index_meta, uint32_t doc_count,
+                          std::vector<uint32_t> null_docids,
+                          doris::snii::writer::SpimiTermBuffer* const term_buffer,
+                          doris::snii::format::IndexConfig index_config,
+                          const SniiAddIndexOptions& options,
+                          doris::snii::writer::MemoryReporter* const mem_reporter);
+    void retain_snii_memory_reporter(
+            std::unique_ptr<doris::snii::writer::MemoryReporter> mem_reporter);
     Status delete_index(const TabletIndex* index_meta);
     Status initialize(InvertedIndexDirectoryMap& indices_dirs);
     Status add_into_searcher_cache();
@@ -113,6 +146,10 @@ private:
 
     IndexStorageFormatPtr _index_storage_format;
     int64_t _tablet_id = -1;
+    std::unique_ptr<snii_doris::DorisSniiFileWriter> _snii_file_writer;
+    std::vector<std::unique_ptr<doris::snii::writer::MemoryReporter>> _snii_memory_reporters;
+    std::unique_ptr<doris::snii::writer::SniiCompoundWriter> _snii_compound_writer;
+    size_t _snii_index_count = 0;
 
     friend class IndexStorageFormatV1;
     friend class IndexStorageFormatV2;

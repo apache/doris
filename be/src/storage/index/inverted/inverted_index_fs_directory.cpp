@@ -97,8 +97,14 @@ bool DorisFSDirectory::FSIndexInput::open(const io::FileSystemSPtr& fs, const ch
     auto h = std::make_shared<SharedHandle>(path);
 
     io::FileReaderOptions reader_options;
-    reader_options.cache_type = config::enable_file_cache ? io::FileCachePolicy::FILE_BLOCK_CACHE
-                                                          : io::FileCachePolicy::NO_CACHE;
+    // DIAGNOSTIC: inverted_index_read_bypass_file_cache forces NO_CACHE (precise
+    // S3 range GETs) for inverted-index reads (both CLucene here and SNII), so a
+    // fair direct-vs-direct engine comparison can bypass the 1MiB block cache
+    // without disabling the global enable_file_cache (cloud mode requires it).
+    reader_options.cache_type =
+            (config::enable_file_cache && !config::inverted_index_read_bypass_file_cache)
+                    ? io::FileCachePolicy::FILE_BLOCK_CACHE
+                    : io::FileCachePolicy::NO_CACHE;
     reader_options.is_doris_table = true;
     reader_options.file_size = file_size;
     reader_options.tablet_id = tablet_id;
@@ -179,16 +185,15 @@ void DorisFSDirectory::FSIndexInput::close() {
 }
 
 void DorisFSDirectory::FSIndexInput::setIoContext(const void* io_ctx) {
+    const bool is_index_data = _io_ctx.is_index_data;
     if (io_ctx) {
         const auto& ctx = static_cast<const io::IOContext*>(io_ctx);
-        _io_ctx.reader_type = ctx->reader_type;
-        _io_ctx.query_id = ctx->query_id;
-        _io_ctx.file_cache_stats = ctx->file_cache_stats;
+        _io_ctx = *ctx;
     } else {
-        _io_ctx.reader_type = ReaderType::UNKNOWN;
-        _io_ctx.query_id = nullptr;
-        _io_ctx.file_cache_stats = nullptr;
+        _io_ctx = io::IOContext {};
     }
+    _io_ctx.is_index_data = is_index_data;
+    _io_ctx.is_inverted_index = true;
 }
 
 const void* DorisFSDirectory::FSIndexInput::getIoContext() {
@@ -247,6 +252,10 @@ void DorisFSDirectory::FSIndexInput::readInternal(uint8_t* b, const int32_t len)
 
     if (_io_ctx.file_cache_stats != nullptr) {
         _io_ctx.file_cache_stats->inverted_index_io_timer += inverted_index_io_timer;
+        _io_ctx.file_cache_stats->inverted_index_request_bytes += len;
+        _io_ctx.file_cache_stats->inverted_index_read_bytes += len;
+        ++_io_ctx.file_cache_stats->inverted_index_range_read_count;
+        ++_io_ctx.file_cache_stats->inverted_index_serial_read_rounds;
     }
 }
 

@@ -829,6 +829,9 @@ Status BetaRowset::show_nested_index_file(rapidjson::Value* rowset_value,
     case InvertedIndexStorageFormatPB::V3:
         format_str = "V3";
         break;
+    case InvertedIndexStorageFormatPB::SNII:
+        format_str = "SNII";
+        break;
     default:
         return Status::InternalError("inverted index storage format error");
         break;
@@ -838,6 +841,19 @@ Status BetaRowset::show_nested_index_file(rapidjson::Value* rowset_value,
     rowset_value->AddMember("index_storage_format", rapidjson::Value(format_str.c_str(), allocator),
                             allocator);
     rapidjson::Value segments(rapidjson::kArrayType);
+    auto add_file_info_to_json = [&](const std::string& path,
+                                     rapidjson::Value& json_value) -> Status {
+        json_value.AddMember("idx_file_path", rapidjson::Value(path.c_str(), allocator), allocator);
+        int64_t idx_file_size = 0;
+        auto st = fs->file_size(path, &idx_file_size);
+        if (st != Status::OK()) {
+            LOG(WARNING) << "show nested index file get file size error, file: " << path
+                         << ", error: " << st.msg();
+            return st;
+        }
+        json_value.AddMember("idx_file_size", rapidjson::Value(idx_file_size).Move(), allocator);
+        return Status::OK();
+    };
     for (int seg_id = 0; seg_id < num_segments(); ++seg_id) {
         rapidjson::Value segment(rapidjson::kObjectType);
         segment.AddMember("segment_id", rapidjson::Value(seg_id).Move(), allocator);
@@ -848,23 +864,19 @@ Status BetaRowset::show_nested_index_file(rapidjson::Value* rowset_value,
                 fs, std::string(index_file_path_prefix), storage_format, InvertedIndexFileInfo(),
                 _rowset_meta->tablet_id());
         RETURN_IF_ERROR(index_file_reader->init());
+        if (storage_format == InvertedIndexStorageFormatPB::SNII) {
+            rapidjson::Value index_file(rapidjson::kObjectType);
+            auto index_file_path =
+                    InvertedIndexDescriptor::get_index_file_path_v2(index_file_path_prefix);
+            RETURN_IF_ERROR(add_file_info_to_json(index_file_path, index_file));
+            segment.AddMember("index_files", rapidjson::Value(rapidjson::kArrayType).Move(),
+                              allocator);
+            auto& index_files = segment["index_files"];
+            index_files.PushBack(index_file, allocator);
+            segments.PushBack(segment, allocator);
+            continue;
+        }
         auto dirs = index_file_reader->get_all_directories();
-
-        auto add_file_info_to_json = [&](const std::string& path,
-                                         rapidjson::Value& json_value) -> Status {
-            json_value.AddMember("idx_file_path", rapidjson::Value(path.c_str(), allocator),
-                                 allocator);
-            int64_t idx_file_size = 0;
-            auto st = fs->file_size(path, &idx_file_size);
-            if (st != Status::OK()) {
-                LOG(WARNING) << "show nested index file get file size error, file: " << path
-                             << ", error: " << st.msg();
-                return st;
-            }
-            json_value.AddMember("idx_file_size", rapidjson::Value(idx_file_size).Move(),
-                                 allocator);
-            return Status::OK();
-        };
 
         auto process_files = [&allocator, &index_file_reader](auto& index_meta,
                                                               rapidjson::Value& indices,

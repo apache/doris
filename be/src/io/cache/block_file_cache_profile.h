@@ -19,6 +19,7 @@
 
 #include <gen_cpp/Metrics_types.h>
 
+#include <array>
 #include <atomic>
 #include <cstdint>
 #include <memory>
@@ -60,7 +61,6 @@ private:
     void register_entity();
     void update_metrics_callback();
 
-private:
     std::mutex _mtx;
     // use shared_ptr for concurrent
     std::shared_ptr<AtomicStatistics> _statistics;
@@ -96,10 +96,16 @@ struct FileCacheProfileReporter {
     RuntimeProfile::Counter* inverted_index_bytes_scanned_from_cache = nullptr;
     RuntimeProfile::Counter* inverted_index_bytes_scanned_from_remote = nullptr;
     RuntimeProfile::Counter* inverted_index_bytes_scanned_from_peer = nullptr;
+    RuntimeProfile::Counter* inverted_index_remote_physical_read_bytes = nullptr;
+    RuntimeProfile::Counter* inverted_index_bytes_write_into_cache = nullptr;
     RuntimeProfile::Counter* inverted_index_local_io_timer = nullptr;
     RuntimeProfile::Counter* inverted_index_remote_io_timer = nullptr;
     RuntimeProfile::Counter* inverted_index_peer_io_timer = nullptr;
     RuntimeProfile::Counter* inverted_index_io_timer = nullptr;
+    RuntimeProfile::Counter* inverted_index_request_bytes = nullptr;
+    RuntimeProfile::Counter* inverted_index_read_bytes = nullptr;
+    RuntimeProfile::Counter* inverted_index_range_read_count = nullptr;
+    RuntimeProfile::Counter* inverted_index_serial_read_rounds = nullptr;
 
     RuntimeProfile::Counter* segment_footer_index_num_local_io_total = nullptr;
     RuntimeProfile::Counter* segment_footer_index_num_remote_io_total = nullptr;
