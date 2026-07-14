@@ -22,6 +22,7 @@ suite("dml_rewrite_with_lock", "zfr_mtmv_test") {
     sql "SET enable_materialized_view_rewrite=true"
     sql "SET enable_materialized_view_nest_rewrite=true"
     sql "SET enable_materialized_view_union_rewrite=true"
+    sql "set disable_nereids_rules='ELIMINATE_GROUP_BY_KEY'"
 
     sql """
     drop table if exists lineitem_range_date_union
