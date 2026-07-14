@@ -39,6 +39,7 @@ import org.apache.doris.catalog.stream.BaseTableStream;
 import org.apache.doris.catalog.stream.BaseTableStream.StreamScanType;
 import org.apache.doris.catalog.stream.OlapTableStream;
 import org.apache.doris.catalog.stream.OlapTableStreamWrapper;
+import org.apache.doris.catalog.stream.StreamReadMode;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
@@ -341,9 +342,9 @@ public class BindRelation extends OneAnalysisRuleFactory {
         if (unboundRelation.getScanParams() != null) {
             unboundRelation.getScanParams().validateOlapTableStream();
             if (unboundRelation.getScanParams().isSnapshot()) {
-                scan = scan.withIsSnapshot(true);
+                scan = scan.withReadMode(StreamReadMode.SNAPSHOT);
             } else if (unboundRelation.getScanParams().isReset()) {
-                scan = scan.withIsReset(true);
+                scan = scan.withReadMode(StreamReadMode.RESET);
             }
         }
         if (!tabletIds.isEmpty()) {
@@ -1001,7 +1002,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
             OlapTableStream olapTableStream = (OlapTableStream) table;
             LogicalOlapTableStreamScan scan = makeOlapTableStreamScan(olapTableStream,
                     unboundRelation, qualifier);
-            if (!scan.isSnapshot() && !scan.isReset() && isScanAppendOnlyTableStream(olapTableStream)) {
+            if (scan.isIncremental() && isScanAppendOnlyTableStream(olapTableStream)) {
                 LOG.debug("Add append only filter on olap scan if need.");
                 return addAppendOnlyFilter(scan);
             }

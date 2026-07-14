@@ -33,6 +33,7 @@ import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.Tablet.TabletStatus;
 import org.apache.doris.catalog.info.IndexType;
 import org.apache.doris.catalog.stream.BaseTableStream;
+import org.apache.doris.catalog.stream.StreamReadMode;
 import org.apache.doris.clone.TabletScheduler;
 import org.apache.doris.cloud.catalog.CloudPartition;
 import org.apache.doris.cloud.catalog.CloudReplica;
@@ -1564,7 +1565,8 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     // select the non-empty partition ids belonging to this table.
     //
     // ATTN: partitions not belonging to this table will be filtered.
-    public List<Long> selectNonEmptyPartitionIds(Collection<Long> partitionIds) {
+    public List<Long> selectNonEmptyPartitionIds(Collection<Long> partitionIds,
+            Optional<StreamReadMode> streamReadMode) {
         if (Config.isCloudMode() && Config.enable_cloud_snapshot_version) {
             // Assumption: all partitions are CloudPartition.
             List<CloudPartition> partitions = partitionIds.stream()

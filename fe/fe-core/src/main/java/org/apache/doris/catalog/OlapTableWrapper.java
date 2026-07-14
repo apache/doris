@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.catalog.stream.StreamReadMode;
 import org.apache.doris.common.Pair;
 
 import java.util.Collection;
@@ -24,6 +25,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
@@ -146,8 +148,9 @@ public class OlapTableWrapper extends OlapTable {
     }
 
     @Override
-    public List<Long> selectNonEmptyPartitionIds(Collection<Long> partitionIds) {
-        return originTable.selectNonEmptyPartitionIds(partitionIds);
+    public List<Long> selectNonEmptyPartitionIds(Collection<Long> partitionIds,
+            Optional<StreamReadMode> streamReadMode) {
+        return originTable.selectNonEmptyPartitionIds(partitionIds, streamReadMode);
     }
 
     @Override
