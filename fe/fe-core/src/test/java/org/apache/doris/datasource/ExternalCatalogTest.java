@@ -429,6 +429,48 @@ public class ExternalCatalogTest extends TestWithFeService {
     }
 
     @Test
+    public void testCaseInsensitiveDatabaseUnregisterClearsCanonicalHotEntries() {
+        NameMissCatalogProvider.reset();
+        try {
+            NameMissCatalogProvider.putDatabase("MixedDb");
+            NameMissCatalog catalog = new NameMissCatalog();
+            catalog.setInitializedForTest(true);
+
+            ExternalDatabase<? extends ExternalTable> db = catalog.getDbNullable("mixeddb");
+            Assertions.assertNotNull(db);
+            Assertions.assertTrue(catalog.getCachedDatabaseNamesForTest().containsLocalName("MixedDb"));
+            Assertions.assertSame(db, catalog.getCachedDatabaseForTest("MixedDb"));
+            Assertions.assertEquals("MixedDb", catalog.getCachedDatabaseNameByIdForTest(db.getId()));
+
+            catalog.unregisterDatabase("mixeddb");
+
+            Assertions.assertFalse(catalog.getCachedDatabaseNamesForTest().containsLocalName("MixedDb"));
+            Assertions.assertNull(catalog.getCachedDatabaseForTest("MixedDb"));
+            Assertions.assertNull(catalog.getCachedDatabaseNameByIdForTest(db.getId()));
+        } finally {
+            NameMissCatalogProvider.reset();
+        }
+    }
+
+    @Test
+    public void testCaseInsensitiveDatabaseUnregisterClearsCanonicalColdIdMap() {
+        IncrementalUpdateCatalog catalog = new IncrementalUpdateCatalog(2);
+        catalog.setInitializedForTest(true);
+        TestExternalDatabase db = new TestExternalDatabase(catalog, 102L, "MixedDb", "MixedDb");
+        catalog.simulateIncrementalRegisterDatabase(db);
+
+        Assertions.assertNull(catalog.getCachedDatabaseNamesForTest());
+        Assertions.assertNull(catalog.getCachedDatabaseForTest("MixedDb"));
+        Assertions.assertEquals("MixedDb", catalog.getCachedDatabaseNameByIdForTest(102L));
+
+        catalog.unregisterDatabase("mixeddb");
+
+        Assertions.assertNull(catalog.getCachedDatabaseNamesForTest());
+        Assertions.assertNull(catalog.getCachedDatabaseForTest("MixedDb"));
+        Assertions.assertNull(catalog.getCachedDatabaseNameByIdForTest(102L));
+    }
+
+    @Test
     public void testGetDbNullableByIdLoadsColdObjectEntry() {
         IncrementalUpdateCatalog catalog = new IncrementalUpdateCatalog();
         catalog.setInitializedForTest(true);
@@ -787,7 +829,12 @@ public class ExternalCatalogTest extends TestWithFeService {
 
     private static class IncrementalUpdateCatalog extends TestExternalCatalog {
         IncrementalUpdateCatalog() {
-            super(1000L, "incremental_test", "", buildIncrementalCatalogProps(), "");
+            this(0);
+        }
+
+        IncrementalUpdateCatalog(int lowerCaseDatabaseNames) {
+            super(1000L, "incremental_test", "",
+                    buildIncrementalCatalogProps(lowerCaseDatabaseNames), "");
         }
 
         void simulateIncrementalRegisterDatabase(TestExternalDatabase db) {
@@ -811,9 +858,10 @@ public class ExternalCatalogTest extends TestWithFeService {
             return dbIdToName.get(dbId);
         }
 
-        private static Map<String, String> buildIncrementalCatalogProps() {
+        private static Map<String, String> buildIncrementalCatalogProps(int lowerCaseDatabaseNames) {
             Map<String, String> props = Maps.newHashMap();
             props.put("catalog_provider.class", IncrementalCatalogProvider.class.getName());
+            props.put(ExternalCatalog.LOWER_CASE_DATABASE_NAMES, String.valueOf(lowerCaseDatabaseNames));
             return props;
         }
     }
@@ -894,6 +942,14 @@ public class ExternalCatalogTest extends TestWithFeService {
         // Expose the hot names snapshot so replay tests can verify it is preserved on misses.
         NameCacheValue getCachedDatabaseNamesForTest() {
             return databaseNames == null ? null : databaseNames.getIfPresent("");
+        }
+
+        ExternalDatabase<? extends ExternalTable> getCachedDatabaseForTest(String localDbName) {
+            return databases == null ? null : databases.getIfPresent(localDbName);
+        }
+
+        String getCachedDatabaseNameByIdForTest(long dbId) {
+            return dbIdToName.get(dbId);
         }
 
         private static Map<String, String> buildNameMissCatalogProps(int mode) {
