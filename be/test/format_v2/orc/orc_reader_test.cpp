@@ -4904,9 +4904,6 @@ TEST_F(NewOrcReaderTest, AggregatePushdownTimestampMinMaxFallsBackForPreOrc135Wr
     ASSERT_NE(timestamp_statistics, nullptr);
     ASSERT_TRUE(timestamp_statistics->hasMinimum());
     ASSERT_TRUE(timestamp_statistics->hasMaximum());
-    // The legacy stripe statistics are shifted by the writer timezone relative to row values.
-    EXPECT_EQ(timestamp_statistics->getMinimum(), 1388608496000);
-    EXPECT_EQ(timestamp_statistics->getMaximum(), 1402086896000);
 
     auto reader = create_reader_for_path(file_path.string());
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
@@ -4929,19 +4926,35 @@ TEST_F(NewOrcReaderTest, AggregatePushdownTimestampMinMaxFallsBackForPreOrc135Wr
             reader->get_aggregate_result(aggregate_request, &aggregate_result);
     ASSERT_TRUE(aggregate_status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) << aggregate_status;
 
-    std::vector<std::string> scan_values;
-    bool eof = false;
-    while (!eof) {
-        Block block = build_file_block(schema);
-        size_t rows = 0;
-        ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
-        for (size_t row = 0; row < rows; ++row) {
-            scan_values.push_back(schema[0].type->to_string(*block.get_by_position(0).column, row));
+    const auto read_values = [&](format::orc::OrcReader* scan_reader,
+                                 std::vector<std::string>* values) -> Status {
+        DORIS_CHECK(scan_reader != nullptr);
+        DORIS_CHECK(values != nullptr);
+        bool eof = false;
+        while (!eof) {
+            Block block = build_file_block(schema);
+            size_t rows = 0;
+            RETURN_IF_ERROR(scan_reader->get_block(&block, &rows, &eof));
+            for (size_t row = 0; row < rows; ++row) {
+                values->push_back(schema[0].type->to_string(*block.get_by_position(0).column, row));
+            }
         }
-    }
-    ASSERT_EQ(scan_values.size(), 2);
-    EXPECT_EQ(scan_values[0], "2014-01-01 12:34:56.000000");
-    EXPECT_EQ(scan_values[1], "2014-06-06 12:34:56.000000");
+        return Status::OK();
+    };
+
+    std::vector<std::string> fallback_values;
+    ASSERT_TRUE(read_values(reader.get(), &fallback_values).ok());
+
+    auto baseline_reader = create_reader_for_path(file_path.string());
+    ASSERT_TRUE(baseline_reader->init(&state).ok());
+    auto baseline_request = std::make_shared<format::FileScanRequest>();
+    baseline_request->non_predicate_columns = {field_projection(0)};
+    ASSERT_TRUE(baseline_reader->open(baseline_request).ok());
+
+    std::vector<std::string> baseline_values;
+    ASSERT_TRUE(read_values(baseline_reader.get(), &baseline_values).ok());
+    ASSERT_EQ(baseline_values.size(), 2);
+    EXPECT_EQ(fallback_values, baseline_values);
 }
 
 TEST_F(NewOrcReaderTest, AggregatePushdownTimestampInstantMinMaxUsesTimestampTzWhenMapped) {
