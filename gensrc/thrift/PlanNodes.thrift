@@ -671,6 +671,12 @@ struct TFrontendsMetadataParams {
   2: optional string current_connected_fe_host
 }
 
+struct TTabletsMetadataParams {
+  1: optional string database_name
+  2: optional string table_name
+  3: optional list<string> partition_names
+}
+
 struct TMaterializedViewsMetadataParams {
   1: optional string database
   2: optional Types.TUserIdentity current_user_ident
@@ -783,6 +789,7 @@ struct TMetaScanRange {
   15: optional string serialized_table;
   16: optional list<string> serialized_splits;
   17: optional TParquetMetadataParams parquet_params;
+  18: optional TTabletsMetadataParams tablets_params;
 }
 
 // Specification of an individual data range which is held in its entirety
