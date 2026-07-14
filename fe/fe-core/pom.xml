@@ -214,7 +214,10 @@ under the License.
             <groupId>org.apache.commons</groupId>
             <artifactId>commons-lang3</artifactId>
         </dependency>
-        <!-- Runtime-only: hive-catalog-shade's HiveConf needs org.apache.commons.lang.StringUtils.
+        <!-- Runtime-only: hadoop-huaweicloud's OBSFileSystem (reflection-loaded, so no compile-time
+             reference reveals this) and bce-java-sdk both call org.apache.commons.lang.StringUtils
+             while declaring no commons-lang of their own. This declaration is its only source on the
+             FE classpath; dropping it compiles green and then NoClassDefFoundErrors on OBS access.
              scope=runtime keeps it off the compile classpath, so fe source stays commons-lang(2.x)-free. -->
         <dependency>
             <groupId>commons-lang</groupId>
@@ -281,6 +284,14 @@ under the License.
                     <artifactId>junit</artifactId>
                 </exclusion>
             </exclusions>
+        </dependency>
+        <!-- Provides the org.json API (JSONObject/JSONArray) that fe source uses directly.
+             Open JSON is the Apache-2.0 clean-room implementation; the org.json:json reference
+             implementation must not be used (its license is ASF category X, which is why the
+             parent pom excludes it from hadoop-cos). -->
+        <dependency>
+            <groupId>com.tdunning</groupId>
+            <artifactId>json</artifactId>
         </dependency>
         <dependency>
             <groupId>io.netty</groupId>
@@ -433,10 +444,6 @@ under the License.
         <dependency>
             <groupId>com.google.flatbuffers</groupId>
             <artifactId>flatbuffers-java</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.doris</groupId>
-            <artifactId>hive-catalog-shade</artifactId>
         </dependency>
         <dependency>
             <groupId>org.apache.hadoop</groupId>
