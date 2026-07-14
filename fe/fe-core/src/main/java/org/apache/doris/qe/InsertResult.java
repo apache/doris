@@ -33,6 +33,7 @@ public class InsertResult {
     public TransactionStatus txnStatus;
     public long loadedRows;
     public long filteredRows;
+    public long stmtId = -1;
 
     public InsertResult(long txnId, String label, String db, String tbl, TransactionStatus txnStatus,
                         long loadedRows, long filteredRows) {

@@ -372,7 +372,8 @@ public abstract class BulkLoadJob extends LoadJob implements GsonPostProcessable
             String brokerUserName = getBrokerUserName();
             AuditEvent auditEvent = new LoadAuditEvent.AuditEventBuilder()
                     .setEventType(AuditEvent.EventType.LOAD_SUCCEED)
-                    .setJobId(id).setLabel(label).setLoadType(jobType.name()).setDb(dbName).setTableList(tableListName)
+                    .setJobId(id).setLoadLabel(label).setLoadType(jobType.name())
+                    .setDb(dbName).setTableList(tableListName)
                     .setFilePathList(filePathListName).setBrokerUser(brokerUserName).setTimestamp(createTimestamp)
                     .setLoadStartTime(loadStartTimestamp).setLoadFinishTime(finishTimestamp)
                     .setScanRows(loadStatistic.getScannedRows()).setScanBytes(loadStatistic.totalFileSizeB)

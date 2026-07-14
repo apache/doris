@@ -161,6 +161,12 @@ public class AuditEvent {
     @AuditField(value = "ComputeGroupName", colName = "compute_group")
     public String cloudClusterName = "";
 
+    // transaction info
+    @AuditField(value = "LoadLabel", colName = "load_label")
+    public String loadLabel = "";
+    @AuditField(value = "TxnId", colName = "txn_id")
+    public long txnId = -1;
+
     // stmt should be last one
     @AuditField(value = "Stmt", colName = "stmt")
     public String stmt = "";
@@ -395,6 +401,16 @@ public class AuditEvent {
 
         public AuditEventBuilder setChosenMViews(String chosenMViews) {
             auditEvent.chosenMViews = chosenMViews;
+            return this;
+        }
+
+        public AuditEventBuilder setLoadLabel(String loadLabel) {
+            auditEvent.loadLabel = loadLabel;
+            return this;
+        }
+
+        public AuditEventBuilder setTxnId(long txnId) {
+            auditEvent.txnId = txnId;
             return this;
         }
 

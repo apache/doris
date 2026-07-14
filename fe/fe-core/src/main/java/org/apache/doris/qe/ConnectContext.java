@@ -332,9 +332,11 @@ public class ConnectContext {
             TransactionStatus txnStatus, long loadedRows, int filteredRows) {
         if (isTxnModel() && insertResult != null) {
             insertResult.updateResult(txnStatus, loadedRows, filteredRows);
+            insertResult.stmtId = this.stmtId;
         } else {
             insertResult = new InsertResult(txnId, label, db, Util.getTempTableDisplayName(tbl),
                 txnStatus, loadedRows, filteredRows);
+            insertResult.stmtId = this.stmtId;
         }
     }
 
