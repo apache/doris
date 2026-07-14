@@ -200,7 +200,7 @@ private:
     // Pre-evaluate the residual column predicates into _row_bitmap so a predicated ANN TopN
     // can keep using the index (IDSelector) instead of falling back to brute force.
     [[nodiscard]] Status _eager_filter_predicates_into_bitmap();
-    // Whether the session enables pre-filtering column predicates for ANN TopN (default true).
+    // Whether the current FE explicitly enables pre-filtering column predicates for ANN TopN.
     bool _enable_ann_topn_predicate_prefilter() const;
     [[nodiscard]] Status _apply_index_expr();
 

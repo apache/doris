@@ -509,7 +509,7 @@ struct TQueryOptions {
   226: optional bool enable_prune_nested_column = false;
   // Pre-filter column predicates into the ANN candidate bitmap (IDSelector) instead of falling
   // back to a brute-force distance scan when an ANN TopN query carries a column predicate.
-  227: optional bool enable_ann_topn_predicate_prefilter = true
+  227: optional bool enable_ann_topn_predicate_prefilter = false
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
   // In read path, read from file cache or remote storage when execute query.

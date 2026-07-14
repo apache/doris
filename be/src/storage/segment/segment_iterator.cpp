@@ -1075,8 +1075,8 @@ Status SegmentIterator::_apply_ann_topn_predicate() {
 }
 
 bool SegmentIterator::_enable_ann_topn_predicate_prefilter() const {
-    return !_opts.runtime_state ||
-           !_opts.runtime_state->query_options().__isset.enable_ann_topn_predicate_prefilter ||
+    return _opts.runtime_state != nullptr &&
+           _opts.runtime_state->query_options().__isset.enable_ann_topn_predicate_prefilter &&
            _opts.runtime_state->query_options().enable_ann_topn_predicate_prefilter;
 }
 

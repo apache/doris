@@ -30,6 +30,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.UUID;
+import java.util.function.Consumer;
 
 public class SqlCacheTest extends TestWithFeService {
     @Test
@@ -63,21 +64,34 @@ public class SqlCacheTest extends TestWithFeService {
     }
 
     @Test
-    public void testCacheKeyIncludesAnnTopnPredicatePrefilter() {
+    public void testCacheKeyIncludesAnnTopnOptions() {
+        assertCacheKeyChanges(sessionVariable -> sessionVariable.enableAnnTopnPredicatePrefilter = false);
+        assertCacheKeyChanges(sessionVariable -> sessionVariable.hnswEFSearch = 64);
+        assertCacheKeyChanges(sessionVariable -> sessionVariable.hnswCheckRelativeDistance = false);
+        assertCacheKeyChanges(sessionVariable -> sessionVariable.hnswBoundedQueue = false);
+        assertCacheKeyChanges(sessionVariable -> sessionVariable.ivfNprobe = 64);
+        assertCacheKeyChanges(sessionVariable -> sessionVariable.annIndexCandidateRowsThreshold = 1);
+        assertCacheKeyChanges(
+                sessionVariable -> sessionVariable.annIndexCandidateRowsPercentThreshold = 0.2);
+    }
+
+    private void assertCacheKeyChanges(Consumer<SessionVariable> change) {
         UserIdentity admin = new UserIdentity("admin", "127.0.0.1");
 
-        SessionVariable prefilterEnabled = new SessionVariable();
+        SessionVariable defaultSessionVariable = new SessionVariable();
         SqlCacheContext enabledContext = new SqlCacheContext(admin);
         enabledContext.setOriginSql("SELECT * FROM tbl");
-        PUniqueId enabledKey = enabledContext.doComputeCacheKeyMd5(ImmutableSet.of(), prefilterEnabled);
+        PUniqueId defaultKey = enabledContext.doComputeCacheKeyMd5(
+                ImmutableSet.of(), defaultSessionVariable);
 
-        SessionVariable prefilterDisabled = new SessionVariable();
-        prefilterDisabled.enableAnnTopnPredicatePrefilter = false;
+        SessionVariable changedSessionVariable = new SessionVariable();
+        change.accept(changedSessionVariable);
         SqlCacheContext disabledContext = new SqlCacheContext(admin);
         disabledContext.setOriginSql("SELECT * FROM tbl");
-        PUniqueId disabledKey = disabledContext.doComputeCacheKeyMd5(ImmutableSet.of(), prefilterDisabled);
+        PUniqueId changedKey = disabledContext.doComputeCacheKeyMd5(
+                ImmutableSet.of(), changedSessionVariable);
 
-        Assertions.assertNotEquals(enabledKey, disabledKey);
+        Assertions.assertNotEquals(defaultKey, changedKey);
     }
 
     @Test
