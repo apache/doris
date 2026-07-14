@@ -1668,6 +1668,7 @@ struct TRoutineLoadJob {
     19: optional i32 current_abort_task_num
     20: optional bool is_abnormal_pause
     21: optional string compute_group
+    22: optional string last_task_schedule_time
 }
 
 struct TFetchRoutineLoadJobResult {

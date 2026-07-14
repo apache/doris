@@ -119,7 +119,8 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
     }
 
     private void scheduleOneTask(RoutineLoadTaskInfo routineLoadTaskInfo) throws Exception {
-        routineLoadTaskInfo.setLastScheduledTime(System.currentTimeMillis());
+        long scheduleTimeMs = System.currentTimeMillis();
+        routineLoadTaskInfo.setLastScheduledTime(scheduleTimeMs);
         if (LOG.isDebugEnabled()) {
             LOG.debug("schedule routine load task info {} for job {}",
                     routineLoadTaskInfo.id, routineLoadTaskInfo.getJobId());
@@ -133,6 +134,8 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
                              .build());
             return;
         }
+        routineLoadManager.getJob(routineLoadTaskInfo.getJobId())
+                .updateLastTaskScheduleTimeMs(scheduleTimeMs);
 
         try {
             if (routineLoadManager.getJob(routineLoadTaskInfo.getJobId()).isFinal()) {

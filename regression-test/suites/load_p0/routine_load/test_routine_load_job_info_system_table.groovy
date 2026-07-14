@@ -15,23 +15,34 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import org.apache.doris.regression.util.RoutineLoadTestUtils
 import org.apache.kafka.clients.admin.AdminClient
-import org.apache.kafka.clients.producer.KafkaProducer
-import org.apache.kafka.clients.producer.ProducerRecord
+import org.apache.kafka.clients.admin.NewTopic
 import org.apache.kafka.clients.producer.ProducerConfig
-
-import groovy.json.JsonSlurper
+import org.junit.Assert
 
 suite("test_routine_load_job_info_system_table","p0") {
-    String enabled = context.config.otherConfigs.get("enableKafkaTest")
-    String kafka_port = context.config.otherConfigs.get("kafka_port")
-    String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
-    def kafka_broker = "${externalEnvIp}:${kafka_port}"
-
-    def jobName = "test_job_info_system_table_invaild"
+    def uniqueSuffix = System.currentTimeMillis()
+    def jobName = "test_job_info_system_table_invaild_${uniqueSuffix}"
+    def scheduleJobName = "test_job_info_system_table_schedule_${uniqueSuffix}"
     def tableName = "test_job_info_system_table"
-    if (enabled != null && enabled.equalsIgnoreCase("true")) {
+    def scheduleTableName = "test_job_info_system_table_schedule"
+    def scheduleTopic = "test_job_info_system_table_schedule_${uniqueSuffix}"
+    if (RoutineLoadTestUtils.isKafkaTestEnabled(context)) {
+        def kafkaBroker = RoutineLoadTestUtils.getKafkaBroker(context)
+        def producer = null
+        def adminClient = null
         try {
+            def adminProps = new Properties()
+            adminProps.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, kafkaBroker)
+            adminClient = AdminClient.create(adminProps)
+
+            sql """
+            DROP TABLE IF EXISTS ${tableName}
+            """
+            sql """
+            DROP TABLE IF EXISTS ${scheduleTableName}
+            """
             sql """
             CREATE TABLE IF NOT EXISTS ${tableName}
             (
@@ -110,7 +121,7 @@ suite("test_routine_load_job_info_system_table","p0") {
                 )
                 FROM KAFKA
                 (
-                    "kafka_broker_list" = "${externalEnvIp}:${kafka_port}",
+                    "kafka_broker_list" = "${kafkaBroker}",
                     "kafka_topic" = "test_job_info_system_table_invaild",
                     "property.kafka_default_offsets" = "OFFSET_BEGINNING"
                 );
@@ -139,9 +150,93 @@ suite("test_routine_load_job_info_system_table","p0") {
             log.info("compute group res: ${computeGroupRes}".toString())
             assertTrue(computeGroupRes.size() > 0)
             assertNotNull(computeGroupRes[0][1])
+
+            sql """
+            CREATE TABLE IF NOT EXISTS ${scheduleTableName}
+            (
+                k00 INT             NOT NULL,
+                k01 VARCHAR(32)     NULL
+            )
+            DUPLICATE KEY(k00)
+            DISTRIBUTED BY HASH(k00) BUCKETS 1
+            PROPERTIES (
+                "replication_num" = "1"
+            );
+            """
+
+            adminClient.createTopics([new NewTopic(scheduleTopic, 1, (short) 1)]).all().get()
+            producer = RoutineLoadTestUtils.createKafkaProducer(kafkaBroker)
+            RoutineLoadTestUtils.sendTestDataToKafka(producer, [scheduleTopic], ["1|a"])
+            producer.flush()
+
+            sql """
+                CREATE ROUTINE LOAD ${scheduleJobName} on ${scheduleTableName}
+                COLUMNS(k00,k01),
+                COLUMNS TERMINATED BY "|"
+                PROPERTIES
+                (
+                    "max_batch_interval" = "5",
+                    "max_batch_rows" = "300000",
+                    "max_batch_size" = "209715200"
+                )
+                FROM KAFKA
+                (
+                    "kafka_broker_list" = "${kafkaBroker}",
+                    "kafka_topic" = "${scheduleTopic}",
+                    "property.kafka_default_offsets" = "OFFSET_BEGINNING"
+                );
+            """
+
+            count = 0
+            def lastTaskScheduleTimeRes = sql """
+                SELECT JOB_NAME, LAST_TASK_SCHEDULE_TIME
+                FROM information_schema.routine_load_jobs
+                WHERE JOB_NAME = '${scheduleJobName}'
+                  AND LAST_TASK_SCHEDULE_TIME != ''
+            """
+            while (lastTaskScheduleTimeRes.size() == 0) {
+                if (count >= 60) {
+                    Assert.fail("LAST_TASK_SCHEDULE_TIME was not updated for ${scheduleJobName}")
+                }
+                def state = sql "show routine load for ${scheduleJobName}"
+                def rowCount = sql "SELECT count(*) FROM ${scheduleTableName}"
+                log.info("routine load state: ${state[0][8].toString()}".toString())
+                log.info("row count: ${rowCount}".toString())
+                log.info("last task schedule time res: ${lastTaskScheduleTimeRes}".toString())
+                sleep(1000)
+                lastTaskScheduleTimeRes = sql """
+                    SELECT JOB_NAME, LAST_TASK_SCHEDULE_TIME
+                    FROM information_schema.routine_load_jobs
+                    WHERE JOB_NAME = '${scheduleJobName}'
+                      AND LAST_TASK_SCHEDULE_TIME != ''
+                """
+                count++
+            }
+            log.info("last task schedule time res: ${lastTaskScheduleTimeRes}".toString())
+            assertTrue(lastTaskScheduleTimeRes.size() > 0)
+            assertNotNull(lastTaskScheduleTimeRes[0][1])
+            assertTrue(lastTaskScheduleTimeRes[0][1].toString().length() > 0)
+
+            // Verify SHOW ROUTINE LOAD also includes LastTaskScheduleTime
+            def showRoutineLoadRes = sql "SHOW ROUTINE LOAD FOR ${scheduleJobName}"
+            log.info("show routine load res: ${showRoutineLoadRes}".toString())
+            assertTrue(showRoutineLoadRes.size() > 0)
+            // LastTaskScheduleTime should be the last column (index 23, after ComputeGroup at index 22)
+            def lastTaskScheduleTimeFromShow = showRoutineLoadRes[0][23]
+            log.info("LastTaskScheduleTime from SHOW ROUTINE LOAD: ${lastTaskScheduleTimeFromShow}".toString())
+            assertNotNull(lastTaskScheduleTimeFromShow)
+            assertTrue(lastTaskScheduleTimeFromShow.toString().length() > 0)
+            // Verify consistency between SHOW ROUTINE LOAD and system table
+            assertEquals(lastTaskScheduleTimeRes[0][1].toString(), lastTaskScheduleTimeFromShow.toString())
         } finally {
-            sql "stop routine load for ${jobName}"
-            sql "DROP TABLE IF EXISTS ${tableName}"
+            try_sql "stop routine load for ${scheduleJobName}"
+            try_sql "stop routine load for ${jobName}"
+            if (producer != null) {
+                producer.close()
+            }
+            if (adminClient != null) {
+                adminClient.close()
+            }
         }
     }
 }
