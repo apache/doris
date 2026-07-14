@@ -29,6 +29,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
@@ -45,6 +46,7 @@ import org.junit.BeforeClass;
 import org.junit.Test;
 
 import java.io.File;
+import java.time.ZoneId;
 import java.util.UUID;
 
 public class VariableMgrTest {
@@ -191,6 +193,20 @@ public class VariableMgrTest {
                 new StringLiteral(""));
         VariableMgr.setVar(var, setVar);
         Assert.assertEquals(new String[] {""}, var.getSqlConvertorFeatures());
+    }
+
+    @Test
+    public void testTimeZoneChecker() throws DdlException {
+        SessionVariable var = new SessionVariable();
+        VariableMgr.setVar(var, new SetVar(SetType.SESSION, SessionVariable.TIME_ZONE,
+                new StringLiteral("PST")));
+        Assert.assertEquals("America/Los_Angeles",
+                ZoneId.of(var.getTimeZone(), TimeUtils.timeZoneAliasMap).getId());
+
+        DdlException exception = Assert.assertThrows(DdlException.class, () -> VariableMgr.setVar(var,
+                new SetVar(SetType.SESSION, SessionVariable.TIME_ZONE, new StringLiteral("invalid"))));
+        Assert.assertTrue(exception.getMessage().contains("Unknown or incorrect time zone"));
+        Assert.assertEquals("PST", var.getTimeZone());
     }
 
     @Test
