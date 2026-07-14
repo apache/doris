@@ -555,7 +555,9 @@ private:
 
             if (curr_level > max_level) {
                 max_level = curr_level;
-                if (max_level + 1 == event_count) return event_count;
+                if (max_level + 1 == event_count) {
+                    return event_count;
+                }
             }
 
             // Prune: remaining events cannot beat current best.
