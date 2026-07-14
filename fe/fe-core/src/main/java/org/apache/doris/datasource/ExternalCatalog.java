@@ -769,6 +769,20 @@ public abstract class ExternalCatalog
             if (localDbName != null) {
                 dbName = localDbName;
             }
+
+            // When lower_case_meta_names is enabled, also try case-insensitive lookup
+            // to handle cases where local names were transformed (e.g., Foo -> foo)
+            if (Boolean.parseBoolean(getLowerCaseMetaNames())) {
+                ExternalDatabase<? extends ExternalTable> db = metaCache.getMetaObj(
+                        dbName,
+                        Util.genIdByName(name, dbName)).orElse(null);
+                if (db != null) {
+                    return db;
+                }
+                // Try with lowercase name
+                String lowerName = dbName.toLowerCase();
+                return metaCache.getMetaObj(lowerName, Util.genIdByName(name, lowerName)).orElse(null);
+            }
         }
 
         // must use full qualified name to generate id.
