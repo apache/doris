@@ -37,9 +37,13 @@ import org.apache.doris.clone.TabletScheduler.PathSlot;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.persist.ReplicaPersistInfo;
+import org.apache.doris.resource.BackendSelectionPolicy;
+import org.apache.doris.resource.BackendSelectionPolicyFactory;
+import org.apache.doris.resource.BackendSelectionService;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
@@ -60,6 +64,7 @@ import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
@@ -193,6 +198,9 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
     private ReplicaAllocation replicaAlloc;
     // tag is only set for BALANCE task, used to identify which workload group this Balance job is in
     private Tag tag;
+
+    private BackendSelectionPolicy.RepairSourceSelectionResult repairSourceSelectionResult =
+            BackendSelectionPolicy.RepairSourceSelectionResult.DISABLED;
 
     private SubCode schedFailedCode;
 
@@ -446,6 +454,10 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         return copyTimeMs;
     }
 
+    public BackendSelectionPolicy.RepairSourceSelectionResult getRepairSourceSelectionResult() {
+        return repairSourceSelectionResult;
+    }
+
     public long getSrcBackendId() {
         if (srcReplica != null) {
             return srcReplica.getBackendIdWithoutException();
@@ -653,7 +665,13 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         // choose a replica which slot is available from candidates.
         // sort replica by version count asc and isUserDrop, so that we prefer to choose replicas with fewer versions
         Collections.sort(candidates, CLONE_SRC_COMPARATOR);
-        for (Replica srcReplica : candidates) {
+
+        BackendSelectionPolicy selectionPolicy = BackendSelectionPolicyFactory.get();
+        boolean selectionEnabled = isRepairSourceSelectionEnabled(selectionPolicy, destBackendId);
+        List<Replica> orderedCandidates = selectionEnabled
+                ? orderRepairSourceCandidates(candidates, destBackendId)
+                : candidates;
+        for (Replica srcReplica : orderedCandidates) {
             long replicaBeId = srcReplica.getBackendIdWithoutException();
             PathSlot slot = backendsWorkingSlots.get(replicaBeId);
             if (slot == null) {
@@ -673,10 +691,30 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
                 continue;
             }
             setSrc(srcReplica);
+            repairSourceSelectionResult = selectionEnabled
+                    ? selectionPolicy.classifyRepairSource(replicaBeId, destBackendId,
+                            tablet.getReplicas(), candidates)
+                    : BackendSelectionPolicy.RepairSourceSelectionResult.DISABLED;
             return;
         }
         throw new SchedException(Status.SCHEDULE_FAILED, SubCode.WAITING_SLOT,
                 "waiting for source replica's slot");
+    }
+
+    static List<Replica> orderRepairSourceCandidates(List<Replica> candidates, long destBackendId)
+            throws SchedException {
+        try {
+            return new ArrayList<>(BackendSelectionService.orderRepairSourceCandidates(
+                    candidates, destBackendId));
+        } catch (UserException e) {
+            throw new SchedException(Status.UNRECOVERABLE, e.getMessage());
+        }
+    }
+
+    static boolean isRepairSourceSelectionEnabled(BackendSelectionPolicy selectionPolicy, long destBackendId) {
+        return Config.enable_repair_source_backend_selection
+                && selectionPolicy.isRepairSourceSelectionEnabled()
+                && destBackendId != -1;
     }
 
     /*

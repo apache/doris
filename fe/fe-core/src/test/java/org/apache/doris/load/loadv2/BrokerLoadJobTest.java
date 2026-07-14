@@ -18,6 +18,7 @@
 package org.apache.doris.load.loadv2;
 
 import org.apache.doris.analysis.BrokerDesc;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
@@ -35,6 +36,9 @@ import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.nereids.load.NereidsBrokerFileGroup;
 import org.apache.doris.nereids.load.NereidsLoadingTaskPlanner;
 import org.apache.doris.persist.EditLog;
+import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.resource.BackendSelection;
 import org.apache.doris.resource.computegroup.ComputeGroup;
 import org.apache.doris.resource.computegroup.ComputeGroupMgr;
 import org.apache.doris.task.MasterTaskExecutor;
@@ -112,6 +116,62 @@ public class BrokerLoadJobTest {
 
             Map<Long, LoadTask> idToTasks = Deencapsulation.getField(brokerLoadJob, "idToTasks");
             Assert.assertEquals(1, idToTasks.size());
+        }
+    }
+
+    @Test
+    public void testLoadBackendSelectionModesSurviveSerialization() {
+        for (BackendSelection.Mode mode : new BackendSelection.Mode[] {
+                BackendSelection.Mode.PREFER, BackendSelection.Mode.REQUIRE}) {
+            BrokerLoadJob job = new BrokerLoadJob();
+            job.setLoadBackendSelectionHint(new BackendSelection.SelectionHint("key_a", mode, "persisted"));
+
+            String serialized = GsonUtils.GSON.toJson(job);
+            BrokerLoadJob restored = GsonUtils.GSON.fromJson(serialized, BrokerLoadJob.class);
+
+            Assert.assertEquals("key_a", restored.getLoadBackendSelectionHint().getPreferredKey());
+            Assert.assertEquals(mode, restored.getLoadBackendSelectionHint().getMode());
+            Assert.assertEquals("persisted", restored.getLoadBackendSelectionHint().getReason());
+        }
+
+        BrokerLoadJob job = new BrokerLoadJob();
+        job.setLoadBackendSelectionHint(new BackendSelection.SelectionHint(
+                "key_a", BackendSelection.Mode.PREFER, "persisted"));
+        String serialized = GsonUtils.GSON.toJson(job);
+        BrokerLoadJob unknownMode = GsonUtils.GSON.fromJson(
+                serialized.replace("\"m\":\"PREFER\"", "\"m\":\"FUTURE\""), BrokerLoadJob.class);
+        Assert.assertEquals(BackendSelection.Mode.DEFAULT, unknownMode.getLoadBackendSelectionHint().getMode());
+    }
+
+    @Test
+    public void testRestoreLoadBackendSelectionForAsyncPlanning() {
+        BrokerLoadJob job = new BrokerLoadJob();
+        BackendSelection.SelectionHint hint = new BackendSelection.SelectionHint(
+                "key_a", BackendSelection.Mode.PREFER, "persisted");
+        job.setLoadBackendSelectionHint(hint);
+        UserIdentity userIdentity = Mockito.mock(UserIdentity.class);
+        Mockito.when(userIdentity.getQualifiedUser()).thenReturn("");
+        Deencapsulation.setField(job, "userInfo", userIdentity);
+        ConnectContext context = new ConnectContext();
+        context.setThreadLocalInfo();
+        Env env = Mockito.mock(Env.class);
+        InternalCatalog internalCatalog = Mockito.mock(InternalCatalog.class);
+        ComputeGroupMgr computeGroupMgr = Mockito.mock(ComputeGroupMgr.class);
+        ComputeGroup computeGroup = new ComputeGroup("default", "default", null);
+        Mockito.when(env.getInternalCatalog()).thenReturn(internalCatalog);
+        Mockito.when(internalCatalog.getName()).thenReturn("internal");
+        context.setEnv(env);
+
+        try (MockedStatic<Env> envMockedStatic = Mockito.mockStatic(Env.class)) {
+            envMockedStatic.when(Env::getCurrentEnv).thenReturn(env);
+            Mockito.when(env.getComputeGroupMgr()).thenReturn(computeGroupMgr);
+            Mockito.when(computeGroupMgr.getAllBackendComputeGroup()).thenReturn(computeGroup);
+
+            job.setComputeGroup();
+
+            Assert.assertSame(hint, context.getLoadBackendSelectionDecision());
+        } finally {
+            ConnectContext.remove();
         }
     }
 

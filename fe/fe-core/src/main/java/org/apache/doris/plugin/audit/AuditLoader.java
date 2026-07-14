@@ -210,6 +210,8 @@ public class AuditLoader extends Plugin implements AuditPlugin {
         // resource
         logBuffer.append(event.workloadGroup).append(AUDIT_TABLE_COL_SEPARATOR);
         logBuffer.append(event.cloudClusterName).append(AUDIT_TABLE_COL_SEPARATOR);
+        logBuffer.append(event.backendSelectionPreferredKey).append(AUDIT_TABLE_COL_SEPARATOR);
+        logBuffer.append(event.backendSelectionMode).append(AUDIT_TABLE_COL_SEPARATOR);
 
         // already trim the query in org.apache.doris.qe.AuditLogHelper#logAuditLog
         String stmt = event.stmt;

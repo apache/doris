@@ -20,8 +20,12 @@ package org.apache.doris.qe;
 import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.LoadException;
+import org.apache.doris.resource.BackendSelection;
+import org.apache.doris.resource.BackendSelectionService;
 import org.apache.doris.thrift.TGroupCommitInfo;
 import org.apache.doris.thrift.TMasterOpRequest;
+import org.apache.doris.thrift.TMasterOpResult;
 import org.apache.doris.thrift.TNetworkAddress;
 
 import org.apache.logging.log4j.LogManager;
@@ -77,13 +81,24 @@ public class MasterOpExecutor extends FEOpExecutor {
 
     public long getGroupCommitLoadBeId(long tableId, String cluster) throws Exception {
         result = forward(buildGetGroupCommitLoadBeIdParmas(tableId, cluster));
-        waitOnReplaying();
+        if (result.isSetStatusCode() && result.getStatusCode() != 0) {
+            throw new LoadException(getForwardResultErrorMessage(result));
+        }
+        if (result.isSetErrMessage()) {
+            throw new LoadException(result.getErrMessage());
+        }
         return result.groupCommitLoadBeId;
+    }
+
+    private static String getForwardResultErrorMessage(TMasterOpResult result) {
+        if (result.isSetErrMessage() && result.getErrMessage() != null && !result.getErrMessage().isEmpty()) {
+            return result.getErrMessage();
+        }
+        return "failed to select backend for group commit, status code: " + result.getStatusCode();
     }
 
     public void updateLoadData(long tableId, long receiveData) throws Exception {
         result = forward(buildUpdateLoadDataParams(tableId, receiveData));
-        waitOnReplaying();
     }
 
     private TMasterOpRequest buildSyncJournalParams() {
@@ -104,7 +119,18 @@ public class MasterOpExecutor extends FEOpExecutor {
         groupCommitParams.setGetGroupCommitLoadBeId(true);
         groupCommitParams.setGroupCommitLoadTableId(tableId);
         groupCommitParams.setCluster(cluster);
+        groupCommitParams.setSupportsSelectionErrorResult(true);
+        setGroupCommitLoadSelectionHint(groupCommitParams, ctx);
         return getMasterOpRequestForGroupCommit(groupCommitParams);
+    }
+
+    static void setGroupCommitLoadSelectionHint(TGroupCommitInfo groupCommitParams, ConnectContext context) {
+        BackendSelection.SelectionHint decision = BackendSelectionService.resolveLoadSelectionHint(context);
+        if (decision == null) {
+            return;
+        }
+        groupCommitParams.setLoadSelectionPreferredKey(decision.getPreferredKey());
+        groupCommitParams.setLoadSelectionMode(decision.getMode().name());
     }
 
     private TMasterOpRequest buildUpdateLoadDataParams(long tableId, long receiveData) {

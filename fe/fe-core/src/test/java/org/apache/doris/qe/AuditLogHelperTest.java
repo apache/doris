@@ -18,13 +18,23 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.plugin.AuditEvent;
+import org.apache.doris.resource.BackendSelection;
+import org.apache.doris.resource.BackendSelectionPolicyFactory;
+import org.apache.doris.resource.workloadschedpolicy.WorkloadRuntimeStatusMgr;
 
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
+import org.mockito.ArgumentCaptor;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 public class AuditLogHelperTest {
 
@@ -99,6 +109,70 @@ public class AuditLogHelperTest {
             Assert.assertEquals(0, after - before);
         } finally {
             Config.enable_bdbje_debug_mode = original;
+        }
+    }
+
+    @Test
+    public void testAuditLogDoesNotResolveQuerySelectionDecision() {
+        ConnectContext ctx = createMockContext(false, false);
+        ctx.getState().setOk();
+
+        Env env = Mockito.mock(Env.class);
+        CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
+        CatalogIf catalog = Mockito.mock(CatalogIf.class);
+        WorkloadRuntimeStatusMgr workloadRuntimeStatusMgr = Mockito.mock(WorkloadRuntimeStatusMgr.class);
+        Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
+        Mockito.when(catalogMgr.getCatalog(Mockito.anyString())).thenReturn(catalog);
+        Mockito.when(catalog.getName()).thenReturn("internal");
+        Mockito.when(env.getWorkloadRuntimeStatusMgr()).thenReturn(workloadRuntimeStatusMgr);
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class);
+                MockedStatic<BackendSelectionPolicyFactory> mockedFactory =
+                        Mockito.mockStatic(BackendSelectionPolicyFactory.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            mockedFactory.when(BackendSelectionPolicyFactory::get)
+                    .thenThrow(new AssertionError("audit log should not resolve query selection"));
+
+            AuditLogHelper.logAuditLog(ctx, "set enable_profile = true", null, null, true);
+
+            ArgumentCaptor<AuditEvent> auditEventCaptor = ArgumentCaptor.forClass(AuditEvent.class);
+            Mockito.verify(workloadRuntimeStatusMgr).submitFinishQueryToAudit(auditEventCaptor.capture());
+            Assert.assertEquals("", auditEventCaptor.getValue().backendSelectionPreferredKey);
+            Assert.assertEquals("default", auditEventCaptor.getValue().backendSelectionMode);
+            mockedFactory.verifyNoInteractions();
+        }
+    }
+
+    @Test
+    public void testAuditLogPrefersRecordedLoadSelectionDecision() {
+        ConnectContext ctx = createMockContext(false, false);
+        ctx.getState().setOk();
+        ctx.recordLoadBackendSelectionDecision(
+                new BackendSelection.SelectionHint("load_key", BackendSelection.Mode.PREFER, "test"));
+
+        Env env = Mockito.mock(Env.class);
+        CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
+        CatalogIf catalog = Mockito.mock(CatalogIf.class);
+        WorkloadRuntimeStatusMgr workloadRuntimeStatusMgr = Mockito.mock(WorkloadRuntimeStatusMgr.class);
+        Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
+        Mockito.when(catalogMgr.getCatalog(Mockito.anyString())).thenReturn(catalog);
+        Mockito.when(catalog.getName()).thenReturn("internal");
+        Mockito.when(env.getWorkloadRuntimeStatusMgr()).thenReturn(workloadRuntimeStatusMgr);
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class);
+                MockedStatic<BackendSelectionPolicyFactory> mockedFactory =
+                        Mockito.mockStatic(BackendSelectionPolicyFactory.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            mockedFactory.when(BackendSelectionPolicyFactory::get)
+                    .thenThrow(new AssertionError("audit log should not resolve selection decisions"));
+
+            AuditLogHelper.logAuditLog(ctx, "insert into t values (1)", null, null, true);
+
+            ArgumentCaptor<AuditEvent> auditEventCaptor = ArgumentCaptor.forClass(AuditEvent.class);
+            Mockito.verify(workloadRuntimeStatusMgr).submitFinishQueryToAudit(auditEventCaptor.capture());
+            Assert.assertEquals("load_key", auditEventCaptor.getValue().backendSelectionPreferredKey);
+            Assert.assertEquals("prefer", auditEventCaptor.getValue().backendSelectionMode);
+            mockedFactory.verifyNoInteractions();
         }
     }
 }

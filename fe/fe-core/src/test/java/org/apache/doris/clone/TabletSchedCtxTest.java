@@ -31,6 +31,8 @@ import org.apache.doris.clone.TabletSchedCtx.Priority;
 import org.apache.doris.clone.TabletSchedCtx.Type;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.DebugPointUtil;
+import org.apache.doris.resource.BackendSelectionPolicy;
+import org.apache.doris.resource.BackendSelectionPolicyFactory;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
 import org.apache.doris.utframe.TestWithFeService;
@@ -40,6 +42,8 @@ import com.google.common.collect.MinMaxPriorityQueue;
 import org.junit.Assert;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.util.Collections;
 import java.util.List;
@@ -80,6 +84,26 @@ public class TabletSchedCtxTest extends TestWithFeService {
         Env.getCurrentEnv().getTabletScheduler().clear();
         DebugPointUtil.clearDebugPoints();
         Assertions.assertTrue(checkBEHeartbeat(Env.getCurrentSystemInfo().getBackendsByTag(Tag.DEFAULT_BACKEND_TAG)));
+    }
+
+    @Test
+    public void testRepairSourceCandidateOrderIsCopied() throws Exception {
+        Replica replica = new LocalReplica();
+        List<Replica> candidates = Collections.singletonList(replica);
+        BackendSelectionPolicy policy = new BackendSelectionPolicy() {
+            @Override
+            public List<Replica> orderRepairSourceCandidates(List<Replica> healthyCandidates, long destBackendId) {
+                return Collections.unmodifiableList(healthyCandidates);
+            }
+        };
+
+        try (MockedStatic<BackendSelectionPolicyFactory> mockedFactory =
+                Mockito.mockStatic(BackendSelectionPolicyFactory.class)) {
+            mockedFactory.when(BackendSelectionPolicyFactory::get).thenReturn(policy);
+            List<Replica> orderedCandidates = TabletSchedCtx.orderRepairSourceCandidates(candidates, 1L);
+            orderedCandidates.add(new LocalReplica());
+            Assertions.assertEquals(2, orderedCandidates.size());
+        }
     }
 
     @Test
@@ -242,5 +266,27 @@ public class TabletSchedCtxTest extends TestWithFeService {
                 .filter(beId -> !replicasBeIds.contains(beId)).collect(Collectors.toList());
         Assertions.assertEquals(1, notInReplicaBeIds.size());
         Assertions.assertFalse(tabletSchedCtx.filterDestBE(notInReplicaBeIds.get(0)));
+    }
+
+    @Test
+    public void testRepairSourceSelectionConfigGate() {
+        boolean oldConfig = Config.enable_repair_source_backend_selection;
+        try {
+            BackendSelectionPolicy enabledPolicy = new BackendSelectionPolicy() {
+                @Override
+                public boolean isRepairSourceSelectionEnabled() {
+                    return true;
+                }
+            };
+
+            Config.enable_repair_source_backend_selection = false;
+            Assertions.assertFalse(TabletSchedCtx.isRepairSourceSelectionEnabled(enabledPolicy, 1L));
+
+            Config.enable_repair_source_backend_selection = true;
+            Assertions.assertTrue(TabletSchedCtx.isRepairSourceSelectionEnabled(enabledPolicy, 1L));
+            Assertions.assertFalse(TabletSchedCtx.isRepairSourceSelectionEnabled(enabledPolicy, -1L));
+        } finally {
+            Config.enable_repair_source_backend_selection = oldConfig;
+        }
     }
 }

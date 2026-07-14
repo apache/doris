@@ -38,6 +38,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.planner.GroupCommitPlanner;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.resource.BackendSelectionService;
 import org.apache.doris.resource.computegroup.ComputeGroup;
 import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.system.Backend;
@@ -63,6 +64,7 @@ import org.springframework.web.servlet.view.RedirectView;
 
 import java.io.IOException;
 import java.net.InetAddress;
+import java.util.ArrayList;
 import java.util.Enumeration;
 import java.util.List;
 import java.util.Optional;
@@ -423,8 +425,7 @@ public class LoadAction extends RestBaseController {
         policy = new BeSelectionPolicy.Builder().setEnableRoundRobin(true).needLoadAvailable().build();
         policy.nextRoundRobinIndex = getLastSelectedBackendIndexAndUpdate();
         List<Long> backendIds;
-        int number = groupCommit ? -1 : 1;
-        backendIds = Env.getCurrentSystemInfo().selectBackendIdsByPolicy(policy, number, computeGroup.getBackendList());
+        backendIds = Env.getCurrentSystemInfo().selectBackendIdsByPolicy(policy, -1, computeGroup.getBackendList());
         if (backendIds.isEmpty()) {
             throw new LoadException(
                     SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG + ", policy: " + policy + ", compute group is "
@@ -435,12 +436,24 @@ public class LoadAction extends RestBaseController {
             backend = preSelectedBackend != null ? preSelectedBackend
                     : selectBackendForGroupCommit("", request, tableId);
         } else {
-            backend = Env.getCurrentSystemInfo().getBackend(backendIds.get(0));
+            backend = chooseRedirectBackendWithSelection(ctx, backendIds);
         }
         if (backend == null) {
             throw new LoadException(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG + ", policy: " + policy);
         }
         return selectEndpointByRedirectPolicy(request, backend);
+    }
+
+    private Backend chooseRedirectBackendWithSelection(ConnectContext context, List<Long> backendIds)
+            throws LoadException {
+        List<Backend> candidates = new ArrayList<>();
+        for (Long backendId : backendIds) {
+            Backend candidate = Env.getCurrentSystemInfo().getBackend(backendId);
+            if (candidate != null) {
+                candidates.add(candidate);
+            }
+        }
+        return BackendSelectionService.chooseLoadBackend(context, candidates);
     }
 
     private TNetworkAddress selectCloudRedirectBackend(String clusterName, HttpServletRequest req, boolean groupCommit,
@@ -751,26 +764,50 @@ public class LoadAction extends RestBaseController {
 
     private Backend selectBackendForGroupCommit(String clusterName, HttpServletRequest req, long tableId)
             throws LoadException {
+        ConnectContext currentCtx = ConnectContext.get();
         ConnectContext ctx = new ConnectContext();
         ctx.setEnv(Env.getCurrentEnv());
-        ctx.setThreadLocalInfo();
         ctx.setRemoteIP(req.getRemoteAddr());
         // We set this variable to fulfill required field 'user' in
         // TMasterOpRequest(FrontendService.thrift)
         ctx.setCurrentUserIdentity(UserIdentity.ADMIN);
-        ctx.setThreadLocalInfo();
+        inheritLoadSelectionContext(currentCtx, ctx);
         if (Config.isCloudMode()) {
             ctx.setCloudCluster(clusterName);
         }
 
         Backend backend = null;
         try {
+            ctx.setThreadLocalInfo();
             backend = Env.getCurrentEnv().getGroupCommitManager()
                     .selectBackendForGroupCommit(tableId, ctx);
         } catch (DdlException e) {
             throw new LoadException(e.getMessage(), e);
+        } finally {
+            if (currentCtx != null) {
+                currentCtx.setThreadLocalInfo();
+            } else {
+                ConnectContext.remove();
+            }
         }
         return backend;
+    }
+
+    private static void inheritLoadSelectionContext(ConnectContext source, ConnectContext target) {
+        if (source == null) {
+            return;
+        }
+        UserIdentity sourceIdentity = source.getCurrentUserIdentity();
+        if (sourceIdentity != null) {
+            target.setCurrentUserIdentity(sourceIdentity);
+        }
+        target.getSessionVariable().enableLoadBackendSelection =
+                source.getSessionVariable().isEnableLoadBackendSelection();
+        target.getSessionVariable().preferredBackendSelectionKey =
+                source.getSessionVariable().getPreferredBackendSelectionKey();
+        target.getSessionVariable().backendSelectionMode =
+                source.getSessionVariable().getBackendSelectionMode();
+        target.setConnectingFeLocalResourceGroup(source.getConnectingFeLocalResourceGroup());
     }
 
     /*
@@ -826,7 +863,7 @@ public class LoadAction extends RestBaseController {
      * Problem:
      * Group commit requires that requests for the same table be sent to the same BE node
      * to achieve better batching efficiency. However, in cloud mode with Load Balancer (LB),
-     * the LB randomly selects a BE node for forwarding, which breaks the group commit strategy
+     * the LB selects a BE node by default for forwarding, which breaks the group commit strategy
      * and reduces batching effectiveness.
      *
      * Solution:

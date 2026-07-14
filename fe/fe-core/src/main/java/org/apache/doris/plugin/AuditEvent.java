@@ -160,6 +160,11 @@ public class AuditEvent {
     public String workloadGroup = "";
     @AuditField(value = "ComputeGroupName", colName = "compute_group")
     public String cloudClusterName = "";
+    // Backend selection hint of this statement; preferred key is empty when no selection preference is active.
+    @AuditField(value = "BackendSelectionPreferredKey", colName = "backend_selection_preferred_key")
+    public String backendSelectionPreferredKey = "";
+    @AuditField(value = "BackendSelectionMode", colName = "backend_selection_mode")
+    public String backendSelectionMode = "";
 
     // stmt should be last one
     @AuditField(value = "Stmt", colName = "stmt")
@@ -320,6 +325,16 @@ public class AuditEvent {
 
         public AuditEventBuilder setWorkloadGroup(String workloadGroup) {
             auditEvent.workloadGroup = workloadGroup;
+            return this;
+        }
+
+        public AuditEventBuilder setBackendSelectionPreferredKey(String backendSelectionPreferredKey) {
+            auditEvent.backendSelectionPreferredKey = backendSelectionPreferredKey;
+            return this;
+        }
+
+        public AuditEventBuilder setBackendSelectionMode(String backendSelectionMode) {
+            auditEvent.backendSelectionMode = backendSelectionMode;
             return this;
         }
 

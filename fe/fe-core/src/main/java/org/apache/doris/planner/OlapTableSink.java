@@ -63,6 +63,8 @@ import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DebugPointUtil.DebugPoint;
 import org.apache.doris.nereids.trees.plans.commands.insert.OlapInsertCommandContext;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.resource.BackendSelection;
+import org.apache.doris.resource.BackendSelectionService;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TColumn;
@@ -88,6 +90,7 @@ import org.apache.doris.thrift.TUniqueKeyUpdateMode;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.HashMultimap;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Range;
@@ -375,6 +378,7 @@ public class OlapTableSink extends DataSink {
         }
         strBuilder.append(prefix + "  TUPLE ID: " + tupleDescriptor.getId() + "\n");
         strBuilder.append(prefix + "  " + DataPartition.RANDOM.getExplainString(explainLevel));
+        appendSinkSelectionExplain(strBuilder, prefix);
         boolean isPartialUpdate = uniqueKeyUpdateMode != TUniqueKeyUpdateMode.UPSERT;
         strBuilder.append(prefix + "  IS_PARTIAL_UPDATE: " + isPartialUpdate);
         if (isPartialUpdate) {
@@ -387,6 +391,17 @@ public class OlapTableSink extends DataSink {
             strBuilder.append("\n" + prefix + "  PARTIAL_UPDATE_NEW_KEY_BEHAVIOR: " + partialUpdateNewKeyPolicy);
         }
         return strBuilder.toString();
+    }
+
+    private void appendSinkSelectionExplain(StringBuilder strBuilder, String prefix) {
+        BackendSelection.SelectionHint decision =
+                BackendSelectionService.resolveLoadSelectionHint(ConnectContext.get());
+        if (decision == null) {
+            return;
+        }
+        strBuilder.append(prefix).append("  sink backend selection: preferred=").append(decision.getPreferredKey())
+                .append(", mode=").append(decision.getMode())
+                .append(", source=").append(decision.getReason()).append("\n");
     }
 
     @Override
@@ -1264,10 +1279,8 @@ public class OlapTableSink extends DataSink {
                     }
 
                     if (singleReplicaLoad) {
-                        Long[] nodes = bePathsMap.keySet().toArray(new Long[0]);
-                        Random random = new SecureRandom();
-                        Long masterNode = nodes[random.nextInt(nodes.length)];
-                        Multimap<Long, Long> slaveBePathsMap = bePathsMap;
+                        Long masterNode = chooseSingleReplicaMaster(bePathsMap);
+                        Multimap<Long, Long> slaveBePathsMap = HashMultimap.create(bePathsMap);
                         slaveBePathsMap.removeAll(masterNode);
                         locationParam.addToTablets(new TTabletLocation(tablet.getId(),
                                 Lists.newArrayList(Sets.newHashSet(masterNode))));
@@ -1287,13 +1300,39 @@ public class OlapTableSink extends DataSink {
             locationParam.setTablets(new ArrayList<TTabletLocation>());
             slaveLocationParam.setTablets(new ArrayList<TTabletLocation>());
         }
-        // check if disk capacity reach limit
-        // this is for load process, so use high water mark to check
+        // Check all replica paths, including the selected single-replica master. The master is the write target,
+        // so excluding its paths would allow a load to pass capacity checks and fail during execution instead.
         Status st = Env.getCurrentSystemInfo().checkExceedDiskCapacityLimit(allBePathsMap, true);
         if (!st.ok()) {
             throw new DdlException(st.getErrorMsg());
         }
         return Arrays.asList(locationParam, slaveLocationParam);
+    }
+
+    private Long chooseSingleReplicaMaster(Multimap<Long, Long> bePathsMap) throws UserException {
+        ConnectContext context = ConnectContext.get();
+        if (!BackendSelectionService.isLoadSelectionEnabled(context)) {
+            return chooseRandomSingleReplicaMaster(bePathsMap);
+        }
+        List<Backend> candidates = Lists.newArrayList();
+        for (Long backendId : bePathsMap.keySet()) {
+            Backend backend = Env.getCurrentSystemInfo().getBackend(backendId);
+            if (backend != null) {
+                candidates.add(backend);
+            }
+        }
+        Backend selected = BackendSelectionService.chooseFirstPreferredLoadBackend(
+                context, ImmutableList.copyOf(candidates), Backend::isLoadAvailable);
+        if (selected != null) {
+            return selected.getId();
+        }
+        return chooseRandomSingleReplicaMaster(bePathsMap);
+    }
+
+    private Long chooseRandomSingleReplicaMaster(Multimap<Long, Long> bePathsMap) {
+        Long[] nodes = bePathsMap.keySet().toArray(new Long[0]);
+        Random random = new SecureRandom();
+        return nodes[random.nextInt(nodes.length)];
     }
 
     private void debugWriteRandomChooseSink(Tablet tablet, long version, Multimap<Long, Long> bePathsMap) {
