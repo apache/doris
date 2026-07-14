@@ -109,6 +109,7 @@ struct LazyReadContext {
     // lazy read partition columns or all partition columns
     std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
             partition_columns;
+    std::unordered_map<std::string, bool> partition_value_is_null;
     std::unordered_map<std::string, VExprContextSPtr> predicate_missing_columns;
     // lazy read missing columns or all missing columns
     std::unordered_map<std::string, VExprContextSPtr> missing_columns;
@@ -180,7 +181,8 @@ public:
     Status set_fill_columns(
             const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
                     partition_columns,
-            const std::unordered_map<std::string, VExprContextSPtr>& missing_columns) override;
+            const std::unordered_map<std::string, VExprContextSPtr>& missing_columns,
+            const std::unordered_map<std::string, bool>& partition_value_is_null = {}) override;
 
     Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
 

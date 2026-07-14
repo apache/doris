@@ -464,8 +464,10 @@ bool ParquetReader::_type_matches(const int cid) const {
 Status ParquetReader::set_fill_columns(
         const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
                 partition_columns,
-        const std::unordered_map<std::string, VExprContextSPtr>& missing_columns) {
+        const std::unordered_map<std::string, VExprContextSPtr>& missing_columns,
+        const std::unordered_map<std::string, bool>& partition_value_is_null) {
     _lazy_read_ctx.fill_partition_columns = partition_columns;
+    _lazy_read_ctx.partition_value_is_null = partition_value_is_null;
     _lazy_read_ctx.fill_missing_columns = missing_columns;
 
     // std::unordered_map<column_name, std::pair<col_id, slot_id>>

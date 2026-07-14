@@ -54,6 +54,7 @@
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
+#include "vec/exec/format/table/partition_column_filler.h"
 #include "vec/exprs/vdirect_in_predicate.h"
 #include "vec/exprs/vectorized_fn_call.h"
 #include "vec/exprs/vexpr.h"
@@ -725,23 +726,12 @@ Status RowGroupReader::_fill_partition_columns(
         // obtained from block*, it is a mutable object.
         auto* col_ptr = const_cast<IColumn*>(doris_column.get());
         const auto& [value, slot_desc] = kv.second;
-        auto _text_serde = slot_desc->get_data_type_ptr()->get_serde();
-        Slice slice(value.data(), value.size());
-        uint64_t num_deserialized = 0;
-        // Be careful when reading empty rows from parquet row groups.
-        if (_text_serde->deserialize_column_from_fixed_json(*col_ptr, slice, rows,
-                                                            &num_deserialized,
-                                                            _text_formatOptions) != Status::OK()) {
-            return Status::InternalError("Failed to fill partition column: {}={}",
-                                         slot_desc->col_name(), value);
-        }
-        if (num_deserialized != rows) {
-            return Status::InternalError(
-                    "Failed to fill partition column: {}={} ."
-                    "Number of rows expected to be written : {}, number of rows actually written : "
-                    "{}",
-                    slot_desc->col_name(), value, num_deserialized, rows);
-        }
+        auto null_it = _lazy_read_ctx.partition_value_is_null.find(kv.first);
+        RETURN_IF_ERROR(fill_partition_column_from_path_value(
+                *col_ptr, *slot_desc, value, rows,
+                null_it != _lazy_read_ctx.partition_value_is_null.end(),
+                null_it != _lazy_read_ctx.partition_value_is_null.end() && null_it->second,
+                _text_formatOptions));
     }
     return Status::OK();
 }
