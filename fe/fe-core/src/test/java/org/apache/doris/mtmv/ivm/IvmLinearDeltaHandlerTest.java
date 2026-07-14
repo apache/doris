@@ -19,6 +19,7 @@ package org.apache.doris.mtmv.ivm;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.MTMV;
+import org.apache.doris.catalog.stream.StreamReadMode;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
@@ -288,7 +289,8 @@ class IvmLinearDeltaHandlerTest extends IvmDeltaTestBase {
     @Test
     void testRewritePlanWithoutOpColumnUsesLiteralOne() {
         // Non-incremental stream scan: rewrite returns scan as-is with null dmlFactor (no dml_factor injected)
-        LogicalOlapTableStreamScan scan = (LogicalOlapTableStreamScan) buildDeltaScan().withIsSnapshot(true);
+        LogicalOlapTableStreamScan scan = (LogicalOlapTableStreamScan) buildDeltaScan()
+                .withReadMode(StreamReadMode.SNAPSHOT);
         TestableIvmLinearDeltaHandler handler = new TestableIvmLinearDeltaHandler();
 
         IvmDeltaRewriteResult result = handler.exposeRewritePlan(scan, dummyCtx());
