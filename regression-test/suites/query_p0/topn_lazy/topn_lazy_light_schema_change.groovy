@@ -59,10 +59,17 @@ suite("topn_lazy_light_schema_change") {
 
     // Plan shape: a non-light-schema-change table must fall back to a plain
     // PhysicalOlapScan with no PhysicalLazyMaterialize / PhysicalLazyMaterializeOlapScan.
-    qt_shape_lsc_false_not_lazy """
-        explain shape plan
-        select name from topn_lazy_lsc_false order by createdate desc limit 3
-    """
+    //
+    // Only meaningful in storage-compute integrated (non-cloud) mode. In cloud mode
+    // CloudPropertyAnalyzer force-rewrites light_schema_change to "true"
+    // (RewriteProperty.replace), so this table is effectively light_schema_change=true
+    // and lazy materialization legitimately applies -- the assertion would not hold.
+    if (!isCloudMode()) {
+        explain {
+            sql "shape plan select name from topn_lazy_lsc_false order by createdate desc limit 3"
+            notContains("PhysicalLazyMaterialize")
+        }
+    }
 
     // Correctness: the query used to error with "field name is invalid" (or return NULL
     // for name). It must now run and return the real values ordered by createdate desc.
@@ -96,11 +103,14 @@ suite("topn_lazy_light_schema_change") {
     """
 
     // Plan shape: a light_schema_change table keeps lazy materialization
-    // (PhysicalLazyMaterialize present).
-    qt_shape_lsc_true_lazy """
-        explain shape plan
-        select name from topn_lazy_lsc_true order by createdate desc limit 3
-    """
+    // (PhysicalLazyMaterialize present). Checked only in non-cloud mode, for symmetry
+    // with the lsc_false case above.
+    if (!isCloudMode()) {
+        explain {
+            sql "shape plan select name from topn_lazy_lsc_true order by createdate desc limit 3"
+            contains("PhysicalLazyMaterialize")
+        }
+    }
 
     // Correctness: lazy materialization returns the same real values.
     qt_result_lsc_true """
