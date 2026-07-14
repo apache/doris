@@ -154,7 +154,7 @@ private:
 
 class ResultSinkOperatorX final : public DataSinkOperatorX<ResultSinkLocalState> {
 public:
-    ResultSinkOperatorX(int operator_id, const RowDescriptor& row_desc,
+    ResultSinkOperatorX(int operator_id, int node_id, const RowDescriptor& row_desc,
                         const std::vector<TExpr>& select_exprs, const TResultSink& sink);
     Status prepare(RuntimeState* state) override;
 
