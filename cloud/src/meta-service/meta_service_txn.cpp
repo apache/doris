@@ -578,6 +578,7 @@ void put_routine_load_progress(MetaServiceCode& code, std::string& msg,
             new_progress_info.mutable_partition_to_offset()->insert(elem);
         }
     }
+
     std::string new_statistic_val;
     RoutineLoadJobStatisticPB* new_statistic_info = new_progress_info.mutable_stat();
     if (prev_progress_info.has_stat()) {
@@ -886,6 +887,7 @@ void MetaServiceImpl::reset_rl_progress(::google::protobuf::RpcController* contr
                 }
             }
         }
+
         if (!new_progress_info.SerializeToString(&new_progress_val)) {
             code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
             ss << "failed to serialize new progress val"
