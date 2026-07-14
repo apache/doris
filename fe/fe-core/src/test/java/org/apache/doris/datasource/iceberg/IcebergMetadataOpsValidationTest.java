@@ -194,6 +194,52 @@ public class IcebergMetadataOpsValidationTest {
     }
 
     @Test
+    public void testModifyComplexColumnRejectsCaseInsensitiveStructFieldAdditions() {
+        Schema schema = mixedCaseNestedSchema();
+        ExternalTable dorisTable = Mockito.mock(ExternalTable.class);
+        Table icebergTable = Mockito.mock(Table.class);
+        UpdateSchema updateSchema = Mockito.mock(UpdateSchema.class);
+        Mockito.when(icebergTable.schema()).thenReturn(schema);
+        Mockito.when(icebergTable.updateSchema()).thenReturn(updateSchema);
+
+        StructType infoType = new StructType(
+                new StructField("Metric", Type.INT),
+                new StructField("Label", Type.STRING),
+                new StructField("metric", Type.INT));
+        ArrayType eventsType = ArrayType.create(new StructType(
+                new StructField("Score", Type.INT),
+                new StructField("score", Type.INT)), true);
+        MapType attrsType = new MapType(Type.STRING, new StructType(
+                new StructField("Code", Type.INT),
+                new StructField("code", Type.INT)));
+        StructType duplicateNewFieldsType = new StructType(
+                new StructField("Metric", Type.INT),
+                new StructField("Label", Type.STRING),
+                new StructField("Extra", Type.INT),
+                new StructField("EXTRA", Type.STRING));
+
+        try (MockedStatic<IcebergUtils> mockedIcebergUtils =
+                Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
+            mockedIcebergUtils.when(() -> IcebergUtils.getIcebergTable(dorisTable)).thenReturn(icebergTable);
+
+            assertUserException(() -> ops.modifyColumn(
+                            dorisTable, new Column("info", infoType, true), null, 1L),
+                    "Added struct field 'metric' conflicts with existing field");
+            assertUserException(() -> ops.modifyColumn(
+                            dorisTable, new Column("events", eventsType, true), null, 1L),
+                    "Added struct field 'score' conflicts with existing field");
+            assertUserException(() -> ops.modifyColumn(
+                            dorisTable, new Column("attrs", attrsType, true), null, 1L),
+                    "Added struct field 'code' conflicts with existing field");
+            assertUserException(() -> ops.modifyColumn(
+                            dorisTable, new Column("info", duplicateNewFieldsType, true), null, 1L),
+                    "Added struct field 'extra' conflicts with existing field");
+        }
+
+        Mockito.verifyNoInteractions(updateSchema);
+    }
+
+    @Test
     public void testResolveNestedColumnPathSupportsStructArrayElementAndMapValue() throws Throwable {
         Schema schema = nestedSchema();
         Assert.assertTrue(ops.resolveNestedColumnPath(schema, ColumnPath.fromDotName("s"), "add").isStructType());
