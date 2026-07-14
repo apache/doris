@@ -183,9 +183,8 @@ bool VInPredicate::can_evaluate_bloom_filter() const {
            std::dynamic_pointer_cast<VSlotRef>(get_child(0)) != nullptr;
 }
 
-Status VInPredicate::execute_column(VExprContext* context, const Block* block,
-                                    Selector* selector, size_t count,
-                                         ColumnPtr& result_column) const {
+Status VInPredicate::execute_column(VExprContext* context, const Block* block, Selector* selector,
+                                    size_t count, ColumnPtr& result_column) const {
     if (is_const_and_have_executed()) { // const have execute in open function
         result_column = get_result_from_const(count);
         return Status::OK();

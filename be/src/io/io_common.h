@@ -115,9 +115,12 @@ struct FileCacheStatistics {
         segment_footer_index_num_local_io_total += other.segment_footer_index_num_local_io_total;
         segment_footer_index_num_remote_io_total += other.segment_footer_index_num_remote_io_total;
         segment_footer_index_num_peer_io_total += other.segment_footer_index_num_peer_io_total;
-        segment_footer_index_bytes_read_from_local += other.segment_footer_index_bytes_read_from_local;
-        segment_footer_index_bytes_read_from_remote += other.segment_footer_index_bytes_read_from_remote;
-        segment_footer_index_bytes_read_from_peer += other.segment_footer_index_bytes_read_from_peer;
+        segment_footer_index_bytes_read_from_local +=
+                other.segment_footer_index_bytes_read_from_local;
+        segment_footer_index_bytes_read_from_remote +=
+                other.segment_footer_index_bytes_read_from_remote;
+        segment_footer_index_bytes_read_from_peer +=
+                other.segment_footer_index_bytes_read_from_peer;
         segment_footer_index_local_io_timer += other.segment_footer_index_local_io_timer;
         segment_footer_index_remote_io_timer += other.segment_footer_index_remote_io_timer;
         segment_footer_index_peer_io_timer += other.segment_footer_index_peer_io_timer;

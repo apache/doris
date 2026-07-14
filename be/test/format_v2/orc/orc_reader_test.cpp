@@ -59,12 +59,12 @@
 #include "core/data_type/primitive_type.h"
 #include "core/value/timestamptz_value.h"
 #include "exprs/create_predicate_function.h"
-#include "exprs/vruntimefilter_wrapper.h"
 #include "exprs/vdirect_in_predicate.h"
 #include "exprs/vectorized_fn_call.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vliteral.h"
+#include "exprs/vruntimefilter_wrapper.h"
 #include "exprs/vslot_ref.h"
 #include "format/orc/orc_memory_stream_test.h"
 #include "format_v2/expr/cast.h"
@@ -598,9 +598,8 @@ public:
         if (_opcode == TExprOpcode::COMPOUND_NOT) {
             DORIS_CHECK(_children.size() == 1);
             ColumnPtr child_column;
-            RETURN_IF_ERROR(
-                    _children[0]->execute_column_impl(context, block, selector, count,
-                                                      child_column));
+            RETURN_IF_ERROR(_children[0]->execute_column_impl(context, block, selector, count,
+                                                              child_column));
             for (size_t row = 0; row < count; ++row) {
                 result_data[row] = !bool_value(*child_column, row);
             }

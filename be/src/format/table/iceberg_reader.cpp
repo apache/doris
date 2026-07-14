@@ -43,7 +43,6 @@
 #include "format/generic_reader.h"
 #include "format/orc/vorc_reader.h"
 #include "format/parquet/schema_desc.h"
-#include "format/table/iceberg_delete_file_reader_helper.h"
 #include "format/parquet/vparquet_column_chunk_reader.h"
 #include "format/table/deletion_vector_reader.h"
 #include "format/table/iceberg/iceberg_orc_nested_column_utils.h"
@@ -918,81 +917,85 @@ Status IcebergTableReader::read_deletion_vector(const std::string& data_file_pat
     _iceberg_deletion_vector = _kv_cache->get<DeletionVector>(
             build_iceberg_deletion_vector_cache_key(data_file_path, delete_file_desc),
             [&]() -> DeletionVector* {
-        auto deletion_vector = std::make_unique<DeletionVector>();
+                auto deletion_vector = std::make_unique<DeletionVector>();
 
-        TFileRangeDesc delete_range;
-        // must use __set() method to make sure __isset is true
-        delete_range.__set_fs_name(_range.fs_name);
-        delete_range.path = delete_file_desc.path;
-        delete_range.start_offset = delete_file_desc.content_offset;
-        delete_range.size = delete_file_desc.content_size_in_bytes;
-        delete_range.file_size = -1;
+                TFileRangeDesc delete_range;
+                // must use __set() method to make sure __isset is true
+                delete_range.__set_fs_name(_range.fs_name);
+                delete_range.path = delete_file_desc.path;
+                delete_range.start_offset = delete_file_desc.content_offset;
+                delete_range.size = delete_file_desc.content_size_in_bytes;
+                delete_range.file_size = -1;
 
-        // We may consider caching the DeletionVectorReader when reading Puffin files,
-        // where the underlying reader is an `InMemoryFileReader` and a single data file is
-        // split into multiple splits. However, we need to ensure that the underlying
-        // reader supports multi-threaded access.
-        DeletionVectorReader dv_reader(_state, _profile, _params, delete_range, _io_ctx);
-        create_status = dv_reader.open();
-        if (!create_status.ok()) [[unlikely]] {
-            return nullptr;
-        }
+                // We may consider caching the DeletionVectorReader when reading Puffin files,
+                // where the underlying reader is an `InMemoryFileReader` and a single data file is
+                // split into multiple splits. However, we need to ensure that the underlying
+                // reader supports multi-threaded access.
+                DeletionVectorReader dv_reader(_state, _profile, _params, delete_range, _io_ctx);
+                create_status = dv_reader.open();
+                if (!create_status.ok()) [[unlikely]] {
+                    return nullptr;
+                }
 
-        size_t buffer_size = delete_range.size;
-        std::vector<char> buf(buffer_size);
-        if (buffer_size < 12) [[unlikely]] {
-            // Minimum size: 4 bytes length + 4 bytes magic + 4 bytes CRC32
-            create_status = Status::DataQualityError("Deletion vector file size too small: {}",
-                                                     buffer_size);
-            return nullptr;
-        }
+                size_t buffer_size = delete_range.size;
+                std::vector<char> buf(buffer_size);
+                if (buffer_size < 12) [[unlikely]] {
+                    // Minimum size: 4 bytes length + 4 bytes magic + 4 bytes CRC32
+                    create_status = Status::DataQualityError(
+                            "Deletion vector file size too small: {}", buffer_size);
+                    return nullptr;
+                }
 
-        create_status = dv_reader.read_at(delete_range.start_offset, {buf.data(), buffer_size});
-        const auto& file_cache_stats = dv_reader.file_cache_statistics();
-        COUNTER_UPDATE(_iceberg_profile.file_cache_hit_count,
-                       file_cache_stats.num_local_io_total);
-        COUNTER_UPDATE(_iceberg_profile.file_cache_miss_count,
-                       file_cache_stats.num_remote_io_total);
-        COUNTER_UPDATE(_iceberg_profile.file_cache_peer_read_count,
-                       file_cache_stats.num_peer_io_total);
-        if (!create_status) [[unlikely]] {
-            return nullptr;
-        }
-        // The serialized blob contains:
-        //
-        // Combined length of the vector and magic bytes stored as 4 bytes, big-endian
-        // A 4-byte magic sequence, D1 D3 39 64
-        // The vector, serialized as described below
-        // A CRC-32 checksum of the magic bytes and serialized vector as 4 bytes, big-endian
+                create_status =
+                        dv_reader.read_at(delete_range.start_offset, {buf.data(), buffer_size});
+                const auto& file_cache_stats = dv_reader.file_cache_statistics();
+                COUNTER_UPDATE(_iceberg_profile.file_cache_hit_count,
+                               file_cache_stats.num_local_io_total);
+                COUNTER_UPDATE(_iceberg_profile.file_cache_miss_count,
+                               file_cache_stats.num_remote_io_total);
+                COUNTER_UPDATE(_iceberg_profile.file_cache_peer_read_count,
+                               file_cache_stats.num_peer_io_total);
+                if (!create_status) [[unlikely]] {
+                    return nullptr;
+                }
+                // The serialized blob contains:
+                //
+                // Combined length of the vector and magic bytes stored as 4 bytes, big-endian
+                // A 4-byte magic sequence, D1 D3 39 64
+                // The vector, serialized as described below
+                // A CRC-32 checksum of the magic bytes and serialized vector as 4 bytes, big-endian
 
-        auto total_length = BigEndian::Load32(buf.data());
-        if (total_length + 8 != buffer_size) [[unlikely]] {
-            create_status = Status::DataQualityError(
-                    "Deletion vector length mismatch, expected: {}, actual: {}", total_length + 8,
-                    buffer_size);
-            return nullptr;
-        }
+                auto total_length = BigEndian::Load32(buf.data());
+                if (total_length + 8 != buffer_size) [[unlikely]] {
+                    create_status = Status::DataQualityError(
+                            "Deletion vector length mismatch, expected: {}, actual: {}",
+                            total_length + 8, buffer_size);
+                    return nullptr;
+                }
 
-        constexpr static char MAGIC_NUMBER[] = {'\xD1', '\xD3', '\x39', '\x64'};
-        if (memcmp(buf.data() + sizeof(total_length), MAGIC_NUMBER, 4)) [[unlikely]] {
-            create_status = Status::DataQualityError("Deletion vector magic number mismatch");
-            return nullptr;
-        }
+                constexpr static char MAGIC_NUMBER[] = {'\xD1', '\xD3', '\x39', '\x64'};
+                if (memcmp(buf.data() + sizeof(total_length), MAGIC_NUMBER, 4)) [[unlikely]] {
+                    create_status =
+                            Status::DataQualityError("Deletion vector magic number mismatch");
+                    return nullptr;
+                }
 
-        roaring::Roaring64Map bitmap;
-        SCOPED_TIMER(_iceberg_profile.parse_delete_file_time);
-        try {
-            bitmap = roaring::Roaring64Map::readSafe(buf.data() + 8, buffer_size - 12);
-        } catch (const std::runtime_error& e) {
-            create_status = Status::DataQualityError("Decode roaring bitmap failed, {}", e.what());
-            return nullptr;
-        }
-        // skip CRC-32 checksum
+                roaring::Roaring64Map bitmap;
+                SCOPED_TIMER(_iceberg_profile.parse_delete_file_time);
+                try {
+                    bitmap = roaring::Roaring64Map::readSafe(buf.data() + 8, buffer_size - 12);
+                } catch (const std::runtime_error& e) {
+                    create_status =
+                            Status::DataQualityError("Decode roaring bitmap failed, {}", e.what());
+                    return nullptr;
+                }
+                // skip CRC-32 checksum
 
-        *deletion_vector |= std::move(bitmap);
-        COUNTER_UPDATE(_iceberg_profile.num_delete_rows, deletion_vector->cardinality());
-        return deletion_vector.release();
-    }, &decoded_cache_hit);
+                *deletion_vector |= std::move(bitmap);
+                COUNTER_UPDATE(_iceberg_profile.num_delete_rows, deletion_vector->cardinality());
+                return deletion_vector.release();
+            },
+            &decoded_cache_hit);
 
     RETURN_IF_ERROR(create_status);
     COUNTER_UPDATE(decoded_cache_hit ? _iceberg_profile.decoded_cache_hit_count

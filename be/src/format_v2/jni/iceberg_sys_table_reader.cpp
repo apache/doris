@@ -20,8 +20,7 @@
 namespace doris::format::iceberg {
 
 Status IcebergSysTableJniReader::validate_scan_range(const TFileRangeDesc& range) const {
-    return Status::NotSupported(
-            "native Iceberg system-table splits are unavailable on branch-4.1");
+    return Status::NotSupported("native Iceberg system-table splits are unavailable on branch-4.1");
 }
 
 std::string IcebergSysTableJniReader::connector_class() const {
@@ -32,8 +31,7 @@ Status IcebergSysTableJniReader::build_scanner_params(
         std::map<std::string, std::string>* params) const {
     DORIS_CHECK(params != nullptr);
     params->clear();
-    return Status::NotSupported(
-            "native Iceberg system-table splits are unavailable on branch-4.1");
+    return Status::NotSupported("native Iceberg system-table splits are unavailable on branch-4.1");
 }
 
 } // namespace doris::format::iceberg

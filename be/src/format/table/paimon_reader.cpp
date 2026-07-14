@@ -23,9 +23,9 @@
 #include <vector>
 
 #include "common/status.h"
+#include "exec/common/endian.h"
 #include "format/table/deletion_vector_reader.h"
 #include "runtime/runtime_state.h"
-#include "exec/common/endian.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -49,7 +49,8 @@ Status decode_paimon_deletion_vector_buffer(const char* buf, size_t buffer_size,
     const uint32_t actual_length = BigEndian::Load32(buf);
     if (actual_length + 4 != buffer_size) [[unlikely]] {
         return Status::RuntimeError(
-                "DeletionVector deserialize error: length not match, actual length: {}, expect length: {}",
+                "DeletionVector deserialize error: length not match, actual length: {}, expect "
+                "length: {}",
                 actual_length, buffer_size - 4);
     }
     if (memcmp(buf + sizeof(actual_length), PAIMON_BITMAP_MAGIC, 4) != 0) [[unlikely]] {
@@ -114,81 +115,86 @@ Status PaimonReader::init_row_filters() {
     SCOPED_TIMER(_paimon_profile.delete_files_read_time);
     bool decoded_cache_hit = false;
     _deletion_vector = _kv_cache->get<DeletionVector>(
-            build_paimon_deletion_vector_cache_key(deletion_file), [&]() -> DeletionVector* {
-        auto* deletion_vector = new DeletionVector;
+            build_paimon_deletion_vector_cache_key(deletion_file),
+            [&]() -> DeletionVector* {
+                auto* deletion_vector = new DeletionVector;
 
-        TFileRangeDesc delete_range;
-        // must use __set() method to make sure __isset is true
-        delete_range.__set_fs_name(_range.fs_name);
-        delete_range.path = deletion_file.path;
-        delete_range.start_offset = deletion_file.offset;
-        delete_range.size = deletion_file.length + 4;
-        delete_range.file_size = -1;
+                TFileRangeDesc delete_range;
+                // must use __set() method to make sure __isset is true
+                delete_range.__set_fs_name(_range.fs_name);
+                delete_range.path = deletion_file.path;
+                delete_range.start_offset = deletion_file.offset;
+                delete_range.size = deletion_file.length + 4;
+                delete_range.file_size = -1;
 
-        DeletionVectorReader dv_reader(_state, _profile, _params, delete_range, _io_ctx);
-        create_status = dv_reader.open();
-        if (!create_status.ok()) [[unlikely]] {
-            return nullptr;
-        }
+                DeletionVectorReader dv_reader(_state, _profile, _params, delete_range, _io_ctx);
+                create_status = dv_reader.open();
+                if (!create_status.ok()) [[unlikely]] {
+                    return nullptr;
+                }
 
-        // the reason of adding 4: https://github.com/apache/paimon/issues/3313
-        size_t bytes_read = deletion_file.length + 4;
-        // TODO: better way to alloc memeory
-        std::vector<char> buffer(bytes_read);
-        create_status = dv_reader.read_at(deletion_file.offset, {buffer.data(), bytes_read});
-        const auto& file_cache_stats = dv_reader.file_cache_statistics();
-        COUNTER_UPDATE(_paimon_profile.file_cache_hit_count,
-                       file_cache_stats.num_local_io_total);
-        COUNTER_UPDATE(_paimon_profile.file_cache_miss_count,
-                       file_cache_stats.num_remote_io_total);
-        COUNTER_UPDATE(_paimon_profile.file_cache_peer_read_count,
-                       file_cache_stats.num_peer_io_total);
-        if (!create_status.ok()) [[unlikely]] {
-            return nullptr;
-        }
+                // the reason of adding 4: https://github.com/apache/paimon/issues/3313
+                size_t bytes_read = deletion_file.length + 4;
+                // TODO: better way to alloc memeory
+                std::vector<char> buffer(bytes_read);
+                create_status =
+                        dv_reader.read_at(deletion_file.offset, {buffer.data(), bytes_read});
+                const auto& file_cache_stats = dv_reader.file_cache_statistics();
+                COUNTER_UPDATE(_paimon_profile.file_cache_hit_count,
+                               file_cache_stats.num_local_io_total);
+                COUNTER_UPDATE(_paimon_profile.file_cache_miss_count,
+                               file_cache_stats.num_remote_io_total);
+                COUNTER_UPDATE(_paimon_profile.file_cache_peer_read_count,
+                               file_cache_stats.num_peer_io_total);
+                if (!create_status.ok()) [[unlikely]] {
+                    return nullptr;
+                }
 
-        // parse deletion vector
-        const char* buf = buffer.data();
-        uint32_t actual_length;
-        std::memcpy(reinterpret_cast<char*>(&actual_length), buf, 4);
-        // change byte order to big endian
-        std::reverse(reinterpret_cast<char*>(&actual_length),
-                     reinterpret_cast<char*>(&actual_length) + 4);
-        buf += 4;
-        if (actual_length != bytes_read - 4) [[unlikely]] {
-            create_status = Status::RuntimeError(
-                    "DeletionVector deserialize error: length not match, "
-                    "actual length: {}, expect length: {}",
-                    actual_length, bytes_read - 4);
-            return nullptr;
-        }
-        uint32_t magic_number;
-        std::memcpy(reinterpret_cast<char*>(&magic_number), buf, 4);
-        // change byte order to big endian
-        std::reverse(reinterpret_cast<char*>(&magic_number),
-                     reinterpret_cast<char*>(&magic_number) + 4);
-        buf += 4;
-        const static uint32_t MAGIC_NUMBER = 1581511376;
-        if (magic_number != MAGIC_NUMBER) [[unlikely]] {
-            create_status = Status::RuntimeError(
-                    "DeletionVector deserialize error: invalid magic number {}", magic_number);
-            return nullptr;
-        }
+                // parse deletion vector
+                const char* buf = buffer.data();
+                uint32_t actual_length;
+                std::memcpy(reinterpret_cast<char*>(&actual_length), buf, 4);
+                // change byte order to big endian
+                std::reverse(reinterpret_cast<char*>(&actual_length),
+                             reinterpret_cast<char*>(&actual_length) + 4);
+                buf += 4;
+                if (actual_length != bytes_read - 4) [[unlikely]] {
+                    create_status = Status::RuntimeError(
+                            "DeletionVector deserialize error: length not match, "
+                            "actual length: {}, expect length: {}",
+                            actual_length, bytes_read - 4);
+                    return nullptr;
+                }
+                uint32_t magic_number;
+                std::memcpy(reinterpret_cast<char*>(&magic_number), buf, 4);
+                // change byte order to big endian
+                std::reverse(reinterpret_cast<char*>(&magic_number),
+                             reinterpret_cast<char*>(&magic_number) + 4);
+                buf += 4;
+                const static uint32_t MAGIC_NUMBER = 1581511376;
+                if (magic_number != MAGIC_NUMBER) [[unlikely]] {
+                    create_status = Status::RuntimeError(
+                            "DeletionVector deserialize error: invalid magic number {}",
+                            magic_number);
+                    return nullptr;
+                }
 
-        roaring::Roaring roaring_bitmap;
-        SCOPED_TIMER(_paimon_profile.parse_deletion_vector_time);
-        try {
-            roaring_bitmap = roaring::Roaring::readSafe(buf, bytes_read - 4);
-        } catch (const std::runtime_error& e) {
-            create_status = Status::RuntimeError(
-                    "DeletionVector deserialize error: failed to deserialize roaring bitmap, {}",
-                    e.what());
-            return nullptr;
-        }
-        *deletion_vector |= DeletionVector(std::move(roaring_bitmap));
-        COUNTER_UPDATE(_paimon_profile.num_delete_rows, deletion_vector->cardinality());
-        return deletion_vector;
-    }, &decoded_cache_hit);
+                roaring::Roaring roaring_bitmap;
+                SCOPED_TIMER(_paimon_profile.parse_deletion_vector_time);
+                try {
+                    roaring_bitmap = roaring::Roaring::readSafe(buf, bytes_read - 4);
+                } catch (const std::runtime_error& e) {
+                    create_status = Status::RuntimeError(
+                            "DeletionVector deserialize error: failed to deserialize roaring "
+                            "bitmap, {}",
+                            e.what());
+                    return nullptr;
+                }
+                *deletion_vector |= DeletionVector(std::move(roaring_bitmap));
+                COUNTER_UPDATE(_paimon_profile.num_delete_rows, deletion_vector->cardinality());
+                return deletion_vector;
+            },
+            &decoded_cache_hit);
     RETURN_IF_ERROR(create_status);
     COUNTER_UPDATE(decoded_cache_hit ? _paimon_profile.decoded_cache_hit_count
                                      : _paimon_profile.decoded_cache_miss_count,

@@ -237,8 +237,7 @@ Status FileScanLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     SCOPED_TIMER(_init_timer);
     auto& p = _parent->cast<FileScanOperatorX>();
     _output_tuple_id = p._output_tuple_id;
-    _condition_cache_hit_counter =
-            ADD_COUNTER(custom_profile(), "ConditionCacheHit", TUnit::UNIT);
+    _condition_cache_hit_counter = ADD_COUNTER(custom_profile(), "ConditionCacheHit", TUnit::UNIT);
     _condition_cache_filtered_rows_counter =
             ADD_COUNTER(custom_profile(), "ConditionCacheFilteredRows", TUnit::UNIT);
     return Status::OK();

@@ -167,7 +167,8 @@ public:
     virtual Status execute_column_impl(VExprContext* context, const Block* block,
                                        const Selector* selector, size_t count,
                                        ColumnPtr& result_column) const {
-        return execute_column(context, block, const_cast<Selector*>(selector), count, result_column);
+        return execute_column(context, block, const_cast<Selector*>(selector), count,
+                              result_column);
     }
 
     // Currently, due to fe planning issues, for slot-ref expressions the type of the returned Column may not match data_type.

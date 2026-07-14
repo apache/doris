@@ -17,8 +17,8 @@
 #include <type_traits>
 #include <utility>
 
-#include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/check.h"
+#include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/expected.h"
 #include "util/stack_util.h"

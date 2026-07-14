@@ -20,9 +20,9 @@
 #include <memory>
 #include <vector>
 
+#include "common/status.h"
 #include "format/orc/vorc_reader.h"
 #include "format/parquet/vparquet_reader.h"
-#include "common/status.h"
 #include "format/table/deletion_vector.h"
 #include "format/table/table_format_reader.h"
 
