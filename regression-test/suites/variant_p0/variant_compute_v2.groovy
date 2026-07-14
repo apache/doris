@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("variant_compute_v2") {
+suite("variant_compute_v2", "p0,nonConcurrent") {
     sql "SET enable_nereids_planner = true"
     sql "SET enable_fallback_to_original_planner = false"
 

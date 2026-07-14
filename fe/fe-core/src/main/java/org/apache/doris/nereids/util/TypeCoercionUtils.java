@@ -35,7 +35,6 @@ import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.Divide;
-import org.apache.doris.nereids.trees.expressions.EqualPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.IntegralDivide;
@@ -1280,15 +1279,6 @@ public class TypeCoercionUtils {
      * process comparison predicate type coercion.
      */
     public static Expression processComparisonPredicate(ComparisonPredicate comparisonPredicate) {
-        return processComparisonPredicate(comparisonPredicate, false);
-    }
-
-    /**
-     * Process comparison predicate type coercion, optionally allowing a planner-proven Variant
-     * equality candidate. The default entry point keeps rejecting root Variant comparisons.
-     */
-    public static Expression processComparisonPredicate(ComparisonPredicate comparisonPredicate,
-            boolean allowVariantEquality) {
         comparisonPredicate.checkLegalityBeforeTypeCoercion();
 
         Expression left = comparisonPredicate.left();
@@ -1296,30 +1286,17 @@ public class TypeCoercionUtils {
 
         boolean leftIsVariant = left.getDataType().isVariantType();
         boolean rightIsVariant = right.getDataType().isVariantType();
-        boolean isAllowedVariantEquality = allowVariantEquality
-                && comparisonPredicate instanceof EqualPredicate
-                && leftIsVariant && rightIsVariant;
         boolean isDirectVariantSubpathScalarComparison = leftIsVariant != rightIsVariant
                 && ((leftIsVariant && left instanceof ElementAt)
                         || (rightIsVariant && right instanceof ElementAt));
         if ((leftIsVariant || rightIsVariant)
-                && !isDirectVariantSubpathScalarComparison && !isAllowedVariantEquality) {
+                && !isDirectVariantSubpathScalarComparison) {
             DataType variantDataType = leftIsVariant
                     ? left.getDataType() : right.getDataType();
             throw new AnalysisException("data type " + variantDataType
                     + " could not used in ComparisonPredicate " + comparisonPredicate.toSql()
                     + ". " + VariantType.UNSUPPORTED_ORDERING_COMPARISON_MESSAGE);
         }
-        if (isAllowedVariantEquality) {
-            DataType commonType = VariantType.INSTANCE;
-            left = castIfNotSameType(left, commonType);
-            right = castIfNotSameType(right, commonType);
-            if (left != comparisonPredicate.left() || right != comparisonPredicate.right()) {
-                return comparisonPredicate.withChildren(left, right);
-            }
-            return comparisonPredicate;
-        }
-
         // TODO: remove this restriction after supporting varbinary comparison in BE
         if (left.getDataType().isVarBinaryType() || right.getDataType().isVarBinaryType()) {
             throw new AnalysisException("data type varbinary "

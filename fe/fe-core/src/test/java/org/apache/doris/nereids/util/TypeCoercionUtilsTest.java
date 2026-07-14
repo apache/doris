@@ -287,29 +287,24 @@ public class TypeCoercionUtilsTest {
         ElementAt variantSubpath = new ElementAt(variant, new StringLiteral("c"));
         ElementAt anotherVariantSubpath = new ElementAt(anotherVariant, new StringLiteral("c"));
 
-        AnalysisException sameType = Assertions.assertThrows(AnalysisException.class,
+        AnalysisException equality = Assertions.assertThrows(AnalysisException.class,
                 () -> TypeCoercionUtils.processComparisonPredicate(new EqualTo(variant, anotherVariant)));
-        Assertions.assertTrue(sameType.getMessage().contains("could not used in ComparisonPredicate"));
-        Assertions.assertTrue(sameType.getMessage().contains("CAST to a concrete type first"));
+        Assertions.assertTrue(equality.getMessage().contains("CAST to a concrete type first"));
+
+        AnalysisException nullSafeEquality = Assertions.assertThrows(AnalysisException.class,
+                () -> TypeCoercionUtils.processComparisonPredicate(new NullSafeEqual(variant, anotherVariant)));
+        Assertions.assertTrue(nullSafeEquality.getMessage().contains("CAST to a concrete type first"));
 
         AnalysisException mixedType = Assertions.assertThrows(AnalysisException.class,
                 () -> TypeCoercionUtils.processComparisonPredicate(new GreaterThan(variant, integer)));
         Assertions.assertTrue(mixedType.getMessage().contains("could not used in ComparisonPredicate"));
         Assertions.assertTrue(mixedType.getMessage().contains("CAST to a concrete type first"));
 
-        AnalysisException nullSafeEqual = Assertions.assertThrows(AnalysisException.class,
-                () -> TypeCoercionUtils.processComparisonPredicate(new NullSafeEqual(variant, anotherVariant)));
-        Assertions.assertTrue(nullSafeEqual.getMessage().contains("CAST to a concrete type first"));
-
-        Assertions.assertInstanceOf(EqualTo.class, TypeCoercionUtils.processComparisonPredicate(
-                new EqualTo(variant, anotherVariant), true));
-        Assertions.assertInstanceOf(NullSafeEqual.class, TypeCoercionUtils.processComparisonPredicate(
-                new NullSafeEqual(variant, anotherVariant), true));
         Assertions.assertThrows(AnalysisException.class,
                 () -> TypeCoercionUtils.processComparisonPredicate(
-                        new GreaterThan(variant, anotherVariant), true));
+                        new GreaterThan(variant, anotherVariant)));
         Assertions.assertThrows(AnalysisException.class,
-                () -> TypeCoercionUtils.processComparisonPredicate(new EqualTo(variant, integer), true));
+                () -> TypeCoercionUtils.processComparisonPredicate(new EqualTo(variant, integer)));
 
         Expression subpathComparison = TypeCoercionUtils.processComparisonPredicate(
                 new EqualTo(variantSubpath, integer));
@@ -319,10 +314,9 @@ public class TypeCoercionUtilsTest {
         Assertions.assertEquals(subpathComparison.child(0).getDataType(),
                 subpathComparison.child(1).getDataType());
 
-        AnalysisException twoVariantSubpaths = Assertions.assertThrows(AnalysisException.class,
+        Assertions.assertThrows(AnalysisException.class,
                 () -> TypeCoercionUtils.processComparisonPredicate(
                         new EqualTo(variantSubpath, anotherVariantSubpath)));
-        Assertions.assertTrue(twoVariantSubpaths.getMessage().contains("CAST to a concrete type first"));
 
         Assertions.assertDoesNotThrow(() -> TypeCoercionUtils.processComparisonPredicate(
                 new GreaterThan(new Cast(variant, IntegerType.INSTANCE), integer)));

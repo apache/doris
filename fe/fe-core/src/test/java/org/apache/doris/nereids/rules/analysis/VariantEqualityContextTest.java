@@ -37,54 +37,36 @@ class VariantEqualityContextTest extends TestWithFeService {
                 "CREATE TABLE t1 (k INT, v VARIANT, j JSON) DUPLICATE KEY(k) "
                         + "DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES(\"replication_num\"=\"1\")",
                 "CREATE TABLE t2 (k INT, v VARIANT, j JSON) DUPLICATE KEY(k) "
-                        + "DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES(\"replication_num\"=\"1\")",
-                "CREATE TABLE t3 (k INT, v VARIANT, j JSON) DUPLICATE KEY(k) "
                         + "DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES(\"replication_num\"=\"1\")"
         );
     }
 
     @Test
-    void testAllowedEqualityContexts() {
+    void testAllowedCanonicalHashContexts() {
         assertAllAccepted(
-                "SELECT v, COUNT(*) FROM (SELECT parse_to_variant(CAST(number AS STRING)) v "
-                        + "FROM numbers(\"number\"=\"3\")) x GROUP BY v",
-                "SELECT DISTINCT v FROM (SELECT parse_to_variant(CAST(number AS STRING)) v "
-                        + "FROM numbers(\"number\"=\"3\")) x",
                 "SELECT v, COUNT(*) FROM t1 GROUP BY v",
                 "SELECT DISTINCT v FROM t1",
-                "SELECT * FROM (SELECT parse_to_variant(CAST(number AS STRING)) v "
-                        + "FROM numbers(\"number\"=\"3\")) x JOIN "
-                        + "(SELECT CAST(CAST(number AS BIGINT) AS VARIANT) v "
-                        + "FROM numbers(\"number\"=\"3\")) y ON x.v = y.v",
-                "SELECT * FROM (SELECT parse_to_variant(CAST(number AS STRING)) v "
-                        + "FROM numbers(\"number\"=\"3\")) x JOIN "
-                        + "(SELECT CAST(CAST(number AS BIGINT) AS VARIANT) v "
-                        + "FROM numbers(\"number\"=\"3\")) y ON x.v <=> y.v",
+                "SELECT COUNT(DISTINCT v) FROM t1",
                 "SELECT * FROM t1 JOIN t2 ON CAST(t1.v AS STRING) = CAST(t2.v AS STRING)",
-                "SELECT * FROM t1 JOIN t2 ON t1.v = t2.v",
-                "SELECT parse_to_variant(CAST(number AS STRING)) v FROM numbers(\"number\"=\"3\") "
-                        + "INTERSECT SELECT CAST(CAST(number AS BIGINT) AS VARIANT) v "
-                        + "FROM numbers(\"number\"=\"3\")",
-                "SELECT parse_to_variant(CAST(number AS STRING)) v FROM numbers(\"number\"=\"3\") "
-                        + "EXCEPT SELECT CAST(CAST(number AS BIGINT) AS VARIANT) v "
-                        + "FROM numbers(\"number\"=\"3\")",
                 "SELECT v FROM t1 INTERSECT SELECT v FROM t2",
-                "SELECT v FROM t1 EXCEPT SELECT v FROM t2");
-        assertRejected("SELECT COUNT(DISTINCT v) FROM t1", "COUNT DISTINCT");
+                "SELECT v FROM t1 EXCEPT SELECT v FROM t2",
+                "SELECT v FROM t1 UNION SELECT v FROM t2");
     }
 
     @Test
-    void testRejectedEqualityContexts() {
+    void testRejectedVariantComparisons() {
         assertVariantComparisonRejected("SELECT v = v FROM t1");
+        assertVariantComparisonRejected("SELECT v != v FROM t1");
+        assertVariantComparisonRejected("SELECT v <=> v FROM t1");
+        assertVariantComparisonRejected("SELECT v = k FROM t1");
+        assertVariantComparisonRejected("SELECT v > v FROM t1");
         assertVariantComparisonRejected("SELECT * FROM t1 WHERE v = v");
-        assertVariantComparisonRejected("SELECT * FROM t1 JOIN t2 ON t1.v = t1.v");
-        assertVariantComparisonRejected("SELECT * FROM t1 JOIN t2 ON t1.v = CAST('1' AS VARIANT)");
+        assertVariantComparisonRejected("SELECT * FROM t1 JOIN t2 ON t1.v = t2.v");
+        assertVariantComparisonRejected("SELECT * FROM t1 JOIN t2 ON t1.v <=> t2.v");
+        assertVariantComparisonRejected("SELECT * FROM t1 JOIN t2 ON t1.v = t2.v AND t1.k = t2.k");
         assertVariantComparisonRejected("SELECT * FROM t1 JOIN t2 ON t1.v = t2.v OR t1.k = t2.k");
-        assertVariantComparisonRejected(
-                "SELECT * FROM t1 JOIN t2 ON (t1.v = t2.v AND t1.k = 1) OR t2.k = 2");
+        assertVariantComparisonRejected("SELECT EXISTS(SELECT 1 FROM t2 WHERE t1.v = t2.v) FROM t1");
         assertVariantComparisonRejected("SELECT * FROM t1 JOIN t2 ON t1.v > t2.v");
-        assertVariantComparisonRejected(
-                "SELECT EXISTS(SELECT 1 FROM t2 WHERE t1.v = t2.v) FROM t1");
     }
 
     @Test
@@ -108,7 +90,7 @@ class VariantEqualityContextTest extends TestWithFeService {
     }
 
     private void assertVariantComparisonRejected(String sql) {
-        assertRejected(sql, "concrete type first");
+        assertRejected(sql, "CAST to a concrete type first");
     }
 
     private void assertRejected(String sql, String expectedMessage) {

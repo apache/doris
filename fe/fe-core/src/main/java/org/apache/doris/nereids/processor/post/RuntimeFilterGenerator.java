@@ -277,10 +277,6 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
         for (int i = 0; i < hashJoinConjuncts.size(); i++) {
             EqualPredicate equalTo = JoinUtils.swapEqualToForChildrenOrder(
                     (EqualPredicate) hashJoinConjuncts.get(i), join.left().getOutputSet());
-            if (equalTo.left().getDataType().isVariantType()
-                    || equalTo.right().getDataType().isVariantType()) {
-                continue;
-            }
             if (isUniqueValueEqualTo(join, equalTo)) {
                 continue;
             }
@@ -370,10 +366,6 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
         for (int i = 0; i < hashJoinConjuncts.size(); i++) {
             EqualPredicate equalTo = JoinUtils.swapEqualToForChildrenOrder(
                     (EqualPredicate) hashJoinConjuncts.get(i), join.left().getOutputSet());
-            if (equalTo.left().getDataType().isVariantType()
-                    || equalTo.right().getDataType().isVariantType()) {
-                continue;
-            }
             Expression probeExpr = equalTo.left();
             Expression buildExpr = equalTo.right();
             if (buildExpr.getInputSlots().size() != 1) {

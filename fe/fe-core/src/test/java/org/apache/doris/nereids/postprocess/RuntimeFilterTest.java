@@ -103,42 +103,6 @@ public class RuntimeFilterTest extends SSBTestBase {
     }
 
     @Test
-    public void testVariantHashJoinDoesNotGenerateRuntimeFilter() {
-        List<RuntimeFilter> filters = getRuntimeFilters(
-                "SELECT * FROM lineorder l JOIN customer c "
-                        + "ON parse_to_variant(CAST(l.lo_custkey AS STRING)) "
-                        + "= parse_to_variant(CAST(c.c_custkey AS STRING))").get();
-        Assertions.assertEquals(0, filters.size());
-    }
-
-    @Test
-    public void testVariantHashJoinDoesNotGenerateDecoupledRuntimeFilter() {
-        connectContext.getSessionVariable().enableDecoupledRuntimeFilter = true;
-        try {
-            List<RuntimeFilter> filters = getRuntimeFilters(
-                    "SELECT * FROM lineorder l JOIN customer c "
-                            + "ON parse_to_variant(CAST(l.lo_custkey AS STRING)) "
-                            + "= parse_to_variant(CAST(c.c_custkey AS STRING)) "
-                            + "JOIN supplier s "
-                            + "ON parse_to_variant(CAST(c.c_custkey AS STRING)) "
-                            + "= parse_to_variant(CAST(s.s_suppkey AS STRING)) "
-                            + "WHERE l.lo_orderkey = 1").get();
-            Assertions.assertEquals(0, filters.size());
-        } finally {
-            connectContext.getSessionVariable().enableDecoupledRuntimeFilter = false;
-        }
-    }
-
-    @Test
-    public void testVariantSetOperationDoesNotGenerateRuntimeFilter() {
-        List<RuntimeFilter> filters = getRuntimeFilters(
-                "SELECT parse_to_variant(CAST(lo_orderkey AS STRING)) FROM lineorder "
-                        + "INTERSECT "
-                        + "SELECT parse_to_variant(CAST(c_custkey AS STRING)) FROM customer").get();
-        Assertions.assertEquals(0, filters.size());
-    }
-
-    @Test
     public void testComplexExpressionToRuntimeFilter() {
         String sql
                 = "SELECT * FROM supplier JOIN customer on c_name = s_name and s_city = c_city and s_nation = c_nation";

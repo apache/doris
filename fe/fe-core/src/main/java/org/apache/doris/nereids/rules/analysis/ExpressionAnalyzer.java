@@ -51,7 +51,6 @@ import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.DereferenceExpression;
 import org.apache.doris.nereids.trees.expressions.Divide;
-import org.apache.doris.nereids.trees.expressions.EqualPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -91,7 +90,6 @@ import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.typecoercion.ImplicitCastInputTypes;
 import org.apache.doris.nereids.trees.plans.PlaceholderId;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.types.ArrayType;
@@ -106,7 +104,6 @@ import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VariantField;
 import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.util.ExpressionUtils;
-import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
@@ -162,8 +159,6 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
     private final boolean bindSlotInOuterScope;
     private final boolean wantToParseSqlFromSqlCache;
     private int suppressVariantElementAtCastDepth = 0;
-    // OR expansion can erase the original non-hash context, so Variant equality under OR cannot be deferred.
-    private int variantEqualityDisjunctionDepth = 0;
 
     /** ExpressionAnalyzer */
     public ExpressionAnalyzer(Plan currentPlan, Scope scope,
@@ -675,34 +670,29 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
 
     @Override
     public Expression visitOr(Or or, ExpressionRewriteContext context) {
-        variantEqualityDisjunctionDepth++;
-        try {
-            List<Expression> children = ExpressionUtils.extractDisjunction(or);
-            List<Expression> newChildren = Lists.newArrayListWithCapacity(children.size());
-            boolean hasNewChild = false;
-            for (Expression child : children) {
-                Expression newChild = child.accept(this, context);
-                if (newChild == null) {
-                    newChild = child;
-                }
-                if (newChild.getDataType().isNullType()) {
-                    newChild = NullLiteral.BOOLEAN_INSTANCE;
-                } else {
-                    newChild = TypeCoercionUtils.castIfNotSameType(newChild, BooleanType.INSTANCE);
-                }
-
-                if (!child.equals(newChild)) {
-                    hasNewChild = true;
-                }
-                newChildren.add(newChild);
+        List<Expression> children = ExpressionUtils.extractDisjunction(or);
+        List<Expression> newChildren = Lists.newArrayListWithCapacity(children.size());
+        boolean hasNewChild = false;
+        for (Expression child : children) {
+            Expression newChild = child.accept(this, context);
+            if (newChild == null) {
+                newChild = child;
             }
-            if (hasNewChild) {
-                return processCompoundNewChildren(or, newChildren);
+            if (newChild.getDataType().isNullType()) {
+                newChild = NullLiteral.BOOLEAN_INSTANCE;
             } else {
-                return or;
+                newChild = TypeCoercionUtils.castIfNotSameType(newChild, BooleanType.INSTANCE);
             }
-        } finally {
-            variantEqualityDisjunctionDepth--;
+
+            if (!child.equals(newChild)) {
+                hasNewChild = true;
+            }
+            newChildren.add(newChild);
+        }
+        if (hasNewChild) {
+            return processCompoundNewChildren(or, newChildren);
+        } else {
+            return or;
         }
     }
 
@@ -882,41 +872,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         // Used to replace expression in ShortCircuit plan
         registerPlaceholderIdToSlot(cp, context, left, right);
         cp = (ComparisonPredicate) cp.withChildren(left, right);
-        return TypeCoercionUtils.processComparisonPredicate(cp, isVariantHashEqualityCandidate(cp));
-    }
-
-    private boolean isVariantHashEqualityCandidate(ComparisonPredicate comparisonPredicate) {
-        if (variantEqualityDisjunctionDepth > 0
-                || !(comparisonPredicate instanceof EqualPredicate)
-                || !comparisonPredicate.left().getDataType().isVariantType()
-                || !comparisonPredicate.right().getDataType().isVariantType()) {
-            return false;
-        }
-        if (currentPlan instanceof LogicalJoin) {
-            return isCoveredByJoinChildren((LogicalJoin<?, ?>) currentPlan, comparisonPredicate);
-        }
-        return currentPlan instanceof LogicalFilter
-                && containsCoveringJoin(currentPlan.child(0), comparisonPredicate);
-    }
-
-    private boolean containsCoveringJoin(Plan plan, ComparisonPredicate comparisonPredicate) {
-        if (plan instanceof LogicalJoin
-                && isCoveredByJoinChildren((LogicalJoin<?, ?>) plan, comparisonPredicate)) {
-            return true;
-        }
-        for (Plan child : plan.children()) {
-            if (containsCoveringJoin(child, comparisonPredicate)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private boolean isCoveredByJoinChildren(LogicalJoin<?, ?> join,
-            ComparisonPredicate comparisonPredicate) {
-        return !JoinUtils.extractExpressionForHashTable(
-                join.left().getOutput(), join.right().getOutput(), ImmutableList.of(comparisonPredicate))
-                .first.isEmpty();
+        return TypeCoercionUtils.processComparisonPredicate(cp);
     }
 
     @Override
