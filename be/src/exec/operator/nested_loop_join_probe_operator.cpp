@@ -141,6 +141,9 @@ Status NestedLoopJoinProbeLocalState::init(RuntimeState* state, LocalStateInfo& 
     _update_visited_flags_timer = ADD_TIMER(custom_profile(), "UpdateVisitedFlagsTime");
     _join_conjuncts_evaluation_timer = ADD_TIMER(custom_profile(), "JoinConjunctsEvaluationTime");
     _filtered_by_join_conjuncts_timer = ADD_TIMER(custom_profile(), "FilteredByJoinConjunctsTime");
+    if (_can_output_from_partial_build()) {
+        _dependency->set_ready();
+    }
     return Status::OK();
 }
 
@@ -189,6 +192,29 @@ void NestedLoopJoinProbeLocalState::_reset_with_next_probe_row() {
     // TODO: need a vector of left block to register the _probe_row_visited_flags
     _current_build_pos = 0;
     _probe_block_pos++;
+}
+
+void NestedLoopJoinProbeLocalState::_request_more_build_data() {
+    if (_matched_rows_done || _shared_state->build_side_eos ||
+        _current_build_pos < _shared_state->build_blocks.size()) {
+        return;
+    }
+    _dependency->block();
+    if (_current_build_pos < _shared_state->build_blocks.size() || _shared_state->build_side_eos) {
+        _dependency->set_ready();
+    }
+}
+
+void NestedLoopJoinProbeLocalState::_finish_probe_side_for_incremental_build() {
+    if (!_can_output_from_partial_build()) {
+        return;
+    }
+    _shared_state->build_side_no_more_required = true;
+}
+
+bool NestedLoopJoinProbeLocalState::_can_output_from_partial_build() const {
+    auto& p = _parent->cast<NestedLoopJoinProbeOperatorX>();
+    return NestedLoopJoinSharedState::can_output_from_partial_build(p._join_op, p._is_mark_join);
 }
 
 // process_probe_block and process_build_block are similar.
@@ -680,9 +706,9 @@ Status NestedLoopJoinProbeLocalState::_generate_lazy_block_base_probe(RuntimeSta
 Status NestedLoopJoinProbeLocalState::_generate_lazy_block_base_build(RuntimeState* state,
                                                                       Block* probe_block) {
     DCHECK(use_generate_block_base_build());
-    const auto& build_block = _shared_state->build_blocks[0];
-    const size_t build_rows = build_block.rows();
+    auto& build_blocks = _shared_state->build_blocks;
     const auto probe_rows = static_cast<int>(probe_block->rows());
+    _need_more_build_data = false;
 
     if (probe_rows == 0) {
         if (_shared_state->probe_side_eos) {
@@ -695,19 +721,28 @@ Status NestedLoopJoinProbeLocalState::_generate_lazy_block_base_build(RuntimeSta
 
     size_t processed_rows = 0;
     while (processed_rows + probe_rows <= state->batch_size()) {
-        if (_probe_block_pos == probe_rows) {
-            _current_build_row_pos++;
-            _probe_block_pos = 0;
-
-            if (_current_build_row_pos >= build_rows) {
+        if (_current_build_pos >= build_blocks.size()) {
+            if (_shared_state->build_side_eos) {
                 if (_shared_state->probe_side_eos) {
                     _matched_rows_done = true;
                 } else {
                     _need_more_input_data = true;
+                    _current_build_pos = 0;
                     _current_build_row_pos = 0;
+                    _probe_block_pos = 0;
                 }
-                break;
+            } else {
+                _need_more_build_data = true;
             }
+            break;
+        }
+
+        const auto& build_block = build_blocks[_current_build_pos];
+        if (_current_build_row_pos >= build_block.rows()) {
+            _current_build_pos++;
+            _current_build_row_pos = 0;
+            _probe_block_pos = 0;
+            continue;
         }
 
         if (_matched_rows_done || _need_more_input_data) {
@@ -738,6 +773,7 @@ Status NestedLoopJoinProbeLocalState::_generate_lazy_block_base_build(RuntimeSta
                                               *probe_block, build_block));
         }
         _probe_block_pos = probe_rows;
+        _current_build_row_pos++;
     }
     return Status::OK();
 }
@@ -803,10 +839,14 @@ void NestedLoopJoinProbeLocalState::_generate_block_base_probe(RuntimeState* sta
             << " build blocks size:" << _shared_state->build_blocks.size();
 }
 
-// When the build side is small, generate data based on the build side.
-// Currently a simple heuristic is used: check whether build_blocks.size() == 1
+// Generate based on build side when the existing small-build heuristic applies, or while the
+// current probe block is consuming incrementally published build blocks.
 bool NestedLoopJoinProbeLocalState::use_generate_block_base_build() const {
-    return _shared_state->build_blocks.size() == 1;
+    const bool in_incremental_probe_block = _can_output_from_partial_build() &&
+                                            (!_shared_state->build_side_eos ||
+                                             _need_more_build_data || _current_build_row_pos != 0);
+    return in_incremental_probe_block ||
+           (_shared_state->build_side_eos && _shared_state->build_blocks.size() == 1);
 }
 
 // for inner join only
@@ -818,9 +858,9 @@ void NestedLoopJoinProbeLocalState::_generate_block_base_build(RuntimeState* sta
                                                                Block* probe_block) {
     DCHECK(use_generate_block_base_build());
     auto& p = _parent->cast<NestedLoopJoinProbeOperatorX>();
-    const auto& build_block = _shared_state->build_blocks[0];
-    const size_t build_rows = build_block.rows();
+    auto& build_blocks = _shared_state->build_blocks;
     const auto probe_rows = static_cast<int>(probe_block->rows());
+    _need_more_build_data = false;
 
     // If the probe block is empty, return directly
     /// TODO: Reconsider this logic; it may need to be handled outside
@@ -834,26 +874,30 @@ void NestedLoopJoinProbeLocalState::_generate_block_base_build(RuntimeState* sta
     }
 
     while (_join_block.rows() + probe_rows <= state->batch_size()) {
-        // The current build row has processed the entire probe block; move to the next build row
-        if (_probe_block_pos == probe_rows) {
-            // Move to the next build row and reset the probe position
-            _current_build_row_pos++;
-            _probe_block_pos = 0;
-
-            // All build rows have finished processing the current probe block
-            if (_current_build_row_pos >= build_rows) {
+        if (_current_build_pos >= build_blocks.size()) {
+            if (_shared_state->build_side_eos) {
                 if (_shared_state->probe_side_eos) {
                     _matched_rows_done = true;
                 } else {
                     _need_more_input_data = true;
-                    // Reset build row position to prepare for the next probe block
+                    _current_build_pos = 0;
                     _current_build_row_pos = 0;
+                    _probe_block_pos = 0;
                 }
-                break;
+            } else {
+                _need_more_build_data = true;
             }
+            break;
         }
 
-        // No data needs to be processed
+        const auto& build_block = build_blocks[_current_build_pos];
+        if (_current_build_row_pos >= build_block.rows()) {
+            _current_build_pos++;
+            _current_build_row_pos = 0;
+            _probe_block_pos = 0;
+            continue;
+        }
+
         if (_matched_rows_done || _need_more_input_data) {
             break;
         }
@@ -865,13 +909,14 @@ void NestedLoopJoinProbeLocalState::_generate_block_base_build(RuntimeState* sta
 
         // Mark the current probe block as processed; the next loop will move to the next build row
         _probe_block_pos = probe_rows;
+        _current_build_row_pos++;
     }
 
     DCHECK_LE(_join_block.rows(), state->batch_size())
             << "join block rows:" << _join_block.rows()
             << ", state batch size:" << state->batch_size()
             << "probe_block rows:" << probe_block->rows()
-            << "build block rows:" << build_block.rows();
+            << " build blocks size:" << build_blocks.size();
 }
 
 // for inner join only
@@ -881,6 +926,19 @@ Status NestedLoopJoinProbeLocalState::generate_inner_join_block_data(RuntimeStat
     DCHECK(!_need_more_input_data || !_matched_rows_done);
     auto& p = _parent->cast<NestedLoopJoinProbeOperatorX>();
     auto* probe_block = _child_block.get();
+    const bool can_output_from_partial_build = _can_output_from_partial_build();
+
+    if (can_output_from_partial_build && probe_block->rows() == 0 &&
+        _shared_state->probe_side_eos) {
+        _matched_rows_done = true;
+        return Status::OK();
+    }
+    if (!can_output_from_partial_build) {
+        if (!_shared_state->build_side_eos) {
+            _need_more_build_data = true;
+            return Status::OK();
+        }
+    }
 
     if (p._enable_lazy_materialize) {
         if (!_matched_rows_done && !_need_more_input_data) {
@@ -923,6 +981,12 @@ Status NestedLoopJoinProbeLocalState::generate_other_join_block_data(RuntimeStat
 
     auto& p = _parent->cast<NestedLoopJoinProbeOperatorX>();
     auto* probe_block = _child_block.get();
+
+    if (!_shared_state->build_side_eos) {
+        _need_more_build_data = true;
+        return Status::OK();
+    }
+    _need_more_build_data = false;
 
     if (p._enable_lazy_materialize) {
         if (!_matched_rows_done && !_need_more_input_data) {
@@ -1171,8 +1235,8 @@ Status NestedLoopJoinProbeOperatorX::prepare(RuntimeState* state) {
 bool NestedLoopJoinProbeOperatorX::need_more_input_data(RuntimeState* state) const {
     auto& local_state =
             state->get_local_state(operator_id())->cast<NestedLoopJoinProbeLocalState>();
-    return local_state._need_more_input_data and !local_state._shared_state->probe_side_eos and
-           local_state._join_block.rows() == 0;
+    return local_state._need_more_input_data && !local_state._need_more_build_data &&
+           !local_state._shared_state->probe_side_eos && local_state._join_block.rows() == 0;
 }
 
 Status NestedLoopJoinProbeOperatorX::push(doris::RuntimeState* state, Block* block,
@@ -1190,7 +1254,10 @@ Status NestedLoopJoinProbeOperatorX::push(doris::RuntimeState* state, Block* blo
                   local_state._cur_probe_row_mark_flags.end(), MARK_FALSE);
     }
     local_state._probe_block_pos = 0;
+    local_state._current_build_pos = 0;
+    local_state._current_build_row_pos = 0;
     local_state._need_more_input_data = false;
+    local_state._need_more_build_data = false;
     local_state._shared_state->probe_side_eos = eos;
 
     auto func = [&](auto&& join_op_variants, auto set_build_side_flag, auto set_probe_side_flag) {
@@ -1236,7 +1303,7 @@ Status NestedLoopJoinProbeOperatorX::pull(RuntimeState* state, Block* block, boo
         RETURN_IF_ERROR(local_state._build_output_block(&local_state._join_block, block));
     }
     local_state._join_block.clear_column_data(join_block_column_size);
-    if (!(*eos) and !local_state._need_more_input_data) {
+    if (!(*eos) && !local_state._need_more_input_data) {
         auto func = [&](auto&& join_op_variants, auto set_build_side_flag,
                         auto set_probe_side_flag) {
             using JoinOpType = std::decay_t<decltype(join_op_variants)>;
@@ -1262,6 +1329,11 @@ Status NestedLoopJoinProbeOperatorX::pull(RuntimeState* state, Block* block, boo
     }
 
     local_state.reached_limit(block, eos);
+    if (*eos) {
+        local_state._finish_probe_side_for_incremental_build();
+    } else if (local_state._need_more_build_data && local_state._join_block.rows() == 0) {
+        local_state._request_more_build_data();
+    }
     return Status::OK();
 }
 

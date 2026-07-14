@@ -19,6 +19,9 @@
 
 #include <stdint.h>
 
+#include <atomic>
+#include <memory>
+
 #include "exec/operator/join_build_sink_operator.h"
 #include "exec/operator/operator.h"
 #include "exec/runtime_filter/runtime_filter_producer_helper_cross.h"
@@ -39,13 +42,13 @@ public:
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state, Status exec_status) override;
-
-    Blocks& build_blocks() { return _shared_state->build_blocks; }
+    bool is_finished() const override;
 
 private:
     friend class NestedLoopJoinBuildSinkOperatorX;
 
     VExprContextSPtrs _filter_src_expr_ctxs;
+    std::atomic_bool _build_side_finished = false;
     std::shared_ptr<RuntimeFilterProducerHelperCross> _runtime_filter_producer_helper;
 };
 
@@ -79,6 +82,7 @@ private:
 
     VExprContextSPtrs _filter_src_expr_ctxs;
 
+    const bool _enable_partial_build_output;
     RowDescriptor _row_descriptor;
 };
 

@@ -771,12 +771,50 @@ struct PartitionedHashJoinSharedState
 
 struct NestedLoopJoinSharedState : public JoinSharedState {
     ENABLE_FACTORY_CREATOR(NestedLoopJoinSharedState)
+    class BuildBlocks {
+    public:
+        using BuildBlockPtr = std::shared_ptr<const Block>;
+
+        void emplace_back(Block&& block) {
+            std::lock_guard<std::mutex> lock(_mutex);
+            _blocks.emplace_back(std::make_shared<Block>(std::move(block)));
+        }
+
+        size_t size() const {
+            std::lock_guard<std::mutex> lock(_mutex);
+            return _blocks.size();
+        }
+
+        bool empty() const { return size() == 0; }
+
+        // Blocks are append-only and heap-owned, so references stay valid while the vector grows.
+        const Block& operator[](size_t index) const {
+            std::lock_guard<std::mutex> lock(_mutex);
+            DCHECK_LT(index, _blocks.size());
+            return *_blocks[index];
+        }
+
+        const std::vector<BuildBlockPtr>& blocks() const { return _blocks; }
+
+    private:
+        mutable std::mutex _mutex;
+        std::vector<BuildBlockPtr> _blocks;
+    };
+
+    static bool can_output_from_partial_build(TJoinOp::type join_op, bool is_mark_join) {
+        return !is_mark_join && (join_op == TJoinOp::INNER_JOIN || join_op == TJoinOp::CROSS_JOIN);
+    }
+
+    bool should_stop_build() const { return build_side_no_more_required; }
+
     // if true, probe child has no more rows to process
     bool probe_side_eos = false;
+    std::atomic_bool build_side_eos = false;
+    std::atomic_bool build_side_no_more_required = false;
     // Visited flags for each row in build side.
     MutableColumns build_side_visited_flags;
     // List of build blocks, constructed in prepare()
-    Blocks build_blocks;
+    BuildBlocks build_blocks;
 };
 
 struct PartitionSortNodeSharedState : public BasicSharedState {

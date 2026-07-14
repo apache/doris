@@ -54,12 +54,16 @@ Status NestedLoopJoinBuildSinkLocalState::open(RuntimeState* state) {
 
 Status NestedLoopJoinBuildSinkLocalState::close(RuntimeState* state, Status exec_status) {
     if (!state->is_cancelled()) {
-        RETURN_IF_ERROR(
-                _runtime_filter_producer_helper->process(state, _shared_state->build_blocks));
+        RETURN_IF_ERROR(_runtime_filter_producer_helper->process(
+                state, _shared_state->build_blocks.blocks()));
     }
     _runtime_filter_producer_helper->collect_realtime_profile(custom_profile());
     RETURN_IF_ERROR(JoinBuildSinkLocalState::close(state, exec_status));
     return Status::OK();
+}
+
+bool NestedLoopJoinBuildSinkLocalState::is_finished() const {
+    return _build_side_finished;
 }
 
 NestedLoopJoinBuildSinkOperatorX::NestedLoopJoinBuildSinkOperatorX(ObjectPool* pool,
@@ -68,6 +72,8 @@ NestedLoopJoinBuildSinkOperatorX::NestedLoopJoinBuildSinkOperatorX(ObjectPool* p
                                                                    const DescriptorTbl& descs)
         : JoinBuildSinkOperatorX<NestedLoopJoinBuildSinkLocalState>(pool, operator_id, dest_id,
                                                                     tnode, descs),
+          _enable_partial_build_output(NestedLoopJoinSharedState::can_output_from_partial_build(
+                  _join_op, _is_mark_join)),
           _row_descriptor(descs, tnode.row_tuples) {}
 
 Status NestedLoopJoinBuildSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
@@ -98,6 +104,11 @@ Status NestedLoopJoinBuildSinkOperatorX::sink_impl(doris::RuntimeState* state, B
                                                    bool eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
+    if (_enable_partial_build_output && local_state._shared_state->should_stop_build()) {
+        local_state._build_side_finished = true;
+        return Status::OK();
+    }
+
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)block->rows());
     auto rows = block->rows();
     auto mem_usage = block->allocated_bytes();
@@ -112,6 +123,9 @@ Status NestedLoopJoinBuildSinkOperatorX::sink_impl(doris::RuntimeState* state, B
     }
 
     if (eos) {
+        local_state._shared_state->build_side_eos = true;
+        local_state._dependency->set_ready_to_read();
+    } else if (rows != 0 && _enable_partial_build_output) {
         local_state._dependency->set_ready_to_read();
     }
 
