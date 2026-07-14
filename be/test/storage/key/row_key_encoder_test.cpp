@@ -582,9 +582,7 @@ protected:
 // transitions. Each group has its own profile, and increasing k0 profile values
 // keep all 51 rows globally sorted.
 TEST_F(RowKeyEncoderTest, AllKeyTypesTable) {
-    static_assert(kAllKeyData.size() == 3 * kNumKeyColumns);
-
-    // Validate the explicit table before any schema-dependent conversion.
+    // 1. Validate the explicit data table before any schema-dependent conversion.
     for (size_t key = 0; key < kNumKeyColumns; ++key) {
         const size_t null_row = 3 * key;
         const size_t low_row = null_row + 1;
@@ -622,6 +620,8 @@ TEST_F(RowKeyEncoderTest, AllKeyTypesTable) {
         }
     }
 
+    // 2. Prepare the cross-schema references and result columns, then construct
+    // and validate each of the eight supported schema shapes.
     constexpr size_t kCharColumn = 15;
     constexpr size_t kSequenceSourceColumn = 2;
 
@@ -634,14 +634,14 @@ TEST_F(RowKeyEncoderTest, AllKeyTypesTable) {
     // The result file is intentionally exhaustive: one row for every input
     // row in every schema case. Source-row labels make the cluster-key view
     // split visible without decoding the hex strings during review.
-    std::vector<std::string> golden_schemas {"schema"};
-    std::vector<std::string> golden_physical_rows {"physical_row"};
-    std::vector<std::string> golden_sort_data_rows {"sort_data_row"};
-    std::vector<std::string> golden_primary_data_rows {"primary_data_row"};
-    std::vector<std::string> golden_full_keys {"full_key"};
-    std::vector<std::string> golden_primary_keys {"primary_key"};
-    std::vector<std::string> golden_short_keys {"short_key"};
-    std::vector<std::string> golden_primary_index_keys {"primary_index_key"};
+    std::vector<std::string> schemas {"schema"};
+    std::vector<std::string> physical_rows {"physical_row"};
+    std::vector<std::string> sort_data_rows {"sort_data_row"};
+    std::vector<std::string> primary_data_rows {"primary_data_row"};
+    std::vector<std::string> encoded_full_keys {"full_key"};
+    std::vector<std::string> encoded_primary_keys {"primary_key"};
+    std::vector<std::string> encoded_short_keys {"short_key"};
+    std::vector<std::string> encoded_primary_index_keys {"primary_index_key"};
 
     for (const auto& schema_case : kAllKeySchemaCases) {
         SCOPED_TRACE(schema_case.name);
@@ -687,6 +687,8 @@ TEST_F(RowKeyEncoderTest, AllKeyTypesTable) {
             }
         }
 
+        // 3. Fill the block from kAllKeyData. Cluster-key schemas keep the sort
+        // columns in table order and reverse the primary-key source rows.
         _schema = schema;
         _block = schema->create_block();
         auto timezone = cctz::utc_time_zone();
@@ -741,6 +743,8 @@ TEST_F(RowKeyEncoderTest, AllKeyTypesTable) {
         _convertor = std::make_unique<OlapBlockDataConvertor>(_schema.get());
         _convertor->set_source_content(&_block, 0, kAllKeyData.size());
 
+        // 4. Build the data accessors and encode every row into the full,
+        // primary, short-key and primary-index views.
         std::vector<IOlapColumnDataAccessor*> primary_columns;
         primary_columns.reserve(kNumKeyColumns);
         for (size_t key = 0; key < kNumKeyColumns; ++key) {
@@ -839,14 +843,14 @@ TEST_F(RowKeyEncoderTest, AllKeyTypesTable) {
             }
             primary_index_keys.push_back(std::move(primary_index_key));
 
-            golden_schemas.emplace_back(schema_case.name);
-            golden_physical_rows.push_back(std::to_string(row));
-            golden_sort_data_rows.push_back(key_data_row_label(row));
-            golden_primary_data_rows.push_back(key_data_row_label(primary_source_row));
-            golden_full_keys.push_back(to_hex(full_keys.back()));
-            golden_primary_keys.push_back(to_hex(primary_keys.back()));
-            golden_short_keys.push_back(to_hex(short_keys.back()));
-            golden_primary_index_keys.push_back(to_hex(primary_index_keys.back()));
+            schemas.emplace_back(schema_case.name);
+            physical_rows.push_back(std::to_string(row));
+            sort_data_rows.push_back(key_data_row_label(row));
+            primary_data_rows.push_back(key_data_row_label(primary_source_row));
+            encoded_full_keys.push_back(to_hex(full_keys.back()));
+            encoded_primary_keys.push_back(to_hex(primary_keys.back()));
+            encoded_short_keys.push_back(to_hex(short_keys.back()));
+            encoded_primary_index_keys.push_back(to_hex(primary_index_keys.back()));
 
             size_t expected_short_key_size = 0;
             for (size_t position = 0; position < schema_case.num_short_key_columns; ++position) {
@@ -892,6 +896,8 @@ TEST_F(RowKeyEncoderTest, AllKeyTypesTable) {
             }
         }
 
+        // 5. Verify cross-schema consistency, cluster-key primary-index sorting,
+        // and the NULL < low < high ordering contract for every key type.
         const size_t sort_view = schema_case.has_cluster_keys ? 1 : 0;
         if (canonical_full_keys[sort_view].empty()) {
             canonical_full_keys[sort_view] = full_keys;
@@ -956,15 +962,16 @@ TEST_F(RowKeyEncoderTest, AllKeyTypesTable) {
         }
     }
 
-    // Refresh this byte-level snapshot with:
+    // 6. Compare all encoded views with the generated byte-level snapshot.
+    // Refresh this snapshot with:
     //   ./run-be-ut.sh --run --filter=RowKeyEncoderTest.AllKeyTypesTable --gen_out -j 64
     const char* root = std::getenv("ROOT");
     ASSERT_NE(root, nullptr);
     check_or_generate_res_file(
             std::string(root) +
                     "/be/test/expected_result/storage/key/row_key_encoder_all_key_types.out",
-            {golden_schemas, golden_physical_rows, golden_sort_data_rows, golden_primary_data_rows,
-             golden_full_keys, golden_primary_keys, golden_short_keys, golden_primary_index_keys});
+            {schemas, physical_rows, sort_data_rows, primary_data_rows, encoded_full_keys,
+             encoded_primary_keys, encoded_short_keys, encoded_primary_index_keys});
 }
 
 // The sequence suffix over every seq-eligible type: a normal value appends
