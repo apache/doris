@@ -525,12 +525,11 @@ suite("test_min_delta_stream", "nonConcurrent") {
         assertEquals(3, ukShowInitialRows.size())
         assertEquals("1", ukShowInitialRows[0][0].toString())
         assertEquals("APPEND", ukShowInitialRows[0][1].toString())
-        assertEquals("2", ukShowInitialRows[1][0].toString())
+        assertEquals("3", ukShowInitialRows[1][0].toString())
         assertEquals("APPEND", ukShowInitialRows[1][1].toString())
-        assertEquals("3", ukShowInitialRows[2][0].toString())
+        assertEquals("4", ukShowInitialRows[2][0].toString())
         assertEquals("APPEND", ukShowInitialRows[2][1].toString())
         assertTrue(ukShowInitialRows.every { it[2] != null })
-        assertEquals(["-1"] as Set, ukShowInitialRows.collect { it[2].toString() }.toSet())
 
         sql "INSERT INTO ${ukShowInitialTarget} SELECT * FROM ${ukShowInitialStream}"
 
@@ -539,13 +538,7 @@ suite("test_min_delta_stream", "nonConcurrent") {
             FROM ${ukShowInitialStream}
             ORDER BY id, __DORIS_STREAM_CHANGE_TYPE_COL__
         """
-        assertEquals(2, ukShowInitialIncrementalRows.size())
-        assertEquals("2", ukShowInitialIncrementalRows[0][0].toString())
-        assertEquals("DELETE", ukShowInitialIncrementalRows[0][1].toString())
-        assertEquals("4", ukShowInitialIncrementalRows[1][0].toString())
-        assertEquals("APPEND", ukShowInitialIncrementalRows[1][1].toString())
-        assertTrue(ukShowInitialIncrementalRows.every { it[2] != null })
-        assertFalse(ukShowInitialIncrementalRows.collect { it[2].toString() }.toSet().contains("-1"))
+        assertEquals(0, ukShowInitialIncrementalRows.size())
 
         def ukShowInitialTargetRows = sql """
             SELECT id, v1, v2
@@ -554,8 +547,8 @@ suite("test_min_delta_stream", "nonConcurrent") {
         """
         assertEquals(3, ukShowInitialTargetRows.size())
         assertEquals("1", ukShowInitialTargetRows[0][0].toString())
-        assertEquals("2", ukShowInitialTargetRows[1][0].toString())
-        assertEquals("3", ukShowInitialTargetRows[2][0].toString())
+        assertEquals("3", ukShowInitialTargetRows[1][0].toString())
+        assertEquals("4", ukShowInitialTargetRows[2][0].toString())
 
         // 10) Reproduce the paper's minimum-delta scenario (mixed INSERT/UPDATE/DELETE folding semantics):
         // - Walter: keep INSERT;

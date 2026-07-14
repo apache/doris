@@ -41,11 +41,13 @@ Status CalcDeleteBitmapToken::submit(BaseTabletSPtr tablet, RowsetSharedPtr cur_
         _resource_ctx = thread_context()->resource_ctx();
     }
 
+    const auto submit_time_us = MonotonicMicros();
     return _thread_token->submit_func([=, this]() {
+        const auto queue_time_us = MonotonicMicros() - submit_time_us;
         SCOPED_ATTACH_TASK(_resource_ctx);
         auto st = tablet->calc_segment_delete_bitmap(cur_rowset, cur_segment, target_rowsets,
                                                      delete_bitmap, end_version, rowset_writer,
-                                                     tablet_delete_bitmap);
+                                                     tablet_delete_bitmap, queue_time_us);
         if (!st.ok()) {
             LOG(WARNING) << "failed to calc segment delete bitmap, tablet_id: "
                          << tablet->tablet_id() << " rowset: " << cur_rowset->rowset_id()
@@ -68,10 +70,12 @@ Status CalcDeleteBitmapToken::submit(BaseTabletSPtr tablet, TabletSchemaSPtr sch
         RETURN_IF_ERROR(_status);
         _resource_ctx = thread_context()->resource_ctx();
     }
+    const auto submit_time_us = MonotonicMicros();
     return _thread_token->submit_func([=, this]() {
+        const auto queue_time_us = MonotonicMicros() - submit_time_us;
         SCOPED_ATTACH_TASK(_resource_ctx);
         auto st = tablet->calc_delete_bitmap_between_segments(schema, rowset_id, segments,
-                                                              delete_bitmap);
+                                                              delete_bitmap, queue_time_us);
         if (!st.ok()) {
             LOG(WARNING) << "failed to calc delete bitmap between segments, tablet_id: "
                          << tablet->tablet_id() << " rowset: " << rowset_id
@@ -90,8 +94,8 @@ Status CalcDeleteBitmapToken::wait() {
     return _status;
 }
 
-void CalcDeleteBitmapExecutor::init(int max_threads) {
-    static_cast<void>(ThreadPoolBuilder("TabletCalcDeleteBitmapThreadPool")
+void CalcDeleteBitmapExecutor::init(const std::string& name, int max_threads) {
+    static_cast<void>(ThreadPoolBuilder(name)
                               .set_min_threads(1)
                               .set_max_threads(max_threads)
                               .build(&_thread_pool));

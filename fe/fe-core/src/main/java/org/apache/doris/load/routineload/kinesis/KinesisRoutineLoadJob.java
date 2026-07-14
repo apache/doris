@@ -92,6 +92,7 @@ import java.util.UUID;
  */
 public class KinesisRoutineLoadJob extends RoutineLoadJob {
     private static final Logger LOG = LogManager.getLogger(KinesisRoutineLoadJob.class);
+    private static final String SENSITIVE_PROPERTY_MASK = "******";
 
     public static final String KINESIS_FILE_CATALOG = "kinesis";
 
@@ -640,15 +641,7 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
     @Override
     public String customPropertiesJsonToString() {
         Gson gson = new GsonBuilder().disableHtmlEscaping().create();
-        // Mask sensitive information
-        Map<String, String> maskedProperties = new HashMap<>(customProperties);
-        if (maskedProperties.containsKey("aws.secret_key")) {
-            maskedProperties.put("aws.secret_key", "******");
-        }
-        if (maskedProperties.containsKey("aws.session_key")) {
-            maskedProperties.put("aws.session_key", "******");
-        }
-        return gson.toJson(maskedProperties);
+        return gson.toJson(getMaskedCustomProperties(""));
     }
 
     @Override
@@ -664,16 +657,21 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
 
     @Override
     public Map<String, String> getCustomProperties() {
-        Map<String, String> ret = new HashMap<>();
-        customProperties.forEach((k, v) -> {
-            // Mask sensitive values
-            if (k.equals("aws.secret_key") || k.equals("aws.session_key")) {
-                ret.put("property." + k, "******");
+        return getMaskedCustomProperties("property.");
+    }
+
+    private Map<String, String> getMaskedCustomProperties(String keyPrefix) {
+        Map<String, String> maskedProperties = new HashMap<>();
+        customProperties.forEach((key, value) -> {
+            if (KinesisConfiguration.KINESIS_ACCESS_KEY.getName().equalsIgnoreCase(key)
+                    || KinesisConfiguration.KINESIS_SECRET_KEY.getName().equalsIgnoreCase(key)
+                    || KinesisConfiguration.KINESIS_SESSION_TOKEN.getName().equalsIgnoreCase(key)) {
+                maskedProperties.put(keyPrefix + key, SENSITIVE_PROPERTY_MASK);
             } else {
-                ret.put("property." + k, v);
+                maskedProperties.put(keyPrefix + key, value);
             }
         });
-        return ret;
+        return maskedProperties;
     }
 
     @Override

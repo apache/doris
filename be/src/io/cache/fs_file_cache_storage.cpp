@@ -17,6 +17,7 @@
 
 #include "io/cache/fs_file_cache_storage.h"
 
+#include <butil/iobuf.h>
 #include <fmt/core.h>
 #include <rapidjson/document.h>
 #include <rapidjson/stringbuffer.h>
@@ -192,29 +193,104 @@ Status FSFileCacheStorage::init(BlockFileCache* mgr) {
 }
 
 Status FSFileCacheStorage::append(const FileCacheKey& key, const Slice& value) {
+    return appendv(key, &value, 1);
+}
+
+Status FSFileCacheStorage::get_or_create_file_writer(const FileCacheKey& key, FileWriter** writer) {
+    if (writer == nullptr) {
+        return Status::InvalidArgument("file cache writer output is null");
+    }
+    *writer = nullptr;
+    auto file_writer_map_key = std::make_pair(key.hash, key.offset);
+    auto& shard = shard_of(file_writer_map_key);
+    std::lock_guard lock(shard.mtx);
+    if (auto iter = shard.map.find(file_writer_map_key); iter != shard.map.end()) {
+        *writer = iter->second.get();
+        return Status::OK();
+    }
+
+    std::string dir = get_path_in_local_cache_v3(key.hash);
+    auto st = fs->create_directory(dir, false);
+    if (!st.ok() && !st.is<ErrorCode::ALREADY_EXIST>()) {
+        return st;
+    }
+    std::string tmp_file = get_path_in_local_cache_v3(dir, key.offset, true);
+    FileWriterPtr file_writer;
+    FileWriterOptions opts {.sync_file_data = false};
+    RETURN_IF_ERROR(fs->create_file(tmp_file, &file_writer, &opts));
+    *writer = file_writer.get();
+    shard.map.emplace(file_writer_map_key, std::move(file_writer));
+    return Status::OK();
+}
+
+Status FSFileCacheStorage::appendv(const FileCacheKey& key, const Slice* values, size_t value_cnt) {
     FileWriter* writer = nullptr;
+    RETURN_IF_ERROR(get_or_create_file_writer(key, &writer));
+    DCHECK_NE(writer, nullptr);
+    auto st = writer->appendv(values, value_cnt);
+    if (!st.ok()) {
+        // Clean up partially-written writer to prevent a later finalize from
+        // persisting an incomplete cache file.
+        static_cast<void>(abort(key));
+    }
+    return st;
+}
+
+Status FSFileCacheStorage::append_iobuf(const FileCacheKey& key, const butil::IOBuf& value) {
+    FileWriter* writer = nullptr;
+    RETURN_IF_ERROR(get_or_create_file_writer(key, &writer));
+    DCHECK_NE(writer, nullptr);
+    // Disk cache files are created by LocalFileSystem, so this writer can forward the shared
+    // IOBuf payload to the fd path directly instead of flattening it first.
+    Status st;
+    auto* local_writer = dynamic_cast<LocalFileWriter*>(writer);
+    if (LIKELY(local_writer != nullptr)) {
+        st = local_writer->append_iobuf(value);
+    } else {
+        std::vector<Slice> slices;
+        slices.reserve(value.backing_block_num());
+        for (size_t idx = 0; idx < value.backing_block_num(); ++idx) {
+            auto piece = value.backing_block(idx);
+            if (!piece.empty()) {
+                slices.emplace_back(piece.data(), piece.size());
+            }
+        }
+        st = writer->appendv(slices.data(), slices.size());
+    }
+    if (!st.ok()) {
+        // Clean up partially-written writer to prevent a later finalize from
+        // persisting an incomplete cache file.
+        static_cast<void>(abort(key));
+    }
+    return st;
+}
+
+Status FSFileCacheStorage::abort(const FileCacheKey& key) {
+    FileWriterPtr file_writer;
     {
         auto file_writer_map_key = std::make_pair(key.hash, key.offset);
         auto& shard = shard_of(file_writer_map_key);
         std::lock_guard lock(shard.mtx);
         if (auto iter = shard.map.find(file_writer_map_key); iter != shard.map.end()) {
-            writer = iter->second.get();
-        } else {
-            std::string dir = get_path_in_local_cache_v3(key.hash);
-            auto st = fs->create_directory(dir, false);
-            if (!st.ok() && !st.is<ErrorCode::ALREADY_EXIST>()) {
-                return st;
-            }
-            std::string tmp_file = get_path_in_local_cache_v3(dir, key.offset, true);
-            FileWriterPtr file_writer;
-            FileWriterOptions opts {.sync_file_data = false};
-            RETURN_IF_ERROR(fs->create_file(tmp_file, &file_writer, &opts));
-            writer = file_writer.get();
-            shard.map.emplace(file_writer_map_key, std::move(file_writer));
+            file_writer = std::move(iter->second);
+            shard.map.erase(iter);
         }
     }
-    DCHECK_NE(writer, nullptr);
-    return writer->append(value);
+
+    const std::string tmp_file = [&]() {
+        if (file_writer != nullptr) {
+            return file_writer->path().native();
+        }
+        const std::string dir = get_path_in_local_cache_v3(key.hash);
+        return FSFileCacheStorage::get_path_in_local_cache_v3(dir, key.offset, true);
+    }();
+
+    file_writer.reset();
+    auto st = fs->delete_file(tmp_file);
+    if (!st.ok() && !st.is<ErrorCode::NOT_FOUND>()) {
+        return st;
+    }
+    return Status::OK();
 }
 
 Status FSFileCacheStorage::finalize(const FileCacheKey& key, const size_t size) {
@@ -252,31 +328,8 @@ Status FSFileCacheStorage::finalize(const FileCacheKey& key, const size_t size) 
 }
 
 Status FSFileCacheStorage::read(const FileCacheKey& key, size_t value_offset, Slice buffer) {
-    AccessKeyAndOffset fd_key = std::make_pair(key.hash, key.offset);
-    FileReaderSPtr file_reader = FDCache::instance()->get_file_reader(fd_key);
-    if (!file_reader) {
-        std::string file =
-                get_path_in_local_cache_v3(get_path_in_local_cache_v3(key.hash), key.offset);
-        Status s = fs->open_file(file, &file_reader);
-        if (!s.ok()) {
-            if (s.is<ErrorCode::NOT_FOUND>()) {
-                // Try to open file with old v2 format
-                std::string dir = get_path_in_local_cache_v2(key.hash, key.meta.expiration_time);
-                std::string v2_file = get_path_in_local_cache_v2(dir, key.offset, key.meta.type);
-                Status s2 = fs->open_file(v2_file, &file_reader);
-                if (!s2.ok()) {
-                    LOG(WARNING) << "open file failed with both v3 and v2 format, v3_file=" << file
-                                 << ", v2_file=" << v2_file << ", error=" << s2.to_string();
-                    return s2;
-                }
-            } else {
-                LOG(WARNING) << "open file failed, file=" << file << ", error=" << s.to_string();
-                return s;
-            }
-        }
-
-        FDCache::instance()->insert_file_reader(fd_key, file_reader);
-    }
+    FileReaderSPtr file_reader;
+    RETURN_IF_ERROR(get_or_open_file_reader(key, &file_reader));
     size_t bytes_read = 0;
     auto s = file_reader->read_at(value_offset, buffer, &bytes_read);
     if (!s.ok()) {
@@ -285,6 +338,68 @@ Status FSFileCacheStorage::read(const FileCacheKey& key, size_t value_offset, Sl
         return s;
     }
     DCHECK(bytes_read == buffer.get_size());
+    return Status::OK();
+}
+
+Status FSFileCacheStorage::read_to_iobuf(const FileCacheKey& key, size_t value_offset,
+                                         size_t bytes_req, butil::IOBuf* out, size_t* bytes_read) {
+    if (out == nullptr || bytes_read == nullptr) {
+        return Status::InvalidArgument("read_to_iobuf requires non-null out and bytes_read");
+    }
+    FileReaderSPtr file_reader;
+    RETURN_IF_ERROR(get_or_open_file_reader(key, &file_reader));
+    auto s = file_reader->read_at_iobuf(value_offset, bytes_req, out, bytes_read);
+    if (!s.ok()) {
+        LOG(WARNING) << "read file to iobuf failed, file=" << file_reader->path()
+                     << ", error=" << s.to_string();
+        return s;
+    }
+    DCHECK(*bytes_read == bytes_req);
+    if (*bytes_read != bytes_req) {
+        return Status::InternalError<false>("short read from file cache, expected={}, actual={}",
+                                            bytes_req, *bytes_read);
+    }
+    return Status::OK();
+}
+
+Status FSFileCacheStorage::get_or_open_file_reader(const FileCacheKey& key,
+                                                   FileReaderSPtr* file_reader) {
+    if (file_reader == nullptr) {
+        return Status::InvalidArgument("get_or_open_file_reader requires non-null file_reader");
+    }
+
+    const AccessKeyAndOffset fd_key = std::make_pair(key.hash, key.offset);
+    *file_reader = FDCache::instance()->get_file_reader(fd_key);
+    if (*file_reader) {
+        return Status::OK();
+    }
+
+    const std::string dir = get_path_in_local_cache_v3(key.hash);
+    const std::string file = get_path_in_local_cache_v3(dir, key.offset);
+    Status st = fs->open_file(file, file_reader);
+
+    // Handle the case that the file is not found but actually exists in other type format.
+    // TODO(zhengyu): eliminate type encoding in file name.
+    if (!st.ok() && !st.is<ErrorCode::NOT_FOUND>()) {
+        LOG(WARNING) << "open file failed, file=" << file << ", error=" << st.to_string();
+        return st;
+    }
+    if (!st.ok()) {
+        const std::string v2_dir = get_path_in_local_cache_v2(key.hash, key.meta.expiration_time);
+        auto candidates = get_path_in_local_cache_all_candidates(v2_dir, key.offset);
+        for (auto& candidate : candidates) {
+            st = fs->open_file(candidate, file_reader);
+            if (st.ok()) {
+                break;
+            }
+        }
+        if (!st.ok()) {
+            LOG(WARNING) << "open file failed, file=" << file << ", error=" << st.to_string();
+            return st;
+        }
+    }
+
+    FDCache::instance()->insert_file_reader(fd_key, *file_reader);
     return Status::OK();
 }
 
@@ -339,6 +454,17 @@ Status FSFileCacheStorage::change_key_meta_type(const FileCacheKey& key, const F
         _meta_store->put(mkey, meta);
     }
     return Status::OK();
+}
+
+std::vector<std::string> FSFileCacheStorage::get_path_in_local_cache_all_candidates(
+        const std::string& dir, size_t offset) {
+    std::vector<std::string> candidates;
+    std::string base = get_path_in_local_cache_v2(dir, offset, FileCacheType::NORMAL);
+    candidates.push_back(base);
+    candidates.push_back(base + "_idx");
+    candidates.push_back(base + "_ttl");
+    candidates.push_back(base + "_disposable");
+    return candidates;
 }
 
 std::string FSFileCacheStorage::get_path_in_local_cache_v3(const std::string& dir, size_t offset,

@@ -51,6 +51,7 @@ struct WriteRequest {
     bool write_file_cache = false;
     WriteRequestType write_req_type = WriteRequestType::DATA;
     std::string storage_vault_id;
+    bool enable_table_memtable_backpressure = false;
 };
 
 } // namespace doris

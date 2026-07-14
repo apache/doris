@@ -169,11 +169,11 @@ struct CacheContext {
         return query_id == rhs.query_id && cache_type == rhs.cache_type &&
                expiration_time == rhs.expiration_time && is_cold_data == rhs.is_cold_data;
     }
-    TUniqueId query_id;
-    FileCacheType cache_type;
+    TUniqueId query_id {};
+    FileCacheType cache_type {FileCacheType::NORMAL};
     int64_t expiration_time {0};
     bool is_cold_data {false};
-    ReadStatistics* stats;
+    ReadStatistics* stats {nullptr};
     bool is_warmup {false};
     int64_t tablet_id {0};
 };

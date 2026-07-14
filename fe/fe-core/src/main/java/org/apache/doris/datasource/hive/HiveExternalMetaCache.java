@@ -52,13 +52,10 @@ import org.apache.doris.fs.DirectoryLister;
 import org.apache.doris.fs.FileSystemCache;
 import org.apache.doris.fs.FileSystemDirectoryLister;
 import org.apache.doris.nereids.rules.expression.rules.SortedPartitionRanges;
-import org.apache.doris.planner.ListPartitionPrunerV2;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
-import com.google.common.collect.BiMap;
-import com.google.common.collect.HashBiMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Streams;
@@ -289,19 +286,15 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
             LOG.debug("load #{} partitions for {} in catalog {}", partitionNames.size(), key, catalog.getName());
         }
 
-        Map<Long, PartitionItem> idToPartitionItem = Maps.newHashMapWithExpectedSize(partitionNames.size());
-        BiMap<String, Long> partitionNameToIdMap = HashBiMap.create(partitionNames.size());
-        String localDbName = nameMapping.getLocalDbName();
-        String localTblName = nameMapping.getLocalTblName();
+        Map<String, PartitionItem> nameToPartitionItem = Maps.newHashMapWithExpectedSize(partitionNames.size());
+        Map<String, List<String>> nameToPartitionValues = Maps.newHashMapWithExpectedSize(partitionNames.size());
         for (String partitionName : partitionNames) {
-            long partitionId = Util.genIdByName(catalog.getName(), localDbName, localTblName, partitionName);
             ListPartitionItem listPartitionItem = toListPartitionItem(partitionName, key.types, catalog.getName());
-            idToPartitionItem.put(partitionId, listPartitionItem);
-            partitionNameToIdMap.put(partitionName, partitionId);
+            nameToPartitionItem.put(partitionName, listPartitionItem);
+            nameToPartitionValues.put(partitionName, HiveUtil.toPartitionValues(partitionName));
         }
 
-        Map<Long, List<String>> partitionValuesMap = ListPartitionPrunerV2.getPartitionValuesMap(idToPartitionItem);
-        return new HivePartitionValues(idToPartitionItem, partitionNameToIdMap, partitionValuesMap);
+        return new HivePartitionValues(nameToPartitionItem, nameToPartitionValues);
     }
 
     private ListPartitionItem toListPartitionItem(String partitionName, List<Type> types, String catalogName) {
@@ -589,7 +582,11 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
     }
 
     public void invalidatePartitionCache(ExternalTable dorisTable, String partitionName) {
-        partitionCacheCoordinator.invalidatePartitionCache(dorisTable, partitionName);
+        invalidatePartitionCache(dorisTable.getOrBuildNameMapping(), partitionName);
+    }
+
+    public void invalidatePartitionCache(NameMapping nameMapping, String partitionName) {
+        partitionCacheCoordinator.invalidatePartitionCache(nameMapping, partitionName);
     }
 
     /**
@@ -621,38 +618,34 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
     }
 
     private final class PartitionCacheCoordinator {
-        private void invalidatePartitionCache(ExternalTable dorisTable, String partitionName) {
-            NameMapping nameMapping = dorisTable.getOrBuildNameMapping();
+        private void invalidatePartitionCache(NameMapping nameMapping, String partitionName) {
             long catalogId = nameMapping.getCtlId();
 
-            MetaCacheEntry<PartitionValueCacheKey, HivePartitionValues> partitionValuesEntry =
-                    partitionValuesEntryIfInitialized(catalogId);
             MetaCacheEntry<PartitionCacheKey, HivePartition> partitionEntry = partitionEntryIfInitialized(catalogId);
             MetaCacheEntry<FileCacheKey, FileCacheValue> fileEntry = fileEntryIfInitialized(catalogId);
-            if (partitionValuesEntry == null || partitionEntry == null || fileEntry == null) {
+            if (partitionEntry == null || fileEntry == null) {
                 return;
             }
 
             long tableId = Util.genIdByName(nameMapping.getLocalDbName(), nameMapping.getLocalTblName());
-            PartitionValueCacheKey key = new PartitionValueCacheKey(nameMapping, null);
-            HivePartitionValues partitionValues = partitionValuesEntry.getIfPresent(key);
-            if (partitionValues == null) {
-                return;
-            }
-
-            Long partitionId = partitionValues.partitionNameToIdMap.get(partitionName);
-            if (partitionId == null) {
-                return;
-            }
-
-            List<String> values = partitionValues.partitionValuesMap.get(partitionId);
-            if (values == null) {
-                return;
-            }
+            // Derive the partition values directly from the partition name (the partition-values cache is
+            // populated the same way, via HiveUtil.toPartitionValues) instead of reading them from that
+            // cache, so file cache invalidation still runs when the table's partition-values cache entry has
+            // been evicted while its file listings are still cached.
+            List<String> values = HiveUtil.toPartitionValues(partitionName);
 
             PartitionCacheKey partKey = new PartitionCacheKey(nameMapping, values);
             HivePartition partition = partitionEntry.getIfPresent(partKey);
             if (partition == null) {
+                // Partition metadata cache miss: the exact FileCacheKey cannot be rebuilt here because it
+                // needs the partition path and input format carried by HivePartition. Invalidate this
+                // table's cached file listings for the partition by (table id + partition values). Scoping
+                // by table id is intentional: matching partition values alone would also drop other tables'
+                // listings that merely share the same partition value names (e.g. dt=...) at a different
+                // location, forcing needless re-listing. The exact-key path below (taken when the partition
+                // is cached) already clears a listing regardless of which table id populated it.
+                fileEntry.invalidateIf(k -> k.isSameTable(tableId) && Objects.equals(k.getPartitionValues(), values));
+                partitionEntry.invalidateKey(partKey);
                 return;
             }
 
@@ -697,7 +690,7 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
                 List<String> modifiedPartNames,
                 List<String> newPartNames) {
             for (String partitionName : modifiedPartNames) {
-                invalidatePartitionCache(table, partitionName);
+                invalidatePartitionCache(table.getOrBuildNameMapping(), partitionName);
             }
 
             List<String> mergedPartNames = Lists.newArrayList(modifiedPartNames);
@@ -728,29 +721,22 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
             }
 
             HivePartitionValues copy = partitionValues.copy();
-            Map<Long, PartitionItem> idToPartitionItemBefore = copy.getIdToPartitionItem();
-            Map<String, Long> partitionNameToIdMapBefore = copy.getPartitionNameToIdMap();
-            Map<Long, PartitionItem> idToPartitionItem = new HashMap<>();
+            Map<String, PartitionItem> nameToPartitionItem = copy.getNameToPartitionItem();
+            Map<String, List<String>> nameToPartitionValues = copy.getNameToPartitionValues();
 
             HMSExternalCatalog catalog = hmsCatalog(catalogId);
-            String localDbName = nameMapping.getLocalDbName();
             String localTblName = nameMapping.getLocalTblName();
             for (String partitionName : partitionNames) {
-                if (partitionNameToIdMapBefore.containsKey(partitionName)) {
+                if (nameToPartitionItem.containsKey(partitionName)) {
                     LOG.info("addPartitionsCache partitionName:[{}] has exist in table:[{}]",
                             partitionName, localTblName);
                     continue;
                 }
-                long partitionId = Util.genIdByName(catalog.getName(), localDbName, localTblName, partitionName);
                 ListPartitionItem listPartitionItem = toListPartitionItem(partitionName, key.types, catalog.getName());
-                idToPartitionItemBefore.put(partitionId, listPartitionItem);
-                idToPartitionItem.put(partitionId, listPartitionItem);
-                partitionNameToIdMapBefore.put(partitionName, partitionId);
+                nameToPartitionItem.put(partitionName, listPartitionItem);
+                nameToPartitionValues.put(partitionName, HiveUtil.toPartitionValues(partitionName));
             }
 
-            Map<Long, List<String>> partitionValuesMapBefore = copy.getPartitionValuesMap();
-            Map<Long, List<String>> partitionValuesMap = ListPartitionPrunerV2.getPartitionValuesMap(idToPartitionItem);
-            partitionValuesMapBefore.putAll(partitionValuesMap);
             copy.rebuildSortedPartitionRanges();
 
             HivePartitionValues partitionValuesCur = partitionValuesEntry.getIfPresent(key);
@@ -778,22 +764,20 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
             }
 
             HivePartitionValues copy = partitionValues.copy();
-            Map<String, Long> partitionNameToIdMapBefore = copy.getPartitionNameToIdMap();
-            Map<Long, PartitionItem> idToPartitionItemBefore = copy.getIdToPartitionItem();
-            Map<Long, List<String>> partitionValuesMap = copy.getPartitionValuesMap();
+            Map<String, PartitionItem> nameToPartitionItem = copy.getNameToPartitionItem();
+            Map<String, List<String>> nameToPartitionValues = copy.getNameToPartitionValues();
 
             for (String partitionName : partitionNames) {
-                if (!partitionNameToIdMapBefore.containsKey(partitionName)) {
+                if (!nameToPartitionItem.containsKey(partitionName)) {
                     LOG.info("dropPartitionsCache partitionName:[{}] not exist in table:[{}]",
                             partitionName, nameMapping.getFullLocalName());
                     continue;
                 }
-                Long partitionId = partitionNameToIdMapBefore.remove(partitionName);
-                idToPartitionItemBefore.remove(partitionId);
-                partitionValuesMap.remove(partitionId);
+                nameToPartitionItem.remove(partitionName);
+                nameToPartitionValues.remove(partitionName);
 
                 if (invalidPartitionCache) {
-                    invalidatePartitionCache(dorisTable, partitionName);
+                    invalidatePartitionCache(nameMapping, partitionName);
                 }
             }
 
@@ -1060,9 +1044,8 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
 
     @Data
     public static class HivePartitionValues {
-        private BiMap<String, Long> partitionNameToIdMap;
-        private Map<Long, PartitionItem> idToPartitionItem;
-        private Map<Long, List<String>> partitionValuesMap;
+        private Map<String, PartitionItem> nameToPartitionItem;
+        private Map<String, List<String>> nameToPartitionValues;
 
         // Sorted partition ranges for binary search filtering.
         private SortedPartitionRanges<String> sortedPartitionRanges;
@@ -1070,20 +1053,18 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
         public HivePartitionValues() {
         }
 
-        public HivePartitionValues(Map<Long, PartitionItem> idToPartitionItem,
-                BiMap<String, Long> partitionNameToIdMap,
-                Map<Long, List<String>> partitionValuesMap) {
-            this.idToPartitionItem = idToPartitionItem;
-            this.partitionNameToIdMap = partitionNameToIdMap;
-            this.partitionValuesMap = partitionValuesMap;
+        public HivePartitionValues(Map<String, PartitionItem> nameToPartitionItem,
+                Map<String, List<String>> nameToPartitionValues) {
+            this.nameToPartitionItem = nameToPartitionItem;
+            this.nameToPartitionValues = nameToPartitionValues;
             this.sortedPartitionRanges = buildSortedPartitionRanges();
         }
 
         public HivePartitionValues copy() {
             HivePartitionValues copy = new HivePartitionValues();
-            copy.setPartitionNameToIdMap(partitionNameToIdMap == null ? null : HashBiMap.create(partitionNameToIdMap));
-            copy.setIdToPartitionItem(idToPartitionItem == null ? null : Maps.newHashMap(idToPartitionItem));
-            copy.setPartitionValuesMap(partitionValuesMap == null ? null : Maps.newHashMap(partitionValuesMap));
+            copy.setNameToPartitionItem(nameToPartitionItem == null ? null : Maps.newHashMap(nameToPartitionItem));
+            copy.setNameToPartitionValues(
+                    nameToPartitionValues == null ? null : Maps.newHashMap(nameToPartitionValues));
             return copy;
         }
 
@@ -1096,18 +1077,8 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
         }
 
         private SortedPartitionRanges<String> buildSortedPartitionRanges() {
-            if (partitionNameToIdMap == null || partitionNameToIdMap.isEmpty()
-                    || idToPartitionItem == null || idToPartitionItem.isEmpty()) {
+            if (nameToPartitionItem == null || nameToPartitionItem.isEmpty()) {
                 return null;
-            }
-
-            BiMap<Long, String> idToName = partitionNameToIdMap.inverse();
-            Map<String, PartitionItem> nameToPartitionItem = Maps.newHashMapWithExpectedSize(idToPartitionItem.size());
-            for (Map.Entry<Long, PartitionItem> entry : idToPartitionItem.entrySet()) {
-                String partitionName = idToName.get(entry.getKey());
-                if (partitionName != null) {
-                    nameToPartitionItem.put(partitionName, entry.getValue());
-                }
             }
 
             return SortedPartitionRanges.build(nameToPartitionItem);

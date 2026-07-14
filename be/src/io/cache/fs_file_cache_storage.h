@@ -77,8 +77,13 @@ public:
     ~FSFileCacheStorage() override;
     Status init(BlockFileCache* _mgr) override;
     Status append(const FileCacheKey& key, const Slice& value) override;
+    Status appendv(const FileCacheKey& key, const Slice* values, size_t value_cnt) override;
+    Status append_iobuf(const FileCacheKey& key, const butil::IOBuf& value) override;
+    Status abort(const FileCacheKey& key);
     Status finalize(const FileCacheKey& key, const size_t size) override;
     Status read(const FileCacheKey& key, size_t value_offset, Slice buffer) override;
+    Status read_to_iobuf(const FileCacheKey& key, size_t value_offset, size_t bytes_req,
+                         butil::IOBuf* out, size_t* bytes_read) override;
     Status remove(const FileCacheKey& key) override;
     Status change_key_meta_type(const FileCacheKey& key, const FileCacheType type,
                                 const size_t size) override;
@@ -178,6 +183,11 @@ private:
     bool handle_already_loaded_block(BlockFileCache* mgr, const UInt128Wrapper& hash, size_t offset,
                                      size_t new_size, int64_t tablet_id,
                                      std::lock_guard<std::mutex>& cache_lock) const;
+
+    [[nodiscard]] std::vector<std::string> get_path_in_local_cache_all_candidates(
+            const std::string& dir, size_t offset);
+    Status get_or_open_file_reader(const FileCacheKey& key, FileReaderSPtr* file_reader);
+    Status get_or_create_file_writer(const FileCacheKey& key, FileWriter** writer);
 
 private:
     // Helper function to count files in cache directory using inode stats

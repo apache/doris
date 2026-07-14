@@ -34,13 +34,14 @@ suite('test_unfinished_txn_2pc', 'multi_cluster,docker') {
 
         def dbName = context.config.getDbNameByFile(context.file)
         def tableName = 'test_unfinished_txn_2pc_tbl'
+        def (feHost, feHttpPort) = cluster.getFeByIndex(1).getHttpAddress()
         Long txnId = null
 
         def doStreamLoad2pcOperation = { long id, String operation ->
             def command = "curl -sS -X PUT --location-trusted -u ${context.config.feHttpUser}:${context.config.feHttpPassword}" +
                     " -H txn_id:${id}" +
                     " -H txn_operation:${operation}" +
-                    " http://${context.config.feHttpAddress}/api/${dbName}/${tableName}/_stream_load_2pc"
+                    " http://${feHost}:${feHttpPort}/api/${dbName}/${tableName}/_stream_load_2pc"
             logger.info("execute stream load 2pc operation: {}", command)
 
             def process = command.execute()
@@ -65,7 +66,7 @@ suite('test_unfinished_txn_2pc', 'multi_cluster,docker') {
                 PROPERTIES ("replication_num" = "1")
             """
 
-            String content = "1,10\\n2,20\\n3,30\\n"
+            String content = "1,10\n2,20\n3,30\n"
             streamLoad {
                 table "${tableName}"
                 set 'column_separator', ','

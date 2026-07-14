@@ -165,6 +165,13 @@ public class ExchangeNode extends PlanNode {
 
     @Override
     public boolean isSerialOperatorOnBe(ConnectContext context) {
+        if (context != null && context.getSessionVariable().isEnableLocalShufflePlanner()) {
+            // When FE local shuffle planner is on, decouple exchange from scan's serial flag.
+            // Scan pooling is handled by LE(PT) after scan; exchange keeps its own parallelism.
+            return fragment != null
+                    && isSerialNode()
+                    && fragment.useSerialSource(context);
+        }
         return fragment != null
                 && (isSerialNode() || fragment.hasSerialScanNode())
                 && fragment.useSerialSource(context);

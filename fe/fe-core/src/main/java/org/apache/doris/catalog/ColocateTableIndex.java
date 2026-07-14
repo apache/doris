@@ -346,6 +346,9 @@ public class ColocateTableIndex implements Writable {
                 group2Schema.remove(groupId);
                 group2ErrMsgs.remove(groupId);
                 unstableGroups.remove(groupId);
+                if (Config.isCloudMode()) {
+                    Env.getCurrentSystemInfo().invalidateCloudColocatePlacement(groupId);
+                }
                 String fullGroupName = null;
                 for (Map.Entry<String, GroupId> entry : groupName2Id.entrySet()) {
                     if (entry.getValue().equals(groupId)) {
@@ -677,7 +680,7 @@ public class ColocateTableIndex implements Writable {
         writeLock();
         try {
             modifyColocateGroupReplicaAllocation(info.getGroupId(), info.getReplicaAlloc(),
-                    info.getBackendsPerBucketSeq(), false);
+                    info.getBackendsPerBucketSeq(), true /* isReplay */);
         } finally {
             writeUnlock();
         }
@@ -885,7 +888,7 @@ public class ColocateTableIndex implements Writable {
                 backendsPerBucketSeq = newBackendsPerBucketSeq;
                 Preconditions.checkState(backendsPerBucketSeq.size() == replicaAlloc.getAllocMap().size());
                 modifyColocateGroupReplicaAllocation(groupSchema.getGroupId(), replicaAlloc,
-                        backendsPerBucketSeq, true);
+                        backendsPerBucketSeq, false /* isReplay */);
             } else {
                 throw new DdlException("Unknown colocate group property: " + properties.keySet());
             }

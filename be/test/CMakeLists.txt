@@ -30,6 +30,7 @@ file(GLOB_RECURSE UT_FILES CONFIGURE_DEPENDS
     exec/*.cpp
     exprs/*.cpp
     format/*.cpp
+    format_v2/*.cpp
     gutil/*.cpp
     io/*.cpp
     load/*.cpp
@@ -43,6 +44,16 @@ file(GLOB_RECURSE UT_FILES CONFIGURE_DEPENDS
     util/*.cpp
     vec/*.cpp
 )
+
+set(PHDR_CACHE_TEST_DSO_SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/common/phdr_cache_test_dso.cpp)
+list(REMOVE_ITEM UT_FILES ${PHDR_CACHE_TEST_DSO_SOURCE})
+
+if (NOT OS_MACOSX)
+    add_library(phdr_cache_test_dso SHARED ${PHDR_CACHE_TEST_DSO_SOURCE})
+    set_target_properties(phdr_cache_test_dso PROPERTIES
+        LIBRARY_OUTPUT_DIRECTORY "${BUILD_DIR}/test"
+    )
+endif()
 
 if (ENABLE_TDE)
     file(GLOB_RECURSE TDE_UT_FILES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/${TDE_MODULE_DIR}/*.cpp")
@@ -66,12 +77,6 @@ endif()
 # So vector_search cpp files are compiled in a separate library using different compile options.
 file(GLOB_RECURSE VECTOR_FILES CONFIGURE_DEPENDS storage/index/ann/*.cpp)
 list(REMOVE_ITEM UT_FILES ${VECTOR_FILES})
-
-# Lance reader tests require Rust static library (BUILD_RUST_READERS=ON)
-if (NOT BUILD_RUST_READERS)
-    file(GLOB_RECURSE LANCE_TEST_FILES CONFIGURE_DEPENDS format/lance/*.cpp)
-    list(REMOVE_ITEM UT_FILES ${LANCE_TEST_FILES})
-endif()
 
 if(NOT DEFINED DORIS_WITH_LZO)
     list(REMOVE_ITEM UT_FILES ${CMAKE_CURRENT_SOURCE_DIR}/exec/plain_text_line_reader_lzop_test.cpp)
@@ -152,6 +157,9 @@ include_directories(
 add_subdirectory(storage/index/ann)
 
 add_executable(doris_be_test ${UT_FILES})
+if (TARGET phdr_cache_test_dso)
+    add_dependencies(doris_be_test phdr_cache_test_dso)
+endif()
 
 if (APPLE)
     target_link_libraries(doris_be_test ${TEST_LINK_LIBS}
