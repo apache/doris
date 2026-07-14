@@ -103,7 +103,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Queue;
 import java.util.UUID;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
@@ -275,10 +274,9 @@ public abstract class RoutineLoadJob
     protected Expr deleteCondition;
     // TODO(ml): error sample
 
-    // Save the latest 3 error log URLs in memory. BE error logs expire, so these diagnostics
-    // and their corresponding first error message should not be persisted with the job.
+    // Save the latest 3 error log URLs in memory. The corresponding first error message
+    // uses the same lifecycle and should not be persisted with the job.
     private transient Queue<String> errorLogUrls = EvictingQueue.create(3);
-    private transient Queue<Long> errorLogUrlTimestamps = EvictingQueue.create(3);
     private transient String firstErrorMsg = "";
 
     @SerializedName("ccid")
@@ -821,7 +819,6 @@ public abstract class RoutineLoadJob
     public void processTimeoutTasks() {
         writeLock();
         try {
-            unprotectCleanExpiredErrorLogUrls();
             List<RoutineLoadTaskInfo> runningTasks = new ArrayList<>(routineLoadTaskInfoList);
             for (RoutineLoadTaskInfo routineLoadTaskInfo : runningTasks) {
                 if (routineLoadTaskInfo.isTimeout()) {
@@ -1440,27 +1437,14 @@ public abstract class RoutineLoadJob
     }
 
     private void updateJobInfoFromAttachment(RLTaskTxnCommitAttachment attachment) {
-        if (!Strings.isNullOrEmpty(attachment.getErrorLogUrl())) {
-            errorLogUrls.add(attachment.getErrorLogUrl());
-            errorLogUrlTimestamps.add(System.currentTimeMillis());
-            firstErrorMsg = StringUtils.abbreviate(
-                    Strings.nullToEmpty(attachment.getFirstErrorMsg()), Config.first_error_msg_max_length);
-        }
-    }
-
-    private void unprotectCleanExpiredErrorLogUrls() {
-        if (Config.load_error_log_reserve_hours < 0) {
+        if (Strings.isNullOrEmpty(attachment.getErrorLogUrl())) {
+            errorLogUrls.clear();
+            firstErrorMsg = "";
             return;
         }
-        long expireBefore = System.currentTimeMillis()
-                - TimeUnit.HOURS.toMillis(Config.load_error_log_reserve_hours);
-        while (!errorLogUrlTimestamps.isEmpty() && errorLogUrlTimestamps.peek() <= expireBefore) {
-            errorLogUrlTimestamps.poll();
-            errorLogUrls.poll();
-        }
-        if (errorLogUrls.isEmpty()) {
-            firstErrorMsg = "";
-        }
+        errorLogUrls.add(attachment.getErrorLogUrl());
+        firstErrorMsg = StringUtils.abbreviate(
+                Strings.nullToEmpty(attachment.getFirstErrorMsg()), Config.first_error_msg_max_length);
     }
 
     protected static void checkMeta(OlapTable olapTable, RoutineLoadDesc routineLoadDesc) throws UserException {
@@ -1990,7 +1974,6 @@ public abstract class RoutineLoadJob
     @Override
     public void gsonPostProcess() throws IOException {
         errorLogUrls = EvictingQueue.create(3);
-        errorLogUrlTimestamps = EvictingQueue.create(3);
         firstErrorMsg = "";
         if (tableId == 0) {
             isMultiTable = true;

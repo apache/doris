@@ -97,15 +97,13 @@ public class RoutineLoadJobTest {
         Assert.assertEquals("http://127.0.0.1/error_log", committedJob.getErrorLogUrls().peek());
         Assert.assertEquals("invalid source row", committedJob.getFirstErrorMsg());
 
-        long originalReserveHours = Config.load_error_log_reserve_hours;
-        try {
-            Config.load_error_log_reserve_hours = 0;
-            committedJob.processTimeoutTasks();
-            Assert.assertTrue(committedJob.getErrorLogUrls().isEmpty());
-            Assert.assertEquals("", committedJob.getFirstErrorMsg());
-        } finally {
-            Config.load_error_log_reserve_hours = originalReserveHours;
-        }
+        RLTaskTxnCommitAttachment attachmentWithoutError = new RLTaskTxnCommitAttachment();
+        Deencapsulation.setField(attachmentWithoutError, "progress", new KafkaProgress(thriftProgress));
+        TransactionState cleanCommittedTxnState = Mockito.mock(TransactionState.class);
+        Mockito.doReturn(attachmentWithoutError).when(cleanCommittedTxnState).getTxnCommitAttachment();
+        committedJob.replayOnCommitted(cleanCommittedTxnState);
+        Assert.assertTrue(committedJob.getErrorLogUrls().isEmpty());
+        Assert.assertEquals("", committedJob.getFirstErrorMsg());
 
         TransactionState abortedTxnState = Mockito.mock(TransactionState.class);
         Mockito.doReturn(attachment).when(abortedTxnState).getTxnCommitAttachment();
