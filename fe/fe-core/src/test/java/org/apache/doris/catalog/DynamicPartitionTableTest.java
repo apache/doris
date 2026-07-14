@@ -2104,18 +2104,31 @@ public class DynamicPartitionTableTest {
                         "00", upperHour);
             }
 
-            // Verify the current partition (idx=0) name matches the UTC
-            // calendar day, since both names and values are UTC-based.
-            // Accept either the current or previous day in case the wall clock
-            // rolled over between scheduler execution and this assertion.
-            ZonedDateTime utcNow = ZonedDateTime.now(ZoneOffset.UTC);
-            String expectedName = "p" + DateTimeFormatter.ofPattern("yyyyMMdd").format(utcNow);
-            String prevExpectedName = "p" + DateTimeFormatter.ofPattern("yyyyMMdd")
-                    .format(utcNow.minusDays(1));
-            Assert.assertTrue("Should find partition '" + expectedName + "' or '" + prevExpectedName
-                    + "' named per UTC calendar day",
-                    table.getPartitionNames().contains(expectedName)
-                    || table.getPartitionNames().contains(prevExpectedName));
+            // Identify the current partition (idx=0) by its stored range
+            // rather than sampling ZonedDateTime.now() after scheduling,
+            // which can tick and produce a name that happens to match an
+            // adjacent historical partition even when idx=0 is misnamed.
+            List<Map.Entry<Long, PartitionItem>> sorted = Lists.newArrayList(
+                    partitionInfo.getIdToItem(false).entrySet());
+            sorted.sort((a, b) -> {
+                RangePartitionItem ai = (RangePartitionItem) a.getValue();
+                RangePartitionItem bi = (RangePartitionItem) b.getValue();
+                return ai.getItems().lowerEndpoint().compareTo(bi.getItems().lowerEndpoint());
+            });
+            Assert.assertEquals(7, sorted.size());
+            // idx=0 is the 4th partition (index 3) for start=-3,end=3.
+            RangePartitionItem currentItem = (RangePartitionItem) sorted.get(3).getValue();
+            String currentLowerStr = currentItem.getItems().lowerEndpoint().getKeys().get(0)
+                    .getStringValue();
+            ZonedDateTime currentLower = ZonedDateTime.parse(currentLowerStr,
+                    DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ssXXX"));
+            String expectedCurrentName = "p"
+                    + DateTimeFormatter.ofPattern("yyyyMMdd").format(currentLower);
+            String actualCurrentName = table.getPartition(sorted.get(3).getKey()).getName();
+            Assert.assertEquals("Current partition (idx=0) name must match its UTC lower bound",
+                    expectedCurrentName, actualCurrentName);
+            Assert.assertEquals("Current partition lower bound must be UTC midnight",
+                    "00", currentLowerStr.substring(11, 13));
 
             for (Partition partition : table.getPartitions()) {
                 RangePartitionItem item = (RangePartitionItem) partitionInfo.getItem(partition.getId());
@@ -2205,28 +2218,33 @@ public class DynamicPartitionTableTest {
                         "00", upperHour);
             }
 
-            // Verify the current partition (idx=0) has a week name computed
-            // from UTC, since both names and values are UTC-based.
-            // Derive the expected name using the same getPartitionRangeString /
-            // getFormattedPartitionName path that the scheduler uses, which
-            // adjusts to the configured week start day before naming.
-            // Accept either the current or previous week in case the wall clock
-            // rolled over between scheduler execution and this assertion.
+            // Identify the current partition (idx=0) by its stored range.
+            List<Map.Entry<Long, PartitionItem>> sorted = Lists.newArrayList(
+                    partitionInfo.getIdToItem(false).entrySet());
+            sorted.sort((a, b) -> {
+                RangePartitionItem ai = (RangePartitionItem) a.getValue();
+                RangePartitionItem bi = (RangePartitionItem) b.getValue();
+                return ai.getItems().lowerEndpoint().compareTo(bi.getItems().lowerEndpoint());
+            });
+            Assert.assertEquals(7, sorted.size());
+            RangePartitionItem currentItem = (RangePartitionItem) sorted.get(3).getValue();
+            String currentLowerStr = currentItem.getItems().lowerEndpoint().getKeys().get(0)
+                    .getStringValue();
+            ZonedDateTime currentLower = ZonedDateTime.parse(currentLowerStr,
+                    DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ssXXX"));
+            // Compute the expected week name from the stored lower bound
+            // using the same utility path the scheduler uses.
             DynamicPartitionProperty prop = table.getTableProperty().getDynamicPartitionProperty();
             String partFormat = DynamicPartitionUtil.getPartitionFormat(
                     ((RangePartitionInfo) table.getPartitionInfo()).getPartitionColumns().get(0));
             TimeZone utcTz = TimeZone.getTimeZone("UTC");
-            ZonedDateTime utcNow = ZonedDateTime.now(ZoneOffset.UTC);
-            String border = DynamicPartitionUtil.getPartitionRangeString(prop, utcNow, 0, partFormat);
+            String border = DynamicPartitionUtil.getPartitionRangeString(
+                    prop, currentLower, 0, partFormat);
             String expectedWeekName = "p" + DynamicPartitionUtil.getFormattedPartitionName(
                     utcTz, border, prop.getTimeUnit());
-            String prevBorder = DynamicPartitionUtil.getPartitionRangeString(prop, utcNow, -1, partFormat);
-            String prevWeekName = "p" + DynamicPartitionUtil.getFormattedPartitionName(
-                    utcTz, prevBorder, prop.getTimeUnit());
-            Assert.assertTrue("Should find week partition '" + expectedWeekName + "' or '" + prevWeekName
-                    + "' named per UTC",
-                    table.getPartitionNames().contains(expectedWeekName)
-                    || table.getPartitionNames().contains(prevWeekName));
+            String actualCurrentName = table.getPartition(sorted.get(3).getKey()).getName();
+            Assert.assertEquals("Current partition (idx=0) week name must match its UTC lower bound",
+                    expectedWeekName, actualCurrentName);
         } finally {
             connectContext.getSessionVariable().setTimeZone(originalTimeZone);
         }
@@ -2337,18 +2355,21 @@ public class DynamicPartitionTableTest {
                         DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ssXXX"));
             }
 
-            // Verify the current partition (idx=0) name uses UTC,
-            // since both names and values are UTC-based.
-            // Accept either the current or previous hour in case the wall clock
-            // rolled over between scheduler execution and this assertion.
-            ZonedDateTime utcNow = ZonedDateTime.now(ZoneOffset.UTC);
-            String expectedName = "p" + DateTimeFormatter.ofPattern("yyyyMMddHH").format(utcNow);
-            String prevExpectedName = "p" + DateTimeFormatter.ofPattern("yyyyMMddHH")
-                    .format(utcNow.minusHours(1));
-            Assert.assertTrue("Should find hour partition '" + expectedName + "' or '" + prevExpectedName
-                    + "' named per UTC",
-                    table.getPartitionNames().contains(expectedName)
-                    || table.getPartitionNames().contains(prevExpectedName));
+            // Identify the current partition (idx=0) by its stored range.
+            // start=-3,end=3 → idx=0 is at index 3.
+            RangePartitionItem currentItem = (RangePartitionItem) sortedEntries.get(3).getValue();
+            String currentLowerStr = currentItem.getItems().lowerEndpoint().getKeys().get(0)
+                    .getStringValue();
+            ZonedDateTime currentLower = ZonedDateTime.parse(currentLowerStr,
+                    DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ssXXX"));
+            String expectedCurrentName = "p"
+                    + DateTimeFormatter.ofPattern("yyyyMMddHH").format(currentLower);
+            String actualCurrentName = table.getPartition(sortedEntries.get(3).getKey()).getName();
+            Assert.assertEquals("Current partition (idx=0) hour name must match its UTC lower bound",
+                    expectedCurrentName, actualCurrentName);
+            Assert.assertTrue("Current partition lower bound hour must be 0-23: " + currentLowerStr,
+                    Integer.parseInt(currentLowerStr.substring(11, 13)) >= 0
+                    && Integer.parseInt(currentLowerStr.substring(11, 13)) <= 23);
         } finally {
             connectContext.getSessionVariable().setTimeZone(originalTimeZone);
         }
@@ -2688,18 +2709,29 @@ public class DynamicPartitionTableTest {
                         "00", upperHour);
             }
 
-            // Verify the current partition (idx=0) name matches the UTC
-            // calendar month, since both names and values are UTC-based.
-            // Accept either the current or previous month in case the wall
-            // clock rolled over between scheduler execution and this assertion.
-            ZonedDateTime utcNow = ZonedDateTime.now(ZoneOffset.UTC);
-            String expectedName = "p" + DateTimeFormatter.ofPattern("yyyyMM").format(utcNow);
-            String prevExpectedName = "p" + DateTimeFormatter.ofPattern("yyyyMM")
-                    .format(utcNow.minusMonths(1));
-            Assert.assertTrue("Should find month partition '" + expectedName + "' or '" + prevExpectedName
-                    + "' named per UTC",
-                    table.getPartitionNames().contains(expectedName)
-                    || table.getPartitionNames().contains(prevExpectedName));
+            // Identify the current partition (idx=0) by its stored range.
+            List<Map.Entry<Long, PartitionItem>> sorted = Lists.newArrayList(
+                    partitionInfo.getIdToItem(false).entrySet());
+            sorted.sort((a, b) -> {
+                RangePartitionItem ai = (RangePartitionItem) a.getValue();
+                RangePartitionItem bi = (RangePartitionItem) b.getValue();
+                return ai.getItems().lowerEndpoint().compareTo(bi.getItems().lowerEndpoint());
+            });
+            Assert.assertEquals(7, sorted.size());
+            RangePartitionItem currentItem = (RangePartitionItem) sorted.get(3).getValue();
+            String currentLowerStr = currentItem.getItems().lowerEndpoint().getKeys().get(0)
+                    .getStringValue();
+            ZonedDateTime currentLower = ZonedDateTime.parse(currentLowerStr,
+                    DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ssXXX"));
+            String expectedCurrentName = "p"
+                    + DateTimeFormatter.ofPattern("yyyyMM").format(currentLower);
+            String actualCurrentName = table.getPartition(sorted.get(3).getKey()).getName();
+            Assert.assertEquals("Current partition (idx=0) month name must match its UTC lower bound",
+                    expectedCurrentName, actualCurrentName);
+            Assert.assertEquals("Current partition lower bound must be UTC midnight",
+                    "00", currentLowerStr.substring(11, 13));
+            Assert.assertEquals("Current partition lower bound day must be 01",
+                    "01", currentLowerStr.substring(8, 10));
         } finally {
             connectContext.getSessionVariable().setTimeZone(originalTimeZone);
         }
@@ -2791,18 +2823,31 @@ public class DynamicPartitionTableTest {
                         "00", upperHour);
             }
 
-            // Verify the current partition (idx=0) name matches the UTC
-            // calendar year, since both names and values are UTC-based.
-            // Accept either the current or previous year in case the wall
-            // clock rolled over between scheduler execution and this assertion.
-            ZonedDateTime utcNow = ZonedDateTime.now(ZoneOffset.UTC);
-            String expectedName = "p" + DateTimeFormatter.ofPattern("yyyy").format(utcNow);
-            String prevExpectedName = "p" + DateTimeFormatter.ofPattern("yyyy")
-                    .format(utcNow.minusYears(1));
-            Assert.assertTrue("Should find year partition '" + expectedName + "' or '" + prevExpectedName
-                    + "' named per UTC",
-                    table.getPartitionNames().contains(expectedName)
-                    || table.getPartitionNames().contains(prevExpectedName));
+            // Identify the current partition (idx=0) by its stored range.
+            List<Map.Entry<Long, PartitionItem>> sorted = Lists.newArrayList(
+                    partitionInfo.getIdToItem(false).entrySet());
+            sorted.sort((a, b) -> {
+                RangePartitionItem ai = (RangePartitionItem) a.getValue();
+                RangePartitionItem bi = (RangePartitionItem) b.getValue();
+                return ai.getItems().lowerEndpoint().compareTo(bi.getItems().lowerEndpoint());
+            });
+            Assert.assertEquals(7, sorted.size());
+            RangePartitionItem currentItem = (RangePartitionItem) sorted.get(3).getValue();
+            String currentLowerStr = currentItem.getItems().lowerEndpoint().getKeys().get(0)
+                    .getStringValue();
+            ZonedDateTime currentLower = ZonedDateTime.parse(currentLowerStr,
+                    DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ssXXX"));
+            String expectedCurrentName = "p"
+                    + DateTimeFormatter.ofPattern("yyyy").format(currentLower);
+            String actualCurrentName = table.getPartition(sorted.get(3).getKey()).getName();
+            Assert.assertEquals("Current partition (idx=0) year name must match its UTC lower bound",
+                    expectedCurrentName, actualCurrentName);
+            Assert.assertEquals("Current partition lower bound must be UTC midnight",
+                    "00", currentLowerStr.substring(11, 13));
+            Assert.assertEquals("Current partition lower bound month must be 01",
+                    "01", currentLowerStr.substring(5, 7));
+            Assert.assertEquals("Current partition lower bound day must be 01",
+                    "01", currentLowerStr.substring(8, 10));
         } finally {
             connectContext.getSessionVariable().setTimeZone(originalTimeZone);
         }
@@ -2849,20 +2894,28 @@ public class DynamicPartitionTableTest {
             // Add partitions manually — must temporarily disable dynamic partition.
             alterTable("ALTER TABLE test.tstz_reserved_hist SET "
                     + "('dynamic_partition.enable' = 'false')");
-            // Add a partition that falls within the reserved period with
-            // UTC-midnight boundaries: [2020-01-01 00:00 UTC, 2020-02-01 00:00 UTC).
-            // This should be protected by the reserved period.
+            // p_202001: well inside both the fixed UTC range and the old
+            // Asia/Shanghai-shifted range — weak test, passes either way.
             alterTable("ALTER TABLE test.tstz_reserved_hist ADD PARTITION p_202001 VALUES "
                     + "[('2020-01-01 00:00:00+00:00'), ('2020-02-01 00:00:00+00:00'))");
-            // Add a partition entirely before the reserved period.
-            // This should be dropped by the start=-3 cutoff.
+            // p_old: before both ranges — dropped by the start=-3 cutoff
+            // regardless of the reserved-period interpretation.
             alterTable("ALTER TABLE test.tstz_reserved_hist ADD PARTITION p_old VALUES "
                     + "[('2018-01-01 00:00:00+00:00'), ('2018-02-01 00:00:00+00:00'))");
+
+            // p_boundary: discriminating partition. Its lower bound
+            // (2020-07-31 17:00 UTC) is AFTER the old shifted upper bound
+            // (~2020-07-31 16:00 UTC) but BEFORE the corrected UTC upper
+            // bound (2020-08-01 00:00 UTC). Only the fix keeps it.
+            alterTable("ALTER TABLE test.tstz_reserved_hist ADD PARTITION p_boundary VALUES "
+                    + "[('2020-07-31 17:00:00+00:00'), ('2020-07-31 18:00:00+00:00'))");
 
             Assert.assertTrue("p_202001 should exist before scheduling",
                     table.getPartitionNames().contains("p_202001"));
             Assert.assertTrue("p_old should exist before scheduling",
                     table.getPartitionNames().contains("p_old"));
+            Assert.assertTrue("p_boundary should exist before scheduling",
+                    table.getPartitionNames().contains("p_boundary"));
 
             // Re-enable dynamic partition and run the scheduler.
             alterTable("ALTER TABLE test.tstz_reserved_hist SET "
@@ -2871,14 +2924,20 @@ public class DynamicPartitionTableTest {
             Env.getCurrentEnv().getDynamicPartitionScheduler()
                     .executeDynamicPartitionFirstTime(db.getId(), table.getId());
 
-            // p_202001 falls within reserved period [2019-06-01, 2020-08-01] in
-            // UTC-midnight interpretation → must be kept.
-            Assert.assertTrue("p_202001 should be kept — within UTC-aligned reserved history period",
+            // p_202001 falls within the reserved period in both old and new
+            // interpretations — kept regardless.
+            Assert.assertTrue("p_202001 should be kept",
                     table.getPartitionNames().contains("p_202001"));
             // p_old is before the start=-3 cutoff and outside the reserved
-            // period → must be dropped.
-            Assert.assertFalse("p_old should be dropped — outside reserved period and before start",
+            // period — dropped regardless.
+            Assert.assertFalse("p_old should be dropped",
                     table.getPartitionNames().contains("p_old"));
+            // p_boundary is the discriminating case: only kept when the
+            // reserved period is interpreted in UTC rather than shifted by
+            // the configured timezone (Asia/Shanghai, UTC+8).
+            Assert.assertTrue("p_boundary should be kept — reserved period is UTC-aligned,"
+                    + " not shifted by the configured timezone",
+                    table.getPartitionNames().contains("p_boundary"));
         } finally {
             connectContext.getSessionVariable().setTimeZone(originalTimeZone);
         }
