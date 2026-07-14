@@ -24,6 +24,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.apache.doris.cdcclient.common.Constants;
+import org.apache.doris.job.cdc.DataSourceConfigKeys;
 
 import org.apache.flink.cdc.connectors.postgres.source.schema.PostgresSchemaRecord;
 import org.apache.kafka.connect.data.Schema;
@@ -79,6 +80,19 @@ class PostgresSchemaChangeDeserializeTest {
         assertTrue(result.getDdls().isEmpty(), "baseline registration must not emit DDL");
         assertTrue(result.getRecords().isEmpty());
         assertTrue(result.getUpdatedSchemas().containsKey(TABLE));
+    }
+
+    @Test
+    void relationSchemaChangeDisabledSkipsSchemaEvent() throws Exception {
+        PostgresDebeziumJsonDeserializer deserializer = newDeserializer(storedTable("id", "name"));
+        Map<String, String> context = new HashMap<>(CONTEXT);
+        context.put(DataSourceConfigKeys.SCHEMA_CHANGE_ENABLED, "false");
+
+        DeserializeResult result =
+                deserializer.deserialize(context, schemaRecord(storedTable("id", "name", "age")));
+
+        assertEquals(DeserializeResult.Type.EMPTY, result.getType());
+        assertTrue(result.getRecords().isEmpty());
     }
 
     @Test
