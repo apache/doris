@@ -321,8 +321,10 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                 continue;
             }
             Pair<Map<BaseTableInfo, Set<String>>, Map<BaseColInfo, Set<String>>> invalidPartitions;
-            if (PartitionCompensator.needUnionRewrite(materializationContext, cascadesContext.getStatementContext())
-                    && sessionVariable.isEnableMaterializedViewUnionRewrite()) {
+            // NOTE: do not gate this branch by isEnableMaterializedViewUnionRewrite() here. We still need to
+            // compute invalidPartitions to know whether the mv actually misses partitions. If it does and union
+            // rewrite is disabled, we must bail out instead of silently using the partial mv-only plan (#59593).
+            if (PartitionCompensator.needUnionRewrite(materializationContext, cascadesContext.getStatementContext())) {
                 MTMV mtmv = ((AsyncMaterializationContext) materializationContext).getMtmv();
                 Map<List<String>, Set<String>> queryUsedPartitions = PartitionCompensator.getQueryUsedPartitions(
                         cascadesContext.getStatementContext(), queryStructInfo.getRelationBitSet());
@@ -378,11 +380,20 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                 boolean partitionNeedUnion = PartitionCompensator.needUnionRewrite(invalidPartitions, cascadesContext);
                 boolean canUnionRewrite = canUnionRewrite(queryPlan,
                         (AsyncMaterializationContext) materializationContext, cascadesContext);
-                if (partitionNeedUnion && !canUnionRewrite) {
+                // The mv really misses some queried partitions, so union compensation with the base table is
+                // required to produce a complete result. Bail out (mv can not be used for this query) when the
+                // union compensation can not be done because of the query structInfo, or when union rewrite is
+                // disabled by enable_materialized_view_union_rewrite=false (#59593). Otherwise we would silently
+                // use the partial mv-only plan and return wrong results.
+                if (partitionNeedUnion
+                        && (!canUnionRewrite || !sessionVariable.isEnableMaterializedViewUnionRewrite())) {
                     materializationContext.recordFailReason(queryStructInfo,
-                            "need compensate union all, but can not, because the query structInfo",
-                            () -> String.format("mv partition info is %s, and the query plan is %s",
-                                    mtmv.getMvPartitionInfo(), queryPlan.treeString()));
+                            "need compensate union all, but can not, because the query structInfo or "
+                                    + "enable_materialized_view_union_rewrite is false",
+                            () -> String.format("mv partition info is %s, canUnionRewrite is %s, "
+                                            + "enableMaterializedViewUnionRewrite is %s, and the query plan is %s",
+                                    mtmv.getMvPartitionInfo(), canUnionRewrite,
+                                    sessionVariable.isEnableMaterializedViewUnionRewrite(), queryPlan.treeString()));
                     return rewriteResults;
                 }
                 if (partitionNeedUnion) {
