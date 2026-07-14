@@ -294,13 +294,28 @@ public:
 
     Status submit_scan_task(SimplifiedScanTask scan_task) override {
         if (!_is_stop) {
+            if (scan_task.scanner_context == nullptr) {
+                return Status::InternalError<false>("scanner pool {} got null scanner context.",
+                                                    _sched_name);
+            }
+            if (scan_task.scan_task == nullptr) {
+                return Status::InternalError<false>("scanner pool {} got null scan task.",
+                                                    _sched_name);
+            }
+            auto task_handle = scan_task.scanner_context->task_handle();
+            if (task_handle == nullptr) {
+                return Status::InternalError<false>(
+                        "scanner pool {} got null task handle, scan task first schedule: {}, "
+                        "scanner context: {}",
+                        _sched_name, scan_task.scan_task->is_first_schedule,
+                        scan_task.scanner_context->debug_string());
+            }
             std::shared_ptr<SplitRunner> split_runner;
             if (scan_task.scan_task->is_first_schedule) {
                 split_runner = std::make_shared<ScannerSplitRunner>("scanner_split_runner",
                                                                     scan_task.scan_func);
                 RETURN_IF_ERROR(split_runner->init());
-                auto result = _task_executor->enqueue_splits(
-                        scan_task.scanner_context->task_handle(), false, {split_runner});
+                auto result = _task_executor->enqueue_splits(task_handle, false, {split_runner});
                 if (!result.has_value()) {
                     LOG(WARNING) << "enqueue_splits failed: " << result.error();
                     return result.error();
@@ -311,8 +326,7 @@ public:
                 if (split_runner == nullptr) {
                     return Status::OK();
                 }
-                RETURN_IF_ERROR(_task_executor->re_enqueue_split(
-                        scan_task.scanner_context->task_handle(), false, split_runner));
+                RETURN_IF_ERROR(_task_executor->re_enqueue_split(task_handle, false, split_runner));
             }
             scan_task.scan_task->split_runner = split_runner;
             return Status::OK();

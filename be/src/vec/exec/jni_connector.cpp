@@ -869,6 +869,9 @@ void JniConnector::_collect_profile_before_close() {
             return;
         }
 
+        const auto update_peak = [](int64_t previous, int64_t current) {
+            return current > previous;
+        };
         for (const auto& metric : statistics_result) {
             std::vector<std::string> type_and_name = split(metric.first, ":");
             if (type_and_name.size() != 2) {
@@ -876,22 +879,49 @@ void JniConnector::_collect_profile_before_close() {
                              << "'metricType:metricName'";
                 continue;
             }
-            long metric_value = std::stol(metric.second);
+            int64_t metric_value = std::stoll(metric.second);
             RuntimeProfile::Counter* scanner_counter;
             if (type_and_name[0] == "timer") {
                 scanner_counter =
                         ADD_CHILD_TIMER(_profile, type_and_name[1], _connector_name.c_str());
+                COUNTER_UPDATE(scanner_counter, metric_value);
             } else if (type_and_name[0] == "counter") {
                 scanner_counter = ADD_CHILD_COUNTER(_profile, type_and_name[1], TUnit::UNIT,
                                                     _connector_name.c_str());
+                COUNTER_UPDATE(scanner_counter, metric_value);
             } else if (type_and_name[0] == "bytes") {
                 scanner_counter = ADD_CHILD_COUNTER(_profile, type_and_name[1], TUnit::BYTES,
                                                     _connector_name.c_str());
+                COUNTER_UPDATE(scanner_counter, metric_value);
+            } else if (type_and_name[0] == "timer_gauge") {
+                scanner_counter =
+                        ADD_CHILD_TIMER(_profile, type_and_name[1], _connector_name.c_str());
+                COUNTER_SET(scanner_counter, metric_value);
+            } else if (type_and_name[0] == "gauge") {
+                scanner_counter = ADD_CHILD_COUNTER(_profile, type_and_name[1], TUnit::UNIT,
+                                                    _connector_name.c_str());
+                COUNTER_SET(scanner_counter, metric_value);
+            } else if (type_and_name[0] == "bytes_gauge") {
+                scanner_counter = ADD_CHILD_COUNTER(_profile, type_and_name[1], TUnit::BYTES,
+                                                    _connector_name.c_str());
+                COUNTER_SET(scanner_counter, metric_value);
+            } else if (type_and_name[0] == "timer_peak") {
+                auto* scanner_peak_counter = _profile->add_conditition_counter(
+                        type_and_name[1], TUnit::TIME_NS, update_peak, _connector_name.c_str());
+                scanner_peak_counter->conditional_update(metric_value, metric_value);
+            } else if (type_and_name[0] == "peak") {
+                auto* scanner_peak_counter = _profile->add_conditition_counter(
+                        type_and_name[1], TUnit::UNIT, update_peak, _connector_name.c_str());
+                scanner_peak_counter->conditional_update(metric_value, metric_value);
+            } else if (type_and_name[0] == "bytes_peak") {
+                auto* scanner_peak_counter = _profile->add_conditition_counter(
+                        type_and_name[1], TUnit::BYTES, update_peak, _connector_name.c_str());
+                scanner_peak_counter->conditional_update(metric_value, metric_value);
             } else {
-                LOG(WARNING) << "Type of JNI Scanner metric should be timer, counter or bytes";
+                LOG(WARNING) << "Type of JNI Scanner metric should be timer, counter, bytes, "
+                             << "timer_gauge, gauge, bytes_gauge, timer_peak, peak or bytes_peak";
                 continue;
             }
-            COUNTER_UPDATE(scanner_counter, metric_value);
         }
     }
 }

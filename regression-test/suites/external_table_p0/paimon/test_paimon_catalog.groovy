@@ -307,7 +307,7 @@ suite("test_paimon_catalog", "p0,external,doris,external_docker,external_docker_
 
         test {
             sql """select * from dup_columns_table;"""
-            exception "Duplicate column name found: id"
+            exception "Duplicate column name found: ID"
         }
 
         sql """ set force_jni_scanner=false; """
@@ -331,5 +331,4 @@ suite("test_paimon_catalog", "p0,external,doris,external_docker,external_docker_
         // qt_view1 view1
     }
 }
-
 

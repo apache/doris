@@ -19,6 +19,7 @@ package org.apache.doris.datasource.iceberg;
 
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.iceberg.source.IcebergTableQueryInfo;
 
@@ -96,6 +97,18 @@ public class IcebergUtilsTest {
         Field declaredField = hiveCatalog.getClass().getDeclaredField("listAllTables");
         declaredField.setAccessible(true);
         return declaredField.getBoolean(hiveCatalog);
+    }
+
+    @Test
+    public void testParseSchemaPreservesNonLowercaseColumnNames() {
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "mIxEd_COL", Types.IntegerType.get()),
+                Types.NestedField.required(2, "PART", Types.StringType.get()));
+
+        List<Column> columns = IcebergUtils.parseSchema(schema, false, false);
+
+        Assert.assertEquals("mIxEd_COL", columns.get(0).getName());
+        Assert.assertEquals("PART", columns.get(1).getName());
     }
 
     @Test
