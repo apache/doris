@@ -25,6 +25,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.stream.OlapTableStream;
 import org.apache.doris.catalog.stream.OlapTableStreamWrapper;
+import org.apache.doris.catalog.stream.StreamReadMode;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.mtmv.MTMVCache;
 import org.apache.doris.nereids.memo.GroupExpression;
@@ -949,7 +950,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
                 hints,
                 tableSample,
                 operativeSlots
-        ).withIsReset(false).withIsSnapshot(true);
+        ).withReadMode(StreamReadMode.SNAPSHOT);
     }
 
     /** Build a post-refresh snapshot as a regular olap scan. */
