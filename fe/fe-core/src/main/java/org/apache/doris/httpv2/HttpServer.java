@@ -157,12 +157,12 @@ public class HttpServer extends SpringBootServletInitializer {
         properties.put("server.servlet.encoding.enabled", true);
         properties.put("server.servlet.encoding.force", true);
         // enable jetty config
-        properties.put("server.jetty.acceptors", this.acceptors);
-        properties.put("server.jetty.max-http-post-size", this.maxHttpPostSize);
-        properties.put("server.jetty.selectors", this.selectors);
-        properties.put("server.jetty.threadPool.maxThreads", this.maxThreads);
-        properties.put("server.jetty.threadPool.minThreads", this.minThreads);
-        properties.put("server.max-http-header-size", this.maxHttpHeaderSize);
+        properties.put("server.jetty.max-http-form-post-size", this.maxHttpPostSize);
+        properties.put("server.jetty.threads.acceptors", this.acceptors);
+        properties.put("server.jetty.threads.max", this.maxThreads);
+        properties.put("server.jetty.threads.min", this.minThreads);
+        properties.put("server.jetty.threads.selectors", this.selectors);
+        properties.put("server.max-http-request-header-size", this.maxHttpHeaderSize);
         // Worker thread pool is not set by default, set according to your needs
         if (this.workers > 0) {
             properties.put("server.jetty.workers", this.workers);
@@ -190,6 +190,10 @@ public class HttpServer extends SpringBootServletInitializer {
                 // Disable the automatic shutdown hook registration, there is a shutdown hook in DorisFE.
                 .registerShutdownHook(false)
                 .run();
+    }
+
+    public ConfigurableApplicationContext getApplicationContext() {
+        return applicationContext;
     }
 
     /**
