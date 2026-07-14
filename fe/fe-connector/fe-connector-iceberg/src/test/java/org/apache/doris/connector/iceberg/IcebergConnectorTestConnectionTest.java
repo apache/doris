@@ -94,10 +94,39 @@ public class IcebergConnectorTestConnectionTest {
         Assertions.assertNull(IcebergConnector.toS3Location(null));
     }
 
+    /**
+     * Pins the metastore-probe scope to what the legacy fe-core coordinator probed: it built a
+     * MetaConnectivityTester for Iceberg HMS / Glue / REST / S3Tables only. Filesystem-backed catalogs
+     * (hadoop) got the no-op default. Widening this set would fail CREATE CATALOG for a hadoop catalog
+     * whose warehouse is not yet reachable — a behavior change, not a parity restore.
+     */
+    @Test
+    public void probesMetastoreOnlyForRemoteMetastoreTypes() {
+        Assertions.assertTrue(IcebergConnector.probesMetastore(IcebergConnectorProperties.TYPE_REST));
+        Assertions.assertTrue(IcebergConnector.probesMetastore(IcebergConnectorProperties.TYPE_HMS));
+        Assertions.assertTrue(IcebergConnector.probesMetastore(IcebergConnectorProperties.TYPE_GLUE));
+        Assertions.assertTrue(IcebergConnector.probesMetastore(IcebergConnectorProperties.TYPE_S3_TABLES));
+        Assertions.assertFalse(IcebergConnector.probesMetastore(IcebergConnectorProperties.TYPE_HADOOP));
+        Assertions.assertFalse(IcebergConnector.probesMetastore(""));
+    }
+
+    /** An HMS-backed catalog must name HMS in the failure, which is what the CREATE CATALOG regression asserts. */
+    @Test
+    public void metaFailureMessageTagsTheCatalogType() {
+        String msg = IcebergConnector.metaFailureMessage(IcebergConnectorProperties.TYPE_HMS,
+                new RuntimeException("connection refused"));
+        Assertions.assertTrue(msg.contains("Iceberg HMS"), msg);
+        Assertions.assertTrue(msg.contains("connectivity test failed"), msg);
+        // A blank type must not produce a doubled space in the tag.
+        Assertions.assertTrue(IcebergConnector.metaFailureMessage("", new RuntimeException("boom"))
+                .startsWith("Iceberg connectivity test failed"));
+    }
+
     @Test
     public void testConnectionSucceedsWhenNothingToProbe() {
-        // Non-REST catalog with no S3 credentials: the meta probe is skipped (not REST) and the
-        // storage probe is skipped (no s3.* creds), so testConnection succeeds without any I/O.
+        // Filesystem-backed (hadoop) catalog with no S3 credentials: the meta probe is skipped (see
+        // probesMetastore) and the storage probe is skipped (no s3.* creds), so testConnection
+        // succeeds without any I/O.
         Map<String, String> props = new HashMap<>();
         props.put(IcebergConnectorProperties.ICEBERG_CATALOG_TYPE,
                 IcebergConnectorProperties.TYPE_HADOOP);

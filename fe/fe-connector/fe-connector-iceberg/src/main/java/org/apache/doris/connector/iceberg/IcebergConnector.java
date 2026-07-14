@@ -225,8 +225,8 @@ public class IcebergConnector implements Connector {
      * Eagerly validates connectivity during CREATE CATALOG (when {@code test_connection=true}).
      * Runs two probes so bad configurations fail fast instead of at first query:
      * <ul>
-     *   <li><b>Metastore</b> (REST only): lists namespaces, forcing a real REST round-trip that
-     *       validates the URI, auth (OAuth2/SigV4) and warehouse config.</li>
+     *   <li><b>Metastore</b> (any {@code iceberg.catalog.type}): lists namespaces, forcing a real
+     *       round-trip that validates the URI, auth (OAuth2/SigV4, Kerberos) and warehouse config.</li>
      *   <li><b>Storage</b>: HEADs the warehouse location with the user-declared S3 credentials,
      *       mirroring fe-core's S3ConnectivityTester so wrong keys are rejected up front.</li>
      * </ul>
@@ -236,12 +236,15 @@ public class IcebergConnector implements Connector {
         String catalogType = properties.getOrDefault(
                 IcebergConnectorProperties.ICEBERG_CATALOG_TYPE, "");
 
-        // -- Metastore probe (guarded by iceberg.catalog.type: only REST is probed here) --
-        if (IcebergConnectorProperties.TYPE_REST.equalsIgnoreCase(catalogType)) {
+        // -- Metastore probe (REST, HMS, Glue, S3Tables) --
+        // Listing databases forces a real round-trip that validates the URI, auth and warehouse config.
+        // This used to be REST-only here, which silently dropped the HMS/Glue/S3Tables coverage the legacy
+        // fe-core Iceberg{HMS,Glue,S3Tables}ConnectivityTester family provided.
+        if (probesMetastore(catalogType)) {
             try {
                 getMetadata(session).listDatabaseNames(session);
             } catch (Exception e) {
-                LOG.warn("Iceberg REST connectivity test failed for catalog '{}'",
+                LOG.warn("Iceberg metastore connectivity test failed for catalog '{}'",
                         context.getCatalogName(), e);
                 return ConnectorTestResult.failure(metaFailureMessage(catalogType, e));
             }
@@ -351,8 +354,21 @@ public class IcebergConnector implements Connector {
      * the catalog-type tag (e.g. {@code "Iceberg REST"}) and the phrase
      * {@code "connectivity test failed"} so CREATE CATALOG surfaces a stable, actionable error.
      */
+    /**
+     * True for the catalog types that talk to a remote metastore, which is exactly the set the legacy
+     * fe-core coordinator built a {@code MetaConnectivityTester} for (Iceberg HMS / Glue / REST / S3Tables).
+     * Filesystem-backed catalogs ({@code hadoop}, and an unset type) had no tester there and get none here:
+     * their "metastore" is the warehouse itself, which the storage probe below covers.
+     */
+    static boolean probesMetastore(String catalogType) {
+        return IcebergConnectorProperties.TYPE_REST.equalsIgnoreCase(catalogType)
+                || IcebergConnectorProperties.TYPE_HMS.equalsIgnoreCase(catalogType)
+                || IcebergConnectorProperties.TYPE_GLUE.equalsIgnoreCase(catalogType)
+                || IcebergConnectorProperties.TYPE_S3_TABLES.equalsIgnoreCase(catalogType);
+    }
+
     static String metaFailureMessage(String catalogType, Throwable cause) {
-        String tag = "Iceberg " + catalogType.toUpperCase(Locale.ROOT);
+        String tag = isBlank(catalogType) ? "Iceberg" : "Iceberg " + catalogType.toUpperCase(Locale.ROOT);
         return tag + " connectivity test failed: " + rootCauseMessage(cause);
     }
 

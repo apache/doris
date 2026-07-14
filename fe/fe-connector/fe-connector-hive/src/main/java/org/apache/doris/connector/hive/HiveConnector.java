@@ -21,6 +21,7 @@ import org.apache.doris.connector.api.Connector;
 import org.apache.doris.connector.api.ConnectorCapability;
 import org.apache.doris.connector.api.ConnectorMetadata;
 import org.apache.doris.connector.api.ConnectorSession;
+import org.apache.doris.connector.api.ConnectorTestResult;
 import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.event.ConnectorEventSource;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
@@ -120,6 +121,36 @@ public class HiveConnector implements Connector {
     @Override
     public ConnectorMetadata getMetadata(ConnectorSession session) {
         return newMetadata(getOrCreateClient());
+    }
+
+    /**
+     * Eagerly validates metastore connectivity during CREATE CATALOG (when {@code test_connection=true}),
+     * so a wrong {@code hive.metastore.uris} or a bad Kerberos setup fails the DDL instead of surfacing at
+     * the first query. Listing databases forces a real HMS round-trip through the authenticated client,
+     * which is what the legacy fe-core {@code HMSBaseConnectivityTester} did with {@code getAllDatabases()}.
+     *
+     * <p>The message deliberately carries both the {@code "HMS"} tag and the phrase
+     * {@code "connectivity test failed"} — the CREATE CATALOG regression asserts on both.</p>
+     */
+    @Override
+    public ConnectorTestResult testConnection(ConnectorSession session) {
+        try {
+            getMetadata(session).listDatabaseNames(session);
+            return ConnectorTestResult.success();
+        } catch (Exception e) {
+            LOG.warn("HMS connectivity test failed for catalog '{}'", context.getCatalogName(), e);
+            return ConnectorTestResult.failure("HMS connectivity test failed: " + rootCauseMessage(e));
+        }
+    }
+
+    /** Unwraps to the deepest cause so the DDL error names the actual failure (e.g. a refused connection). */
+    private static String rootCauseMessage(Throwable t) {
+        Throwable cause = t;
+        while (cause.getCause() != null && cause.getCause() != cause) {
+            cause = cause.getCause();
+        }
+        String message = cause.getMessage();
+        return message == null ? cause.toString() : message;
     }
 
     /**

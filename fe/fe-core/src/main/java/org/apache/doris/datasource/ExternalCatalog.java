@@ -39,7 +39,6 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.datasource.connectivity.CatalogConnectivityTestCoordinator;
 import org.apache.doris.datasource.doris.RemoteDorisExternalDatabase;
 import org.apache.doris.datasource.infoschema.ExternalInfoSchemaDatabase;
 import org.apache.doris.datasource.infoschema.ExternalMysqlDatabase;
@@ -129,7 +128,6 @@ public abstract class ExternalCatalog
     protected static final int ICEBERG_CATALOG_EXECUTOR_THREAD_NUM = Runtime.getRuntime().availableProcessors();
 
     public static final String TEST_CONNECTION = "test_connection";
-    public static final boolean DEFAULT_TEST_CONNECTION = false;
 
     public static final String INCLUDE_DATABASE_LIST = "include_database_list";
     public static final String EXCLUDE_DATABASE_LIST = "exclude_database_list";
@@ -319,18 +317,11 @@ public abstract class ExternalCatalog
 
     // Will be called when creating catalog(not replaying).
     // Subclass can override this method to do some check when creating catalog.
+    // Connectivity testing (test_connection=true) is connector-specific and therefore lives behind the
+    // connector SPI: PluginDrivenExternalCatalog overrides this and delegates to Connector#testConnection.
+    // The built-in catalogs that still inherit this method (type=doris, type=test) carry neither metastore
+    // nor storage properties, so there is nothing generic left to check here.
     public void checkWhenCreating() throws DdlException {
-        boolean testConnection = Boolean.parseBoolean(
-                catalogProperty.getOrDefault(TEST_CONNECTION, String.valueOf(DEFAULT_TEST_CONNECTION)));
-
-        if (testConnection) {
-            CatalogConnectivityTestCoordinator testCoordinator = new CatalogConnectivityTestCoordinator(
-                    name,
-                    catalogProperty.getMetastoreProperties(),
-                    catalogProperty.getStoragePropertiesMap()
-            );
-            testCoordinator.runTests();
-        }
     }
 
     /**
