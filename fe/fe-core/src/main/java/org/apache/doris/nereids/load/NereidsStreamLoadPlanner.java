@@ -158,21 +158,17 @@ public class NereidsStreamLoadPlanner {
                 if (col.hasOnUpdateDefaultValue()) {
                     partialUpdateInputColumns.add(col.getName());
                 }
-                for (NereidsImportColumnDesc importColumnDesc : taskInfo.getColumnExprDescs().descs) {
-                    if (importColumnDesc.getColumnName() != null
-                            && importColumnDesc.getColumnName().equals(col.getName())) {
-                        if (!col.isVisible() && !Column.DELETE_SIGN.equals(col.getName())) {
-                            throw new UserException("Partial update should not include invisible column except"
-                                    + " delete sign column: " + col.getName());
-                        }
-                        partialUpdateInputColumns.add(col.getName());
-                        if (destTable.hasSequenceCol()
-                                && (taskInfo.hasSequenceCol() || (destTable.getSequenceMapCol() != null
-                                        && destTable.getSequenceMapCol().equalsIgnoreCase(col.getName())))) {
-                            partialUpdateInputColumns.add(Column.SEQUENCE_COL);
-                        }
-                        existInExpr = true;
-                        break;
+                existInExpr = NereidsLoadUtils.hasImportColumn(taskInfo.getColumnExprDescs().descs, col);
+                if (existInExpr) {
+                    if (!col.isVisible() && !Column.DELETE_SIGN.equals(col.getName())) {
+                        throw new UserException("Partial update should not include invisible column except"
+                                + " delete sign column: " + col.getName());
+                    }
+                    partialUpdateInputColumns.add(col.getName());
+                    if (destTable.hasSequenceCol()
+                            && (taskInfo.hasSequenceCol() || (destTable.getSequenceMapCol() != null
+                                    && destTable.getSequenceMapCol().equalsIgnoreCase(col.getName())))) {
+                        partialUpdateInputColumns.add(Column.SEQUENCE_COL);
                     }
                 }
                 if (!existInExpr) {
