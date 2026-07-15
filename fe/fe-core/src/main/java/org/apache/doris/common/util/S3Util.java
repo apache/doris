@@ -314,7 +314,7 @@ public class S3Util {
      */
     public static List<String> getGlobListPrefixes(String globPattern) {
         List<String> prefixes = expandGlobListPrefixes(globPattern, true);
-        return prefixes == null ? List.of(getLongestPrefix(globPattern)) : prefixes;
+        return prefixes == null ? Collections.singletonList(getLongestPrefix(globPattern)) : prefixes;
     }
 
     private static List<String> expandGlobListPrefixes(String globPattern, boolean allowPartialPrefix) {
@@ -530,7 +530,7 @@ public class S3Util {
         List<String> compact = new ArrayList<>();
         for (String prefix : sorted) {
             if (prefix.isEmpty()) {
-                return List.of("");
+                return Collections.singletonList("");
             }
             boolean covered = false;
             for (String existing : compact) {
