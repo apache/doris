@@ -301,23 +301,14 @@ static bool is_cast_expr(const VExprSPtr& expr) {
 }
 
 static bool is_binary_comparison_predicate(const VExprSPtr& expr) {
-    if (expr == nullptr || expr->get_num_children() != 2 ||
-        (expr->node_type() != TExprNodeType::BINARY_PRED &&
-         expr->node_type() != TExprNodeType::NULL_AWARE_BINARY_PRED)) {
-        return false;
-    }
-    switch (expr->op()) {
-    case TExprOpcode::EQ:
-    case TExprOpcode::EQ_FOR_NULL:
-    case TExprOpcode::NE:
-    case TExprOpcode::GE:
-    case TExprOpcode::GT:
-    case TExprOpcode::LE:
-    case TExprOpcode::LT:
-        return true;
-    default:
-        return false;
-    }
+    // BINARY_PRED and NULL_AWARE_BINARY_PRED are comparison-only node kinds. Nereids does not
+    // always populate the legacy opcode after resolving the comparison through TFunction, so
+    // requiring expr->op() to be set leaves an otherwise ordinary slot-literal predicate with
+    // mismatched implicit-coercion types. Row evaluation still works through the resolved
+    // function, but Parquet zonemap evaluation conservatively rejects the mismatched types.
+    return expr != nullptr && expr->get_num_children() == 2 &&
+           (expr->node_type() == TExprNodeType::BINARY_PRED ||
+            expr->node_type() == TExprNodeType::NULL_AWARE_BINARY_PRED);
 }
 
 std::string TableColumnMapperOptions::debug_string() const {

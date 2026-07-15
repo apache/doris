@@ -3626,6 +3626,39 @@ TEST_F(ColumnMapperCastTest, ColumnMapperLocalizesImplicitlyTypedLiteral) {
     EXPECT_TRUE(localized_expr->children()[1]->data_type()->equals(*file_field.type));
 }
 
+// Scenario: branch-4.1 Nereids comparisons can be resolved by function name without retaining the
+// legacy opcode. The node kind still identifies a binary comparison, so its narrow literal must be
+// normalized exactly like the opcode-bearing form used above.
+TEST_F(ColumnMapperCastTest, ColumnMapperLocalizesBinaryPredicateWithoutLegacyOpcode) {
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_NAME});
+    auto column_type = make_nullable(i32());
+    auto table_column = name_col("value", column_type);
+    std::vector<ColumnDefinition> projected_columns {table_column};
+    auto file_field = name_col("value", column_type, 0);
+
+    auto status = mapper.create_mapping(projected_columns, {}, {file_field});
+    ASSERT_TRUE(status.ok()) << status;
+
+    auto predicate = std::make_shared<Int64BinaryPredicateExpr>(TExprOpcode::INVALID_OPCODE);
+    predicate->add_child(VSlotRef::create_shared(0, 0, -1, table_column.type, "value"));
+    predicate->add_child(
+            VLiteral::create_shared(std::make_shared<DataTypeInt8>(),
+                                    Field::create_field<TYPE_TINYINT>(static_cast<int8_t>(1))));
+    TableFilter table_filter;
+    table_filter.conjunct = VExprContext::create_shared(predicate);
+    table_filter.global_indices = {GlobalIndex(0)};
+
+    FileScanRequest file_request;
+    ASSERT_TRUE(mapper.create_scan_request({table_filter}, projected_columns, &file_request, &state)
+                        .ok());
+    ASSERT_EQ(file_request.conjuncts.size(), 1);
+    const auto& localized_expr = file_request.conjuncts[0]->root();
+    ASSERT_EQ(localized_expr->get_num_children(), 2);
+    EXPECT_TRUE(localized_expr->children()[0]->data_type()->equals(*file_field.type));
+    EXPECT_TRUE(localized_expr->children()[1]->is_literal());
+    EXPECT_TRUE(localized_expr->children()[1]->data_type()->equals(*file_field.type));
+}
+
 // Scenario: a fractional table literal cannot be localized to an integral file type without
 // changing the predicate boundary, so the mapper must cast the file slot instead.
 TEST_F(ColumnMapperCastTest, ColumnMapperRejectsLossyBinaryLiteralConversion) {

@@ -279,9 +279,10 @@ public class PaimonScanNode extends FileQueryScanNode {
         List<String> fromPathValues = new ArrayList<>(orderedPartitionKeys.size());
         List<Boolean> fromPathIsNull = new ArrayList<>(orderedPartitionKeys.size());
         for (String partitionKey : orderedPartitionKeys) {
-            Preconditions.checkState(normalizedPartitionValues.containsKey(partitionKey),
+            String normalizedPartitionKey = partitionKey.toLowerCase(Locale.ROOT);
+            Preconditions.checkState(normalizedPartitionValues.containsKey(normalizedPartitionKey),
                     "Missing partition value for Paimon partition key: %s", partitionKey);
-            String partitionValue = normalizedPartitionValues.get(partitionKey);
+            String partitionValue = normalizedPartitionValues.get(normalizedPartitionKey);
             fromPathValues.add(partitionValue == null ? "" : partitionValue);
             fromPathIsNull.add(partitionValue == null);
         }
