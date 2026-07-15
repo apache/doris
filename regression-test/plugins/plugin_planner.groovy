@@ -134,3 +134,45 @@ Suite.metaClass.explainIvmPlan = { String tag, String sql ->
             convertIvmExplainRow
             )
 }
+
+Suite.metaClass.advance_ivm_stream_offset = { String mtmvName ->
+    def suite = delegate
+    def dbName = suite.context.dbName
+    def tmpTableRows = suite.sql("""show tables from ${dbName} like 'test_ivm_tmp'""")
+    if (tmpTableRows.isEmpty()) {
+        suite.sql("""
+            CREATE TABLE IF NOT EXISTS ${dbName}.test_ivm_tmp (
+                v INT
+            )
+            DUPLICATE KEY(v)
+            DISTRIBUTED BY HASH(v) BUCKETS 1
+            PROPERTIES (
+                "replication_num" = "1"
+            )
+        """)
+    }
+    suite.sql("""truncate table ${dbName}.test_ivm_tmp""")
+    def mvRows = suite.sql("""
+        select Id, QuerySql
+        from mv_infos('database'='${dbName}')
+        where Name = '${mtmvName}'
+    """)
+    assert mvRows.size() == 1 : "Expected exactly one MV named ${mtmvName}, but got ${mvRows.size()}"
+
+    def mvId = mvRows[0][0].toString()
+    def querySql = mvRows[0][1].toString()
+    def baseTableNames = [] as LinkedHashSet<String>
+    def matcher = querySql =~ ~/(?i)\b(?:FROM|JOIN)\s+`[^`]+`\.`[^`]+`\.`([^`]+)`/
+    matcher.each { match ->
+        baseTableNames.add(match[1])
+    }
+    assert !baseTableNames.isEmpty() : "No base tables found in MV query for ${mtmvName}: ${querySql}"
+
+    baseTableNames.each { baseTableName ->
+        def streamName = "__doris_ivm_stream_${mvId}_${baseTableName}"
+        suite.sql("""
+            insert into ${dbName}.test_ivm_tmp
+            select 1 from `${streamName}`
+        """)
+    }
+}
