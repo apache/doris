@@ -27,6 +27,7 @@
 #include "benchmark_fmod.hpp"
 #include "benchmark_hll_merge.hpp"
 #include "benchmark_hybrid_set.hpp"
+#include "benchmark_set_hash_table_inline.hpp"
 #include "benchmark_string.hpp"
 #include "benchmark_string_replace.hpp"
 #include "benchmark_zone_map_index.hpp"

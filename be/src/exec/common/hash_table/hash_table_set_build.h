@@ -15,12 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <type_traits>
+
 #include "core/column/column.h"
 #include "exec/operator/set_sink_operator.h"
 #include "runtime/runtime_state.h"
 
 namespace doris {
-constexpr size_t CHECK_FRECUENCY = 65536;
 template <class HashTableContext, bool is_intersect>
 struct HashTableBuild {
     template <typename Parent>
@@ -41,11 +42,15 @@ struct HashTableBuild {
         };
         auto creator_for_null_key = [&](auto& mapped) { mapped = {k}; };
 
-        for (; k < _rows; ++k) {
-            if (k % CHECK_FRECUENCY == 0) {
-                RETURN_IF_CANCELLED(_state);
+        RETURN_IF_CANCELLED(_state);
+        // The batch path regresses StringRef keys, including serialized and nullable strings.
+        if constexpr (std::is_same_v<typename HashTableContext::Key, StringRef>) {
+            for (; k < _rows; ++k) {
+                hash_table_ctx.lazy_emplace(key_getter, k, creator, creator_for_null_key);
             }
-            hash_table_ctx.lazy_emplace(key_getter, k, creator, creator_for_null_key);
+        } else {
+            lazy_emplace_batch_void(hash_table_ctx, key_getter, _rows, creator,
+                                    creator_for_null_key, [&](uint32_t row) { k = row; });
         }
         return Status::OK();
     }
