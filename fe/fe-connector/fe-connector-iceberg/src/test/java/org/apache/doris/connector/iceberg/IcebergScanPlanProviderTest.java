@@ -687,6 +687,173 @@ public class IcebergScanPlanProviderTest {
         Assertions.assertEquals("jni", props.get("file_format_type"));
     }
 
+    // ---------------------------------------------------------------------
+    // $position_deletes (upstream #65135 port): the ONE sys table BE reads with a native reader
+    // ---------------------------------------------------------------------
+
+    private static Table tableWithPositionDelete(DeleteFile deleteFile) {
+        return tableWithPositionDelete(deleteFile, Collections.emptyMap());
+    }
+
+    /** Deletion vectors are a v3 feature — a DV commit on a v2 table is rejected by the SDK. */
+    private static Table tableWithPositionDeleteV3(DeleteFile deleteFile) {
+        return tableWithPositionDelete(deleteFile, Collections.singletonMap("format-version", "3"));
+    }
+
+    private static Table tableWithPositionDelete(DeleteFile deleteFile, Map<String, String> props) {
+        Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned(), props);
+        table.newAppend()
+                .appendFile(dataFile(table.spec(), "s3://b/db/t1/f1.parquet", 512, null, null))
+                .commit();
+        table.newRowDelta().addDeletes(deleteFile).commit();
+        return table;
+    }
+
+    private static TFileRangeDesc positionDeleteRangeDesc(List<ConnectorScanRange> ranges) {
+        Assertions.assertEquals(1, ranges.size(), "one delete file -> exactly one range");
+        TFileRangeDesc rangeDesc = new TFileRangeDesc();
+        rangeDesc.setPath(ranges.get(0).getPath().orElse(null));
+        TTableFormatFileDesc formatDesc = new TTableFormatFileDesc();
+        ((IcebergScanRange) ranges.get(0)).populateRangeParams(formatDesc, rangeDesc);
+        rangeDesc.setTableFormatParams(formatDesc);
+        return rangeDesc;
+    }
+
+    private static List<ConnectorScanRange> planPositionDeletes(Table table, List<ConnectorColumnHandle> cols) {
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table));
+        return provider.planScan(new FakeScanSession("UTC", Collections.emptyMap()),
+                IcebergTableHandle.forSystemTable("db1", "t1", "position_deletes", -1L, null, -1L),
+                cols, Optional.empty());
+    }
+
+    @Test
+    public void planScanPositionDeletesEmitsNativeRangeMatchingTheBeRoutingContract() {
+        // WHY: this is THE contract. BE routes a range into iceberg_position_delete_sys_table_reader iff
+        // table_format_type=="iceberg" AND the TOP-LEVEL iceberg_params.content is 1 or 3 AND the range
+        // format_type is PARQUET/ORC (file_scanner.cpp:103-113). Miss any one and the range silently falls
+        // back to the ordinary iceberg reader, which parses the delete file AS A DATA FILE — wrong rows, no
+        // error. It also asserts delete_files.size()==1, which BE DCHECKs (reader :179).
+        // MUTATION: not setting the top-level content (only the delete-file one) -> BE misroutes -> red;
+        // leaving the range on the FORMAT_JNI default -> red; emitting serialized_split (the other sys
+        // tables' shape) -> red; emitting 2+ delete descriptors -> red.
+        Table table = tableWithPositionDelete(
+                positionDeleteFile("s3://b/db/t1/pos.parquet", FileFormat.PARQUET, null, null));
+
+        TFileRangeDesc rangeDesc = positionDeleteRangeDesc(planPositionDeletes(table, Collections.emptyList()));
+        TIcebergFileDesc fileDesc = rangeDesc.getTableFormatParams().getIcebergParams();
+
+        Assertions.assertEquals(TFileFormatType.FORMAT_PARQUET, rangeDesc.getFormatType(),
+                "a native position-delete range must NOT stay on the FORMAT_JNI default");
+        Assertions.assertTrue(fileDesc.isSetContent(), "top-level content is BE's sole routing key");
+        Assertions.assertEquals(1, fileDesc.getContent(), "1 = POSITION_DELETES");
+        Assertions.assertFalse(fileDesc.isSetSerializedSplit(),
+                "the native path must not emit the JNI serialized_split");
+        Assertions.assertEquals(-1L, rangeDesc.getTableFormatParams().getTableLevelRowCount());
+        Assertions.assertEquals(1, fileDesc.getDeleteFilesSize(),
+                "BE asserts exactly one delete descriptor");
+        TIcebergDeleteFileDesc deleteDesc = fileDesc.getDeleteFiles().get(0);
+        Assertions.assertEquals(1, deleteDesc.getContent(), "the delete descriptor's content must agree");
+        Assertions.assertEquals("s3://b/db/t1/pos.parquet", deleteDesc.getOriginalPath(),
+                "original_path is the RAW delete-file path (the delete_file_path output column)");
+        Assertions.assertEquals(TFileFormatType.FORMAT_PARQUET, deleteDesc.getFileFormat());
+        // A path-parsed "partition" key would collide with the metadata table's own `partition` slot.
+        Assertions.assertFalse(rangeDesc.isSetColumnsFromPath(), "columns-from-path must be unset");
+        Assertions.assertFalse(rangeDesc.isSetColumnsFromPathKeys());
+    }
+
+    @Test
+    public void planScanPositionDeletesDeletionVectorEmitsContent3AndBlobLocation() {
+        // WHY: a V3 deletion vector is a puffin blob, and BE distinguishes it from a plain position-delete
+        // file by content==3 ALONE — never by file format, which is why a DV still travels as FORMAT_PARQUET
+        // (legacy getNativePositionDeleteFileFormat). BE then expands one output row per set bit, reading the
+        // blob at content_offset/content_size_in_bytes and reporting file_path = referenced_data_file_path;
+        // without those three fields it cannot materialize a single row.
+        // MUTATION: mapping PUFFIN to a "FORMAT_PUFFIN"/JNI instead of FORMAT_PARQUET -> red; emitting
+        // content=1 for a DV -> BE runs the parquet position-delete branch on a puffin file -> red;
+        // dropping referenced_data_file_path/offset/size -> red.
+        Table table = tableWithPositionDeleteV3(deletionVectorFile("s3://b/db/t1/dv.puffin", 4L, 40L));
+
+        TFileRangeDesc rangeDesc = positionDeleteRangeDesc(planPositionDeletes(table, Collections.emptyList()));
+        TIcebergFileDesc fileDesc = rangeDesc.getTableFormatParams().getIcebergParams();
+
+        Assertions.assertEquals(3, fileDesc.getContent(), "3 = DELETION_VECTOR (top-level routing)");
+        Assertions.assertEquals(TFileFormatType.FORMAT_PARQUET, rangeDesc.getFormatType(),
+                "a puffin DV still travels as FORMAT_PARQUET; BE keys on content, not format");
+        TIcebergDeleteFileDesc deleteDesc = fileDesc.getDeleteFiles().get(0);
+        Assertions.assertEquals(3, deleteDesc.getContent());
+        Assertions.assertEquals("s3://b/db/t1/f1.parquet", deleteDesc.getReferencedDataFilePath(),
+                "BE reports file_path from the referenced data file for DV rows");
+        Assertions.assertEquals(4L, deleteDesc.getContentOffset());
+        Assertions.assertEquals(40L, deleteDesc.getContentSizeInBytes());
+    }
+
+    @Test
+    public void planScanPositionDeletesRejectsAvroDeleteFile() {
+        // WHY: there is no native AVRO position-delete reader. Failing loud beats mis-routing the range to
+        // the parquet reader, which would fault or return garbage. Message text is pinned by upstream's own
+        // unit test (assertEquals, not contains). MUTATION: defaulting an unknown format to FORMAT_PARQUET
+        // -> no throw -> red.
+        Table table = tableWithPositionDelete(
+                positionDeleteFile("s3://b/db/t1/pos.avro", FileFormat.AVRO, null, null));
+
+        UnsupportedOperationException e = Assertions.assertThrows(UnsupportedOperationException.class,
+                () -> planPositionDeletes(table, Collections.emptyList()));
+        Assertions.assertEquals("Unsupported Iceberg position delete file format: AVRO", e.getMessage());
+    }
+
+    @Test
+    public void getScanNodePropertiesForPositionDeletesSysHandleEmitsDict() {
+        // WHY (D-065 narrowed): every OTHER sys table rides the JNI serialized-split path, where the
+        // metadata-table schema travels inside the serialized FileScanTask — so the field-id dict is
+        // correctly skipped. $position_deletes has no serialized task: BOTH native readers resolve the `row`
+        // column through params.history_schema_info. Without the dict, scanner v1 hard-errors ("Iceberg
+        // position delete system table row schema is missing") and scanner v2 SILENTLY degrades to name
+        // matching, mis-reading renamed columns under schema evolution. The dict must also be built from the
+        // METADATA table's own schema — feeding the base schema keyed off meta columns is exactly what makes
+        // IcebergSchemaUtils throw "requested column not found".
+        // MUTATION: widening the guard back to `if (!systemTable)` -> no dict -> red.
+        Table table = tableWithPositionDelete(
+                positionDeleteFile("s3://b/db/t1/pos.parquet", FileFormat.PARQUET, null, null));
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table));
+        // Metadata-table columns, absent from the base (id, name) schema — the dict-throw trap.
+        List<ConnectorColumnHandle> metaColumns = Arrays.asList(
+                new IcebergColumnHandle("file_path", 1),
+                new IcebergColumnHandle("pos", 2));
+
+        Map<String, String> props = provider.getScanNodeProperties(
+                null, IcebergTableHandle.forSystemTable("db1", "t1", "position_deletes", -1L, null, -1L),
+                metaColumns, Optional.empty());
+
+        Assertions.assertTrue(props.containsKey("iceberg.schema_evolution"),
+                "position_deletes reads natively and needs the field-id dict to resolve `row`");
+        Assertions.assertFalse(props.containsKey("path_partition_keys"),
+                "a metadata table is still not base-spec partitioned -> no path_partition_keys");
+    }
+
+    @Test
+    public void getScanNodePropertiesForPositionDeletesLoadsTheBaseTableOnlyOnce() {
+        // WHY: the dict branch needs the METADATA table, and the obvious way to get one is resolveSysTable().
+        // That helper carries NO auth wrap on purpose — its javadoc pins that its sole caller
+        // (planSystemTableScan) owns the executeAuthenticated scope. getScanNodeProperties has no such scope,
+        // so calling it here would issue an UNAUTHENTICATED loadTable and fail a kerberized catalog at plan
+        // time (and pay a second round-trip). Building the metadata table from the base table this method
+        // already resolved — a pure local construction — avoids both. Counting loads is the observable proxy:
+        // a second load here means resolveSysTable (or any other fresh resolve) crept back in.
+        // MUTATION: reverting to resolveSysTable(session, iceHandle) -> loadCount 2 -> red.
+        Table table = tableWithPositionDelete(
+                positionDeleteFile("s3://b/db/t1/pos.parquet", FileFormat.PARQUET, null, null));
+        RecordingIcebergCatalogOps ops = opsReturning(table);
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(Collections.emptyMap(), ops);
+
+        Map<String, String> props = provider.getScanNodeProperties(
+                null, IcebergTableHandle.forSystemTable("db1", "t1", "position_deletes", -1L, null, -1L),
+                Collections.singletonList(new IcebergColumnHandle("row", 1)), Optional.empty());
+
+        Assertions.assertTrue(props.containsKey("iceberg.schema_evolution"), "the dict must still be emitted");
+        Assertions.assertEquals(1, Collections.frequency(ops.log, "loadTable:db1.t1"),
+                "the base table must be loaded exactly once (no unauthenticated second resolve)");
+    }
+
     // --- T07: MVCC / time-travel scan-time pin + Option-A field-id dict ---
 
     @Test

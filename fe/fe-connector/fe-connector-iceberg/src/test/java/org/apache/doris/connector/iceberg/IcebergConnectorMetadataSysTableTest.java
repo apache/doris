@@ -58,8 +58,11 @@ import java.util.Optional;
  *   <li>Deviation 1 (time travel): unlike paimon's {@code forSystemTable} (which clears the pin), an
  *       iceberg sys handle RETAINS the base handle's snapshot/ref/schema pin — iceberg system tables
  *       legally time-travel ({@code t$snapshots FOR VERSION/TIME AS OF ...}).</li>
- *   <li>Deviation 4 (position_deletes, Q2): {@code position_deletes} is NOT exposed, so
- *       {@code getSysTableHandle("position_deletes")} is empty (fe-core renders a generic not-found).</li>
+ *   <li>Deviation 4 (position_deletes) is RETIRED: it used to be excluded (Q2, taken when legacy also
+ *       rejected it with "not supported yet"), but upstream #65135 implemented it natively, so the
+ *       connector now exposes it like any other metadata table. It is the only one whose SCAN diverges —
+ *       BE reads it with a native reader instead of the JNI serialized-split path (see
+ *       {@code IcebergScanPlanProvider.doPlanPositionDeletesSystemTableScan}).</li>
  *   <li>Lazy resolution: {@code getSysTableHandle} does NOT load the base table or build the
  *       metadata-table (the handle carries no SDK Table; the build happens lazily in
  *       {@code getTableSchema}/scan, mirroring legacy {@code IcebergSysExternalTable.getSysIcebergTable}).
@@ -83,16 +86,14 @@ public class IcebergConnectorMetadataSysTableTest {
 
     /**
      * The canonical supported-sys-table list, recomputed from the SDK source of truth: every
-     * {@link MetadataTableType} except {@code POSITION_DELETES}, lower-cased. Mirrors legacy
-     * {@code IcebergSysTable.SUPPORTED_SYS_TABLES} so the test pins "connector == the legacy formula"
-     * without hardcoding the (SDK-version-dependent) count.
+     * {@link MetadataTableType}, lower-cased. Mirrors {@code IcebergSysTable.SUPPORTED_SYS_TABLES} so the
+     * test pins "connector == the fe-core formula" without hardcoding the (SDK-version-dependent) count.
+     * {@code POSITION_DELETES} is included since the native port (upstream #65135).
      */
     private static List<String> expectedSupported() {
         List<String> names = new ArrayList<>();
         for (MetadataTableType type : MetadataTableType.values()) {
-            if (type != MetadataTableType.POSITION_DELETES) {
-                names.add(type.name().toLowerCase(Locale.ROOT));
-            }
+            names.add(type.name().toLowerCase(Locale.ROOT));
         }
         return names;
     }
@@ -102,18 +103,17 @@ public class IcebergConnectorMetadataSysTableTest {
     // ---------------------------------------------------------------------
 
     @Test
-    public void listSupportedSysTablesMirrorsMetadataTableTypesMinusPositionDeletes() {
+    public void listSupportedSysTablesMirrorsMetadataTableTypes() {
         List<String> result = metadataWith(new RecordingIcebergCatalogOps())
                 .listSupportedSysTables(null, baseHandle());
 
         // WHY: the set of selectable "$sys" tables a user sees per iceberg table IS exactly
-        // MetadataTableType.values() minus POSITION_DELETES, lower-cased (legacy
-        // IcebergSysTable.SUPPORTED_SYS_TABLES is built from that same formula). If this drifted, users
-        // could no longer reference e.g. mytable$snapshots. MUTATION: returning Collections.emptyList()
-        // (the SPI default) -> red; dropping the position_deletes filter -> expected (filtered) != actual
-        // -> red.
+        // MetadataTableType.values(), lower-cased (fe-core IcebergSysTable.SUPPORTED_SYS_TABLES is built
+        // from that same formula). If this drifted, users could no longer reference e.g. mytable$snapshots.
+        // MUTATION: returning Collections.emptyList() (the SPI default) -> red; re-adding any filter ->
+        // expected (full) != actual -> red.
         Assertions.assertEquals(expectedSupported(), result,
-                "must mirror MetadataTableType.values() minus POSITION_DELETES (lower-cased), in order");
+                "must mirror MetadataTableType.values() (lower-cased), in order");
         Assertions.assertFalse(result.isEmpty(), "supported sys tables must be non-empty");
         // A representative spread of the metadata tables a user actually queries.
         Assertions.assertTrue(result.containsAll(java.util.Arrays.asList(
@@ -122,16 +122,17 @@ public class IcebergConnectorMetadataSysTableTest {
     }
 
     @Test
-    public void listSupportedSysTablesExcludesPositionDeletes() {
+    public void listSupportedSysTablesIncludesPositionDeletes() {
         List<String> result = metadataWith(new RecordingIcebergCatalogOps())
                 .listSupportedSysTables(null, baseHandle());
 
-        // WHY: Q2 (user-signed) — position_deletes is deliberately NOT exposed, so querying
-        // t$position_deletes degrades to the generic fe-core not-found path (keeping the connector pure
-        // and fe-core unchanged), rather than legacy's bespoke "not supported yet" message. MUTATION:
-        // including POSITION_DELETES in the list -> red.
-        Assertions.assertFalse(result.contains("position_deletes"),
-                "position_deletes must NOT be advertised as a supported sys table (Q2)");
+        // WHY: upstream #65135 implemented $position_deletes natively, so it MUST be advertised — this is
+        // the whole point of the port. While the connector excluded it (the former Q2 decision, taken when
+        // legacy also rejected it), "select * from t$position_deletes" failed with "Unknown sys table" on
+        // this branch while working on master = a capability regression. MUTATION: restoring the
+        // `type != POSITION_DELETES` filter in listSupportedSysTables -> red.
+        Assertions.assertTrue(result.contains("position_deletes"),
+                "position_deletes must be advertised as a supported sys table (upstream #65135)");
     }
 
     @Test
@@ -230,15 +231,21 @@ public class IcebergConnectorMetadataSysTableTest {
     // ---------------------------------------------------------------------
 
     @Test
-    public void getSysTableHandleEmptyForPositionDeletes() {
+    public void getSysTableHandleResolvesPositionDeletes() {
         Optional<ConnectorTableHandle> opt = metadataWith(new RecordingIcebergCatalogOps())
                 .getSysTableHandle(null, baseHandle(), "position_deletes");
 
-        // WHY: Q2 — position_deletes is not exposed, so resolving it must be Optional.empty() (fe-core
-        // then renders the generic not-found). MUTATION: letting position_deletes through the
-        // isSupportedSysTable guard -> a present handle -> red.
-        Assertions.assertFalse(opt.isPresent(),
-                "position_deletes must not resolve to a sys handle (Q2)");
+        // WHY: name resolution is the gate the whole $position_deletes feature hangs off — an empty handle
+        // here means fe-core renders "Unknown sys table" and the native scan path is never reached, no
+        // matter how correct IcebergScanPlanProvider is. The handle must also be flagged isSystemTable so
+        // planScanInternal routes it to the metadata path rather than the data-file one. MUTATION:
+        // re-adding the POSITION_DELETES skip in isSupportedSysTable -> Optional.empty() -> red.
+        Assertions.assertTrue(opt.isPresent(),
+                "position_deletes must resolve to a sys handle (upstream #65135)");
+        IcebergTableHandle sysHandle = (IcebergTableHandle) opt.get();
+        Assertions.assertTrue(sysHandle.isSystemTable(), "the position_deletes handle must be a sys handle");
+        Assertions.assertEquals("position_deletes", sysHandle.getSysTableName(),
+                "the sys name must be the canonical lower-cased one (handle identity)");
     }
 
     @Test
@@ -568,8 +575,8 @@ public class IcebergConnectorMetadataSysTableTest {
 
     @Test
     public void getSysTableHandleEmptyForBlankName() {
-        // WHY (T07 gap-fill): null / unknown / position_deletes each yield Optional.empty and are pinned;
-        // the empty-string loop-fallthrough (isSupportedSysTable's null-guard does NOT cover "") is not.
+        // WHY (T07 gap-fill): null and unknown names each yield Optional.empty and are pinned; the
+        // empty-string loop-fallthrough (isSupportedSysTable's null-guard does NOT cover "") is not.
         // Legacy TableIf.findSysTable also returns empty for an empty sys name (parity). MUTATION:
         // special-casing "" to a present handle -> isPresent() true -> red.
         Assertions.assertFalse(
