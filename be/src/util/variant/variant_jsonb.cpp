@@ -26,7 +26,6 @@
 #include "core/types.h"
 #include "util/jsonb_document.h"
 #include "util/jsonb_writer.h"
-#include "util/variant/variant_builder.h"
 #include "util/variant/variant_encoding.h"
 
 namespace doris {
@@ -104,48 +103,6 @@ void require_decimal(Integer value, uint32_t precision, uint32_t scale, uint32_t
                         "JSONB {} value has {} digits but declared precision is {}", description,
                         digits, precision);
     }
-}
-
-variant_json_detail::FormattedScalar format_decimal256(wide::Int256 value, uint32_t scale) {
-    variant_json_detail::FormattedScalar result;
-    std::array<char, 76> reversed {};
-    size_t digits = 0;
-    wide::Int256 remaining = value;
-    do {
-        int digit = static_cast<int>(remaining % 10);
-        if (digit < 0) {
-            digit = -digit;
-        }
-        reversed[digits++] = static_cast<char>('0' + digit);
-        remaining /= 10;
-    } while (remaining != 0);
-
-    const auto append = [&](char byte) { result.bytes[result.size++] = byte; };
-    if (value < 0) {
-        append('-');
-    }
-    if (scale == 0) {
-        while (digits != 0) {
-            append(reversed[--digits]);
-        }
-        return result;
-    }
-    if (digits <= scale) {
-        append('0');
-        append('.');
-        for (size_t zero = digits; zero < scale; ++zero) {
-            append('0');
-        }
-    } else {
-        while (digits > scale) {
-            append(reversed[--digits]);
-        }
-        append('.');
-    }
-    while (digits != 0) {
-        append(reversed[--digits]);
-    }
-    return result;
 }
 
 void require_jsonb_depth(uint32_t depth, bool is_container) {
@@ -283,15 +240,9 @@ void collect_jsonb_value(BoundedJsonbCursor& cursor, Builder& builder, uint32_t 
     case JsonbType::T_Decimal128:
         collect_jsonb_decimal<__int128>(cursor, builder, 16, 38, "Decimal128");
         return;
-    case JsonbType::T_Decimal256: {
-        const auto precision = cursor.read<uint32_t>("Decimal256 precision");
-        const auto scale = cursor.read<uint32_t>("Decimal256 scale");
-        const auto value = cursor.read<wide::Int256>("Decimal256 value");
-        require_decimal(value, precision, scale, 76, 76, "Decimal256");
-        const auto formatted = format_decimal256(value, scale);
-        builder.add_string({formatted.bytes.data(), formatted.size});
-        return;
-    }
+    case JsonbType::T_Decimal256:
+        throw Exception(ErrorCode::INVALID_ARGUMENT,
+                        "Conversion from JSONB DECIMAL256 to Variant V2 is not supported");
     case JsonbType::NUM_TYPES:
         break;
     }
@@ -579,15 +530,6 @@ VariantEncodedBlock JsonbToVariantEncoder::finish_block() {
         return block;
     } catch (...) {
         _impl->state = Impl::State::FAILED;
-        throw;
-    }
-}
-
-void jsonb_to_variant(StringRef document, VariantBuilder& builder) {
-    try {
-        collect_jsonb_document(document, builder);
-    } catch (...) {
-        builder.abort();
         throw;
     }
 }

@@ -235,9 +235,6 @@ void count_fallback(TypedFallbackKind fallback, ColumnVariantV2::TypedEncodingSt
     case TypedFallbackKind::LARGEINT:
         ++stats.largeint_string_fallback_rows;
         return;
-    case TypedFallbackKind::DECIMAL256:
-        ++stats.decimal256_string_fallback_rows;
-        return;
     case TypedFallbackKind::IP:
         ++stats.ip_string_fallback_rows;
         return;
@@ -393,38 +390,8 @@ ColumnVariantV2::ColumnVariantV2(const ColumnVariantV2& other)
 
 ColumnVariantV2::~ColumnVariantV2() = default;
 
-ColumnVariantV2::MutablePtr ColumnVariantV2::create_typed_from_scan(ColumnPtr column,
-                                                                    DataTypePtr scalar_type) {
-    ValidatedTypedInput input = validate_typed_input(std::move(column), std::move(scalar_type));
-    auto result = ColumnVariantV2::create();
-    static_cast<IColumn::Ptr&>(result->_typed) = std::move(input.column);
-    result->_typed_type = std::move(input.type);
-    result->_check_invariants();
-    return result;
-}
-
-ColumnVariantV2::MutablePtr ColumnVariantV2::create_typed_from_element_at(ColumnPtr column,
-                                                                          DataTypePtr scalar_type) {
-    ValidatedTypedInput input = validate_typed_input(std::move(column), std::move(scalar_type));
-    auto result = ColumnVariantV2::create();
-    static_cast<IColumn::Ptr&>(result->_typed) = std::move(input.column);
-    result->_typed_type = std::move(input.type);
-    result->_check_invariants();
-    return result;
-}
-
-ColumnVariantV2::MutablePtr ColumnVariantV2::create_typed_from_cast(ColumnPtr column,
-                                                                    DataTypePtr scalar_type) {
-    ValidatedTypedInput input = validate_typed_input(std::move(column), std::move(scalar_type));
-    auto result = ColumnVariantV2::create();
-    static_cast<IColumn::Ptr&>(result->_typed) = std::move(input.column);
-    result->_typed_type = std::move(input.type);
-    result->_check_invariants();
-    return result;
-}
-
-ColumnVariantV2::MutablePtr ColumnVariantV2::create_typed_from_exchange(ColumnPtr column,
-                                                                        DataTypePtr scalar_type) {
+ColumnVariantV2::MutablePtr ColumnVariantV2::create_typed(ColumnPtr column,
+                                                          DataTypePtr scalar_type) {
     ValidatedTypedInput input = validate_typed_input(std::move(column), std::move(scalar_type));
     auto result = ColumnVariantV2::create();
     static_cast<IColumn::Ptr&>(result->_typed) = std::move(input.column);
@@ -585,22 +552,6 @@ void ColumnVariantV2::clear() {
     }
     _meta_index.reset();
     _check_invariants();
-}
-
-void ColumnVariantV2::insert_variant_field(const VariantField& field) {
-    const VariantValueRef value = field.ref();
-    if (value.metadata.size > std::numeric_limits<uint32_t>::max() ||
-        value.size > std::numeric_limits<uint32_t>::max()) {
-        throw Exception(ErrorCode::INVALID_ARGUMENT,
-                        "Variant row exceeds the ColumnString uint32 byte limit");
-    }
-    const std::array<uint32_t, 2> metadata_offsets {0, static_cast<uint32_t>(value.metadata.size)};
-    const std::array<uint32_t, 2> value_offsets {0, static_cast<uint32_t>(value.size)};
-    insert_encoded_rows({.metadata_bytes = {value.metadata.data, value.metadata.size},
-                         .metadata_offsets = metadata_offsets,
-                         .meta_ids = {},
-                         .value_bytes = {value.data, value.size},
-                         .value_offsets = value_offsets});
 }
 
 // Encoded insertion is a transactional state transition that keeps metadata, ids, and values in

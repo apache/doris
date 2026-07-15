@@ -32,7 +32,7 @@ namespace doris {
 TEST(VariantElementV2TypedTest, StringRootIsNotReparsedAsJson) {
     auto strings = ColumnString::create();
     strings->insert_data(R"({"a":1})", 7);
-    auto source = ColumnVariantV2::create_typed_from_element_at(
+    auto source = ColumnVariantV2::create_typed(
             ColumnNullable::create(std::move(strings), ColumnUInt8::create(1, 0)),
             std::make_shared<DataTypeString>());
     std::array segments {VariantElementV2PathSegment::object_key(StringRef("a"))};

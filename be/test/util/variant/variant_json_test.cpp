@@ -41,7 +41,6 @@
 #include "core/value/jsonb_value.h"
 #include "exec/common/variant_util.h"
 #include "util/variant/variant_block_builder.h"
-#include "util/variant/variant_builder.h"
 #include "util/variant/variant_canonical.h"
 #include "util/variant/variant_encoding.h"
 #include "variant_test_utils.h"
@@ -66,15 +65,15 @@ struct OwnedValue {
 
 template <typename Fill>
 OwnedValue build_value(Fill&& fill) {
-    VariantMetadataBuilder metadata;
-    VariantBuilder builder(metadata);
-    fill(builder);
-    metadata.seal();
-    std::string value;
-    builder.finish_row(value);
-    const StringRef encoded_metadata = metadata.encoded_metadata();
-    return {.metadata = std::string(encoded_metadata.data, encoded_metadata.size),
-            .value = std::move(value)};
+    VariantBlockBuilder builder;
+    auto row = builder.begin_row();
+    fill(row);
+    row.finish();
+    VariantEncodedBlock block = builder.finish_block();
+    const VariantMetadataRef metadata = block.metadata_ref();
+    const VariantValueRef value = block.value_at(0);
+    return {.metadata = std::string(metadata.data, metadata.size),
+            .value = std::string(value.data, value.size)};
 }
 
 struct StringWriter {
@@ -127,14 +126,14 @@ std::string nested_array_json(uint32_t array_count) {
 }
 
 OwnedValue nested_array_value(uint32_t array_count) {
-    return build_value([&](VariantBuilder& builder) {
-        std::vector<VariantBuilder::ArrayScope> scopes;
+    return build_value([&](VariantBlockBuilder::Row& builder) {
+        std::vector<VariantBlockBuilder::Row::ArrayScope> scopes;
         scopes.reserve(array_count);
         for (uint32_t depth = 0; depth < array_count; ++depth) {
             scopes.emplace_back(builder.start_array());
         }
         builder.add_int(0);
-        for (VariantBuilder::ArrayScope& scope : std::ranges::reverse_view(scopes)) {
+        for (VariantBlockBuilder::Row::ArrayScope& scope : std::ranges::reverse_view(scopes)) {
             scope.finish();
         }
     });
@@ -177,7 +176,7 @@ TEST(VariantJsonTest, AllPrimitiveIdsUseStableJsonMappings) {
         uuid[index] = index;
     }
 
-    const OwnedValue owned = build_value([&](VariantBuilder& builder) {
+    const OwnedValue owned = build_value([&](VariantBlockBuilder::Row& builder) {
         auto array = builder.start_array();
         builder.add_null();
         builder.add_bool(true);
@@ -237,7 +236,7 @@ TEST(VariantJsonTest, AllPrimitiveIdsUseStableJsonMappings) {
 }
 
 TEST(VariantJsonTest, FloatingPointSpecialValuesAreQuoted) {
-    const OwnedValue owned = build_value([](VariantBuilder& builder) {
+    const OwnedValue owned = build_value([](VariantBlockBuilder::Row& builder) {
         auto array = builder.start_array();
         builder.add_float(std::numeric_limits<float>::quiet_NaN());
         builder.add_float(std::numeric_limits<float>::infinity());
@@ -248,7 +247,7 @@ TEST(VariantJsonTest, FloatingPointSpecialValuesAreQuoted) {
 }
 
 TEST(VariantJsonTest, TimestampPrecisionTimezoneAndNegativeEpochAreStable) {
-    const OwnedValue owned = build_value([](VariantBuilder& builder) {
+    const OwnedValue owned = build_value([](VariantBlockBuilder::Row& builder) {
         auto array = builder.start_array();
         builder.add_timestamp_micros(0, true);
         builder.add_timestamp_micros(-1, true);
@@ -543,13 +542,14 @@ TEST(VariantJsonTest, StaticDispatchWritesDirectlyToBufferWritable) {
 }
 
 TEST(VariantJsonTest, ExternalMalformedValueReturnsExplicitErrors) {
-    OwnedValue string_value =
-            build_value([](VariantBuilder& builder) { builder.add_string(string_ref("valid")); });
+    OwnedValue string_value = build_value(
+            [](VariantBlockBuilder::Row& builder) { builder.add_string(string_ref("valid")); });
     string_value.value.back() = static_cast<char>(0xFF);
     expect_exception_code(ErrorCode::CORRUPTION,
                           [&] { static_cast<void>(print_json(string_value.ref())); });
 
-    OwnedValue trailing = build_value([](VariantBuilder& builder) { builder.add_int(1); });
+    OwnedValue trailing =
+            build_value([](VariantBlockBuilder::Row& builder) { builder.add_int(1); });
     trailing.value.push_back('\0');
     expect_exception_code(ErrorCode::CORRUPTION,
                           [&] { static_cast<void>(print_json(trailing.ref())); });

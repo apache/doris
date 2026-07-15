@@ -76,8 +76,6 @@ size_t fixed_width(PhysicalTypeCode code) {
     case PhysicalTypeCode::DECIMAL128I:
     case PhysicalTypeCode::IPV6:
         return 16;
-    case PhysicalTypeCode::DECIMAL256:
-        return 32;
     case PhysicalTypeCode::CHAR:
     case PhysicalTypeCode::VARCHAR:
     case PhysicalTypeCode::STRING:
@@ -152,11 +150,6 @@ TypeMeta encode_type_meta(const DataTypePtr& type) {
         break;
     case TYPE_DECIMAL128I:
         result.code = PhysicalTypeCode::DECIMAL128I;
-        result.precision = type->get_precision();
-        result.scale = type->get_scale();
-        break;
-    case TYPE_DECIMAL256:
-        result.code = PhysicalTypeCode::DECIMAL256;
         result.precision = type->get_precision();
         result.scale = type->get_scale();
         break;
@@ -277,8 +270,6 @@ DataTypePtr decode_type(const TypeMeta& meta) {
         return decode_decimal_type<TYPE_DECIMAL64>(meta);
     case PhysicalTypeCode::DECIMAL128I:
         return decode_decimal_type<TYPE_DECIMAL128I>(meta);
-    case PhysicalTypeCode::DECIMAL256:
-        return decode_decimal_type<TYPE_DECIMAL256>(meta);
     case PhysicalTypeCode::DATE:
         require_no_parameters(meta);
         return std::make_shared<DataTypeDate>();
@@ -377,7 +368,7 @@ void write_fixed_value(const Column& column, size_t row, Writer& writer) {
     } else if constexpr (Type == TYPE_DECIMALV2) {
         write_integer(writer, value.value());
     } else if constexpr (Type == TYPE_DECIMAL32 || Type == TYPE_DECIMAL64 ||
-                         Type == TYPE_DECIMAL128I || Type == TYPE_DECIMAL256) {
+                         Type == TYPE_DECIMAL128I) {
         write_integer(writer, value.value);
     } else if constexpr (Type == TYPE_DATE || Type == TYPE_DATETIME) {
         write_integer(writer, binary_cast<VecDateTimeValue, Int64>(value));
@@ -464,11 +455,6 @@ void decode_fixed_values(PhysicalTypeCode code, size_t row_count, std::span<cons
             return Decimal128V3(read_integer<Int128>(input, "DECIMAL128I value"));
         });
         return;
-    case PhysicalTypeCode::DECIMAL256:
-        fill_fixed_column<ColumnDecimal256>(nested, row_count, reader, [](Reader& input) {
-            return Decimal256(read_integer<wide::Int256>(input, "DECIMAL256 value"));
-        });
-        return;
     case PhysicalTypeCode::DATE:
         fill_fixed_column<ColumnDate>(nested, row_count, reader, [](Reader& input) {
             return binary_cast<Int64, VecDateTimeValue>(read_integer<Int64>(input, "DATE value"));
@@ -534,7 +520,6 @@ void validate_decimal_values(const TypeMeta& meta, const DataTypePtr& type,
     case PhysicalTypeCode::DECIMAL32:
     case PhysicalTypeCode::DECIMAL64:
     case PhysicalTypeCode::DECIMAL128I:
-    case PhysicalTypeCode::DECIMAL256:
         break;
     default:
         return;
@@ -544,8 +529,7 @@ void validate_decimal_values(const TypeMeta& meta, const DataTypePtr& type,
     dispatch_typed_column(
             nullable, type->get_primitive_type(), [&]<PrimitiveType Type>(const auto& column) {
                 if constexpr (Type == TYPE_DECIMALV2 || Type == TYPE_DECIMAL32 ||
-                              Type == TYPE_DECIMAL64 || Type == TYPE_DECIMAL128I ||
-                              Type == TYPE_DECIMAL256) {
+                              Type == TYPE_DECIMAL64 || Type == TYPE_DECIMAL128I) {
                     for (size_t row = 0; row < column.size(); ++row) {
                         if (nullmap[row] != 0) {
                             continue;
@@ -746,7 +730,7 @@ ColumnVariantV2::MutablePtr decode_typed(uint64_t row_count_u64,
     null_column->get_data().insert(nullmap.begin(), nullmap.end());
     auto nullable = ColumnNullable::create(std::move(nested), std::move(null_column));
     validate_decimal_values(meta, type, *nullable, ErrorCode::CORRUPTION);
-    return ColumnVariantV2::create_typed_from_exchange(std::move(nullable), std::move(type));
+    return ColumnVariantV2::create_typed(std::move(nullable), std::move(type));
 }
 
 } // namespace doris::variant_v2_serde_binary_internal

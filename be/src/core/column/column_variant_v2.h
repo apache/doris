@@ -24,7 +24,7 @@
 #include "core/column/column.h"
 #include "core/custom_allocator.h"
 #include "core/data_type/data_type.h"
-#include "util/variant/variant_field.h"
+#include "util/variant/variant_value.h"
 
 namespace doris {
 
@@ -36,7 +36,6 @@ class ColumnVariantV2 final : public COWHelper<IColumn, ColumnVariantV2> {
 public:
     struct TypedEncodingStats {
         size_t largeint_string_fallback_rows = 0;
-        size_t decimal256_string_fallback_rows = 0;
         size_t ip_string_fallback_rows = 0;
     };
 
@@ -98,13 +97,9 @@ public:
 
     ~ColumnVariantV2() override;
 
-    // The only typed-state construction points. The input must be an exact, non-Const
-    // ColumnNullable whose nested column matches the non-nullable supported scalar type.
-    static MutablePtr create_typed_from_scan(ColumnPtr column, DataTypePtr scalar_type);
-    static MutablePtr create_typed_from_element_at(ColumnPtr column, DataTypePtr scalar_type);
-    static MutablePtr create_typed_from_cast(ColumnPtr column, DataTypePtr scalar_type);
-    // The exchange decoder is the fourth and final approved typed-state construction point.
-    static MutablePtr create_typed_from_exchange(ColumnPtr column, DataTypePtr scalar_type);
+    // The input must be an exact, non-Const ColumnNullable whose nested column matches the
+    // non-nullable supported scalar type.
+    static MutablePtr create_typed(ColumnPtr column, DataTypePtr scalar_type);
 
     bool is_typed() const noexcept { return _typed != nullptr; }
     const IColumn& typed_column() const;
@@ -124,10 +119,6 @@ public:
     void for_each_subcolumn(ColumnCallback callback) const override;
     void clear() override;
     void finalize() override {}
-
-    // Cold compatibility adapter for one already-validated VariantField. Batch producers use the
-    // bulk/remap paths added by T2.2 instead of calling this once per row.
-    void insert_variant_field(const VariantField& field);
 
     // Validates the borrowed buffer/offset/id structure, then appends codec-validated encoded rows
     // without retaining any input pointer. Offsets use the ColumnString uint32 domain and start at

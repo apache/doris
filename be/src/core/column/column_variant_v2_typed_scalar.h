@@ -41,7 +41,7 @@ namespace doris::column_variant_v2_internal {
 // Records the approved physical fallback chosen while adapting one Doris typed scalar to Variant.
 // The visitor below is synchronous: any borrowed string produced for a callback is valid only until
 // that callback returns.
-enum class TypedFallbackKind : uint8_t { NONE, LARGEINT, DECIMAL256, IP };
+enum class TypedFallbackKind : uint8_t { NONE, LARGEINT, IP };
 
 bool is_supported_typed_identity(PrimitiveType type);
 bool exact_typed_identity(const DataTypePtr& left, const DataTypePtr& right);
@@ -67,7 +67,6 @@ inline unsigned __int128 unsigned_magnitude(__int128 value) noexcept {
 }
 
 size_t format_int128(__int128 value, char* output) noexcept;
-size_t format_decimal256(wide::Int256 value, uint32_t scale, char* output) noexcept;
 
 template <typename DateValue>
 int32_t days_since_epoch(const DateValue& value, size_t row, std::string_view description) {
@@ -149,14 +148,6 @@ void with_typed_scalar(const Column& column, size_t row, uint8_t scale, Callback
         callback([value, scale] { return VariantScalarEncodingPlan::decimal(value, scale, 16); },
                  [value, scale] { return VariantCanonicalScalarRef::decimal(value, scale); },
                  TypedFallbackKind::NONE);
-    } else if constexpr (Type == TYPE_DECIMAL256) {
-        std::array<char, Decimal256::max_string_length()> buffer {};
-        const size_t size =
-                detail::format_decimal256(column.get_data()[row].value, scale, buffer.data());
-        const StringRef text(buffer.data(), size);
-        callback([text] { return VariantScalarEncodingPlan::string(text); },
-                 [text] { return VariantCanonicalScalarRef::string(text); },
-                 TypedFallbackKind::DECIMAL256);
     } else if constexpr (Type == TYPE_DATE) {
         const int32_t value = detail::days_since_epoch(column.get_data()[row], row, "DATE");
         callback([value] { return VariantScalarEncodingPlan::date(value); },
@@ -213,7 +204,7 @@ void visit_typed_rows(const ColumnNullable& nullable, const Column& column, uint
     DCHECK_LE(end, nullable.size());
     uint8_t variant_scale = 0;
     if constexpr (Type == TYPE_DECIMALV2 || Type == TYPE_DECIMAL32 || Type == TYPE_DECIMAL64 ||
-                  Type == TYPE_DECIMAL128I || Type == TYPE_DECIMAL256) {
+                  Type == TYPE_DECIMAL128I) {
         DORIS_CHECK_LE(scale, static_cast<uint32_t>(std::numeric_limits<uint8_t>::max()))
                 << "typed decimal scale exceeds the Variant scale domain";
         variant_scale = static_cast<uint8_t>(scale);
@@ -290,9 +281,6 @@ void dispatch_typed_column(const ColumnNullable& nullable, PrimitiveType type,
     case TYPE_DECIMAL128I:
         callback.template operator()<TYPE_DECIMAL128I>(
                 assert_cast<const ColumnDecimal128V3&>(nested));
-        return;
-    case TYPE_DECIMAL256:
-        callback.template operator()<TYPE_DECIMAL256>(assert_cast<const ColumnDecimal256&>(nested));
         return;
     case TYPE_DATE:
         callback.template operator()<TYPE_DATE>(assert_cast<const ColumnDate&>(nested));

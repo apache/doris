@@ -27,7 +27,7 @@
 
 #include "common/exception.h"
 #include "util/utf8_check.h"
-#include "util/variant/variant_builder.h"
+#include "util/variant/variant_block_builder_internal.h"
 #include "util/variant/variant_encoded_block.h"
 #include "util/variant/variant_encoding.h"
 #include "util/variant/variant_tracked_storage.h"

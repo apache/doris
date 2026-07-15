@@ -71,8 +71,8 @@ ColumnVariantV2::MutablePtr typed_strings(
             nulls.push_back(1);
         }
     }
-    return ColumnVariantV2::create_typed_from_cast(nullable(std::move(nested), nulls),
-                                                   std::make_shared<DataTypeString>());
+    return ColumnVariantV2::create_typed(nullable(std::move(nested), nulls),
+                                         std::make_shared<DataTypeString>());
 }
 
 ColumnVariantV2::MutablePtr typed_doubles(std::initializer_list<double> values) {
@@ -81,8 +81,8 @@ ColumnVariantV2::MutablePtr typed_doubles(std::initializer_list<double> values) 
         nested->insert_value(value);
     }
     const std::vector<uint8_t> nulls(values.size(), 0);
-    return ColumnVariantV2::create_typed_from_cast(nullable(std::move(nested), nulls),
-                                                   std::make_shared<DataTypeFloat64>());
+    return ColumnVariantV2::create_typed(nullable(std::move(nested), nulls),
+                                         std::make_shared<DataTypeFloat64>());
 }
 
 ColumnPtr encoded_copy(const ColumnVariantV2& typed) {
@@ -238,8 +238,8 @@ ColumnVariantV2::MutablePtr invalid_date_column() {
     dates->insert_value(
             DateV2Value<DateV2ValueType>::create_from_olap_date(pack_olap_date(1970, 1, 2)));
     const std::array<uint8_t, 2> nulls {0, 0};
-    return ColumnVariantV2::create_typed_from_cast(nullable(std::move(dates), nulls),
-                                                   std::make_shared<DataTypeDateV2>());
+    return ColumnVariantV2::create_typed(nullable(std::move(dates), nulls),
+                                         std::make_shared<DataTypeDateV2>());
 }
 
 ColumnVariantV2::MutablePtr trailing_value_column() {
@@ -302,8 +302,8 @@ TEST(DataTypeVariantV2SerdeOutputTest, DocumentsTemporalAndColumnJsonAreExact) {
     date->insert_value(
             DateV2Value<DateV2ValueType>::create_from_olap_date(pack_olap_date(1970, 1, 2)));
     const std::array<uint8_t, 1> not_null {0};
-    auto typed_date = ColumnVariantV2::create_typed_from_cast(nullable(std::move(date), not_null),
-                                                              std::make_shared<DataTypeDateV2>());
+    auto typed_date = ColumnVariantV2::create_typed(nullable(std::move(date), not_null),
+                                                    std::make_shared<DataTypeDateV2>());
     ColumnPtr encoded_date = encoded_copy(*typed_date);
     const std::array<std::string_view, 1> date_expected {R"("1970-01-02")"};
     expect_text_surfaces(serde, *encoded_date, *typed_date, date_expected);
@@ -311,8 +311,8 @@ TEST(DataTypeVariantV2SerdeOutputTest, DocumentsTemporalAndColumnJsonAreExact) {
     auto timestamp = ColumnDateTimeV2::create();
     timestamp->insert_value(
             DateV2Value<DateTimeV2ValueType>::create_from_olap_datetime(19700101000001ULL));
-    auto typed_timestamp = ColumnVariantV2::create_typed_from_cast(
-            nullable(std::move(timestamp), not_null), std::make_shared<DataTypeDateTimeV2>(6));
+    auto typed_timestamp = ColumnVariantV2::create_typed(nullable(std::move(timestamp), not_null),
+                                                         std::make_shared<DataTypeDateTimeV2>(6));
     ColumnPtr encoded_timestamp = encoded_copy(*typed_timestamp);
     const std::array<std::string_view, 1> timestamp_expected {R"("1970-01-01 00:00:01.000000")"};
     expect_text_surfaces(serde, *encoded_timestamp, *typed_timestamp, timestamp_expected);

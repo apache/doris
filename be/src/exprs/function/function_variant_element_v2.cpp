@@ -17,11 +17,17 @@
 
 #include "exprs/function/function_variant_element_v2.h"
 
+#include <limits>
 #include <utility>
 
+#include "common/check.h"
 #include "common/exception.h"
+#include "core/column/column_nullable.h"
+#include "core/column/column_variant_v2.h"
+#include "core/column/column_vector.h"
 #include "core/custom_allocator.h"
-#include "core/data_type/data_type.h"
+#include "util/variant/variant_block_builder.h"
+#include "util/variant/variant_encoding.h"
 #include "util/variant/variant_tracked_storage.h"
 
 namespace doris {
@@ -39,6 +45,95 @@ struct OwnedPathSegment {
 struct ResolvedVariantElementV2Path::Impl {
     DorisVector<OwnedPathSegment> segments;
 };
+
+namespace variant_element_v2_internal {
+
+bool is_outer_null(std::span<const uint8_t> outer_nulls, size_t row) noexcept {
+    return !outer_nulls.empty() && outer_nulls[row] != 0;
+}
+
+// Resolves object keys once per dense metadata id and traverses arrays without metadata lookup.
+class VariantPathV2BatchReader {
+public:
+    VariantPathV2BatchReader(const ColumnVariantV2& source,
+                             const ResolvedVariantElementV2Path& path)
+            : _source(source.read_view()),
+              _path(path),
+              _resolved_metadata(_source.metadata_count(), 0) {
+        DORIS_CHECK_GT(_path.size(), 0);
+        if (_source.metadata_count() != 0 &&
+            _path.size() > std::numeric_limits<size_t>::max() / _source.metadata_count()) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "Variant path cache size overflows size_t");
+        }
+        _object_ids.assign(_source.metadata_count() * _path.size(), -1);
+    }
+
+    bool find_at(size_t row, VariantValueRef* const output) {
+        DORIS_CHECK(output != nullptr);
+        const uint32_t metadata_id = _source.metadata_id_at(row);
+        _resolve_metadata(metadata_id);
+        VariantValueRef current = _source.value_at(row);
+        const size_t cache_base = static_cast<size_t>(metadata_id) * _path.size();
+        for (size_t position = 0; position < _path.size(); ++position) {
+            if (_path.kind_at(position) == VariantElementV2PathSegment::Kind::OBJECT_KEY) {
+                const int64_t field_id = _object_ids[cache_base + position];
+                if (current.basic_type() != VariantBasicType::OBJECT || field_id < 0 ||
+                    !current.object_find_by_id(static_cast<uint32_t>(field_id), &current)) {
+                    return false;
+                }
+            } else {
+                if (current.basic_type() != VariantBasicType::ARRAY) {
+                    return false;
+                }
+                const int64_t requested_index = _path.array_index_at(position);
+                const int64_t element_count = current.num_elements();
+                const int64_t resolved_index =
+                        requested_index < 0 ? element_count + requested_index : requested_index;
+                if (resolved_index < 0 || resolved_index >= element_count) {
+                    return false;
+                }
+                current = current.array_at(static_cast<uint32_t>(resolved_index));
+            }
+        }
+        *output = current;
+        return true;
+    }
+
+    size_t metadata_count() const noexcept { return _source.metadata_count(); }
+
+    uint32_t metadata_id_at(size_t row) const { return _source.metadata_id_at(row); }
+
+    VariantMetadataRef metadata_at(uint32_t id) { return _source.metadata_at(id); }
+
+private:
+    void _resolve_metadata(uint32_t metadata_id) {
+        if (_resolved_metadata[metadata_id] != 0) {
+            return;
+        }
+        const VariantMetadataRef metadata = _source.metadata_at(metadata_id);
+        const size_t base = static_cast<size_t>(metadata_id) * _path.size();
+        for (size_t position = 0; position < _path.size(); ++position) {
+            if (_path.kind_at(position) == VariantElementV2PathSegment::Kind::OBJECT_KEY) {
+                _object_ids[base + position] = metadata.find_key(_path.object_key_at(position));
+            }
+        }
+        _resolved_metadata[metadata_id] = 1;
+    }
+
+    ColumnVariantV2::ReadView _source;
+    const ResolvedVariantElementV2Path& _path;
+    DorisVector<int64_t> _object_ids;
+    DorisVector<uint8_t> _resolved_metadata;
+};
+
+Status extract_encoded_variant_element(const ColumnVariantV2& source,
+                                       const ResolvedVariantElementV2Path& path,
+                                       std::span<const uint8_t> outer_nulls, ColumnPtr* output);
+
+Status make_all_null_variant_element_result(size_t rows, ColumnPtr* output);
+
+} // namespace variant_element_v2_internal
 
 ResolvedVariantElementV2Path::ResolvedVariantElementV2Path(std::unique_ptr<Impl> impl)
         : _impl(std::move(impl)) {}
@@ -145,19 +240,7 @@ Status extract_variant_element_v2(const ColumnVariantV2& source,
     return Status::OK();
 }
 
-} // namespace doris
-#include <limits>
-
-#include "common/exception.h"
-#include "core/column/column_nullable.h"
-#include "core/column/column_vector.h"
-#include "core/custom_allocator.h"
-#include "exprs/function/function_variant_path_v2_internal.h"
-#include "util/variant/variant_block_builder.h"
-#include "util/variant/variant_encoding.h"
-#include "util/variant/variant_tracked_storage.h"
-
-namespace doris::variant_element_v2_internal {
+namespace variant_element_v2_internal {
 namespace {
 
 constexpr uint32_t UNMAPPED_METADATA = std::numeric_limits<uint32_t>::max();
@@ -214,7 +297,7 @@ Status extract_encoded_variant_element(const ColumnVariantV2& source,
                                        const ResolvedVariantElementV2Path& path,
                                        std::span<const uint8_t> outer_nulls,
                                        ColumnPtr* const output) {
-    variant_native_v2_internal::VariantPathV2BatchReader reader(source, path);
+    VariantPathV2BatchReader reader(source, path);
     const size_t metadata_count = reader.metadata_count();
     DorisVector<uint32_t> output_metadata_ids(metadata_count, UNMAPPED_METADATA);
 
@@ -240,7 +323,7 @@ Status extract_encoded_variant_element(const ColumnVariantV2& source,
     };
 
     for (size_t row = 0; row < source.size(); ++row) {
-        if (variant_native_v2_internal::is_outer_null(outer_nulls, row)) {
+        if (is_outer_null(outer_nulls, row)) {
             append_value(rows, null_value, ensure_null_metadata());
             nulls->insert_value(1);
             continue;
@@ -282,4 +365,6 @@ Status make_all_null_variant_element_result(size_t rows, ColumnPtr* const output
     return Status::OK();
 }
 
-} // namespace doris::variant_element_v2_internal
+} // namespace variant_element_v2_internal
+
+} // namespace doris

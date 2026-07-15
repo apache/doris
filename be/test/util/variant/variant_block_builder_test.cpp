@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "util/variant/variant_builder.h"
+#include "util/variant/variant_block_builder.h"
 
 #include <gtest/gtest.h>
 
@@ -33,7 +33,6 @@
 #include "common/exception.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/thread_context.h"
-#include "util/variant/variant_block_builder.h"
 #include "util/variant/variant_encoding.h"
 #include "util/variant/variant_scalar_encoding.h"
 #include "variant_test_utils.h"
@@ -45,16 +44,6 @@ StringRef string_ref(std::string_view value) {
     return {value.data(), value.size()};
 }
 
-VariantValueRef value_ref(const VariantMetadataBuilder& metadata, const std::string& value) {
-    return {.metadata = metadata.metadata_ref(), .data = value.data(), .size = value.size()};
-}
-
-std::string finish_row(VariantBuilder& builder) {
-    std::string value;
-    builder.finish_row(value);
-    return value;
-}
-
 std::string encode_plan(const VariantScalarEncodingPlan& plan) {
     std::string encoded(plan.size(), '\0');
     plan.write(encoded.data(), encoded.size());
@@ -63,11 +52,13 @@ std::string encode_plan(const VariantScalarEncodingPlan& plan) {
 
 template <typename AddValue>
 std::string encode_builder_scalar(AddValue&& add_value) {
-    VariantMetadataBuilder metadata;
-    VariantBuilder builder(metadata);
-    add_value(builder);
-    metadata.seal();
-    return finish_row(builder);
+    VariantBlockBuilder builder;
+    auto row = builder.begin_row();
+    add_value(row);
+    row.finish();
+    VariantEncodedBlock block = builder.finish_block();
+    const VariantValueRef value = block.value_at(0);
+    return {value.data, value.size};
 }
 
 template <typename Function>
@@ -93,18 +84,19 @@ struct OwnedBuilderValue {
 
 template <typename Fill>
 OwnedBuilderValue build_owned_value(Fill&& fill) {
-    VariantMetadataBuilder metadata;
-    VariantBuilder builder(metadata);
-    fill(builder);
-    metadata.seal();
-    std::string value = finish_row(builder);
-    const StringRef encoded_metadata = metadata.encoded_metadata();
-    return {.metadata = std::string(encoded_metadata.data, encoded_metadata.size),
-            .value = std::move(value)};
+    VariantBlockBuilder builder;
+    auto row = builder.begin_row();
+    fill(row);
+    row.finish();
+    VariantEncodedBlock block = builder.finish_block();
+    const VariantMetadataRef metadata = block.metadata_ref();
+    const VariantValueRef value = block.value_at(0);
+    return {.metadata = std::string(metadata.data, metadata.size),
+            .value = std::string(value.data, value.size)};
 }
 
 OwnedBuilderValue make_nested_owned_value() {
-    return build_owned_value([](VariantBuilder& builder) {
+    return build_owned_value([](VariantBlockBuilder::Row& builder) {
         auto object = builder.start_object();
         object.add_key(string_ref("array"));
         auto array = builder.start_array();
@@ -169,22 +161,33 @@ std::string decimal_bytes(VariantPrimitiveId id, __int128 unscaled, uint8_t widt
     return encoded;
 }
 
+VariantMetadataRef empty_metadata_ref() {
+    static constexpr std::array<char, 3> BYTES {
+            static_cast<char>(VARIANT_ENCODING_VERSION | VARIANT_METADATA_SORTED_STRINGS_MASK),
+            '\0', '\0'};
+    return {.data = BYTES.data(), .size = BYTES.size()};
+}
+
+VariantValueRef value_with_empty_metadata(const std::string& bytes) {
+    return {.metadata = empty_metadata_ref(), .data = bytes.data(), .size = bytes.size()};
+}
+
 // NOLINTNEXTLINE(readability-function-cognitive-complexity) -- exhaustive scalar plan parity matrix.
-TEST(VariantBuilderTest, ScalarEncodingPlanMatchesBuilder) {
+TEST(VariantBlockBuilderTest, ScalarEncodingPlanMatchesBuilder) {
     const auto expect_parity = [](const VariantScalarEncodingPlan& plan, auto&& add_value) {
         EXPECT_EQ(encode_plan(plan), encode_builder_scalar(add_value));
     };
 
     expect_parity(VariantScalarEncodingPlan::null_value(),
-                  [](VariantBuilder& builder) { builder.add_null(); });
+                  [](VariantBlockBuilder::Row& builder) { builder.add_null(); });
     expect_parity(VariantScalarEncodingPlan::boolean(false),
-                  [](VariantBuilder& builder) { builder.add_bool(false); });
+                  [](VariantBlockBuilder::Row& builder) { builder.add_bool(false); });
     expect_parity(VariantScalarEncodingPlan::boolean(true),
-                  [](VariantBuilder& builder) { builder.add_bool(true); });
+                  [](VariantBlockBuilder::Row& builder) { builder.add_bool(true); });
     for (const int64_t value : {int64_t {-129}, int64_t {-128}, int64_t {127}, int64_t {128},
                                 int64_t {32768}, int64_t {1} << 40}) {
         expect_parity(VariantScalarEncodingPlan::integer(value),
-                      [value](VariantBuilder& builder) { builder.add_int(value); });
+                      [value](VariantBlockBuilder::Row& builder) { builder.add_int(value); });
     }
     const std::array<std::pair<int64_t, uint8_t>, 4> fixed_integers {
             std::pair {int64_t {-128}, uint8_t {1}},
@@ -196,7 +199,7 @@ TEST(VariantBuilderTest, ScalarEncodingPlanMatchesBuilder) {
         const auto value = value_and_width.first;
         const auto width = value_and_width.second;
         expect_parity(VariantScalarEncodingPlan::integer(value, width),
-                      [value](VariantBuilder& builder) { builder.add_int(value); });
+                      [value](VariantBlockBuilder::Row& builder) { builder.add_int(value); });
     }
     const std::string empty_metadata("\x11\0\0", 3);
     const std::array<std::pair<uint8_t, VariantPrimitiveId>, 4> requested_integers {
@@ -216,14 +219,15 @@ TEST(VariantBuilderTest, ScalarEncodingPlanMatchesBuilder) {
         EXPECT_EQ(decoded.value_size(), static_cast<size_t>(width) + 1);
     }
     expect_parity(VariantScalarEncodingPlan::float32(-1.25F),
-                  [](VariantBuilder& builder) { builder.add_float(-1.25F); });
+                  [](VariantBlockBuilder::Row& builder) { builder.add_float(-1.25F); });
     expect_parity(VariantScalarEncodingPlan::float64(123.5),
-                  [](VariantBuilder& builder) { builder.add_double(123.5); });
+                  [](VariantBlockBuilder::Row& builder) { builder.add_double(123.5); });
     expect_parity(VariantScalarEncodingPlan::decimal(-123456789, 7),
-                  [](VariantBuilder& builder) { builder.add_decimal(-123456789, 7); });
-    expect_parity(
-            VariantScalarEncodingPlan::decimal(-123456789012345678LL, 7, 8),
-            [](VariantBuilder& builder) { builder.add_decimal(-123456789012345678LL, 7, 8); });
+                  [](VariantBlockBuilder::Row& builder) { builder.add_decimal(-123456789, 7); });
+    expect_parity(VariantScalarEncodingPlan::decimal(-123456789012345678LL, 7, 8),
+                  [](VariantBlockBuilder::Row& builder) {
+                      builder.add_decimal(-123456789012345678LL, 7, 8);
+                  });
     const std::array<std::pair<__int128, uint8_t>, 3> fixed_decimals {
             std::pair {static_cast<__int128>(999'999'999), uint8_t {4}},
             std::pair {static_cast<__int128>(999'999'999'999'999'999LL), uint8_t {8}},
@@ -233,7 +237,7 @@ TEST(VariantBuilderTest, ScalarEncodingPlanMatchesBuilder) {
         const auto unscaled = unscaled_and_width.first;
         const auto width = unscaled_and_width.second;
         expect_parity(VariantScalarEncodingPlan::decimal(unscaled, 3, width),
-                      [unscaled, width](VariantBuilder& builder) {
+                      [unscaled, width](VariantBlockBuilder::Row& builder) {
                           builder.add_decimal(unscaled, 3, width);
                       });
     }
@@ -252,44 +256,58 @@ TEST(VariantBuilderTest, ScalarEncodingPlanMatchesBuilder) {
         EXPECT_EQ(decoded.get_decimal(), (VariantDecimal {1, 3, width}));
     }
     expect_parity(VariantScalarEncodingPlan::date(-20000),
-                  [](VariantBuilder& builder) { builder.add_date(-20000); });
+                  [](VariantBlockBuilder::Row& builder) { builder.add_date(-20000); });
     expect_parity(VariantScalarEncodingPlan::timestamp_micros(-1234567890, true),
-                  [](VariantBuilder& builder) { builder.add_timestamp_micros(-1234567890, true); });
+                  [](VariantBlockBuilder::Row& builder) {
+                      builder.add_timestamp_micros(-1234567890, true);
+                  });
     expect_parity(VariantScalarEncodingPlan::timestamp_micros(2234567890, false),
-                  [](VariantBuilder& builder) { builder.add_timestamp_micros(2234567890, false); });
+                  [](VariantBlockBuilder::Row& builder) {
+                      builder.add_timestamp_micros(2234567890, false);
+                  });
     expect_parity(VariantScalarEncodingPlan::timestamp_nanos(-3234567890, true),
-                  [](VariantBuilder& builder) { builder.add_timestamp_nanos(-3234567890, true); });
+                  [](VariantBlockBuilder::Row& builder) {
+                      builder.add_timestamp_nanos(-3234567890, true);
+                  });
     expect_parity(VariantScalarEncodingPlan::timestamp_nanos(4234567890, false),
-                  [](VariantBuilder& builder) { builder.add_timestamp_nanos(4234567890, false); });
-    expect_parity(VariantScalarEncodingPlan::time_ntz_micros(5234567890),
-                  [](VariantBuilder& builder) { builder.add_time_ntz_micros(5234567890); });
+                  [](VariantBlockBuilder::Row& builder) {
+                      builder.add_timestamp_nanos(4234567890, false);
+                  });
+    expect_parity(
+            VariantScalarEncodingPlan::time_ntz_micros(5234567890),
+            [](VariantBlockBuilder::Row& builder) { builder.add_time_ntz_micros(5234567890); });
 
     const std::string binary("\0\xFF\x01", 3);
     expect_parity(VariantScalarEncodingPlan::binary(StringRef(binary)),
-                  [&binary](VariantBuilder& builder) { builder.add_binary(StringRef(binary)); });
+                  [&binary](VariantBlockBuilder::Row& builder) {
+                      builder.add_binary(StringRef(binary));
+                  });
     const std::string short_text(63, 's');
     const std::string long_text(64, 'L');
-    expect_parity(
-            VariantScalarEncodingPlan::string(StringRef(short_text)),
-            [&short_text](VariantBuilder& builder) { builder.add_string(StringRef(short_text)); });
-    expect_parity(
-            VariantScalarEncodingPlan::string(StringRef(long_text)),
-            [&long_text](VariantBuilder& builder) { builder.add_string(StringRef(long_text)); });
+    expect_parity(VariantScalarEncodingPlan::string(StringRef(short_text)),
+                  [&short_text](VariantBlockBuilder::Row& builder) {
+                      builder.add_string(StringRef(short_text));
+                  });
+    expect_parity(VariantScalarEncodingPlan::string(StringRef(long_text)),
+                  [&long_text](VariantBlockBuilder::Row& builder) {
+                      builder.add_string(StringRef(long_text));
+                  });
 
     std::array<uint8_t, 16> uuid {};
     for (uint8_t index = 0; index < uuid.size(); ++index) {
         uuid[index] = index;
     }
     expect_parity(VariantScalarEncodingPlan::uuid(uuid),
-                  [&uuid](VariantBuilder& builder) { builder.add_uuid(uuid); });
+                  [&uuid](VariantBlockBuilder::Row& builder) { builder.add_uuid(uuid); });
     const auto decimal38 = static_cast<__int128>(power_of_ten(38) - 1);
-    expect_parity(VariantScalarEncodingPlan::largeint(decimal38),
-                  [decimal38](VariantBuilder& builder) { builder.add_largeint(decimal38); });
+    expect_parity(
+            VariantScalarEncodingPlan::largeint(decimal38),
+            [decimal38](VariantBlockBuilder::Row& builder) { builder.add_largeint(decimal38); });
     const auto outside_decimal38 = static_cast<__int128>(power_of_ten(38));
     const VariantScalarEncodingPlan fallback =
             VariantScalarEncodingPlan::largeint(outside_decimal38);
     EXPECT_TRUE(fallback.used_string_fallback());
-    expect_parity(fallback, [outside_decimal38](VariantBuilder& builder) {
+    expect_parity(fallback, [outside_decimal38](VariantBlockBuilder::Row& builder) {
         builder.add_largeint(outside_decimal38);
     });
     for (const __int128 value : {-outside_decimal38, std::numeric_limits<__int128>::min()}) {
@@ -297,7 +315,7 @@ TEST(VariantBuilderTest, ScalarEncodingPlanMatchesBuilder) {
                 VariantScalarEncodingPlan::largeint(value);
         EXPECT_TRUE(negative_fallback.used_string_fallback());
         expect_parity(negative_fallback,
-                      [value](VariantBuilder& builder) { builder.add_largeint(value); });
+                      [value](VariantBlockBuilder::Row& builder) { builder.add_largeint(value); });
     }
 
     std::string borrowed_short = "borrowed";
@@ -305,7 +323,7 @@ TEST(VariantBuilderTest, ScalarEncodingPlanMatchesBuilder) {
             VariantScalarEncodingPlan::string(StringRef(borrowed_short));
     borrowed_short.front() = 'B';
     EXPECT_EQ(encode_plan(borrowed_short_plan),
-              encode_builder_scalar([&borrowed_short](VariantBuilder& builder) {
+              encode_builder_scalar([&borrowed_short](VariantBlockBuilder::Row& builder) {
                   builder.add_string(StringRef(borrowed_short));
               }));
     std::string borrowed_long(64, 'x');
@@ -313,7 +331,7 @@ TEST(VariantBuilderTest, ScalarEncodingPlanMatchesBuilder) {
             VariantScalarEncodingPlan::string(StringRef(borrowed_long));
     borrowed_long.back() = 'y';
     EXPECT_EQ(encode_plan(borrowed_long_plan),
-              encode_builder_scalar([&borrowed_long](VariantBuilder& builder) {
+              encode_builder_scalar([&borrowed_long](VariantBlockBuilder::Row& builder) {
                   builder.add_string(StringRef(borrowed_long));
               }));
 
@@ -339,63 +357,60 @@ TEST(VariantBuilderTest, ScalarEncodingPlanMatchesBuilder) {
 }
 
 // NOLINTNEXTLINE(readability-function-cognitive-complexity) -- GTest macros expand assertions.
-TEST(VariantBuilderTest, ScalarAndNestedValuesRoundTrip) {
-    VariantMetadataBuilder metadata;
-    VariantBuilder builder(metadata);
-    auto root_scope = builder.start_object();
-
-    root_scope.add_key(string_ref("z_null"));
-    builder.add_null();
-    root_scope.add_key(string_ref("bool"));
-    builder.add_bool(true);
-    root_scope.add_key(string_ref("int"));
-    builder.add_int(-12345);
-    root_scope.add_key(string_ref("float"));
-    builder.add_float(-1.25F);
-    root_scope.add_key(string_ref("double"));
-    builder.add_double(123.5);
-    root_scope.add_key(string_ref("decimal"));
-    builder.add_decimal(-123456789012345678LL, 7);
-    root_scope.add_key(string_ref("date"));
-    builder.add_date(-20000);
-    root_scope.add_key(string_ref("timestamp"));
-    builder.add_timestamp_micros(-1234567890, true);
-    root_scope.add_key(string_ref("timestamp_ntz"));
-    builder.add_timestamp_micros(2234567890, false);
-    root_scope.add_key(string_ref("timestamp_nanos"));
-    builder.add_timestamp_nanos(-3234567890, true);
-    root_scope.add_key(string_ref("timestamp_ntz_nanos"));
-    builder.add_timestamp_nanos(4234567890, false);
-    root_scope.add_key(string_ref("time"));
-    builder.add_time_ntz_micros(5234567890);
+TEST(VariantBlockBuilderTest, ScalarAndNestedValuesRoundTrip) {
     const std::string binary("\0\xFF\x01", 3);
-    root_scope.add_key(string_ref("binary"));
-    builder.add_binary(StringRef(binary));
-    root_scope.add_key(string_ref("short"));
-    builder.add_string(string_ref("short text"));
     const std::string long_text(64, 'L');
-    root_scope.add_key(string_ref("long"));
-    builder.add_string(StringRef(long_text));
     std::array<uint8_t, 16> uuid {};
     for (uint8_t index = 0; index < uuid.size(); ++index) {
         uuid[index] = index;
     }
-    root_scope.add_key(string_ref("uuid"));
-    builder.add_uuid(uuid);
-    root_scope.add_key(string_ref("nested"));
-    auto array_scope = builder.start_array();
-    builder.add_int(7);
-    builder.add_string(string_ref("array value"));
-    auto nested_object_scope = builder.start_object();
-    nested_object_scope.add_key(string_ref("inside"));
-    builder.add_bool(false);
-    nested_object_scope.finish();
-    array_scope.finish();
-    root_scope.finish();
+    const OwnedBuilderValue owned = build_owned_value([&](VariantBlockBuilder::Row& builder) {
+        auto root_scope = builder.start_object();
 
-    metadata.seal();
-    const std::string encoded = finish_row(builder);
-    const VariantValueRef root = value_ref(metadata, encoded);
+        root_scope.add_key(string_ref("z_null"));
+        builder.add_null();
+        root_scope.add_key(string_ref("bool"));
+        builder.add_bool(true);
+        root_scope.add_key(string_ref("int"));
+        builder.add_int(-12345);
+        root_scope.add_key(string_ref("float"));
+        builder.add_float(-1.25F);
+        root_scope.add_key(string_ref("double"));
+        builder.add_double(123.5);
+        root_scope.add_key(string_ref("decimal"));
+        builder.add_decimal(-123456789012345678LL, 7);
+        root_scope.add_key(string_ref("date"));
+        builder.add_date(-20000);
+        root_scope.add_key(string_ref("timestamp"));
+        builder.add_timestamp_micros(-1234567890, true);
+        root_scope.add_key(string_ref("timestamp_ntz"));
+        builder.add_timestamp_micros(2234567890, false);
+        root_scope.add_key(string_ref("timestamp_nanos"));
+        builder.add_timestamp_nanos(-3234567890, true);
+        root_scope.add_key(string_ref("timestamp_ntz_nanos"));
+        builder.add_timestamp_nanos(4234567890, false);
+        root_scope.add_key(string_ref("time"));
+        builder.add_time_ntz_micros(5234567890);
+        root_scope.add_key(string_ref("binary"));
+        builder.add_binary(StringRef(binary));
+        root_scope.add_key(string_ref("short"));
+        builder.add_string(string_ref("short text"));
+        root_scope.add_key(string_ref("long"));
+        builder.add_string(StringRef(long_text));
+        root_scope.add_key(string_ref("uuid"));
+        builder.add_uuid(uuid);
+        root_scope.add_key(string_ref("nested"));
+        auto array_scope = builder.start_array();
+        builder.add_int(7);
+        builder.add_string(string_ref("array value"));
+        auto nested_object_scope = builder.start_object();
+        nested_object_scope.add_key(string_ref("inside"));
+        builder.add_bool(false);
+        nested_object_scope.finish();
+        array_scope.finish();
+        root_scope.finish();
+    });
+    const VariantValueRef root = owned.ref();
     validate_canonical(root);
 
     EXPECT_TRUE(required_field(root, "z_null").is_null());
@@ -423,26 +438,23 @@ TEST(VariantBuilderTest, ScalarAndNestedValuesRoundTrip) {
     EXPECT_FALSE(required_field(nested.array_at(2), "inside").get_bool());
 }
 
-TEST(VariantBuilderTest, DictionaryRemapUsesUnsignedUtf8Ordering) {
-    VariantMetadataBuilder metadata;
-    VariantBuilder builder(metadata);
-    auto object_scope = builder.start_object();
-    const std::array<std::string_view, 4> keys {"\xC3\xBF", "z", "\xC2\x80", "a"};
-    for (int64_t index = 0; index < keys.size(); ++index) {
-        object_scope.add_key(string_ref(keys[index]));
-        builder.add_int(index);
-    }
-    object_scope.finish();
-
-    metadata.seal();
-    const std::string encoded = finish_row(builder);
-    const VariantValueRef object = value_ref(metadata, encoded);
+TEST(VariantBlockBuilderTest, DictionaryRemapUsesUnsignedUtf8Ordering) {
+    const OwnedBuilderValue owned = build_owned_value([](VariantBlockBuilder::Row& builder) {
+        auto object_scope = builder.start_object();
+        const std::array<std::string_view, 4> keys {"\xC3\xBF", "z", "\xC2\x80", "a"};
+        for (int64_t index = 0; index < keys.size(); ++index) {
+            object_scope.add_key(string_ref(keys[index]));
+            builder.add_int(index);
+        }
+        object_scope.finish();
+    });
+    const VariantValueRef object = owned.ref();
     validate_canonical(object);
 
     const std::array<std::string_view, 4> sorted_keys {"a", "z", "\xC2\x80", "\xC3\xBF"};
     const std::array<int64_t, 4> expected_values {3, 1, 2, 0};
     for (uint32_t final_id = 0; final_id < sorted_keys.size(); ++final_id) {
-        EXPECT_EQ(metadata.metadata_ref().key_at(final_id), string_ref(sorted_keys[final_id]));
+        EXPECT_EQ(object.metadata.key_at(final_id), string_ref(sorted_keys[final_id]));
         uint32_t decoded_id = std::numeric_limits<uint32_t>::max();
         EXPECT_EQ(object.object_value_at(final_id, &decoded_id).get_int(),
                   expected_values[final_id]);
@@ -451,162 +463,29 @@ TEST(VariantBuilderTest, DictionaryRemapUsesUnsignedUtf8Ordering) {
 }
 
 void expect_reverse_object_is_canonical(uint32_t count) {
-    VariantMetadataBuilder metadata;
-    VariantBuilder builder(metadata);
-    auto object_scope = builder.start_object();
-    for (uint32_t index = count; index != 0; --index) {
-        const std::string key = numbered_key(index - 1);
-        object_scope.add_key(StringRef(key));
-        builder.add_int(index - 1);
-    }
-    object_scope.finish();
-    metadata.seal();
-
-    const std::string encoded = finish_row(builder);
-    const VariantValueRef object = value_ref(metadata, encoded);
+    const OwnedBuilderValue owned = build_owned_value([count](VariantBlockBuilder::Row& builder) {
+        auto object_scope = builder.start_object();
+        for (uint32_t index = count; index != 0; --index) {
+            const std::string key = numbered_key(index - 1);
+            object_scope.add_key(StringRef(key));
+            builder.add_int(index - 1);
+        }
+        object_scope.finish();
+    });
+    const VariantValueRef object = owned.ref();
     validate_canonical(object);
     for (uint32_t index = 0; index < count; ++index) {
         EXPECT_EQ(required_field(object, numbered_key(index)).get_int(), index);
     }
 }
 
-TEST(VariantBuilderTest, ObjectPlanningSortsAcrossSmallObjectThreshold) {
+TEST(VariantBlockBuilderTest, ObjectPlanningSortsAcrossSmallObjectThreshold) {
     // Pass 2 uses insertion sort through 16 fields and std::sort above that threshold.
     expect_reverse_object_is_canonical(16);
     expect_reverse_object_is_canonical(17);
 }
 
-TEST(VariantBuilderTest, BlockRowsShareOneMetadataDictionary) {
-    VariantMetadataBuilder metadata;
-    VariantBuilder first(metadata);
-    VariantBuilder second(metadata);
-    VariantBuilder third(metadata);
-
-    auto first_object = first.start_object();
-    first_object.add_key(string_ref("z"));
-    first.add_int(1);
-    first_object.finish();
-
-    auto second_object = second.start_object();
-    second_object.add_key(string_ref("a"));
-    second.add_int(2);
-    second_object.add_key(string_ref("z"));
-    second.add_int(3);
-    second_object.finish();
-
-    third.add_string(string_ref("scalar row"));
-    metadata.seal();
-
-    const std::string first_value = finish_row(first);
-    const std::string second_value = finish_row(second);
-    const std::string third_value = finish_row(third);
-    const std::vector<VariantValueRef> rows {value_ref(metadata, first_value),
-                                             value_ref(metadata, second_value),
-                                             value_ref(metadata, third_value)};
-    validate_canonical(metadata.metadata_ref(), rows);
-
-    ASSERT_EQ(metadata.metadata_ref().dict_size(), 2);
-    EXPECT_EQ(metadata.metadata_ref().key_at(0), string_ref("a"));
-    EXPECT_EQ(metadata.metadata_ref().key_at(1), string_ref("z"));
-    EXPECT_EQ(required_field(rows[0], "z").get_int(), 1);
-    EXPECT_EQ(required_field(rows[1], "a").get_int(), 2);
-    EXPECT_EQ(required_field(rows[1], "z").get_int(), 3);
-    EXPECT_EQ(rows[2].get_string(), string_ref("scalar row"));
-    EXPECT_EQ(rows[0].metadata.data, rows[1].metadata.data);
-    EXPECT_EQ(rows[1].metadata.data, rows[2].metadata.data);
-}
-
-TEST(VariantBuilderTest, SingleRowDictionaryContainsOnlyReferencedKeys) {
-    VariantMetadataBuilder metadata;
-    VariantBuilder builder(metadata);
-    auto object_scope = builder.start_object();
-    object_scope.add_key(string_ref("only"));
-    builder.add_bool(true);
-    object_scope.finish();
-    metadata.seal();
-
-    const std::string encoded = finish_row(builder);
-    const VariantValueRef value = value_ref(metadata, encoded);
-    validate_canonical(value);
-    EXPECT_EQ(metadata.metadata_ref().dict_size(), 1);
-    EXPECT_EQ(metadata.metadata_ref().key_at(0), string_ref("only"));
-}
-
-TEST(VariantBuilderTest, AbortedRowsDoNotPolluteSharedMetadata) {
-    VariantMetadataBuilder metadata;
-    VariantBuilder discarded(metadata);
-    VariantBuilder retained(metadata);
-
-    auto discarded_object = discarded.start_object();
-    discarded_object.add_key(string_ref("discarded_only"));
-    discarded.add_null();
-    discarded_object.add_key(string_ref("shared"));
-    discarded.add_null();
-    discarded_object.finish();
-
-    auto retained_object = retained.start_object();
-    retained_object.add_key(string_ref("retained_only"));
-    retained.add_int(1);
-    retained_object.add_key(string_ref("shared"));
-    retained.add_int(2);
-    retained_object.finish();
-
-    discarded.abort();
-    metadata.seal();
-    EXPECT_THROW(discarded.abort(), Exception);
-
-    const std::string encoded = finish_row(retained);
-    const VariantValueRef value = value_ref(metadata, encoded);
-    validate_canonical(value);
-    ASSERT_EQ(metadata.metadata_ref().dict_size(), 2);
-    EXPECT_EQ(metadata.metadata_ref().key_at(0), string_ref("retained_only"));
-    EXPECT_EQ(metadata.metadata_ref().key_at(1), string_ref("shared"));
-}
-
-TEST(VariantBuilderTest, DestroyedRowsReleaseCompletedAndIncompleteKeys) {
-    VariantMetadataBuilder metadata;
-    {
-        VariantBuilder completed(metadata);
-        auto object_scope = completed.start_object();
-        object_scope.add_key(string_ref("completed_but_discarded"));
-        completed.add_null();
-        object_scope.finish();
-    }
-    {
-        VariantBuilder incomplete(metadata);
-        auto object_scope = incomplete.start_object();
-        object_scope.add_key(string_ref("incomplete_and_discarded"));
-    }
-
-    VariantBuilder retained(metadata);
-    auto retained_object = retained.start_object();
-    retained_object.add_key(string_ref("retained"));
-    retained.add_null();
-    retained_object.finish();
-    metadata.seal();
-
-    const std::string encoded = finish_row(retained);
-    validate_canonical(value_ref(metadata, encoded));
-    ASSERT_EQ(metadata.metadata_ref().dict_size(), 1);
-    EXPECT_EQ(metadata.metadata_ref().key_at(0), string_ref("retained"));
-}
-
-TEST(VariantBuilderTest, IncompleteRowsBlockSealUntilAborted) {
-    VariantMetadataBuilder metadata;
-    VariantBuilder builder(metadata);
-    auto object_scope = builder.start_object();
-    object_scope.add_key(string_ref("pending"));
-    EXPECT_THROW(metadata.seal(), Exception);
-    builder.abort();
-    metadata.seal();
-    EXPECT_EQ(metadata.metadata_ref().dict_size(), 0);
-    EXPECT_THROW(finish_row(builder), Exception);
-}
-
-TEST(VariantBuilderTest, IntegerAndDecimalWidthsAreMinimal) {
-    VariantMetadataBuilder metadata;
-    VariantBuilder builder(metadata);
-    auto array_scope = builder.start_array();
+TEST(VariantBlockBuilderTest, IntegerAndDecimalWidthsAreMinimal) {
     const std::array<int64_t, 12> integers {
             std::numeric_limits<int8_t>::min() - 1LL,
             std::numeric_limits<int8_t>::min(),
@@ -621,9 +500,6 @@ TEST(VariantBuilderTest, IntegerAndDecimalWidthsAreMinimal) {
             std::numeric_limits<int32_t>::max(),
             static_cast<int64_t>(std::numeric_limits<int32_t>::max()) + 1,
     };
-    for (int64_t value : integers) {
-        builder.add_int(value);
-    }
     const std::array<__int128, 9> decimals {
             0,
             999'999'999,
@@ -635,15 +511,19 @@ TEST(VariantBuilderTest, IntegerAndDecimalWidthsAreMinimal) {
             -static_cast<__int128>(999'999'999'999'999'999),
             -static_cast<__int128>(1'000'000'000'000'000'000),
     };
-    for (__int128 value : decimals) {
-        builder.add_decimal(value, 1);
-    }
-    builder.add_decimal(static_cast<__int128>(power_of_ten(38) - 1), 38);
-    array_scope.finish();
-    metadata.seal();
+    const OwnedBuilderValue owned = build_owned_value([&](VariantBlockBuilder::Row& row) {
+        auto array = row.start_array();
+        for (int64_t value : integers) {
+            row.add_int(value);
+        }
+        for (__int128 value : decimals) {
+            row.add_decimal(value, 1);
+        }
+        row.add_decimal(static_cast<__int128>(power_of_ten(38) - 1), 38);
+        array.finish();
+    });
 
-    const std::string encoded = finish_row(builder);
-    const VariantValueRef value = value_ref(metadata, encoded);
+    const VariantValueRef value = owned.ref();
     validate_canonical(value);
     for (uint32_t index = 0; index < integers.size(); ++index) {
         EXPECT_EQ(value.array_at(index).get_int(), integers[index]);
@@ -657,147 +537,108 @@ TEST(VariantBuilderTest, IntegerAndDecimalWidthsAreMinimal) {
     EXPECT_EQ(value.array_at(integers.size() + decimals.size()).get_decimal().width, 16);
 }
 
-TEST(VariantBuilderTest, DecimalValidationAndLargeIntFallback) {
-    VariantMetadataBuilder metadata;
-    VariantBuilder builder(metadata);
-    EXPECT_THROW(builder.add_decimal(1, 39), Exception);
-    EXPECT_THROW(builder.add_decimal(static_cast<__int128>(power_of_ten(38)), 0), Exception);
+TEST(VariantBlockBuilderTest, DecimalValidationLargeIntFallbackAndExplicitWidths) {
+    VariantBlockBuilder builder;
+    auto row = builder.begin_row();
+    EXPECT_THROW(row.add_decimal(1, 39), Exception);
+    EXPECT_THROW(row.add_decimal(static_cast<__int128>(power_of_ten(38)), 0), Exception);
 
-    auto array_scope = builder.start_array();
-    builder.add_decimal(1, 0);
-    builder.add_largeint(42);
-    builder.add_largeint(std::numeric_limits<__int128>::max());
-    builder.add_largeint(std::numeric_limits<__int128>::min());
-    array_scope.finish();
-    metadata.seal();
+    auto array = row.start_array();
+    row.add_decimal(1, 0);
+    row.add_decimal(1, 38, 4);
+    row.add_decimal(1, 38, 8);
+    row.add_decimal(1, 38, 16);
+    row.add_largeint(42);
+    row.add_largeint(std::numeric_limits<__int128>::max());
+    row.add_largeint(std::numeric_limits<__int128>::min());
+    array.finish();
+    row.finish();
 
-    const std::string encoded = finish_row(builder);
-    const VariantValueRef value = value_ref(metadata, encoded);
+    VariantEncodedBlock block = builder.finish_block();
+    const VariantValueRef value = block.value_at(0);
     validate_canonical(value);
     EXPECT_EQ(value.array_at(0).get_decimal(), (VariantDecimal {1, 0, 4}));
-    EXPECT_EQ(value.array_at(1).get_decimal(), (VariantDecimal {42, 0, 16}));
-    EXPECT_EQ(value.array_at(2).get_string(),
+    EXPECT_EQ(value.array_at(1).get_decimal(), (VariantDecimal {1, 38, 4}));
+    EXPECT_EQ(value.array_at(2).get_decimal(), (VariantDecimal {1, 38, 8}));
+    EXPECT_EQ(value.array_at(3).get_decimal(), (VariantDecimal {1, 38, 16}));
+    EXPECT_EQ(value.array_at(4).get_decimal(), (VariantDecimal {42, 0, 16}));
+    EXPECT_EQ(value.array_at(5).get_string(),
               string_ref("170141183460469231731687303715884105727"));
-    EXPECT_EQ(value.array_at(3).get_string(),
+    EXPECT_EQ(value.array_at(6).get_string(),
               string_ref("-170141183460469231731687303715884105728"));
-}
 
-TEST(VariantBuilderTest,              // NOLINT(readability-function-cognitive-complexity) --
-     ExplicitDecimalPhysicalWidths) { // GoogleTest assertion macros inflate the metric.
-    VariantMetadataBuilder metadata;
-    VariantBuilder builder(metadata);
-    auto array = builder.start_array();
-    builder.add_decimal(1, 38, 4);
-    builder.add_decimal(1, 38, 8);
-    builder.add_decimal(1, 38, 16);
-    array.finish();
-    metadata.seal();
-
-    const std::string encoded = finish_row(builder);
-    const VariantValueRef value = value_ref(metadata, encoded);
-    validate_canonical(value);
-    EXPECT_EQ(value.array_at(0).get_decimal(), (VariantDecimal {1, 38, 4}));
-    EXPECT_EQ(value.array_at(1).get_decimal(), (VariantDecimal {1, 38, 8}));
-    EXPECT_EQ(value.array_at(2).get_decimal(), (VariantDecimal {1, 38, 16}));
-
-    for (uint8_t invalid_width : {uint8_t {0}, uint8_t {1}, uint8_t {5}, uint8_t {17}}) {
-        VariantMetadataBuilder invalid_metadata;
-        VariantBuilder invalid(invalid_metadata);
-        EXPECT_THROW(invalid.add_decimal(1, 0, invalid_width), Exception);
+    for (uint8_t invalid_width : {uint8_t {1}, uint8_t {5}, uint8_t {17}}) {
+        VariantBlockBuilder invalid_builder;
+        auto invalid_row = invalid_builder.begin_row();
+        EXPECT_THROW(invalid_row.add_decimal(1, 0, invalid_width), Exception);
     }
-
-    VariantMetadataBuilder decimal4_metadata;
-    VariantBuilder decimal4(decimal4_metadata);
-    EXPECT_THROW(decimal4.add_decimal(1'000'000'000, 0, 4), Exception);
-    VariantMetadataBuilder decimal8_metadata;
-    VariantBuilder decimal8(decimal8_metadata);
-    EXPECT_THROW(decimal8.add_decimal(static_cast<__int128>(1'000'000'000'000'000'000), 0, 8),
-                 Exception);
+    {
+        VariantBlockBuilder invalid_builder;
+        auto invalid_row = invalid_builder.begin_row();
+        EXPECT_THROW(invalid_row.add_decimal(1'000'000'000, 0, 4), Exception);
+    }
+    {
+        VariantBlockBuilder invalid_builder;
+        auto invalid_row = invalid_builder.begin_row();
+        EXPECT_THROW(
+                invalid_row.add_decimal(static_cast<__int128>(1'000'000'000'000'000'000), 0, 8),
+                Exception);
+    }
 }
 
-TEST(VariantBuilderTest, StringLengthBoundaryUsesShortAndLongForms) {
-    VariantMetadataBuilder metadata;
-    VariantBuilder builder(metadata);
-    auto array_scope = builder.start_array();
-    const std::string short_text(63, 's');
-    const std::string long_text(64, 'l');
-    builder.add_string(StringRef(short_text));
-    builder.add_string(StringRef(long_text));
-    array_scope.finish();
-    metadata.seal();
-
-    const std::string encoded = finish_row(builder);
-    const VariantValueRef value = value_ref(metadata, encoded);
-    validate_canonical(value);
-    EXPECT_EQ(value.array_at(0).basic_type(), VariantBasicType::SHORT_STRING);
-    EXPECT_EQ(value.array_at(1).primitive_id(), VariantPrimitiveId::STRING);
-    EXPECT_EQ(value.array_at(0).get_string(), StringRef(short_text));
-    EXPECT_EQ(value.array_at(1).get_string(), StringRef(long_text));
-}
-
-TEST(VariantBuilderTest, Utf8ValidationPreservesBuilderStateAndBinaryIsExempt) {
-    VariantMetadataBuilder metadata;
-    VariantBuilder builder(metadata);
-    auto object_scope = builder.start_object();
+TEST(VariantBlockBuilderTest, StringBoundariesAndUtf8ValidationPreserveRowState) {
+    VariantBlockBuilder builder;
+    auto row = builder.begin_row();
+    auto object = row.start_object();
     const std::string invalid_key("\xC0\xAF", 2);
-    EXPECT_THROW(object_scope.add_key(StringRef(invalid_key)), Exception);
+    EXPECT_THROW(object.add_key(StringRef(invalid_key)), Exception);
 
-    object_scope.add_key(string_ref("text"));
+    object.add_key(string_ref("short"));
     const std::string invalid_short("\xE2\x28\xA1", 3);
-    EXPECT_THROW(builder.add_string(StringRef(invalid_short)), Exception);
+    EXPECT_THROW(row.add_string(StringRef(invalid_short)), Exception);
+    const std::string short_text(63, 's');
+    row.add_string(StringRef(short_text));
+
+    object.add_key(string_ref("long"));
     std::string invalid_long(64, 'x');
     invalid_long.back() = static_cast<char>(0xFF);
-    EXPECT_THROW(builder.add_string(StringRef(invalid_long)), Exception);
-    const std::string valid_multibyte("\xE4\xB8\xAD", 3);
-    builder.add_string(StringRef(valid_multibyte));
+    EXPECT_THROW(row.add_string(StringRef(invalid_long)), Exception);
+    const std::string long_text(64, 'l');
+    row.add_string(StringRef(long_text));
 
-    object_scope.add_key(string_ref("\xE9\x94\xAE"));
+    object.add_key(string_ref("\xE9\x94\xAE"));
     const std::string non_utf8_binary("\xFF\xC0\xAF", 3);
-    builder.add_binary(StringRef(non_utf8_binary));
-    object_scope.finish();
-    metadata.seal();
+    row.add_binary(StringRef(non_utf8_binary));
+    object.finish();
+    row.finish();
 
-    const std::string encoded = finish_row(builder);
-    const VariantValueRef value = value_ref(metadata, encoded);
+    VariantEncodedBlock block = builder.finish_block();
+    const VariantValueRef value = block.value_at(0);
     validate_canonical(value);
-    EXPECT_EQ(required_field(value, "text").get_string(), StringRef(valid_multibyte));
+    EXPECT_EQ(required_field(value, "short").basic_type(), VariantBasicType::SHORT_STRING);
+    EXPECT_EQ(required_field(value, "long").primitive_id(), VariantPrimitiveId::STRING);
+    EXPECT_EQ(required_field(value, "short").get_string(), StringRef(short_text));
+    EXPECT_EQ(required_field(value, "long").get_string(), StringRef(long_text));
     EXPECT_EQ(required_field(value, "\xE9\x94\xAE").get_binary(), StringRef(non_utf8_binary));
-    ASSERT_EQ(metadata.metadata_ref().dict_size(), 2);
-}
-
-TEST(VariantBuilderTest, Utf8ValidationAcceptsLongMultibyteStrings) {
-    VariantMetadataBuilder metadata;
-    VariantBuilder builder(metadata);
-    std::string value;
-    for (uint8_t index = 0; index < 22; ++index) {
-        value.append("\xE4\xB8\xAD", 3);
-    }
-    builder.add_string(StringRef(value));
-    metadata.seal();
-
-    const std::string encoded = finish_row(builder);
-    validate_canonical(value_ref(metadata, encoded));
-    EXPECT_EQ(value_ref(metadata, encoded).get_string(), StringRef(value));
-    EXPECT_EQ(value_ref(metadata, encoded).primitive_id(), VariantPrimitiveId::STRING);
+    ASSERT_EQ(block.metadata_ref().dict_size(), 3);
 }
 
 std::string build_array_with_nulls(uint32_t count, uint8_t* value_header_out) {
-    VariantMetadataBuilder metadata;
-    VariantBuilder builder(metadata);
-    auto array_scope = builder.start_array();
-    for (uint32_t index = 0; index < count; ++index) {
-        builder.add_null();
-    }
-    array_scope.finish();
-    metadata.seal();
-    std::string encoded = finish_row(builder);
-    validate_canonical(value_ref(metadata, encoded));
-    *value_header_out = static_cast<uint8_t>(encoded[0]) >> VARIANT_VALUE_HEADER_SHIFT;
-    EXPECT_EQ(value_ref(metadata, encoded).num_elements(), count);
-    return encoded;
+    const OwnedBuilderValue owned = build_owned_value([count](VariantBlockBuilder::Row& row) {
+        auto array = row.start_array();
+        for (uint32_t index = 0; index < count; ++index) {
+            row.add_null();
+        }
+        array.finish();
+    });
+    const VariantValueRef value = owned.ref();
+    validate_canonical(value);
+    *value_header_out = static_cast<uint8_t>(owned.value[0]) >> VARIANT_VALUE_HEADER_SHIFT;
+    EXPECT_EQ(value.num_elements(), count);
+    return owned.value;
 }
 
-TEST(VariantBuilderTest, CountAndOffsetWidthsCrossAt255And256) {
+TEST(VariantBlockBuilderTest, CountAndOffsetWidthsCrossAt255And256) {
     uint8_t small_header = 0;
     uint8_t large_header = 0;
     const std::string small = build_array_with_nulls(255, &small_header);
@@ -816,22 +657,20 @@ struct ObjectBoundaryResult {
 };
 
 ObjectBoundaryResult build_object_boundary(uint32_t count) {
-    VariantMetadataBuilder metadata;
-    VariantBuilder builder(metadata);
-    auto object_scope = builder.start_object();
-    for (uint32_t index = 0; index < count; ++index) {
-        const std::string key = numbered_key(index);
-        object_scope.add_key(StringRef(key));
-        builder.add_null();
-    }
-    object_scope.finish();
-    metadata.seal();
-    const std::string encoded = finish_row(builder);
-    const VariantValueRef value = value_ref(metadata, encoded);
+    const OwnedBuilderValue owned = build_owned_value([count](VariantBlockBuilder::Row& row) {
+        auto object = row.start_object();
+        for (uint32_t index = 0; index < count; ++index) {
+            const std::string key = numbered_key(index);
+            object.add_key(StringRef(key));
+            row.add_null();
+        }
+        object.finish();
+    });
+    const VariantValueRef value = owned.ref();
     validate_canonical(value);
     EXPECT_EQ(value.num_elements(), count);
 
-    const uint8_t header = static_cast<uint8_t>(encoded[0]) >> VARIANT_VALUE_HEADER_SHIFT;
+    const uint8_t header = static_cast<uint8_t>(owned.value[0]) >> VARIANT_VALUE_HEADER_SHIFT;
     return {.id_width =
                     static_cast<uint8_t>(((header >> VARIANT_OBJECT_ID_SIZE_SHIFT) & 0x03U) + 1),
             .offset_width = static_cast<uint8_t>(
@@ -839,7 +678,7 @@ ObjectBoundaryResult build_object_boundary(uint32_t count) {
             .is_large = (header & VARIANT_OBJECT_LARGE_MASK) != 0};
 }
 
-TEST(VariantBuilderTest, ObjectIdWidthCrossesAfterFinalId255) {
+TEST(VariantBlockBuilderTest, ObjectIdWidthCrossesAfterFinalId255) {
     const ObjectBoundaryResult count255 = build_object_boundary(255);
     const ObjectBoundaryResult count256 = build_object_boundary(256);
     const ObjectBoundaryResult count257 = build_object_boundary(257);
@@ -855,34 +694,35 @@ TEST(VariantBuilderTest, ObjectIdWidthCrossesAfterFinalId255) {
 }
 
 uint8_t build_metadata_with_key_size(size_t key_size) {
-    VariantMetadataBuilder metadata;
-    VariantBuilder builder(metadata);
-    auto object_scope = builder.start_object();
-    const std::string key(key_size, 'k');
-    object_scope.add_key(StringRef(key));
-    builder.add_null();
-    object_scope.finish();
-    metadata.seal();
-    const std::string encoded = finish_row(builder);
-    validate_canonical(value_ref(metadata, encoded));
-    return metadata.metadata_ref().offset_size();
+    const OwnedBuilderValue owned = build_owned_value([key_size](VariantBlockBuilder::Row& row) {
+        auto object = row.start_object();
+        const std::string key(key_size, 'k');
+        object.add_key(StringRef(key));
+        row.add_null();
+        object.finish();
+    });
+    const VariantValueRef value = owned.ref();
+    validate_canonical(value);
+    return value.metadata.offset_size();
 }
 
-TEST(VariantBuilderTest, MetadataOffsetWidthCrossesAt255And256Bytes) {
+TEST(VariantBlockBuilderTest, MetadataOffsetWidthCrossesAt255And256Bytes) {
     EXPECT_EQ(build_metadata_with_key_size(255), 1);
     EXPECT_EQ(build_metadata_with_key_size(256), 2);
 }
 
-TEST(VariantBuilderTest, CanonicalValidatorRejectsIndependentNonCanonicalBytes) {
-    VariantMetadataBuilder empty_metadata;
-    empty_metadata.seal();
+TEST(VariantBlockBuilderTest, CanonicalValidatorRejectsIndependentNonCanonicalBytes) {
+    const std::string empty_metadata_bytes("\x11\0\0", 3);
+    const VariantMetadataRef empty_metadata {empty_metadata_bytes.data(),
+                                             empty_metadata_bytes.size()};
 
     std::string wide_integer;
     wide_integer.push_back(static_cast<char>(static_cast<uint8_t>(VariantPrimitiveId::INT32)
                                              << VARIANT_VALUE_HEADER_SHIFT));
     wide_integer.push_back(5);
     wide_integer.append(3, '\0');
-    EXPECT_THROW(validate_canonical(value_ref(empty_metadata, wide_integer)), Exception);
+    EXPECT_THROW(validate_canonical({empty_metadata, wide_integer.data(), wide_integer.size()}),
+                 Exception);
 
     std::string long_form_for_short_string;
     long_form_for_short_string.push_back(static_cast<char>(
@@ -890,53 +730,43 @@ TEST(VariantBuilderTest, CanonicalValidatorRejectsIndependentNonCanonicalBytes) 
     long_form_for_short_string.push_back(1);
     long_form_for_short_string.append(3, '\0');
     long_form_for_short_string.push_back('x');
-    EXPECT_THROW(validate_canonical(value_ref(empty_metadata, long_form_for_short_string)),
+    EXPECT_THROW(validate_canonical({empty_metadata, long_form_for_short_string.data(),
+                                     long_form_for_short_string.size()}),
                  Exception);
 
-    VariantMetadataBuilder object_metadata;
-    VariantBuilder object_builder(object_metadata);
-    auto object_scope = object_builder.start_object();
-    object_scope.add_key(string_ref("a"));
-    object_builder.add_null();
-    object_scope.add_key(string_ref("b"));
-    object_builder.add_null();
-    object_scope.finish();
-    object_metadata.seal();
-    const std::string canonical_object = finish_row(object_builder);
-    validate_canonical(value_ref(object_metadata, canonical_object));
-    std::string reversed_ids = canonical_object;
+    const OwnedBuilderValue object = build_owned_value([](VariantBlockBuilder::Row& row) {
+        auto scope = row.start_object();
+        scope.add_key(string_ref("a"));
+        row.add_null();
+        scope.add_key(string_ref("b"));
+        row.add_null();
+        scope.finish();
+    });
+    std::string reversed_ids = object.value;
     std::swap(reversed_ids[2], reversed_ids[3]);
-    EXPECT_THROW(validate_canonical(value_ref(object_metadata, reversed_ids)), Exception);
-
-    VariantMetadataBuilder unused_metadata;
-    unused_metadata.register_key(string_ref("unused"));
-    VariantBuilder scalar_builder(unused_metadata);
-    scalar_builder.add_null();
-    unused_metadata.seal();
-    const std::string scalar = finish_row(scalar_builder);
-    validate_canonical(value_ref(unused_metadata, scalar));
-    EXPECT_EQ(unused_metadata.metadata_ref().dict_size(), 0);
+    EXPECT_THROW(
+            validate_canonical({object.ref().metadata, reversed_ids.data(), reversed_ids.size()}),
+            Exception);
 }
 
-TEST(VariantBuilderTest, CanonicalValidatorChecksDecimalPrecisionAndUtf8Independently) {
-    VariantMetadataBuilder empty_metadata;
-    empty_metadata.seal();
-
+TEST(VariantBlockBuilderTest, CanonicalValidatorChecksDecimalPrecisionIndependently) {
     const std::string undersized_decimal4 =
             decimal_bytes(VariantPrimitiveId::DECIMAL4, 1'000'000'000, 4);
-    EXPECT_THROW(validate_canonical(value_ref(empty_metadata, undersized_decimal4)), Exception);
+    EXPECT_THROW(validate_canonical(value_with_empty_metadata(undersized_decimal4)), Exception);
     const std::string undersized_decimal8 = decimal_bytes(
             VariantPrimitiveId::DECIMAL8, static_cast<__int128>(1'000'000'000'000'000'000), 8);
-    EXPECT_THROW(validate_canonical(value_ref(empty_metadata, undersized_decimal8)), Exception);
+    EXPECT_THROW(validate_canonical(value_with_empty_metadata(undersized_decimal8)), Exception);
     const std::string valid_wide_decimal = decimal_bytes(VariantPrimitiveId::DECIMAL16, 42, 16);
-    validate_canonical(value_ref(empty_metadata, valid_wide_decimal));
+    validate_canonical(value_with_empty_metadata(valid_wide_decimal));
+}
 
+TEST(VariantBlockBuilderTest, CanonicalValidatorChecksValueUtf8Independently) {
     std::string invalid_short;
     invalid_short.push_back(
             static_cast<char>((1 << VARIANT_VALUE_HEADER_SHIFT) |
                               static_cast<uint8_t>(VariantBasicType::SHORT_STRING)));
     invalid_short.push_back(static_cast<char>(0xFF));
-    EXPECT_THROW(validate_canonical(value_ref(empty_metadata, invalid_short)), Exception);
+    EXPECT_THROW(validate_canonical(value_with_empty_metadata(invalid_short)), Exception);
 
     std::string invalid_long;
     invalid_long.push_back(static_cast<char>(static_cast<uint8_t>(VariantPrimitiveId::STRING)
@@ -945,7 +775,7 @@ TEST(VariantBuilderTest, CanonicalValidatorChecksDecimalPrecisionAndUtf8Independ
     invalid_long.append(3, '\0');
     invalid_long.append(63, 'x');
     invalid_long.push_back(static_cast<char>(0xFF));
-    EXPECT_THROW(validate_canonical(value_ref(empty_metadata, invalid_long)), Exception);
+    EXPECT_THROW(validate_canonical(value_with_empty_metadata(invalid_long)), Exception);
 
     std::string invalid_binary;
     invalid_binary.push_back(static_cast<char>(static_cast<uint8_t>(VariantPrimitiveId::BINARY)
@@ -953,8 +783,10 @@ TEST(VariantBuilderTest, CanonicalValidatorChecksDecimalPrecisionAndUtf8Independ
     invalid_binary.push_back(1);
     invalid_binary.append(3, '\0');
     invalid_binary.push_back(static_cast<char>(0xFF));
-    validate_canonical(value_ref(empty_metadata, invalid_binary));
+    validate_canonical(value_with_empty_metadata(invalid_binary));
+}
 
+TEST(VariantBlockBuilderTest, CanonicalValidatorChecksMetadataKeyUtf8Independently) {
     std::string invalid_metadata {
             static_cast<char>(VARIANT_ENCODING_VERSION | VARIANT_METADATA_SORTED_STRINGS_MASK),
             1,
@@ -964,130 +796,10 @@ TEST(VariantBuilderTest, CanonicalValidatorChecksDecimalPrecisionAndUtf8Independ
     };
     const std::string object_with_invalid_key {
             static_cast<char>(VariantBasicType::OBJECT), 1, 0, 0, 1, 0};
-    const VariantMetadataRef metadata_ref {.data = invalid_metadata.data(),
-                                           .size = invalid_metadata.size()};
-    const VariantValueRef row {.metadata = metadata_ref,
+    const VariantValueRef row {.metadata = {invalid_metadata.data(), invalid_metadata.size()},
                                .data = object_with_invalid_key.data(),
                                .size = object_with_invalid_key.size()};
     EXPECT_THROW(validate_canonical(row), Exception);
-}
-
-TEST(VariantBuilderTest, FinishBeforeMetadataSealDoesNotChangeDestination) {
-    VariantMetadataBuilder metadata;
-    VariantBuilder builder(metadata);
-    builder.add_null();
-
-    std::string destination = "prefix";
-    EXPECT_THROW(builder.finish_row(destination), Exception);
-    EXPECT_EQ(destination, "prefix");
-}
-
-TEST(VariantBuilderTest, DuplicateKeysFailBeforeSealAndBadRowCanBeDiscarded) {
-    VariantMetadataBuilder metadata;
-    VariantBuilder bad(metadata);
-    auto bad_object = bad.start_object();
-    bad_object.add_key(string_ref("bad_only"));
-    bad.add_null();
-    bad_object.add_key(string_ref("shared"));
-    bad.add_int(1);
-    bad_object.add_key(string_ref("shared"));
-    bad.add_int(2);
-    EXPECT_THROW(bad_object.finish(), Exception);
-    bad.abort();
-
-    VariantBuilder good(metadata);
-    auto good_object = good.start_object();
-    good_object.add_key(string_ref("shared"));
-    good.add_int(3);
-    good_object.add_key(string_ref("good_only"));
-    good.add_bool(true);
-    good_object.finish();
-    metadata.seal();
-
-    const std::string encoded = finish_row(good);
-    const VariantValueRef value = value_ref(metadata, encoded);
-    validate_canonical(value);
-    ASSERT_EQ(metadata.metadata_ref().dict_size(), 2);
-    EXPECT_EQ(metadata.metadata_ref().key_at(0), string_ref("good_only"));
-    EXPECT_EQ(metadata.metadata_ref().key_at(1), string_ref("shared"));
-    EXPECT_EQ(required_field(value, "shared").get_int(), 3);
-    EXPECT_TRUE(required_field(value, "good_only").get_bool());
-}
-
-// NOLINTNEXTLINE(readability-function-cognitive-complexity) -- GTest macros expand assertions.
-TEST(VariantBuilderTest, ScopeAndFinishMisuseIsRejectedWithoutStateCorruption) {
-    {
-        VariantMetadataBuilder metadata;
-        VariantBuilder builder(metadata);
-        builder.add_null();
-        std::string output = "prefix";
-        EXPECT_THROW(builder.finish_row(output), Exception);
-        EXPECT_EQ(output, "prefix");
-        metadata.seal();
-        builder.finish_row(output);
-        EXPECT_EQ(output.size(), 7);
-        const std::string encoded = output.substr(6);
-        validate_canonical(value_ref(metadata, encoded));
-        EXPECT_THROW(builder.finish_row(output), Exception);
-    }
-    {
-        VariantMetadataBuilder metadata;
-        VariantBuilder builder(metadata);
-        auto object_scope = builder.start_object();
-        object_scope.add_key(string_ref("a"));
-        builder.add_null();
-        object_scope.add_key(string_ref("b"));
-        EXPECT_THROW(object_scope.add_key(string_ref("missing_value")), Exception);
-        EXPECT_THROW(object_scope.finish(), Exception);
-        builder.add_bool(true);
-        object_scope.finish();
-        EXPECT_THROW(object_scope.finish(), Exception);
-        metadata.seal();
-        const std::string encoded = finish_row(builder);
-        validate_canonical(value_ref(metadata, encoded));
-    }
-    {
-        VariantMetadataBuilder metadata;
-        VariantBuilder builder(metadata);
-        auto object_scope = builder.start_object();
-        object_scope.add_key(string_ref("array"));
-        auto array_scope = builder.start_array();
-        builder.add_null();
-        EXPECT_THROW(object_scope.finish(), Exception);
-        EXPECT_THROW(object_scope.add_key(string_ref("later")), Exception);
-        array_scope.finish();
-        object_scope.add_key(string_ref("later"));
-        builder.add_int(1);
-        object_scope.finish();
-        metadata.seal();
-        const std::string encoded = finish_row(builder);
-        validate_canonical(value_ref(metadata, encoded));
-    }
-    {
-        VariantMetadataBuilder metadata;
-        VariantBuilder builder(metadata);
-        auto array_scope = builder.start_array();
-        builder.add_null();
-        EXPECT_THROW(metadata.seal(), Exception);
-        std::string output;
-        EXPECT_THROW(builder.finish_row(output), Exception);
-        EXPECT_TRUE(output.empty());
-        array_scope.finish();
-        EXPECT_THROW(builder.add_null(), Exception);
-        metadata.seal();
-        builder.finish_row(output);
-        validate_canonical(value_ref(metadata, output));
-        EXPECT_THROW(metadata.seal(), Exception);
-    }
-    {
-        VariantMetadataBuilder metadata;
-        EXPECT_THROW(metadata.encoded_metadata(), Exception);
-        EXPECT_THROW(metadata.final_id(0), Exception);
-        metadata.seal();
-        EXPECT_THROW(metadata.register_key(string_ref("late")), Exception);
-        EXPECT_THROW({ VariantBuilder late_builder(metadata); }, Exception);
-        EXPECT_THROW(metadata.seal(), Exception);
-    }
 }
 
 TEST(VariantBlockBuilderTest, SharedMetadataCoversMultipleRowsAndNestedContainers) {
@@ -1348,8 +1060,8 @@ TEST(VariantBlockBuilderTest, SmallCanonicalScalarsStayInlineWithoutArena) {
     validate_canonical(block.value_at(1));
 }
 
-TEST(VariantBlockBuilderTest, InlineScalarPathsMatchPlanFactoryAndLegacyBytes) {
-    const OwnedBuilderValue legacy = build_owned_value([](VariantBuilder& builder) {
+TEST(VariantBlockBuilderTest, InlineScalarPathsMatchPlanFactoryAndCanonicalBytes) {
+    const OwnedBuilderValue canonical = build_owned_value([](VariantBlockBuilder::Row& builder) {
         auto array = builder.start_array();
         builder.add_null();
         builder.add_bool(true);
@@ -1358,7 +1070,7 @@ TEST(VariantBlockBuilderTest, InlineScalarPathsMatchPlanFactoryAndLegacyBytes) {
         builder.add_string(string_ref("abc"));
         array.finish();
     });
-    const VariantValueRef legacy_value = legacy.ref();
+    const VariantValueRef canonical_value = canonical.ref();
     const std::array<std::string, 5> plan_bytes {
             encode_plan(VariantScalarEncodingPlan::null_value()),
             encode_plan(VariantScalarEncodingPlan::boolean(true)),
@@ -1367,7 +1079,7 @@ TEST(VariantBlockBuilderTest, InlineScalarPathsMatchPlanFactoryAndLegacyBytes) {
             encode_plan(VariantScalarEncodingPlan::string(string_ref("abc"))),
     };
     for (size_t index = 0; index < plan_bytes.size(); ++index) {
-        const VariantValueRef child = legacy_value.array_at(static_cast<uint32_t>(index));
+        const VariantValueRef child = canonical_value.array_at(static_cast<uint32_t>(index));
         EXPECT_EQ(std::string(child.data, child.size), plan_bytes[index]);
     }
 
@@ -1385,13 +1097,13 @@ TEST(VariantBlockBuilderTest, InlineScalarPathsMatchPlanFactoryAndLegacyBytes) {
     }
     {
         auto row = builder.begin_row();
-        row.add_value(legacy.ref());
+        row.add_value(canonical.ref());
         row.finish();
     }
     VariantEncodedBlock block = builder.finish_block();
     ASSERT_EQ(block.num_rows(), 2);
     for (size_t row = 0; row < block.num_rows(); ++row) {
-        EXPECT_EQ(std::string(block.value_at(row).data, block.value_at(row).size), legacy.value);
+        EXPECT_EQ(std::string(block.value_at(row).data, block.value_at(row).size), canonical.value);
         validate_canonical(block.value_at(row));
     }
 }
@@ -1560,7 +1272,7 @@ TEST(VariantBlockBuilderTest, PreviousObjectSchemaCachePublishesOnlySuccessfulRo
     }
     add_pair_row();
 
-    const OwnedBuilderValue imported = build_owned_value([](VariantBuilder& source) {
+    const OwnedBuilderValue imported = build_owned_value([](VariantBlockBuilder::Row& source) {
         auto object = source.start_object();
         object.add_key(string_ref("a"));
         source.add_int(3);
@@ -1868,50 +1580,50 @@ TEST(VariantBlockBuilderTest, RowAddValueCanonicalizesNestedBorrowedArrayChild) 
     EXPECT_FALSE(required_field(array_child, "b").get_bool());
 }
 
-TEST(VariantBuilderAddValueTest, ImportsEveryPrimitiveClassAndCopiesBorrowedInput) {
-    OwnedBuilderValue source = build_owned_value([](VariantBuilder& builder) {
-        auto array = builder.start_array();
-        builder.add_null();
-        builder.add_bool(false);
-        builder.add_bool(true);
-        builder.add_int(1);
-        builder.add_int(200);
-        builder.add_int(70'000);
-        builder.add_int(5'000'000'000);
-        builder.add_double(-1.25);
-        builder.add_decimal(123, 2, 4);
-        builder.add_decimal(12'345'678'901, 3, 8);
-        builder.add_decimal(static_cast<__int128>(1) << 80, 4, 16);
-        builder.add_date(-20'000);
-        builder.add_timestamp_micros(-1, true);
-        builder.add_timestamp_micros(1, false);
-        builder.add_float(1.5F);
+TEST(VariantBlockBuilderAddValueTest, ImportsEveryPrimitiveClassAndCopiesBorrowedInput) {
+    OwnedBuilderValue source = build_owned_value([](VariantBlockBuilder::Row& row) {
+        auto array = row.start_array();
+        row.add_null();
+        row.add_bool(false);
+        row.add_bool(true);
+        row.add_int(1);
+        row.add_int(200);
+        row.add_int(70'000);
+        row.add_int(5'000'000'000);
+        row.add_double(-1.25);
+        row.add_decimal(123, 2, 4);
+        row.add_decimal(12'345'678'901, 3, 8);
+        row.add_decimal(static_cast<__int128>(1) << 80, 4, 16);
+        row.add_date(-20'000);
+        row.add_timestamp_micros(-1, true);
+        row.add_timestamp_micros(1, false);
+        row.add_float(1.5F);
         const std::string binary("\0\xFF", 2);
-        builder.add_binary(StringRef(binary));
-        builder.add_string(string_ref("short"));
+        row.add_binary(StringRef(binary));
+        row.add_string(string_ref("short"));
         const std::string long_string(64, 'x');
-        builder.add_string(StringRef(long_string));
-        builder.add_time_ntz_micros(1);
-        builder.add_timestamp_nanos(-1, true);
-        builder.add_timestamp_nanos(1, false);
+        row.add_string(StringRef(long_string));
+        row.add_time_ntz_micros(1);
+        row.add_timestamp_nanos(-1, true);
+        row.add_timestamp_nanos(1, false);
         const std::array<uint8_t, 16> uuid {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
-        builder.add_uuid(uuid);
+        row.add_uuid(uuid);
         array.finish();
     });
     const std::string expected_metadata = source.metadata;
     const std::string expected_value = source.value;
 
-    VariantMetadataBuilder metadata;
-    VariantBuilder builder(metadata);
-    builder.add_value(source.ref());
+    VariantBlockBuilder builder;
+    auto row = builder.begin_row();
+    row.add_value(source.ref());
     source.metadata.assign("invalidated");
     source.value.assign("invalidated");
-    metadata.seal();
-    const std::string encoded = finish_row(builder);
-    const StringRef encoded_metadata = metadata.encoded_metadata();
-    EXPECT_EQ(std::string(encoded_metadata.data, encoded_metadata.size), expected_metadata);
-    EXPECT_EQ(encoded, expected_value);
-    const VariantValueRef root = value_ref(metadata, encoded);
+    row.finish();
+    VariantEncodedBlock block = builder.finish_block();
+
+    EXPECT_EQ(std::string(block.metadata_ref().data, block.metadata_ref().size), expected_metadata);
+    EXPECT_EQ(std::string(block.value_at(0).data, block.value_at(0).size), expected_value);
+    const VariantValueRef root = block.value_at(0);
     validate_canonical(root);
     ASSERT_EQ(root.num_elements(), 22);
     EXPECT_EQ(root.array_at(16).basic_type(), VariantBasicType::SHORT_STRING);
@@ -1919,44 +1631,38 @@ TEST(VariantBuilderAddValueTest, ImportsEveryPrimitiveClassAndCopiesBorrowedInpu
     EXPECT_EQ(root.array_at(21).primitive_id(), VariantPrimitiveId::UUID);
 }
 
-TEST(VariantBuilderAddValueTest, ImportsNestedValueAsActiveArrayChild) {
+TEST(VariantBlockBuilderAddValueTest, ImportsNestedValuesAsActiveChildren) {
     const OwnedBuilderValue source = make_nested_owned_value();
-    VariantMetadataBuilder metadata;
-    VariantBuilder builder(metadata);
-    auto array = builder.start_array();
-    builder.add_int(1);
-    builder.add_value(source.ref());
-    array.finish();
-    metadata.seal();
-    const std::string encoded = finish_row(builder);
-    const VariantValueRef root = value_ref(metadata, encoded);
-    validate_canonical(root);
-    ASSERT_EQ(root.num_elements(), 2);
-    EXPECT_EQ(root.array_at(0).get_int(), 1);
-    const VariantValueRef imported = root.array_at(1);
-    ASSERT_EQ(required_field(imported, "array").num_elements(), 2);
-    EXPECT_EQ(required_field(required_field(imported, "array").array_at(1), "leaf").get_string(),
+    const OwnedBuilderValue array_owned = build_owned_value([&](VariantBlockBuilder::Row& row) {
+        auto array = row.start_array();
+        row.add_int(1);
+        row.add_value(source.ref());
+        array.finish();
+    });
+    const VariantValueRef array_root = array_owned.ref();
+    validate_canonical(array_root);
+    ASSERT_EQ(array_root.num_elements(), 2);
+    EXPECT_EQ(array_root.array_at(0).get_int(), 1);
+    EXPECT_EQ(required_field(required_field(array_root.array_at(1), "array").array_at(1), "leaf")
+                      .get_string(),
+              string_ref("value"));
+
+    const OwnedBuilderValue object_owned = build_owned_value([&](VariantBlockBuilder::Row& row) {
+        auto object = row.start_object();
+        object.add_key(string_ref("wrapped"));
+        row.add_value(source.ref());
+        object.finish();
+    });
+    const VariantValueRef object_root = object_owned.ref();
+    validate_canonical(object_root);
+    EXPECT_EQ(required_field(
+                      required_field(required_field(object_root, "wrapped"), "array").array_at(1),
+                      "leaf")
+                      .get_string(),
               string_ref("value"));
 }
 
-TEST(VariantBuilderAddValueTest, ImportsNestedValueAsActiveObjectChild) {
-    const OwnedBuilderValue source = make_nested_owned_value();
-    VariantMetadataBuilder metadata;
-    VariantBuilder builder(metadata);
-    auto object = builder.start_object();
-    object.add_key(string_ref("wrapped"));
-    builder.add_value(source.ref());
-    object.finish();
-    metadata.seal();
-    const std::string encoded = finish_row(builder);
-    const VariantValueRef root = value_ref(metadata, encoded);
-    validate_canonical(root);
-    const VariantValueRef imported = required_field(root, "wrapped");
-    EXPECT_EQ(required_field(required_field(imported, "array").array_at(1), "leaf").get_string(),
-              string_ref("value"));
-}
-
-TEST(VariantBuilderAddValueTest, CanonicalizesLegalNonCanonicalInputAndCopiesIt) {
+TEST(VariantBlockBuilderAddValueTest, CanonicalizesLegalNonCanonicalInputAndCopiesIt) {
     std::string source_metadata {char {0x01}, char {0x02}, char {0x00}, char {0x01},
                                  char {0x02}, 'b',         'a'};
     std::string source_value {
@@ -1977,108 +1683,77 @@ TEST(VariantBuilderAddValueTest, CanonicalizesLegalNonCanonicalInputAndCopiesIt)
             .data = source_value.data(),
             .size = source_value.size()};
 
-    VariantMetadataBuilder metadata;
-    VariantBuilder builder(metadata);
-    builder.add_value(source);
+    VariantBlockBuilder builder;
+    auto row = builder.begin_row();
+    row.add_value(source);
     source_metadata.assign("invalidated");
     source_value.assign("invalidated");
-    metadata.seal();
-    const std::string encoded = finish_row(builder);
-    const VariantValueRef canonical = value_ref(metadata, encoded);
+    row.finish();
+    VariantEncodedBlock block = builder.finish_block();
+
+    const VariantValueRef canonical = block.value_at(0);
     validate_canonical(canonical);
-    ASSERT_EQ(metadata.metadata_ref().dict_size(), 2);
-    EXPECT_EQ(metadata.metadata_ref().key_at(0), string_ref("a"));
-    EXPECT_EQ(metadata.metadata_ref().key_at(1), string_ref("b"));
+    ASSERT_EQ(block.metadata_ref().dict_size(), 2);
+    EXPECT_EQ(block.metadata_ref().key_at(0), string_ref("a"));
+    EXPECT_EQ(block.metadata_ref().key_at(1), string_ref("b"));
     EXPECT_TRUE(required_field(canonical, "a").get_bool());
     EXPECT_FALSE(required_field(canonical, "b").get_bool());
 }
 
-TEST(VariantBuilderAddValueTest, RejectsTrailingBytesDepthOverflowAndDuplicateFields) {
+void expect_add_value_failure(int code, VariantValueRef source) {
+    VariantBlockBuilder builder;
+    auto row = builder.begin_row();
+    expect_builder_exception_code(code, [&] { row.add_value(source); });
+    row.abort();
+    VariantEncodedBlock block = builder.finish_block();
+    EXPECT_EQ(block.num_rows(), 0);
+    EXPECT_EQ(block.metadata_ref().dict_size(), 0);
+}
+
+TEST(VariantBlockBuilderAddValueTest, RejectsTrailingBytesDepthOverflowAndInvalidObjects) {
     const std::string empty_metadata("\x11\0\0", 3);
     const std::string trailing_nulls(2, '\0');
-    {
-        VariantMetadataBuilder metadata;
-        VariantBuilder builder(metadata);
-        const VariantValueRef trailing {
-                .metadata = {.data = empty_metadata.data(), .size = empty_metadata.size()},
-                .data = trailing_nulls.data(),
-                .size = trailing_nulls.size()};
-        expect_builder_exception_code(ErrorCode::CORRUPTION, [&] { builder.add_value(trailing); });
-        builder.abort();
-        metadata.seal();
-        EXPECT_EQ(metadata.metadata_ref().dict_size(), 0);
-    }
+    expect_add_value_failure(ErrorCode::CORRUPTION, {.metadata = {.data = empty_metadata.data(),
+                                                                  .size = empty_metadata.size()},
+                                                     .data = trailing_nulls.data(),
+                                                     .size = trailing_nulls.size()});
 
-    {
-        VariantMetadataBuilder metadata;
-        VariantBuilder builder(metadata);
-        const std::string decimal_overflow = decimal_bytes(
-                VariantPrimitiveId::DECIMAL16, static_cast<__int128>(power_of_ten(38)), 16);
-        const VariantValueRef source {
-                .metadata = {.data = empty_metadata.data(), .size = empty_metadata.size()},
-                .data = decimal_overflow.data(),
-                .size = decimal_overflow.size()};
-        expect_builder_exception_code(ErrorCode::CORRUPTION, [&] { builder.add_value(source); });
-        builder.abort();
-        metadata.seal();
-        EXPECT_EQ(metadata.metadata_ref().dict_size(), 0);
-    }
+    const std::string decimal_overflow = decimal_bytes(VariantPrimitiveId::DECIMAL16,
+                                                       static_cast<__int128>(power_of_ten(38)), 16);
+    expect_add_value_failure(ErrorCode::CORRUPTION, {.metadata = {.data = empty_metadata.data(),
+                                                                  .size = empty_metadata.size()},
+                                                     .data = decimal_overflow.data(),
+                                                     .size = decimal_overflow.size()});
 
-    VariantMetadataBuilder source_metadata;
-    VariantBuilder source_builder(source_metadata);
-    std::vector<VariantBuilder::ArrayScope> arrays;
-    for (uint32_t depth = 0; depth <= VARIANT_MAX_NESTING_DEPTH; ++depth) {
-        arrays.emplace_back(source_builder.start_array());
-    }
-    source_builder.add_null();
-    for (auto& array : std::ranges::reverse_view(arrays)) {
-        array.finish();
-    }
-    source_metadata.seal();
-    const std::string too_deep_value = finish_row(source_builder);
-    {
-        VariantMetadataBuilder metadata;
-        VariantBuilder builder(metadata);
-        const VariantValueRef too_deep {.metadata = source_metadata.metadata_ref(),
-                                        .data = too_deep_value.data(),
-                                        .size = too_deep_value.size()};
-        expect_builder_exception_code(ErrorCode::INVALID_ARGUMENT,
-                                      [&] { builder.add_value(too_deep); });
-        builder.abort();
-        metadata.seal();
-        EXPECT_EQ(metadata.metadata_ref().dict_size(), 0);
-    }
+    const OwnedBuilderValue too_deep = build_owned_value([](VariantBlockBuilder::Row& row) {
+        std::vector<VariantBlockBuilder::Row::ArrayScope> arrays;
+        for (uint32_t depth = 0; depth <= VARIANT_MAX_NESTING_DEPTH; ++depth) {
+            arrays.emplace_back(row.start_array());
+        }
+        row.add_null();
+        for (auto& array : std::ranges::reverse_view(arrays)) {
+            array.finish();
+        }
+    });
+    expect_add_value_failure(ErrorCode::INVALID_ARGUMENT, too_deep.ref());
 
     const std::string one_key_metadata {char {0x11}, char {0x01}, char {0x00}, char {0x01}, 'a'};
     const std::string duplicate_object {char {0x02}, char {0x02}, char {0x00},
                                         char {0x00}, char {0x00}, char {0x01},
                                         char {0x02}, char {0x00}, char {0x00}};
-    {
-        VariantMetadataBuilder metadata;
-        VariantBuilder builder(metadata);
-        const VariantValueRef duplicate {
-                .metadata = {.data = one_key_metadata.data(), .size = one_key_metadata.size()},
-                .data = duplicate_object.data(),
-                .size = duplicate_object.size()};
-        expect_builder_exception_code(ErrorCode::CORRUPTION, [&] { builder.add_value(duplicate); });
-        builder.abort();
-        metadata.seal();
-        EXPECT_EQ(metadata.metadata_ref().dict_size(), 0);
-    }
+    expect_add_value_failure(ErrorCode::CORRUPTION, {.metadata = {.data = one_key_metadata.data(),
+                                                                  .size = one_key_metadata.size()},
+                                                     .data = duplicate_object.data(),
+                                                     .size = duplicate_object.size()});
 
     const std::string two_key_metadata {char {0x11}, char {0x02}, char {0x00}, char {0x01},
                                         char {0x02}, 'a',         'b'};
     const auto expect_invalid_object_partition = [&](const std::string& object) {
-        VariantMetadataBuilder metadata;
-        VariantBuilder builder(metadata);
-        const VariantValueRef source {
-                .metadata = {.data = two_key_metadata.data(), .size = two_key_metadata.size()},
-                .data = object.data(),
-                .size = object.size()};
-        expect_builder_exception_code(ErrorCode::CORRUPTION, [&] { builder.add_value(source); });
-        builder.abort();
-        metadata.seal();
-        EXPECT_EQ(metadata.metadata_ref().dict_size(), 0);
+        expect_add_value_failure(
+                ErrorCode::CORRUPTION,
+                {.metadata = {.data = two_key_metadata.data(), .size = two_key_metadata.size()},
+                 .data = object.data(),
+                 .size = object.size()});
     };
     const std::string overlapping_object {char {0x02}, char {0x02}, char {0x00}, char {0x01},
                                           char {0x00}, char {0x00}, char {0x01}, char {0x00}};
@@ -2093,38 +1768,23 @@ TEST(VariantBuilderAddValueTest, RejectsTrailingBytesDepthOverflowAndDuplicateFi
     expect_invalid_object_partition(object_with_trailing_value);
 }
 
-TEST(VariantBuilderAddValueTest, InvalidUtf8StringAndKeyAbortWithoutRetainingMetadata) {
+TEST(VariantBlockBuilderAddValueTest, InvalidUtf8DoesNotRetainMetadata) {
     const std::string empty_metadata("\x11\0\0", 3);
     const std::string invalid_string {char {0x05}, static_cast<char>(0xFF)};
-    {
-        VariantMetadataBuilder metadata;
-        VariantBuilder builder(metadata);
-        const VariantValueRef source {
-                .metadata = {.data = empty_metadata.data(), .size = empty_metadata.size()},
-                .data = invalid_string.data(),
-                .size = invalid_string.size()};
-        expect_builder_exception_code(ErrorCode::CORRUPTION, [&] { builder.add_value(source); });
-        builder.abort();
-        metadata.seal();
-        EXPECT_EQ(metadata.metadata_ref().dict_size(), 0);
-    }
+    expect_add_value_failure(ErrorCode::CORRUPTION, {.metadata = {.data = empty_metadata.data(),
+                                                                  .size = empty_metadata.size()},
+                                                     .data = invalid_string.data(),
+                                                     .size = invalid_string.size()});
 
     const std::string invalid_key_metadata {char {0x11}, char {0x01}, char {0x00}, char {0x01},
                                             static_cast<char>(0xFF)};
     const std::string object_value {char {0x02}, char {0x01}, char {0x00},
                                     char {0x00}, char {0x01}, char {0x00}};
-    {
-        VariantMetadataBuilder metadata;
-        VariantBuilder builder(metadata);
-        const VariantValueRef source {.metadata = {.data = invalid_key_metadata.data(),
-                                                   .size = invalid_key_metadata.size()},
-                                      .data = object_value.data(),
-                                      .size = object_value.size()};
-        expect_builder_exception_code(ErrorCode::CORRUPTION, [&] { builder.add_value(source); });
-        builder.abort();
-        metadata.seal();
-        EXPECT_EQ(metadata.metadata_ref().dict_size(), 0);
-    }
+    expect_add_value_failure(
+            ErrorCode::CORRUPTION,
+            {.metadata = {.data = invalid_key_metadata.data(), .size = invalid_key_metadata.size()},
+             .data = object_value.data(),
+             .size = object_value.size()});
 }
 
 #ifdef BE_TEST
@@ -2216,11 +1876,11 @@ TEST(VariantBlockBuilderTest, BlockLifetimeAllocationsAreMemTrackerVisible) {
 }
 #endif
 
-TEST(VariantBuilderTest, MillionFieldObjectIsCanonicalAndReadable) {
+TEST(VariantBlockBuilderTest, MillionFieldObjectIsCanonicalAndReadable) {
     constexpr uint32_t FIELD_COUNT = 1'000'000;
-    VariantMetadataBuilder metadata;
-    VariantBuilder builder(metadata);
-    auto object_scope = builder.start_object();
+    VariantBlockBuilder builder;
+    auto row = builder.begin_row();
+    auto object_scope = row.start_object();
     char key[7] {'k', '0', '0', '0', '0', '0', '0'};
     for (uint32_t index = 0; index < FIELD_COUNT; ++index) {
         uint32_t remaining = index;
@@ -2229,17 +1889,17 @@ TEST(VariantBuilderTest, MillionFieldObjectIsCanonicalAndReadable) {
             remaining /= 10;
         }
         object_scope.add_key({key, sizeof(key)});
-        builder.add_null();
+        row.add_null();
     }
     object_scope.finish();
-    metadata.seal();
+    row.finish();
 
-    const std::string encoded = finish_row(builder);
-    const VariantValueRef value = value_ref(metadata, encoded);
+    VariantEncodedBlock block = builder.finish_block();
+    const VariantValueRef value = block.value_at(0);
     validate_canonical(value);
-    ASSERT_EQ(metadata.metadata_ref().dict_size(), FIELD_COUNT);
+    ASSERT_EQ(block.metadata_ref().dict_size(), FIELD_COUNT);
     ASSERT_EQ(value.num_elements(), FIELD_COUNT);
-    EXPECT_EQ(metadata.metadata_ref().offset_size(), 3);
+    EXPECT_EQ(block.metadata_ref().offset_size(), 3);
     EXPECT_TRUE(value.object_value_at(0, nullptr).is_null());
     EXPECT_TRUE(value.object_value_at(FIELD_COUNT / 2, nullptr).is_null());
     EXPECT_TRUE(value.object_value_at(FIELD_COUNT - 1, nullptr).is_null());

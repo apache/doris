@@ -24,7 +24,6 @@
 #include <chrono>
 #include <cstdint>
 #include <cstring>
-#include <deque>
 #include <iostream>
 #include <limits>
 #include <ranges>
@@ -36,7 +35,7 @@
 
 #include "common/exception.h"
 #include "util/jsonb_writer.h"
-#include "util/variant/variant_builder.h"
+#include "util/variant/variant_block_builder.h"
 #include "util/variant/variant_canonical.h"
 #include "variant_test_utils.h"
 
@@ -73,17 +72,16 @@ std::string jsonb_bytes(JsonbWriter& writer) {
 }
 
 OwnedVariant encode_jsonb(std::string_view document) {
-    VariantMetadataBuilder metadata;
-    VariantBuilder builder(metadata);
-    jsonb_to_variant(string_ref(document), builder);
-    metadata.seal();
-    std::string value;
-    builder.finish_row(value);
-    validate_canonical(
-            {.metadata = metadata.metadata_ref(), .data = value.data(), .size = value.size()});
-    const StringRef encoded_metadata = metadata.encoded_metadata();
-    return {.metadata = std::string(encoded_metadata.data, encoded_metadata.size),
-            .value = std::move(value)};
+    VariantBlockBuilder builder;
+    auto row = builder.begin_row();
+    jsonb_to_variant(string_ref(document), row);
+    row.finish();
+    VariantEncodedBlock block = builder.finish_block();
+    validate_canonical(block.value_at(0));
+    const VariantMetadataRef metadata = block.metadata_ref();
+    const VariantValueRef value = block.value_at(0);
+    return {.metadata = std::string(metadata.data, metadata.size),
+            .value = std::string(value.data, value.size)};
 }
 
 std::string block_value_bytes(const VariantEncodedBlock& block) {
@@ -98,12 +96,17 @@ std::vector<uint32_t> block_value_offsets(const VariantEncodedBlock& block) {
 
 void expect_jsonb_failure_and_aborted( // NOLINT(readability-function-cognitive-complexity) --
         std::string_view document) {   // GoogleTest exception macros inflate the metric.
-    VariantMetadataBuilder metadata;
-    VariantBuilder builder(metadata);
-    EXPECT_THROW(jsonb_to_variant(string_ref(document), builder), Exception);
-    EXPECT_NO_THROW(metadata.seal());
-    std::string encoded;
-    EXPECT_THROW(builder.finish_row(encoded), Exception);
+    VariantBlockBuilder builder;
+    auto row = builder.begin_row();
+    EXPECT_THROW(jsonb_to_variant(string_ref(document), row), Exception);
+    EXPECT_EQ(builder.finish_block().num_rows(), 0);
+}
+
+template <typename Decimal>
+void expect_invalid_jsonb_decimal(Decimal value, uint32_t precision, uint32_t scale) {
+    JsonbWriter writer;
+    EXPECT_TRUE(writer.writeDecimal(value, precision, scale));
+    expect_jsonb_failure_and_aborted(jsonb_bytes(writer));
 }
 
 template <typename T>
@@ -133,27 +136,18 @@ __int128 power_of_ten_128(uint8_t exponent) {
     return value;
 }
 
-wide::Int256 power_of_ten_256(uint8_t exponent) {
-    wide::Int256 value = 1;
-    for (uint8_t digit = 0; digit < exponent; ++digit) {
-        value *= 10;
-    }
-    return value;
-}
-
 template <typename Fill>
 OwnedVariant build_variant(Fill&& fill) {
-    VariantMetadataBuilder metadata;
-    VariantBuilder builder(metadata);
-    fill(builder);
-    metadata.seal();
-    std::string value;
-    builder.finish_row(value);
-    validate_canonical(
-            {.metadata = metadata.metadata_ref(), .data = value.data(), .size = value.size()});
-    const StringRef encoded_metadata = metadata.encoded_metadata();
-    return {.metadata = std::string(encoded_metadata.data, encoded_metadata.size),
-            .value = std::move(value)};
+    VariantBlockBuilder builder;
+    auto row = builder.begin_row();
+    fill(row);
+    row.finish();
+    VariantEncodedBlock block = builder.finish_block();
+    validate_canonical(block.value_at(0));
+    const VariantMetadataRef metadata = block.metadata_ref();
+    const VariantValueRef value = block.value_at(0);
+    return {.metadata = std::string(metadata.data, metadata.size),
+            .value = std::string(value.data, value.size)};
 }
 
 std::string encode_variant_jsonb(VariantValueRef value, const VariantJsonFormatOptions& options =
@@ -180,8 +174,8 @@ std::string_view jsonb_blob(const JsonbValue* value) {
 }
 
 OwnedVariant nested_variant_arrays(uint32_t count) {
-    return build_variant([&](VariantBuilder& builder) {
-        std::vector<VariantBuilder::ArrayScope> scopes;
+    return build_variant([&](VariantBlockBuilder::Row& builder) {
+        std::vector<VariantBlockBuilder::Row::ArrayScope> scopes;
         scopes.reserve(count);
         for (uint32_t index = 0; index < count; ++index) {
             scopes.push_back(builder.start_array());
@@ -230,12 +224,11 @@ TEST(VariantJsonbTest, AllJsonbTypesMapToCanonicalVariant) {
     ASSERT_TRUE(writer.writeDecimal(Decimal32 {123}, 3, 38));
     ASSERT_TRUE(writer.writeDecimal(Decimal64 {12'345'678'901}, 11, 38));
     ASSERT_TRUE(writer.writeDecimal(Decimal128V3 {power_of_ten_128(20)}, 21, 6));
-    ASSERT_TRUE(writer.writeDecimal(Decimal256 {wide::Int256(12'345)}, 5, 3));
     ASSERT_TRUE(writer.writeEndArray());
 
     const OwnedVariant encoded = encode_jsonb(jsonb_bytes(writer));
     const VariantValueRef root = encoded.ref();
-    ASSERT_EQ(root.num_elements(), 18);
+    ASSERT_EQ(root.num_elements(), 17);
     EXPECT_TRUE(root.array_at(0).is_null());
     EXPECT_TRUE(root.array_at(1).get_bool());
     EXPECT_FALSE(root.array_at(2).get_bool());
@@ -255,8 +248,6 @@ TEST(VariantJsonbTest, AllJsonbTypesMapToCanonicalVariant) {
     EXPECT_EQ(root.array_at(14).get_decimal(), (VariantDecimal {123, 38, 4}));
     EXPECT_EQ(root.array_at(15).get_decimal(), (VariantDecimal {12'345'678'901, 38, 8}));
     EXPECT_EQ(root.array_at(16).get_decimal(), (VariantDecimal {power_of_ten_128(20), 6, 16}));
-    EXPECT_EQ(root.array_at(17).get_string(), string_ref("12.345"));
-
     const OwnedVariant semantic_roundtrip = encode_jsonb(encode_variant_jsonb(root));
     EXPECT_TRUE(canonical_equals(root, semantic_roundtrip.ref()));
 }
@@ -285,79 +276,50 @@ TEST(VariantJsonbTest, Int128BoundariesUseDecimal16OrStringFallback) {
               string_ref("-170141183460469231731687303715884105728"));
 }
 
-TEST(VariantJsonbTest, // NOLINT(readability-function-cognitive-complexity) --
-     DecimalValidationAndDecimal256Fallback) { // GoogleTest assertions inflate the metric.
+TEST(VariantJsonbTest, DecimalScale38IsEncodedCanonically) {
     JsonbWriter valid;
     ASSERT_TRUE(valid.writeStartArray());
     ASSERT_TRUE(valid.writeDecimal(Decimal32 {1}, 1, 38));
     ASSERT_TRUE(valid.writeDecimal(Decimal64 {1}, 1, 38));
     ASSERT_TRUE(valid.writeDecimal(Decimal128V3 {-1}, 1, 38));
-    ASSERT_TRUE(valid.writeDecimal(Decimal256 {wide::Int256(-1)}, 1, 76));
     ASSERT_TRUE(valid.writeEndArray());
     const OwnedVariant encoded = encode_jsonb(jsonb_bytes(valid));
     EXPECT_EQ(encoded.ref().array_at(0).get_decimal(), (VariantDecimal {1, 38, 4}));
     EXPECT_EQ(encoded.ref().array_at(1).get_decimal(), (VariantDecimal {1, 38, 8}));
     EXPECT_EQ(encoded.ref().array_at(2).get_decimal(), (VariantDecimal {-1, 38, 16}));
-    EXPECT_EQ(encoded.ref().array_at(3).get_string(),
-              string_ref("-0."
-                         "0000000000000000000000000000000000000000000000000000000000000000000000000"
-                         "001"));
+}
 
-    const auto expect_invalid_decimal32 = [](int32_t value, uint32_t precision, uint32_t scale) {
-        JsonbWriter writer;
-        EXPECT_TRUE(writer.writeDecimal(Decimal32 {value}, precision, scale));
-        expect_jsonb_failure_and_aborted(jsonb_bytes(writer));
-    };
-    expect_invalid_decimal32(1, 0, 0);
-    expect_invalid_decimal32(1, 10, 0);
-    expect_invalid_decimal32(100, 2, 0);
-    expect_invalid_decimal32(1, 1, 39);
+TEST(VariantJsonbTest, InvalidDecimalMetadataAndPrecisionAbortRow) {
+    expect_invalid_jsonb_decimal(Decimal32 {1}, 0, 0);
+    expect_invalid_jsonb_decimal(Decimal32 {1}, 10, 0);
+    expect_invalid_jsonb_decimal(Decimal32 {100}, 2, 0);
+    expect_invalid_jsonb_decimal(Decimal32 {1}, 1, 39);
 
-    const auto expect_invalid_decimal64 = [](int64_t value, uint32_t precision, uint32_t scale) {
-        JsonbWriter writer;
-        EXPECT_TRUE(writer.writeDecimal(Decimal64 {value}, precision, scale));
-        expect_jsonb_failure_and_aborted(jsonb_bytes(writer));
-    };
-    expect_invalid_decimal64(1, 0, 0);
-    expect_invalid_decimal64(1, 19, 0);
-    expect_invalid_decimal64(100, 2, 0);
-    expect_invalid_decimal64(1, 1, 39);
+    expect_invalid_jsonb_decimal(Decimal64 {1}, 0, 0);
+    expect_invalid_jsonb_decimal(Decimal64 {1}, 19, 0);
+    expect_invalid_jsonb_decimal(Decimal64 {100}, 2, 0);
+    expect_invalid_jsonb_decimal(Decimal64 {1}, 1, 39);
 
-    const auto expect_invalid_decimal128 = [](__int128 value, uint32_t precision, uint32_t scale) {
-        JsonbWriter writer;
-        EXPECT_TRUE(writer.writeDecimal(Decimal128V3 {value}, precision, scale));
-        expect_jsonb_failure_and_aborted(jsonb_bytes(writer));
-    };
-    expect_invalid_decimal128(1, 0, 0);
-    expect_invalid_decimal128(1, 39, 0);
-    expect_invalid_decimal128(100, 2, 0);
-    expect_invalid_decimal128(1, 1, 39);
+    expect_invalid_jsonb_decimal(Decimal128V3 {1}, 0, 0);
+    expect_invalid_jsonb_decimal(Decimal128V3 {1}, 39, 0);
+    expect_invalid_jsonb_decimal(Decimal128V3 {100}, 2, 0);
+    expect_invalid_jsonb_decimal(Decimal128V3 {1}, 1, 39);
+}
 
-    const wide::Int256 maximum_decimal256 = power_of_ten_256(76) - 1;
-    JsonbWriter maximum_decimal256_writer;
-    ASSERT_TRUE(maximum_decimal256_writer.writeDecimal(Decimal256 {maximum_decimal256}, 76, 38));
-    const OwnedVariant maximum_encoded = encode_jsonb(jsonb_bytes(maximum_decimal256_writer));
-    EXPECT_EQ(maximum_encoded.ref().get_string(),
-              StringRef(std::string(38, '9') + "." + std::string(38, '9')));
-
-    const auto expect_invalid_decimal256 = [](const wide::Int256& value, uint32_t precision,
-                                              uint32_t scale) {
-        JsonbWriter writer;
-        EXPECT_TRUE(writer.writeDecimal(Decimal256 {value}, precision, scale));
-        expect_jsonb_failure_and_aborted(jsonb_bytes(writer));
-    };
-    expect_invalid_decimal256(power_of_ten_256(76), 76, 0);
-    expect_invalid_decimal256(wide::Int256(1), 77, 0);
-    expect_invalid_decimal256(wide::Int256(100), 2, 0);
-    expect_invalid_decimal256(wide::Int256(1), 1, 77);
-
-    JsonbWriter negative_maximum_decimal256_writer;
-    ASSERT_TRUE(negative_maximum_decimal256_writer.writeDecimal(Decimal256 {-maximum_decimal256},
-                                                                76, 76));
-    const OwnedVariant negative_maximum_encoded =
-            encode_jsonb(jsonb_bytes(negative_maximum_decimal256_writer));
-    EXPECT_EQ(negative_maximum_encoded.ref().get_string(),
-              StringRef(std::string("-0.") + std::string(76, '9')));
+TEST(VariantJsonbTest, Decimal256IsRejectedAndAbortsRow) {
+    JsonbWriter decimal256;
+    ASSERT_TRUE(decimal256.writeDecimal(Decimal256 {wide::Int256(-12'345)}, 5, 3));
+    const std::string decimal256_document = jsonb_bytes(decimal256);
+    VariantBlockBuilder builder;
+    auto row = builder.begin_row();
+    try {
+        jsonb_to_variant(StringRef(decimal256_document), row);
+        FAIL() << "Expected DECIMAL256 rejection";
+    } catch (const Exception& exception) {
+        EXPECT_EQ(exception.code(), ErrorCode::INVALID_ARGUMENT);
+        EXPECT_NE(std::string_view(exception.what()).find("DECIMAL256"), std::string_view::npos);
+    }
+    EXPECT_EQ(builder.finish_block().num_rows(), 0);
 }
 
 TEST(VariantJsonbTest, // NOLINT(readability-function-cognitive-complexity) --
@@ -388,12 +350,10 @@ TEST(VariantJsonbTest, // NOLINT(readability-function-cognitive-complexity) --
         }
     }
 
-    VariantMetadataBuilder metadata;
-    VariantBuilder builder(metadata);
-    EXPECT_THROW(jsonb_to_variant({static_cast<const char*>(nullptr), 1}, builder), Exception);
-    EXPECT_NO_THROW(metadata.seal());
-    std::string encoded;
-    EXPECT_THROW(builder.finish_row(encoded), Exception);
+    VariantBlockBuilder builder;
+    auto row = builder.begin_row();
+    EXPECT_THROW(jsonb_to_variant({static_cast<const char*>(nullptr), 1}, row), Exception);
+    EXPECT_EQ(builder.finish_block().num_rows(), 0);
 }
 
 TEST(VariantJsonbTest, ContainersEmptyKeyAndMaximumKeyLength) {
@@ -457,7 +417,7 @@ TEST(VariantJsonbTest, // NOLINT(readability-function-cognitive-complexity) --
     ASSERT_TRUE(object_writer.writeInt64(1));
     ASSERT_TRUE(object_writer.writeEndObject());
     JsonbWriter decimal_writer;
-    ASSERT_TRUE(decimal_writer.writeDecimal(Decimal256 {wide::Int256(123)}, 3, 2));
+    ASSERT_TRUE(decimal_writer.writeDecimal(Decimal128V3 {123}, 3, 2));
 
     for (const std::string& valid : {jsonb_bytes(string_writer), jsonb_bytes(binary_writer),
                                      jsonb_bytes(object_writer), jsonb_bytes(decimal_writer)}) {
@@ -498,7 +458,7 @@ TEST(VariantJsonbTest, // NOLINT(readability-function-cognitive-complexity) --
     }
     const std::string binary("\0\x01\x02\xFF", 4);
     const std::string long_string(64, 's');
-    const OwnedVariant encoded = build_variant([&](VariantBuilder& builder) {
+    const OwnedVariant encoded = build_variant([&](VariantBlockBuilder::Row& builder) {
         auto array = builder.start_array();
         builder.add_null();
         builder.add_bool(true);
@@ -570,7 +530,7 @@ TEST(VariantJsonbTest, // NOLINT(readability-function-cognitive-complexity) --
 }
 
 TEST(VariantJsonbTest, TimestampFallbackUsesSharedTimezoneContract) {
-    const OwnedVariant encoded = build_variant([](VariantBuilder& builder) {
+    const OwnedVariant encoded = build_variant([](VariantBlockBuilder::Row& builder) {
         auto array = builder.start_array();
         builder.add_timestamp_micros(-1, true);
         builder.add_timestamp_micros(-1, false);
@@ -589,7 +549,7 @@ TEST(VariantJsonbTest, TimestampFallbackUsesSharedTimezoneContract) {
 }
 
 TEST(VariantJsonbTest, DecimalScale38OutputIsAcceptedByJsonbReader) {
-    const OwnedVariant source = build_variant([](VariantBuilder& builder) {
+    const OwnedVariant source = build_variant([](VariantBlockBuilder::Row& builder) {
         auto array = builder.start_array();
         builder.add_decimal(1, 38, 4);
         builder.add_decimal(-1, 38, 8);
@@ -602,7 +562,7 @@ TEST(VariantJsonbTest, DecimalScale38OutputIsAcceptedByJsonbReader) {
     EXPECT_EQ(roundtrip.ref().array_at(2).get_decimal(), (VariantDecimal {42, 0, 16}));
 }
 
-TEST(VariantJsonbTest, Int128AndDecimal256RoundTripUseDocumentedFallbackTypes) {
+TEST(VariantJsonbTest, Int128FallbackRoundTrips) {
     JsonbWriter small_int128;
     ASSERT_TRUE(small_int128.writeInt128(42));
     const OwnedVariant small_variant = encode_jsonb(jsonb_bytes(small_int128));
@@ -621,19 +581,11 @@ TEST(VariantJsonbTest, Int128AndDecimal256RoundTripUseDocumentedFallbackTypes) {
     const JsonbValue* large_root = jsonb_root(large_document);
     ASSERT_EQ(large_root->type, JsonbType::T_String);
     EXPECT_EQ(jsonb_blob(large_root), "170141183460469231731687303715884105727");
-
-    JsonbWriter decimal256;
-    ASSERT_TRUE(decimal256.writeDecimal(Decimal256 {wide::Int256(-12'345)}, 5, 3));
-    const OwnedVariant decimal_variant = encode_jsonb(jsonb_bytes(decimal256));
-    const std::string decimal_document = encode_variant_jsonb(decimal_variant.ref());
-    const JsonbValue* decimal_root = jsonb_root(decimal_document);
-    ASSERT_EQ(decimal_root->type, JsonbType::T_String);
-    EXPECT_EQ(jsonb_blob(decimal_root), "-12.345");
 }
 
 TEST(VariantJsonbTest, VariantEmptyContainersAndJsonbKeyBoundaries) {
     const std::string maximum_key(255, 'm');
-    const OwnedVariant source = build_variant([&](VariantBuilder& builder) {
+    const OwnedVariant source = build_variant([&](VariantBlockBuilder::Row& builder) {
         auto root = builder.start_array();
         auto empty_object = builder.start_object();
         empty_object.finish();
@@ -710,7 +662,8 @@ TEST(VariantJsonbTest, VariantContainerDepthUsesWriterLimit) {
 
 TEST(VariantJsonbTest, // NOLINT(readability-function-cognitive-complexity) --
      VariantFailuresResetWriterAndRejectUnrepresentableKeys) { // GoogleTest macros inflate metric.
-    const OwnedVariant valid = build_variant([](VariantBuilder& builder) { builder.add_null(); });
+    const OwnedVariant valid =
+            build_variant([](VariantBlockBuilder::Row& builder) { builder.add_null(); });
     OwnedVariant trailing = valid;
     trailing.value.push_back('\0');
 
@@ -722,7 +675,7 @@ TEST(VariantJsonbTest, // NOLINT(readability-function-cognitive-complexity) --
     EXPECT_TRUE(jsonb_root(jsonb_bytes(writer))->isNull());
 
     const std::string oversized_key(256, 'k');
-    const OwnedVariant oversized = build_variant([&](VariantBuilder& builder) {
+    const OwnedVariant oversized = build_variant([&](VariantBlockBuilder::Row& builder) {
         auto object = builder.start_object();
         object.add_key(StringRef(oversized_key));
         builder.add_null();
@@ -731,15 +684,16 @@ TEST(VariantJsonbTest, // NOLINT(readability-function-cognitive-complexity) --
     EXPECT_THROW(variant_to_jsonb(oversized.ref(), writer), Exception);
     EXPECT_EQ(writer.getOutput()->getSize(), 0);
 
-    const OwnedVariant invalid_time =
-            build_variant([](VariantBuilder& builder) { builder.add_time_ntz_micros(-1); });
+    const OwnedVariant invalid_time = build_variant(
+            [](VariantBlockBuilder::Row& builder) { builder.add_time_ntz_micros(-1); });
     EXPECT_THROW(variant_to_jsonb(invalid_time.ref(), writer), Exception);
     EXPECT_EQ(writer.getOutput()->getSize(), 0);
 }
 
 TEST(VariantJsonbTest, MalformedVariantStringsAndDecimalsFailExplicitly) {
-    VariantMetadataBuilder empty_metadata;
-    empty_metadata.seal();
+    const std::string empty_metadata_bytes("\x11\0\0", 3);
+    const VariantMetadataRef empty_metadata {empty_metadata_bytes.data(),
+                                             empty_metadata_bytes.size()};
 
     std::string invalid_string;
     invalid_string.push_back(
@@ -747,8 +701,7 @@ TEST(VariantJsonbTest, MalformedVariantStringsAndDecimalsFailExplicitly) {
                               static_cast<uint8_t>(VariantBasicType::SHORT_STRING)));
     invalid_string.push_back(static_cast<char>(0xFF));
     JsonbWriter writer;
-    EXPECT_THROW(variant_to_jsonb({empty_metadata.metadata_ref(), invalid_string.data(),
-                                   invalid_string.size()},
+    EXPECT_THROW(variant_to_jsonb({empty_metadata, invalid_string.data(), invalid_string.size()},
                                   writer),
                  Exception);
     EXPECT_EQ(writer.getOutput()->getSize(), 0);
@@ -759,8 +712,7 @@ TEST(VariantJsonbTest, MalformedVariantStringsAndDecimalsFailExplicitly) {
     invalid_decimal.push_back('\0');
     const int32_t ten_digit_value = 1'000'000'000;
     append_pod(invalid_decimal, ten_digit_value);
-    EXPECT_THROW(variant_to_jsonb({empty_metadata.metadata_ref(), invalid_decimal.data(),
-                                   invalid_decimal.size()},
+    EXPECT_THROW(variant_to_jsonb({empty_metadata, invalid_decimal.data(), invalid_decimal.size()},
                                   writer),
                  Exception);
     EXPECT_EQ(writer.getOutput()->getSize(), 0);
@@ -788,7 +740,7 @@ TEST(VariantJsonbTest, MalformedVariantStringsAndDecimalsFailExplicitly) {
                  Exception);
     EXPECT_EQ(writer.getOutput()->getSize(), 0);
 
-    const OwnedVariant valid_array = build_variant([](VariantBuilder& builder) {
+    const OwnedVariant valid_array = build_variant([](VariantBlockBuilder::Row& builder) {
         auto array = builder.start_array();
         builder.add_null();
         array.finish();
@@ -926,7 +878,7 @@ TEST(VariantJsonbBlockTest, SharesDictionaryAcrossObjectsArraysAndNullRows) {
 }
 
 // NOLINTNEXTLINE(readability-function-cognitive-complexity) -- GTest macros inflate this matrix.
-TEST(VariantJsonbBlockTest, SingleCellOutputMatchesTheExistingPerRowConverter) {
+TEST(VariantJsonbBlockTest, SingleCellOutputMatchesRowAdapter) {
     JsonbWriter writer;
     ASSERT_TRUE(writer.writeStartArray());
     ASSERT_TRUE(writer.writeInt64(5'000'000'000));
@@ -985,30 +937,12 @@ TEST(VariantJsonbBlockTest, InvalidDuplicateAndDeepInputsAreTerminal) {
                                 [&] { static_cast<void>(deep_encoder.finish_block()); });
 }
 
-enum class JsonbBlockBenchmarkPath : uint8_t { OLD_PER_ROW, SHARED_BLOCK };
-
 struct JsonbBlockBenchmarkResult {
     double seconds = 0;
     uint64_t checksum = 0;
 };
 
-uint64_t run_jsonb_block_benchmark_path(JsonbBlockBenchmarkPath path, StringRef document,
-                                        uint32_t rows) {
-    if (path == JsonbBlockBenchmarkPath::OLD_PER_ROW) {
-        VariantMetadataBuilder metadata;
-        std::deque<VariantBuilder> builders;
-        for (uint32_t row = 0; row < rows; ++row) {
-            builders.emplace_back(metadata);
-            jsonb_to_variant(document, builders.back());
-        }
-        metadata.seal();
-        std::string values;
-        for (VariantBuilder& builder : builders) {
-            builder.finish_row(values);
-        }
-        return values.size() + metadata.encoded_metadata().size;
-    }
-
+uint64_t run_jsonb_block_benchmark(StringRef document, uint32_t rows) {
     const size_t row_count = rows;
     JsonbToVariantEncoder encoder({.rows = rows,
                                    .metadata_keys = 9,
@@ -1023,12 +957,11 @@ uint64_t run_jsonb_block_benchmark_path(JsonbBlockBenchmarkPath path, StringRef 
     return block.value_bytes().size + block.metadata_ref().size;
 }
 
-JsonbBlockBenchmarkResult measure_jsonb_block_benchmark(JsonbBlockBenchmarkPath path,
-                                                        StringRef document, uint32_t rows) {
-    static_cast<void>(run_jsonb_block_benchmark_path(path, document, 128));
+JsonbBlockBenchmarkResult measure_jsonb_block_benchmark(StringRef document, uint32_t rows) {
+    static_cast<void>(run_jsonb_block_benchmark(document, 128));
     const auto start = std::chrono::steady_clock::now();
     JsonbBlockBenchmarkResult result;
-    result.checksum = run_jsonb_block_benchmark_path(path, document, rows);
+    result.checksum = run_jsonb_block_benchmark(document, rows);
     result.seconds =
             std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
     return result;
@@ -1055,23 +988,13 @@ std::string make_jsonb_block_benchmark_document() {
 // Run each disabled test as an exact filter in a fresh run-be-ut.sh process wrapped by
 // /usr/bin/time -v: one unmeasured process warmup, then five measured processes. Compare median
 // seconds and peak RSS, and require the printed checksums to match before applying the thresholds.
-TEST(VariantJsonbBlockTest, DISABLED_OldPerRowJsonbBenchmark) {
-    const std::string document = make_jsonb_block_benchmark_document();
-    constexpr uint32_t ROWS = 65'536;
-    const JsonbBlockBenchmarkResult result = measure_jsonb_block_benchmark(
-            JsonbBlockBenchmarkPath::OLD_PER_ROW, StringRef(document), ROWS);
-    EXPECT_GT(result.checksum, 0);
-    std::cout << "JSONB old per-row RELEASE rows=" << ROWS << " seconds=" << result.seconds
-              << " checksum=" << result.checksum << std::endl;
-}
-
 TEST(VariantJsonbBlockTest, DISABLED_SharedBlockJsonbBenchmark) {
     const std::string document = make_jsonb_block_benchmark_document();
     constexpr uint32_t ROWS = 65'536;
-    const JsonbBlockBenchmarkResult result = measure_jsonb_block_benchmark(
-            JsonbBlockBenchmarkPath::SHARED_BLOCK, StringRef(document), ROWS);
+    const JsonbBlockBenchmarkResult result =
+            measure_jsonb_block_benchmark(StringRef(document), ROWS);
     EXPECT_GT(result.checksum, 0);
-    std::cout << "JSONB shared block RELEASE rows=" << ROWS << " seconds=" << result.seconds
+    std::cout << "JSONB block RELEASE rows=" << ROWS << " seconds=" << result.seconds
               << " checksum=" << result.checksum << std::endl;
 }
 

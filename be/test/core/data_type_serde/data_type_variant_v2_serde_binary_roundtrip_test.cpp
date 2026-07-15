@@ -54,6 +54,7 @@
 #include "util/variant/variant_encoding.h"
 #include "util/variant/variant_json.h"
 #include "util/variant/variant_jsonb.h"
+#include "util/variant/variant_test_utils.h"
 
 namespace doris {
 namespace {
@@ -69,7 +70,7 @@ VariantField encode_json(std::string_view json) {
 
 ColumnVariantV2::MutablePtr encoded(std::string_view json) {
     auto column = ColumnVariantV2::create();
-    column->insert_variant_field(encode_json(json));
+    insert_encoded_field(*column, encode_json(json));
     return column;
 }
 
@@ -179,8 +180,8 @@ MutableColumnPtr decimal_column(uint32_t scale, std::initializer_list<Value> val
 
 ColumnVariantV2::MutablePtr typed(MutableColumnPtr nested, DataTypePtr type,
                                   std::span<const uint8_t> nullmap) {
-    return ColumnVariantV2::create_typed_from_scan(wrap_nullable(std::move(nested), nullmap),
-                                                   std::move(type));
+    return ColumnVariantV2::create_typed(wrap_nullable(std::move(nested), nullmap),
+                                         std::move(type));
 }
 
 void expect_type_identity(const DataTypePtr& expected, const DataTypePtr& actual) {
@@ -251,11 +252,11 @@ TEST(DataTypeVariantV2SerDeBinaryRoundTripTest, LogicalVariantAdapterUsesV2Frame
 
 TEST(DataTypeVariantV2SerDeBinaryRoundTripTest, EncodedRowsPreserveStateOrderAndRowBytes) {
     auto source = ColumnVariantV2::create();
-    source->insert_variant_field(encode_json("null"));
-    source->insert_variant_field(noncanonical_object());
-    source->insert_variant_field(encode_json(R"({"z":1,"a":[true,null]})"));
-    source->insert_variant_field(encode_json(R"("text")"));
-    source->insert_variant_field(encode_json(R"({"z":2,"a":[]})"));
+    insert_encoded_field(*source, encode_json("null"));
+    insert_encoded_field(*source, noncanonical_object());
+    insert_encoded_field(*source, encode_json(R"({"z":1,"a":[true,null]})"));
+    insert_encoded_field(*source, encode_json(R"("text")"));
+    insert_encoded_field(*source, encode_json(R"({"z":2,"a":[]})"));
 
     const std::vector<uint8_t> frame = serialize(*source);
     ASSERT_GE(frame.size(), 24);
@@ -277,9 +278,9 @@ TEST(DataTypeVariantV2SerDeBinaryRoundTripTest, EncodedRowsPreserveStateOrderAnd
 
 TEST(DataTypeVariantV2SerDeBinaryRoundTripTest, EncodedWireDropsUnreferencedDictionaryEntries) {
     auto source = ColumnVariantV2::create();
-    source->insert_variant_field(encode_json(R"({"a":1})"));
-    source->insert_variant_field(encode_json(R"({"b":2})"));
-    source->insert_variant_field(encode_json(R"({"c":3})"));
+    insert_encoded_field(*source, encode_json(R"({"a":1})"));
+    insert_encoded_field(*source, encode_json(R"({"b":2})"));
+    insert_encoded_field(*source, encode_json(R"({"c":3})"));
     const size_t source_metadata_count = source->read_view().metadata_count();
     ASSERT_GT(source_metadata_count, 1);
 
@@ -362,12 +363,6 @@ TEST(DataTypeVariantV2SerDeBinaryRoundTripTest, TypedNumericAndDecimalPhysicalBi
                                            9, {Decimal128V3(-large_positive), Decimal128V3(-1),
                                                Decimal128V3(large_positive)}),
                                    std::make_shared<DataTypeDecimal128>(38, 9), NULLS));
-    const wide::Int256 decimal256 = (wide::Int256(1) << 240) + wide::Int256(0x1234);
-    expect_typed_round_trip(
-            *typed(decimal_column<ColumnDecimal256, Decimal256>(
-                           12, {Decimal256(-decimal256), Decimal256(wide::Int256(-1)),
-                                Decimal256(decimal256)}),
-                   std::make_shared<DataTypeDecimal256>(76, 12), NULLS));
 }
 
 // NOLINTNEXTLINE(readability-function-size) -- one row matrix covers every remaining identity.
@@ -451,7 +446,7 @@ TEST(DataTypeVariantV2SerDeBinaryRoundTripTest, EmptyAndConstColumnsPreserveWhol
     expect_type_identity(empty_fixed->typed_type(), decoded_empty_fixed->typed_type());
 
     auto one_encoded = ColumnVariantV2::create();
-    one_encoded->insert_variant_field(encode_json(R"({"const":true})"));
+    insert_encoded_field(*one_encoded, encode_json(R"({"const":true})"));
     ColumnPtr one_encoded_ptr = std::move(one_encoded);
     const auto& one_encoded_ref = assert_cast<const ColumnVariantV2&>(*one_encoded_ptr);
     ColumnPtr encoded_const = ColumnConst::create(one_encoded_ptr, 4);

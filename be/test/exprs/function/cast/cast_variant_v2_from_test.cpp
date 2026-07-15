@@ -112,7 +112,7 @@ ColumnVariantV2::MutablePtr typed_ints() {
     nulls->get_data().push_back(0);
     nulls->get_data().push_back(1);
     nulls->get_data().push_back(0);
-    return ColumnVariantV2::create_typed_from_cast(
+    return ColumnVariantV2::create_typed(
             ColumnNullable::create(std::move(values), std::move(nulls)),
             std::make_shared<DataTypeInt32>());
 }

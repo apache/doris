@@ -41,6 +41,7 @@
 #include "util/variant/variant_block_builder.h"
 #include "util/variant/variant_encoding.h"
 #include "util/variant/variant_json.h"
+#include "util/variant/variant_test_utils.h"
 
 namespace doris {
 namespace {
@@ -143,7 +144,7 @@ std::vector<uint8_t> serialize(const IColumn& source) {
 
 ColumnVariantV2::MutablePtr encoded(std::string_view json) {
     auto column = ColumnVariantV2::create();
-    column->insert_variant_field(encode_json(json));
+    insert_encoded_field(*column, encode_json(json));
     return column;
 }
 
@@ -153,7 +154,7 @@ ColumnVariantV2::MutablePtr typed_int32(std::span<const Int32> values,
     nested->get_data().insert(values.begin(), values.end());
     auto null_column = ColumnUInt8::create();
     null_column->get_data().insert(nullmap.begin(), nullmap.end());
-    return ColumnVariantV2::create_typed_from_scan(
+    return ColumnVariantV2::create_typed(
             ColumnNullable::create(std::move(nested), std::move(null_column)),
             std::make_shared<DataTypeInt32>());
 }
@@ -166,28 +167,31 @@ ColumnVariantV2::MutablePtr typed_strings(std::span<const std::string_view> valu
     }
     auto null_column = ColumnUInt8::create();
     null_column->get_data().insert(nullmap.begin(), nullmap.end());
-    return ColumnVariantV2::create_typed_from_scan(
+    return ColumnVariantV2::create_typed(
             ColumnNullable::create(std::move(nested), std::move(null_column)),
             std::make_shared<DataTypeString>());
 }
 
-ColumnVariantV2::MutablePtr typed_decimal256(wide::Int256 value) {
-    auto nested = ColumnDecimal256::create(0, 0);
-    nested->insert_value(Decimal256(value));
+ColumnVariantV2::MutablePtr typed_decimal128(__int128 value) {
+    auto nested = ColumnDecimal128V3::create(0, 0);
+    nested->insert_value(Decimal128V3(value));
     auto null_column = ColumnUInt8::create();
     null_column->insert_value(0);
-    return ColumnVariantV2::create_typed_from_scan(
+    return ColumnVariantV2::create_typed(
             ColumnNullable::create(std::move(nested), std::move(null_column)),
-            std::make_shared<DataTypeDecimal256>(76, 0));
+            std::make_shared<DataTypeDecimal128>(38, 0));
 }
 
-void expect_corruption(const std::vector<uint8_t>& frame) {
+void expect_corruption(const std::vector<uint8_t>& frame, std::string_view expected_message = {}) {
     auto sentinel = ColumnInt32::create();
     sentinel->get_data().push_back(123456);
     MutableColumnPtr destination = std::move(sentinel);
     const IColumn* original = destination.get();
     const Status status = DataTypeVariantV2SerDe::deserialize_binary(frame, &destination);
     EXPECT_EQ(status.code(), ErrorCode::CORRUPTION) << status;
+    if (!expected_message.empty()) {
+        EXPECT_NE(status.to_string().find(expected_message), std::string::npos) << status;
+    }
     ASSERT_EQ(destination.get(), original);
     EXPECT_EQ(assert_cast<const ColumnInt32&>(*destination).get_data()[0], 123456);
 }
@@ -361,9 +365,9 @@ TEST(DataTypeVariantV2SerDeBinaryValidationTest, EncodedSectionsValidateOffsetsI
 
 TEST(DataTypeVariantV2SerDeBinaryValidationTest, EncodedSectionShapesMatchRowsAndPayloads) {
     auto source = ColumnVariantV2::create();
-    source->insert_variant_field(encode_json(R"({"a":1})"));
-    source->insert_variant_field(encode_json(R"({"b":2})"));
-    source->insert_variant_field(encode_json(R"({"c":3})"));
+    insert_encoded_field(*source, encode_json(R"({"a":1})"));
+    insert_encoded_field(*source, encode_json(R"({"b":2})"));
+    insert_encoded_field(*source, encode_json(R"({"c":3})"));
     const std::vector<uint8_t> valid = serialize(*source);
     const EncodedLayout layout = encoded_layout(valid);
     const uint32_t metadata_offsets_size = read_u32(valid, 24);
@@ -426,8 +430,8 @@ TEST(DataTypeVariantV2SerDeBinaryValidationTest, EncodedPayloadValidationIsRecur
 
 TEST(DataTypeVariantV2SerDeBinaryValidationTest, EncodedUnusedMetadataIsStillValidated) {
     auto source = ColumnVariantV2::create();
-    source->insert_variant_field(encode_json(R"({"a":1})"));
-    source->insert_variant_field(encode_json(R"({"b":2})"));
+    insert_encoded_field(*source, encode_json(R"({"a":1})"));
+    insert_encoded_field(*source, encode_json(R"({"b":2})"));
     const std::vector<uint8_t> with_unused = keep_first_row_with_all_metadata(serialize(*source));
     MutableColumnPtr decoded;
     ASSERT_TRUE(DataTypeVariantV2SerDe::deserialize_binary(with_unused, &decoded).ok());
@@ -478,6 +482,9 @@ TEST(DataTypeVariantV2SerDeBinaryValidationTest, TypedDescriptorTypeAndNullMapAr
     auto unknown_type = valid;
     write_u16(unknown_type, TYPED_TYPE_META, 99);
     expect_corruption(unknown_type);
+    auto removed_type_code = valid;
+    write_u16(removed_type_code, TYPED_TYPE_META, 13);
+    expect_corruption(removed_type_code);
     auto type_flags = valid;
     write_u16(type_flags, TYPED_TYPE_META + 2, 1);
     expect_corruption(type_flags);
@@ -500,25 +507,25 @@ TEST(DataTypeVariantV2SerDeBinaryValidationTest, TypedDescriptorTypeAndNullMapAr
 }
 
 TEST(DataTypeVariantV2SerDeBinaryValidationTest, TypedDecimalValueMustFitDeclaredPrecision) {
-    std::vector<uint8_t> invalid = serialize(*typed_decimal256(0));
+    std::vector<uint8_t> invalid = serialize(*typed_decimal128(0));
     ASSERT_EQ(invalid[5], 1);
-    ASSERT_EQ(read_u16(invalid, TYPED_TYPE_META), 13);
-    ASSERT_EQ(read_u32(invalid, TYPED_TYPE_META + 4), 76);
+    ASSERT_EQ(read_u16(invalid, TYPED_TYPE_META), 12);
+    ASSERT_EQ(read_u32(invalid, TYPED_TYPE_META + 4), 38);
     ASSERT_EQ(read_u32(invalid, 32), 1);
-    ASSERT_EQ(read_u32(invalid, 40), 32);
+    ASSERT_EQ(read_u32(invalid, 40), 16);
 
     const size_t values = TYPED_PAYLOAD + 1;
-    std::fill(invalid.begin() + values, invalid.begin() + values + 32, 0);
-    invalid[values + 31] = 0x80;
+    std::fill(invalid.begin() + values, invalid.begin() + values + 16, 0);
+    invalid[values + 15] = 0x80;
     expect_corruption(invalid);
 }
 
 TEST(DataTypeVariantV2SerDeBinaryValidationTest, TypedDecimalSourceMustFitDeclaredPrecision) {
     const Result<size_t> size = DataTypeVariantV2SerDe::serialized_size(
-            *typed_decimal256(std::numeric_limits<wide::Int256>::min()));
+            *typed_decimal128(std::numeric_limits<__int128>::min()));
     ASSERT_FALSE(size.has_value());
     EXPECT_EQ(size.error().code(), ErrorCode::INVALID_ARGUMENT);
-    EXPECT_NE(size.error().msg().find("77 digits, exceeding declared precision 76"),
+    EXPECT_NE(size.error().msg().find("39 digits, exceeding declared precision 38"),
               std::string::npos);
 }
 
