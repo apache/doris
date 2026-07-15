@@ -140,6 +140,24 @@ class IvmJoinDeltaHandlerTest extends IvmDeltaTestBase {
     }
 
     @Test
+    void testIncrementalRewriterFreshensExprIdsAcrossInnerJoinDeltaBundles() {
+        LogicalProject<Plan> normalizedPlan = normalizedInnerJoin(
+                rowIdProject(buildScanForTable(1, "t1")),
+                rowIdProject(buildScanForTable(2, "t2")));
+        IvmRewriteResult rewriteResult = deterministicRewriteResult(normalizedPlan);
+        IvmRefreshContext ctx = newRefreshContext(normalizedPlan, rewriteResult);
+
+        Plan mergedPlan = new IvmDeltaRewriter().generateMergedDeltaPlan(
+                normalizedPlan, ctx, scan -> false, true);
+        LogicalUnion union = findOnlyUnion(mergedPlan);
+
+        Assertions.assertEquals(2, union.children().size());
+        assertUnionChildrenAlign(union);
+        assertUnionOutputsDoNotReuseChildExprIds(union);
+        assertUnionChildrenDoNotShareExprIds(union);
+    }
+
+    @Test
     void testInnerJoinNonDetGuardAdded() {
         LogicalOlapTableStreamScan scanDelta = buildDeltaScan();
         LogicalOlapScan scanSnapshot = buildScanForTable(2, "t2");
@@ -675,6 +693,16 @@ class IvmJoinDeltaHandlerTest extends IvmDeltaTestBase {
         }
     }
 
+    private void assertUnionChildrenDoNotShareExprIds(LogicalUnion union) {
+        Set<Integer> childExprIds = new HashSet<>();
+        for (Plan child : union.children()) {
+            for (Slot slot : child.getOutput()) {
+                Assertions.assertTrue(childExprIds.add(slot.getExprId().asInt()),
+                        "Different union children reuse the same ExprId: " + slot);
+            }
+        }
+    }
+
     private void assertNoDuplicateScanRelationIds(Plan plan) {
         Set<Integer> relationIds = new HashSet<>();
         for (LogicalOlapScan scan : plan.<LogicalOlapScan>collectToList(node -> node instanceof LogicalOlapScan)) {
@@ -688,6 +716,12 @@ class IvmJoinDeltaHandlerTest extends IvmDeltaTestBase {
         LogicalProject<?> project = (LogicalProject<?>) branch;
         Assertions.assertInstanceOf(LogicalJoin.class, project.child());
         Assertions.assertEquals(joinType, ((LogicalJoin<?, ?>) project.child()).getJoinType());
+    }
+
+    private LogicalUnion findOnlyUnion(Plan plan) {
+        List<LogicalUnion> unions = plan.collectToList(node -> node instanceof LogicalUnion);
+        Assertions.assertEquals(1, unions.size(), "Expected exactly one union in plan: " + plan);
+        return unions.get(0);
     }
 
     private LogicalProject<Plan> rowIdProject(LogicalOlapScan scan) {
