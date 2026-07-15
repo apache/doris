@@ -448,19 +448,19 @@ public class PluginDrivenMvccExternalTableTest {
     // ==================== isPartitionInvalid -> UNPARTITIONED ====================
 
     @Test
-    public void testPartitionBuildFailureFallsBackToUnpartitioned() {
-        // A partition name with 2 values but only 1 partition column (dt) cannot build a key:
-        // Preconditions.checkState(values.size()==types.size()) fails, it is caught+dropped, so
-        // listed names(1) != built items(0) -> isPartitionInvalid -> UNPARTITIONED.
+    public void testValueCountMismatchFailsLoud() {
+        // A connector supplying 2 values for a table with 1 partition column (dt) is mis-wired.
+        // The size check sits OUTSIDE the per-partition try/catch, so it must surface: swallowing it
+        // would leave the built-item set short of the listed-name set and the table would silently
+        // mis-report as UNPARTITIONED (partition=0/0) instead of naming the bug.
         Fixture f = Fixture.with(Arrays.asList(
                 cpi("dt=2024-01-01/region=cn", TS_2024_01_01)));
-        // MUTATION: returning LIST (ignoring isPartitionInvalid) makes this red; a partial partition
-        // set must NOT be exposed as a partitioned table (would silently prune rows).
-        Assertions.assertEquals(PartitionType.UNPARTITIONED,
-                f.table.getPartitionType(Optional.empty()),
-                "a dropped (un-parseable) partition must force UNPARTITIONED, not a partial LIST");
-        Assertions.assertTrue(f.table.getPartitionColumns(Optional.empty()).isEmpty(),
-                "partition columns must be empty when the partition set is invalid");
+        // MUTATION: moving the checkState back inside the try/catch (or dropping it) makes this red.
+        IllegalStateException e = Assertions.assertThrows(IllegalStateException.class,
+                () -> f.table.getPartitionType(Optional.empty()),
+                "a value/column count mismatch must fail loud, not degrade to UNPARTITIONED");
+        Assertions.assertTrue(e.getMessage().contains("connector supplied 2 partition values"),
+                "the error must name the offending count and partition, got: " + e.getMessage());
     }
 
     @Test
@@ -1146,7 +1146,7 @@ public class PluginDrivenMvccExternalTableTest {
     private static ConnectorPartitionInfo cpi(String name, long lastModifiedMillis) {
         return new ConnectorPartitionInfo(name, Collections.emptyMap(), Collections.emptyMap(),
                 ConnectorPartitionInfo.UNKNOWN, ConnectorPartitionInfo.UNKNOWN, lastModifiedMillis,
-                ConnectorPartitionInfo.UNKNOWN);
+                ConnectorPartitionInfo.UNKNOWN, orderedValuesOf(name), Collections.emptyList());
     }
 
     /** Like {@link #cpi} but with connector-supplied per-value SQL-NULL flags (the opt-in path). */
@@ -1157,7 +1157,21 @@ public class PluginDrivenMvccExternalTableTest {
         }
         return new ConnectorPartitionInfo(name, Collections.emptyMap(), Collections.emptyMap(),
                 ConnectorPartitionInfo.UNKNOWN, ConnectorPartitionInfo.UNKNOWN, lastModifiedMillis,
-                ConnectorPartitionInfo.UNKNOWN, flags);
+                ConnectorPartitionInfo.UNKNOWN, orderedValuesOf(name), flags);
+    }
+
+    /**
+     * One already-parsed value per name segment — what a real connector now supplies (mirrors the
+     * connector-side {@code HiveWriteUtils.toPartitionValues}). fe-core no longer parses the rendered
+     * name itself, so a fixture that supplies none is a mis-wired connector, not a valid input.
+     */
+    private static List<String> orderedValuesOf(String partitionName) {
+        List<String> values = new ArrayList<>();
+        for (String segment : partitionName.split("/", -1)) {
+            int eq = segment.indexOf('=');
+            values.add(eq < 0 ? segment : segment.substring(eq + 1));
+        }
+        return values;
     }
 
     /**
