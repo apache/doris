@@ -25,30 +25,6 @@ suite("test_index_change_on_renamed_column") {
     sql "set enable_add_index_for_new_data = false"
 
     def timeout = 60000
-    def delta_time = 1000
-    def alter_res = "null"
-    def useTime = 0
-
-    def wait_for_build_index_on_partition_finish = { table_name, OpTimeout ->
-        for(int t = delta_time; t <= OpTimeout; t += delta_time){
-            alter_res = sql """SHOW BUILD INDEX WHERE TableName = "${table_name}";"""
-            def expected_finished_num = alter_res.size();
-            def finished_num = 0;
-            for (int i = 0; i < expected_finished_num; i++) {
-                logger.info(table_name + " build index job state: " + alter_res[i][7] + i)
-                if (alter_res[i][7] == "FINISHED") {
-                    ++finished_num;
-                }
-            }
-            if (finished_num == expected_finished_num) {
-                logger.info(table_name + " all build index jobs finished, detail: " + alter_res)
-                break
-            }
-            useTime = t
-            sleep(delta_time)
-        }
-        assertTrue(useTime <= OpTimeout, "wait_for_latest_build_index_on_partition_finish timeout")
-    }
     
     def tableName = "test_index_change_on_renamed_column"
 
@@ -80,8 +56,9 @@ suite("test_index_change_on_renamed_column") {
 
     // build inverted index on renamed column
     if (!isCloudMode()) {
+        def previous_job_ids = get_build_index_job_ids(tableName)
         build_index_on_table("idx_s", tableName)
-        wait_for_build_index_on_partition_finish(tableName, timeout)
+        wait_for_last_build_index_finish(tableName, timeout, previous_job_ids)
     }
 
     def show_result = sql "show index from ${tableName}"
@@ -100,12 +77,8 @@ suite("test_index_change_on_renamed_column") {
     check_nested_index_file(ip, port, tablet_id, 3, 1, "V3")
 
     // drop inverted index on renamed column
-    def previous_job_ids = isCloudMode() ? get_build_index_job_ids(tableName) : null
     sql """ alter table ${tableName} drop index idx_s; """
     wait_for_last_col_change_finish(tableName, timeout)
-    if (isCloudMode()) {
-        wait_for_last_build_index_finish(tableName, timeout, previous_job_ids)
-    }
     show_result = sql "show index from ${tableName}"
     logger.info("show index from " + tableName + " result: " + show_result)
     assertEquals(show_result.size(), 0)

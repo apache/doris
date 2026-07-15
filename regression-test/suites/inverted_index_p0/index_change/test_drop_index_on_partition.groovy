@@ -26,29 +26,24 @@ suite("test_drop_index_on_partition", "inverted_index") {
     }
 
     def wait_for_build_index_on_partition_finish = { table_name, expected_job_count, OpTimeout ->
-        def useTime = 0
-        for (int t = delta_time; t <= OpTimeout; t += delta_time) {
-            def alter_res = sql """SHOW BUILD INDEX WHERE TableName = "${table_name}";"""
-            if (alter_res.size() < expected_job_count) {
-                useTime = t
-                sleep(delta_time)
-                continue
+        def finished = false
+        def alter_res = []
+        for (int t = 0; t <= OpTimeout; t += delta_time) {
+            alter_res = sql """SHOW BUILD INDEX WHERE TableName = "${table_name}";"""
+            if (alter_res.any { it[7] == "CANCELLED" }) {
+                assertTrue(false, table_name + " build index job cancelled, detail: " + alter_res)
             }
-            def finished_num = 0
-            for (int i = 0; i < alter_res.size(); i++) {
-                logger.info(table_name + " build index job state: " + alter_res[i][7] + " idx: " + i)
-                if (alter_res[i][7] == "FINISHED") {
-                    ++finished_num
-                }
-            }
-            if (finished_num == alter_res.size()) {
+            if (alter_res.size() >= expected_job_count && alter_res.every { it[7] == "FINISHED" }) {
                 logger.info(table_name + " all build index jobs finished, detail: " + alter_res)
+                finished = true
                 break
             }
-            useTime = t
+            if (t >= OpTimeout) {
+                break
+            }
             sleep(delta_time)
         }
-        assertTrue(useTime <= OpTimeout, "wait_for_build_index_on_partition_finish timeout")
+        assertTrue(finished, "wait_for_build_index_on_partition_finish timeout, latest result: ${alter_res}")
     }
 
     // case 1: basic DROP INDEX ON PARTITION with job count verification

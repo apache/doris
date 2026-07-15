@@ -107,9 +107,13 @@ suite("test_create_index_2", "inverted_index"){
     assertEquals(show_result[1][2], "name_idx_2")
     
     // drop index
+    def previous_job_ids = isCloudMode() ? get_build_index_job_ids(indexTbName1) : null
     sql "drop index name_idx_1 on ${indexTbName1}"
     wait_for_last_col_change_finish(indexTbName1, timeout)
-    def previous_job_ids = isCloudMode() ? get_build_index_job_ids(indexTbName1) : null
+    if (isCloudMode()) {
+        wait_for_last_build_index_finish(indexTbName1, timeout, previous_job_ids)
+        previous_job_ids = get_build_index_job_ids(indexTbName1)
+    }
     sql "drop index name_idx_2 on ${indexTbName1}"
     wait_for_last_col_change_finish(indexTbName1, timeout)
     if (isCloudMode()) {
