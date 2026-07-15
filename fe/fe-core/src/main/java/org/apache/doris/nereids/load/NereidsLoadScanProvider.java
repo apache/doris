@@ -25,7 +25,6 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.IdGenerator;
@@ -61,7 +60,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -204,7 +202,8 @@ public class NereidsLoadScanProvider {
                     continue;
                 }
                 NereidsImportColumnDesc columnDesc;
-                if (fileGroup.getFileFormatProperties().getFileFormatType() == TFileFormatType.FORMAT_JSON) {
+                TFileFormatType fileFormatType = fileGroup.getFileFormatProperties().getFileFormatType();
+                if (Util.isCasePreservingFormat(fileFormatType)) {
                     columnDesc = new NereidsImportColumnDesc(column.getName());
                 } else {
                     columnDesc = new NereidsImportColumnDesc(column.getName().toLowerCase());
@@ -281,7 +280,6 @@ public class NereidsLoadScanProvider {
             }
         }
 
-        HashMap<String, Type> colToType = new HashMap<>();
         // check default value and auto-increment column
         for (Column column : tbl.getBaseSchema()) {
             if (fileGroupInfo.getUniqueKeyUpdateMode() == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS
@@ -289,7 +287,6 @@ public class NereidsLoadScanProvider {
                 continue;
             }
             String columnName = column.getName();
-            colToType.put(columnName, column.getType());
             Expression expression = null;
             if (column.getGeneratedColumnInfo() != null) {
                 // the generated column will be handled by bindSink
@@ -368,8 +365,14 @@ public class NereidsLoadScanProvider {
                 }
             } else {
                 Column slotColumn;
-                if (fileGroup.getFileFormatProperties().getFileFormatType() == TFileFormatType.FORMAT_ARROW) {
-                    slotColumn = new Column(realColName, colToType.get(realColName), true);
+                TFileFormatType fileFormatType = fileGroup.getFileFormatProperties().getFileFormatType();
+                // Use real column type for arrow format, other formats read as varchar first
+                if (fileFormatType == TFileFormatType.FORMAT_ARROW) {
+                    if (tblColumn == null) {
+                        throw new AnalysisException("Unknown column " + realColName + " in table " + tbl.getName()
+                                + " for " + fileFormatType + " load");
+                    }
+                    slotColumn = new Column(realColName, tblColumn.getType(), true);
                 } else {
                     if (fileGroupInfo.getUniqueKeyUpdateMode() == TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS
                             && hasSkipBitmapColumn) {
