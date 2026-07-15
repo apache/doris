@@ -462,6 +462,11 @@ Status FileScannerV2::_init_table_reader(const TFileRangeDesc& range) {
 
     VExprContextSPtrs table_conjuncts;
     RETURN_IF_ERROR(_build_table_conjuncts(&table_conjuncts));
+    FileMetaCache* file_meta_cache = nullptr;
+    if (_should_enable_file_meta_cache()) {
+        file_meta_cache = ExecEnv::GetInstance()->file_meta_cache();
+        DORIS_CHECK(file_meta_cache != nullptr);
+    }
     RETURN_IF_ERROR(_table_reader->init({
             .projected_columns = _projected_columns,
             .conjuncts = std::move(table_conjuncts),
@@ -473,6 +478,8 @@ Status FileScannerV2::_init_table_reader(const TFileRangeDesc& range) {
             .file_slot_descs = &_file_slot_descs,
             .push_down_agg_type = _local_state->get_push_down_agg_type(),
             .condition_cache_digest = _local_state->get_condition_cache_digest(),
+            .file_meta_cache = file_meta_cache,
+            .enable_file_meta_memory_cache = _should_enable_file_meta_memory_cache(file_meta_cache),
     }));
     return Status::OK();
 }
@@ -545,7 +552,13 @@ bool FileScannerV2::_should_skip_not_found(const Status& status, bool ignore_not
 }
 
 bool FileScannerV2::_should_enable_file_meta_cache() const {
-    return ExecEnv::GetInstance()->file_meta_cache()->enabled() &&
+    auto* file_meta_cache = ExecEnv::GetInstance()->file_meta_cache();
+    return file_meta_cache != nullptr &&
+           (file_meta_cache->enabled() || FileMetaCache::is_persistent_cache_enabled());
+}
+
+bool FileScannerV2::_should_enable_file_meta_memory_cache(FileMetaCache* file_meta_cache) const {
+    return file_meta_cache != nullptr && file_meta_cache->enabled() &&
            _split_source->num_scan_ranges() < config::max_external_file_meta_cache_num / 3;
 }
 

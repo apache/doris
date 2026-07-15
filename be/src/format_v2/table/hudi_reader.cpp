@@ -146,6 +146,8 @@ Status HudiHybridReader::_init_child_reader(format::TableReader* reader,
             .scanner_profile = _scanner_profile,
             .push_down_agg_type = _push_down_agg_type,
             .condition_cache_digest = _condition_cache_digest,
+            .file_meta_cache = _file_meta_cache,
+            .enable_file_meta_memory_cache = _enable_file_meta_memory_cache,
     }));
     // Zero means no adaptive prediction has been produced yet. Preserve the child's normal
     // runtime default until FileScannerV2 supplies the first positive prediction.

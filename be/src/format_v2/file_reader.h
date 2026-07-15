@@ -228,6 +228,12 @@ public:
         int64_t parse_footer_time = 0;
         int64_t file_footer_read_calls = 0;
         int64_t file_footer_hit_cache = 0;
+        int64_t file_footer_hit_memory_cache = 0;
+        int64_t file_footer_hit_disk_cache = 0;
+        int64_t file_footer_miss_disk_cache = 0;
+        int64_t file_footer_write_disk_cache = 0;
+        int64_t file_footer_read_disk_cache_time = 0;
+        int64_t file_footer_write_disk_cache_time = 0;
         int64_t file_reader_create_time = 0;
         int64_t open_file_num = 0;
         int64_t row_group_filter_time = 0;

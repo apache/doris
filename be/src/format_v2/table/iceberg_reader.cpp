@@ -648,11 +648,11 @@ Status IcebergTableReader::_create_delete_file_reader(const TIcebergDeleteFileDe
     if (delete_file.file_format == TFileFormatType::FORMAT_PARQUET) {
         *reader = std::make_unique<format::parquet::ParquetReader>(
                 system_properties, file_description, io_ctx, _scanner_profile, std::nullopt,
-                enable_mapping_timestamp_tz);
+                enable_mapping_timestamp_tz, _file_meta_cache, _enable_file_meta_memory_cache);
     } else {
-        *reader = std::make_unique<format::orc::OrcReader>(system_properties, file_description,
-                                                           io_ctx, _scanner_profile, std::nullopt,
-                                                           enable_mapping_timestamp_tz);
+        *reader = std::make_unique<format::orc::OrcReader>(
+                system_properties, file_description, io_ctx, _scanner_profile, std::nullopt,
+                enable_mapping_timestamp_tz, _file_meta_cache, _enable_file_meta_memory_cache);
     }
     RETURN_IF_ERROR((*reader)->init(_runtime_state));
     return Status::OK();

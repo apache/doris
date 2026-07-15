@@ -105,6 +105,18 @@ void ParquetProfile::init(RuntimeProfile* profile) {
             ADD_CHILD_TIMER_WITH_LEVEL(profile, "RowGroupFilterTime", parquet_profile, 1);
     file_footer_read_calls = ADD_COUNTER_WITH_LEVEL(profile, "FileFooterReadCalls", TUnit::UNIT, 1);
     file_footer_hit_cache = ADD_COUNTER_WITH_LEVEL(profile, "FileFooterHitCache", TUnit::UNIT, 1);
+    file_footer_hit_memory_cache =
+            ADD_COUNTER_WITH_LEVEL(profile, "FileFooterHitMemoryCache", TUnit::UNIT, 1);
+    file_footer_hit_disk_cache =
+            ADD_COUNTER_WITH_LEVEL(profile, "FileFooterHitDiskCache", TUnit::UNIT, 1);
+    file_footer_miss_disk_cache =
+            ADD_COUNTER_WITH_LEVEL(profile, "FileFooterMissDiskCache", TUnit::UNIT, 1);
+    file_footer_write_disk_cache =
+            ADD_COUNTER_WITH_LEVEL(profile, "FileFooterWriteDiskCache", TUnit::UNIT, 1);
+    file_footer_read_disk_cache_time =
+            ADD_CHILD_TIMER_WITH_LEVEL(profile, "FileFooterReadDiskCacheTime", parquet_profile, 1);
+    file_footer_write_disk_cache_time =
+            ADD_CHILD_TIMER_WITH_LEVEL(profile, "FileFooterWriteDiskCacheTime", parquet_profile, 1);
     decompress_time = ADD_CHILD_TIMER_WITH_LEVEL(profile, "DecompressTime", parquet_profile, 1);
     decompress_cnt = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "DecompressCount", TUnit::UNIT,
                                                   parquet_profile, 1);

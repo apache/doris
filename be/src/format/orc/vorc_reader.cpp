@@ -336,6 +336,18 @@ void OrcReader::_collect_profile_before_close() {
         COUNTER_UPDATE(_orc_profile.lazy_read_filtered_rows, _statistics.lazy_read_filtered_rows);
         COUNTER_UPDATE(_orc_profile.file_footer_read_calls, _statistics.file_footer_read_calls);
         COUNTER_UPDATE(_orc_profile.file_footer_hit_cache, _statistics.file_footer_hit_cache);
+        COUNTER_UPDATE(_orc_profile.file_footer_hit_memory_cache,
+                       _statistics.file_footer_hit_memory_cache);
+        COUNTER_UPDATE(_orc_profile.file_footer_hit_disk_cache,
+                       _statistics.file_footer_hit_disk_cache);
+        COUNTER_UPDATE(_orc_profile.file_footer_miss_disk_cache,
+                       _statistics.file_footer_miss_disk_cache);
+        COUNTER_UPDATE(_orc_profile.file_footer_write_disk_cache,
+                       _statistics.file_footer_write_disk_cache);
+        COUNTER_UPDATE(_orc_profile.file_footer_read_disk_cache_time,
+                       _statistics.file_footer_read_disk_cache_time);
+        COUNTER_UPDATE(_orc_profile.file_footer_write_disk_cache_time,
+                       _statistics.file_footer_write_disk_cache_time);
         if (_file_input_stream != nullptr) {
             _file_input_stream->collect_profile_before_close();
         }
@@ -376,6 +388,18 @@ void OrcReader::_init_profile() {
                 ADD_COUNTER_WITH_LEVEL(_profile, "FileFooterReadCalls", TUnit::UNIT, 1);
         _orc_profile.file_footer_hit_cache =
                 ADD_COUNTER_WITH_LEVEL(_profile, "FileFooterHitCache", TUnit::UNIT, 1);
+        _orc_profile.file_footer_hit_memory_cache =
+                ADD_COUNTER_WITH_LEVEL(_profile, "FileFooterHitMemoryCache", TUnit::UNIT, 1);
+        _orc_profile.file_footer_hit_disk_cache =
+                ADD_COUNTER_WITH_LEVEL(_profile, "FileFooterHitDiskCache", TUnit::UNIT, 1);
+        _orc_profile.file_footer_miss_disk_cache =
+                ADD_COUNTER_WITH_LEVEL(_profile, "FileFooterMissDiskCache", TUnit::UNIT, 1);
+        _orc_profile.file_footer_write_disk_cache =
+                ADD_COUNTER_WITH_LEVEL(_profile, "FileFooterWriteDiskCache", TUnit::UNIT, 1);
+        _orc_profile.file_footer_read_disk_cache_time =
+                ADD_CHILD_TIMER_WITH_LEVEL(_profile, "FileFooterReadDiskCacheTime", orc_profile, 1);
+        _orc_profile.file_footer_write_disk_cache_time = ADD_CHILD_TIMER_WITH_LEVEL(
+                _profile, "FileFooterWriteDiskCacheTime", orc_profile, 1);
     }
 }
 
@@ -439,21 +463,62 @@ Status OrcReader::_create_file_reader() {
         RETURN_IF_ERROR(create_orc_reader());
     } else {
         auto inner_file_reader = _file_input_stream->get_inner_reader();
-        const auto& file_meta_cache_key =
+        const std::string file_meta_cache_key =
                 FileMetaCache::get_key(inner_file_reader, _file_description);
+        const int64_t file_size = _file_description.file_size == -1 ? inner_file_reader->size()
+                                                                    : _file_description.file_size;
+        const FileMetaCacheContext file_meta_cache_context {
+                .format = FileMetaCacheFormat::ORC,
+                .key = file_meta_cache_key,
+                .modification_time = _file_description.mtime,
+                .file_size = file_size,
+                .enable_memory_cache = _enable_file_meta_memory_cache && _meta_cache->enabled()};
+        FileMetaCacheProfile file_meta_cache_profile {
+                .hit_cache = &_statistics.file_footer_hit_cache,
+                .hit_memory_cache = &_statistics.file_footer_hit_memory_cache,
+                .hit_disk_cache = &_statistics.file_footer_hit_disk_cache,
+                .miss_disk_cache = &_statistics.file_footer_miss_disk_cache,
+                .write_disk_cache = &_statistics.file_footer_write_disk_cache,
+                .read_disk_cache_time = &_statistics.file_footer_read_disk_cache_time,
+                .write_disk_cache_time = &_statistics.file_footer_write_disk_cache_time};
+        const std::string memory_cache_key =
+                FileMetaCache::get_memory_cache_key(file_meta_cache_context);
 
         // Local variables can be required because setSerializedFileTail is an assignment operation, not a reference.
         ObjLRUCache::CacheHandle _meta_cache_handle;
-        if (_meta_cache->lookup(file_meta_cache_key, &_meta_cache_handle)) {
-            const std::string* footer_ptr = _meta_cache_handle.data<String>();
+        std::string serialized_file_tail;
+        const FileMetaCacheLookupResult lookup_result =
+                _meta_cache->lookup(file_meta_cache_context, &_meta_cache_handle,
+                                    &serialized_file_tail, &file_meta_cache_profile);
+        if (lookup_result.state == FileMetaCacheLookupState::MEMORY_HIT) {
+            const std::string* footer_ptr = _meta_cache_handle.data<std::string>();
             options.setSerializedFileTail(*footer_ptr);
             RETURN_IF_ERROR(create_orc_reader());
-            _statistics.file_footer_hit_cache++;
+        } else if (lookup_result.state == FileMetaCacheLookupState::PERSISTED_HIT) {
+            auto footer_ptr = std::make_unique<std::string>(std::move(serialized_file_tail));
+            options.setSerializedFileTail(*footer_ptr);
+            Status status = create_orc_reader();
+            if (!status.ok()) {
+                VLOG_DEBUG << "ignore invalid orc file meta persistent cache payload: " << status;
+                _meta_cache->invalidate_persistent_cache(file_meta_cache_context);
+                _reader.reset();
+                _file_input_stream.reset();
+                return _create_file_reader();
+            }
+            if (file_meta_cache_context.enable_memory_cache) {
+                _meta_cache->insert(memory_cache_key, footer_ptr, &_meta_cache_handle);
+            }
         } else {
             _statistics.file_footer_read_calls++;
             RETURN_IF_ERROR(create_orc_reader());
-            std::string* footer_ptr = new std::string {_reader->getSerializedFileTail()};
-            _meta_cache->insert(file_meta_cache_key, footer_ptr, &_meta_cache_handle);
+            const uint64_t file_tail_size =
+                    _reader->getFileFooterLength() + _reader->getFilePostscriptLength();
+            if (file_meta_cache_context.enable_memory_cache ||
+                FileMetaCache::is_persistent_cache_payload_size_allowed(file_tail_size)) {
+                auto footer_ptr = std::make_unique<std::string>(_reader->getSerializedFileTail());
+                _meta_cache->insert(file_meta_cache_context, footer_ptr, &_meta_cache_handle,
+                                    *footer_ptr, &file_meta_cache_profile);
+            }
         }
     }
 
@@ -1547,6 +1612,8 @@ void OrcReader::_init_file_description() {
     if (_scan_range.__isset.fs_name) {
         _file_description.fs_name = _scan_range.fs_name;
     }
+    _file_description.fs_name =
+            FileFactory::get_file_system_identity(_system_properties, _file_description);
     if (_scan_range.__isset.file_cache_admission) {
         _file_description.file_cache_admission = _scan_range.file_cache_admission;
     }

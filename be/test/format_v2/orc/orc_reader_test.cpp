@@ -30,6 +30,7 @@
 #include <filesystem>
 #include <fstream>
 #include <limits>
+#include <map>
 #include <memory>
 #include <optional>
 #include <orc/OrcFile.hh>
@@ -72,11 +73,13 @@
 #include "format_v2/file_reader.h"
 #include "gen_cpp/Types_types.h"
 #include "io/fs/buffered_reader.h"
+#include "io/fs/file_meta_cache.h"
 #include "io/io_common.h"
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
 #include "storage/segment/condition_cache.h"
 #include "storage/utils.h"
+#include "util/defer_op.h"
 #include "util/timezone_utils.h"
 
 namespace doris {
@@ -4391,6 +4394,67 @@ format::LocalColumnIndex struct_child_projection(int32_t root_field_id, int32_t 
     return projection;
 }
 
+class TestPersistentFileMetaCache final : public FileMetaPersistentCache {
+public:
+    Status read(FileMetaCacheFormat format, const std::string& key, int64_t modification_time,
+                int64_t file_size, std::string* payload) override {
+        ++_read_count;
+        const auto it = _entries.find(entry_key(format, key));
+        if (it == _entries.end()) {
+            return Status::NotFound("test file meta cache entry not found");
+        }
+        if (it->second.modification_time != modification_time ||
+            it->second.file_size != file_size) {
+            return Status::NotFound("test file meta cache entry stale");
+        }
+        *payload = it->second.payload;
+        return Status::OK();
+    }
+
+    Status write(FileMetaCacheFormat format, const std::string& key, int64_t modification_time,
+                 int64_t file_size, std::string_view payload) override {
+        ++_write_count;
+        _entries[entry_key(format, key)] = Entry {.modification_time = modification_time,
+                                                  .file_size = file_size,
+                                                  .payload = std::string(payload)};
+        return Status::OK();
+    }
+
+    void remove(FileMetaCacheFormat format, const std::string& key) override {
+        _entries.erase(entry_key(format, key));
+        ++_remove_count;
+    }
+
+    bool contains(FileMetaCacheFormat format, const std::string& key) const {
+        return _entries.contains(entry_key(format, key));
+    }
+
+    std::string payload(FileMetaCacheFormat format, const std::string& key) const {
+        const auto it = _entries.find(entry_key(format, key));
+        return it == _entries.end() ? std::string {} : it->second.payload;
+    }
+
+    int read_count() const { return _read_count; }
+    int write_count() const { return _write_count; }
+    int remove_count() const { return _remove_count; }
+
+private:
+    struct Entry {
+        int64_t modification_time = 0;
+        int64_t file_size = 0;
+        std::string payload;
+    };
+
+    static std::string entry_key(FileMetaCacheFormat format, const std::string& key) {
+        return std::to_string(static_cast<uint8_t>(format)) + ":" + key;
+    }
+
+    std::map<std::string, Entry> _entries;
+    int _read_count = 0;
+    int _write_count = 0;
+    int _remove_count = 0;
+};
+
 class NewOrcReaderTest : public testing::Test {
 protected:
     void SetUp() override {
@@ -4405,14 +4469,18 @@ protected:
 
     std::unique_ptr<format::orc::OrcReader> create_reader(
             RuntimeProfile* profile = nullptr,
-            std::optional<format::GlobalRowIdContext> global_rowid_context = std::nullopt) const {
+            std::optional<format::GlobalRowIdContext> global_rowid_context = std::nullopt,
+            FileMetaCache* file_meta_cache = nullptr, bool enable_file_meta_memory_cache = true,
+            int64_t mtime = 123) const {
         auto system_properties = std::make_shared<io::FileSystemProperties>();
         system_properties->system_type = TFileType::FILE_LOCAL;
         auto file_description = std::make_unique<io::FileDescription>();
         file_description->path = _file_path;
         file_description->file_size = static_cast<int64_t>(std::filesystem::file_size(_file_path));
-        return std::make_unique<format::orc::OrcReader>(system_properties, file_description,
-                                                        nullptr, profile, global_rowid_context);
+        file_description->mtime = mtime;
+        return std::make_unique<format::orc::OrcReader>(
+                system_properties, file_description, nullptr, profile, global_rowid_context, false,
+                file_meta_cache, enable_file_meta_memory_cache);
     }
 
     std::unique_ptr<format::orc::OrcReader> create_reader_for_path(
@@ -4450,6 +4518,223 @@ protected:
     std::filesystem::path _test_dir;
     std::string _file_path;
 };
+
+TEST_F(NewOrcReaderTest, UsesFileMetaCacheForSerializedTail) {
+    FileMetaCache file_meta_cache(1024 * 1024);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+
+    RuntimeProfile first_profile("new_orc_reader_file_meta_cache_first");
+    auto first_reader = create_reader(&first_profile, std::nullopt, &file_meta_cache);
+    ASSERT_TRUE(first_reader->init(&state).ok());
+    EXPECT_EQ(first_reader->reader_statistics().file_footer_read_calls, 1);
+
+    const auto file_size = static_cast<int64_t>(std::filesystem::file_size(_file_path));
+    const std::string file_meta_cache_key = FileMetaCache::get_key(_file_path, 123, file_size);
+    const std::string memory_cache_key =
+            FileMetaCache::get_memory_cache_key(FileMetaCacheFormat::ORC_V2, file_meta_cache_key);
+    ObjLRUCache::CacheHandle handle;
+    EXPECT_TRUE(file_meta_cache.lookup(memory_cache_key, &handle));
+
+    RuntimeProfile second_profile("new_orc_reader_file_meta_cache_second");
+    auto second_reader = create_reader(&second_profile, std::nullopt, &file_meta_cache);
+    ASSERT_TRUE(second_reader->init(&state).ok());
+    EXPECT_EQ(second_reader->reader_statistics().file_footer_read_calls, 0);
+    EXPECT_EQ(second_reader->reader_statistics().file_footer_hit_cache, 1);
+    EXPECT_EQ(second_reader->reader_statistics().file_footer_hit_memory_cache, 1);
+    EXPECT_EQ(second_reader->reader_statistics().file_footer_hit_disk_cache, 0);
+    EXPECT_EQ(second_profile.get_counter("FileFooterHitMemoryCache")->value(), 1);
+}
+
+TEST_F(NewOrcReaderTest, ReportsPersistentFileMetaCacheProfile) {
+    const bool old_enable_external_file_meta_disk_cache =
+            config::enable_external_file_meta_disk_cache;
+    const int64_t old_external_file_meta_disk_cache_max_entry_bytes =
+            config::external_file_meta_disk_cache_max_entry_bytes;
+    Defer defer {[&] {
+        config::enable_external_file_meta_disk_cache = old_enable_external_file_meta_disk_cache;
+        config::external_file_meta_disk_cache_max_entry_bytes =
+                old_external_file_meta_disk_cache_max_entry_bytes;
+    }};
+    config::enable_external_file_meta_disk_cache = true;
+    config::external_file_meta_disk_cache_max_entry_bytes = 64 * 1024 * 1024;
+
+    auto persistent_cache = std::make_unique<TestPersistentFileMetaCache>();
+    TestPersistentFileMetaCache* persistent_cache_ptr = persistent_cache.get();
+    FileMetaCache file_meta_cache(0, std::move(persistent_cache));
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+
+    RuntimeProfile first_profile("new_orc_reader_persistent_file_meta_cache_first");
+    auto first_reader = create_reader(&first_profile, std::nullopt, &file_meta_cache);
+    ASSERT_TRUE(first_reader->init(&state).ok());
+    EXPECT_EQ(first_reader->reader_statistics().file_footer_read_calls, 1);
+    EXPECT_EQ(first_reader->reader_statistics().file_footer_miss_disk_cache, 1);
+    EXPECT_EQ(first_reader->reader_statistics().file_footer_write_disk_cache, 1);
+
+    const auto file_size = static_cast<int64_t>(std::filesystem::file_size(_file_path));
+    const std::string file_meta_cache_key = FileMetaCache::get_key(_file_path, 123, file_size);
+    EXPECT_TRUE(persistent_cache_ptr->contains(FileMetaCacheFormat::ORC_V2, file_meta_cache_key));
+    EXPECT_FALSE(persistent_cache_ptr->contains(FileMetaCacheFormat::ORC, file_meta_cache_key));
+
+    RuntimeProfile second_profile("new_orc_reader_persistent_file_meta_cache_second");
+    auto second_reader = create_reader(&second_profile, std::nullopt, &file_meta_cache);
+    ASSERT_TRUE(second_reader->init(&state).ok());
+    EXPECT_EQ(second_reader->reader_statistics().file_footer_read_calls, 0);
+    EXPECT_EQ(second_reader->reader_statistics().file_footer_hit_cache, 1);
+    EXPECT_EQ(second_reader->reader_statistics().file_footer_hit_memory_cache, 0);
+    EXPECT_EQ(second_reader->reader_statistics().file_footer_hit_disk_cache, 1);
+    EXPECT_EQ(second_profile.get_counter("FileFooterHitDiskCache")->value(), 1);
+}
+
+TEST_F(NewOrcReaderTest, InvalidPersistentFileMetaCachePayloadFallsBackToFile) {
+    const bool old_enable_external_file_meta_disk_cache =
+            config::enable_external_file_meta_disk_cache;
+    const int64_t old_external_file_meta_disk_cache_max_entry_bytes =
+            config::external_file_meta_disk_cache_max_entry_bytes;
+    Defer defer {[&] {
+        config::enable_external_file_meta_disk_cache = old_enable_external_file_meta_disk_cache;
+        config::external_file_meta_disk_cache_max_entry_bytes =
+                old_external_file_meta_disk_cache_max_entry_bytes;
+    }};
+    config::enable_external_file_meta_disk_cache = true;
+    config::external_file_meta_disk_cache_max_entry_bytes = 64 * 1024 * 1024;
+
+    auto persistent_cache = std::make_unique<TestPersistentFileMetaCache>();
+    TestPersistentFileMetaCache* persistent_cache_ptr = persistent_cache.get();
+    FileMetaCache file_meta_cache(0, std::move(persistent_cache));
+    const auto file_size = static_cast<int64_t>(std::filesystem::file_size(_file_path));
+    const std::string file_meta_cache_key = FileMetaCache::get_key(_file_path, 123, file_size);
+    ASSERT_TRUE(persistent_cache_ptr
+                        ->write(FileMetaCacheFormat::ORC_V2, file_meta_cache_key, 123, file_size,
+                                "not a serialized orc file tail")
+                        .ok());
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto reader = create_reader(nullptr, std::nullopt, &file_meta_cache);
+    ASSERT_TRUE(reader->init(&state).ok());
+    EXPECT_EQ(reader->reader_statistics().file_footer_hit_disk_cache, 1);
+    EXPECT_EQ(reader->reader_statistics().file_footer_read_calls, 1);
+    EXPECT_EQ(reader->reader_statistics().file_footer_write_disk_cache, 1);
+    EXPECT_EQ(persistent_cache_ptr->remove_count(), 1);
+    EXPECT_TRUE(persistent_cache_ptr->contains(FileMetaCacheFormat::ORC_V2, file_meta_cache_key));
+    EXPECT_NE(persistent_cache_ptr->payload(FileMetaCacheFormat::ORC_V2, file_meta_cache_key),
+              "not a serialized orc file tail");
+}
+
+TEST_F(NewOrcReaderTest, InvalidPersistentPayloadDoesNotRewriteOversizedTail) {
+    const bool old_enable_external_file_meta_disk_cache =
+            config::enable_external_file_meta_disk_cache;
+    const int64_t old_external_file_meta_disk_cache_max_entry_bytes =
+            config::external_file_meta_disk_cache_max_entry_bytes;
+    Defer defer {[&] {
+        config::enable_external_file_meta_disk_cache = old_enable_external_file_meta_disk_cache;
+        config::external_file_meta_disk_cache_max_entry_bytes =
+                old_external_file_meta_disk_cache_max_entry_bytes;
+    }};
+    config::enable_external_file_meta_disk_cache = true;
+    config::external_file_meta_disk_cache_max_entry_bytes = 7;
+
+    auto persistent_cache = std::make_unique<TestPersistentFileMetaCache>();
+    TestPersistentFileMetaCache* persistent_cache_ptr = persistent_cache.get();
+    FileMetaCache file_meta_cache(0, std::move(persistent_cache));
+    const auto file_size = static_cast<int64_t>(std::filesystem::file_size(_file_path));
+    const std::string file_meta_cache_key = FileMetaCache::get_key(_file_path, 123, file_size);
+    ASSERT_TRUE(persistent_cache_ptr
+                        ->write(FileMetaCacheFormat::ORC_V2, file_meta_cache_key, 123, file_size,
+                                "invalid")
+                        .ok());
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto reader = create_reader(nullptr, std::nullopt, &file_meta_cache, false);
+    ASSERT_TRUE(reader->init(&state).ok());
+    EXPECT_EQ(reader->reader_statistics().file_footer_hit_disk_cache, 1);
+    EXPECT_EQ(reader->reader_statistics().file_footer_read_calls, 1);
+    EXPECT_EQ(reader->reader_statistics().file_footer_write_disk_cache, 0);
+    EXPECT_EQ(persistent_cache_ptr->write_count(), 1);
+    EXPECT_EQ(persistent_cache_ptr->remove_count(), 1);
+    EXPECT_FALSE(persistent_cache_ptr->contains(FileMetaCacheFormat::ORC_V2, file_meta_cache_key));
+}
+
+TEST_F(NewOrcReaderTest, PersistentFileMetaCacheCanSkipMemoryCache) {
+    const bool old_enable_external_file_meta_disk_cache =
+            config::enable_external_file_meta_disk_cache;
+    Defer defer {[&] {
+        config::enable_external_file_meta_disk_cache = old_enable_external_file_meta_disk_cache;
+    }};
+    config::enable_external_file_meta_disk_cache = true;
+
+    FileMetaCache file_meta_cache(1024 * 1024, std::make_unique<TestPersistentFileMetaCache>());
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto first_reader = create_reader(nullptr, std::nullopt, &file_meta_cache, false);
+    ASSERT_TRUE(first_reader->init(&state).ok());
+
+    const auto file_size = static_cast<int64_t>(std::filesystem::file_size(_file_path));
+    const std::string file_meta_cache_key = FileMetaCache::get_key(_file_path, 123, file_size);
+    const std::string memory_cache_key =
+            FileMetaCache::get_memory_cache_key(FileMetaCacheFormat::ORC_V2, file_meta_cache_key);
+    ObjLRUCache::CacheHandle handle;
+    EXPECT_FALSE(file_meta_cache.lookup(memory_cache_key, &handle));
+
+    auto second_reader = create_reader(nullptr, std::nullopt, &file_meta_cache, false);
+    ASSERT_TRUE(second_reader->init(&state).ok());
+    EXPECT_EQ(second_reader->reader_statistics().file_footer_read_calls, 0);
+    EXPECT_EQ(second_reader->reader_statistics().file_footer_hit_memory_cache, 0);
+    EXPECT_EQ(second_reader->reader_statistics().file_footer_hit_disk_cache, 1);
+    EXPECT_FALSE(file_meta_cache.lookup(memory_cache_key, &handle));
+}
+
+TEST_F(NewOrcReaderTest, UnstableMtimeSkipsPersistentFileMetaCache) {
+    const bool old_enable_external_file_meta_disk_cache =
+            config::enable_external_file_meta_disk_cache;
+    Defer defer {[&] {
+        config::enable_external_file_meta_disk_cache = old_enable_external_file_meta_disk_cache;
+    }};
+    config::enable_external_file_meta_disk_cache = true;
+
+    auto persistent_cache = std::make_unique<TestPersistentFileMetaCache>();
+    TestPersistentFileMetaCache* persistent_cache_ptr = persistent_cache.get();
+    FileMetaCache file_meta_cache(0, std::move(persistent_cache));
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+
+    auto first_reader = create_reader(nullptr, std::nullopt, &file_meta_cache, false, 0);
+    ASSERT_TRUE(first_reader->init(&state).ok());
+    auto second_reader = create_reader(nullptr, std::nullopt, &file_meta_cache, false, 0);
+    ASSERT_TRUE(second_reader->init(&state).ok());
+
+    EXPECT_EQ(first_reader->reader_statistics().file_footer_read_calls, 1);
+    EXPECT_EQ(second_reader->reader_statistics().file_footer_read_calls, 1);
+    EXPECT_EQ(persistent_cache_ptr->read_count(), 0);
+    EXPECT_EQ(persistent_cache_ptr->write_count(), 0);
+}
+
+TEST_F(NewOrcReaderTest, OversizedPersistentPayloadRemainsMemoryCacheEligible) {
+    const bool old_enable_external_file_meta_disk_cache =
+            config::enable_external_file_meta_disk_cache;
+    const int64_t old_external_file_meta_disk_cache_max_entry_bytes =
+            config::external_file_meta_disk_cache_max_entry_bytes;
+    Defer defer {[&] {
+        config::enable_external_file_meta_disk_cache = old_enable_external_file_meta_disk_cache;
+        config::external_file_meta_disk_cache_max_entry_bytes =
+                old_external_file_meta_disk_cache_max_entry_bytes;
+    }};
+    config::enable_external_file_meta_disk_cache = true;
+    config::external_file_meta_disk_cache_max_entry_bytes = 1;
+
+    auto persistent_cache = std::make_unique<TestPersistentFileMetaCache>();
+    TestPersistentFileMetaCache* persistent_cache_ptr = persistent_cache.get();
+    FileMetaCache file_meta_cache(1024 * 1024, std::move(persistent_cache));
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+
+    auto first_reader = create_reader(nullptr, std::nullopt, &file_meta_cache);
+    ASSERT_TRUE(first_reader->init(&state).ok());
+    EXPECT_EQ(first_reader->reader_statistics().file_footer_read_calls, 1);
+    EXPECT_EQ(persistent_cache_ptr->write_count(), 0);
+
+    auto second_reader = create_reader(nullptr, std::nullopt, &file_meta_cache);
+    ASSERT_TRUE(second_reader->init(&state).ok());
+    EXPECT_EQ(second_reader->reader_statistics().file_footer_read_calls, 0);
+    EXPECT_EQ(second_reader->reader_statistics().file_footer_hit_memory_cache, 1);
+    EXPECT_EQ(persistent_cache_ptr->write_count(), 0);
+}
 
 TEST_F(NewOrcReaderTest, AggregatePushdownReturnsCountFromFileMetadata) {
     auto reader = create_reader();

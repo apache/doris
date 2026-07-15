@@ -525,6 +525,8 @@ Status TableReader::init(TableReadOptions&& options) {
     _io_ctx = options.io_ctx;
     _runtime_state = options.runtime_state;
     _scanner_profile = options.scanner_profile;
+    _file_meta_cache = options.file_meta_cache;
+    _enable_file_meta_memory_cache = options.enable_file_meta_memory_cache;
     _file_slot_descs = options.file_slot_descs;
     _push_down_agg_type = options.push_down_agg_type;
     _initial_condition_cache_digest = options.condition_cache_digest;
@@ -756,13 +758,15 @@ Status TableReader::create_file_reader(std::unique_ptr<FileReader>* reader) {
     if (_format == FileFormat::PARQUET) {
         *reader = std::make_unique<format::parquet::ParquetReader>(
                 _system_properties, _current_task->data_file, _io_ctx, _scanner_profile,
-                _global_rowid_context, enable_mapping_timestamp_tz);
+                _global_rowid_context, enable_mapping_timestamp_tz, _file_meta_cache,
+                _enable_file_meta_memory_cache);
         return Status::OK();
     }
     if (_format == FileFormat::ORC) {
         *reader = std::make_unique<format::orc::OrcReader>(
                 _system_properties, _current_task->data_file, _io_ctx, _scanner_profile,
-                _global_rowid_context, enable_mapping_timestamp_tz);
+                _global_rowid_context, enable_mapping_timestamp_tz, _file_meta_cache,
+                _enable_file_meta_memory_cache);
         return Status::OK();
     }
     if (_format == FileFormat::CSV) {
