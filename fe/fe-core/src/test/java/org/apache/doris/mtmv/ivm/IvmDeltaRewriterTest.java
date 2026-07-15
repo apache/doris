@@ -23,13 +23,19 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.rules.analysis.CheckAfterRewrite;
 import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
+import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
+import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
@@ -50,6 +56,7 @@ import org.mockito.Mockito;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.function.Predicate;
 
 class IvmDeltaRewriterTest extends IvmDeltaTestBase {
@@ -180,6 +187,34 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
         LogicalProject<?> applyProject = (LogicalProject<?>) normalizedTopProject.child();
         Assertions.assertTrue(applyProject.child() instanceof LogicalFilter
                 || applyProject.child() instanceof LogicalJoin);
+    }
+
+    @Test
+    void testAggJoinWithTwoDeltaBranchesKeepsAggInputsBound() {
+        LogicalOlapScan leftScan = buildScanForTable(201, "left_tbl");
+        LogicalOlapScan rightScan = buildScanForTable(202, "right_tbl");
+        LogicalJoin<LogicalOlapScan, LogicalOlapScan> join = new LogicalJoin<>(JoinType.INNER_JOIN,
+                ImmutableList.of(new EqualTo(leftScan.getOutput().get(0), rightScan.getOutput().get(0))),
+                leftScan, rightScan, JoinReorderContext.EMPTY);
+        Slot groupKey = leftScan.getOutput().get(1);
+        LogicalAggregate<LogicalJoin<LogicalOlapScan, LogicalOlapScan>> agg = new LogicalAggregate<>(
+                ImmutableList.of(groupKey),
+                ImmutableList.of(groupKey, new Alias(new Count(), "cnt"),
+                        new Alias(new Sum(new Add(leftScan.getOutput().get(0), rightScan.getOutput().get(0))),
+                                "total")),
+                true, Optional.empty(), join);
+        PlanBundle bundle = normalizeAggPlan(agg);
+        MTMV mtmv = buildMtmvFromPlan(bundle.normalizedPlan.getOutput());
+        bumpBaseTableTso(leftScan.getTable(), 20);
+        setStreamOffset(leftScan.getTable(), getRegisteredStream(leftScan.getTable(), mtmv.getId()), 10);
+        bumpBaseTableTso(rightScan.getTable(), 20);
+        setStreamOffset(rightScan.getTable(), getRegisteredStream(rightScan.getTable(), mtmv.getId()), 10);
+
+        Plan rewritten = new IvmDeltaRewriter().generateIncrementalRefreshPlan(
+                bundle.normalizedPlan, bundle.rewriteResult,
+                IvmRewriteContext.incremental(mtmv, false), bundle.connectContext);
+
+        new CheckAfterRewrite().checkTreeAllSlotReferenceFromChildren(rewritten);
     }
 
     @Test

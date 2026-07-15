@@ -78,6 +78,7 @@ suite("test_ivm_agg_join_2") {
 
     sql """REFRESH MATERIALIZED VIEW ivm_aj2_p6_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("ivm_aj2_p6_mv")
+    advance_ivm_stream_offset("ivm_aj2_p6_mv")
     order_qt_p6_complete """SELECT pname, child_cnt, child_total FROM ivm_aj2_p6_mv"""
 
     sql """INSERT INTO ivm_aj2_p6_child VALUES (5,1,50);"""
@@ -87,6 +88,7 @@ suite("test_ivm_agg_join_2") {
 
     sql """REFRESH MATERIALIZED VIEW ivm_aj2_p6_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("ivm_aj2_p6_mv")
+    advance_ivm_stream_offset("ivm_aj2_p6_mv")
     order_qt_p6_complete2 """SELECT pname, child_cnt, child_total FROM ivm_aj2_p6_mv"""
 
     // =========================================================
@@ -149,6 +151,7 @@ suite("test_ivm_agg_join_2") {
 
     sql """REFRESH MATERIALIZED VIEW ivm_aj2_p7_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("ivm_aj2_p7_mv")
+    advance_ivm_stream_offset("ivm_aj2_p7_mv")
     order_qt_p7_complete """SELECT jk, cnt, total FROM ivm_aj2_p7_mv"""
 
     sql """INSERT INTO ivm_aj2_p7_t1 VALUES (4,1,40);"""
@@ -158,6 +161,7 @@ suite("test_ivm_agg_join_2") {
 
     sql """REFRESH MATERIALIZED VIEW ivm_aj2_p7_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("ivm_aj2_p7_mv")
+    advance_ivm_stream_offset("ivm_aj2_p7_mv")
     order_qt_p7_complete2 """SELECT jk, cnt, total FROM ivm_aj2_p7_mv"""
 
     // =========================================================
@@ -220,6 +224,7 @@ suite("test_ivm_agg_join_2") {
 
     sql """REFRESH MATERIALIZED VIEW ivm_aj2_p8_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("ivm_aj2_p8_mv")
+    advance_ivm_stream_offset("ivm_aj2_p8_mv")
     order_qt_p8_complete """SELECT grp, cnt, total FROM ivm_aj2_p8_mv"""
 
     sql """INSERT INTO ivm_aj2_p8_t2 VALUES (4,1,400);"""
@@ -229,6 +234,7 @@ suite("test_ivm_agg_join_2") {
 
     sql """REFRESH MATERIALIZED VIEW ivm_aj2_p8_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("ivm_aj2_p8_mv")
+    advance_ivm_stream_offset("ivm_aj2_p8_mv")
     order_qt_p8_complete2 """SELECT grp, cnt, total FROM ivm_aj2_p8_mv"""
 
     // =========================================================
@@ -309,6 +315,7 @@ suite("test_ivm_agg_join_2") {
 
     sql """REFRESH MATERIALIZED VIEW ivm_aj2_p9_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("ivm_aj2_p9_mv")
+    advance_ivm_stream_offset("ivm_aj2_p9_mv")
     order_qt_p9_complete """SELECT k1, s3, cnt FROM ivm_aj2_p9_mv"""
 
     // Insert into t3 to verify delta propagation through 3-table join
@@ -319,6 +326,7 @@ suite("test_ivm_agg_join_2") {
 
     sql """REFRESH MATERIALIZED VIEW ivm_aj2_p9_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("ivm_aj2_p9_mv")
+    advance_ivm_stream_offset("ivm_aj2_p9_mv")
     order_qt_p9_complete2 """SELECT k1, s3, cnt FROM ivm_aj2_p9_mv"""
 
     // =========================================================
@@ -380,6 +388,7 @@ suite("test_ivm_agg_join_2") {
 
     sql """REFRESH MATERIALIZED VIEW ivm_aj2_p10_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("ivm_aj2_p10_mv")
+    advance_ivm_stream_offset("ivm_aj2_p10_mv")
     order_qt_p10_complete """SELECT grp, cnt, total FROM ivm_aj2_p10_mv"""
 
     // First incremental: insert into right table only
@@ -397,5 +406,6 @@ suite("test_ivm_agg_join_2") {
 
     sql """REFRESH MATERIALIZED VIEW ivm_aj2_p10_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("ivm_aj2_p10_mv")
+    advance_ivm_stream_offset("ivm_aj2_p10_mv")
     order_qt_p10_complete2 """SELECT grp, cnt, total FROM ivm_aj2_p10_mv"""
 }
