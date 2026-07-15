@@ -60,6 +60,9 @@ protected:
     // For dictionary encoding
     DorisVector<StringRef> _dict_items;
     DorisVector<uint8_t> _dict_data;
+    // Selected dictionary values are gathered once and appended in one ColumnString resize/copy.
+    // The capacity is retained across pages and batches.
+    DorisVector<StringRef> _selected_values;
     size_t _max_value_length;
 };
 

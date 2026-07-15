@@ -40,7 +40,9 @@ namespace doris::format::parquet {
 
 struct ScalarColumnReaderTestAccess;
 
-//      load_nested_batch() / build_nested_column()
+// Owns the physical leaf reader for the lifetime of the row-group reader. Keeping this object
+// stable is important: ParquetLeafReader owns reusable SerDe and conversion scratch whose
+// capacity would otherwise be discarded after every batch.
 class ScalarColumnReader final : public ParquetColumnReader {
     friend class MapColumnReader;
     friend struct ScalarColumnReaderTestAccess;
@@ -80,15 +82,15 @@ private:
     Status append_dictionary_filtered_values(
             const std::vector<std::shared_ptr<::arrow::Array>>& chunks,
             const IColumn::Filter& dictionary_filter, MutableColumnPtr& column,
-            IColumn::Filter* row_filter, int64_t* matched_rows, bool* used_filter) const;
+            IColumn::Filter* row_filter, int64_t* matched_rows, bool* used_filter);
     Status append_decoded_binary_values(const std::vector<StringRef>& values,
                                         MutableColumnPtr& column) const;
 
     const ::parquet::ColumnDescriptor* descriptor() const { return _descriptor; }
 
-    ParquetLeafReader leaf_reader() const {
-        return ParquetLeafReader(_descriptor, _type_descriptor, _type, _name, _record_reader,
-                                 _profile, _timezone, _enable_strict_mode);
+    ParquetLeafReader& leaf_reader() {
+        DORIS_CHECK(_leaf_reader != nullptr);
+        return *_leaf_reader;
     }
 
     void advance_rows_read(int64_t rows);
@@ -98,12 +100,18 @@ private:
     const ::parquet::ColumnDescriptor* _descriptor = nullptr; // Arrow column descriptor
     ParquetTypeDescriptor _type_descriptor;                   // type encoding information
     std::shared_ptr<::parquet::internal::RecordReader>
-            _record_reader; // Arrow physical column reader
+            _record_reader;                          // Arrow physical column reader
+    std::unique_ptr<ParquetLeafReader> _leaf_reader; // persistent leaf decoder/materializer
     const ParquetPageSkipPlan* _page_skip_plan =
             nullptr;                            // page-index pruning result (may be nullptr)
     const cctz::time_zone* _timezone = nullptr; // timezone
     bool _enable_strict_mode = false;           // strict mode
     int64_t _row_group_rows_read = 0;           // rows read in the current row group (cursor)
+    // Per-batch logical scratch. Each operation clears the logical size while retaining capacity.
+    ParquetLeafBatch _leaf_batch;
+    NullMap _null_map;
+    std::vector<RowRange> _selection_ranges;
+    std::vector<StringRef> _dictionary_binary_values;
     std::unique_ptr<ParquetNestedScalarBatch> _nested_batch; // intermediate result for nested reads
 };
 

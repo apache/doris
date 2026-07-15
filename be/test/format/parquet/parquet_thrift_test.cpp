@@ -71,6 +71,22 @@ public:
     void TearDown() override { TimezoneUtils::clear_timezone_caches(); }
 };
 
+TEST_F(ParquetThriftReaderTest, column_chunk_schema_is_independent_of_field_schema_lifetime) {
+    FieldSchema field;
+    field.physical_type = tparquet::Type::FIXED_LEN_BYTE_ARRAY;
+    field.definition_level = 5;
+    field.repetition_level = 2;
+    field.repeated_parent_def_level = 4;
+    field.parquet_schema.__set_type_length(16);
+
+    const auto chunk_schema = ParquetColumnChunkSchema::from_field_schema(field);
+    EXPECT_EQ(chunk_schema.physical_type, tparquet::Type::FIXED_LEN_BYTE_ARRAY);
+    EXPECT_EQ(chunk_schema.type_length, 16);
+    EXPECT_EQ(chunk_schema.max_definition_level, 5);
+    EXPECT_EQ(chunk_schema.max_repetition_level, 2);
+    EXPECT_EQ(chunk_schema.repeated_parent_definition_level, 4);
+}
+
 TEST_F(ParquetThriftReaderTest, normal) {
     auto local_fs = io::global_local_filesystem();
     io::FileReaderSPtr reader;

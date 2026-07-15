@@ -56,6 +56,11 @@ private:
     std::unique_ptr<ParquetColumnReader> _key_reader; // key column reader (always read fully)
     std::unique_ptr<ParquetColumnReader>
             _value_reader; // value column reader (can be pruned by projection)
+    // Key levels own MAP entry existence. The level index vector lets the value stream advance in
+    // lockstep without building another per-row lookup table; all three buffers retain capacity.
+    std::vector<uint64_t> _entry_counts;
+    std::vector<int64_t> _map_level_indices;
+    NullMap _parent_nulls;
 };
 
 } // namespace doris::format::parquet

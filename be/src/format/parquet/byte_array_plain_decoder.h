@@ -21,10 +21,12 @@
 
 #include <cstdint>
 #include <memory>
+#include <vector>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
 #include "core/data_type/data_type.h"
+#include "core/string_ref.h"
 #include "core/types.h"
 #include "format/format_common.h"
 #include "format/parquet/decoder.h"
@@ -52,6 +54,11 @@ public:
                           ColumnSelectVector& select_vector, bool is_dict_filter);
 
     Status skip_values(size_t num_values) override;
+
+private:
+    // References point into the current page buffer and are valid until the batch is appended.
+    // Keeping the vector on the decoder reuses its capacity across pages and batches.
+    std::vector<StringRef> _selected_values;
 };
 
 } // namespace doris

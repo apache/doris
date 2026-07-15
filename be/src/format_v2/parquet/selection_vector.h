@@ -137,11 +137,12 @@ private:
     size_t _size = 0;
 };
 
-inline std::vector<RowRange> selection_to_ranges(const SelectionVector& selection,
-                                                 uint16_t selected_rows) {
-    std::vector<RowRange> ranges;
+inline void selection_to_ranges(const SelectionVector& selection, uint16_t selected_rows,
+                                std::vector<RowRange>* ranges) {
+    DORIS_CHECK(ranges != nullptr);
+    ranges->clear();
     if (selected_rows == 0) {
-        return ranges;
+        return;
     }
 
     int64_t range_start = selection.get_index(0);
@@ -152,11 +153,17 @@ inline std::vector<RowRange> selection_to_ranges(const SelectionVector& selectio
             previous = current;
             continue;
         }
-        ranges.push_back(RowRange {.start = range_start, .length = previous - range_start + 1});
+        ranges->push_back(RowRange {.start = range_start, .length = previous - range_start + 1});
         range_start = current;
         previous = current;
     }
-    ranges.push_back(RowRange {.start = range_start, .length = previous - range_start + 1});
+    ranges->push_back(RowRange {.start = range_start, .length = previous - range_start + 1});
+}
+
+inline std::vector<RowRange> selection_to_ranges(const SelectionVector& selection,
+                                                 uint16_t selected_rows) {
+    std::vector<RowRange> ranges;
+    selection_to_ranges(selection, selected_rows, &ranges);
     return ranges;
 }
 

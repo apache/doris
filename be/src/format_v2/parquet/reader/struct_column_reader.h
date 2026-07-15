@@ -60,6 +60,11 @@ private:
 
     std::vector<std::unique_ptr<ParquetColumnReader>> _children; // projected child readers
     std::vector<int> _child_output_indices; // child reader -> struct output position mapping
+    // Parent shape is derived once from the chosen shape child, then reused for every projected
+    // child. These buffers preserve capacity across batches and avoid allocating per child.
+    NullMap _parent_nulls;
+    std::vector<int64_t> _parent_level_indices;
+    std::vector<MutableColumnPtr> _child_columns;
 };
 
 } // namespace doris::format::parquet

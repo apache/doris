@@ -52,6 +52,10 @@ private:
 
     std::unique_ptr<ParquetColumnReader>
             _element_reader; // element reader (recursive; may be Scalar/Struct/List/Map)
+    // A list row such as [[1, 2], NULL, []] becomes entry counts [2, 0, 0] and parent nulls
+    // [0, 1, 0]. These vectors are batch scratch, not reader state; clear() keeps their capacity.
+    std::vector<uint64_t> _entry_counts;
+    NullMap _parent_nulls;
 };
 
 } // namespace doris::format::parquet

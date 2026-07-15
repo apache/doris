@@ -110,9 +110,9 @@ Status MapColumnReader::_consume_or_build_nested_column(int64_t length_upper_bou
     const auto& rep_levels = _key_reader->nested_repetition_levels();
     const int64_t levels_written = _key_reader->nested_levels_written();
 
-    std::vector<uint64_t> entry_counts;
-    std::vector<int64_t> map_level_indices;
-    NullMap parent_nulls;
+    _entry_counts.clear();
+    _map_level_indices.clear();
+    _parent_nulls.clear();
     *values_processed = 0;
     int64_t level_idx = nested_build_level_cursor();
     const int16_t min_parent_definition_level =
@@ -130,14 +130,14 @@ Status MapColumnReader::_consume_or_build_nested_column(int64_t length_upper_bou
             (!starts_parent && def_level < _repeated_ancestor_definition_level)) {
             continue;
         }
-        map_level_indices.push_back(current_level_idx);
+        _map_level_indices.push_back(current_level_idx);
         if (rep_level == _repetition_level) {
-            if (entry_counts.empty()) {
+            if (_entry_counts.empty()) {
                 return Status::Corruption("Invalid repeated level for parquet MAP column {}",
                                           _name);
             }
             if (def_level >= _definition_level) {
-                ++entry_counts.back();
+                ++_entry_counts.back();
             }
             continue;
         }
@@ -147,14 +147,14 @@ Status MapColumnReader::_consume_or_build_nested_column(int64_t length_upper_bou
             return Status::Corruption("Parquet MAP column {} contains null for non-nullable MAP",
                                       _name);
         }
-        parent_nulls.push_back(parent_is_null);
-        entry_counts.push_back(def_level >= _definition_level ? 1 : 0);
+        _parent_nulls.push_back(parent_is_null);
+        _entry_counts.push_back(def_level >= _definition_level ? 1 : 0);
         ++*values_processed;
     }
     set_nested_build_level_cursor(level_idx);
 
     uint64_t total_entries = 0;
-    for (const auto entry_count : entry_counts) {
+    for (const auto entry_count : _entry_counts) {
         total_entries += entry_count;
     }
     int64_t key_value_count = 0;
@@ -166,7 +166,7 @@ Status MapColumnReader::_consume_or_build_nested_column(int64_t length_upper_bou
     } else if (auto* scalar_key_reader = dynamic_cast<ScalarColumnReader*>(_key_reader.get())) {
         // MAP keys are required even if a projected Doris key type is nullable. Validate each
         // actual entry directly from the key level stream while advancing past empty/null maps.
-        for (const int64_t key_level_idx : map_level_indices) {
+        for (const int64_t key_level_idx : _map_level_indices) {
             if (def_levels[key_level_idx] >= _definition_level) {
                 RETURN_IF_ERROR(scalar_key_reader->validate_nested_value(key_level_idx, true));
                 ++key_value_count;
@@ -194,7 +194,7 @@ Status MapColumnReader::_consume_or_build_nested_column(int64_t length_upper_bou
         const auto& value_rep_levels = scalar_value_reader->nested_repetition_levels();
         const int64_t value_levels_written = scalar_value_reader->nested_levels_written();
         int64_t value_level_idx = scalar_value_reader->nested_build_level_cursor();
-        for (const int64_t key_level_idx : map_level_indices) {
+        for (const int64_t key_level_idx : _map_level_indices) {
             while (value_level_idx < value_levels_written &&
                    (value_rep_levels[value_level_idx] > _repetition_level ||
                     value_def_levels[value_level_idx] < min_parent_definition_level ||
@@ -248,8 +248,8 @@ Status MapColumnReader::_consume_or_build_nested_column(int64_t length_upper_bou
     if (column != nullptr) {
         map_column->get_keys_ptr() = std::move(key_column);
         map_column->get_values_ptr() = std::move(value_column);
-        append_offsets(map_column->get_offsets(), entry_counts);
-        append_parent_nulls(parent_null_map, parent_nulls);
+        append_offsets(map_column->get_offsets(), _entry_counts);
+        append_parent_nulls(parent_null_map, _parent_nulls);
     }
     return Status::OK();
 }

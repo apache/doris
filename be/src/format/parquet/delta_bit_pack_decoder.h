@@ -50,23 +50,23 @@ public:
     template <bool has_filter>
     Status decode_byte_array(const std::vector<Slice>& decoded_vals, MutableColumnPtr& doris_column,
                              DataTypePtr& data_type, ColumnSelectVector& select_vector) {
+        _selected_string_values.clear();
+        _selected_string_values.reserve(select_vector.num_values() - select_vector.num_filtered());
         ColumnSelectVector::DataReadType read_type;
         int value_idx = 0;
         while (size_t run_length = select_vector.get_next_run<has_filter>(&read_type)) {
             switch (read_type) {
             case ColumnSelectVector::CONTENT: {
-                std::vector<StringRef> string_values;
-                string_values.reserve(run_length);
                 for (size_t i = 0; i < run_length; ++i) {
                     size_t length = decoded_vals[value_idx].size;
-                    string_values.emplace_back(decoded_vals[value_idx].data, length);
+                    _selected_string_values.emplace_back(decoded_vals[value_idx].data, length);
                     value_idx++;
                 }
-                doris_column->insert_many_strings(&string_values[0], run_length);
                 break;
             }
             case ColumnSelectVector::NULL_DATA: {
-                doris_column->insert_many_defaults(run_length);
+                _selected_string_values.insert(_selected_string_values.end(), run_length,
+                                               StringRef("", 0));
                 break;
             }
             case ColumnSelectVector::FILTERED_CONTENT: {
@@ -78,6 +78,12 @@ public:
                 break;
             }
             }
+        }
+        DCHECK_EQ(_selected_string_values.size(),
+                  select_vector.num_values() - select_vector.num_filtered());
+        if (!_selected_string_values.empty()) {
+            doris_column->insert_many_strings(_selected_string_values.data(),
+                                              _selected_string_values.size());
         }
         return Status::OK();
     }
@@ -138,6 +144,9 @@ protected:
     }
     // Convert decoded value to doris type value.
     std::unique_ptr<Decoder> _type_converted_decoder;
+    // Values reference decoder-owned page scratch. Retaining this vector avoids one allocation per
+    // CONTENT run and lets ColumnString resize once for the whole selected batch.
+    std::vector<StringRef> _selected_string_values;
 };
 
 /**

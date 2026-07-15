@@ -25,7 +25,9 @@
 #include "common/status.h"
 #include "core/column/column.h"
 #include "core/column/column_nullable.h"
+#include "core/data_type_serde/data_type_serde.h"
 #include "core/data_type_serde/decoded_column_view.h"
+#include "core/string_ref.h"
 #include "format_v2/parquet/parquet_profile.h"
 #include "format_v2/parquet/parquet_type.h"
 
@@ -63,6 +65,23 @@ struct ParquetNestedScalarBatch {
     MutableColumnPtr values_column;
 
     bool empty() const { return levels_written == 0; }
+
+    // Reset logical contents without replacing the vectors/Column object. A reader repeatedly
+    // sees the same physical leaf type, so retaining capacity is safe and avoids one allocation
+    // family per nested batch. A levels-only read leaves values_column empty but may keep the
+    // reusable object allocated.
+    void reset() {
+        records_read = 0;
+        levels_written = 0;
+        value_slot_definition_level = 0;
+        value_slot_repetition_level = std::numeric_limits<int16_t>::max();
+        def_levels.clear();
+        rep_levels.clear();
+        value_indices.clear();
+        if (values_column.get() != nullptr) {
+            values_column->clear();
+        }
+    }
 };
 
 class ParquetLeafBatch {
@@ -147,6 +166,10 @@ private:
                                      const NullMap* null_map,
                                      std::vector<uint8_t>* spaced_values) const;
 
+    Status append_values_with_type(const ParquetLeafBatch& batch, int64_t row_count,
+                                   const NullMap* null_map, const DataTypePtr& materialization_type,
+                                   const DataTypeSerDeSPtr& serde, MutableColumnPtr& column) const;
+
     Status build_nested_batch_from_leaf_batch(const ParquetLeafBatch& leaf_batch,
                                               int64_t records_read,
                                               int16_t value_slot_definition_level,
@@ -168,6 +191,18 @@ private:
     const cctz::time_zone* _timezone = nullptr; // timezone for timestamp conversion
     bool _enable_strict_mode = false;           // strict mode for type mismatch errors
     std::function<Status(MutableColumnPtr&, const DecodedColumnView&)> _decoded_value_appender;
+    // Logical scratch. append_values() resets sizes but preserves capacity across batches.
+    // StringRef entries never outlive the Arrow chunks retained by the current leaf batch.
+    DataTypeSerDeSPtr _serde;
+    DataTypePtr _nested_value_type;
+    DataTypeSerDeSPtr _nested_value_serde;
+    mutable ParquetLeafBatch _nested_leaf_batch;
+    mutable NullMap _nested_value_nulls;
+    mutable std::vector<StringRef> _binary_values;
+    mutable std::vector<StringRef> _compact_binary_values;
+    mutable std::vector<uint8_t> _spaced_values;
+    mutable std::vector<float> _float_values;
+    mutable std::vector<std::shared_ptr<::arrow::Array>> _discarded_binary_chunks;
 };
 
 } // namespace doris::format::parquet

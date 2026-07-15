@@ -126,6 +126,9 @@ ScalarColumnReader::ScalarColumnReader(
           _descriptor(column_schema.descriptor),
           _type_descriptor(column_schema.type_descriptor),
           _record_reader(std::move(record_reader)),
+          _leaf_reader(std::make_unique<ParquetLeafReader>(_descriptor, _type_descriptor, _type,
+                                                           _name, _record_reader, _profile,
+                                                           timezone, enable_strict_mode)),
           _page_skip_plan(page_skip_plan),
           _timezone(timezone),
           _enable_strict_mode(enable_strict_mode),
@@ -142,33 +145,32 @@ Status ScalarColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t*
         return Status::InternalError("Parquet record reader is not initialized for column {}",
                                      _name);
     }
-    auto reader = leaf_reader();
-    ParquetLeafBatch leaf_batch;
-    RETURN_IF_ERROR(reader.read_batch(rows, &leaf_batch, rows_read));
+    auto& reader = leaf_reader();
+    RETURN_IF_ERROR(reader.read_batch(rows, &_leaf_batch, rows_read));
 
-    NullMap null_map;
-    RETURN_IF_ERROR(reader.build_null_map(leaf_batch, *rows_read, &null_map));
+    _null_map.clear();
+    RETURN_IF_ERROR(reader.build_null_map(_leaf_batch, *rows_read, &_null_map));
     const auto value_kind = decoded_value_kind(_type_descriptor);
     const bool is_binary_value =
             value_kind == DecodedValueKind::BINARY || value_kind == DecodedValueKind::FIXED_BINARY;
-    if (!is_binary_value && leaf_batch.read_dense_for_nullable() && !null_map.empty()) {
+    if (!is_binary_value && _leaf_batch.read_dense_for_nullable() && !_null_map.empty()) {
         const int64_t non_null_count = static_cast<int64_t>(simd::count_zero_num(
-                reinterpret_cast<const int8_t*>(null_map.data()), null_map.size()));
+                reinterpret_cast<const int8_t*>(_null_map.data()), _null_map.size()));
         const int64_t null_count = *rows_read - non_null_count;
-        if (leaf_batch.values_written() != non_null_count) {
+        if (_leaf_batch.values_written() != non_null_count) {
             return Status::Corruption(
                     "Invalid dense nullable parquet record read result for column {}: values={}, "
                     "records={}, nulls={}",
-                    _name, leaf_batch.values_written(), *rows_read, null_count);
+                    _name, _leaf_batch.values_written(), *rows_read, null_count);
         }
-    } else if (!is_binary_value && !leaf_batch.read_dense_for_nullable() &&
-               leaf_batch.values_written() != *rows_read) {
+    } else if (!is_binary_value && !_leaf_batch.read_dense_for_nullable() &&
+               _leaf_batch.values_written() != *rows_read) {
         return Status::Corruption(
                 "Invalid parquet record read result for column {}: values={}, records={}", _name,
-                leaf_batch.values_written(), *rows_read);
+                _leaf_batch.values_written(), *rows_read);
     }
 
-    RETURN_IF_ERROR(reader.append_values(leaf_batch, *rows_read, &null_map, column));
+    RETURN_IF_ERROR(reader.append_values(_leaf_batch, *rows_read, &_null_map, column));
     advance_rows_read(*rows_read);
     update_reader_read_rows(*rows_read);
     return Status::OK();
@@ -274,9 +276,9 @@ Status ScalarColumnReader::select_with_dictionary_filter(const SelectionVector& 
     }
     *used_filter = true;
 
-    const auto ranges = selection_to_ranges(sel, selected_rows);
+    selection_to_ranges(sel, selected_rows, &_selection_ranges);
     int64_t cursor = 0;
-    for (const auto& range : ranges) {
+    for (const auto& range : _selection_ranges) {
         if (range.start < cursor || range.start + range.length > batch_rows) {
             return Status::InvalidArgument(
                     "Invalid parquet dictionary selection range [{}, {}) for column {}",
@@ -320,12 +322,11 @@ Status ScalarColumnReader::read_range_with_dictionary_filter(
                 _name);
     }
 
-    ParquetLeafBatch leaf_batch;
-    RETURN_IF_ERROR(leaf_reader().read_batch(rows, &leaf_batch, rows_read));
+    RETURN_IF_ERROR(leaf_reader().read_batch(rows, &_leaf_batch, rows_read));
     int64_t matched_rows = 0;
-    RETURN_IF_ERROR(append_dictionary_filtered_values(leaf_batch.binary_chunks(), dictionary_filter,
-                                                      column, row_filter, &matched_rows,
-                                                      used_filter));
+    RETURN_IF_ERROR(append_dictionary_filtered_values(_leaf_batch.binary_chunks(),
+                                                      dictionary_filter, column, row_filter,
+                                                      &matched_rows, used_filter));
     if (!*used_filter) {
         return Status::Corruption(
                 "Parquet dictionary reader did not return dictionary batches for column {}", _name);
@@ -344,14 +345,14 @@ Status ScalarColumnReader::read_range_with_dictionary_filter(
 Status ScalarColumnReader::append_dictionary_filtered_values(
         const std::vector<std::shared_ptr<::arrow::Array>>& chunks,
         const IColumn::Filter& dictionary_filter, MutableColumnPtr& column,
-        IColumn::Filter* row_filter, int64_t* matched_rows, bool* used_filter) const {
+        IColumn::Filter* row_filter, int64_t* matched_rows, bool* used_filter) {
     DORIS_CHECK(row_filter != nullptr);
     DORIS_CHECK(matched_rows != nullptr);
     DORIS_CHECK(used_filter != nullptr);
     *matched_rows = 0;
     *used_filter = false;
 
-    std::vector<StringRef> selected_values;
+    _dictionary_binary_values.clear();
     for (const auto& chunk : chunks) {
         DORIS_CHECK(chunk != nullptr);
         const auto* dict_array = dynamic_cast<const ::arrow::DictionaryArray*>(chunk.get());
@@ -386,7 +387,7 @@ Status ScalarColumnReader::append_dictionary_filtered_values(
                 keep = dictionary_filter[static_cast<size_t>(dictionary_index)] != 0;
                 if (keep) {
                     RETURN_IF_ERROR(append_arrow_binary_dictionary_value(
-                            _name, *dictionary, dictionary_index, &selected_values));
+                            _name, *dictionary, dictionary_index, &_dictionary_binary_values));
                     ++*matched_rows;
                 }
             }
@@ -397,7 +398,11 @@ Status ScalarColumnReader::append_dictionary_filtered_values(
     if (!*used_filter) {
         return Status::OK();
     }
-    return append_decoded_binary_values(selected_values, column);
+    auto status = append_decoded_binary_values(_dictionary_binary_values, column);
+    // StringRef does not own the Arrow dictionary bytes. Drop the logical references immediately
+    // after synchronous materialization while keeping vector capacity for the next batch.
+    _dictionary_binary_values.clear();
+    return status;
 }
 
 Status ScalarColumnReader::append_decoded_binary_values(const std::vector<StringRef>& values,

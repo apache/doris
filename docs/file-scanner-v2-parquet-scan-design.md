@@ -25,8 +25,9 @@ predicate columns for surviving ranges, and finally defer output-column reads un
 - **Layered caches:** File-block cache, Parquet page cache, condition-result cache, and merged small
   I/O solve different problems and are not interchangeable.
 
-**Scope:** This document focuses on the FileScannerV2 Parquet Reader design and core pipeline. It
-does not cover Arrow decoder internals, complex-type reconstruction, or expression implementation.
+**Scope:** This document covers the FileScannerV2 Parquet Reader pipeline, the native page/decode
+kernel, selection-aware materialization, and complex-type reconstruction contracts. Expression
+implementation details remain outside its scope.
 
 ## 2. Overall Architecture
 
@@ -40,9 +41,10 @@ flowchart TB
   B --> C[TableReader<br>Schema Mapping, Partition/Default Values, Predicate Localization]
   C --> D[ParquetReader<br>Footer/Schema and Row Group Scan Planning]
   D --> E[ParquetScanScheduler<br>Row Group Lifecycle and Batch Reads]
-  E --> F[ParquetColumnReader<br>Page Skipping, Decompression, Decoding, Materialization]
-  F --> G[ParquetFileContext / Arrow RandomAccessFile<br>Page Cache, MergeRange, Prefetch]
-  G --> H[Doris FileReader / FileCache / Remote FS]
+  E --> F[ParquetColumnReader<br>Persistent Column State and Complex Reconstruction]
+  F --> G[Native ColumnChunk / Page / Encoding Decoders<br>Selection-aware Doris Materialization]
+  G --> H[ParquetFileContext / Stream Adapter<br>Page Cache, MergeRange, Prefetch]
+  H --> I[Doris FileReader / FileCache / Remote FS]
 ```
 
 | Layer | Core responsibilities | Responsibilities intentionally excluded |
@@ -57,6 +59,64 @@ flowchart TB
 > **Design benefit:** Table format, file format, and storage medium remain decoupled. The Parquet
 > layer can use footer, page index, dictionary, and other format knowledge while upper layers retain
 > uniform scan semantics.
+
+### 2.1 Native Reader Target and Migration State
+
+The target execution path does not use Arrow builders or `ReadRecords` to decode data pages. Doris
+owns the Column Chunk, page, level, encoding, selection, conversion, and materialization state, and
+writes directly into Doris columns. This follows the same broad separation used by DuckDB: metadata
+planning is distinct from a persistent per-column reader, and page/encoding decoders expose narrow
+cursor-based contracts rather than an Arrow array as an intermediate result.
+
+The migration is deliberately incremental because the existing v1 native kernel already contains
+mature Parquet page and encoding support:
+
+| Stage | State and boundary |
+| --- | --- |
+| Native encoding kernel | Reuse and extract the Doris v1 decoders behind a schema-independent physical Column Chunk contract. Selection-aware scalar decoding and reusable string scratch are the first vertical slice. |
+| Native column reader | Make the leaf reader and its SerDe, null map, selection ranges, binary values, level buffers, and conversion scratch persistent for a Row Group. Add direct Doris materialization paths. |
+| Complex reconstruction | Build one shared Dremel level plan per requested parent-row range and use it for STRUCT/ARRAY/MAP siblings, offsets, and null maps. |
+| Metadata and planning | Replace Arrow footer/schema/Row Group metadata dependencies with native Thrift-derived objects while preserving the existing planner, index, cache, and split contracts. |
+| Compatibility removal | Remove Arrow data-read adapters only after type/encoding/page/writer compatibility and performance gates pass. Keep an explicit fallback during migration; never silently select a partially supported native path. |
+
+At the current migration boundary, Arrow may still be present in the v2 footer/schema, planning, or
+I/O adapter path. That does not make Arrow arrays part of the native decoder contract. Documentation
+and Profile names must distinguish the native data-page path from remaining metadata/adaptation
+work so an intermediate patch is not mistaken for complete Arrow removal.
+
+All production integration remains in `be/src/format_v2/parquet/`. V1 is kept unchanged as the
+correctness and performance control. Extracting a narrow shared decoder primitive is permitted when
+it preserves the legacy API and behavior, but the migration does not route v1 reads through a new
+v2 path. This separation makes differential testing meaningful and prevents a v2 performance
+experiment from regressing the established reader.
+
+### 2.2 Native Interface Ownership
+
+```mermaid
+flowchart LR
+  A[Native Footer / Physical Schema] --> B[RowGroupReadPlan]
+  B --> C[Persistent ParquetColumnReader]
+  C --> D[Persistent ColumnChunkReader]
+  D --> E[Page Reader + Level Decoders]
+  E --> F[Encoding Decoder]
+  F --> G[ColumnSelectVector]
+  G --> H[Doris MutableColumn]
+  C --> I[Shared Complex Level Plan]
+  I --> G
+```
+
+- **Physical schema contract:** Immutable physical type, fixed length, maximum definition and
+  repetition levels, and repeated-parent definition threshold. It owns no Arrow descriptor and
+  borrows no temporary table-schema object.
+- **Persistent column state:** Page/decompress buffers, dictionary decoder, SerDe/conversion state,
+  null maps, selection ranges, binary-value references, and builder capacity live with the column
+  reader and are logically reset rather than recreated for each batch.
+- **Decoder contract:** Consume a known number of logical level entries and encoded payload values,
+  then materialize only selected rows. Decoders do not decide table projection, predicate meaning,
+  or parent complex offsets.
+- **Complex plan contract:** Definition/repetition levels are parsed once into parent-row boundaries
+  and child-presence/null decisions. All children consume the same plan so their offsets and null
+  maps cannot drift.
 
 ## 3. From File Open to Scan Plan
 
@@ -75,7 +135,7 @@ sequenceDiagram
   FS->>TR: prepare/open split
   TR->>TR: Map schema and localize predicates
   TR->>PR: FileScanRequest
-  PR->>FC: Open FileReader
+  PR->>FC: Open FileReader / native stream adapter
   FC->>META: Read footer and schema
   META-->>PR: Row Group / Column Chunk metadata
   PR->>PLAN: Candidate Row Groups and local predicates
@@ -94,8 +154,10 @@ sequenceDiagram
   delete conjuncts, and local column-position mappings.
 - **RowGroupReadPlan:** Records the Row Group, its file-global starting row, `selected_ranges`
   produced by page-index pruning, and the `page_skip_plan` for each leaf column.
-- **ParquetFileContext:** Adapts Doris FileReader to Arrow RandomAccessFile and owns Page Cache,
-  FileCache prefetch, and MergeRange routing.
+- **ParquetFileContext:** Adapts Doris FileReader to the active metadata/data stream interface and
+  owns Page Cache, FileCache prefetch, and MergeRange routing. During migration this may still
+  expose an Arrow adapter for metadata consumers, but native page decoding reads the same stable
+  Doris byte ranges without producing Arrow arrays.
 
 > Planning intentionally proceeds from cheap to expensive. Split and metadata pruning reduce the
 > candidate set before finer indexes are read for surviving Row Groups, avoiding index I/O for data
@@ -279,6 +341,175 @@ flowchart LR
 > output columns must decode and copy. This is the main benefit of lazy materialization in a
 > columnar format.
 
+### 7.1 Selection and Cursor Contract
+
+The native decoder receives a sorted selection over logical rows. Logical positions include nulls;
+they are not offsets into the encoded non-null payload. Definition levels and selection are merged
+as two ordered streams into four run types:
+
+| Run | Consume logical level entries | Consume encoded payload | Append output |
+| --- | --- | --- | --- |
+| Selected non-null (`CONTENT`) | Yes | Yes | Value |
+| Selected null (`NULL_DATA`) | Yes | No | Default plus null-map bit |
+| Filtered non-null (`FILTERED_CONTENT`) | Yes | Yes or decoder-native skip | No |
+| Filtered null (`FILTERED_NULL`) | Yes | No | No |
+
+The contract keeps three counts explicit: logical level entries consumed, encoded non-null values
+consumed, and Doris output values appended. The page reader may cross page boundaries while
+satisfying one batch, but all three counts must be aligned when it returns. A dense identity
+selection, an empty selection, and an arbitrary fragmented selection use the same decoder API.
+Selection inputs are borrowed only for the duration of the decode call.
+
+For a flat leaf, the fast path is valid only when the maximum repetition level is zero. It decodes
+definition-level runs, builds the four-way selection plan without an O(batch rows) action array,
+and dispatches the plan to the active encoding decoder. A filtered non-null value must still advance
+the encoding state even when it is not copied. This is the central invariant that prevents the next
+batch from decoding shifted values.
+
+### 7.2 Page and Encoding Kernel
+
+The native page reader parses Page V1 and Page V2 headers, obtains level streams and payload bytes,
+decompresses only the required region, and installs a decoder selected from physical type plus data
+encoding. Page V1 and V2 differ in where levels are stored and which bytes are compressed; after
+that parsing step both feed the same level and value-decoder contracts.
+
+| Encoding family | Native responsibility |
+| --- | --- |
+| PLAIN | Fixed-width little-endian primitives, BOOLEAN bit packing, BYTE_ARRAY lengths, and FIXED_LEN_BYTE_ARRAY widths |
+| RLE_DICTIONARY / PLAIN_DICTIONARY | Persist dictionary values for the Column Chunk, decode/skip IDs by selection, and reject invalid IDs |
+| RLE / BIT_PACKED levels | Decode definition/repetition levels and preserve runs across page and batch boundaries |
+| DELTA_BINARY_PACKED | Preserve block/mini-block state while selected and filtered values share one payload cursor |
+| DELTA_LENGTH_BYTE_ARRAY | Decode lengths and byte payload in lockstep, including skipped values |
+| DELTA_BYTE_ARRAY | Reconstruct prefix/suffix values with persistent previous-value and binary scratch state |
+| BYTE_STREAM_SPLIT | Reassemble primitive lanes and apply selection without an Arrow intermediate |
+
+Unsupported physical-type/encoding combinations return an explicit error or use a declared
+compatibility fallback. They never produce a plausible result through a decoder selected only by
+logical Doris type. Dictionary-to-plain transitions, multiple data pages, Page V1/V2, truncated
+payloads, integer overflow, and invalid lengths/IDs are part of the unit-test matrix.
+
+### 7.3 Direct Materialization and Scratch Reuse
+
+Decoders write directly into Doris mutable columns whenever physical and target layouts are
+compatible. Fixed-width primitives reserve destination capacity once and append contiguous selected
+runs. String-like decoders gather selected `StringRef` values into persistent scratch and perform
+one batched append, so fragmented predicates do not cause one destination growth or copy call per
+run. Scratch stores references only while the backing page/dictionary buffer is stable.
+
+Decimal and FIXED_LEN_BYTE_ARRAY direct paths validate the physical byte width, decode big-endian
+two's-complement values with correct sign extension, and apply precision/scale conversion exactly
+once. Date, timestamp, INT96, unsigned annotations, CHAR/VARCHAR, and timezone conversions retain
+the same semantic checks as the general conversion path. A fast path is enabled only when those
+checks prove the result is equivalent.
+
+The persistent leaf reader owns reusable SerDe/conversion objects, null map, selection ranges,
+definition/repetition levels, binary references, dictionary state, decompression buffers, and Doris
+column/builder capacity. Logical sizes are reset at batch boundaries while capacity is retained.
+During migration, any remaining Arrow builder fallback follows the same lifetime and capacity-reuse
+rule; it must not be constructed once per `ReadRecords` call.
+
+### 7.4 Complex Types and Shared Level Plans
+
+Repeated Parquet leaves cannot interpret a requested parent-row count as a leaf-value count. One
+parent row may contain zero, one, or many level entries, and its final entry can reside on the next
+page. The complex reader therefore builds a shared level plan with:
+
+- parent-row start/end boundaries derived from repetition levels;
+- ancestor-null, collection-null, empty-collection, element-null, and present-value decisions from
+  definition thresholds;
+- child payload positions and selected parent rows;
+- cross-page continuation state for an unfinished parent row.
+
+ARRAY and MAP offsets and null maps are derived from that plan. STRUCT children reuse the plan from
+a representative present leaf and advance in parent-row lockstep; a missing or fully projected-out
+child is materialized from the same parent count. MAP key/value readers must produce identical
+entry counts, and Parquet's non-null key requirement is validated rather than repaired.
+
+Level scratch is sized by decoded level entries, not by the 16-bit parent batch cap. Long repeated
+rows and long null/non-null runs are split into representable internal runs without introducing a
+new row boundary. Tests cover null ancestors, empty collections, null elements/values, nested
+STRUCT-in-ARRAY and ARRAY-in-STRUCT shapes, sibling page misalignment, and rows spanning pages and
+batches.
+
+#### Complex-reader interface and materialization cost
+
+The Arrow migration adapter currently exposes four stateful operations:
+`load_nested_batch()`, `load_nested_levels_batch()`, `build_nested_column()`, and
+`consume_nested_column()`. This split made shape-only reads possible while Arrow still owned value
+decoding, but it is not the target native interface. It has three measurable costs:
+
+1. callers must preserve an implicit load-before-build/consume phase and multiple nested cursors;
+2. ARRAY/MAP/STRUCT layers can rescan the same def/rep span to derive parent boundaries, child
+   counts, null maps, and alignment;
+3. a materialized leaf can copy levels, build a level-to-payload index, build a temporary null map,
+   and only then convert the payload to a Doris column.
+
+Doris v1 is simpler at the public boundary: a child `read_column_data()` call owns physical decode
+and exposes its persistent def/rep buffers to the collection reader. It nevertheless repeats some
+level interpretation in collection helpers, so v1 is a compatibility/performance baseline rather
+than the final abstraction. DuckDB uses a single `Read(input, vector)` operation. Its LIST reader
+reads a reusable child vector plus def/rep buffers, emits list entries in the same traversal, and
+keeps overflow for the next vector; its STRUCT reader invokes children directly into output vectors
+and verifies their row counts. See DuckDB's official
+[LIST reader](https://github.com/duckdb/duckdb/blob/main/extension/parquet/reader/list_column_reader.cpp),
+[STRUCT reader](https://github.com/duckdb/duckdb/blob/main/extension/parquet/reader/struct_column_reader.cpp),
+and [base column reader](https://github.com/duckdb/duckdb/blob/main/extension/parquet/column_reader.cpp).
+
+The native v2 boundary therefore uses one operation conceptually equivalent to:
+
+```text
+read_nested(request { parent_rows, selection, VALUES | LEVELS_ONLY }, output)
+    -> result { parent_rows, shared_level_plan, payload_counts }
+```
+
+`VALUES` decodes selected payload and materializes directly into the supplied Doris child columns;
+`LEVELS_ONLY` advances identical level/page cursors without materializing payload. Both modes build
+the same parent boundaries and validation decisions. ARRAY, MAP, and STRUCT consume a shared plan
+rather than calling separate public build/consume phases. For example, levels representing
+`[["a", "b"], NULL, []]` produce parent boundaries `[0, 2, 3, 4]`, entry counts `[2, 0, 0]`, and
+parent nulls `[0, 1, 0]` in one traversal; string payload ordinals are `[0, 1]`. MAP uses the key
+leaf as the entry-shape owner and validates the value leaf against the same entry plan. STRUCT uses
+one representative leaf for parent validity and only checks sibling alignment while decoding each
+child.
+
+During migration, the four Arrow-facing methods remain a compatibility facade. Their leaf reader,
+SerDe, binary/null/level scratch, selection ranges, nested batches, parent nulls, entry counts, and
+child-column handles must be persistent so the facade does not add per-batch allocation churn.
+New native decoder code must not depend on this phase ordering or reproduce the temporary
+level-to-payload index when it can stream payload positions directly from the shared plan.
+
+### 7.5 Index Coordinate Domains and Composition
+
+Index correctness depends on keeping its coordinate systems separate:
+
+| Identity | Scope | Must not be confused with |
+| --- | --- | --- |
+| Table/local column ID | Current file request and Doris block | Physical Parquet leaf ordinal |
+| Physical leaf-column ID | Footer Row Group Column Chunk array | Logical parent STRUCT/ARRAY/MAP ordinal |
+| Row Group ID | File metadata | Split ordinal or batch ordinal |
+| Data-page ordinal | One Column Chunk, excluding dictionary pages | PageHeader sequence including dictionary page |
+| OffsetIndex row ordinal | Logical row inside a Row Group | Encoded non-null value position |
+| Selection index | Logical row inside the current batch, nulls included | Dictionary ID or compact output position |
+| Dictionary-entry ID | One Column Chunk dictionary | Row ordinal, global dictionary ID, or the next Row Group's dictionary |
+
+Row Group statistics, dictionary pruning, Bloom, ColumnIndex/OffsetIndex, page skip plans, cache
+ranges, row selection, and lazy predicate/output readers are composed in that order. Each stage may
+only remove candidates already expressed in the same Row Group logical-row domain. Page ordinals
+from ColumnIndex and OffsetIndex are validated together before they become `selected_ranges` and a
+per-leaf physical page-skip plan.
+
+Dictionary row filtering starts only when metadata proves every data page in the Column Chunk uses
+a dictionary encoding. The predicate is evaluated against the current dictionary to produce an
+entry bitmap; decoded IDs are checked against both dictionary length and bitmap length. A mixed
+dictionary/plain transition falls back before consuming data. Once selected dictionary reading has
+advanced a page cursor, loss of dictionary output is corruption rather than a retry through another
+path with shifted state.
+
+Missing optional indexes or unsupported predicate/type combinations retain rows. Malformed
+offsets, inconsistent page counts, out-of-range dictionary IDs, overlapping/unsorted invalid ranges,
+or an impossible cursor relationship are reported as corruption. Cache hits and misses do not
+change any page, level, value, or dictionary cursor.
+
 ## 8. Supported Indexes and Their Boundaries
 
 V2 uses native Parquet metadata and encoding information. It does not construct Doris-internal
@@ -315,12 +546,12 @@ flowchart TD
 
 ## 9. Cache and I/O Optimization
 
-Parquet V2 has four complementary cache and I/O paths: cache remote file blocks, cache serialized
-Parquet ranges, cache predicate results, and merge small random reads.
+Parquet V2 has five complementary cache and I/O paths: cache footer/parsed metadata, cache remote
+file blocks, cache serialized Parquet ranges, cache predicate results, and merge small random reads.
 
 ```mermaid
 flowchart TB
-  A[Parquet Column Reader ReadAt] --> B{Parquet Page Cache Hit?}
+  A[Parquet Column Reader Range Read] --> B{Parquet Page Cache Hit?}
   B -- "Yes" --> C[Return Cached Serialized Range Bytes]
   B -- "No" --> D{MergeRange Active?}
   D -- "Yes" --> E[MergeRangeFileReader<br>Merge Adjacent Small I/O]
@@ -334,10 +565,34 @@ flowchart TB
 
 | Mechanism | Cached or optimized object | Lifecycle and key | Problem addressed |
 | --- | --- | --- | --- |
+| Footer metadata cache | Serialized footer bytes and immutable parsed native metadata | Stable file identity matching v1: path plus size and trustworthy modification/version information, with schema-affecting options in the parsed-object key | Avoid repeated footer I/O, Thrift parsing, and schema construction across scans |
 | FileCache | Remote file blocks | Related to filesystem/path and file version; may hit locally or through a peer | Avoid repeated object-storage access and support background prefetch |
 | Parquet Page Cache | Serialized bytes within registered Column Chunk ranges | Stable file key depends on path, mtime/version, and file size; disabled when mtime is unreliable | Reduce repeated page reads and support exact/subrange coverage |
 | Condition Cache | Condition-surviving granule bitmap | Managed by condition and file-range context | Reuse filtering results before reading columns |
 | MergeRangeFileReader | Not a cache; merges small ranges into larger slices | Installed temporarily for projected chunks of the current Row Group | Reduce remote small-I/O count and request overhead |
+
+### Footer Cache Parity with V1
+
+V2 uses the same cacheability and invalidation policy as v1 rather than introducing a second notion
+of file identity. A hit returns immutable metadata that can be shared by readers; mutable Row Group,
+selection, decoder, and scratch state remains per reader. Path-only keys are insufficient. When a
+trustworthy version identity is unavailable, the footer is read and parsed without publishing a
+reusable entry. Parse failures, short files, encrypted/unsupported metadata, and schema-affecting
+option changes cannot populate or reuse a successful entry.
+
+During migration, serialized-footer caching and parsed-native-metadata caching may be enabled in
+separate steps, but both use the same identity and lifetime rules. An Arrow-parsed metadata object
+must not be treated as the native cache value or leak an Arrow lifetime into the native decoder.
+
+### Page Cache Parity with V1
+
+The native path uses v1's page-cache semantics as its minimum contract: the same stable file
+identity, Column Chunk/page byte ranges, compressed versus decompressed entry distinction, checksum
+and decompression ownership, subrange coverage, invalidation, admission, and fallback I/O rules.
+Mutable decoder and dictionary state is never cached. A hit returns immutable bytes and advances the
+reader exactly as the corresponding base read would; a miss performs normal I/O before optional
+admission. An alternative policy is accepted only with correctness coverage plus warm/cold,
+selective/dense, local/remote benchmarks showing it is no worse than v1.
 
 ### Why Page Cache registers only surviving chunks
 
@@ -350,7 +605,8 @@ Chunks from surviving Row Groups are registered, limiting pollution and key coun
 - When the base reader is CachedRemoteFileReader, predicate/output ranges for the current Row Group
   may be prefetched into FileCache.
 - When average projected chunks are small and the reader is not in-memory, install
-  MergeRangeFileReader so subsequent Arrow `ReadAt` calls actually use merged reads.
+  MergeRangeFileReader so subsequent native range reads or transitional Arrow `ReadAt` calls use
+  merged reads.
 - With row-level filters, prefetch predicate columns first. Prefetch non-predicate columns only after
   at least one row survives, avoiding unnecessary bandwidth.
 
@@ -395,6 +651,14 @@ flowchart LR
   D --> E[Choose Next Row Cap]
   E --> F[Bound by batch_size and Selected Range]
 ```
+
+Changing the requested row cap changes only the amount of work performed by the persistent reader.
+It does not recreate Column Readers, Column Chunk readers, dictionaries, SerDe/conversion objects,
+builders, or scratch. The probe is charged as a normal batch and estimates completed Doris rows and
+bytes after table-level materialization, matching v1's measurement point. Empty or highly filtered
+probes do not permanently collapse the batch size; the scheduler retains enough evidence before
+updating its estimate and respects page/range boundaries without turning each fragment into a new
+reader lifecycle.
 
 ### 10.3 Aggregate Pushdown
 
@@ -469,6 +733,10 @@ flowchart TD
 | FileCache Profile | How many local/peer/remote bytes, waits, downloads, and hits occurred? |
 | Merge / request I/O | Were small reads merged, and were request count and read amplification reasonable? |
 | Condition Cache | How many rows were skipped early after a cache hit? |
+| Native decode | How much time is spent in page parsing, decompression, levels, encoding, selection, conversion, string/fixed-binary materialization, and scratch growth? |
+| Batch fragmentation | How does `TotalBatches` divide into adaptive probes, dense, selected, empty, page-crossing, and nested/fragmented batches? |
+| Index decisions | How often were statistics, dictionary, Bloom, ColumnIndex/OffsetIndex, and page skips attempted, accepted, conservatively rejected, or rejected as corrupt? |
+| Cache lifecycle | For footer/page/file/condition caches, what were request, hit, miss, bypass, admission/write, byte, wait, and underlying-I/O counts using v1-compatible meanings? |
 
 > Interpret pruning ratios in the context of write layout. Unsorted data produces wide min/max
 > ranges, so Row Group/Page pruning may be ineffective even when the reader and indexes work
@@ -476,14 +744,16 @@ flowchart TD
 
 ## 13. Summary
 
-The FileScannerV2 Parquet scan pipeline has three primary threads:
+The FileScannerV2 Parquet scan pipeline has four primary threads:
 
 1. **Semantic thread:** TableReader maps table schema and predicates into stable file-local
    semantics, preserving schema evolution, partition columns, and missing columns.
 2. **Pruning thread:** Split → Row Group → Page → Row progressively applies Runtime Filters,
    Statistics, Dictionary, Bloom, Page Index, and actual-value filters.
-3. **I/O thread:** Predicate-first reads, SelectionVector, lazy materialization, adaptive batches,
-   FileCache/Page Cache/Condition Cache, and MergeRange reduce read amplification together.
+3. **Decode thread:** Persistent native page/encoding readers merge Dremel levels with Selection,
+   reuse scratch, reconstruct complex values from shared plans, and materialize directly to Doris.
+4. **I/O thread:** Predicate-first reads, adaptive batches, Footer/File/Page/Condition caches, and
+   MergeRange reduce read amplification together.
 
 ```mermaid
 flowchart LR

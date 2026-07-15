@@ -152,8 +152,8 @@ Status StructColumnReader::_consume_or_build_nested_column(int64_t length_upper_
     const auto& rep_levels = shape_reader->nested_repetition_levels();
     const int64_t levels_written = shape_reader->nested_levels_written();
 
-    NullMap parent_nulls;
-    std::vector<int64_t> parent_level_indices;
+    _parent_nulls.clear();
+    _parent_level_indices.clear();
     *values_processed = 0;
     int64_t level_idx = nested_build_level_cursor();
     while (level_idx < levels_written) {
@@ -177,17 +177,17 @@ Status StructColumnReader::_consume_or_build_nested_column(int64_t length_upper_
             return Status::Corruption(
                     "Parquet STRUCT column {} contains null for non-nullable struct", _name);
         }
-        parent_nulls.push_back(parent_is_null);
-        parent_level_indices.push_back(current_level_idx);
+        _parent_nulls.push_back(parent_is_null);
+        _parent_level_indices.push_back(current_level_idx);
         ++*values_processed;
     }
     set_nested_build_level_cursor(level_idx);
 
-    std::vector<MutableColumnPtr> child_columns;
+    _child_columns.clear();
     if (column != nullptr) {
-        child_columns.reserve(struct_column->get_columns().size());
+        _child_columns.reserve(struct_column->get_columns().size());
         for (size_t child_idx = 0; child_idx < struct_column->get_columns().size(); ++child_idx) {
-            child_columns.push_back(struct_column->get_column_ptr(child_idx)->assert_mutable());
+            _child_columns.push_back(struct_column->get_column_ptr(child_idx)->assert_mutable());
         }
     }
     for (size_t child_idx = 0; child_idx < _children.size(); ++child_idx) {
@@ -208,7 +208,7 @@ Status StructColumnReader::_consume_or_build_nested_column(int64_t length_upper_
             int64_t child_rows = 0;
             if (column != nullptr) {
                 RETURN_IF_ERROR(_children[child_idx]->build_nested_column(
-                        pending_present_rows, child_columns[output_idx], &child_rows));
+                        pending_present_rows, _child_columns[output_idx], &child_rows));
             } else {
                 RETURN_IF_ERROR(_children[child_idx]->consume_nested_column(pending_present_rows,
                                                                             &child_rows));
@@ -222,18 +222,18 @@ Status StructColumnReader::_consume_or_build_nested_column(int64_t length_upper_
             pending_present_rows = 0;
             return Status::OK();
         };
-        for (size_t parent_idx = 0; parent_idx < parent_nulls.size(); ++parent_idx) {
-            const auto parent_is_null = parent_nulls[parent_idx];
+        for (size_t parent_idx = 0; parent_idx < _parent_nulls.size(); ++parent_idx) {
+            const auto parent_is_null = _parent_nulls[parent_idx];
             if (!parent_is_null) {
                 ++pending_present_rows;
                 continue;
             }
             RETURN_IF_ERROR(flush_present_rows());
             if (column != nullptr) {
-                child_columns[output_idx]->insert_default();
+                _child_columns[output_idx]->insert_default();
             }
             RETURN_IF_ERROR(advance_child_past_null_parent(_children[child_idx].get(),
-                                                           parent_level_indices[parent_idx]));
+                                                           _parent_level_indices[parent_idx]));
             ++total_child_rows;
         }
         RETURN_IF_ERROR(flush_present_rows());
@@ -244,10 +244,10 @@ Status StructColumnReader::_consume_or_build_nested_column(int64_t length_upper_
         }
     }
     if (column != nullptr) {
-        for (size_t child_idx = 0; child_idx < child_columns.size(); ++child_idx) {
-            struct_column->get_column_ptr(child_idx) = std::move(child_columns[child_idx]);
+        for (size_t child_idx = 0; child_idx < _child_columns.size(); ++child_idx) {
+            struct_column->get_column_ptr(child_idx) = std::move(_child_columns[child_idx]);
         }
-        append_parent_nulls(parent_null_map, parent_nulls);
+        append_parent_nulls(parent_null_map, _parent_nulls);
     }
     return Status::OK();
 }

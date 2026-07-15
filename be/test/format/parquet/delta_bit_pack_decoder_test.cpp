@@ -157,6 +157,32 @@ TEST_F(DeltaBitPackDecoderTest, test_decode_with_filter_and_null) {
     }
 }
 
+TEST_F(DeltaBitPackDecoderTest, test_fragmented_index_selection_with_nulls) {
+    std::vector<uint8_t> encoded_data = {
+            // Four values 10, 11, 12, 13 with a constant delta of one.
+            0x80, 0x01, 0x04, 0x04, 0x14, 0x02, 0x00, 0x00, 0x00, 0x00};
+    Slice data_slice(reinterpret_cast<char*>(encoded_data.data()), encoded_data.size());
+    ASSERT_TRUE(_decoder->set_data(&data_slice).ok());
+
+    MutableColumnPtr column = ColumnInt32::create();
+    DataTypePtr data_type = std::make_shared<DataTypeInt32>();
+    const std::vector<uint16_t> null_runs = {2, 1, 2, 1};
+    const std::vector<uint16_t> selection = {1, 2, 4, 5};
+    NullMap null_map;
+    ColumnSelectVector select_vector;
+    ASSERT_TRUE(select_vector
+                        .init_from_selection(null_runs, 6, &null_map, selection.data(),
+                                             selection.size())
+                        .ok());
+
+    ASSERT_TRUE(_decoder->decode_values(column, data_type, select_vector, false).ok());
+    ASSERT_EQ(column->size(), 4);
+    EXPECT_EQ(null_map, (NullMap {0, 1, 0, 1}));
+    const auto& decoded = assert_cast<const ColumnInt32&>(*column).get_data();
+    EXPECT_EQ(decoded[0], 11);
+    EXPECT_EQ(decoded[2], 13);
+}
+
 // Test skipping values for delta bit pack decoding
 TEST_F(DeltaBitPackDecoderTest, test_skip_value) {
     // Prepare encoded data

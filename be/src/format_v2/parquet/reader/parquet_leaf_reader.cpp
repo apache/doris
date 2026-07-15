@@ -163,9 +163,13 @@ Status append_dictionary_binary_values(const std::string& column_name,
 Status build_binary_values(const std::string& column_name,
                            const std::vector<std::shared_ptr<::arrow::Array>>& chunks,
                            int64_t records_read, const NullMap* null_map,
-                           bool read_dense_for_nullable, std::vector<StringRef>* binary_values) {
-    std::vector<StringRef> compact_values;
-    auto* values = read_dense_for_nullable ? &compact_values : binary_values;
+                           bool read_dense_for_nullable, std::vector<StringRef>* binary_values,
+                           std::vector<StringRef>* compact_values) {
+    DORIS_CHECK(binary_values != nullptr);
+    DORIS_CHECK(compact_values != nullptr);
+    binary_values->clear();
+    compact_values->clear();
+    auto* values = read_dense_for_nullable ? compact_values : binary_values;
     values->reserve(records_read);
     for (const auto& chunk : chunks) {
         if (chunk == nullptr) {
@@ -207,11 +211,11 @@ Status build_binary_values(const std::string& column_name,
         }
         const int64_t non_null_count = static_cast<int64_t>(simd::count_zero_num(
                 reinterpret_cast<const int8_t*>(null_map->data()), null_map->size()));
-        if (compact_values.size() != static_cast<size_t>(non_null_count)) {
+        if (compact_values->size() != static_cast<size_t>(non_null_count)) {
             return Status::Corruption(
                     "Invalid dense nullable parquet binary values for column {}: values={}, "
                     "records={}, nulls={}",
-                    column_name, compact_values.size(), records_read,
+                    column_name, compact_values->size(), records_read,
                     records_read - non_null_count);
         }
         binary_values->reserve(records_read);
@@ -221,7 +225,7 @@ Status build_binary_values(const std::string& column_name,
                 binary_values->emplace_back(static_cast<const char*>(nullptr), 0);
                 continue;
             }
-            binary_values->emplace_back(compact_values[value_idx++]);
+            binary_values->emplace_back((*compact_values)[value_idx++]);
         }
         return Status::OK();
     }
@@ -349,8 +353,8 @@ Status ParquetLeafReader::collect_levels_batch(::parquet::internal::RecordReader
     // their payload into a Doris Column, so the levels-only contract still avoids Doris-side value
     // materialization.
     if (batch->is_binary_value()) {
-        std::vector<std::shared_ptr<::arrow::Array>> discarded_chunks;
-        RETURN_IF_ERROR(get_binary_chunks(_name, record_reader, &discarded_chunks));
+        _discarded_binary_chunks.clear();
+        RETURN_IF_ERROR(get_binary_chunks(_name, record_reader, &_discarded_binary_chunks));
     }
 
     // COUNT(col) and nested skip only need top-level shape. Fixed-width values remain owned by the
@@ -363,9 +367,20 @@ Status ParquetLeafReader::collect_levels_batch(::parquet::internal::RecordReader
 //   - FLOAT16: binary -> half_to_float -> float_values
 Status ParquetLeafReader::append_values(const ParquetLeafBatch& batch, int64_t row_count,
                                         const NullMap* null_map, MutableColumnPtr& column) const {
-    std::vector<StringRef> binary_values;
-    std::vector<uint8_t> spaced_values;
-    std::vector<float> float_values;
+    return append_values_with_type(batch, row_count, null_map, _type, _serde, column);
+}
+
+Status ParquetLeafReader::append_values_with_type(const ParquetLeafBatch& batch, int64_t row_count,
+                                                  const NullMap* null_map,
+                                                  const DataTypePtr& materialization_type,
+                                                  const DataTypeSerDeSPtr& serde,
+                                                  MutableColumnPtr& column) const {
+    DORIS_CHECK(materialization_type != nullptr);
+    DORIS_CHECK(serde != nullptr);
+    _binary_values.clear();
+    _compact_binary_values.clear();
+    _spaced_values.clear();
+    _float_values.clear();
     DecodedColumnView view;
     view.value_kind = batch._value_kind;
     view.time_unit = decoded_time_unit(_type_descriptor.time_unit);
@@ -383,18 +398,20 @@ Status ParquetLeafReader::append_values(const ParquetLeafBatch& batch, int64_t r
 
     if (_type_descriptor.extra_type_info == ParquetExtraTypeInfo::FLOAT16) {
         RETURN_IF_ERROR(build_binary_values(_name, batch._binary_chunks, row_count, null_map,
-                                            read_dense_for_nullable, &binary_values));
-        RETURN_IF_ERROR(build_float16_values(_name, _type_descriptor, binary_values, row_count,
-                                             &float_values));
+                                            read_dense_for_nullable, &_binary_values,
+                                            &_compact_binary_values));
+        RETURN_IF_ERROR(build_float16_values(_name, _type_descriptor, _binary_values, row_count,
+                                             &_float_values));
         view.value_kind = DecodedValueKind::FLOAT;
-        view.values = reinterpret_cast<const uint8_t*>(float_values.data());
+        view.values = reinterpret_cast<const uint8_t*>(_float_values.data());
     } else if (batch.is_binary_value()) {
         RETURN_IF_ERROR(build_binary_values(_name, batch._binary_chunks, row_count, null_map,
-                                            read_dense_for_nullable, &binary_values));
-        view.binary_values = &binary_values;
+                                            read_dense_for_nullable, &_binary_values,
+                                            &_compact_binary_values));
+        view.binary_values = &_binary_values;
     } else if (read_dense_for_nullable) {
-        RETURN_IF_ERROR(build_spaced_fixed_values(batch, row_count, null_map, &spaced_values));
-        view.values = spaced_values.data();
+        RETURN_IF_ERROR(build_spaced_fixed_values(batch, row_count, null_map, &_spaced_values));
+        view.values = _spaced_values.data();
     } else {
         view.values = batch._fixed_values;
     }
@@ -405,14 +422,14 @@ Status ParquetLeafReader::append_values(const ParquetLeafBatch& batch, int64_t r
 
     {
         SCOPED_TIMER(_profile.materialization_time);
-        if (!_type->is_nullable()) {
+        if (!materialization_type->is_nullable()) {
             if (auto* nullable_column = check_and_get_column<ColumnNullable>(*column);
                 nullable_column != nullptr) {
                 auto& nested_column = nullable_column->get_nested_column();
                 auto& tmp_null_map = nullable_column->get_null_map_data();
                 const auto old_nested_size = nested_column.size();
                 const auto old_null_map_size = tmp_null_map.size();
-                auto st = _type->get_serde()->read_column_from_decoded_values(nested_column, view);
+                auto st = serde->read_column_from_decoded_values(nested_column, view);
                 if (!st.ok()) {
                     nested_column.resize(old_nested_size);
                     return st;
@@ -421,10 +438,10 @@ Status ParquetLeafReader::append_values(const ParquetLeafBatch& batch, int64_t r
                 memset(tmp_null_map.data() + old_null_map_size, 0,
                        tmp_null_map.size() - old_null_map_size);
             } else {
-                RETURN_IF_ERROR(_type->get_serde()->read_column_from_decoded_values(*column, view));
+                RETURN_IF_ERROR(serde->read_column_from_decoded_values(*column, view));
             }
         } else {
-            RETURN_IF_ERROR(_type->get_serde()->read_column_from_decoded_values(*column, view));
+            RETURN_IF_ERROR(serde->read_column_from_decoded_values(*column, view));
         }
     }
     return Status::OK();
@@ -478,7 +495,10 @@ ParquetLeafReader::ParquetLeafReader(
           _profile(profile),
           _timezone(timezone),
           _enable_strict_mode(enable_strict_mode),
-          _decoded_value_appender(std::move(decoded_value_appender)) {}
+          _decoded_value_appender(std::move(decoded_value_appender)),
+          _serde(_type->get_serde()),
+          _nested_value_type(remove_nullable(_type)),
+          _nested_value_serde(_nested_value_type->get_serde()) {}
 
 Status ParquetLeafReader::read_batch(int64_t batch_rows, ParquetLeafBatch* batch,
                                      int64_t* rows_read) const {
@@ -536,11 +556,11 @@ Status ParquetLeafReader::build_null_map(const ParquetLeafBatch& batch, int64_t 
 Status ParquetLeafReader::read_nested_batch(int64_t batch_rows, int16_t value_slot_definition_level,
                                             ParquetNestedScalarBatch* batch,
                                             int16_t value_slot_repetition_level) const {
-    ParquetLeafBatch leaf_batch;
     int64_t records_read = 0;
-    RETURN_IF_ERROR(read_batch(batch_rows, &leaf_batch, &records_read));
-    return build_nested_batch_from_leaf_batch(leaf_batch, records_read, value_slot_definition_level,
-                                              batch, value_slot_repetition_level);
+    RETURN_IF_ERROR(read_batch(batch_rows, &_nested_leaf_batch, &records_read));
+    return build_nested_batch_from_leaf_batch(_nested_leaf_batch, records_read,
+                                              value_slot_definition_level, batch,
+                                              value_slot_repetition_level);
 }
 
 Status ParquetLeafReader::read_nested_levels_batch(int64_t batch_rows,
@@ -554,7 +574,6 @@ Status ParquetLeafReader::read_nested_levels_batch(int64_t batch_rows,
     }
 
     int64_t records_read = 0;
-    ParquetLeafBatch leaf_batch;
     try {
         _record_reader->Reset();
         _record_reader->Reserve(batch_rows);
@@ -573,8 +592,8 @@ Status ParquetLeafReader::read_nested_levels_batch(int64_t batch_rows,
         return Status::Corruption("Invalid parquet level read result for column {}: {}", _name,
                                   records_read);
     }
-    RETURN_IF_ERROR(collect_levels_batch(*_record_reader, &leaf_batch));
-    return build_nested_levels_batch_from_leaf_batch(leaf_batch, records_read, batch);
+    RETURN_IF_ERROR(collect_levels_batch(*_record_reader, &_nested_leaf_batch));
+    return build_nested_levels_batch_from_leaf_batch(_nested_leaf_batch, records_read, batch);
 }
 
 Status ParquetLeafReader::build_nested_batch_from_leaf_batch(
@@ -584,7 +603,7 @@ Status ParquetLeafReader::build_nested_batch_from_leaf_batch(
     if (batch == nullptr) {
         return Status::InvalidArgument("Nested scalar batch is null for column {}", _name);
     }
-    *batch = ParquetNestedScalarBatch();
+    batch->reset();
     batch->value_slot_definition_level = value_slot_definition_level;
     batch->value_slot_repetition_level = value_slot_repetition_level;
 
@@ -694,7 +713,8 @@ Status ParquetLeafReader::build_nested_batch_from_leaf_batch(
     }
 
     batch->value_indices.resize(static_cast<size_t>(batch->levels_written), -1);
-    NullMap value_nulls(static_cast<size_t>(values_written), 1);
+    _nested_value_nulls.resize(static_cast<size_t>(values_written));
+    std::fill(_nested_value_nulls.begin(), _nested_value_nulls.end(), 1);
     int64_t value_idx = 0;
     const int16_t decoded_slot_definition_level = value_layout == ValueLayout::PAYLOAD_VALUE_SLOTS
                                                           ? payload_slot_definition_level
@@ -722,7 +742,7 @@ Status ParquetLeafReader::build_nested_batch_from_leaf_batch(
         DORIS_CHECK(decoded_value_idx < values_written);
         if (has_leaf_value) {
             batch->value_indices[static_cast<size_t>(level_idx)] = decoded_value_idx;
-            value_nulls[static_cast<size_t>(decoded_value_idx)] = 0;
+            _nested_value_nulls[static_cast<size_t>(decoded_value_idx)] = 0;
         }
     }
     if (value_layout != ValueLayout::LEVELS && value_idx != values_written) {
@@ -732,13 +752,13 @@ Status ParquetLeafReader::build_nested_batch_from_leaf_batch(
                 _name, values_written, value_idx);
     }
 
-    const auto value_type = remove_nullable(_type);
-    batch->values_column = value_type->create_column();
+    if (batch->values_column.get() == nullptr) {
+        batch->values_column = _nested_value_type->create_column();
+    }
     if (values_written > 0) {
-        ParquetLeafReader value_reader(_descriptor, _type_descriptor, value_type, _name,
-                                       _record_reader, _profile, _timezone, _enable_strict_mode);
-        RETURN_IF_ERROR(value_reader.append_values(leaf_batch, values_written, &value_nulls,
-                                                   batch->values_column));
+        RETURN_IF_ERROR(append_values_with_type(leaf_batch, values_written, &_nested_value_nulls,
+                                                _nested_value_type, _nested_value_serde,
+                                                batch->values_column));
     }
     return Status::OK();
 }
@@ -749,7 +769,7 @@ Status ParquetLeafReader::build_nested_levels_batch_from_leaf_batch(
     if (batch == nullptr) {
         return Status::InvalidArgument("Nested scalar levels batch is null for column {}", _name);
     }
-    *batch = ParquetNestedScalarBatch();
+    batch->reset();
     batch->records_read = records_read;
     batch->levels_written = leaf_batch.consumed_level_count();
     if (batch->levels_written > leaf_batch.decoded_level_count()) {

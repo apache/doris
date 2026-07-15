@@ -71,6 +71,34 @@ struct ColumnChunkReaderStatistics {
 };
 
 /**
+ * Immutable physical schema needed by the page/encoding kernel for one leaf column.
+ *
+ * Keep this contract independent of both Arrow's ColumnDescriptor and Doris' legacy
+ * FieldSchema. A native v2 reader can build it directly from the Thrift footer, while the v1
+ * reader uses from_field_schema() during migration. Logical-type conversion belongs above this
+ * layer: the chunk reader only needs the physical carrier, fixed width, and Dremel thresholds to
+ * decide which payload values exist.
+ */
+struct ParquetColumnChunkSchema {
+    ParquetColumnChunkSchema(tparquet::Type::type physical_type, int32_t type_length,
+                             level_t max_definition_level, level_t max_repetition_level,
+                             level_t repeated_parent_definition_level)
+            : physical_type(physical_type),
+              type_length(type_length),
+              max_definition_level(max_definition_level),
+              max_repetition_level(max_repetition_level),
+              repeated_parent_definition_level(repeated_parent_definition_level) {}
+
+    const tparquet::Type::type physical_type;
+    const int32_t type_length;
+    const level_t max_definition_level;
+    const level_t max_repetition_level;
+    const level_t repeated_parent_definition_level;
+
+    static ParquetColumnChunkSchema from_field_schema(const FieldSchema& field_schema);
+};
+
+/**
  * Read and decode parquet column data into doris block column.
  * <p>Usage:</p>
  * // Create chunk reader
@@ -97,6 +125,10 @@ public:
                       FieldSchema* field_schema, const tparquet::OffsetIndex* offset_index,
                       size_t total_row, io::IOContext* io_ctx,
                       const ParquetPageReadContext& page_read_ctx);
+    ColumnChunkReader(io::BufferedStreamReader* reader, tparquet::ColumnChunk* column_chunk,
+                      ParquetColumnChunkSchema chunk_schema,
+                      const tparquet::OffsetIndex* offset_index, size_t total_row,
+                      io::IOContext* io_ctx, const ParquetPageReadContext& page_read_ctx);
     ~ColumnChunkReader() = default;
 
     // Initialize chunk reader, will generate the decoder and codec.
@@ -132,6 +164,25 @@ public:
     // Decode values in current page into doris column.
     Status decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
                          ColumnSelectVector& select_vector, bool is_dict_filter);
+
+    /**
+     * Decode selected rows from the current flat data-page slice.
+     *
+     * `num_values` is the number of logical rows to consume from the definition-level stream.
+     * `selected_indices` uses the same sorted, batch-relative contract as
+     * ColumnSelectVector::init_from_selection(). Selected nulls append defaults to `doris_column`
+     * and set bits in `null_map`; unselected non-nulls still advance the encoded payload cursor.
+     * The method therefore advances exactly `num_values` logical rows while materializing exactly
+     * `selected_count` rows.
+     *
+     * This entry point is deliberately limited to non-repeated leaves. LIST/MAP/STRUCT first build
+     * a shared level plan because their selection is expressed in parent rows rather than leaf
+     * level positions. Keeping those contracts separate prevents a flat fast path from silently
+     * misaligning repeated children.
+     */
+    Status decode_flat_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
+                              size_t num_values, const uint16_t* selected_indices,
+                              size_t selected_count, NullMap* null_map, bool is_dict_filter);
 
     // Get the repetition level decoder of current page.
     LevelDecoder& rep_level_decoder() { return _rep_level_decoder; }
@@ -240,7 +291,7 @@ private:
     }
 
     ColumnChunkReaderState _state = NOT_INIT;
-    FieldSchema* _field_schema = nullptr;
+    const ParquetColumnChunkSchema _chunk_schema;
     const level_t _max_rep_level;
     const level_t _max_def_level;
 
@@ -278,6 +329,8 @@ private:
     // Map: encoding -> Decoder
     // Plain or Dictionary encoding. If the dictionary grows too big, the encoding will fall back to the plain encoding
     std::unordered_map<int, std::unique_ptr<Decoder>> _decoders;
+    // Alternating non-null/null runs for decode_flat_values(). Capacity is retained across pages.
+    std::vector<uint16_t> _definition_runs;
     ColumnChunkReaderStatistics _chunk_statistics;
 };
 

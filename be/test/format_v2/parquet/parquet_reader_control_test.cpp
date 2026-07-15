@@ -396,9 +396,20 @@ struct ScalarColumnReaderTestAccess {
         reader->_row_group_rows_read = rows;
     }
 
+    static const ParquetLeafReader* leaf_reader_address(ScalarColumnReader& reader) {
+        return &reader.leaf_reader();
+    }
+
+    static size_t dictionary_binary_capacity(const ScalarColumnReader& reader) {
+        return reader._dictionary_binary_values.capacity();
+    }
+
+    static size_t dictionary_binary_size(const ScalarColumnReader& reader) {
+        return reader._dictionary_binary_values.size();
+    }
+
     static Status append_dictionary_filtered_values(
-            const ScalarColumnReader& reader,
-            const std::vector<std::shared_ptr<::arrow::Array>>& chunks,
+            ScalarColumnReader& reader, const std::vector<std::shared_ptr<::arrow::Array>>& chunks,
             const IColumn::Filter& dictionary_filter, MutableColumnPtr& column,
             IColumn::Filter* row_filter, int64_t* matched_rows, bool* used_filter) {
         return reader.append_dictionary_filtered_values(chunks, dictionary_filter, column,
@@ -495,6 +506,34 @@ TEST(ParquetScalarColumnReaderTest, DictionaryIndexOutsideFilterIsCorruption) {
     EXPECT_NE(status.to_string().find("Invalid parquet dictionary index 1"), std::string::npos);
 }
 
+TEST(ParquetScalarColumnReaderTest, LeafReaderAndDictionaryScratchArePersistent) {
+    ScalarColumnReader reader(string_schema("persistent_leaf"), nullptr);
+    const auto* leaf_reader = ScalarColumnReaderTestAccess::leaf_reader_address(reader);
+
+    MutableColumnPtr column = ColumnString::create();
+    IColumn::Filter row_filter;
+    int64_t matched_rows = 0;
+    bool used_filter = false;
+    const std::vector<std::shared_ptr<::arrow::Array>> chunks = {
+            dictionary_array({0, 1}, {"first", "second"})};
+    ASSERT_TRUE(ScalarColumnReaderTestAccess::append_dictionary_filtered_values(
+                        reader, chunks, IColumn::Filter {1, 1}, column, &row_filter, &matched_rows,
+                        &used_filter)
+                        .ok());
+    const auto retained_capacity = ScalarColumnReaderTestAccess::dictionary_binary_capacity(reader);
+    EXPECT_GE(retained_capacity, 2);
+    EXPECT_EQ(ScalarColumnReaderTestAccess::dictionary_binary_size(reader), 0);
+
+    row_filter.clear();
+    ASSERT_TRUE(ScalarColumnReaderTestAccess::append_dictionary_filtered_values(
+                        reader, chunks, IColumn::Filter {1, 0}, column, &row_filter, &matched_rows,
+                        &used_filter)
+                        .ok());
+    EXPECT_EQ(ScalarColumnReaderTestAccess::dictionary_binary_capacity(reader), retained_capacity);
+    EXPECT_EQ(ScalarColumnReaderTestAccess::dictionary_binary_size(reader), 0);
+    EXPECT_EQ(ScalarColumnReaderTestAccess::leaf_reader_address(reader), leaf_reader);
+}
+
 } // namespace
 
 TEST(SelectionVectorTest, IdentitySelectionToRanges) {
@@ -518,6 +557,45 @@ TEST(SelectionVectorTest, ExternalBufferSelectionToRanges) {
     EXPECT_EQ(ranges[2].start, 6);
     EXPECT_EQ(ranges[2].length, 2);
     EXPECT_TRUE(selection.verify(std::size(indices), 8).ok());
+}
+
+TEST(SelectionVectorTest, OutputRangesReuseCapacity) {
+    SelectionVector::Index indices[] = {1, 2, 5};
+    SelectionVector selection(indices, std::size(indices));
+    std::vector<RowRange> ranges;
+    ranges.reserve(8);
+    const auto retained_capacity = ranges.capacity();
+
+    selection_to_ranges(selection, std::size(indices), &ranges);
+    ASSERT_EQ(ranges.size(), 2);
+    EXPECT_EQ(ranges.capacity(), retained_capacity);
+    selection_to_ranges(selection, 1, &ranges);
+    ASSERT_EQ(ranges.size(), 1);
+    EXPECT_EQ(ranges.capacity(), retained_capacity);
+}
+
+TEST(ParquetNestedScalarBatchTest, ResetRetainsScratchCapacityAndColumn) {
+    ParquetNestedScalarBatch batch;
+    batch.def_levels.reserve(16);
+    batch.rep_levels.reserve(16);
+    batch.value_indices.reserve(16);
+    batch.def_levels.push_back(1);
+    batch.rep_levels.push_back(0);
+    batch.value_indices.push_back(0);
+    batch.values_column = ColumnInt64::create();
+    batch.values_column->insert_default();
+    const auto* values_column = batch.values_column.get();
+
+    batch.reset();
+
+    EXPECT_TRUE(batch.def_levels.empty());
+    EXPECT_TRUE(batch.rep_levels.empty());
+    EXPECT_TRUE(batch.value_indices.empty());
+    EXPECT_GE(batch.def_levels.capacity(), 16);
+    EXPECT_GE(batch.rep_levels.capacity(), 16);
+    EXPECT_GE(batch.value_indices.capacity(), 16);
+    EXPECT_EQ(batch.values_column.get(), values_column);
+    EXPECT_TRUE(batch.values_column->empty());
 }
 
 TEST(SelectionVectorTest, VerifyRejectsInvalidSelection) {
