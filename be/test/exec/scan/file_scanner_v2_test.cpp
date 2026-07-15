@@ -34,9 +34,13 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "exec/operator/file_scan_operator.h"
+#include "exec/runtime_filter/runtime_filter_definitions.h"
 #include "exec/scan/file_scanner.h"
 #include "exec/scan/split_source_connector.h"
+#include "exprs/create_predicate_function.h"
+#include "exprs/vbloom_predicate.h"
 #include "exprs/vdirect_in_predicate.h"
+#include "exprs/vliteral.h"
 #include "exprs/vruntimefilter_wrapper.h"
 #include "exprs/vslot_ref.h"
 #include "format_v2/expr/cast.h"
@@ -126,6 +130,23 @@ private:
     const std::string _expr_name = "UnsafePartitionPredicate";
 };
 
+class UndigestibleRuntimePredicate final : public VExpr {
+public:
+    UndigestibleRuntimePredicate() : VExpr(std::make_shared<DataTypeUInt8>(), false) {}
+
+    Status execute_column_impl(VExprContext*, const Block*, const Selector*, size_t count,
+                               ColumnPtr& result_column) const override {
+        result_column = ColumnUInt8::create(count, 1);
+        return Status::OK();
+    }
+
+    const std::string& expr_name() const override { return _expr_name; }
+    uint64_t get_digest(uint64_t) const override { return 0; }
+
+private:
+    const std::string _expr_name = "undigestible_runtime_predicate";
+};
+
 VExprContextSPtr runtime_filter_context(VExprSPtr impl, int filter_id) {
     const auto node = bool_in_pred_node();
     return VExprContext::create_shared(
@@ -148,6 +169,54 @@ TExprNode bool_in_pred_node() {
     node.__set_opcode(TExprOpcode::FILTER_IN);
     node.__set_is_nullable(false);
     return node;
+}
+
+VExprContextSPtr int_in_runtime_filter(const std::vector<int32_t>& values, int filter_id) {
+    std::shared_ptr<HybridSetBase> filter(create_set(PrimitiveType::TYPE_INT, false));
+    for (const auto value : values) {
+        filter->insert(&value);
+    }
+    const auto node = bool_in_pred_node();
+    auto impl = VDirectInPredicate::create_shared(node, std::move(filter), true);
+    impl->add_child(slot_ref(1, 0, std::make_shared<DataTypeInt32>(), "rf_key"));
+    return runtime_filter_context(std::move(impl), filter_id);
+}
+
+VExprContextSPtr int_bloom_runtime_filter(const std::vector<int32_t>& values, int filter_id) {
+    std::shared_ptr<BloomFilterFuncBase> filter(
+            create_bloom_filter(PrimitiveType::TYPE_INT, false));
+    RuntimeFilterParams params;
+    params.filter_type = RuntimeFilterType::BLOOM_FILTER;
+    params.column_return_type = PrimitiveType::TYPE_INT;
+    params.bloom_filter_size = 1024;
+    filter->init_params(&params);
+    EXPECT_TRUE(filter->init_with_fixed_length(1024).ok());
+    auto value_column = ColumnInt32::create();
+    for (const auto value : values) {
+        value_column->insert_value(value);
+    }
+    ColumnPtr values_column_ptr = std::move(value_column);
+    filter->insert_fixed_len(values_column_ptr, 0);
+
+    TExprNode node = bool_in_pred_node();
+    node.__set_node_type(TExprNodeType::BLOOM_PRED);
+    node.__set_opcode(TExprOpcode::RT_FILTER);
+    auto impl = VBloomPredicate::create_shared(node);
+    impl->set_filter(std::move(filter));
+    impl->add_child(slot_ref(1, 0, std::make_shared<DataTypeInt32>(), "rf_key"));
+    return runtime_filter_context(std::move(impl), filter_id);
+}
+
+VExprContextSPtr int_minmax_runtime_filter(int32_t upper_bound, int filter_id) {
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    VExprSPtr impl;
+    TExprNode node;
+    EXPECT_TRUE(create_vbin_predicate(int_type, TExprOpcode::LE, impl, &node, false).ok());
+    impl->add_child(slot_ref(1, 0, int_type, "rf_key"));
+    VExprSPtr literal;
+    EXPECT_TRUE(create_literal(int_type, &upper_bound, literal).ok());
+    impl->add_child(std::move(literal));
+    return runtime_filter_context(std::move(impl), filter_id);
 }
 
 } // namespace
@@ -215,6 +284,35 @@ TEST(FileScannerV2Test, SupportedFormatMatrix) {
     TFileScanRangeParams params;
     params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
     EXPECT_FALSE(FileScannerV2::is_supported(params, hudi_range_with_delta_logs()));
+}
+
+// Ready IN/Bloom/MinMax runtime filters all expose their payload through get_digest(). Rebuilding
+// the scanner digest must therefore be stable for the same payload and isolated for a different
+// payload. An RF without a complete digest remains the zero-digest safety fallback.
+TEST(FileScannerV2Test, ConditionCacheDigestIncludesRuntimeFilterPayload) {
+    constexpr uint64_t seed = 12345;
+    const auto digest = [](uint64_t initial_seed, const VExprContextSPtr& conjunct) {
+        return Scanner::TEST_build_condition_cache_digest(initial_seed, {conjunct});
+    };
+
+    EXPECT_EQ(digest(seed, int_in_runtime_filter({7, 9}, 1)),
+              digest(seed, int_in_runtime_filter({9, 7}, 1)));
+    EXPECT_NE(digest(seed, int_in_runtime_filter({7, 9}, 1)),
+              digest(seed, int_in_runtime_filter({8, 10}, 1)));
+
+    EXPECT_EQ(digest(seed, int_bloom_runtime_filter({7, 9}, 2)),
+              digest(seed, int_bloom_runtime_filter({7, 9}, 2)));
+    EXPECT_NE(digest(seed, int_bloom_runtime_filter({7, 9}, 2)),
+              digest(seed, int_bloom_runtime_filter({8, 10}, 2)));
+
+    EXPECT_EQ(digest(seed, int_minmax_runtime_filter(9, 3)),
+              digest(seed, int_minmax_runtime_filter(9, 3)));
+    EXPECT_NE(digest(seed, int_minmax_runtime_filter(9, 3)),
+              digest(seed, int_minmax_runtime_filter(10, 3)));
+
+    EXPECT_EQ(digest(seed,
+                     runtime_filter_context(std::make_shared<UndigestibleRuntimePredicate>(), 4)),
+              0);
 }
 
 TEST(FileScannerV2Test, FileScanLocalStateSelectsV2ForSupportedQueriesOnly) {

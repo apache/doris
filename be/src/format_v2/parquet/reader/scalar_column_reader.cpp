@@ -183,6 +183,7 @@ Status ScalarColumnReader::skip_records(int64_t rows) {
         return Status::OK();
     }
     int64_t skipped_rows = 0;
+    SCOPED_TIMER(_profile.arrow_skip_records_time);
     try {
         _record_reader->Reset();
         while (skipped_rows < rows) {

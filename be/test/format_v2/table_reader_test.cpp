@@ -2147,9 +2147,10 @@ TEST(TableReaderTest, ConditionCacheSkipsRequestWithoutFileLocalConjuncts) {
     ASSERT_TRUE(reader.close().ok());
 }
 
-// Scenario: runtime filters can arrive late and are not represented by the stable predicate digest.
-// A MISS must not insert a bitmap for `stable predicate AND runtime filter` under the stable digest.
-TEST(TableReaderTest, ConditionCacheSkipsRuntimeFilterConjunct) {
+// Scenario: a standalone caller has only the initial digest for stable predicate P, while its
+// current conjunct snapshot also contains an RF. Without an explicit split digest, TableReader must
+// not store P AND RF under P's stale key.
+TEST(TableReaderTest, ConditionCacheSkipsRuntimeFilterWithoutSplitDigest) {
     std::vector<ColumnDefinition> file_schema;
     file_schema.push_back(make_file_column(0, "id", std::make_shared<DataTypeInt32>()));
 
@@ -2184,6 +2185,60 @@ TEST(TableReaderTest, ConditionCacheSkipsRuntimeFilterConjunct) {
     ASSERT_TRUE(reader.get_block(&block, &eos).ok());
     EXPECT_EQ(fake_state->condition_cache_ctx, nullptr);
     EXPECT_EQ(reader.condition_cache_hit_count(), 0);
+    ASSERT_TRUE(reader.close().ok());
+}
+
+// Scenario: FileScannerV2 supplies a non-zero digest computed from the exact Ready RF payload in
+// this split. The RF wrapper is no longer a reason to disable condition cache; a MISS context is
+// created and can be published under that payload-specific key after EOF.
+TEST(TableReaderTest, ConditionCacheAllowsRuntimeFilterCoveredBySplitDigest) {
+    ScopedConditionCacheForTest cache;
+    std::vector<ColumnDefinition> file_schema;
+    file_schema.push_back(make_file_column(0, "id", std::make_shared<DataTypeInt32>()));
+
+    std::vector<ColumnDefinition> projected_columns;
+    projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+    set_name_identifiers(&projected_columns);
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto fake_state = std::make_shared<FakeFileReaderState>();
+    fake_state->total_rows = ConditionCacheContext::GRANULE_SIZE;
+    FakeTableReader reader(file_schema, fake_state);
+    ASSERT_TRUE(
+            reader.init({
+                                .projected_columns = projected_columns,
+                                .conjuncts = {prepared_conjunct(
+                                        &state, runtime_filter_wrapper_expr(
+                                                        table_int32_greater_than_expr(0, 0, 0)))},
+                                .format = FileFormat::PARQUET,
+                                .scan_params = nullptr,
+                                .io_ctx = nullptr,
+                                .runtime_state = &state,
+                                .scanner_profile = nullptr,
+                                .condition_cache_digest = 7,
+                        })
+                    .ok());
+
+    SplitReadOptions split_options;
+    split_options.current_range.__set_path("fake-table-reader-input");
+    split_options.condition_cache_digest = 11;
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    ASSERT_NE(fake_state->condition_cache_ctx, nullptr);
+    EXPECT_FALSE(fake_state->condition_cache_ctx->is_hit);
+
+    segment_v2::ConditionCacheHandle handle;
+    segment_v2::ConditionCache::ExternalCacheKey initial_digest_key(
+            "fake-table-reader-input", 0, -1, 7, 0, -1,
+            segment_v2::ConditionCache::ExternalCacheKey::BASE_GRANULE_AWARE_VERSION);
+    EXPECT_FALSE(cache.get()->lookup(initial_digest_key, &handle));
+    segment_v2::ConditionCache::ExternalCacheKey split_digest_key(
+            "fake-table-reader-input", 0, -1, 11, 0, -1,
+            segment_v2::ConditionCache::ExternalCacheKey::BASE_GRANULE_AWARE_VERSION);
+    EXPECT_TRUE(cache.get()->lookup(split_digest_key, &handle));
     ASSERT_TRUE(reader.close().ok());
 }
 
