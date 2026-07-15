@@ -18,6 +18,8 @@
 package org.apache.doris.service;
 
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.backup.BackupHandler;
+import org.apache.doris.backup.Snapshot;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
@@ -49,6 +51,8 @@ import org.apache.doris.thrift.TFetchSchemaTableDataRequest;
 import org.apache.doris.thrift.TFetchSchemaTableDataResult;
 import org.apache.doris.thrift.TGetDbsParams;
 import org.apache.doris.thrift.TGetDbsResult;
+import org.apache.doris.thrift.TGetSnapshotRequest;
+import org.apache.doris.thrift.TGetSnapshotResult;
 import org.apache.doris.thrift.TGetTablesParams;
 import org.apache.doris.thrift.TGetTablesResult;
 import org.apache.doris.thrift.TGetTabletReplicaInfosRequest;
@@ -66,6 +70,7 @@ import org.apache.doris.thrift.TSchemaTableName;
 import org.apache.doris.thrift.TSchemaTableRequestParams;
 import org.apache.doris.thrift.TShowUserRequest;
 import org.apache.doris.thrift.TShowUserResult;
+import org.apache.doris.thrift.TSnapshotType;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TTableStatus;
 import org.apache.doris.transaction.GlobalTransactionMgrIface;
@@ -149,6 +154,74 @@ public class FrontendServiceImplTest {
         Field field = target.getClass().getDeclaredField(fieldName);
         field.setAccessible(true);
         field.set(target, value);
+    }
+
+    private static TGetSnapshotRequest createGetSnapshotRequest(boolean enableCompress) {
+        TGetSnapshotRequest request = new TGetSnapshotRequest();
+        request.setUser("root");
+        request.setPasswd("");
+        request.setDb("test");
+        request.setLabelName("local_snapshot");
+        request.setSnapshotName("local_snapshot");
+        request.setSnapshotType(TSnapshotType.LOCAL);
+        request.setToken("test-token");
+        request.setEnableCompress(enableCompress);
+        return request;
+    }
+
+    private static TGetSnapshotResult invokeGetSnapshotImpl(
+            FrontendServiceImpl impl, TGetSnapshotRequest request) throws Exception {
+        Method method = FrontendServiceImpl.class.getDeclaredMethod(
+                "getSnapshotImpl", TGetSnapshotRequest.class, String.class);
+        method.setAccessible(true);
+        return (TGetSnapshotResult) method.invoke(impl, request, "127.0.0.1");
+    }
+
+    @Test
+    public void testGetSnapshotReturnsCompressedPayload() throws Exception {
+        Env mockedEnv = Mockito.mock(Env.class);
+        BackupHandler backupHandler = Mockito.mock(BackupHandler.class);
+        byte[] meta = new byte[] {1, 2, 3};
+        byte[] jobInfo = new byte[] {4, 5};
+        long expiredAt = System.currentTimeMillis() + 60_000;
+        Snapshot snapshot = new Snapshot("local_snapshot", meta, jobInfo, 10, 20,
+                true, expiredAt, 99);
+        Mockito.when(mockedEnv.getBackupHandler()).thenReturn(backupHandler);
+        Mockito.when(backupHandler.getSnapshot("local_snapshot", true)).thenReturn(snapshot);
+
+        try (MockedStatic<Env> mockedEnvStatic = Mockito.mockStatic(Env.class)) {
+            mockedEnvStatic.when(Env::getCurrentEnv).thenReturn(mockedEnv);
+            TGetSnapshotResult result = invokeGetSnapshotImpl(
+                    new FrontendServiceImpl(exeEnv), createGetSnapshotRequest(true));
+
+            Assert.assertEquals(TStatusCode.OK, result.getStatus().getStatusCode());
+            Assert.assertArrayEquals(meta, result.getMeta());
+            Assert.assertArrayEquals(jobInfo, result.getJobInfo());
+            Assert.assertTrue(result.isCompressed());
+            Assert.assertEquals(expiredAt, result.getExpiredAt());
+            Assert.assertEquals(99, result.getCommitSeq());
+        }
+    }
+
+    @Test
+    public void testGetSnapshotRejectsOversizedUncompressedPayload() throws Exception {
+        Env mockedEnv = Mockito.mock(Env.class);
+        BackupHandler backupHandler = Mockito.mock(BackupHandler.class);
+        Snapshot snapshot = new Snapshot("local_snapshot", null, null,
+                Integer.MAX_VALUE - 1L, 1, false, System.currentTimeMillis() + 60_000, 99);
+        Mockito.when(mockedEnv.getBackupHandler()).thenReturn(backupHandler);
+        Mockito.when(backupHandler.getSnapshot("local_snapshot", false)).thenReturn(snapshot);
+
+        try (MockedStatic<Env> mockedEnvStatic = Mockito.mockStatic(Env.class)) {
+            mockedEnvStatic.when(Env::getCurrentEnv).thenReturn(mockedEnv);
+            TGetSnapshotResult result = invokeGetSnapshotImpl(
+                    new FrontendServiceImpl(exeEnv), createGetSnapshotRequest(false));
+
+            Assert.assertEquals(TStatusCode.INTERNAL_ERROR, result.getStatus().getStatusCode());
+            Assert.assertFalse(result.isSetMeta());
+            Assert.assertFalse(result.isSetJobInfo());
+            Assert.assertTrue(result.getStatus().getErrorMsgs().get(0).contains("enable compression"));
+        }
     }
 
     @Test

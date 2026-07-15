@@ -23,8 +23,10 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
+import java.io.FilterOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.util.zip.GZIPInputStream;
 import java.util.zip.GZIPOutputStream;
 
@@ -43,10 +45,22 @@ public class GZIPUtils {
     }
 
     public static byte[] compress(File file) throws IOException {
+        return compress(file, Integer.MAX_VALUE);
+    }
+
+    /**
+     * Stream-compress {@code file} with an 8KB read buffer.
+     * Fails fast if the compressed output would exceed {@code maxCompressedSize}
+     * so callers can avoid unbounded FE heap growth.
+     */
+    public static byte[] compress(File file, int maxCompressedSize) throws IOException {
+        if (maxCompressedSize <= 0) {
+            throw new IOException("maxCompressedSize must be positive, got " + maxCompressedSize);
+        }
         ByteArrayOutputStream bytesStream = new ByteArrayOutputStream();
         try (FileInputStream fileInputStream = new FileInputStream(file);
-                GZIPOutputStream gzipStream = new GZIPOutputStream(bytesStream)) {
-
+                GZIPOutputStream gzipStream = new GZIPOutputStream(
+                        new BoundedSizeOutputStream(bytesStream, maxCompressedSize))) {
             byte[] buffer = new byte[8192]; // 8KB buffer
             int bytesRead;
             while ((bytesRead = fileInputStream.read(buffer)) != -1) {
@@ -65,5 +79,40 @@ public class GZIPUtils {
 
     public static InputStream lazyDecompress(byte[] data) throws IOException {
         return new GZIPInputStream(new ByteArrayInputStream(data));
+    }
+
+    /**
+     * Counts written bytes and rejects writes that would exceed {@code maxSize}.
+     * Used so gzip can fail during streaming instead of after a multi-GB buffer is filled.
+     */
+    private static final class BoundedSizeOutputStream extends FilterOutputStream {
+        private final int maxSize;
+        private int written;
+
+        BoundedSizeOutputStream(OutputStream out, int maxSize) {
+            super(out);
+            this.maxSize = maxSize;
+        }
+
+        @Override
+        public void write(int b) throws IOException {
+            ensureCapacity(1);
+            out.write(b);
+            written++;
+        }
+
+        @Override
+        public void write(byte[] b, int off, int len) throws IOException {
+            ensureCapacity(len);
+            out.write(b, off, len);
+            written += len;
+        }
+
+        private void ensureCapacity(int len) throws IOException {
+            if (len < 0 || (long) written + len > maxSize) {
+                throw new IOException(
+                        String.format("compressed size exceeds limit %d bytes", maxSize));
+            }
+        }
     }
 }
