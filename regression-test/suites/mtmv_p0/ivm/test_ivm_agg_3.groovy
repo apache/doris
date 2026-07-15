@@ -101,7 +101,7 @@ suite("test_ivm_agg_3") {
     """
 
     // Step 3: Delete the only row in group (1,'b') — should disappear from MV
-    sql """DELETE FROM ivm_agg_multikey_base WHERE k1 = 3;"""
+    sql """DELETE FROM ivm_agg_multikey_base WHERE id = 3;"""
     // Dirty partition
     sql """INSERT INTO ivm_agg_multikey_base VALUES (7, 2, 'a', 70);"""
 
@@ -114,10 +114,8 @@ suite("test_ivm_agg_3") {
     """
 
     // COMPLETE to verify ground truth
-    // Physical: id=1(1,'a',10,0), id=2(1,'a',20,0), id=3(1,'b',30,1), id=4(2,'a',40,0),
-    //           id=5(1,'a',50,0), id=6(2,'b',60,0), id=7(2,'a',70,0)
-    // COMPLETE ignores binlog_op:
-    // (1,'a'): cnt=3, sum=80; (1,'b'): cnt=1, sum=30; (2,'a'): cnt=2, sum=110; (2,'b'): cnt=1, sum=60
+    // Current base-table snapshot excludes deleted id=3.
+    // (1,'a'): cnt=3, sum=80; (2,'a'): cnt=2, sum=110; (2,'b'): cnt=1, sum=60
     sql """REFRESH MATERIALIZED VIEW ivm_agg_multikey_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("ivm_agg_multikey_mv")
 

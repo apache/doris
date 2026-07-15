@@ -189,9 +189,8 @@ suite("test_ivm_agg_2") {
     """
 
     // Step 3: COMPLETE refresh to verify ground truth
-    // Physical rows: k1=1(grp=1,v1=10,op=0), k1=2(grp=1,v1=20,op=0),
-    //                k1=3(grp=2,v1=30,op=1), k1=4(grp=1,v1=40,op=0)
-    // COMPLETE ignores binlog_op → grp=1: cnt=3, sum=70; grp=2: cnt=1, sum=30
+    // Current base-table snapshot excludes the deleted k1=3 row.
+    // grp=1: cnt=3, sum=70; grp=2 disappears.
     sql """REFRESH MATERIALIZED VIEW ivm_agg_grpdel_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("ivm_agg_grpdel_mv")
 
@@ -320,8 +319,7 @@ suite("test_ivm_agg_2") {
     """
 
     // Step 4: COMPLETE to get ground truth
-    // Physical rows: k1=1(v1=10,op=1), k1=2(v1=20,op=1), k1=3(v1=99,op=0)
-    // COMPLETE ignores binlog_op → cnt=3, sum=129
+    // Current base-table snapshot keeps only k1=3(v1=99), so cnt=1, sum=99.
     sql """REFRESH MATERIALIZED VIEW ivm_agg_scalardel_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("ivm_agg_scalardel_mv")
 
@@ -342,9 +340,8 @@ suite("test_ivm_agg_2") {
         SELECT cnt, sum_v1 FROM ivm_agg_scalardel_mv
     """
 
-    // COMPLETE to verify: all rows have op=1 or the physical state
-    // Physical: k1=1(10,1), k1=2(20,1), k1=3(99,1), k1=4(0,0)
-    // COMPLETE sees all 4 physical rows → cnt=4, sum=129
+    // COMPLETE to verify the current base-table snapshot.
+    // Only k1=4(v1=0) remains, so cnt=1, sum=0.
     sql """REFRESH MATERIALIZED VIEW ivm_agg_scalardel_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("ivm_agg_scalardel_mv")
 
@@ -364,7 +361,7 @@ suite("test_ivm_agg_2") {
         SELECT cnt, sum_v1 FROM ivm_agg_scalardel_mv
     """
 
-    // COMPLETE: k1=1(10,1),2(20,1),3(99,1),4(0,0),5(50,0),6(60,0) → cnt=6, sum=239
+    // COMPLETE sees the current base-table snapshot: k1=4(0), k1=5(50), k1=6(60) → cnt=3, sum=110
     sql """REFRESH MATERIALIZED VIEW ivm_agg_scalardel_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("ivm_agg_scalardel_mv")
 
@@ -472,8 +469,8 @@ suite("test_ivm_agg_2") {
     sql """REFRESH MATERIALIZED VIEW ivm_agg_maxdel_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("ivm_agg_maxdel_mv")
 
-    // Physical rows: k1=1(10,0), k1=2(20,0), k1=3(30,1), k1=4(25,0), k1=5(15,0)
-    // COMPLETE ignores binlog_op → min=10, max=30, cnt=5
+    // Current base-table snapshot excludes deleted k1=3 and includes k1=5.
+    // min=10, max=25, cnt=4
     order_qt_maxdel_after_recovery """
         SELECT min_v1, max_v1, cnt FROM ivm_agg_maxdel_mv
     """
