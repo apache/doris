@@ -66,6 +66,7 @@
 #include "information_schema/schema_load_job_scanner.h"
 #include "information_schema/schema_metadata_name_ids_scanner.h"
 #include "information_schema/schema_partitions_scanner.h"
+#include "information_schema/schema_plugins_scanner.h"
 #include "information_schema/schema_processlist_scanner.h"
 #include "information_schema/schema_profiling_scanner.h"
 #include "information_schema/schema_role_mappings_scanner.h"
@@ -286,6 +287,8 @@ std::unique_ptr<SchemaScanner> SchemaScanner::create(TSchemaTableType::type type
         return SchemaFileCacheInfoScanner::create_unique();
     case TSchemaTableType::SCH_AUTHENTICATION_INTEGRATIONS:
         return SchemaAuthenticationIntegrationsScanner::create_unique();
+    case TSchemaTableType::SCH_PLUGINS:
+        return SchemaPluginsScanner::create_unique();
     case TSchemaTableType::SCH_ROLE_MAPPINGS:
         return SchemaRoleMappingsScanner::create_unique();
     case TSchemaTableType::SCH_TABLE_STREAMS:

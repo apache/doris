@@ -862,6 +862,14 @@ public class SchemaTable extends Table {
                             .column("ALTER_USER", ScalarType.createStringType())
                             .column("MODIFY_TIME", ScalarType.createStringType())
                             .build()))
+            .put("plugins",
+                    new SchemaTable(SystemIdGenerator.getNextId(), "plugins", TableType.SCHEMA,
+                        builder().column("PLUGIN_NAME", ScalarType.createVarchar(64))
+                            .column("PLUGIN_TYPE", ScalarType.createVarchar(64))
+                            .column("PLUGIN_VERSION", ScalarType.createVarchar(128))
+                            .column("SOURCE", ScalarType.createVarchar(16))
+                            .column("DESCRIPTION", ScalarType.createStringType())
+                            .build()))
             .put("table_streams",
                     new SchemaTable(SystemIdGenerator.getNextId(), "table_streams", TableType.SCHEMA,
                             builder().column("DB_NAME", ScalarType.createVarchar(NAME_CHAR_LEN))

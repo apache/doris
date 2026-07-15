@@ -25,6 +25,7 @@ import org.apache.doris.extension.loader.DirectoryPluginRuntimeManager;
 import org.apache.doris.extension.loader.LoadFailure;
 import org.apache.doris.extension.loader.LoadReport;
 import org.apache.doris.extension.loader.PluginHandle;
+import org.apache.doris.extension.loader.PluginRegistry;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -64,6 +65,9 @@ public class ConnectorPluginManager {
     private static final List<String> CONNECTOR_PARENT_FIRST_PREFIXES =
             Arrays.asList("org.apache.doris.connector.", "org.apache.doris.filesystem.");
 
+    /** Family label in the process-wide {@link PluginRegistry}. */
+    private static final String PLUGIN_FAMILY = "CONNECTOR";
+
     private final List<ConnectorProvider> providers = new CopyOnWriteArrayList<>();
     private final DirectoryPluginRuntimeManager<ConnectorProvider> runtimeManager =
             new DirectoryPluginRuntimeManager<>();
@@ -75,6 +79,7 @@ public class ConnectorPluginManager {
         ServiceLoader.load(ConnectorProvider.class)
                 .forEach(p -> {
                     providers.add(p);
+                    PluginRegistry.getInstance().registerBuiltin(PLUGIN_FAMILY, p);
                     LOG.info("Registered built-in connector provider: {}", p.getType());
                 });
     }
@@ -104,11 +109,28 @@ public class ConnectorPluginManager {
         }
 
         for (PluginHandle<ConnectorProvider> handle : report.getSuccesses()) {
+            // Built-ins (and earlier-loaded plugins) must never be displaced by a
+            // same-name directory jar.
+            if (hasProviderNamed(handle.getPluginName())) {
+                LOG.warn("Skip connector plugin '{}' from {}: name conflicts with an already "
+                        + "registered provider", handle.getPluginName(), handle.getPluginDir());
+                continue;
+            }
             providers.add(handle.getFactory());
+            PluginRegistry.getInstance().registerExternal(PLUGIN_FAMILY, handle);
             LOG.info("Loaded connector plugin: name={}, pluginDir={}, jarCount={}",
                     handle.getPluginName(), handle.getPluginDir(),
                     handle.getResolvedJars().size());
         }
+    }
+
+    private boolean hasProviderNamed(String name) {
+        for (ConnectorProvider p : providers) {
+            if (name.equals(p.name())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

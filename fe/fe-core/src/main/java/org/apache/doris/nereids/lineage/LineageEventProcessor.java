@@ -23,6 +23,7 @@ import org.apache.doris.extension.loader.DirectoryPluginRuntimeManager;
 import org.apache.doris.extension.loader.LoadFailure;
 import org.apache.doris.extension.loader.LoadReport;
 import org.apache.doris.extension.loader.PluginHandle;
+import org.apache.doris.extension.loader.PluginRegistry;
 import org.apache.doris.extension.spi.PluginContext;
 
 import org.apache.logging.log4j.LogManager;
@@ -64,6 +65,9 @@ public class LineageEventProcessor {
 
     private static final Logger LOG = LogManager.getLogger(LineageEventProcessor.class);
     private static final long EVENT_POLL_TIMEOUT_SECONDS = 5L;
+
+    /** Family label in the process-wide {@link PluginRegistry}. */
+    private static final String PLUGIN_FAMILY = "LINEAGE";
 
     /** Parent-first prefixes for child-first classloading isolation. */
     private static final List<String> LINEAGE_PARENT_FIRST_PREFIXES =
@@ -132,6 +136,8 @@ public class LineageEventProcessor {
                 LineagePluginFactory existing = factories.putIfAbsent(pluginName, factory);
                 if (existing != null) {
                     LOG.warn("Skip duplicated built-in lineage plugin name: {}", pluginName);
+                } else {
+                    PluginRegistry.getInstance().registerBuiltin(PLUGIN_FAMILY, factory);
                 }
             }
         } catch (Exception e) {
@@ -161,6 +167,7 @@ public class LineageEventProcessor {
                     LOG.warn("Skip duplicated lineage plugin name: {} from directory {}", pluginName,
                             handle.getPluginDir());
                 } else {
+                    PluginRegistry.getInstance().registerExternal(PLUGIN_FAMILY, handle);
                     LOG.info("Loaded external lineage plugin factory: name={}, pluginDir={}, jarCount={}",
                             pluginName, handle.getPluginDir(), handle.getResolvedJars().size());
                 }

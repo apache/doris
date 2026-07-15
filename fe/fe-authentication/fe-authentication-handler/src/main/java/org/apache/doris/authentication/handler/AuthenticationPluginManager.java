@@ -26,6 +26,7 @@ import org.apache.doris.extension.loader.DirectoryPluginRuntimeManager;
 import org.apache.doris.extension.loader.LoadFailure;
 import org.apache.doris.extension.loader.LoadReport;
 import org.apache.doris.extension.loader.PluginHandle;
+import org.apache.doris.extension.loader.PluginRegistry;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -63,6 +64,9 @@ public class AuthenticationPluginManager {
     private static final List<String> AUTH_PARENT_FIRST_PREFIXES =
             Collections.singletonList("org.apache.doris.authentication.");
 
+    /** Family label in the process-wide {@link PluginRegistry}. */
+    private static final String PLUGIN_FAMILY = "AUTHENTICATION";
+
     /** Factories by plugin name (e.g., "ldap", "oidc", "password") */
     private final Map<String, AuthenticationPluginFactory> factories = new ConcurrentHashMap<>();
 
@@ -88,7 +92,10 @@ public class AuthenticationPluginManager {
                 : ClassLoadingPolicy.defaultPolicy();
 
         ServiceLoader.load(AuthenticationPluginFactory.class)
-                .forEach(factory -> factories.put(factory.name(), factory));
+                .forEach(factory -> {
+                    factories.put(factory.name(), factory);
+                    PluginRegistry.getInstance().registerBuiltin(PLUGIN_FAMILY, factory);
+                });
     }
 
     /**
@@ -141,6 +148,7 @@ public class AuthenticationPluginManager {
                 continue;
             }
             loadedPlugins++;
+            PluginRegistry.getInstance().registerExternal(PLUGIN_FAMILY, handle);
             LOG.info("Loaded external authentication plugin: name={}, pluginDir={}, jarCount={}",
                     pluginName, handle.getPluginDir(), handle.getResolvedJars().size());
         }

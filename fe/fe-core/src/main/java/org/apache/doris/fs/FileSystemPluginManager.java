@@ -23,6 +23,7 @@ import org.apache.doris.extension.loader.DirectoryPluginRuntimeManager;
 import org.apache.doris.extension.loader.LoadFailure;
 import org.apache.doris.extension.loader.LoadReport;
 import org.apache.doris.extension.loader.PluginHandle;
+import org.apache.doris.extension.loader.PluginRegistry;
 import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.filesystem.spi.FileSystemProvider;
 
@@ -70,6 +71,9 @@ public class FileSystemPluginManager {
     private static final List<String> FS_PARENT_FIRST_PREFIXES =
             Arrays.asList("org.apache.doris.filesystem.", "software.amazon.awssdk.", "org.apache.hadoop.");
 
+    /** Family label in the process-wide {@link PluginRegistry}. */
+    private static final String PLUGIN_FAMILY = "FILESYSTEM";
+
     private final List<FileSystemProvider> providers = new CopyOnWriteArrayList<>();
     private final DirectoryPluginRuntimeManager<FileSystemProvider> runtimeManager =
             new DirectoryPluginRuntimeManager<>();
@@ -82,6 +86,7 @@ public class FileSystemPluginManager {
                 .forEach(p -> {
                     providers.add(p);
                     DatasourcePrintableMap.registerSensitiveKeys(p.sensitivePropertyKeys());
+                    PluginRegistry.getInstance().registerBuiltin(PLUGIN_FAMILY, p);
                     LOG.info("Registered built-in filesystem provider: {}", p.name());
                 });
     }
@@ -111,13 +116,30 @@ public class FileSystemPluginManager {
         }
 
         for (PluginHandle<FileSystemProvider> handle : report.getSuccesses()) {
+            // Built-ins (and earlier-loaded plugins) must never be displaced by a
+            // same-name directory jar.
+            if (hasProviderNamed(handle.getPluginName())) {
+                LOG.warn("Skip filesystem plugin '{}' from {}: name conflicts with an already "
+                        + "registered provider", handle.getPluginName(), handle.getPluginDir());
+                continue;
+            }
             FileSystemProvider provider = handle.getFactory();
             providers.add(provider);
             DatasourcePrintableMap.registerSensitiveKeys(provider.sensitivePropertyKeys());
+            PluginRegistry.getInstance().registerExternal(PLUGIN_FAMILY, handle);
             LOG.info("Loaded filesystem plugin: name={}, pluginDir={}, jarCount={}",
                     handle.getPluginName(), handle.getPluginDir(),
                     handle.getResolvedJars().size());
         }
+    }
+
+    private boolean hasProviderNamed(String name) {
+        for (FileSystemProvider p : providers) {
+            if (name.equals(p.name())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

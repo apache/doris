@@ -1,0 +1,63 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+import org.junit.Assert
+
+suite("test_plugins_schema", "p0") {
+    // Schema check: fixed five columns.
+    def schema = sql "DESC information_schema.plugins"
+    def columnNames = schema.collect { it[0] }
+    Assert.assertEquals(
+            ["PLUGIN_NAME", "PLUGIN_TYPE", "PLUGIN_VERSION", "SOURCE", "DESCRIPTION"], columnNames)
+
+    // As an admin user: built-in plugins (e.g. filesystem providers) must be listed.
+    def rows = sql """
+        SELECT PLUGIN_NAME, PLUGIN_TYPE, SOURCE
+        FROM information_schema.plugins
+        ORDER BY PLUGIN_TYPE, PLUGIN_NAME
+    """
+    Assert.assertTrue("expect at least one built-in plugin row", rows.size() > 0)
+    rows.each { row ->
+        Assert.assertTrue(row[2] == "BUILTIN" || row[2] == "EXTERNAL")
+    }
+    def builtinRows = rows.findAll { it[2] == "BUILTIN" }
+    Assert.assertTrue("expect built-in plugins registered", builtinRows.size() > 0)
+
+    // (type, name) is the primary key: no duplicates may appear.
+    def keys = rows.collect { "${it[1]}|${it[0]}".toString() }
+    Assert.assertEquals(keys.size(), keys.unique(false).size())
+
+    // Filter by family works.
+    def fsRows = sql """
+        SELECT PLUGIN_NAME FROM information_schema.plugins WHERE PLUGIN_TYPE = 'FILESYSTEM'
+    """
+    Assert.assertTrue("expect built-in filesystem providers", fsRows.size() > 0)
+
+    // Non-admin users see an empty inventory (ADMIN-level metadata).
+    String user = "test_plugins_schema_user"
+    String pwd = "C123_567p"
+    try_sql("DROP USER IF EXISTS ${user}")
+    sql "CREATE USER ${user} IDENTIFIED BY '${pwd}'"
+    try {
+        connect(user, pwd, context.config.jdbcUrl) {
+            def result = sql "SELECT * FROM information_schema.plugins"
+            Assert.assertEquals(0, result.size())
+        }
+    } finally {
+        try_sql("DROP USER IF EXISTS ${user}")
+    }
+}

@@ -36,6 +36,9 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.jar.Attributes;
+import java.util.jar.JarFile;
+import java.util.jar.Manifest;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -254,6 +257,8 @@ public class DirectoryPluginRuntimeManager<F extends PluginFactory> {
             throw e;
         }
 
+        // Snapshot self-reported metadata once at load time. A throwing or invalid
+        // self-report is a load failure; query paths never re-invoke plugin code.
         String pluginName;
         try {
             pluginName = factory.name();
@@ -265,14 +270,30 @@ public class DirectoryPluginRuntimeManager<F extends PluginFactory> {
                     "Failed to get plugin name from discovered factory in " + normalizedDir,
                     e);
         }
-        if (pluginName == null || pluginName.trim().isEmpty()) {
+        String nameValidationError = PluginNames.validate(pluginName);
+        if (nameValidationError != null) {
             closeClassLoader(classLoader);
             throw new PluginLoadException(
                     normalizedDir,
                     LoadFailure.STAGE_INSTANTIATE,
-                    "Plugin name is empty for directory: " + normalizedDir,
+                    "Invalid plugin name for directory " + normalizedDir + ": " + nameValidationError,
                     null);
         }
+
+        String description;
+        try {
+            description = factory.description();
+        } catch (RuntimeException e) {
+            closeClassLoader(classLoader);
+            throw new PluginLoadException(
+                    normalizedDir,
+                    LoadFailure.STAGE_INSTANTIATE,
+                    "Failed to get plugin description from discovered factory in " + normalizedDir,
+                    e);
+        }
+
+        String implementationVersion = readImplementationVersion(
+                factory.getClass().getName(), rootJars.isEmpty() ? allJars : rootJars);
 
         return new PluginHandle<>(
                 pluginName.trim(),
@@ -280,7 +301,31 @@ public class DirectoryPluginRuntimeManager<F extends PluginFactory> {
                 allJars,
                 classLoader,
                 factory,
-                Instant.now());
+                Instant.now(),
+                description,
+                implementationVersion);
+    }
+
+    /**
+     * Reads Implementation-Version from the MANIFEST of the jar that contains the
+     * factory class. Version is display-only metadata: failures degrade to null
+     * instead of failing the load.
+     */
+    private String readImplementationVersion(String factoryClassName, List<Path> candidateJars) {
+        String classEntry = factoryClassName.replace('.', '/') + ".class";
+        for (Path jar : candidateJars) {
+            try (JarFile jarFile = new JarFile(jar.toFile())) {
+                if (jarFile.getEntry(classEntry) == null) {
+                    continue;
+                }
+                Manifest manifest = jarFile.getManifest();
+                return manifest == null ? null
+                        : manifest.getMainAttributes().getValue(Attributes.Name.IMPLEMENTATION_VERSION);
+            } catch (IOException ignored) {
+                // Display-only metadata; fall through to the next candidate jar.
+            }
+        }
+        return null;
     }
 
     /**
