@@ -95,6 +95,14 @@ AND RefreshMode = '${refreshMode}';"""
     wait_mtmv_refresh_finish("COMPLETE")
     qt_mtmv_init """ SELECT * FROM ${mtmvName} ORDER BY dt, advertiser"""
 
+    // Verify that the MTMV definition can build a rewrite cache and produce a rewrite candidate.
+    // The final CBO choice is intentionally not asserted because either valid plan may be cheaper.
+    mv_rewrite_success_without_check_chosen("""
+                SELECT dt, advertiser, count(distinct user_id)
+                FROM ${tableName}
+                GROUP BY dt, advertiser
+            """, mtmvName)
+
     sql """INSERT INTO ${tableName} VALUES("2024-07-03",'b', "2024-07-03", 'b',2);"""
     refreshTime = (int) (System.currentTimeMillis() / 1000L)
     sql """REFRESH MATERIALIZED VIEW ${mtmvName} AUTO;"""
