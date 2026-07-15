@@ -18,10 +18,14 @@
 package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.connector.api.ConnectorPartitionInfo;
+import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.mvcc.ConnectorMvccPartition;
 import org.apache.doris.connector.api.mvcc.ConnectorMvccPartitionView;
 
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.JsonNodeFactory;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.base.Preconditions;
 import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.MetadataTableType;
@@ -208,6 +212,122 @@ final class IcebergPartitionUtils {
         } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
             throw new RuntimeException("Failed to serialize iceberg partition data to JSON, error message is:"
                     + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * A private mapper copy whose node factory keeps {@link BigDecimal} scale EXACT. Stock Jackson's
+     * {@code JsonNodeFactory} has {@code bigDecimalExact=false}, so {@code valueToTree(new BigDecimal("1.50"))}
+     * renders {@code 1.5} and {@code valueToTree(new BigDecimal("10"))} renders {@code 1E+1} — the latter is a
+     * JSON <i>syntax</i> change, not just lost scale. Legacy fe-core rendered these through Gson, which is
+     * scale-exact, so without this the connector would diverge from master on DECIMAL-partitioned tables
+     * (verified empirically against gson 2.10.1 / jackson 2.16.0, design doc T0.1).
+     *
+     * <p>MUST be a {@code copy()}: {@link JsonUtil#mapper()} is an iceberg-core process-wide static shared by
+     * all iceberg REST/metadata serialization, and mutating its node factory would corrupt unrelated paths.
+     * Hoisted to a constant because {@code copy()} allocates a mapper per call.
+     */
+    private static final ObjectMapper EXACT_DECIMAL_MAPPER =
+            JsonUtil.mapper().copy().setNodeFactory(JsonNodeFactory.withExactBigDecimals(true));
+
+    /**
+     * The {@code partition_data_json} for a {@code $position_deletes} scan range. Port of legacy
+     * {@code IcebergScanNode.getPartitionDataObjectJson} (upstream #65135).
+     *
+     * <p>Unlike {@link #getPartitionDataJson} — which emits a JSON <b>array of strings</b> for the data path —
+     * this emits a flat JSON <b>object</b> keyed by the {@code $position_deletes} metadata table's
+     * {@code partition} struct field names, with <b>type-native</b> values (numbers/booleans unquoted). The two
+     * shapes travel in the SAME thrift field ({@code TIcebergFileDesc.partition_data_json}) on different paths;
+     * they are not interchangeable. BE does not parse this as JSON at all — it feeds it to Doris's STRUCT text
+     * serde, which requires a leading '{', splits on ':'/',' and lower-cases keys before matching field names.
+     * Critically, {@code DataTypeNullableSerDe::from_string} SWALLOWS any parse error into a NULL partition and
+     * returns OK, so a wrong shape here is silent wrong data, never an error (design doc §2.2).
+     *
+     * <p>Values are resolved BY ICEBERG PARTITION FIELD ID, never by position: the metadata table reassigns
+     * partition field ids and rebuilds each spec via {@code BaseMetadataTable.transformSpec}, so a delete
+     * file's own spec is a subset of the output union type. Positional mapping would silently bind the wrong
+     * value under partition evolution and survive a rename with a stale name. A field absent from the writing
+     * spec is simply not put, and BE materializes the missing key as NULL.
+     *
+     * <p>Deliberate, documented divergence from legacy: Gson drops null members (so an absent value yields
+     * {@code {}}), Jackson renders {@code {"p":null}}. BE reaches the same NULL either way — the literal 4-byte
+     * {@code null} token and a missing key both hit {@code insert_default()} (design doc T0.1).
+     *
+     * @param outputPartitionFields the metadata table's {@code partition} struct fields, in output order
+     * @param enableMappingVarbinary the catalog's {@code enable.mapping.varbinary}; when set, UUID maps to
+     *         VARBINARY and therefore cannot round-trip through this text transport either
+     * @throws DorisConnectorException on a non-null BINARY/FIXED (or UUID under varbinary mapping) partition
+     *         value — fail loud rather than silently materialize it as NULL
+     */
+    static String getPartitionDataObjectJson(PartitionData partitionData, PartitionSpec partitionSpec,
+            List<NestedField> outputPartitionFields, boolean enableMappingVarbinary, ZoneId zone) {
+        List<NestedField> partitionTypes = partitionData.getPartitionType().asNestedType().fields();
+        for (int i = 0; i < partitionTypes.size(); i++) {
+            Type type = partitionTypes.get(i).type();
+            if (partitionData.get(i) != null && (type.typeId() == TypeID.BINARY
+                    || type.typeId() == TypeID.FIXED
+                    || (type.typeId() == TypeID.UUID && enableMappingVarbinary))) {
+                throw new DorisConnectorException(
+                        "Iceberg position_deletes cannot materialize non-null partition field '"
+                                + partitionTypes.get(i).name() + "' of type " + type
+                                + " without a binary-safe partition transport");
+            }
+        }
+        List<String> partitionValues = getPartitionValues(partitionData, partitionSpec, zone);
+        Map<Integer, Object> partitionValueByFieldId = new HashMap<>();
+        List<PartitionField> fields = partitionSpec.fields();
+        for (int i = 0; i < fields.size(); i++) {
+            partitionValueByFieldId.put(fields.get(i).fieldId(),
+                    getPartitionJsonValue(partitionTypes.get(i).type(), partitionValues.get(i)));
+        }
+        ObjectNode partitionJson = EXACT_DECIMAL_MAPPER.createObjectNode();
+        for (NestedField outputPartitionField : outputPartitionFields) {
+            partitionJson.set(outputPartitionField.name(),
+                    EXACT_DECIMAL_MAPPER.valueToTree(
+                            partitionValueByFieldId.get(outputPartitionField.fieldId())));
+        }
+        try {
+            return EXACT_DECIMAL_MAPPER.writeValueAsString(partitionJson);
+        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+            throw new DorisConnectorException("Failed to serialize iceberg position_deletes partition data"
+                    + " to JSON, error message is:" + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Re-type a serialized partition value for the {@code partition_data_json} object, so the emitted JSON
+     * carries a native number/boolean rather than a quoted string. Port of legacy
+     * {@code IcebergScanNode.getPartitionJsonValue}. BE's struct serde does strip quotes off values, so a
+     * quoted number would often work by accident — but the default format options set
+     * {@code converted_from_string=false}, so do not rely on it; match legacy and emit native types.
+     *
+     * <p>BINARY/FIXED never reach here — {@link #getPartitionDataObjectJson} rejects them up front.
+     */
+    private static Object getPartitionJsonValue(Type type, String partitionValue) {
+        if (partitionValue == null) {
+            return null;
+        }
+        switch (type.typeId()) {
+            case BOOLEAN:
+                return Boolean.parseBoolean(partitionValue);
+            case INTEGER:
+                return Integer.parseInt(partitionValue);
+            case LONG:
+                return Long.parseLong(partitionValue);
+            case FLOAT:
+                return Float.parseFloat(partitionValue);
+            case DOUBLE:
+                return Double.parseDouble(partitionValue);
+            case DECIMAL:
+                return new BigDecimal(partitionValue);
+            case STRING:
+            case UUID:
+            case DATE:
+            case TIME:
+            case TIMESTAMP:
+                return partitionValue;
+            default:
+                return partitionValue;
         }
     }
 
