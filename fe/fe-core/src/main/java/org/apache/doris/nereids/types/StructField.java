@@ -32,6 +32,10 @@ public class StructField {
     private final DataType dataType;
     private final boolean nullable;
     private final String comment;
+    // Original, case-preserved name (before lowercasing). Carried through type rewrites so the
+    // Iceberg write path (DorisTypeToIcebergType) can emit cross-engine-faithful nested field names.
+    // Internal behavior is unaffected: `name` stays lowercased and equals/hashCode use `name`.
+    private final String originalName;
 
     /**
      * StructField Constructor
@@ -40,7 +44,8 @@ public class StructField {
      *  @param nullable Indicates if values of this field can be `null` values
      */
     public StructField(String name, DataType dataType, boolean nullable, String comment) {
-        this.name = Objects.requireNonNull(name, "name should not be null").toLowerCase();
+        this.originalName = Objects.requireNonNull(name, "name should not be null");
+        this.name = this.originalName.toLowerCase();
         this.dataType = Objects.requireNonNull(dataType, "dataType should not be null");
         this.nullable = nullable;
         this.comment = Objects.requireNonNull(comment, "comment should not be null");
@@ -48,6 +53,11 @@ public class StructField {
 
     public String getName() {
         return name;
+    }
+
+    /** The original, case-preserved name. Used only by the Iceberg type converter. */
+    public String getOriginalName() {
+        return originalName;
     }
 
     public DataType getDataType() {
@@ -70,16 +80,16 @@ public class StructField {
     }
 
     public StructField withDataType(DataType dataType) {
-        return new StructField(name, dataType, nullable, comment);
+        return new StructField(originalName, dataType, nullable, comment);
     }
 
     public StructField withDataTypeAndNullable(DataType dataType, boolean nullable) {
-        return new StructField(name, dataType, nullable, comment);
+        return new StructField(originalName, dataType, nullable, comment);
     }
 
     public org.apache.doris.catalog.StructField toCatalogDataType() {
         return new org.apache.doris.catalog.StructField(
-                name, dataType.toCatalogDataType(), comment, nullable);
+                originalName, dataType.toCatalogDataType(), comment, nullable);
     }
 
     public String toSql() {

@@ -700,8 +700,12 @@ public class IcebergUtils {
                         icebergTypeToDorisType(map.valueType(), enableMappingVarbinary, enableMappingTimestampTz));
             case STRUCT:
                 Types.StructType struct = (Types.StructType) type;
+                // Preserve the original nested field-name case so DESCRIBE stays consistent with the
+                // top-level columns (already case-preserved) and faithful to the Iceberg schema
+                // (Spark/Trino compatibility). Field lookups remain case-insensitive because
+                // StructType lowercases its map keys.
                 ArrayList<StructField> nestedTypes = struct.fields().stream().map(
-                        x -> new StructField(x.name(),
+                        x -> StructField.createPreservingCase(x.name(),
                                 icebergTypeToDorisType(x.type(), enableMappingVarbinary, enableMappingTimestampTz)))
                         .collect(Collectors.toCollection(ArrayList::new));
                 return new StructType(nestedTypes);
