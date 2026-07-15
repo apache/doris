@@ -116,17 +116,30 @@ Status EnginePublishVersionTask::execute() {
         }
     });
     DBUG_EXECUTE_IF("EnginePublishVersionTask::execute.enable_spin_wait", {
-        auto token = dp->param<std::string>("token", "invalid_token");
-        while (DebugPoints::instance()->is_enable("EnginePublishVersionTask::execute.block")) {
-            auto block_dp = DebugPoints::instance()->get_debug_point(
-                    "EnginePublishVersionTask::execute.block");
-            if (block_dp) {
-                auto pass_token = block_dp->param<std::string>("pass_token", "");
-                if (pass_token == token) {
-                    break;
-                }
+        // Scope the fault injection to one partition when requested so unrelated publish tasks
+        // are not blocked by the same process-wide debug point.
+        auto target_partition_id = dp->param<int64_t>("partition_id", -1);
+        bool should_spin_wait = target_partition_id < 0;
+        for (const auto& partition_info : _publish_version_req.partition_version_infos) {
+            if (partition_info.partition_id == target_partition_id) {
+                should_spin_wait = true;
+                break;
             }
-            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        }
+        if (should_spin_wait) {
+            auto token = dp->param<std::string>("token", "invalid_token");
+            while (DebugPoints::instance()->is_enable(
+                    "EnginePublishVersionTask::execute.block")) {
+                auto block_dp = DebugPoints::instance()->get_debug_point(
+                        "EnginePublishVersionTask::execute.block");
+                if (block_dp) {
+                    auto pass_token = block_dp->param<std::string>("pass_token", "");
+                    if (pass_token == token) {
+                        break;
+                    }
+                }
+                std::this_thread::sleep_for(std::chrono::milliseconds(50));
+            }
         }
     });
     std::unique_ptr<ThreadPoolToken> token = _engine.tablet_publish_txn_thread_pool()->new_token(

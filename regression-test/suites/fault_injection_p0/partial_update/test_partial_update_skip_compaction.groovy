@@ -18,6 +18,8 @@
 import org.junit.Assert
 import java.util.concurrent.TimeUnit
 import org.awaitility.Awaitility
+import org.apache.doris.regression.util.DebugPoint
+import org.apache.doris.regression.util.NodeType
 
 suite("test_partial_update_skip_compaction", "nonConcurrent") {
 
@@ -45,6 +47,7 @@ suite("test_partial_update_skip_compaction", "nonConcurrent") {
     def tabletStat = sql_return_maparray("show tablets from ${table1};").get(0)
     def tabletBackendId = tabletStat.BackendId
     def tabletId = tabletStat.TabletId
+    def partitionId = tabletStat.PartitionId
     def tabletBackend;
     for (def be : beNodes) {
         if (be.BackendId == tabletBackendId) {
@@ -92,7 +95,8 @@ suite("test_partial_update_skip_compaction", "nonConcurrent") {
         if (isCloudMode()) {
             GetDebugPoint().enableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.enable_spin_wait")
         } else {
-            GetDebugPoint().enableDebugPointForAllBEs("EnginePublishVersionTask::execute.enable_spin_wait")
+            DebugPoint.enableDebugPoint(tabletBackend.Host, tabletBackend.HttpPort as int, NodeType.BE,
+                    "EnginePublishVersionTask::execute.enable_spin_wait", [partition_id: "${partitionId}"])
         }
     }
 
@@ -100,7 +104,8 @@ suite("test_partial_update_skip_compaction", "nonConcurrent") {
         if (isCloudMode()) {
             GetDebugPoint().disableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.enable_spin_wait")
         } else {
-            GetDebugPoint().disableDebugPointForAllBEs("EnginePublishVersionTask::execute.enable_spin_wait")
+            DebugPoint.disableDebugPoint(tabletBackend.Host, tabletBackend.HttpPort as int, NodeType.BE,
+                    "EnginePublishVersionTask::execute.enable_spin_wait")
         }
     }
 
@@ -108,7 +113,8 @@ suite("test_partial_update_skip_compaction", "nonConcurrent") {
         if (isCloudMode()) {
             GetDebugPoint().enableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.block")
         } else {
-            GetDebugPoint().enableDebugPointForAllBEs("EnginePublishVersionTask::execute.block")
+            DebugPoint.enableDebugPoint(tabletBackend.Host, tabletBackend.HttpPort as int, NodeType.BE,
+                    "EnginePublishVersionTask::execute.block")
         }
     }
 
@@ -116,7 +122,8 @@ suite("test_partial_update_skip_compaction", "nonConcurrent") {
         if (isCloudMode()) {
             GetDebugPoint().disableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.block")
         } else {
-            GetDebugPoint().disableDebugPointForAllBEs("EnginePublishVersionTask::execute.block")
+            DebugPoint.disableDebugPoint(tabletBackend.Host, tabletBackend.HttpPort as int, NodeType.BE,
+                    "EnginePublishVersionTask::execute.block")
         }
     }
 
@@ -166,7 +173,18 @@ suite("test_partial_update_skip_compaction", "nonConcurrent") {
 
         // let the partial update load publish
         disable_block_in_publish()
+        disable_publish_spin_wait()
         t1.join()
+
+        Awaitility.await().atMost(30, TimeUnit.SECONDS).pollInterval(100, TimeUnit.MILLISECONDS).until(
+            {
+                def updatedRows = sql """ select count(*) from ${table1}
+                        where (k1 = 1 and c1 = 999 and c2 = 999 and c3 = 1 and c4 = 1)
+                           or (k1 = 2 and c1 = 888 and c2 = 888 and c3 = 2 and c4 = 2)
+                           or (k1 = 3 and c1 = 777 and c2 = 777 and c3 = 3 and c4 = 3); """
+                return (updatedRows[0][0] as int) == 3
+            }
+        )
 
         order_qt_sql "select * from ${table1};"
 
