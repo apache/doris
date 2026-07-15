@@ -41,6 +41,7 @@ import mockit.Mock;
 import mockit.MockUp;
 import org.junit.Assert;
 import org.junit.Test;
+import org.mockito.Mockito;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -67,7 +68,7 @@ public class OlapTableTest {
                 mockReplica(Replica.ReplicaState.NORMAL, 50, 500, 5, 60, 6));
         Tablet tablet = Mockito.mock(Tablet.class);
         Mockito.when(tablet.getReplicas()).thenReturn(replicas);
-        index.appendTablets(Lists.newArrayList(tablet));
+        index.addTablet(tablet, null, true);
 
         Partition partition = new Partition(11, "p1", index, null);
         olapTable.addPartition(partition);
