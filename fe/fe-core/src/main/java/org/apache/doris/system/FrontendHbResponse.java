@@ -121,7 +121,8 @@ public class FrontendHbResponse extends HeartbeatResponse implements Writable {
         sb.append(", rpcPort: ").append(rpcPort);
         sb.append(", arrowFlightSqlPort: ").append(arrowFlightSqlPort);
         sb.append(", replayedJournalId: ").append(replayedJournalId);
-        sb.append(", festartTime: ").append(processUUID);
+        sb.append(", feStartTime: ").append(feStartTime);
+        sb.append(", processUUID: ").append(processUUID);
         return sb.toString();
     }
 
