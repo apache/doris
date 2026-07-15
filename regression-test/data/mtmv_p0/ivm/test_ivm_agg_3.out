@@ -18,13 +18,11 @@
 
 -- !multikey_after_delete_incremental --
 1	a	3	80
-1	b	1	30
 2	a	2	110
 2	b	1	60
 
 -- !multikey_after_final_complete --
 1	a	3	80
-1	b	1	30
 2	a	2	110
 2	b	1	60
 

@@ -42,6 +42,16 @@
 \N	3	80
 2	2	110
 
+-- !nullkey1_after_null_delete_incr --
+\N	2	70
+1	1	80
+2	2	110
+
+-- !nullkey1_complete_after_null_delete --
+\N	2	70
+1	1	80
+2	2	110
+
 -- !nullkey2_complete --
 \N	\N	1	40
 \N	x	2	30

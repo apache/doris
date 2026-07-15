@@ -216,7 +216,7 @@ suite("test_ivm_agg_4") {
         SELECT k1, cnt, sum_v1 FROM test_ivm_agg_4_nullkey1_mv ORDER BY k1
     """
 
-    // Delete from NULL group via binlog_op=1
+    // Delete from k1=1 group via binlog_op=1
     sql """DELETE FROM test_ivm_agg_4_nullkey1_base WHERE k1 = 1;"""
     // Dirty partition with another insert
     sql """INSERT INTO test_ivm_agg_4_nullkey1_base VALUES (7, 2, 70);"""
@@ -229,13 +229,36 @@ suite("test_ivm_agg_4") {
     """
 
     // COMPLETE ground truth after delete
-    // k1=NULL: ids 1(10,del),2(20),5(50) → cnt=2, sum=70
-    // k1=1: ids 3(30),6(60) → cnt=2, sum=90
+    // Current base-table snapshot excludes deleted k1=1 rows.
+    // k1=NULL: ids 1(10),2(20),5(50) → cnt=3, sum=80
     // k1=2: ids 4(40),7(70) → cnt=2, sum=110
     sql """REFRESH MATERIALIZED VIEW test_ivm_agg_4_nullkey1_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("test_ivm_agg_4_nullkey1_mv")
 
     order_qt_nullkey1_complete_after_delete """
+        SELECT k1, cnt, sum_v1 FROM test_ivm_agg_4_nullkey1_mv ORDER BY k1
+    """
+
+    // Delete from NULL group via binlog_op=1 and verify NULL-key group updates correctly.
+    sql """DELETE FROM test_ivm_agg_4_nullkey1_base WHERE id = 1;"""
+    // Dirty partition and resurrect k1=1 with a fresh row.
+    sql """INSERT INTO test_ivm_agg_4_nullkey1_base VALUES (8, 1, 80);"""
+
+    sql """REFRESH MATERIALIZED VIEW test_ivm_agg_4_nullkey1_mv INCREMENTAL"""
+    waitingMTMVTaskFinishedByMvName("test_ivm_agg_4_nullkey1_mv")
+
+    order_qt_nullkey1_after_null_delete_incr """
+        SELECT k1, cnt, sum_v1 FROM test_ivm_agg_4_nullkey1_mv ORDER BY k1
+    """
+
+    // COMPLETE ground truth after deleting one NULL-key row and inserting k1=1.
+    // k1=NULL: ids 2(20),5(50) → cnt=2, sum=70
+    // k1=1: id 8(80) → cnt=1, sum=80
+    // k1=2: ids 4(40),7(70) → cnt=2, sum=110
+    sql """REFRESH MATERIALIZED VIEW test_ivm_agg_4_nullkey1_mv COMPLETE"""
+    waitingMTMVTaskFinishedByMvName("test_ivm_agg_4_nullkey1_mv")
+
+    order_qt_nullkey1_complete_after_null_delete """
         SELECT k1, cnt, sum_v1 FROM test_ivm_agg_4_nullkey1_mv ORDER BY k1
     """
 
