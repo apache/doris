@@ -15,7 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import org.codehaus.groovy.runtime.IOGroovyMethods
+import org.awaitility.Awaitility
+
+import java.util.concurrent.TimeUnit
 
 suite("test_be_compaction_tasks", "p0") {
     def tableName = "test_be_compaction_tasks_tbl"
@@ -24,8 +26,6 @@ suite("test_be_compaction_tasks", "p0") {
     def backendId_to_backendIP = [:]
     def backendId_to_backendHttpPort = [:]
     getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort)
-
-    String backend_id = backendId_to_backendIP.keySet()[0]
 
     try {
         // Step 2: Create table with disable_auto_compaction
@@ -46,7 +46,7 @@ suite("test_be_compaction_tasks", "p0") {
         """
 
         // Step 3: Insert several batches of data to create multiple rowsets
-        for (int i = 0; i < 5; i++) {
+        for (int i = 0; i < 8; i++) {
             sql """ INSERT INTO ${tableName} VALUES
                 (${i * 10 + 1}, 'name_${i}_1', ${i * 100 + 1}, '2025-01-01 00:00:00'),
                 (${i * 10 + 2}, 'name_${i}_2', ${i * 100 + 2}, '2025-01-01 00:00:01'),
@@ -72,35 +72,64 @@ suite("test_be_compaction_tasks", "p0") {
         assertTrue(tablets.size() > 0)
         def tablet = tablets[0]
         String tablet_id = tablet.TabletId
+        String backend_id = tablet.BackendId
+        String backend_ip = backendId_to_backendIP[backend_id]
+        String backend_http_port = backendId_to_backendHttpPort[backend_id]
+        assertTrue(backend_ip != null && backend_http_port != null,
+                "Backend address should exist for backend " + backend_id)
 
-        // Step 6: Trigger cumulative compaction via HTTP API and wait for completion
-        trigger_and_wait_compaction(tableName, "cumulative")
+        // Step 6: A new partition's visible version reaches BE asynchronously. Trigger tablet reports and
+        // retry only E-2000 until cumulative compaction has visible input rowsets.
+        long lastReportTime = 0
+        Awaitility.await().atMost(120, TimeUnit.SECONDS).pollInterval(1, TimeUnit.SECONDS).until {
+            def (code, out, err) = be_run_cumulative_compaction(backend_ip, backend_http_port, tablet_id)
+            assertEquals(0, code, "Failed to trigger compaction: stdout=${out}, stderr=${err}")
+            def triggerResult = parseJson(out.trim())
+            String triggerStatus = triggerResult.status.toString()
+            if (triggerStatus.equalsIgnoreCase("success")) {
+                return true
+            }
+            assertEquals("E-2000", triggerStatus,
+                    "Unexpected compaction response: stdout=${out}, stderr=${err}")
 
-        // Step 7: After compaction - query system table with WHERE STATUS = 'FINISHED'
-        def finishedResult = sql """ SELECT * FROM information_schema.be_compaction_tasks WHERE STATUS = 'FINISHED' """
-        logger.info("Finished compaction tasks: " + finishedResult.size())
-        assertTrue(finishedResult.size() > 0, "Expected at least one FINISHED compaction task")
+            long now = System.currentTimeMillis()
+            if (now - lastReportTime >= 5000) {
+                be_report_tablet(backend_ip, backend_http_port.toInteger())
+                lastReportTime = now
+            }
+            return false
+        }
 
-        // Step 8: Field validation - verify key fields are non-null and reasonable
-        // Query specific fields for the completed compaction on our tablet
-        def fieldResult = sql_return_maparray """
-            SELECT BACKEND_ID, COMPACTION_ID, TABLE_ID, PARTITION_ID, TABLET_ID,
-                   COMPACTION_TYPE, STATUS, TRIGGER_METHOD, COMPACTION_SCORE,
-                   SCHEDULED_TIME, START_TIME, END_TIME, ELAPSED_TIME_MS,
-                   INPUT_ROWSETS_COUNT, INPUT_ROW_NUM, INPUT_DATA_SIZE,
-                   INPUT_INDEX_SIZE, INPUT_TOTAL_SIZE, INPUT_SEGMENTS_NUM,
-                   INPUT_VERSION_RANGE,
-                   OUTPUT_ROW_NUM, OUTPUT_DATA_SIZE, OUTPUT_SEGMENTS_NUM,
-                   IS_VERTICAL
-            FROM information_schema.be_compaction_tasks
-            WHERE TABLET_ID = ${tablet_id} AND STATUS = 'FINISHED'
-            ORDER BY COMPACTION_ID DESC
-            LIMIT 1
-        """
+        // Step 7: Wait for the tracker record itself to reach a terminal state. The HTTP endpoint can return
+        // success after two seconds while compaction is still running.
+        def fieldResult = []
+        Awaitility.await().atMost(60, TimeUnit.SECONDS).pollInterval(1, TimeUnit.SECONDS).until {
+            fieldResult = sql_return_maparray """
+                SELECT BACKEND_ID, COMPACTION_ID, TABLE_ID, PARTITION_ID, TABLET_ID,
+                       COMPACTION_TYPE, STATUS, TRIGGER_METHOD, COMPACTION_SCORE,
+                       SCHEDULED_TIME, START_TIME, END_TIME, ELAPSED_TIME_MS,
+                       INPUT_ROWSETS_COUNT, INPUT_ROW_NUM, INPUT_DATA_SIZE,
+                       INPUT_INDEX_SIZE, INPUT_TOTAL_SIZE, INPUT_SEGMENTS_NUM,
+                       INPUT_VERSION_RANGE,
+                       OUTPUT_ROW_NUM, OUTPUT_DATA_SIZE, OUTPUT_SEGMENTS_NUM,
+                       IS_VERTICAL, STATUS_MSG
+                FROM information_schema.be_compaction_tasks
+                WHERE TABLET_ID = ${tablet_id}
+                  AND COMPACTION_TYPE = 'cumulative'
+                  AND TRIGGER_METHOD = 'MANUAL'
+                ORDER BY COMPACTION_ID DESC
+                LIMIT 1
+            """
+            return fieldResult.size() == 1 &&
+                    (fieldResult[0].STATUS.toString() in ["FINISHED", "FAILED"])
+        }
         logger.info("Field validation result: " + fieldResult)
-        assertTrue(fieldResult.size() > 0, "Expected FINISHED record for tablet " + tablet_id)
 
         def record = fieldResult[0]
+        assertEquals("FINISHED", record.STATUS.toString(),
+                "Compaction failed for tablet ${tablet_id}: ${record.STATUS_MSG}")
+
+        // Verify key fields are non-null and reasonable
         // Verify key fields are non-null
         assertTrue(record.BACKEND_ID != null && Long.parseLong(record.BACKEND_ID.toString()) > 0,
                 "BACKEND_ID should be positive")
@@ -140,11 +169,11 @@ suite("test_be_compaction_tasks", "p0") {
         assertTrue(record.COMPACTION_SCORE != null && Long.parseLong(record.COMPACTION_SCORE.toString()) >= 0,
                 "COMPACTION_SCORE should be non-negative")
 
-        // Step 9: TRIGGER_METHOD check - manual triggered should show 'MANUAL'
+        // Step 8: TRIGGER_METHOD check - manual triggered should show 'MANUAL'
         assertTrue(record.TRIGGER_METHOD != null && record.TRIGGER_METHOD.toString() == "MANUAL",
                 "TRIGGER_METHOD should be MANUAL for manually triggered compaction, got: " + record.TRIGGER_METHOD)
 
-        // Step 10: Filter test - WHERE tablet_id = X AND status = 'FINISHED'
+        // Step 9: Filter test - WHERE tablet_id = X AND status = 'FINISHED'
         def filterResult = sql """
             SELECT COUNT(*) FROM information_schema.be_compaction_tasks
             WHERE TABLET_ID = ${tablet_id} AND STATUS = 'FINISHED'
@@ -152,7 +181,7 @@ suite("test_be_compaction_tasks", "p0") {
         logger.info("Filter result (tablet_id + status): " + filterResult)
         assertTrue(filterResult[0][0] > 0, "Expected at least one record matching filter")
 
-        // Step 11: Non-existent tablet - WHERE tablet_id = 999999999 returns empty
+        // Step 10: Non-existent tablet - WHERE tablet_id = 999999999 returns empty
         def emptyResult = sql """
             SELECT * FROM information_schema.be_compaction_tasks
             WHERE TABLET_ID = 999999999
@@ -161,7 +190,7 @@ suite("test_be_compaction_tasks", "p0") {
         assertEquals(0, emptyResult.size())
 
     } finally {
-        // Step 12: Cleanup
+        // Step 11: Cleanup
         try_sql("DROP TABLE IF EXISTS ${tableName} FORCE")
     }
 }
