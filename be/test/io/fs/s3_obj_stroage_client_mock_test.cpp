@@ -17,6 +17,8 @@
 
 #include <aws/core/Aws.h>
 #include <aws/s3/S3Client.h>
+#include <aws/s3/model/DeleteObjectsRequest.h>
+#include <aws/s3/model/DeleteObjectsResult.h>
 #include <aws/s3/model/ListObjectsV2Request.h>
 #include <aws/s3/model/ListObjectsV2Result.h>
 #include <aws/s3/model/Object.h>
@@ -41,6 +43,8 @@ public:
 
     MOCK_METHOD(Aws::S3::Model::ListObjectsV2Outcome, ListObjectsV2,
                 (const Aws::S3::Model::ListObjectsV2Request& request), (const, override));
+    MOCK_METHOD(Aws::S3::Model::DeleteObjectsOutcome, DeleteObjects,
+                (const Aws::S3::Model::DeleteObjectsRequest& request), (const, override));
 };
 
 class S3ObjStorageClientMockTest : public testing::Test {
@@ -115,6 +119,52 @@ TEST_F(S3ObjStorageClientMockTest, gcp_workload_identity_bearer_token_applied) {
             &files);
     EXPECT_EQ(response.status.code, ErrorCode::OK);
     EXPECT_EQ(fetch_count.load(), 1);
+}
+
+TEST_F(S3ObjStorageClientMockTest, gcp_workload_identity_delete_bearer_token_applied) {
+    auto mock_s3_client = std::make_shared<MockS3Client>();
+    auto token_provider = std::make_shared<GcpWorkloadIdentityTokenProvider>(
+            [](std::string* token, std::chrono::seconds* expires_in) {
+                *token = "test-token";
+                *expires_in = std::chrono::hours(1);
+                return true;
+            },
+            std::chrono::steady_clock::now);
+    S3ObjStorageClient s3_obj_storage_client(mock_s3_client, token_provider);
+
+    auto expect_bearer_token = [](const auto& request) {
+        const auto& headers = request.GetAdditionalCustomHeaders();
+        auto header = headers.find("authorization");
+        ASSERT_NE(header, headers.end());
+        EXPECT_EQ(header->second, "Bearer test-token");
+    };
+
+    DeleteObjectsResult delete_result;
+    EXPECT_CALL(*mock_s3_client, DeleteObjects(testing::_))
+            .Times(2)
+            .WillRepeatedly([&](const DeleteObjectsRequest& request) {
+                expect_bearer_token(request);
+                return DeleteObjectsOutcome(delete_result);
+            });
+
+    auto response = s3_obj_storage_client.delete_objects(
+            {.bucket = "dummy-bucket"}, {"S3ObjStorageClientMockTest/delete-object"});
+    EXPECT_EQ(response.status.code, ErrorCode::OK);
+
+    ListObjectsV2Result list_result;
+    list_result.SetIsTruncated(false);
+    Object object;
+    object.SetKey("S3ObjStorageClientMockTest/delete-recursively/object");
+    list_result.AddContents(std::move(object));
+    EXPECT_CALL(*mock_s3_client, ListObjectsV2(testing::_))
+            .WillOnce([&](const ListObjectsV2Request& request) {
+                expect_bearer_token(request);
+                return ListObjectsV2Outcome(list_result);
+            });
+
+    response = s3_obj_storage_client.delete_objects_recursively(
+            {.bucket = "dummy-bucket", .prefix = "S3ObjStorageClientMockTest/delete-recursively"});
+    EXPECT_EQ(response.status.code, ErrorCode::OK);
 }
 
 TEST_F(S3ObjStorageClientMockTest, gcp_workload_identity_token_refresh) {

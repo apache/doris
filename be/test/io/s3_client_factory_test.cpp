@@ -51,6 +51,15 @@ TEST_F(S3ClientFactoryTest, GcpWorkloadIdentityClientCreation) {
     EXPECT_EQ(S3ClientFactory::instance().create(conf), nullptr);
     conf.endpoint = "https://example.com";
     EXPECT_EQ(S3ClientFactory::instance().create(conf), nullptr);
+
+    conf.endpoint = "https://storage.googleapis.com";
+    conf.provider = io::ObjStorageType::AWS;
+    EXPECT_EQ(S3ClientFactory::instance().create(conf), nullptr);
+
+    conf.provider = io::ObjStorageType::GCP;
+    conf.ak = "access-key";
+    conf.sk = "secret-key";
+    EXPECT_EQ(S3ClientFactory::instance().create(conf), nullptr);
 }
 
 TEST_F(S3ClientFactoryTest, AwsCredentialsProvider) {
