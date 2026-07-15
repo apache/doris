@@ -59,6 +59,7 @@ suite("test_ivm_bitmap_agg_2") {
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_bitmap_agg_2_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("test_ivm_bitmap_agg_2_mv")
+    advance_ivm_stream_offset("test_ivm_bitmap_agg_2_mv")
     order_qt_scalar_complete """
         SELECT bitmap_to_string(bu), buc
         FROM test_ivm_bitmap_agg_2_mv
@@ -86,6 +87,7 @@ suite("test_ivm_bitmap_agg_2") {
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_bitmap_agg_2_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("test_ivm_bitmap_agg_2_mv")
+    advance_ivm_stream_offset("test_ivm_bitmap_agg_2_mv")
 
     sql """DELETE FROM test_ivm_bitmap_agg_2_t WHERE id = 4;"""
     sql """DELETE FROM test_ivm_bitmap_agg_2_t WHERE id = 5;"""
@@ -135,6 +137,7 @@ suite("test_ivm_bitmap_agg_2") {
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_bitmap_agg_2_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("test_ivm_bitmap_agg_2_mv")
+    advance_ivm_stream_offset("test_ivm_bitmap_agg_2_mv")
     order_qt_scalar_delete_fallback """
         SELECT bitmap_to_string(bu), buc
         FROM test_ivm_bitmap_agg_2_mv
@@ -179,6 +182,7 @@ suite("test_ivm_bitmap_agg_2") {
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_bitmap_agg_2_all_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("test_ivm_bitmap_agg_2_all_mv")
+    advance_ivm_stream_offset("test_ivm_bitmap_agg_2_all_mv")
     order_qt_scalar_delete_all_complete """
         SELECT bitmap_to_string(bu), buc
         FROM test_ivm_bitmap_agg_2_all_mv
