@@ -70,6 +70,14 @@ size_t FileCacheFactory::try_release(const std::string& base_path) {
     return 0;
 }
 
+Status FileCacheFactory::resize_async_write_workers(size_t worker_count) {
+    std::lock_guard lock(_mtx);
+    for (const auto& cache : _caches) {
+        RETURN_IF_ERROR(cache->async_write_service()->resize_workers(worker_count));
+    }
+    return Status::OK();
+}
+
 Status FileCacheFactory::create_file_cache(const std::string& cache_base_path,
                                            FileCacheSettings file_cache_settings) {
     if (file_cache_settings.storage == "memory") {
@@ -394,3 +402,22 @@ void FileCacheFactory::get_cache_stats_block(Block* block) {
 
 } // namespace io
 } // namespace doris
+
+namespace doris::config {
+
+DEFINE_ON_UPDATE(async_file_cache_write_workers_per_disk, [](int32_t old_value, int32_t new_value) {
+    if (old_value == new_value) {
+        return;
+    }
+    auto* factory = ExecEnv::GetInstance()->file_cache_factory();
+    if (factory == nullptr) {
+        return;
+    }
+    Status status = factory->resize_async_write_workers(static_cast<size_t>(new_value));
+    if (!status.ok()) {
+        LOG(WARNING) << "Failed to resize async file cache write workers from " << old_value
+                     << " to " << new_value << ": " << status.to_string();
+    }
+});
+
+} // namespace doris::config

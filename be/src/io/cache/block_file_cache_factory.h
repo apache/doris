@@ -95,6 +95,9 @@ public:
 
     std::vector<std::string> get_base_paths();
 
+    /// Apply a positive per-disk async-write worker count to every initialized cache instance.
+    Status resize_async_write_workers(size_t worker_count);
+
     /**
      * Clears data of all file cache instances
      *

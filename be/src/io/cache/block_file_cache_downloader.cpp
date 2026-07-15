@@ -328,6 +328,8 @@ void FileCacheBlockDownloader::download_segment_file(const DownloadFileMeta& met
     size_t task_num = (download_size + one_single_task_size - 1) / one_single_task_size;
 
     std::unique_ptr<char[]> buffer(new char[one_single_task_size]);
+    IOContext download_ctx = meta.ctx;
+    download_ctx.cache_write_mode_override = CacheWriteMode::SYNC_WRITE;
 
     DBUG_EXECUTE_IF("FileCacheBlockDownloader::download_segment_file_sleep", {
         if (meta.ctx.is_warmup) {
@@ -352,7 +354,7 @@ void FileCacheBlockDownloader::download_segment_file(const DownloadFileMeta& met
         //  1. Directly append buffer data to file cache
         //  2. Provide `FileReader::async_read()` interface
         DCHECK(meta.ctx.is_dryrun == config::enable_reader_dryrun_when_download_file_cache);
-        st = file_reader->read_at(offset, {buffer.get(), size}, &bytes_read, &meta.ctx);
+        st = file_reader->read_at(offset, {buffer.get(), size}, &bytes_read, &download_ctx);
         if (!st.ok()) {
             LOG(WARNING) << "failed to download file path=" << meta.path << ", st=" << st;
             if (meta.download_done) {

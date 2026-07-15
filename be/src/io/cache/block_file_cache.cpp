@@ -548,6 +548,12 @@ Status BlockFileCache::initialize_unlocked(std::lock_guard<std::mutex>& cache_lo
     }
     RETURN_IF_ERROR(_storage->init(this));
 
+    _inflight_write_buffer_index = std::make_unique<InflightWriteBufferIndex>(
+            static_cast<size_t>(config::inflight_write_buffer_index_shard_count), _cache_base_path);
+    _async_write_service = std::make_unique<AsyncCacheWriteService>(
+            this, AsyncCacheWriteServiceOptions::from_config());
+    RETURN_IF_ERROR(_async_write_service->start());
+
     if (auto* fs_storage = dynamic_cast<FSFileCacheStorage*>(_storage.get())) {
         if (auto* meta_store = fs_storage->get_meta_store()) {
             _ttl_mgr = std::make_unique<BlockFileCacheTtlMgr>(this, meta_store);
@@ -822,6 +828,118 @@ Status BlockFileCache::get_downloaded_blocks_if_fully_covered(const UInt128Wrapp
     return Status::OK();
 }
 
+FileBlocksProbeResult BlockFileCache::probe(const UInt128Wrapper& hash, size_t offset, size_t size,
+                                            const CacheContext& context) {
+    DORIS_CHECK(size > 0);
+    const FileBlock::Range range(offset, offset + size - 1);
+    FileBlocks blocks;
+    std::vector<FileBlock::Range> gaps;
+    std::lock_guard cache_lock(_mutex);
+
+    auto file_iterator = _files.find(hash);
+    if (file_iterator == _files.end() && !_async_open_done) {
+        FileCacheKey key;
+        key.hash = hash;
+        key.meta.type = context.cache_type;
+        key.meta.expiration_time = context.expiration_time;
+        key.meta.tablet_id = context.tablet_id;
+        _storage->load_blocks_directly_unlocked(this, key, cache_lock);
+        file_iterator = _files.find(hash);
+    }
+    if (file_iterator == _files.end()) {
+        gaps.emplace_back(range);
+        return FileBlocksProbeResult(std::move(blocks), std::move(gaps));
+    }
+
+    auto& file_blocks = file_iterator->second;
+    DORIS_CHECK(!file_blocks.empty());
+    auto block_iterator = file_blocks.lower_bound(range.left);
+    if (block_iterator != file_blocks.begin()) {
+        auto previous = std::prev(block_iterator);
+        if (previous->second.file_block->range().right >= range.left) {
+            block_iterator = previous;
+        }
+    }
+
+    size_t current = range.left;
+    for (; block_iterator != file_blocks.end(); ++block_iterator) {
+        const auto& block = block_iterator->second.file_block;
+        const auto& block_range = block->range();
+        if (block_range.left > range.right) {
+            break;
+        }
+        if (block_range.right < range.left) {
+            continue;
+        }
+        const size_t clipped_left = std::max(block_range.left, range.left);
+        const size_t clipped_right = std::min(block_range.right, range.right);
+        if (current < clipped_left) {
+            gaps.emplace_back(current, clipped_left - 1);
+        }
+        blocks.emplace_back(block);
+        current = clipped_right + 1;
+        if (current > range.right) {
+            break;
+        }
+    }
+    if (current <= range.right) {
+        gaps.emplace_back(current, range.right);
+    }
+    return FileBlocksProbeResult(std::move(blocks), std::move(gaps));
+}
+
+void BlockFileCache::touch_probe_block_if_cached(const FileBlockSPtr& block,
+                                                 const CacheContext& context) {
+    DORIS_CHECK(block != nullptr);
+    FileBlockSPtr async_touch;
+    {
+        std::lock_guard cache_lock(_mutex);
+        auto file_iterator = _files.find(block->get_hash_value());
+        if (file_iterator == _files.end()) {
+            return;
+        }
+        auto cell_iterator = file_iterator->second.find(block->offset());
+        if (cell_iterator == file_iterator->second.end() ||
+            cell_iterator->second.file_block != block) {
+            return;
+        }
+        {
+            std::lock_guard block_lock(block->_mutex);
+            if (block->_is_deleting) {
+                return;
+            }
+        }
+        auto& cell = cell_iterator->second;
+        const bool move_iter = need_to_move(block->cache_type(), context.cache_type);
+        if (config::enable_file_cache_async_touch_on_get_or_set) {
+            cell.update_atime();
+            if (move_iter) {
+                async_touch = block;
+            }
+        } else {
+            use_cell(cell, nullptr, move_iter, cache_lock);
+        }
+    }
+    if (async_touch) {
+        add_need_update_lru_block(std::move(async_touch));
+    }
+}
+
+bool BlockFileCache::is_block_deleting(const FileBlockSPtr& block) const {
+    DORIS_CHECK(block != nullptr);
+    std::lock_guard cache_lock(_mutex);
+    auto file_iterator = _files.find(block->get_hash_value());
+    if (file_iterator == _files.end()) {
+        return true;
+    }
+    auto cell_iterator = file_iterator->second.find(block->offset());
+    if (cell_iterator == file_iterator->second.end() || cell_iterator->second.file_block != block) {
+        return true;
+    }
+    std::lock_guard block_lock(block->_mutex);
+    return block->_is_deleting;
+}
+
 std::string BlockFileCache::clear_file_cache_async() {
     return clear_file_cache_impl(false);
 }
@@ -831,6 +949,8 @@ std::string BlockFileCache::clear_file_cache_sync() {
 }
 
 std::string BlockFileCache::clear_file_cache_impl(bool sync_remove) {
+    DORIS_CHECK(_async_write_service != nullptr);
+    _async_write_service->invalidate_pending_writes();
     const char* action = sync_remove ? "clear_file_cache_sync" : "clear_file_cache_async";
     LOG(INFO) << "start " << action << ", path=" << _cache_base_path;
     _lru_dumper->remove_lru_dump_files();
@@ -1370,6 +1490,8 @@ void BlockFileCache::try_evict_in_advance(size_t size, std::lock_guard<std::mute
 // remove specific cache synchronously, for critical operations
 // if in use, cache meta will be deleted after use and the block file is then deleted asynchronously
 void BlockFileCache::remove_if_cached(const UInt128Wrapper& file_key) {
+    DORIS_CHECK(_async_write_service != nullptr);
+    _async_write_service->invalidate_pending_writes();
     std::string reason = "remove_if_cached";
     SCOPED_CACHE_LOCK(_mutex, this);
     auto iter = _files.find(file_key);
@@ -1390,6 +1512,8 @@ void BlockFileCache::remove_if_cached(const UInt128Wrapper& file_key) {
 // cache meta is deleted synchronously if not in use, and the block file is deleted asynchronously
 // if in use, cache meta will be deleted after use and the block file is then deleted asynchronously
 void BlockFileCache::remove_if_cached_async(const UInt128Wrapper& file_key) {
+    DORIS_CHECK(_async_write_service != nullptr);
+    _async_write_service->invalidate_pending_writes();
     std::string reason = "remove_if_cached_async";
     SCOPED_CACHE_LOCK(_mutex, this);
 
