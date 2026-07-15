@@ -8255,8 +8255,7 @@ TEST(RecyclerTest, concurrent_recycle_txn_label_failure_test) {
     size_t recycle_txn_info_keys_cnt = 0;
     sp->set_call_back("InstanceRecycler::recycle_expired_txn_label.check_recycle_txn_info_keys",
                       [&](auto&& args) {
-                          auto* recycle_txn_info_keys =
-                                  try_any_cast<std::vector<std::string>*>(args[0]);
+                          auto* recycle_txn_info_keys = try_any_cast<std::vector<KVPair>*>(args[0]);
                           recycle_txn_info_keys_cnt += recycle_txn_info_keys->size();
                       });
     sp->set_call_back("InstanceRecycler::recycle_expired_txn_label.failure", [](auto&& args) {

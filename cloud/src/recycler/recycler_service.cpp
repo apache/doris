@@ -220,13 +220,13 @@ void RecyclerServiceImpl::statistics_recycle(StatisticsRecycleRequest& req, Meta
         ss << "----------------------------------------\n";
 
         // tablet and segment statistics
-        int64_t tablet_num = g_bvar_recycler_instance_last_round_to_recycle_num.get(
+        int64_t tablet_num = g_bvar_recycler_instance_current_round_to_recycle_num.get(
                 {"global_recycler", "recycle_tablet"});
-        int64_t tablet_bytes = g_bvar_recycler_instance_last_round_to_recycle_num.get(
+        int64_t tablet_bytes = g_bvar_recycler_instance_current_round_to_recycle_bytes.get(
                 {"global_recycler", "recycle_tablet"});
-        int64_t segment_num = g_bvar_recycler_instance_last_round_to_recycle_num.get(
+        int64_t segment_num = g_bvar_recycler_instance_current_round_to_recycle_num.get(
                 {"global_recycler", "recycle_segment"});
-        int64_t segment_bytes = g_bvar_recycler_instance_last_round_to_recycle_num.get(
+        int64_t segment_bytes = g_bvar_recycler_instance_current_round_to_recycle_bytes.get(
                 {"global_recycler", "recycle_segment"});
         // clang-format off
         ss << "Global recycler: " << "tablet and segment" << "\n";
@@ -238,11 +238,26 @@ void RecyclerServiceImpl::statistics_recycle(StatisticsRecycleRequest& req, Meta
 
         std::ranges::for_each(resource_types, [&](const auto& resource_type) {
             int64_t to_recycle_num =
-                    g_bvar_recycler_instance_last_round_to_recycle_num.get({id, resource_type});
-            int64_t to_recycle_bytes =
-                    g_bvar_recycler_instance_last_round_to_recycle_bytes.get({id, resource_type});
+                    g_bvar_recycler_instance_current_round_to_recycle_num.get({id, resource_type});
+            int64_t to_recycle_bytes = g_bvar_recycler_instance_current_round_to_recycle_bytes.get(
+                    {id, resource_type});
+            int64_t to_recycle_kv_num =
+                    g_bvar_recycler_instance_current_round_to_recycle_kv_num.get(
+                            {id, resource_type});
+            int64_t to_recycle_kv_bytes =
+                    g_bvar_recycler_instance_current_round_to_recycle_kv_bytes.get(
+                            {id, resource_type});
+            int64_t recycled_kv_num =
+                    g_bvar_recycler_instance_current_round_recycled_kv_num.get({id, resource_type});
+            int64_t recycled_kv_bytes =
+                    g_bvar_recycler_instance_current_round_recycled_kv_bytes.get(
+                            {id, resource_type});
 
             ss << "Task Type: " << resource_type << "\n";
+            ss << "  • Need to recycle KV count: " << to_recycle_kv_num << " items\n";
+            ss << "  • Need to recycle KV size: " << to_recycle_kv_bytes << " bytes\n";
+            ss << "  • Recycled KV count: " << recycled_kv_num << " items\n";
+            ss << "  • Recycled KV size: " << recycled_kv_bytes << " bytes\n";
 
             // Add specific counts for different resource types
             if (resource_type == "recycle_partitions") {

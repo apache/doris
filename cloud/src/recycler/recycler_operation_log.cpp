@@ -731,7 +731,7 @@ int InstanceRecycler::recycle_operation_logs() {
     size_t recycled_operation_log_data_size = 0;
 
     DORIS_CLOUD_DEFER {
-        metrics_context.finish_report();
+        metrics_context.report_elapsed_time();
         report_oplog_recycle_stats(instance_id_, oplog_stats);
 
         int64_t cost = stop_watch.elapsed_us() / 1000'000;
@@ -797,7 +797,6 @@ int InstanceRecycler::recycle_operation_logs() {
         operation_log_data_size += value_size;
         max_operation_log_data_size = std::max(max_operation_log_data_size, value_size);
         oplog_stats.total_num.fetch_add(1, std::memory_order_relaxed);
-        metrics_context.report();
         return 0;
     };
 
