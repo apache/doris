@@ -72,12 +72,13 @@ add_definitions(-DGLOG_CUSTOM_PREFIX_SUPPORT)
 # Options
 option(GLIBC_COMPATIBILITY "Enable compatibility with older glibc libraries." ON)
 option(USE_LIBCPP "Use libc++" OFF)
-option(USE_UNWIND "Use libunwind" ON)
 option(USE_JEMALLOC "Use jemalloc" ON)
 if (OS_MACOSX)
     set(GLIBC_COMPATIBILITY OFF)
     set(USE_LIBCPP ON)
     set(USE_UNWIND OFF)
+else()
+    set(USE_UNWIND ON)
 endif()
 
 if (DISPLAY_BUILD_TIME)
@@ -413,7 +414,7 @@ if (USE_JEMALLOC)
     add_definitions(-DUSE_JEMALLOC)
 endif()
 
-# Compile with libunwind
+# libunwind symbolization uses DWARF aranges for fast address-to-line lookup.
 if (USE_UNWIND)
     add_definitions(-DUSE_UNWIND)
     if (COMPILER_CLANG)
