@@ -163,6 +163,10 @@ public:
     // Stop all threads and delete resources.
     void destroy();
 
+    // StreamLoadRecorderManager sends records through the BE HTTP service, so it must stop before
+    // the HTTP service is shut down.
+    void stop_stream_load_recorder_manager();
+
     /// Returns the first created exec env instance. In a normal doris, this is
     /// the only instance. In test setups with multiple ExecEnv's per process,
     /// we return the most recently created instance.

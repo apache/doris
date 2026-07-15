@@ -724,6 +724,10 @@ int main(int argc, char** argv) {
         _exit(0); // Do not call exit(0), it will wait for all objects de-constructed normally
         return 0;
     }
+    // StreamLoadRecorderManager may be sending audit records through the local HTTP service.
+    // Stop it before shutting down HTTP so its worker cannot wait for an unavailable endpoint.
+    exec_env->stop_stream_load_recorder_manager();
+    LOG(INFO) << "Stream load recorder manager stopped";
     daemon.stop();
     flight_starter->stop();
     flight_starter->join();

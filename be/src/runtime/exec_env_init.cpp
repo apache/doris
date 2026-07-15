@@ -852,6 +852,10 @@ void ExecEnv::clear_wal_mgr() {
 #endif
 // TODO(zhiqiang): Need refactor all thread pool. Each thread pool must have a Stop method.
 // We need to stop all threads before releasing resource.
+void ExecEnv::stop_stream_load_recorder_manager() {
+    SAFE_STOP(_stream_load_recorder_manager);
+}
+
 void ExecEnv::destroy() {
     //Only destroy once after init
     if (!ready()) {
@@ -869,7 +873,7 @@ void ExecEnv::destroy() {
     SAFE_STOP(_group_commit_mgr);
     // _routine_load_task_executor should be stopped before _new_load_stream_mgr.
     SAFE_STOP(_routine_load_task_executor);
-    SAFE_STOP(_stream_load_recorder_manager);
+    stop_stream_load_recorder_manager();
     // stop workload scheduler
     SAFE_STOP(_workload_sched_mgr);
     // Stop workload group execution threads before FragmentMgr. Running pipeline tasks can still
