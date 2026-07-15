@@ -110,6 +110,13 @@ static size_t _doc_value_entry_count(const ColumnVariant& variant) {
     return offsets.empty() ? 0 : offsets.back();
 }
 
+static std::string _serialize_variant_row(const ColumnVariant& variant, size_t row) {
+    DataTypeSerDe::FormatOptions options;
+    std::string value;
+    variant.serialize_one_row_to_string(row, &value, options);
+    return value;
+}
+
 class ScopedDuplicateJsonPathCheck {
 public:
     explicit ScopedDuplicateJsonPathCheck(bool value)
@@ -135,6 +142,41 @@ public:
 private:
     int32_t _old_value;
 };
+
+TEST(VariantUtilTest, NumericConflictResolvedAsJsonbPreservesOriginalNumberText) {
+    // Values distributed to different tablets can reach the reader as a JSONB conflict. JSONB
+    // preserves the original number text instead of formatting the value through DOUBLE.
+    auto variant = ColumnVariant::create(0, false);
+    auto json_col = _make_json_column({R"({"b":1111111111111111})", R"({"b":1.222222})"});
+
+    ParseConfig cfg;
+    cfg.deprecated_enable_flatten_nested = false;
+    cfg.parse_to = ParseConfig::ParseTo::OnlySubcolumns;
+    parse_json_to_variant(*variant, *json_col, cfg);
+
+    const auto* sub_b = variant->get_subcolumn(PathInData("b"));
+    ASSERT_NE(sub_b, nullptr);
+    EXPECT_EQ(sub_b->get_least_common_base_type_id(), PrimitiveType::TYPE_JSONB);
+    EXPECT_EQ(_serialize_variant_row(*variant, 0), R"({"b":1111111111111111})");
+    EXPECT_EQ(_serialize_variant_row(*variant, 1), R"({"b":1.222222})");
+}
+
+TEST(VariantUtilTest, DoubleSubcolumnUsesRoundTripNumberText) {
+    // When one tablet resolves the extracted path as DOUBLE, serialization must use enough digits
+    // to round-trip the binary value.
+    auto variant = ColumnVariant::create(0, false);
+    auto json_col = _make_json_column({R"({"b":1.222222})"});
+
+    ParseConfig cfg;
+    cfg.deprecated_enable_flatten_nested = false;
+    cfg.parse_to = ParseConfig::ParseTo::OnlySubcolumns;
+    parse_json_to_variant(*variant, *json_col, cfg);
+
+    const auto* sub_b = variant->get_subcolumn(PathInData("b"));
+    ASSERT_NE(sub_b, nullptr);
+    EXPECT_EQ(sub_b->get_least_common_base_type_id(), PrimitiveType::TYPE_DOUBLE);
+    EXPECT_EQ(_serialize_variant_row(*variant, 0), R"({"b":1.2222219999999999})");
+}
 
 TEST(VariantUtilTest, ParseDocValueToSubcolumns_FillsDefaultsAndValues) {
     const std::vector<std::string_view> jsons = {

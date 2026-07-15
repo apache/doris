@@ -40,7 +40,7 @@ TEST_F(NumbersTest, test_float_to_buffer) {
 
     float v3 = 20001230;
     len2 = CastToString::_fast_to_buffer(v3, buffer2);
-    EXPECT_EQ(std::string("2.000123e+07"), std::string(buffer2, len2));
+    EXPECT_EQ(std::string("20001230"), std::string(buffer2, len2));
 
     float v4 = static_cast<float>(200012303131);
     len2 = CastToString::_fast_to_buffer(v4, buffer2);
@@ -48,19 +48,19 @@ TEST_F(NumbersTest, test_float_to_buffer) {
 
     float v5 = -3167.3131;
     len2 = CastToString::_fast_to_buffer(v5, buffer2);
-    EXPECT_EQ(std::string("-3167.313"), std::string(buffer2, len2));
+    EXPECT_EQ(std::string("-3167.31299"), std::string(buffer2, len2));
 
     float v6 = std::numeric_limits<float>::max();
     len2 = CastToString::_fast_to_buffer(v6, buffer2);
-    EXPECT_EQ(std::string("3.402823e+38"), std::string(buffer2, len2));
+    EXPECT_EQ(std::string("3.40282347e+38"), std::string(buffer2, len2));
 
     float v7 = std::numeric_limits<float>::min();
     len2 = CastToString::_fast_to_buffer(v7, buffer2);
-    EXPECT_EQ(std::string("1.175494e-38"), std::string(buffer2, len2));
+    EXPECT_EQ(std::string("1.17549435e-38"), std::string(buffer2, len2));
 
     float v8 = 0 - std::numeric_limits<float>::max();
     len2 = CastToString::_fast_to_buffer(v8, buffer2);
-    EXPECT_EQ(std::string("-3.402823e+38"), std::string(buffer2, len2));
+    EXPECT_EQ(std::string("-3.40282347e+38"), std::string(buffer2, len2));
 }
 
 TEST_F(NumbersTest, test_double_to_buffer) {
@@ -83,19 +83,19 @@ TEST_F(NumbersTest, test_double_to_buffer) {
 
     double v5 = -3167.3131;
     len2 = CastToString::_fast_to_buffer(v5, buffer2);
-    EXPECT_EQ(std::string("-3167.3131"), std::string(buffer2, len2));
+    EXPECT_EQ(std::string("-3167.3130999999998"), std::string(buffer2, len2));
 
     double v6 = std::numeric_limits<double>::max();
     len2 = CastToString::_fast_to_buffer(v6, buffer2);
-    EXPECT_EQ(std::string("1.797693134862316e+308"), std::string(buffer2, len2));
+    EXPECT_EQ(std::string("1.7976931348623157e+308"), std::string(buffer2, len2));
 
     double v7 = std::numeric_limits<double>::min();
     len2 = CastToString::_fast_to_buffer(v7, buffer2);
-    EXPECT_EQ(std::string("2.225073858507201e-308"), std::string(buffer2, len2));
+    EXPECT_EQ(std::string("2.2250738585072014e-308"), std::string(buffer2, len2));
 
     double v8 = 0 - std::numeric_limits<double>::max();
     len2 = CastToString::_fast_to_buffer(v8, buffer2);
-    EXPECT_EQ(std::string("-1.797693134862316e+308"), std::string(buffer2, len2));
+    EXPECT_EQ(std::string("-1.7976931348623157e+308"), std::string(buffer2, len2));
 }
 
 /*

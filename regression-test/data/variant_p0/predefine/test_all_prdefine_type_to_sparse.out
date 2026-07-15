@@ -3,7 +3,7 @@
 {"array_bigint_1":"bigint","array_boolean_1":"bool","array_char_1":"string","array_date_1":"datev2","array_datetime_1":"datetimev2","array_decimal128_1":"decimal128i","array_decimal256_1":"decimal256","array_decimal32_1":"decimal32","array_decimal64_1":"decimal64","array_double_1":"double","array_float_1":"float","array_int_1":"int","array_ipv4_1":"ipv4","array_ipv6_1":"ipv6","array_largeint_1":"largeint","array_smallint_1":"smallint","array_string_1":"string","array_tinyint_1":"tinyint","bigint_1":"bigint","boolean_1":"bool","char_1":"string","date_1":"datev2","datetime_1":"datetimev2","decimal128_1":"decimal128i","decimal256_1":"decimal256","decimal32_1":"decimal32","decimal64_1":"decimal64","double_1":"double","float_1":"float","int_1":"int","ipv4_1":"ipv4","ipv6_1":"ipv6","largeint_1":"largeint","other_1":"string","smallint_1":"smallint","string_1":"string","tinyint_1":"tinyint"}
 
 -- !sql --
-{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
+{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.1200000000000001],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.1200000000000001,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
 {"other_1":"1"}
 
 -- !sql_compaction_before --
@@ -18,7 +18,7 @@ var	variant<'boolean_*':boolean,'tinyint_*':tinyint,'smallint_*':smallint,'int_*
 var.tinyint_1	tinyint	Yes	false	\N	NONE
 
 -- !sql --
-{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
+{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.1200000000000001],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.1200000000000001,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
 {"other_1":"1"}
 {"tinyint_1":1}
 {"tinyint_1":2}
@@ -35,7 +35,7 @@ var	variant<'boolean_*':boolean,'tinyint_*':tinyint,'smallint_*':smallint,'int_*
 var.smallint_1	smallint	Yes	false	\N	NONE
 
 -- !sql --
-{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
+{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.1200000000000001],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.1200000000000001,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
 {"other_1":"1"}
 {"tinyint_1":1}
 {"tinyint_1":2}
@@ -55,7 +55,7 @@ var	variant<'boolean_*':boolean,'tinyint_*':tinyint,'smallint_*':smallint,'int_*
 var.int_1	int	Yes	false	\N	NONE
 
 -- !sql --
-{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
+{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.1200000000000001],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.1200000000000001,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
 {"other_1":"1"}
 {"tinyint_1":1}
 {"tinyint_1":2}
@@ -79,7 +79,7 @@ var	variant<'boolean_*':boolean,'tinyint_*':tinyint,'smallint_*':smallint,'int_*
 var.bigint_1	bigint	Yes	false	\N	NONE
 
 -- !sql --
-{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
+{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.1200000000000001],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.1200000000000001,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
 {"other_1":"1"}
 {"tinyint_1":1}
 {"tinyint_1":2}
@@ -108,7 +108,7 @@ var	variant<'boolean_*':boolean,'tinyint_*':tinyint,'smallint_*':smallint,'int_*
 var.largeint_1	largeint	Yes	false	\N	NONE
 
 -- !sql --
-{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
+{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.1200000000000001],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.1200000000000001,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
 {"other_1":"1"}
 {"tinyint_1":1}
 {"tinyint_1":2}
@@ -143,7 +143,7 @@ var	variant<'boolean_*':boolean,'tinyint_*':tinyint,'smallint_*':smallint,'int_*
 var.char_1	text	Yes	false	\N	NONE
 
 -- !sql --
-{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
+{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.1200000000000001],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.1200000000000001,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
 {"other_1":"1"}
 {"tinyint_1":1}
 {"tinyint_1":2}
@@ -185,7 +185,7 @@ var	variant<'boolean_*':boolean,'tinyint_*':tinyint,'smallint_*':smallint,'int_*
 var.string_1	text	Yes	false	\N	NONE
 
 -- !sql --
-{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
+{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.1200000000000001],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.1200000000000001,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
 {"other_1":"1"}
 {"tinyint_1":1}
 {"tinyint_1":2}
@@ -235,7 +235,7 @@ var	variant<'boolean_*':boolean,'tinyint_*':tinyint,'smallint_*':smallint,'int_*
 var.string_1	text	Yes	false	\N	NONE
 
 -- !sql --
-{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
+{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.1200000000000001],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.1200000000000001,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
 {"other_1":"1"}
 {"tinyint_1":1}
 {"tinyint_1":2}
@@ -273,13 +273,13 @@ var.string_1	text	Yes	false	\N	NONE
 {"string_1":"7"}
 {"string_1":"8"}
 {"float_1":1.12}
-{"float_1":2.12}
-{"float_1":3.12}
-{"float_1":4.12}
-{"float_1":5.12}
-{"float_1":6.12}
-{"float_1":7.12}
-{"float_1":8.12}
+{"float_1":2.11999989}
+{"float_1":3.11999989}
+{"float_1":4.11999989}
+{"float_1":5.11999989}
+{"float_1":6.11999989}
+{"float_1":7.11999989}
+{"float_1":8.11999989}
 
 -- !sql_compaction_before --
 id	bigint	No	true	\N	
@@ -293,7 +293,7 @@ var	variant<'boolean_*':boolean,'tinyint_*':tinyint,'smallint_*':smallint,'int_*
 var.double_1	double	Yes	false	\N	NONE
 
 -- !sql --
-{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
+{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.1200000000000001],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.1200000000000001,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
 {"other_1":"1"}
 {"tinyint_1":1}
 {"tinyint_1":2}
@@ -331,22 +331,22 @@ var.double_1	double	Yes	false	\N	NONE
 {"string_1":"7"}
 {"string_1":"8"}
 {"float_1":1.12}
-{"float_1":2.12}
-{"float_1":3.12}
-{"float_1":4.12}
-{"float_1":5.12}
-{"float_1":6.12}
-{"float_1":7.12}
-{"float_1":8.12}
-{"double_1":1.12}
-{"double_1":2.12}
-{"double_1":3.12}
-{"double_1":4.12}
-{"double_1":5.12}
-{"double_1":6.12}
-{"double_1":7.12}
-{"double_1":8.119999999999999}
-{"double_1":9.119999999999999}
+{"float_1":2.11999989}
+{"float_1":3.11999989}
+{"float_1":4.11999989}
+{"float_1":5.11999989}
+{"float_1":6.11999989}
+{"float_1":7.11999989}
+{"float_1":8.11999989}
+{"double_1":1.1200000000000001}
+{"double_1":2.1200000000000001}
+{"double_1":3.1200000000000001}
+{"double_1":4.1200000000000001}
+{"double_1":5.1200000000000001}
+{"double_1":6.1200000000000001}
+{"double_1":7.1200000000000001}
+{"double_1":8.1199999999999992}
+{"double_1":9.1199999999999992}
 
 -- !sql_compaction_before --
 id	bigint	No	true	\N	
@@ -360,7 +360,7 @@ var	variant<'boolean_*':boolean,'tinyint_*':tinyint,'smallint_*':smallint,'int_*
 var.decimal32_1	decimal(8,2)	Yes	false	\N	NONE
 
 -- !sql --
-{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
+{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.1200000000000001],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.1200000000000001,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
 {"other_1":"1"}
 {"tinyint_1":1}
 {"tinyint_1":2}
@@ -398,22 +398,22 @@ var.decimal32_1	decimal(8,2)	Yes	false	\N	NONE
 {"string_1":"7"}
 {"string_1":"8"}
 {"float_1":1.12}
-{"float_1":2.12}
-{"float_1":3.12}
-{"float_1":4.12}
-{"float_1":5.12}
-{"float_1":6.12}
-{"float_1":7.12}
-{"float_1":8.12}
-{"double_1":1.12}
-{"double_1":2.12}
-{"double_1":3.12}
-{"double_1":4.12}
-{"double_1":5.12}
-{"double_1":6.12}
-{"double_1":7.12}
-{"double_1":8.119999999999999}
-{"double_1":9.119999999999999}
+{"float_1":2.11999989}
+{"float_1":3.11999989}
+{"float_1":4.11999989}
+{"float_1":5.11999989}
+{"float_1":6.11999989}
+{"float_1":7.11999989}
+{"float_1":8.11999989}
+{"double_1":1.1200000000000001}
+{"double_1":2.1200000000000001}
+{"double_1":3.1200000000000001}
+{"double_1":4.1200000000000001}
+{"double_1":5.1200000000000001}
+{"double_1":6.1200000000000001}
+{"double_1":7.1200000000000001}
+{"double_1":8.1199999999999992}
+{"double_1":9.1199999999999992}
 {"decimal32_1":1.12}
 {"decimal32_1":2.12}
 {"decimal32_1":3.12}
@@ -437,7 +437,7 @@ var	variant<'boolean_*':boolean,'tinyint_*':tinyint,'smallint_*':smallint,'int_*
 var.decimal64_1	decimal(16,9)	Yes	false	\N	NONE
 
 -- !sql --
-{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
+{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.1200000000000001],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.1200000000000001,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
 {"other_1":"1"}
 {"tinyint_1":1}
 {"tinyint_1":2}
@@ -475,22 +475,22 @@ var.decimal64_1	decimal(16,9)	Yes	false	\N	NONE
 {"string_1":"7"}
 {"string_1":"8"}
 {"float_1":1.12}
-{"float_1":2.12}
-{"float_1":3.12}
-{"float_1":4.12}
-{"float_1":5.12}
-{"float_1":6.12}
-{"float_1":7.12}
-{"float_1":8.12}
-{"double_1":1.12}
-{"double_1":2.12}
-{"double_1":3.12}
-{"double_1":4.12}
-{"double_1":5.12}
-{"double_1":6.12}
-{"double_1":7.12}
-{"double_1":8.119999999999999}
-{"double_1":9.119999999999999}
+{"float_1":2.11999989}
+{"float_1":3.11999989}
+{"float_1":4.11999989}
+{"float_1":5.11999989}
+{"float_1":6.11999989}
+{"float_1":7.11999989}
+{"float_1":8.11999989}
+{"double_1":1.1200000000000001}
+{"double_1":2.1200000000000001}
+{"double_1":3.1200000000000001}
+{"double_1":4.1200000000000001}
+{"double_1":5.1200000000000001}
+{"double_1":6.1200000000000001}
+{"double_1":7.1200000000000001}
+{"double_1":8.1199999999999992}
+{"double_1":9.1199999999999992}
 {"decimal32_1":1.12}
 {"decimal32_1":2.12}
 {"decimal32_1":3.12}
@@ -525,7 +525,7 @@ var	variant<'boolean_*':boolean,'tinyint_*':tinyint,'smallint_*':smallint,'int_*
 var.decimal128_1	decimal(36,9)	Yes	false	\N	NONE
 
 -- !sql --
-{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
+{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.1200000000000001],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.1200000000000001,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
 {"other_1":"1"}
 {"tinyint_1":1}
 {"tinyint_1":2}
@@ -563,22 +563,22 @@ var.decimal128_1	decimal(36,9)	Yes	false	\N	NONE
 {"string_1":"7"}
 {"string_1":"8"}
 {"float_1":1.12}
-{"float_1":2.12}
-{"float_1":3.12}
-{"float_1":4.12}
-{"float_1":5.12}
-{"float_1":6.12}
-{"float_1":7.12}
-{"float_1":8.12}
-{"double_1":1.12}
-{"double_1":2.12}
-{"double_1":3.12}
-{"double_1":4.12}
-{"double_1":5.12}
-{"double_1":6.12}
-{"double_1":7.12}
-{"double_1":8.119999999999999}
-{"double_1":9.119999999999999}
+{"float_1":2.11999989}
+{"float_1":3.11999989}
+{"float_1":4.11999989}
+{"float_1":5.11999989}
+{"float_1":6.11999989}
+{"float_1":7.11999989}
+{"float_1":8.11999989}
+{"double_1":1.1200000000000001}
+{"double_1":2.1200000000000001}
+{"double_1":3.1200000000000001}
+{"double_1":4.1200000000000001}
+{"double_1":5.1200000000000001}
+{"double_1":6.1200000000000001}
+{"double_1":7.1200000000000001}
+{"double_1":8.1199999999999992}
+{"double_1":9.1199999999999992}
 {"decimal32_1":1.12}
 {"decimal32_1":2.12}
 {"decimal32_1":3.12}
@@ -625,7 +625,7 @@ var	variant<'boolean_*':boolean,'tinyint_*':tinyint,'smallint_*':smallint,'int_*
 var.decimal256_1	unknown type: UNSUPPORTED_TYPE	Yes	false	\N	NONE
 
 -- !sql --
-{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
+{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.1200000000000001],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.1200000000000001,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
 {"other_1":"1"}
 {"tinyint_1":1}
 {"tinyint_1":2}
@@ -663,22 +663,22 @@ var.decimal256_1	unknown type: UNSUPPORTED_TYPE	Yes	false	\N	NONE
 {"string_1":"7"}
 {"string_1":"8"}
 {"float_1":1.12}
-{"float_1":2.12}
-{"float_1":3.12}
-{"float_1":4.12}
-{"float_1":5.12}
-{"float_1":6.12}
-{"float_1":7.12}
-{"float_1":8.12}
-{"double_1":1.12}
-{"double_1":2.12}
-{"double_1":3.12}
-{"double_1":4.12}
-{"double_1":5.12}
-{"double_1":6.12}
-{"double_1":7.12}
-{"double_1":8.119999999999999}
-{"double_1":9.119999999999999}
+{"float_1":2.11999989}
+{"float_1":3.11999989}
+{"float_1":4.11999989}
+{"float_1":5.11999989}
+{"float_1":6.11999989}
+{"float_1":7.11999989}
+{"float_1":8.11999989}
+{"double_1":1.1200000000000001}
+{"double_1":2.1200000000000001}
+{"double_1":3.1200000000000001}
+{"double_1":4.1200000000000001}
+{"double_1":5.1200000000000001}
+{"double_1":6.1200000000000001}
+{"double_1":7.1200000000000001}
+{"double_1":8.1199999999999992}
+{"double_1":9.1199999999999992}
 {"decimal32_1":1.12}
 {"decimal32_1":2.12}
 {"decimal32_1":3.12}
@@ -738,7 +738,7 @@ var	variant<'boolean_*':boolean,'tinyint_*':tinyint,'smallint_*':smallint,'int_*
 var.decimal256_1	unknown type: UNSUPPORTED_TYPE	Yes	false	\N	NONE
 
 -- !sql --
-{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
+{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.1200000000000001],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.1200000000000001,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
 {"other_1":"1"}
 {"tinyint_1":1}
 {"tinyint_1":2}
@@ -776,22 +776,22 @@ var.decimal256_1	unknown type: UNSUPPORTED_TYPE	Yes	false	\N	NONE
 {"string_1":"7"}
 {"string_1":"8"}
 {"float_1":1.12}
-{"float_1":2.12}
-{"float_1":3.12}
-{"float_1":4.12}
-{"float_1":5.12}
-{"float_1":6.12}
-{"float_1":7.12}
-{"float_1":8.12}
-{"double_1":1.12}
-{"double_1":2.12}
-{"double_1":3.12}
-{"double_1":4.12}
-{"double_1":5.12}
-{"double_1":6.12}
-{"double_1":7.12}
-{"double_1":8.119999999999999}
-{"double_1":9.119999999999999}
+{"float_1":2.11999989}
+{"float_1":3.11999989}
+{"float_1":4.11999989}
+{"float_1":5.11999989}
+{"float_1":6.11999989}
+{"float_1":7.11999989}
+{"float_1":8.11999989}
+{"double_1":1.1200000000000001}
+{"double_1":2.1200000000000001}
+{"double_1":3.1200000000000001}
+{"double_1":4.1200000000000001}
+{"double_1":5.1200000000000001}
+{"double_1":6.1200000000000001}
+{"double_1":7.1200000000000001}
+{"double_1":8.1199999999999992}
+{"double_1":9.1199999999999992}
 {"decimal32_1":1.12}
 {"decimal32_1":2.12}
 {"decimal32_1":3.12}
@@ -864,7 +864,7 @@ var	variant<'boolean_*':boolean,'tinyint_*':tinyint,'smallint_*':smallint,'int_*
 var.date_1	date	Yes	false	\N	NONE
 
 -- !sql --
-{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
+{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.1200000000000001],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.1200000000000001,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
 {"other_1":"1"}
 {"tinyint_1":1}
 {"tinyint_1":2}
@@ -902,22 +902,22 @@ var.date_1	date	Yes	false	\N	NONE
 {"string_1":"7"}
 {"string_1":"8"}
 {"float_1":1.12}
-{"float_1":2.12}
-{"float_1":3.12}
-{"float_1":4.12}
-{"float_1":5.12}
-{"float_1":6.12}
-{"float_1":7.12}
-{"float_1":8.12}
-{"double_1":1.12}
-{"double_1":2.12}
-{"double_1":3.12}
-{"double_1":4.12}
-{"double_1":5.12}
-{"double_1":6.12}
-{"double_1":7.12}
-{"double_1":8.119999999999999}
-{"double_1":9.119999999999999}
+{"float_1":2.11999989}
+{"float_1":3.11999989}
+{"float_1":4.11999989}
+{"float_1":5.11999989}
+{"float_1":6.11999989}
+{"float_1":7.11999989}
+{"float_1":8.11999989}
+{"double_1":1.1200000000000001}
+{"double_1":2.1200000000000001}
+{"double_1":3.1200000000000001}
+{"double_1":4.1200000000000001}
+{"double_1":5.1200000000000001}
+{"double_1":6.1200000000000001}
+{"double_1":7.1200000000000001}
+{"double_1":8.1199999999999992}
+{"double_1":9.1199999999999992}
 {"decimal32_1":1.12}
 {"decimal32_1":2.12}
 {"decimal32_1":3.12}
@@ -1004,7 +1004,7 @@ var	variant<'boolean_*':boolean,'tinyint_*':tinyint,'smallint_*':smallint,'int_*
 var.ipv4_1	ipv4	Yes	false	\N	NONE
 
 -- !sql --
-{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
+{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.1200000000000001],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.1200000000000001,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
 {"other_1":"1"}
 {"tinyint_1":1}
 {"tinyint_1":2}
@@ -1042,22 +1042,22 @@ var.ipv4_1	ipv4	Yes	false	\N	NONE
 {"string_1":"7"}
 {"string_1":"8"}
 {"float_1":1.12}
-{"float_1":2.12}
-{"float_1":3.12}
-{"float_1":4.12}
-{"float_1":5.12}
-{"float_1":6.12}
-{"float_1":7.12}
-{"float_1":8.12}
-{"double_1":1.12}
-{"double_1":2.12}
-{"double_1":3.12}
-{"double_1":4.12}
-{"double_1":5.12}
-{"double_1":6.12}
-{"double_1":7.12}
-{"double_1":8.119999999999999}
-{"double_1":9.119999999999999}
+{"float_1":2.11999989}
+{"float_1":3.11999989}
+{"float_1":4.11999989}
+{"float_1":5.11999989}
+{"float_1":6.11999989}
+{"float_1":7.11999989}
+{"float_1":8.11999989}
+{"double_1":1.1200000000000001}
+{"double_1":2.1200000000000001}
+{"double_1":3.1200000000000001}
+{"double_1":4.1200000000000001}
+{"double_1":5.1200000000000001}
+{"double_1":6.1200000000000001}
+{"double_1":7.1200000000000001}
+{"double_1":8.1199999999999992}
+{"double_1":9.1199999999999992}
 {"decimal32_1":1.12}
 {"decimal32_1":2.12}
 {"decimal32_1":3.12}
@@ -1159,7 +1159,7 @@ var	variant<'boolean_*':boolean,'tinyint_*':tinyint,'smallint_*':smallint,'int_*
 var.ipv6_1	ipv6	Yes	false	\N	NONE
 
 -- !sql --
-{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
+{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.1200000000000001],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.1200000000000001,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
 {"other_1":"1"}
 {"tinyint_1":1}
 {"tinyint_1":2}
@@ -1197,22 +1197,22 @@ var.ipv6_1	ipv6	Yes	false	\N	NONE
 {"string_1":"7"}
 {"string_1":"8"}
 {"float_1":1.12}
-{"float_1":2.12}
-{"float_1":3.12}
-{"float_1":4.12}
-{"float_1":5.12}
-{"float_1":6.12}
-{"float_1":7.12}
-{"float_1":8.12}
-{"double_1":1.12}
-{"double_1":2.12}
-{"double_1":3.12}
-{"double_1":4.12}
-{"double_1":5.12}
-{"double_1":6.12}
-{"double_1":7.12}
-{"double_1":8.119999999999999}
-{"double_1":9.119999999999999}
+{"float_1":2.11999989}
+{"float_1":3.11999989}
+{"float_1":4.11999989}
+{"float_1":5.11999989}
+{"float_1":6.11999989}
+{"float_1":7.11999989}
+{"float_1":8.11999989}
+{"double_1":1.1200000000000001}
+{"double_1":2.1200000000000001}
+{"double_1":3.1200000000000001}
+{"double_1":4.1200000000000001}
+{"double_1":5.1200000000000001}
+{"double_1":6.1200000000000001}
+{"double_1":7.1200000000000001}
+{"double_1":8.1199999999999992}
+{"double_1":9.1199999999999992}
 {"decimal32_1":1.12}
 {"decimal32_1":2.12}
 {"decimal32_1":3.12}
@@ -1330,7 +1330,7 @@ var	variant<'boolean_*':boolean,'tinyint_*':tinyint,'smallint_*':smallint,'int_*
 var.ipv6_1	ipv6	Yes	false	\N	NONE
 
 -- !sql --
-{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
+{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.1200000000000001],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.1200000000000001,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
 {"other_1":"1"}
 {"tinyint_1":1}
 {"tinyint_1":2}
@@ -1368,22 +1368,22 @@ var.ipv6_1	ipv6	Yes	false	\N	NONE
 {"string_1":"7"}
 {"string_1":"8"}
 {"float_1":1.12}
-{"float_1":2.12}
-{"float_1":3.12}
-{"float_1":4.12}
-{"float_1":5.12}
-{"float_1":6.12}
-{"float_1":7.12}
-{"float_1":8.12}
-{"double_1":1.12}
-{"double_1":2.12}
-{"double_1":3.12}
-{"double_1":4.12}
-{"double_1":5.12}
-{"double_1":6.12}
-{"double_1":7.12}
-{"double_1":8.119999999999999}
-{"double_1":9.119999999999999}
+{"float_1":2.11999989}
+{"float_1":3.11999989}
+{"float_1":4.11999989}
+{"float_1":5.11999989}
+{"float_1":6.11999989}
+{"float_1":7.11999989}
+{"float_1":8.11999989}
+{"double_1":1.1200000000000001}
+{"double_1":2.1200000000000001}
+{"double_1":3.1200000000000001}
+{"double_1":4.1200000000000001}
+{"double_1":5.1200000000000001}
+{"double_1":6.1200000000000001}
+{"double_1":7.1200000000000001}
+{"double_1":8.1199999999999992}
+{"double_1":9.1199999999999992}
 {"decimal32_1":1.12}
 {"decimal32_1":2.12}
 {"decimal32_1":3.12}
@@ -1517,7 +1517,7 @@ var	variant<'boolean_*':boolean,'tinyint_*':tinyint,'smallint_*':smallint,'int_*
 var.array_tinyint_1	array<tinyint>	Yes	false	\N	NONE
 
 -- !sql --
-{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
+{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.1200000000000001],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.1200000000000001,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
 {"other_1":"1"}
 {"tinyint_1":1}
 {"tinyint_1":2}
@@ -1555,22 +1555,22 @@ var.array_tinyint_1	array<tinyint>	Yes	false	\N	NONE
 {"string_1":"7"}
 {"string_1":"8"}
 {"float_1":1.12}
-{"float_1":2.12}
-{"float_1":3.12}
-{"float_1":4.12}
-{"float_1":5.12}
-{"float_1":6.12}
-{"float_1":7.12}
-{"float_1":8.12}
-{"double_1":1.12}
-{"double_1":2.12}
-{"double_1":3.12}
-{"double_1":4.12}
-{"double_1":5.12}
-{"double_1":6.12}
-{"double_1":7.12}
-{"double_1":8.119999999999999}
-{"double_1":9.119999999999999}
+{"float_1":2.11999989}
+{"float_1":3.11999989}
+{"float_1":4.11999989}
+{"float_1":5.11999989}
+{"float_1":6.11999989}
+{"float_1":7.11999989}
+{"float_1":8.11999989}
+{"double_1":1.1200000000000001}
+{"double_1":2.1200000000000001}
+{"double_1":3.1200000000000001}
+{"double_1":4.1200000000000001}
+{"double_1":5.1200000000000001}
+{"double_1":6.1200000000000001}
+{"double_1":7.1200000000000001}
+{"double_1":8.1199999999999992}
+{"double_1":9.1199999999999992}
 {"decimal32_1":1.12}
 {"decimal32_1":2.12}
 {"decimal32_1":3.12}
@@ -1722,7 +1722,7 @@ var	variant<'boolean_*':boolean,'tinyint_*':tinyint,'smallint_*':smallint,'int_*
 var.array_smallint_1	array<smallint>	Yes	false	\N	NONE
 
 -- !sql --
-{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
+{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.1200000000000001],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.1200000000000001,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
 {"other_1":"1"}
 {"tinyint_1":1}
 {"tinyint_1":2}
@@ -1760,22 +1760,22 @@ var.array_smallint_1	array<smallint>	Yes	false	\N	NONE
 {"string_1":"7"}
 {"string_1":"8"}
 {"float_1":1.12}
-{"float_1":2.12}
-{"float_1":3.12}
-{"float_1":4.12}
-{"float_1":5.12}
-{"float_1":6.12}
-{"float_1":7.12}
-{"float_1":8.12}
-{"double_1":1.12}
-{"double_1":2.12}
-{"double_1":3.12}
-{"double_1":4.12}
-{"double_1":5.12}
-{"double_1":6.12}
-{"double_1":7.12}
-{"double_1":8.119999999999999}
-{"double_1":9.119999999999999}
+{"float_1":2.11999989}
+{"float_1":3.11999989}
+{"float_1":4.11999989}
+{"float_1":5.11999989}
+{"float_1":6.11999989}
+{"float_1":7.11999989}
+{"float_1":8.11999989}
+{"double_1":1.1200000000000001}
+{"double_1":2.1200000000000001}
+{"double_1":3.1200000000000001}
+{"double_1":4.1200000000000001}
+{"double_1":5.1200000000000001}
+{"double_1":6.1200000000000001}
+{"double_1":7.1200000000000001}
+{"double_1":8.1199999999999992}
+{"double_1":9.1199999999999992}
 {"decimal32_1":1.12}
 {"decimal32_1":2.12}
 {"decimal32_1":3.12}
@@ -1946,7 +1946,7 @@ var	variant<'boolean_*':boolean,'tinyint_*':tinyint,'smallint_*':smallint,'int_*
 var.array_int_1	array<int>	Yes	false	\N	NONE
 
 -- !sql --
-{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
+{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.1200000000000001],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.1200000000000001,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
 {"other_1":"1"}
 {"tinyint_1":1}
 {"tinyint_1":2}
@@ -1984,22 +1984,22 @@ var.array_int_1	array<int>	Yes	false	\N	NONE
 {"string_1":"7"}
 {"string_1":"8"}
 {"float_1":1.12}
-{"float_1":2.12}
-{"float_1":3.12}
-{"float_1":4.12}
-{"float_1":5.12}
-{"float_1":6.12}
-{"float_1":7.12}
-{"float_1":8.12}
-{"double_1":1.12}
-{"double_1":2.12}
-{"double_1":3.12}
-{"double_1":4.12}
-{"double_1":5.12}
-{"double_1":6.12}
-{"double_1":7.12}
-{"double_1":8.119999999999999}
-{"double_1":9.119999999999999}
+{"float_1":2.11999989}
+{"float_1":3.11999989}
+{"float_1":4.11999989}
+{"float_1":5.11999989}
+{"float_1":6.11999989}
+{"float_1":7.11999989}
+{"float_1":8.11999989}
+{"double_1":1.1200000000000001}
+{"double_1":2.1200000000000001}
+{"double_1":3.1200000000000001}
+{"double_1":4.1200000000000001}
+{"double_1":5.1200000000000001}
+{"double_1":6.1200000000000001}
+{"double_1":7.1200000000000001}
+{"double_1":8.1199999999999992}
+{"double_1":9.1199999999999992}
 {"decimal32_1":1.12}
 {"decimal32_1":2.12}
 {"decimal32_1":3.12}
@@ -2190,7 +2190,7 @@ var	variant<'boolean_*':boolean,'tinyint_*':tinyint,'smallint_*':smallint,'int_*
 var.array_bigint_1	array<bigint>	Yes	false	\N	NONE
 
 -- !sql --
-{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
+{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.1200000000000001],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.1200000000000001,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
 {"other_1":"1"}
 {"tinyint_1":1}
 {"tinyint_1":2}
@@ -2228,22 +2228,22 @@ var.array_bigint_1	array<bigint>	Yes	false	\N	NONE
 {"string_1":"7"}
 {"string_1":"8"}
 {"float_1":1.12}
-{"float_1":2.12}
-{"float_1":3.12}
-{"float_1":4.12}
-{"float_1":5.12}
-{"float_1":6.12}
-{"float_1":7.12}
-{"float_1":8.12}
-{"double_1":1.12}
-{"double_1":2.12}
-{"double_1":3.12}
-{"double_1":4.12}
-{"double_1":5.12}
-{"double_1":6.12}
-{"double_1":7.12}
-{"double_1":8.119999999999999}
-{"double_1":9.119999999999999}
+{"float_1":2.11999989}
+{"float_1":3.11999989}
+{"float_1":4.11999989}
+{"float_1":5.11999989}
+{"float_1":6.11999989}
+{"float_1":7.11999989}
+{"float_1":8.11999989}
+{"double_1":1.1200000000000001}
+{"double_1":2.1200000000000001}
+{"double_1":3.1200000000000001}
+{"double_1":4.1200000000000001}
+{"double_1":5.1200000000000001}
+{"double_1":6.1200000000000001}
+{"double_1":7.1200000000000001}
+{"double_1":8.1199999999999992}
+{"double_1":9.1199999999999992}
 {"decimal32_1":1.12}
 {"decimal32_1":2.12}
 {"decimal32_1":3.12}
@@ -2455,7 +2455,7 @@ var	variant<'boolean_*':boolean,'tinyint_*':tinyint,'smallint_*':smallint,'int_*
 var.array_largeint_1	array<largeint>	Yes	false	\N	NONE
 
 -- !sql --
-{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
+{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.1200000000000001],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.1200000000000001,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
 {"other_1":"1"}
 {"tinyint_1":1}
 {"tinyint_1":2}
@@ -2493,22 +2493,22 @@ var.array_largeint_1	array<largeint>	Yes	false	\N	NONE
 {"string_1":"7"}
 {"string_1":"8"}
 {"float_1":1.12}
-{"float_1":2.12}
-{"float_1":3.12}
-{"float_1":4.12}
-{"float_1":5.12}
-{"float_1":6.12}
-{"float_1":7.12}
-{"float_1":8.12}
-{"double_1":1.12}
-{"double_1":2.12}
-{"double_1":3.12}
-{"double_1":4.12}
-{"double_1":5.12}
-{"double_1":6.12}
-{"double_1":7.12}
-{"double_1":8.119999999999999}
-{"double_1":9.119999999999999}
+{"float_1":2.11999989}
+{"float_1":3.11999989}
+{"float_1":4.11999989}
+{"float_1":5.11999989}
+{"float_1":6.11999989}
+{"float_1":7.11999989}
+{"float_1":8.11999989}
+{"double_1":1.1200000000000001}
+{"double_1":2.1200000000000001}
+{"double_1":3.1200000000000001}
+{"double_1":4.1200000000000001}
+{"double_1":5.1200000000000001}
+{"double_1":6.1200000000000001}
+{"double_1":7.1200000000000001}
+{"double_1":8.1199999999999992}
+{"double_1":9.1199999999999992}
 {"decimal32_1":1.12}
 {"decimal32_1":2.12}
 {"decimal32_1":3.12}
@@ -2742,7 +2742,7 @@ var	variant<'boolean_*':boolean,'tinyint_*':tinyint,'smallint_*':smallint,'int_*
 var.array_char_1	array<text>	Yes	false	\N	NONE
 
 -- !sql --
-{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
+{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.1200000000000001],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.1200000000000001,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
 {"other_1":"1"}
 {"tinyint_1":1}
 {"tinyint_1":2}
@@ -2780,22 +2780,22 @@ var.array_char_1	array<text>	Yes	false	\N	NONE
 {"string_1":"7"}
 {"string_1":"8"}
 {"float_1":1.12}
-{"float_1":2.12}
-{"float_1":3.12}
-{"float_1":4.12}
-{"float_1":5.12}
-{"float_1":6.12}
-{"float_1":7.12}
-{"float_1":8.12}
-{"double_1":1.12}
-{"double_1":2.12}
-{"double_1":3.12}
-{"double_1":4.12}
-{"double_1":5.12}
-{"double_1":6.12}
-{"double_1":7.12}
-{"double_1":8.119999999999999}
-{"double_1":9.119999999999999}
+{"float_1":2.11999989}
+{"float_1":3.11999989}
+{"float_1":4.11999989}
+{"float_1":5.11999989}
+{"float_1":6.11999989}
+{"float_1":7.11999989}
+{"float_1":8.11999989}
+{"double_1":1.1200000000000001}
+{"double_1":2.1200000000000001}
+{"double_1":3.1200000000000001}
+{"double_1":4.1200000000000001}
+{"double_1":5.1200000000000001}
+{"double_1":6.1200000000000001}
+{"double_1":7.1200000000000001}
+{"double_1":8.1199999999999992}
+{"double_1":9.1199999999999992}
 {"decimal32_1":1.12}
 {"decimal32_1":2.12}
 {"decimal32_1":3.12}
@@ -3052,7 +3052,7 @@ var	variant<'boolean_*':boolean,'tinyint_*':tinyint,'smallint_*':smallint,'int_*
 var.array_string_1	array<text>	Yes	false	\N	NONE
 
 -- !sql --
-{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
+{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.1200000000000001],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.1200000000000001,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
 {"other_1":"1"}
 {"tinyint_1":1}
 {"tinyint_1":2}
@@ -3090,22 +3090,22 @@ var.array_string_1	array<text>	Yes	false	\N	NONE
 {"string_1":"7"}
 {"string_1":"8"}
 {"float_1":1.12}
-{"float_1":2.12}
-{"float_1":3.12}
-{"float_1":4.12}
-{"float_1":5.12}
-{"float_1":6.12}
-{"float_1":7.12}
-{"float_1":8.12}
-{"double_1":1.12}
-{"double_1":2.12}
-{"double_1":3.12}
-{"double_1":4.12}
-{"double_1":5.12}
-{"double_1":6.12}
-{"double_1":7.12}
-{"double_1":8.119999999999999}
-{"double_1":9.119999999999999}
+{"float_1":2.11999989}
+{"float_1":3.11999989}
+{"float_1":4.11999989}
+{"float_1":5.11999989}
+{"float_1":6.11999989}
+{"float_1":7.11999989}
+{"float_1":8.11999989}
+{"double_1":1.1200000000000001}
+{"double_1":2.1200000000000001}
+{"double_1":3.1200000000000001}
+{"double_1":4.1200000000000001}
+{"double_1":5.1200000000000001}
+{"double_1":6.1200000000000001}
+{"double_1":7.1200000000000001}
+{"double_1":8.1199999999999992}
+{"double_1":9.1199999999999992}
 {"decimal32_1":1.12}
 {"decimal32_1":2.12}
 {"decimal32_1":3.12}
@@ -3386,7 +3386,7 @@ var	variant<'boolean_*':boolean,'tinyint_*':tinyint,'smallint_*':smallint,'int_*
 var.array_float_1	array<float>	Yes	false	\N	NONE
 
 -- !sql --
-{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
+{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.1200000000000001],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.1200000000000001,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
 {"other_1":"1"}
 {"tinyint_1":1}
 {"tinyint_1":2}
@@ -3424,22 +3424,22 @@ var.array_float_1	array<float>	Yes	false	\N	NONE
 {"string_1":"7"}
 {"string_1":"8"}
 {"float_1":1.12}
-{"float_1":2.12}
-{"float_1":3.12}
-{"float_1":4.12}
-{"float_1":5.12}
-{"float_1":6.12}
-{"float_1":7.12}
-{"float_1":8.12}
-{"double_1":1.12}
-{"double_1":2.12}
-{"double_1":3.12}
-{"double_1":4.12}
-{"double_1":5.12}
-{"double_1":6.12}
-{"double_1":7.12}
-{"double_1":8.119999999999999}
-{"double_1":9.119999999999999}
+{"float_1":2.11999989}
+{"float_1":3.11999989}
+{"float_1":4.11999989}
+{"float_1":5.11999989}
+{"float_1":6.11999989}
+{"float_1":7.11999989}
+{"float_1":8.11999989}
+{"double_1":1.1200000000000001}
+{"double_1":2.1200000000000001}
+{"double_1":3.1200000000000001}
+{"double_1":4.1200000000000001}
+{"double_1":5.1200000000000001}
+{"double_1":6.1200000000000001}
+{"double_1":7.1200000000000001}
+{"double_1":8.1199999999999992}
+{"double_1":9.1199999999999992}
 {"decimal32_1":1.12}
 {"decimal32_1":2.12}
 {"decimal32_1":3.12}
@@ -3708,30 +3708,30 @@ var.array_float_1	array<float>	Yes	false	\N	NONE
 {"array_string_1":["23"]}
 {"array_string_1":["24"]}
 {"array_float_1":[1.12]}
-{"array_float_1":[2.12]}
-{"array_float_1":[3.12]}
-{"array_float_1":[4.12]}
-{"array_float_1":[5.12]}
-{"array_float_1":[6.12]}
-{"array_float_1":[7.12]}
-{"array_float_1":[8.12]}
-{"array_float_1":[9.12]}
-{"array_float_1":[10.12]}
-{"array_float_1":[11.12]}
-{"array_float_1":[12.12]}
-{"array_float_1":[13.12]}
-{"array_float_1":[14.12]}
-{"array_float_1":[15.12]}
-{"array_float_1":[16.12]}
-{"array_float_1":[17.12]}
-{"array_float_1":[18.12]}
-{"array_float_1":[19.12]}
-{"array_float_1":[20.12]}
-{"array_float_1":[21.12]}
-{"array_float_1":[22.12]}
-{"array_float_1":[23.12]}
-{"array_float_1":[24.12]}
-{"array_float_1":[25.12]}
+{"array_float_1":[2.11999989]}
+{"array_float_1":[3.11999989]}
+{"array_float_1":[4.11999989]}
+{"array_float_1":[5.11999989]}
+{"array_float_1":[6.11999989]}
+{"array_float_1":[7.11999989]}
+{"array_float_1":[8.11999989]}
+{"array_float_1":[9.11999989]}
+{"array_float_1":[10.1199999]}
+{"array_float_1":[11.1199999]}
+{"array_float_1":[12.1199999]}
+{"array_float_1":[13.1199999]}
+{"array_float_1":[14.1199999]}
+{"array_float_1":[15.1199999]}
+{"array_float_1":[16.1200008]}
+{"array_float_1":[17.1200008]}
+{"array_float_1":[18.1200008]}
+{"array_float_1":[19.1200008]}
+{"array_float_1":[20.1200008]}
+{"array_float_1":[21.1200008]}
+{"array_float_1":[22.1200008]}
+{"array_float_1":[23.1200008]}
+{"array_float_1":[24.1200008]}
+{"array_float_1":[25.1200008]}
 
 -- !sql_compaction_before --
 id	bigint	No	true	\N	
@@ -3745,7 +3745,7 @@ var	variant<'boolean_*':boolean,'tinyint_*':tinyint,'smallint_*':smallint,'int_*
 var.array_double_1	array<double>	Yes	false	\N	NONE
 
 -- !sql --
-{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
+{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.1200000000000001],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.1200000000000001,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
 {"other_1":"1"}
 {"tinyint_1":1}
 {"tinyint_1":2}
@@ -3783,22 +3783,22 @@ var.array_double_1	array<double>	Yes	false	\N	NONE
 {"string_1":"7"}
 {"string_1":"8"}
 {"float_1":1.12}
-{"float_1":2.12}
-{"float_1":3.12}
-{"float_1":4.12}
-{"float_1":5.12}
-{"float_1":6.12}
-{"float_1":7.12}
-{"float_1":8.12}
-{"double_1":1.12}
-{"double_1":2.12}
-{"double_1":3.12}
-{"double_1":4.12}
-{"double_1":5.12}
-{"double_1":6.12}
-{"double_1":7.12}
-{"double_1":8.119999999999999}
-{"double_1":9.119999999999999}
+{"float_1":2.11999989}
+{"float_1":3.11999989}
+{"float_1":4.11999989}
+{"float_1":5.11999989}
+{"float_1":6.11999989}
+{"float_1":7.11999989}
+{"float_1":8.11999989}
+{"double_1":1.1200000000000001}
+{"double_1":2.1200000000000001}
+{"double_1":3.1200000000000001}
+{"double_1":4.1200000000000001}
+{"double_1":5.1200000000000001}
+{"double_1":6.1200000000000001}
+{"double_1":7.1200000000000001}
+{"double_1":8.1199999999999992}
+{"double_1":9.1199999999999992}
 {"decimal32_1":1.12}
 {"decimal32_1":2.12}
 {"decimal32_1":3.12}
@@ -4067,56 +4067,56 @@ var.array_double_1	array<double>	Yes	false	\N	NONE
 {"array_string_1":["23"]}
 {"array_string_1":["24"]}
 {"array_float_1":[1.12]}
-{"array_float_1":[2.12]}
-{"array_float_1":[3.12]}
-{"array_float_1":[4.12]}
-{"array_float_1":[5.12]}
-{"array_float_1":[6.12]}
-{"array_float_1":[7.12]}
-{"array_float_1":[8.12]}
-{"array_float_1":[9.12]}
-{"array_float_1":[10.12]}
-{"array_float_1":[11.12]}
-{"array_float_1":[12.12]}
-{"array_float_1":[13.12]}
-{"array_float_1":[14.12]}
-{"array_float_1":[15.12]}
-{"array_float_1":[16.12]}
-{"array_float_1":[17.12]}
-{"array_float_1":[18.12]}
-{"array_float_1":[19.12]}
-{"array_float_1":[20.12]}
-{"array_float_1":[21.12]}
-{"array_float_1":[22.12]}
-{"array_float_1":[23.12]}
-{"array_float_1":[24.12]}
-{"array_float_1":[25.12]}
-{"array_double_1":[1.12]}
-{"array_double_1":[2.12]}
-{"array_double_1":[3.12]}
-{"array_double_1":[4.12]}
-{"array_double_1":[5.12]}
-{"array_double_1":[6.12]}
-{"array_double_1":[7.12]}
-{"array_double_1":[8.119999999999999]}
-{"array_double_1":[9.119999999999999]}
-{"array_double_1":[10.12]}
-{"array_double_1":[11.12]}
-{"array_double_1":[12.12]}
-{"array_double_1":[13.12]}
-{"array_double_1":[14.12]}
-{"array_double_1":[15.12]}
-{"array_double_1":[16.12]}
-{"array_double_1":[17.12]}
-{"array_double_1":[18.12]}
-{"array_double_1":[19.12]}
-{"array_double_1":[20.12]}
-{"array_double_1":[21.12]}
-{"array_double_1":[22.12]}
-{"array_double_1":[23.12]}
-{"array_double_1":[24.12]}
-{"array_double_1":[25.12]}
-{"array_double_1":[26.12]}
+{"array_float_1":[2.11999989]}
+{"array_float_1":[3.11999989]}
+{"array_float_1":[4.11999989]}
+{"array_float_1":[5.11999989]}
+{"array_float_1":[6.11999989]}
+{"array_float_1":[7.11999989]}
+{"array_float_1":[8.11999989]}
+{"array_float_1":[9.11999989]}
+{"array_float_1":[10.1199999]}
+{"array_float_1":[11.1199999]}
+{"array_float_1":[12.1199999]}
+{"array_float_1":[13.1199999]}
+{"array_float_1":[14.1199999]}
+{"array_float_1":[15.1199999]}
+{"array_float_1":[16.1200008]}
+{"array_float_1":[17.1200008]}
+{"array_float_1":[18.1200008]}
+{"array_float_1":[19.1200008]}
+{"array_float_1":[20.1200008]}
+{"array_float_1":[21.1200008]}
+{"array_float_1":[22.1200008]}
+{"array_float_1":[23.1200008]}
+{"array_float_1":[24.1200008]}
+{"array_float_1":[25.1200008]}
+{"array_double_1":[1.1200000000000001]}
+{"array_double_1":[2.1200000000000001]}
+{"array_double_1":[3.1200000000000001]}
+{"array_double_1":[4.1200000000000001]}
+{"array_double_1":[5.1200000000000001]}
+{"array_double_1":[6.1200000000000001]}
+{"array_double_1":[7.1200000000000001]}
+{"array_double_1":[8.1199999999999992]}
+{"array_double_1":[9.1199999999999992]}
+{"array_double_1":[10.119999999999999]}
+{"array_double_1":[11.119999999999999]}
+{"array_double_1":[12.119999999999999]}
+{"array_double_1":[13.119999999999999]}
+{"array_double_1":[14.119999999999999]}
+{"array_double_1":[15.119999999999999]}
+{"array_double_1":[16.120000000000001]}
+{"array_double_1":[17.120000000000001]}
+{"array_double_1":[18.120000000000001]}
+{"array_double_1":[19.120000000000001]}
+{"array_double_1":[20.120000000000001]}
+{"array_double_1":[21.120000000000001]}
+{"array_double_1":[22.120000000000001]}
+{"array_double_1":[23.120000000000001]}
+{"array_double_1":[24.120000000000001]}
+{"array_double_1":[25.120000000000001]}
+{"array_double_1":[26.120000000000001]}
 
 -- !sql_compaction_before --
 id	bigint	No	true	\N	
@@ -4130,7 +4130,7 @@ var	variant<'boolean_*':boolean,'tinyint_*':tinyint,'smallint_*':smallint,'int_*
 var.array_decimal32_1	array<decimal(8,2)>	Yes	false	\N	NONE
 
 -- !sql --
-{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
+{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.1200000000000001],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.1200000000000001,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
 {"other_1":"1"}
 {"tinyint_1":1}
 {"tinyint_1":2}
@@ -4168,22 +4168,22 @@ var.array_decimal32_1	array<decimal(8,2)>	Yes	false	\N	NONE
 {"string_1":"7"}
 {"string_1":"8"}
 {"float_1":1.12}
-{"float_1":2.12}
-{"float_1":3.12}
-{"float_1":4.12}
-{"float_1":5.12}
-{"float_1":6.12}
-{"float_1":7.12}
-{"float_1":8.12}
-{"double_1":1.12}
-{"double_1":2.12}
-{"double_1":3.12}
-{"double_1":4.12}
-{"double_1":5.12}
-{"double_1":6.12}
-{"double_1":7.12}
-{"double_1":8.119999999999999}
-{"double_1":9.119999999999999}
+{"float_1":2.11999989}
+{"float_1":3.11999989}
+{"float_1":4.11999989}
+{"float_1":5.11999989}
+{"float_1":6.11999989}
+{"float_1":7.11999989}
+{"float_1":8.11999989}
+{"double_1":1.1200000000000001}
+{"double_1":2.1200000000000001}
+{"double_1":3.1200000000000001}
+{"double_1":4.1200000000000001}
+{"double_1":5.1200000000000001}
+{"double_1":6.1200000000000001}
+{"double_1":7.1200000000000001}
+{"double_1":8.1199999999999992}
+{"double_1":9.1199999999999992}
 {"decimal32_1":1.12}
 {"decimal32_1":2.12}
 {"decimal32_1":3.12}
@@ -4452,56 +4452,56 @@ var.array_decimal32_1	array<decimal(8,2)>	Yes	false	\N	NONE
 {"array_string_1":["23"]}
 {"array_string_1":["24"]}
 {"array_float_1":[1.12]}
-{"array_float_1":[2.12]}
-{"array_float_1":[3.12]}
-{"array_float_1":[4.12]}
-{"array_float_1":[5.12]}
-{"array_float_1":[6.12]}
-{"array_float_1":[7.12]}
-{"array_float_1":[8.12]}
-{"array_float_1":[9.12]}
-{"array_float_1":[10.12]}
-{"array_float_1":[11.12]}
-{"array_float_1":[12.12]}
-{"array_float_1":[13.12]}
-{"array_float_1":[14.12]}
-{"array_float_1":[15.12]}
-{"array_float_1":[16.12]}
-{"array_float_1":[17.12]}
-{"array_float_1":[18.12]}
-{"array_float_1":[19.12]}
-{"array_float_1":[20.12]}
-{"array_float_1":[21.12]}
-{"array_float_1":[22.12]}
-{"array_float_1":[23.12]}
-{"array_float_1":[24.12]}
-{"array_float_1":[25.12]}
-{"array_double_1":[1.12]}
-{"array_double_1":[2.12]}
-{"array_double_1":[3.12]}
-{"array_double_1":[4.12]}
-{"array_double_1":[5.12]}
-{"array_double_1":[6.12]}
-{"array_double_1":[7.12]}
-{"array_double_1":[8.119999999999999]}
-{"array_double_1":[9.119999999999999]}
-{"array_double_1":[10.12]}
-{"array_double_1":[11.12]}
-{"array_double_1":[12.12]}
-{"array_double_1":[13.12]}
-{"array_double_1":[14.12]}
-{"array_double_1":[15.12]}
-{"array_double_1":[16.12]}
-{"array_double_1":[17.12]}
-{"array_double_1":[18.12]}
-{"array_double_1":[19.12]}
-{"array_double_1":[20.12]}
-{"array_double_1":[21.12]}
-{"array_double_1":[22.12]}
-{"array_double_1":[23.12]}
-{"array_double_1":[24.12]}
-{"array_double_1":[25.12]}
-{"array_double_1":[26.12]}
+{"array_float_1":[2.11999989]}
+{"array_float_1":[3.11999989]}
+{"array_float_1":[4.11999989]}
+{"array_float_1":[5.11999989]}
+{"array_float_1":[6.11999989]}
+{"array_float_1":[7.11999989]}
+{"array_float_1":[8.11999989]}
+{"array_float_1":[9.11999989]}
+{"array_float_1":[10.1199999]}
+{"array_float_1":[11.1199999]}
+{"array_float_1":[12.1199999]}
+{"array_float_1":[13.1199999]}
+{"array_float_1":[14.1199999]}
+{"array_float_1":[15.1199999]}
+{"array_float_1":[16.1200008]}
+{"array_float_1":[17.1200008]}
+{"array_float_1":[18.1200008]}
+{"array_float_1":[19.1200008]}
+{"array_float_1":[20.1200008]}
+{"array_float_1":[21.1200008]}
+{"array_float_1":[22.1200008]}
+{"array_float_1":[23.1200008]}
+{"array_float_1":[24.1200008]}
+{"array_float_1":[25.1200008]}
+{"array_double_1":[1.1200000000000001]}
+{"array_double_1":[2.1200000000000001]}
+{"array_double_1":[3.1200000000000001]}
+{"array_double_1":[4.1200000000000001]}
+{"array_double_1":[5.1200000000000001]}
+{"array_double_1":[6.1200000000000001]}
+{"array_double_1":[7.1200000000000001]}
+{"array_double_1":[8.1199999999999992]}
+{"array_double_1":[9.1199999999999992]}
+{"array_double_1":[10.119999999999999]}
+{"array_double_1":[11.119999999999999]}
+{"array_double_1":[12.119999999999999]}
+{"array_double_1":[13.119999999999999]}
+{"array_double_1":[14.119999999999999]}
+{"array_double_1":[15.119999999999999]}
+{"array_double_1":[16.120000000000001]}
+{"array_double_1":[17.120000000000001]}
+{"array_double_1":[18.120000000000001]}
+{"array_double_1":[19.120000000000001]}
+{"array_double_1":[20.120000000000001]}
+{"array_double_1":[21.120000000000001]}
+{"array_double_1":[22.120000000000001]}
+{"array_double_1":[23.120000000000001]}
+{"array_double_1":[24.120000000000001]}
+{"array_double_1":[25.120000000000001]}
+{"array_double_1":[26.120000000000001]}
 {"array_decimal32_1":[1.12]}
 {"array_decimal32_1":[2.12]}
 {"array_decimal32_1":[3.12]}
@@ -4542,7 +4542,7 @@ var	variant<'boolean_*':boolean,'tinyint_*':tinyint,'smallint_*':smallint,'int_*
 var.array_decimal64_1	array<decimal(16,9)>	Yes	false	\N	NONE
 
 -- !sql --
-{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
+{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.1200000000000001],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.1200000000000001,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
 {"other_1":"1"}
 {"tinyint_1":1}
 {"tinyint_1":2}
@@ -4580,22 +4580,22 @@ var.array_decimal64_1	array<decimal(16,9)>	Yes	false	\N	NONE
 {"string_1":"7"}
 {"string_1":"8"}
 {"float_1":1.12}
-{"float_1":2.12}
-{"float_1":3.12}
-{"float_1":4.12}
-{"float_1":5.12}
-{"float_1":6.12}
-{"float_1":7.12}
-{"float_1":8.12}
-{"double_1":1.12}
-{"double_1":2.12}
-{"double_1":3.12}
-{"double_1":4.12}
-{"double_1":5.12}
-{"double_1":6.12}
-{"double_1":7.12}
-{"double_1":8.119999999999999}
-{"double_1":9.119999999999999}
+{"float_1":2.11999989}
+{"float_1":3.11999989}
+{"float_1":4.11999989}
+{"float_1":5.11999989}
+{"float_1":6.11999989}
+{"float_1":7.11999989}
+{"float_1":8.11999989}
+{"double_1":1.1200000000000001}
+{"double_1":2.1200000000000001}
+{"double_1":3.1200000000000001}
+{"double_1":4.1200000000000001}
+{"double_1":5.1200000000000001}
+{"double_1":6.1200000000000001}
+{"double_1":7.1200000000000001}
+{"double_1":8.1199999999999992}
+{"double_1":9.1199999999999992}
 {"decimal32_1":1.12}
 {"decimal32_1":2.12}
 {"decimal32_1":3.12}
@@ -4864,56 +4864,56 @@ var.array_decimal64_1	array<decimal(16,9)>	Yes	false	\N	NONE
 {"array_string_1":["23"]}
 {"array_string_1":["24"]}
 {"array_float_1":[1.12]}
-{"array_float_1":[2.12]}
-{"array_float_1":[3.12]}
-{"array_float_1":[4.12]}
-{"array_float_1":[5.12]}
-{"array_float_1":[6.12]}
-{"array_float_1":[7.12]}
-{"array_float_1":[8.12]}
-{"array_float_1":[9.12]}
-{"array_float_1":[10.12]}
-{"array_float_1":[11.12]}
-{"array_float_1":[12.12]}
-{"array_float_1":[13.12]}
-{"array_float_1":[14.12]}
-{"array_float_1":[15.12]}
-{"array_float_1":[16.12]}
-{"array_float_1":[17.12]}
-{"array_float_1":[18.12]}
-{"array_float_1":[19.12]}
-{"array_float_1":[20.12]}
-{"array_float_1":[21.12]}
-{"array_float_1":[22.12]}
-{"array_float_1":[23.12]}
-{"array_float_1":[24.12]}
-{"array_float_1":[25.12]}
-{"array_double_1":[1.12]}
-{"array_double_1":[2.12]}
-{"array_double_1":[3.12]}
-{"array_double_1":[4.12]}
-{"array_double_1":[5.12]}
-{"array_double_1":[6.12]}
-{"array_double_1":[7.12]}
-{"array_double_1":[8.119999999999999]}
-{"array_double_1":[9.119999999999999]}
-{"array_double_1":[10.12]}
-{"array_double_1":[11.12]}
-{"array_double_1":[12.12]}
-{"array_double_1":[13.12]}
-{"array_double_1":[14.12]}
-{"array_double_1":[15.12]}
-{"array_double_1":[16.12]}
-{"array_double_1":[17.12]}
-{"array_double_1":[18.12]}
-{"array_double_1":[19.12]}
-{"array_double_1":[20.12]}
-{"array_double_1":[21.12]}
-{"array_double_1":[22.12]}
-{"array_double_1":[23.12]}
-{"array_double_1":[24.12]}
-{"array_double_1":[25.12]}
-{"array_double_1":[26.12]}
+{"array_float_1":[2.11999989]}
+{"array_float_1":[3.11999989]}
+{"array_float_1":[4.11999989]}
+{"array_float_1":[5.11999989]}
+{"array_float_1":[6.11999989]}
+{"array_float_1":[7.11999989]}
+{"array_float_1":[8.11999989]}
+{"array_float_1":[9.11999989]}
+{"array_float_1":[10.1199999]}
+{"array_float_1":[11.1199999]}
+{"array_float_1":[12.1199999]}
+{"array_float_1":[13.1199999]}
+{"array_float_1":[14.1199999]}
+{"array_float_1":[15.1199999]}
+{"array_float_1":[16.1200008]}
+{"array_float_1":[17.1200008]}
+{"array_float_1":[18.1200008]}
+{"array_float_1":[19.1200008]}
+{"array_float_1":[20.1200008]}
+{"array_float_1":[21.1200008]}
+{"array_float_1":[22.1200008]}
+{"array_float_1":[23.1200008]}
+{"array_float_1":[24.1200008]}
+{"array_float_1":[25.1200008]}
+{"array_double_1":[1.1200000000000001]}
+{"array_double_1":[2.1200000000000001]}
+{"array_double_1":[3.1200000000000001]}
+{"array_double_1":[4.1200000000000001]}
+{"array_double_1":[5.1200000000000001]}
+{"array_double_1":[6.1200000000000001]}
+{"array_double_1":[7.1200000000000001]}
+{"array_double_1":[8.1199999999999992]}
+{"array_double_1":[9.1199999999999992]}
+{"array_double_1":[10.119999999999999]}
+{"array_double_1":[11.119999999999999]}
+{"array_double_1":[12.119999999999999]}
+{"array_double_1":[13.119999999999999]}
+{"array_double_1":[14.119999999999999]}
+{"array_double_1":[15.119999999999999]}
+{"array_double_1":[16.120000000000001]}
+{"array_double_1":[17.120000000000001]}
+{"array_double_1":[18.120000000000001]}
+{"array_double_1":[19.120000000000001]}
+{"array_double_1":[20.120000000000001]}
+{"array_double_1":[21.120000000000001]}
+{"array_double_1":[22.120000000000001]}
+{"array_double_1":[23.120000000000001]}
+{"array_double_1":[24.120000000000001]}
+{"array_double_1":[25.120000000000001]}
+{"array_double_1":[26.120000000000001]}
 {"array_decimal32_1":[1.12]}
 {"array_decimal32_1":[2.12]}
 {"array_decimal32_1":[3.12]}
@@ -4982,7 +4982,7 @@ var	variant<'boolean_*':boolean,'tinyint_*':tinyint,'smallint_*':smallint,'int_*
 var.array_decimal128_1	array<decimal(36,9)>	Yes	false	\N	NONE
 
 -- !sql --
-{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
+{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.1200000000000001],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.1200000000000001,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
 {"other_1":"1"}
 {"tinyint_1":1}
 {"tinyint_1":2}
@@ -5020,22 +5020,22 @@ var.array_decimal128_1	array<decimal(36,9)>	Yes	false	\N	NONE
 {"string_1":"7"}
 {"string_1":"8"}
 {"float_1":1.12}
-{"float_1":2.12}
-{"float_1":3.12}
-{"float_1":4.12}
-{"float_1":5.12}
-{"float_1":6.12}
-{"float_1":7.12}
-{"float_1":8.12}
-{"double_1":1.12}
-{"double_1":2.12}
-{"double_1":3.12}
-{"double_1":4.12}
-{"double_1":5.12}
-{"double_1":6.12}
-{"double_1":7.12}
-{"double_1":8.119999999999999}
-{"double_1":9.119999999999999}
+{"float_1":2.11999989}
+{"float_1":3.11999989}
+{"float_1":4.11999989}
+{"float_1":5.11999989}
+{"float_1":6.11999989}
+{"float_1":7.11999989}
+{"float_1":8.11999989}
+{"double_1":1.1200000000000001}
+{"double_1":2.1200000000000001}
+{"double_1":3.1200000000000001}
+{"double_1":4.1200000000000001}
+{"double_1":5.1200000000000001}
+{"double_1":6.1200000000000001}
+{"double_1":7.1200000000000001}
+{"double_1":8.1199999999999992}
+{"double_1":9.1199999999999992}
 {"decimal32_1":1.12}
 {"decimal32_1":2.12}
 {"decimal32_1":3.12}
@@ -5304,56 +5304,56 @@ var.array_decimal128_1	array<decimal(36,9)>	Yes	false	\N	NONE
 {"array_string_1":["23"]}
 {"array_string_1":["24"]}
 {"array_float_1":[1.12]}
-{"array_float_1":[2.12]}
-{"array_float_1":[3.12]}
-{"array_float_1":[4.12]}
-{"array_float_1":[5.12]}
-{"array_float_1":[6.12]}
-{"array_float_1":[7.12]}
-{"array_float_1":[8.12]}
-{"array_float_1":[9.12]}
-{"array_float_1":[10.12]}
-{"array_float_1":[11.12]}
-{"array_float_1":[12.12]}
-{"array_float_1":[13.12]}
-{"array_float_1":[14.12]}
-{"array_float_1":[15.12]}
-{"array_float_1":[16.12]}
-{"array_float_1":[17.12]}
-{"array_float_1":[18.12]}
-{"array_float_1":[19.12]}
-{"array_float_1":[20.12]}
-{"array_float_1":[21.12]}
-{"array_float_1":[22.12]}
-{"array_float_1":[23.12]}
-{"array_float_1":[24.12]}
-{"array_float_1":[25.12]}
-{"array_double_1":[1.12]}
-{"array_double_1":[2.12]}
-{"array_double_1":[3.12]}
-{"array_double_1":[4.12]}
-{"array_double_1":[5.12]}
-{"array_double_1":[6.12]}
-{"array_double_1":[7.12]}
-{"array_double_1":[8.119999999999999]}
-{"array_double_1":[9.119999999999999]}
-{"array_double_1":[10.12]}
-{"array_double_1":[11.12]}
-{"array_double_1":[12.12]}
-{"array_double_1":[13.12]}
-{"array_double_1":[14.12]}
-{"array_double_1":[15.12]}
-{"array_double_1":[16.12]}
-{"array_double_1":[17.12]}
-{"array_double_1":[18.12]}
-{"array_double_1":[19.12]}
-{"array_double_1":[20.12]}
-{"array_double_1":[21.12]}
-{"array_double_1":[22.12]}
-{"array_double_1":[23.12]}
-{"array_double_1":[24.12]}
-{"array_double_1":[25.12]}
-{"array_double_1":[26.12]}
+{"array_float_1":[2.11999989]}
+{"array_float_1":[3.11999989]}
+{"array_float_1":[4.11999989]}
+{"array_float_1":[5.11999989]}
+{"array_float_1":[6.11999989]}
+{"array_float_1":[7.11999989]}
+{"array_float_1":[8.11999989]}
+{"array_float_1":[9.11999989]}
+{"array_float_1":[10.1199999]}
+{"array_float_1":[11.1199999]}
+{"array_float_1":[12.1199999]}
+{"array_float_1":[13.1199999]}
+{"array_float_1":[14.1199999]}
+{"array_float_1":[15.1199999]}
+{"array_float_1":[16.1200008]}
+{"array_float_1":[17.1200008]}
+{"array_float_1":[18.1200008]}
+{"array_float_1":[19.1200008]}
+{"array_float_1":[20.1200008]}
+{"array_float_1":[21.1200008]}
+{"array_float_1":[22.1200008]}
+{"array_float_1":[23.1200008]}
+{"array_float_1":[24.1200008]}
+{"array_float_1":[25.1200008]}
+{"array_double_1":[1.1200000000000001]}
+{"array_double_1":[2.1200000000000001]}
+{"array_double_1":[3.1200000000000001]}
+{"array_double_1":[4.1200000000000001]}
+{"array_double_1":[5.1200000000000001]}
+{"array_double_1":[6.1200000000000001]}
+{"array_double_1":[7.1200000000000001]}
+{"array_double_1":[8.1199999999999992]}
+{"array_double_1":[9.1199999999999992]}
+{"array_double_1":[10.119999999999999]}
+{"array_double_1":[11.119999999999999]}
+{"array_double_1":[12.119999999999999]}
+{"array_double_1":[13.119999999999999]}
+{"array_double_1":[14.119999999999999]}
+{"array_double_1":[15.119999999999999]}
+{"array_double_1":[16.120000000000001]}
+{"array_double_1":[17.120000000000001]}
+{"array_double_1":[18.120000000000001]}
+{"array_double_1":[19.120000000000001]}
+{"array_double_1":[20.120000000000001]}
+{"array_double_1":[21.120000000000001]}
+{"array_double_1":[22.120000000000001]}
+{"array_double_1":[23.120000000000001]}
+{"array_double_1":[24.120000000000001]}
+{"array_double_1":[25.120000000000001]}
+{"array_double_1":[26.120000000000001]}
 {"array_decimal32_1":[1.12]}
 {"array_decimal32_1":[2.12]}
 {"array_decimal32_1":[3.12]}
@@ -5451,7 +5451,7 @@ var	variant<'boolean_*':boolean,'tinyint_*':tinyint,'smallint_*':smallint,'int_*
 var.array_decimal256_1	array<unknown type: UNSUPPORTED_TYPE>	Yes	false	\N	NONE
 
 -- !sql --
-{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
+{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.1200000000000001],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.1200000000000001,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
 {"other_1":"1"}
 {"tinyint_1":1}
 {"tinyint_1":2}
@@ -5489,22 +5489,22 @@ var.array_decimal256_1	array<unknown type: UNSUPPORTED_TYPE>	Yes	false	\N	NONE
 {"string_1":"7"}
 {"string_1":"8"}
 {"float_1":1.12}
-{"float_1":2.12}
-{"float_1":3.12}
-{"float_1":4.12}
-{"float_1":5.12}
-{"float_1":6.12}
-{"float_1":7.12}
-{"float_1":8.12}
-{"double_1":1.12}
-{"double_1":2.12}
-{"double_1":3.12}
-{"double_1":4.12}
-{"double_1":5.12}
-{"double_1":6.12}
-{"double_1":7.12}
-{"double_1":8.119999999999999}
-{"double_1":9.119999999999999}
+{"float_1":2.11999989}
+{"float_1":3.11999989}
+{"float_1":4.11999989}
+{"float_1":5.11999989}
+{"float_1":6.11999989}
+{"float_1":7.11999989}
+{"float_1":8.11999989}
+{"double_1":1.1200000000000001}
+{"double_1":2.1200000000000001}
+{"double_1":3.1200000000000001}
+{"double_1":4.1200000000000001}
+{"double_1":5.1200000000000001}
+{"double_1":6.1200000000000001}
+{"double_1":7.1200000000000001}
+{"double_1":8.1199999999999992}
+{"double_1":9.1199999999999992}
 {"decimal32_1":1.12}
 {"decimal32_1":2.12}
 {"decimal32_1":3.12}
@@ -5773,56 +5773,56 @@ var.array_decimal256_1	array<unknown type: UNSUPPORTED_TYPE>	Yes	false	\N	NONE
 {"array_string_1":["23"]}
 {"array_string_1":["24"]}
 {"array_float_1":[1.12]}
-{"array_float_1":[2.12]}
-{"array_float_1":[3.12]}
-{"array_float_1":[4.12]}
-{"array_float_1":[5.12]}
-{"array_float_1":[6.12]}
-{"array_float_1":[7.12]}
-{"array_float_1":[8.12]}
-{"array_float_1":[9.12]}
-{"array_float_1":[10.12]}
-{"array_float_1":[11.12]}
-{"array_float_1":[12.12]}
-{"array_float_1":[13.12]}
-{"array_float_1":[14.12]}
-{"array_float_1":[15.12]}
-{"array_float_1":[16.12]}
-{"array_float_1":[17.12]}
-{"array_float_1":[18.12]}
-{"array_float_1":[19.12]}
-{"array_float_1":[20.12]}
-{"array_float_1":[21.12]}
-{"array_float_1":[22.12]}
-{"array_float_1":[23.12]}
-{"array_float_1":[24.12]}
-{"array_float_1":[25.12]}
-{"array_double_1":[1.12]}
-{"array_double_1":[2.12]}
-{"array_double_1":[3.12]}
-{"array_double_1":[4.12]}
-{"array_double_1":[5.12]}
-{"array_double_1":[6.12]}
-{"array_double_1":[7.12]}
-{"array_double_1":[8.119999999999999]}
-{"array_double_1":[9.119999999999999]}
-{"array_double_1":[10.12]}
-{"array_double_1":[11.12]}
-{"array_double_1":[12.12]}
-{"array_double_1":[13.12]}
-{"array_double_1":[14.12]}
-{"array_double_1":[15.12]}
-{"array_double_1":[16.12]}
-{"array_double_1":[17.12]}
-{"array_double_1":[18.12]}
-{"array_double_1":[19.12]}
-{"array_double_1":[20.12]}
-{"array_double_1":[21.12]}
-{"array_double_1":[22.12]}
-{"array_double_1":[23.12]}
-{"array_double_1":[24.12]}
-{"array_double_1":[25.12]}
-{"array_double_1":[26.12]}
+{"array_float_1":[2.11999989]}
+{"array_float_1":[3.11999989]}
+{"array_float_1":[4.11999989]}
+{"array_float_1":[5.11999989]}
+{"array_float_1":[6.11999989]}
+{"array_float_1":[7.11999989]}
+{"array_float_1":[8.11999989]}
+{"array_float_1":[9.11999989]}
+{"array_float_1":[10.1199999]}
+{"array_float_1":[11.1199999]}
+{"array_float_1":[12.1199999]}
+{"array_float_1":[13.1199999]}
+{"array_float_1":[14.1199999]}
+{"array_float_1":[15.1199999]}
+{"array_float_1":[16.1200008]}
+{"array_float_1":[17.1200008]}
+{"array_float_1":[18.1200008]}
+{"array_float_1":[19.1200008]}
+{"array_float_1":[20.1200008]}
+{"array_float_1":[21.1200008]}
+{"array_float_1":[22.1200008]}
+{"array_float_1":[23.1200008]}
+{"array_float_1":[24.1200008]}
+{"array_float_1":[25.1200008]}
+{"array_double_1":[1.1200000000000001]}
+{"array_double_1":[2.1200000000000001]}
+{"array_double_1":[3.1200000000000001]}
+{"array_double_1":[4.1200000000000001]}
+{"array_double_1":[5.1200000000000001]}
+{"array_double_1":[6.1200000000000001]}
+{"array_double_1":[7.1200000000000001]}
+{"array_double_1":[8.1199999999999992]}
+{"array_double_1":[9.1199999999999992]}
+{"array_double_1":[10.119999999999999]}
+{"array_double_1":[11.119999999999999]}
+{"array_double_1":[12.119999999999999]}
+{"array_double_1":[13.119999999999999]}
+{"array_double_1":[14.119999999999999]}
+{"array_double_1":[15.119999999999999]}
+{"array_double_1":[16.120000000000001]}
+{"array_double_1":[17.120000000000001]}
+{"array_double_1":[18.120000000000001]}
+{"array_double_1":[19.120000000000001]}
+{"array_double_1":[20.120000000000001]}
+{"array_double_1":[21.120000000000001]}
+{"array_double_1":[22.120000000000001]}
+{"array_double_1":[23.120000000000001]}
+{"array_double_1":[24.120000000000001]}
+{"array_double_1":[25.120000000000001]}
+{"array_double_1":[26.120000000000001]}
 {"array_decimal32_1":[1.12]}
 {"array_decimal32_1":[2.12]}
 {"array_decimal32_1":[3.12]}
@@ -5950,7 +5950,7 @@ var	variant<'boolean_*':boolean,'tinyint_*':tinyint,'smallint_*':smallint,'int_*
 var.array_datetime_1	array<datetime>	Yes	false	\N	NONE
 
 -- !sql --
-{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
+{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.1200000000000001],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.1200000000000001,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
 {"other_1":"1"}
 {"tinyint_1":1}
 {"tinyint_1":2}
@@ -5988,22 +5988,22 @@ var.array_datetime_1	array<datetime>	Yes	false	\N	NONE
 {"string_1":"7"}
 {"string_1":"8"}
 {"float_1":1.12}
-{"float_1":2.12}
-{"float_1":3.12}
-{"float_1":4.12}
-{"float_1":5.12}
-{"float_1":6.12}
-{"float_1":7.12}
-{"float_1":8.12}
-{"double_1":1.12}
-{"double_1":2.12}
-{"double_1":3.12}
-{"double_1":4.12}
-{"double_1":5.12}
-{"double_1":6.12}
-{"double_1":7.12}
-{"double_1":8.119999999999999}
-{"double_1":9.119999999999999}
+{"float_1":2.11999989}
+{"float_1":3.11999989}
+{"float_1":4.11999989}
+{"float_1":5.11999989}
+{"float_1":6.11999989}
+{"float_1":7.11999989}
+{"float_1":8.11999989}
+{"double_1":1.1200000000000001}
+{"double_1":2.1200000000000001}
+{"double_1":3.1200000000000001}
+{"double_1":4.1200000000000001}
+{"double_1":5.1200000000000001}
+{"double_1":6.1200000000000001}
+{"double_1":7.1200000000000001}
+{"double_1":8.1199999999999992}
+{"double_1":9.1199999999999992}
 {"decimal32_1":1.12}
 {"decimal32_1":2.12}
 {"decimal32_1":3.12}
@@ -6272,56 +6272,56 @@ var.array_datetime_1	array<datetime>	Yes	false	\N	NONE
 {"array_string_1":["23"]}
 {"array_string_1":["24"]}
 {"array_float_1":[1.12]}
-{"array_float_1":[2.12]}
-{"array_float_1":[3.12]}
-{"array_float_1":[4.12]}
-{"array_float_1":[5.12]}
-{"array_float_1":[6.12]}
-{"array_float_1":[7.12]}
-{"array_float_1":[8.12]}
-{"array_float_1":[9.12]}
-{"array_float_1":[10.12]}
-{"array_float_1":[11.12]}
-{"array_float_1":[12.12]}
-{"array_float_1":[13.12]}
-{"array_float_1":[14.12]}
-{"array_float_1":[15.12]}
-{"array_float_1":[16.12]}
-{"array_float_1":[17.12]}
-{"array_float_1":[18.12]}
-{"array_float_1":[19.12]}
-{"array_float_1":[20.12]}
-{"array_float_1":[21.12]}
-{"array_float_1":[22.12]}
-{"array_float_1":[23.12]}
-{"array_float_1":[24.12]}
-{"array_float_1":[25.12]}
-{"array_double_1":[1.12]}
-{"array_double_1":[2.12]}
-{"array_double_1":[3.12]}
-{"array_double_1":[4.12]}
-{"array_double_1":[5.12]}
-{"array_double_1":[6.12]}
-{"array_double_1":[7.12]}
-{"array_double_1":[8.119999999999999]}
-{"array_double_1":[9.119999999999999]}
-{"array_double_1":[10.12]}
-{"array_double_1":[11.12]}
-{"array_double_1":[12.12]}
-{"array_double_1":[13.12]}
-{"array_double_1":[14.12]}
-{"array_double_1":[15.12]}
-{"array_double_1":[16.12]}
-{"array_double_1":[17.12]}
-{"array_double_1":[18.12]}
-{"array_double_1":[19.12]}
-{"array_double_1":[20.12]}
-{"array_double_1":[21.12]}
-{"array_double_1":[22.12]}
-{"array_double_1":[23.12]}
-{"array_double_1":[24.12]}
-{"array_double_1":[25.12]}
-{"array_double_1":[26.12]}
+{"array_float_1":[2.11999989]}
+{"array_float_1":[3.11999989]}
+{"array_float_1":[4.11999989]}
+{"array_float_1":[5.11999989]}
+{"array_float_1":[6.11999989]}
+{"array_float_1":[7.11999989]}
+{"array_float_1":[8.11999989]}
+{"array_float_1":[9.11999989]}
+{"array_float_1":[10.1199999]}
+{"array_float_1":[11.1199999]}
+{"array_float_1":[12.1199999]}
+{"array_float_1":[13.1199999]}
+{"array_float_1":[14.1199999]}
+{"array_float_1":[15.1199999]}
+{"array_float_1":[16.1200008]}
+{"array_float_1":[17.1200008]}
+{"array_float_1":[18.1200008]}
+{"array_float_1":[19.1200008]}
+{"array_float_1":[20.1200008]}
+{"array_float_1":[21.1200008]}
+{"array_float_1":[22.1200008]}
+{"array_float_1":[23.1200008]}
+{"array_float_1":[24.1200008]}
+{"array_float_1":[25.1200008]}
+{"array_double_1":[1.1200000000000001]}
+{"array_double_1":[2.1200000000000001]}
+{"array_double_1":[3.1200000000000001]}
+{"array_double_1":[4.1200000000000001]}
+{"array_double_1":[5.1200000000000001]}
+{"array_double_1":[6.1200000000000001]}
+{"array_double_1":[7.1200000000000001]}
+{"array_double_1":[8.1199999999999992]}
+{"array_double_1":[9.1199999999999992]}
+{"array_double_1":[10.119999999999999]}
+{"array_double_1":[11.119999999999999]}
+{"array_double_1":[12.119999999999999]}
+{"array_double_1":[13.119999999999999]}
+{"array_double_1":[14.119999999999999]}
+{"array_double_1":[15.119999999999999]}
+{"array_double_1":[16.120000000000001]}
+{"array_double_1":[17.120000000000001]}
+{"array_double_1":[18.120000000000001]}
+{"array_double_1":[19.120000000000001]}
+{"array_double_1":[20.120000000000001]}
+{"array_double_1":[21.120000000000001]}
+{"array_double_1":[22.120000000000001]}
+{"array_double_1":[23.120000000000001]}
+{"array_double_1":[24.120000000000001]}
+{"array_double_1":[25.120000000000001]}
+{"array_double_1":[26.120000000000001]}
 {"array_decimal32_1":[1.12]}
 {"array_decimal32_1":[2.12]}
 {"array_decimal32_1":[3.12]}
@@ -6480,7 +6480,7 @@ var	variant<'boolean_*':boolean,'tinyint_*':tinyint,'smallint_*':smallint,'int_*
 var.array_date_1	array<date>	Yes	false	\N	NONE
 
 -- !sql --
-{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
+{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.1200000000000001],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.1200000000000001,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
 {"other_1":"1"}
 {"tinyint_1":1}
 {"tinyint_1":2}
@@ -6518,22 +6518,22 @@ var.array_date_1	array<date>	Yes	false	\N	NONE
 {"string_1":"7"}
 {"string_1":"8"}
 {"float_1":1.12}
-{"float_1":2.12}
-{"float_1":3.12}
-{"float_1":4.12}
-{"float_1":5.12}
-{"float_1":6.12}
-{"float_1":7.12}
-{"float_1":8.12}
-{"double_1":1.12}
-{"double_1":2.12}
-{"double_1":3.12}
-{"double_1":4.12}
-{"double_1":5.12}
-{"double_1":6.12}
-{"double_1":7.12}
-{"double_1":8.119999999999999}
-{"double_1":9.119999999999999}
+{"float_1":2.11999989}
+{"float_1":3.11999989}
+{"float_1":4.11999989}
+{"float_1":5.11999989}
+{"float_1":6.11999989}
+{"float_1":7.11999989}
+{"float_1":8.11999989}
+{"double_1":1.1200000000000001}
+{"double_1":2.1200000000000001}
+{"double_1":3.1200000000000001}
+{"double_1":4.1200000000000001}
+{"double_1":5.1200000000000001}
+{"double_1":6.1200000000000001}
+{"double_1":7.1200000000000001}
+{"double_1":8.1199999999999992}
+{"double_1":9.1199999999999992}
 {"decimal32_1":1.12}
 {"decimal32_1":2.12}
 {"decimal32_1":3.12}
@@ -6802,56 +6802,56 @@ var.array_date_1	array<date>	Yes	false	\N	NONE
 {"array_string_1":["23"]}
 {"array_string_1":["24"]}
 {"array_float_1":[1.12]}
-{"array_float_1":[2.12]}
-{"array_float_1":[3.12]}
-{"array_float_1":[4.12]}
-{"array_float_1":[5.12]}
-{"array_float_1":[6.12]}
-{"array_float_1":[7.12]}
-{"array_float_1":[8.12]}
-{"array_float_1":[9.12]}
-{"array_float_1":[10.12]}
-{"array_float_1":[11.12]}
-{"array_float_1":[12.12]}
-{"array_float_1":[13.12]}
-{"array_float_1":[14.12]}
-{"array_float_1":[15.12]}
-{"array_float_1":[16.12]}
-{"array_float_1":[17.12]}
-{"array_float_1":[18.12]}
-{"array_float_1":[19.12]}
-{"array_float_1":[20.12]}
-{"array_float_1":[21.12]}
-{"array_float_1":[22.12]}
-{"array_float_1":[23.12]}
-{"array_float_1":[24.12]}
-{"array_float_1":[25.12]}
-{"array_double_1":[1.12]}
-{"array_double_1":[2.12]}
-{"array_double_1":[3.12]}
-{"array_double_1":[4.12]}
-{"array_double_1":[5.12]}
-{"array_double_1":[6.12]}
-{"array_double_1":[7.12]}
-{"array_double_1":[8.119999999999999]}
-{"array_double_1":[9.119999999999999]}
-{"array_double_1":[10.12]}
-{"array_double_1":[11.12]}
-{"array_double_1":[12.12]}
-{"array_double_1":[13.12]}
-{"array_double_1":[14.12]}
-{"array_double_1":[15.12]}
-{"array_double_1":[16.12]}
-{"array_double_1":[17.12]}
-{"array_double_1":[18.12]}
-{"array_double_1":[19.12]}
-{"array_double_1":[20.12]}
-{"array_double_1":[21.12]}
-{"array_double_1":[22.12]}
-{"array_double_1":[23.12]}
-{"array_double_1":[24.12]}
-{"array_double_1":[25.12]}
-{"array_double_1":[26.12]}
+{"array_float_1":[2.11999989]}
+{"array_float_1":[3.11999989]}
+{"array_float_1":[4.11999989]}
+{"array_float_1":[5.11999989]}
+{"array_float_1":[6.11999989]}
+{"array_float_1":[7.11999989]}
+{"array_float_1":[8.11999989]}
+{"array_float_1":[9.11999989]}
+{"array_float_1":[10.1199999]}
+{"array_float_1":[11.1199999]}
+{"array_float_1":[12.1199999]}
+{"array_float_1":[13.1199999]}
+{"array_float_1":[14.1199999]}
+{"array_float_1":[15.1199999]}
+{"array_float_1":[16.1200008]}
+{"array_float_1":[17.1200008]}
+{"array_float_1":[18.1200008]}
+{"array_float_1":[19.1200008]}
+{"array_float_1":[20.1200008]}
+{"array_float_1":[21.1200008]}
+{"array_float_1":[22.1200008]}
+{"array_float_1":[23.1200008]}
+{"array_float_1":[24.1200008]}
+{"array_float_1":[25.1200008]}
+{"array_double_1":[1.1200000000000001]}
+{"array_double_1":[2.1200000000000001]}
+{"array_double_1":[3.1200000000000001]}
+{"array_double_1":[4.1200000000000001]}
+{"array_double_1":[5.1200000000000001]}
+{"array_double_1":[6.1200000000000001]}
+{"array_double_1":[7.1200000000000001]}
+{"array_double_1":[8.1199999999999992]}
+{"array_double_1":[9.1199999999999992]}
+{"array_double_1":[10.119999999999999]}
+{"array_double_1":[11.119999999999999]}
+{"array_double_1":[12.119999999999999]}
+{"array_double_1":[13.119999999999999]}
+{"array_double_1":[14.119999999999999]}
+{"array_double_1":[15.119999999999999]}
+{"array_double_1":[16.120000000000001]}
+{"array_double_1":[17.120000000000001]}
+{"array_double_1":[18.120000000000001]}
+{"array_double_1":[19.120000000000001]}
+{"array_double_1":[20.120000000000001]}
+{"array_double_1":[21.120000000000001]}
+{"array_double_1":[22.120000000000001]}
+{"array_double_1":[23.120000000000001]}
+{"array_double_1":[24.120000000000001]}
+{"array_double_1":[25.120000000000001]}
+{"array_double_1":[26.120000000000001]}
 {"array_decimal32_1":[1.12]}
 {"array_decimal32_1":[2.12]}
 {"array_decimal32_1":[3.12]}
@@ -7042,7 +7042,7 @@ var	variant<'boolean_*':boolean,'tinyint_*':tinyint,'smallint_*':smallint,'int_*
 var.array_ipv4_1	array<ipv4>	Yes	false	\N	NONE
 
 -- !sql --
-{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
+{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.1200000000000001],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.1200000000000001,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
 {"other_1":"1"}
 {"tinyint_1":1}
 {"tinyint_1":2}
@@ -7080,22 +7080,22 @@ var.array_ipv4_1	array<ipv4>	Yes	false	\N	NONE
 {"string_1":"7"}
 {"string_1":"8"}
 {"float_1":1.12}
-{"float_1":2.12}
-{"float_1":3.12}
-{"float_1":4.12}
-{"float_1":5.12}
-{"float_1":6.12}
-{"float_1":7.12}
-{"float_1":8.12}
-{"double_1":1.12}
-{"double_1":2.12}
-{"double_1":3.12}
-{"double_1":4.12}
-{"double_1":5.12}
-{"double_1":6.12}
-{"double_1":7.12}
-{"double_1":8.119999999999999}
-{"double_1":9.119999999999999}
+{"float_1":2.11999989}
+{"float_1":3.11999989}
+{"float_1":4.11999989}
+{"float_1":5.11999989}
+{"float_1":6.11999989}
+{"float_1":7.11999989}
+{"float_1":8.11999989}
+{"double_1":1.1200000000000001}
+{"double_1":2.1200000000000001}
+{"double_1":3.1200000000000001}
+{"double_1":4.1200000000000001}
+{"double_1":5.1200000000000001}
+{"double_1":6.1200000000000001}
+{"double_1":7.1200000000000001}
+{"double_1":8.1199999999999992}
+{"double_1":9.1199999999999992}
 {"decimal32_1":1.12}
 {"decimal32_1":2.12}
 {"decimal32_1":3.12}
@@ -7364,56 +7364,56 @@ var.array_ipv4_1	array<ipv4>	Yes	false	\N	NONE
 {"array_string_1":["23"]}
 {"array_string_1":["24"]}
 {"array_float_1":[1.12]}
-{"array_float_1":[2.12]}
-{"array_float_1":[3.12]}
-{"array_float_1":[4.12]}
-{"array_float_1":[5.12]}
-{"array_float_1":[6.12]}
-{"array_float_1":[7.12]}
-{"array_float_1":[8.12]}
-{"array_float_1":[9.12]}
-{"array_float_1":[10.12]}
-{"array_float_1":[11.12]}
-{"array_float_1":[12.12]}
-{"array_float_1":[13.12]}
-{"array_float_1":[14.12]}
-{"array_float_1":[15.12]}
-{"array_float_1":[16.12]}
-{"array_float_1":[17.12]}
-{"array_float_1":[18.12]}
-{"array_float_1":[19.12]}
-{"array_float_1":[20.12]}
-{"array_float_1":[21.12]}
-{"array_float_1":[22.12]}
-{"array_float_1":[23.12]}
-{"array_float_1":[24.12]}
-{"array_float_1":[25.12]}
-{"array_double_1":[1.12]}
-{"array_double_1":[2.12]}
-{"array_double_1":[3.12]}
-{"array_double_1":[4.12]}
-{"array_double_1":[5.12]}
-{"array_double_1":[6.12]}
-{"array_double_1":[7.12]}
-{"array_double_1":[8.119999999999999]}
-{"array_double_1":[9.119999999999999]}
-{"array_double_1":[10.12]}
-{"array_double_1":[11.12]}
-{"array_double_1":[12.12]}
-{"array_double_1":[13.12]}
-{"array_double_1":[14.12]}
-{"array_double_1":[15.12]}
-{"array_double_1":[16.12]}
-{"array_double_1":[17.12]}
-{"array_double_1":[18.12]}
-{"array_double_1":[19.12]}
-{"array_double_1":[20.12]}
-{"array_double_1":[21.12]}
-{"array_double_1":[22.12]}
-{"array_double_1":[23.12]}
-{"array_double_1":[24.12]}
-{"array_double_1":[25.12]}
-{"array_double_1":[26.12]}
+{"array_float_1":[2.11999989]}
+{"array_float_1":[3.11999989]}
+{"array_float_1":[4.11999989]}
+{"array_float_1":[5.11999989]}
+{"array_float_1":[6.11999989]}
+{"array_float_1":[7.11999989]}
+{"array_float_1":[8.11999989]}
+{"array_float_1":[9.11999989]}
+{"array_float_1":[10.1199999]}
+{"array_float_1":[11.1199999]}
+{"array_float_1":[12.1199999]}
+{"array_float_1":[13.1199999]}
+{"array_float_1":[14.1199999]}
+{"array_float_1":[15.1199999]}
+{"array_float_1":[16.1200008]}
+{"array_float_1":[17.1200008]}
+{"array_float_1":[18.1200008]}
+{"array_float_1":[19.1200008]}
+{"array_float_1":[20.1200008]}
+{"array_float_1":[21.1200008]}
+{"array_float_1":[22.1200008]}
+{"array_float_1":[23.1200008]}
+{"array_float_1":[24.1200008]}
+{"array_float_1":[25.1200008]}
+{"array_double_1":[1.1200000000000001]}
+{"array_double_1":[2.1200000000000001]}
+{"array_double_1":[3.1200000000000001]}
+{"array_double_1":[4.1200000000000001]}
+{"array_double_1":[5.1200000000000001]}
+{"array_double_1":[6.1200000000000001]}
+{"array_double_1":[7.1200000000000001]}
+{"array_double_1":[8.1199999999999992]}
+{"array_double_1":[9.1199999999999992]}
+{"array_double_1":[10.119999999999999]}
+{"array_double_1":[11.119999999999999]}
+{"array_double_1":[12.119999999999999]}
+{"array_double_1":[13.119999999999999]}
+{"array_double_1":[14.119999999999999]}
+{"array_double_1":[15.119999999999999]}
+{"array_double_1":[16.120000000000001]}
+{"array_double_1":[17.120000000000001]}
+{"array_double_1":[18.120000000000001]}
+{"array_double_1":[19.120000000000001]}
+{"array_double_1":[20.120000000000001]}
+{"array_double_1":[21.120000000000001]}
+{"array_double_1":[22.120000000000001]}
+{"array_double_1":[23.120000000000001]}
+{"array_double_1":[24.120000000000001]}
+{"array_double_1":[25.120000000000001]}
+{"array_double_1":[26.120000000000001]}
 {"array_decimal32_1":[1.12]}
 {"array_decimal32_1":[2.12]}
 {"array_decimal32_1":[3.12]}
@@ -7637,7 +7637,7 @@ var	variant<'boolean_*':boolean,'tinyint_*':tinyint,'smallint_*':smallint,'int_*
 var.array_ipv6_1	array<ipv6>	Yes	false	\N	NONE
 
 -- !sql --
-{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
+{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.1200000000000001],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.1200000000000001,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
 {"other_1":"1"}
 {"tinyint_1":1}
 {"tinyint_1":2}
@@ -7675,22 +7675,22 @@ var.array_ipv6_1	array<ipv6>	Yes	false	\N	NONE
 {"string_1":"7"}
 {"string_1":"8"}
 {"float_1":1.12}
-{"float_1":2.12}
-{"float_1":3.12}
-{"float_1":4.12}
-{"float_1":5.12}
-{"float_1":6.12}
-{"float_1":7.12}
-{"float_1":8.12}
-{"double_1":1.12}
-{"double_1":2.12}
-{"double_1":3.12}
-{"double_1":4.12}
-{"double_1":5.12}
-{"double_1":6.12}
-{"double_1":7.12}
-{"double_1":8.119999999999999}
-{"double_1":9.119999999999999}
+{"float_1":2.11999989}
+{"float_1":3.11999989}
+{"float_1":4.11999989}
+{"float_1":5.11999989}
+{"float_1":6.11999989}
+{"float_1":7.11999989}
+{"float_1":8.11999989}
+{"double_1":1.1200000000000001}
+{"double_1":2.1200000000000001}
+{"double_1":3.1200000000000001}
+{"double_1":4.1200000000000001}
+{"double_1":5.1200000000000001}
+{"double_1":6.1200000000000001}
+{"double_1":7.1200000000000001}
+{"double_1":8.1199999999999992}
+{"double_1":9.1199999999999992}
 {"decimal32_1":1.12}
 {"decimal32_1":2.12}
 {"decimal32_1":3.12}
@@ -7959,56 +7959,56 @@ var.array_ipv6_1	array<ipv6>	Yes	false	\N	NONE
 {"array_string_1":["23"]}
 {"array_string_1":["24"]}
 {"array_float_1":[1.12]}
-{"array_float_1":[2.12]}
-{"array_float_1":[3.12]}
-{"array_float_1":[4.12]}
-{"array_float_1":[5.12]}
-{"array_float_1":[6.12]}
-{"array_float_1":[7.12]}
-{"array_float_1":[8.12]}
-{"array_float_1":[9.12]}
-{"array_float_1":[10.12]}
-{"array_float_1":[11.12]}
-{"array_float_1":[12.12]}
-{"array_float_1":[13.12]}
-{"array_float_1":[14.12]}
-{"array_float_1":[15.12]}
-{"array_float_1":[16.12]}
-{"array_float_1":[17.12]}
-{"array_float_1":[18.12]}
-{"array_float_1":[19.12]}
-{"array_float_1":[20.12]}
-{"array_float_1":[21.12]}
-{"array_float_1":[22.12]}
-{"array_float_1":[23.12]}
-{"array_float_1":[24.12]}
-{"array_float_1":[25.12]}
-{"array_double_1":[1.12]}
-{"array_double_1":[2.12]}
-{"array_double_1":[3.12]}
-{"array_double_1":[4.12]}
-{"array_double_1":[5.12]}
-{"array_double_1":[6.12]}
-{"array_double_1":[7.12]}
-{"array_double_1":[8.119999999999999]}
-{"array_double_1":[9.119999999999999]}
-{"array_double_1":[10.12]}
-{"array_double_1":[11.12]}
-{"array_double_1":[12.12]}
-{"array_double_1":[13.12]}
-{"array_double_1":[14.12]}
-{"array_double_1":[15.12]}
-{"array_double_1":[16.12]}
-{"array_double_1":[17.12]}
-{"array_double_1":[18.12]}
-{"array_double_1":[19.12]}
-{"array_double_1":[20.12]}
-{"array_double_1":[21.12]}
-{"array_double_1":[22.12]}
-{"array_double_1":[23.12]}
-{"array_double_1":[24.12]}
-{"array_double_1":[25.12]}
-{"array_double_1":[26.12]}
+{"array_float_1":[2.11999989]}
+{"array_float_1":[3.11999989]}
+{"array_float_1":[4.11999989]}
+{"array_float_1":[5.11999989]}
+{"array_float_1":[6.11999989]}
+{"array_float_1":[7.11999989]}
+{"array_float_1":[8.11999989]}
+{"array_float_1":[9.11999989]}
+{"array_float_1":[10.1199999]}
+{"array_float_1":[11.1199999]}
+{"array_float_1":[12.1199999]}
+{"array_float_1":[13.1199999]}
+{"array_float_1":[14.1199999]}
+{"array_float_1":[15.1199999]}
+{"array_float_1":[16.1200008]}
+{"array_float_1":[17.1200008]}
+{"array_float_1":[18.1200008]}
+{"array_float_1":[19.1200008]}
+{"array_float_1":[20.1200008]}
+{"array_float_1":[21.1200008]}
+{"array_float_1":[22.1200008]}
+{"array_float_1":[23.1200008]}
+{"array_float_1":[24.1200008]}
+{"array_float_1":[25.1200008]}
+{"array_double_1":[1.1200000000000001]}
+{"array_double_1":[2.1200000000000001]}
+{"array_double_1":[3.1200000000000001]}
+{"array_double_1":[4.1200000000000001]}
+{"array_double_1":[5.1200000000000001]}
+{"array_double_1":[6.1200000000000001]}
+{"array_double_1":[7.1200000000000001]}
+{"array_double_1":[8.1199999999999992]}
+{"array_double_1":[9.1199999999999992]}
+{"array_double_1":[10.119999999999999]}
+{"array_double_1":[11.119999999999999]}
+{"array_double_1":[12.119999999999999]}
+{"array_double_1":[13.119999999999999]}
+{"array_double_1":[14.119999999999999]}
+{"array_double_1":[15.119999999999999]}
+{"array_double_1":[16.120000000000001]}
+{"array_double_1":[17.120000000000001]}
+{"array_double_1":[18.120000000000001]}
+{"array_double_1":[19.120000000000001]}
+{"array_double_1":[20.120000000000001]}
+{"array_double_1":[21.120000000000001]}
+{"array_double_1":[22.120000000000001]}
+{"array_double_1":[23.120000000000001]}
+{"array_double_1":[24.120000000000001]}
+{"array_double_1":[25.120000000000001]}
+{"array_double_1":[26.120000000000001]}
 {"array_decimal32_1":[1.12]}
 {"array_decimal32_1":[2.12]}
 {"array_decimal32_1":[3.12]}
@@ -8266,7 +8266,7 @@ var	variant<'boolean_*':boolean,'tinyint_*':tinyint,'smallint_*':smallint,'int_*
 var.other_1	text	Yes	false	\N	NONE
 
 -- !sql --
-{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
+{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.1200000000000001],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.1200000000000001,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
 {"other_1":"1"}
 {"tinyint_1":1}
 {"tinyint_1":2}
@@ -8304,22 +8304,22 @@ var.other_1	text	Yes	false	\N	NONE
 {"string_1":"7"}
 {"string_1":"8"}
 {"float_1":1.12}
-{"float_1":2.12}
-{"float_1":3.12}
-{"float_1":4.12}
-{"float_1":5.12}
-{"float_1":6.12}
-{"float_1":7.12}
-{"float_1":8.12}
-{"double_1":1.12}
-{"double_1":2.12}
-{"double_1":3.12}
-{"double_1":4.12}
-{"double_1":5.12}
-{"double_1":6.12}
-{"double_1":7.12}
-{"double_1":8.119999999999999}
-{"double_1":9.119999999999999}
+{"float_1":2.11999989}
+{"float_1":3.11999989}
+{"float_1":4.11999989}
+{"float_1":5.11999989}
+{"float_1":6.11999989}
+{"float_1":7.11999989}
+{"float_1":8.11999989}
+{"double_1":1.1200000000000001}
+{"double_1":2.1200000000000001}
+{"double_1":3.1200000000000001}
+{"double_1":4.1200000000000001}
+{"double_1":5.1200000000000001}
+{"double_1":6.1200000000000001}
+{"double_1":7.1200000000000001}
+{"double_1":8.1199999999999992}
+{"double_1":9.1199999999999992}
 {"decimal32_1":1.12}
 {"decimal32_1":2.12}
 {"decimal32_1":3.12}
@@ -8588,56 +8588,56 @@ var.other_1	text	Yes	false	\N	NONE
 {"array_string_1":["23"]}
 {"array_string_1":["24"]}
 {"array_float_1":[1.12]}
-{"array_float_1":[2.12]}
-{"array_float_1":[3.12]}
-{"array_float_1":[4.12]}
-{"array_float_1":[5.12]}
-{"array_float_1":[6.12]}
-{"array_float_1":[7.12]}
-{"array_float_1":[8.12]}
-{"array_float_1":[9.12]}
-{"array_float_1":[10.12]}
-{"array_float_1":[11.12]}
-{"array_float_1":[12.12]}
-{"array_float_1":[13.12]}
-{"array_float_1":[14.12]}
-{"array_float_1":[15.12]}
-{"array_float_1":[16.12]}
-{"array_float_1":[17.12]}
-{"array_float_1":[18.12]}
-{"array_float_1":[19.12]}
-{"array_float_1":[20.12]}
-{"array_float_1":[21.12]}
-{"array_float_1":[22.12]}
-{"array_float_1":[23.12]}
-{"array_float_1":[24.12]}
-{"array_float_1":[25.12]}
-{"array_double_1":[1.12]}
-{"array_double_1":[2.12]}
-{"array_double_1":[3.12]}
-{"array_double_1":[4.12]}
-{"array_double_1":[5.12]}
-{"array_double_1":[6.12]}
-{"array_double_1":[7.12]}
-{"array_double_1":[8.119999999999999]}
-{"array_double_1":[9.119999999999999]}
-{"array_double_1":[10.12]}
-{"array_double_1":[11.12]}
-{"array_double_1":[12.12]}
-{"array_double_1":[13.12]}
-{"array_double_1":[14.12]}
-{"array_double_1":[15.12]}
-{"array_double_1":[16.12]}
-{"array_double_1":[17.12]}
-{"array_double_1":[18.12]}
-{"array_double_1":[19.12]}
-{"array_double_1":[20.12]}
-{"array_double_1":[21.12]}
-{"array_double_1":[22.12]}
-{"array_double_1":[23.12]}
-{"array_double_1":[24.12]}
-{"array_double_1":[25.12]}
-{"array_double_1":[26.12]}
+{"array_float_1":[2.11999989]}
+{"array_float_1":[3.11999989]}
+{"array_float_1":[4.11999989]}
+{"array_float_1":[5.11999989]}
+{"array_float_1":[6.11999989]}
+{"array_float_1":[7.11999989]}
+{"array_float_1":[8.11999989]}
+{"array_float_1":[9.11999989]}
+{"array_float_1":[10.1199999]}
+{"array_float_1":[11.1199999]}
+{"array_float_1":[12.1199999]}
+{"array_float_1":[13.1199999]}
+{"array_float_1":[14.1199999]}
+{"array_float_1":[15.1199999]}
+{"array_float_1":[16.1200008]}
+{"array_float_1":[17.1200008]}
+{"array_float_1":[18.1200008]}
+{"array_float_1":[19.1200008]}
+{"array_float_1":[20.1200008]}
+{"array_float_1":[21.1200008]}
+{"array_float_1":[22.1200008]}
+{"array_float_1":[23.1200008]}
+{"array_float_1":[24.1200008]}
+{"array_float_1":[25.1200008]}
+{"array_double_1":[1.1200000000000001]}
+{"array_double_1":[2.1200000000000001]}
+{"array_double_1":[3.1200000000000001]}
+{"array_double_1":[4.1200000000000001]}
+{"array_double_1":[5.1200000000000001]}
+{"array_double_1":[6.1200000000000001]}
+{"array_double_1":[7.1200000000000001]}
+{"array_double_1":[8.1199999999999992]}
+{"array_double_1":[9.1199999999999992]}
+{"array_double_1":[10.119999999999999]}
+{"array_double_1":[11.119999999999999]}
+{"array_double_1":[12.119999999999999]}
+{"array_double_1":[13.119999999999999]}
+{"array_double_1":[14.119999999999999]}
+{"array_double_1":[15.119999999999999]}
+{"array_double_1":[16.120000000000001]}
+{"array_double_1":[17.120000000000001]}
+{"array_double_1":[18.120000000000001]}
+{"array_double_1":[19.120000000000001]}
+{"array_double_1":[20.120000000000001]}
+{"array_double_1":[21.120000000000001]}
+{"array_double_1":[22.120000000000001]}
+{"array_double_1":[23.120000000000001]}
+{"array_double_1":[24.120000000000001]}
+{"array_double_1":[25.120000000000001]}
+{"array_double_1":[26.120000000000001]}
 {"array_decimal32_1":[1.12]}
 {"array_decimal32_1":[2.12]}
 {"array_decimal32_1":[3.12]}

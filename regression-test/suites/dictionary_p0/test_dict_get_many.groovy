@@ -31,7 +31,7 @@ suite("test_dict_get_many") {
         properties("replication_num" = "1");
     """
     sql """insert into multi_key_table values(1, 'abc', 1.1, 'def');""" 
-    sql """insert into multi_key_table values(2, 'ABC', 2.1, 'DEF');"""    
+    sql """insert into multi_key_table values(2, 'ABC', 2.5, 'DEF');"""
 
     sql """
         create dictionary single_key_dict using multi_key_table
