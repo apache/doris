@@ -128,8 +128,7 @@ Status EnginePublishVersionTask::execute() {
         }
         if (should_spin_wait) {
             auto token = dp->param<std::string>("token", "invalid_token");
-            while (DebugPoints::instance()->is_enable(
-                    "EnginePublishVersionTask::execute.block")) {
+            while (DebugPoints::instance()->is_enable("EnginePublishVersionTask::execute.block")) {
                 auto block_dp = DebugPoints::instance()->get_debug_point(
                         "EnginePublishVersionTask::execute.block");
                 if (block_dp) {
