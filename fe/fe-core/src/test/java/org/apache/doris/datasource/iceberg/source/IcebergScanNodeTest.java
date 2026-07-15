@@ -22,10 +22,13 @@ import org.apache.doris.analysis.TupleId;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.TableFormatType;
+import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.datasource.iceberg.IcebergSysExternalTable;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.system.Backend;
+import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TIcebergDeleteFileDesc;
 
@@ -37,6 +40,7 @@ import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.TableScan;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.util.ScanTaskUtil;
@@ -140,6 +144,81 @@ public class IcebergScanNodeTest {
 
         Assert.assertEquals(Collections.singletonMap(7, "AAEC/w=="), defaults);
         Mockito.verify(node, Mockito.never()).createTableScan();
+    }
+
+    @Test
+    public void testPositionDeletesSystemTableUsesPerRangeFileFormat() throws Exception {
+        TestIcebergScanNode node = new TestIcebergScanNode(new SessionVariable());
+        IcebergSource source = Mockito.mock(IcebergSource.class);
+        IcebergSysExternalTable systemTable = Mockito.mock(IcebergSysExternalTable.class);
+        IcebergExternalTable sourceTable = Mockito.mock(IcebergExternalTable.class);
+        Table sourceIcebergTable = Mockito.mock(Table.class);
+        Mockito.when(source.getTargetTable()).thenReturn(systemTable);
+        Mockito.when(systemTable.getSourceTable()).thenReturn(sourceTable);
+        Mockito.when(sourceTable.getIcebergTable()).thenReturn(sourceIcebergTable);
+        Mockito.when(sourceIcebergTable.properties()).thenReturn(Collections.singletonMap(
+                TableProperties.DEFAULT_FILE_FORMAT, "parquet"));
+
+        Field sourceField = IcebergScanNode.class.getDeclaredField("source");
+        sourceField.setAccessible(true);
+        sourceField.set(node, source);
+        Field isSystemTableField = IcebergScanNode.class.getDeclaredField("isSystemTable");
+        isSystemTableField.setAccessible(true);
+        isSystemTableField.setBoolean(node, true);
+
+        Mockito.when(systemTable.getSysTableType()).thenReturn("position_deletes");
+        Assert.assertEquals(TFileFormatType.FORMAT_PARQUET, node.getFileFormatType());
+        Assert.assertEquals(TFileFormatType.FORMAT_PARQUET, node.getFileFormatType());
+        Mockito.verify(sourceIcebergTable, Mockito.times(1)).properties();
+        Mockito.verify(source, Mockito.never()).getFileFormat();
+
+        Mockito.when(sourceIcebergTable.properties()).thenReturn(Collections.singletonMap(
+                TableProperties.DELETE_DEFAULT_FILE_FORMAT, "orc"));
+        TestIcebergScanNode orcNode = new TestIcebergScanNode(new SessionVariable());
+        sourceField.set(orcNode, source);
+        isSystemTableField.setBoolean(orcNode, true);
+        Assert.assertEquals(TFileFormatType.FORMAT_ORC, orcNode.getFileFormatType());
+
+        Mockito.when(sourceIcebergTable.properties()).thenReturn(Collections.singletonMap(
+                TableProperties.DELETE_DEFAULT_FILE_FORMAT, "avro"));
+        TestIcebergScanNode avroNode = new TestIcebergScanNode(new SessionVariable());
+        sourceField.set(avroNode, source);
+        isSystemTableField.setBoolean(avroNode, true);
+        Assert.assertEquals(TFileFormatType.FORMAT_AVRO, avroNode.getFileFormatType());
+
+        // Puffin is used for V3 deletion vectors, but it is not a supported
+        // write.delete.format.default value and must not become a scan-wide physical format.
+        Mockito.when(sourceIcebergTable.properties()).thenReturn(Collections.singletonMap(
+                TableProperties.DELETE_DEFAULT_FILE_FORMAT, "puffin"));
+        TestIcebergScanNode puffinNode = new TestIcebergScanNode(new SessionVariable());
+        sourceField.set(puffinNode, source);
+        isSystemTableField.setBoolean(puffinNode, true);
+        Assert.assertEquals(TFileFormatType.FORMAT_UNKNOWN, puffinNode.getFileFormatType());
+
+        Mockito.when(sourceIcebergTable.properties()).thenReturn(Collections.singletonMap(
+                TableProperties.DEFAULT_FILE_FORMAT, "parquet"));
+
+        Mockito.when(systemTable.getSysTableType()).thenReturn("snapshots");
+        Assert.assertEquals(TFileFormatType.FORMAT_JNI, node.getFileFormatType());
+
+        String deletePath = "file:///tmp/position-delete.orc";
+        IcebergSplit split = IcebergSplit.newPositionDeleteSysTableSplit(
+                LocationPath.of(deletePath), 0, 128, 128, Collections.emptyMap(), deletePath);
+        split.setTableFormatType(TableFormatType.ICEBERG);
+        // The table default is Parquet, but this range must still use its actual ORC format.
+        split.setPositionDeleteFileFormat(TFileFormatType.FORMAT_ORC);
+        split.setPositionDeleteOriginalPath(deletePath);
+
+        TFileRangeDesc rangeDesc = new TFileRangeDesc();
+        rangeDesc.setPath(deletePath);
+        Method setIcebergParams = IcebergScanNode.class.getDeclaredMethod(
+                "setIcebergParams", TFileRangeDesc.class, IcebergSplit.class);
+        setIcebergParams.setAccessible(true);
+        setIcebergParams.invoke(node, rangeDesc, split);
+
+        Assert.assertEquals(TFileFormatType.FORMAT_ORC, rangeDesc.getFormatType());
+        Assert.assertEquals(TFileFormatType.FORMAT_ORC, rangeDesc.getTableFormatParams()
+                .getIcebergParams().getDeleteFiles().get(0).getFileFormat());
     }
 
     @Test

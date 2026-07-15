@@ -175,6 +175,7 @@ public class IcebergScanNode extends FileQueryScanNode {
 
     private Boolean isBatchMode = null;
     private boolean isSystemTable = false;
+    private TFileFormatType positionDeleteScanFileFormatType;
 
     // ReferencedDataFile path -> List<DeleteFile> / List<TIcebergDeleteFileDesc> (exclude equal delete)
     public Map<String, List<DeleteFile>> deleteFilesByReferencedDataFile = new HashMap<>();
@@ -1365,10 +1366,13 @@ public class IcebergScanNode extends FileQueryScanNode {
     @Override
     public TFileFormatType getFileFormatType() throws UserException {
         if (isSystemTable) {
+            if (isPositionDeletesSystemTable()) {
+                return getPositionDeleteScanFileFormatType();
+            }
             return TFileFormatType.FORMAT_JNI;
         }
-        TFileFormatType type;
         String icebergFormat = source.getFileFormat();
+        TFileFormatType type;
         if (icebergFormat.equalsIgnoreCase("parquet")) {
             type = TFileFormatType.FORMAT_PARQUET;
         } else if (icebergFormat.equalsIgnoreCase("orc")) {
@@ -1377,6 +1381,36 @@ public class IcebergScanNode extends FileQueryScanNode {
             throw new DdlException(String.format("Unsupported format name: %s for iceberg table.", icebergFormat));
         }
         return type;
+    }
+
+    private TFileFormatType getPositionDeleteScanFileFormatType() {
+        if (positionDeleteScanFileFormatType != null) {
+            return positionDeleteScanFileFormatType;
+        }
+        IcebergSysExternalTable systemTable = (IcebergSysExternalTable) source.getTargetTable();
+        Table sourceIcebergTable = systemTable.getSourceTable().getIcebergTable();
+        // This is only the scan-level routing hint. Each range is overwritten with the
+        // actual delete file format in setIcebergPositionDeleteSysTableParams.
+        FileFormat fileFormat = IcebergUtils.getDefaultDeleteFileFormat(sourceIcebergTable);
+        switch (fileFormat) {
+            case PARQUET:
+                positionDeleteScanFileFormatType = TFileFormatType.FORMAT_PARQUET;
+                break;
+            case ORC:
+                positionDeleteScanFileFormatType = TFileFormatType.FORMAT_ORC;
+                break;
+            case AVRO:
+                // This is only a routing hint. Actual Avro position delete files remain unsupported
+                // and are rejected when their ranges are created.
+                positionDeleteScanFileFormatType = TFileFormatType.FORMAT_AVRO;
+                break;
+            default:
+                // write.delete.format.default supports Parquet, Avro, and ORC. Other Iceberg file
+                // formats do not provide a scan-wide physical format, so let each range decide.
+                positionDeleteScanFileFormatType = TFileFormatType.FORMAT_UNKNOWN;
+                break;
+        }
+        return positionDeleteScanFileFormatType;
     }
 
     @Override
