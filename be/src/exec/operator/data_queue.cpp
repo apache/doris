@@ -188,7 +188,9 @@ Result<DataQueueBlock> DataQueue::get_block_from_queue() {
         break;
     }
 
-    result.eos = !has_more_data() && is_all_finish();
+    // A producer enqueues its final block before marking the child finished. Observe completion
+    // first, then recheck queued data to avoid reporting EOS while the final block is still queued.
+    result.eos = is_all_finish() && !has_more_data();
     return result;
 }
 
