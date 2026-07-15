@@ -24,6 +24,7 @@
 #include <stdint.h>
 
 #include <functional>
+#include <list>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -57,6 +58,10 @@ class TabletManager {
 public:
     TabletManager(StorageEngine& engine, int32_t tablet_map_lock_shard_size);
     ~TabletManager();
+
+#ifdef BE_TEST
+    friend class TabletMgrTest;
+#endif
 
     bool check_tablet_id_exist(TTabletId tablet_id);
 
@@ -182,6 +187,21 @@ public:
                                              uint64_t* max_base_rowset_delete_bitmap_score);
 
 private:
+    using ShutdownTabletIter = std::list<TabletSharedPtr>::iterator;
+
+    struct FetchResult {
+        std::vector<TabletSharedPtr> tablets;
+        int scanned_count = 0;
+        bool reached_end = false;
+    };
+
+    struct RoundResult {
+        int moved_count = 0;
+        int failed_count = 0;
+        int64_t elapsed_ms = 0;
+        bool need_continue = false;
+    };
+
     // Add a tablet pointer to StorageEngine
     // If force, drop the existing tablet add this new one
     //
@@ -224,6 +244,32 @@ private:
     void _remove_tablet_from_partition(const TabletSharedPtr& tablet);
 
     std::shared_mutex& _get_tablets_shard_lock(TTabletId tabletId);
+
+    // Fetch a bounded batch of shutdown tablets while limiting lock hold time.
+    FetchResult _fetch_shutdown_tablets(ShutdownTabletIter& last_it, int max_to_fetch,
+                                        int scan_chunk);
+
+    // Delete one round of shutdown tablets under the configured success budget.
+    RoundResult _delete_shutdown_tablets_one_round(
+            ShutdownTabletIter& last_it, std::list<TabletSharedPtr>& failed_tablets,
+            const std::function<bool(const TabletSharedPtr&)>& move_tablet, int round_budget,
+            int fetch_chunk, int scan_chunk);
+
+    // Sweep shutdown tablets with round-based throttling and retry preservation.
+    Status _sweep_shutdown_tablets(const std::function<bool(const TabletSharedPtr&)>& move_tablet,
+                                   const std::function<void(int)>& wait_next_round);
+
+    // Add a tablet to the shutdown cleanup backlog.
+    void _enqueue_shutdown_tablet(const TabletSharedPtr& tablet);
+
+    // Adjust the shutdown backlog metric by delta for queue lifecycle changes.
+    void _adjust_shutdown_tablet_backlog(int64_t delta);
+
+#ifdef BE_TEST
+    // Read shutdown sweep metric values for test isolation.
+    int64_t _shutdown_tablet_backlog_value() const;
+    int64_t _shutdown_tablet_last_sweep_ms_value() const;
+#endif
 
     bool _move_tablet_to_trash(const TabletSharedPtr& tablet);
 

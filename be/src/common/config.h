@@ -457,6 +457,13 @@ DECLARE_mInt32(snapshot_expire_time_sec);
 // It is only a recommended value. When the disk space is insufficient,
 // the file storage period under trash dose not have to comply with this parameter.
 DECLARE_mInt32(trash_file_expire_time_sec);
+// BE-only dynamic config. It limits how many shutdown tablets can be moved to trash in one
+// sweep round. Values less than 1 fall back to the historical limit of 200 at the use site.
+DECLARE_mInt32(shutdown_tablet_sweep_round_budget);
+// BE-only dynamic config. It controls the sleep interval in milliseconds between shutdown
+// tablet sweep rounds. A value of 0 skips the inter-round wait. Negative values fall back to the
+// historical 1000 ms interval at the use site.
+DECLARE_mInt32(shutdown_tablet_sweep_interval_ms);
 // minimum file descriptor number
 // modify them upon necessity
 DECLARE_Int32(min_file_descriptor_number);
