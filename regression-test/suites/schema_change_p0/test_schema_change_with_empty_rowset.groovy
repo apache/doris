@@ -43,13 +43,27 @@ suite("test_schema_change_with_empty_rowset", "p0,nonConcurrent") {
             def (code, out, err) = be_run_cumulative_compaction(host, port, tablet.TabletId)
             assert code == 0: "trigger cumulative compaction failed, tablet=${tablet.TabletId}, " +
                     "code=${code}, stdout=${out}, stderr=${err}"
+            def triggerStatus = parseJson(out.trim())
+            assert triggerStatus.status?.equalsIgnoreCase("Success"):
+                    "trigger cumulative compaction failed, tablet=${tablet.TabletId}, stdout=${out}"
         }
 
+        // The rowsets returned by the BE are the active versions used by its load admission check.
         Awaitility.await().atMost(300, TimeUnit.SECONDS).pollInterval(1, TimeUnit.SECONDS).until {
-            def currentTablets = sql_return_maparray """ SHOW TABLETS FROM ${tbl} """
-            def versionCounts = currentTablets.collect { it.VersionCount.toInteger() }
-            logger.info("waiting for ${tbl} version count <= ${targetVersionCount}, current=${versionCounts}")
-            return versionCounts.every { it <= targetVersionCount }
+            def versionCounts = [:]
+            for (def tablet in tablets) {
+                def host = backendIdToHost["${tablet.BackendId}"]
+                def port = backendIdToHttpPort["${tablet.BackendId}"]
+                def (code, out, err) = be_show_tablet_status(host, port, tablet.TabletId)
+                assert code == 0: "get compaction status failed, tablet=${tablet.TabletId}, " +
+                        "code=${code}, stdout=${out}, stderr=${err}"
+                def tabletStatus = parseJson(out.trim())
+                assert tabletStatus.rowsets instanceof List:
+                        "invalid compaction status, tablet=${tablet.TabletId}, stdout=${out}"
+                versionCounts[tablet.TabletId] = tabletStatus.rowsets.size()
+            }
+            logger.info("waiting for ${tbl} BE version count <= ${targetVersionCount}, current=${versionCounts}")
+            return versionCounts.values().every { it <= targetVersionCount }
         }
     }
 
