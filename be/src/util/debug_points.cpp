@@ -34,6 +34,16 @@ bool DebugPoints::is_enable(const std::string& name) {
 }
 
 std::shared_ptr<DebugPoint> DebugPoints::get_debug_point(const std::string& name) {
+    return get_debug_point_impl(name, nullptr);
+}
+
+std::shared_ptr<DebugPoint> DebugPoints::get_debug_point_if(
+        const std::string& name, const DebugPointPredicate& predicate) {
+    return get_debug_point_impl(name, &predicate);
+}
+
+std::shared_ptr<DebugPoint> DebugPoints::get_debug_point_impl(
+        const std::string& name, const DebugPointPredicate* predicate) {
     if (!config::enable_debug_points) {
         return nullptr;
     }
@@ -44,10 +54,16 @@ std::shared_ptr<DebugPoint> DebugPoints::get_debug_point(const std::string& name
     }
 
     auto debug_point = it->second;
-    if ((debug_point->expire_ms > 0 && MonotonicMillis() >= debug_point->expire_ms) ||
-        (debug_point->execute_limit > 0 &&
-         debug_point->execute_num.fetch_add(1, std::memory_order_relaxed) >=
-                 debug_point->execute_limit)) {
+    if (debug_point->expire_ms > 0 && MonotonicMillis() >= debug_point->expire_ms) {
+        remove(name);
+        return nullptr;
+    }
+    if (predicate != nullptr && !(*predicate)(*debug_point)) {
+        return nullptr;
+    }
+    if (debug_point->execute_limit > 0 &&
+        debug_point->execute_num.fetch_add(1, std::memory_order_relaxed) >=
+                debug_point->execute_limit) {
         remove(name);
         return nullptr;
     }

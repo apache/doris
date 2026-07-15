@@ -115,18 +115,24 @@ Status EnginePublishVersionTask::execute() {
             std::this_thread::sleep_for(std::chrono::milliseconds(wait));
         }
     });
-    DBUG_EXECUTE_IF("EnginePublishVersionTask::execute.enable_spin_wait", {
-        // Scope the fault injection to one partition when requested so unrelated publish tasks
-        // are not blocked by the same process-wide debug point.
-        auto target_partition_id = dp->param<int64_t>("partition_id", -1);
-        bool should_spin_wait = target_partition_id < 0;
-        for (const auto& partition_info : _publish_version_req.partition_version_infos) {
-            if (partition_info.partition_id == target_partition_id) {
-                should_spin_wait = true;
-                break;
-            }
-        }
-        if (should_spin_wait) {
+    if (UNLIKELY(config::enable_debug_points)) {
+        auto dp = DebugPoints::instance()->get_debug_point_if(
+                "EnginePublishVersionTask::execute.enable_spin_wait",
+                [&](const DebugPoint& debug_point) {
+                    auto target_partition_id = debug_point.param<int64_t>("partition_id", -1);
+                    if (target_partition_id < 0) {
+                        return true;
+                    }
+                    for (const auto& partition_info :
+                         _publish_version_req.partition_version_infos) {
+                        if (partition_info.partition_id == target_partition_id) {
+                            return true;
+                        }
+                    }
+                    return false;
+                });
+        if (dp) {
+            // The execute limit is consumed only after the partition predicate matches.
             auto token = dp->param<std::string>("token", "invalid_token");
             while (DebugPoints::instance()->is_enable("EnginePublishVersionTask::execute.block")) {
                 auto block_dp = DebugPoints::instance()->get_debug_point(
@@ -140,7 +146,7 @@ Status EnginePublishVersionTask::execute() {
                 std::this_thread::sleep_for(std::chrono::milliseconds(50));
             }
         }
-    });
+    }
     std::unique_ptr<ThreadPoolToken> token = _engine.tablet_publish_txn_thread_pool()->new_token(
             ThreadPool::ExecutionMode::CONCURRENT);
     std::unordered_map<int64_t, int64_t> tablet_id_to_num_delta_rows;

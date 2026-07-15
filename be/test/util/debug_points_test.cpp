@@ -96,6 +96,32 @@ TEST(DebugPointsTest, AddTest) {
               DebugPoints::instance()->get_debug_param_or_default<std::string>("dbug4", ""));
 }
 
+TEST(DebugPointsTest, PredicateDoesNotConsumeExecuteLimit) {
+    config::enable_debug_points = true;
+    DebugPoints::instance()->clear();
+
+    auto debug_point = std::make_shared<DebugPoint>();
+    debug_point->execute_limit = 1;
+    debug_point->params["partition_id"] = "123";
+    DebugPoints::instance()->add("conditional", debug_point);
+
+    auto does_not_match = [](const DebugPoint& point) {
+        return point.param<int64_t>("partition_id") == 456;
+    };
+    EXPECT_EQ(nullptr,
+              DebugPoints::instance()->get_debug_point_if("conditional", does_not_match));
+    EXPECT_EQ(0, debug_point->execute_num.load());
+
+    auto matches = [](const DebugPoint& point) {
+        return point.param<int64_t>("partition_id") == 123;
+    };
+    EXPECT_NE(nullptr, DebugPoints::instance()->get_debug_point_if("conditional", matches));
+    EXPECT_EQ(1, debug_point->execute_num.load());
+    EXPECT_EQ(nullptr, DebugPoints::instance()->get_debug_point_if("conditional", matches));
+    EXPECT_EQ(2, debug_point->execute_num.load());
+    EXPECT_FALSE(DebugPoints::instance()->is_enable("conditional"));
+}
+
 void demo_callback() {
     int a = 0;
 

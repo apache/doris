@@ -47,7 +47,11 @@ suite("test_partial_update_skip_compaction", "nonConcurrent") {
     def tabletStat = sql_return_maparray("show tablets from ${table1};").get(0)
     def tabletBackendId = tabletStat.BackendId
     def tabletId = tabletStat.TabletId
-    def partitionId = tabletStat.PartitionId
+    def partitionStat = sql_return_maparray("show partitions from ${table1};").get(0)
+    def partitionIdText = partitionStat.PartitionId?.toString()
+    Assert.assertNotNull("SHOW PARTITIONS must return PartitionId", partitionIdText)
+    Assert.assertTrue("PartitionId must be numeric", partitionIdText ==~ /[0-9]+/)
+    def partitionId = Long.parseLong(partitionIdText)
     def tabletBackend;
     for (def be : beNodes) {
         if (be.BackendId == tabletBackendId) {
