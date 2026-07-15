@@ -21,6 +21,7 @@ import org.apache.doris.backup.Status;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.storage.AbstractS3CompatibleProperties;
+import org.apache.doris.fs.GlobListResult;
 import org.apache.doris.fs.remote.RemoteFile;
 
 import org.junit.jupiter.api.Assertions;
@@ -553,5 +554,56 @@ public class S3ObjStorageTest {
         // Verify that the prefix was adjusted correctly for the directory bucket.
         // "data/files*.csv" -> longest prefix is "data/files", adjusted to "data/"
         Assertions.assertEquals("data/", captor.getValue().prefix());
+    }
+
+    @Test
+    public void testGlobListPushesDownExpandedPrefixes() {
+        List<String> requestedPrefixes = new ArrayList<>();
+        Mockito.when(mockClient.listObjectsV2(Mockito.any(ListObjectsV2Request.class)))
+                .thenAnswer(invocation -> {
+                    ListObjectsV2Request request = invocation.getArgument(0);
+                    requestedPrefixes.add(request.prefix());
+                    return ListObjectsV2Response.builder()
+                            .contents(S3Object.builder()
+                                    .key(request.prefix() + "part.parquet")
+                                    .size(1L)
+                                    .lastModified(Instant.now())
+                                    .build())
+                            .isTruncated(false)
+                            .build();
+                });
+
+        List<RemoteFile> result = new ArrayList<>();
+        Status status = storage.globList(
+                "s3://bucket/data/date=2025-0[3-4]-01/*.parquet", result, false);
+
+        Assertions.assertEquals(Status.OK, status);
+        Assertions.assertEquals(List.of(
+                "data/date=2025-03-01/", "data/date=2025-04-01/"), requestedPrefixes);
+        Assertions.assertEquals(2, result.size());
+    }
+
+    @Test
+    public void testGlobListWithLimitFindsNextMatchAcrossExpandedPrefixes() {
+        Mockito.when(mockClient.listObjectsV2(Mockito.any(ListObjectsV2Request.class)))
+                .thenAnswer(invocation -> {
+                    ListObjectsV2Request request = invocation.getArgument(0);
+                    return ListObjectsV2Response.builder()
+                            .contents(S3Object.builder()
+                                    .key(request.prefix() + "part.parquet")
+                                    .size(1L)
+                                    .lastModified(Instant.now())
+                                    .build())
+                            .isTruncated(false)
+                            .build();
+                });
+
+        List<RemoteFile> result = new ArrayList<>();
+        GlobListResult globResult = storage.globListWithLimit(
+                "s3://bucket/data/date=2025-0[3-4]-01/*.parquet", result, null, -1, 1);
+
+        Assertions.assertEquals(Status.OK, globResult.getStatus());
+        Assertions.assertEquals(1, result.size());
+        Assertions.assertEquals("data/date=2025-04-01/part.parquet", globResult.getMaxFile());
     }
 }
