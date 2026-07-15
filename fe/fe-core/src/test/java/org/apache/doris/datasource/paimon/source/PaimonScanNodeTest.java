@@ -39,6 +39,7 @@ import org.apache.paimon.data.BinaryRow;
 import org.apache.paimon.io.DataFileMeta;
 import org.apache.paimon.manifest.FileSource;
 import org.apache.paimon.stats.SimpleStats;
+import org.apache.paimon.table.Table;
 import org.apache.paimon.table.source.DataSplit;
 import org.apache.paimon.table.source.RawFile;
 import org.junit.Assert;
@@ -51,6 +52,7 @@ import org.mockito.junit.MockitoJUnitRunner;
 
 import java.lang.reflect.Method;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -71,7 +73,11 @@ public class PaimonScanNodeTest {
         TupleDescriptor desc = new TupleDescriptor(new TupleId(3));
         PaimonScanNode paimonScanNode = new PaimonScanNode(new PlanNodeId(1), desc, false, sv, ScanContext.EMPTY);
 
-        paimonScanNode.setSource(new PaimonSource());
+        PaimonSource source = Mockito.spy(new PaimonSource());
+        Table paimonTable = Mockito.mock(Table.class);
+        Mockito.doReturn(paimonTable).when(source).getPaimonTable();
+        Mockito.when(paimonTable.partitionKeys()).thenReturn(Collections.emptyList());
+        paimonScanNode.setSource(source);
 
         DataFileMeta dfm1 = DataFileMeta.forAppend("f1.parquet", 64L * 1024 * 1024, 1L, SimpleStats.EMPTY_STATS,
                 1L, 1L, 1L, Collections.<String>emptyList(), null, FileSource.APPEND,
@@ -439,7 +445,6 @@ public class PaimonScanNodeTest {
 
         Mockito.when(sv.isForceJniScanner()).thenReturn(false);
         Mockito.when(sv.getIgnoreSplitType()).thenReturn("NONE");
-        Mockito.when(sv.isEnableRuntimeFilterPartitionPrune()).thenReturn(false);
         Mockito.when(sv.getMaxSplitSize()).thenReturn(maxSplitSize);
 
         Assert.assertTrue(spyPaimonScanNode.shouldForceJniForSystemTable());
@@ -518,7 +523,10 @@ public class PaimonScanNodeTest {
         PaimonScanNode node = new PaimonScanNode(new PlanNodeId(0), new TupleDescriptor(new TupleId(0)),
                 false, sv, ScanContext.EMPTY);
         PaimonSource source = Mockito.mock(PaimonSource.class);
+        Table paimonTable = Mockito.mock(Table.class);
         Mockito.when(source.getTableLocation()).thenReturn("file:///warehouse");
+        Mockito.when(source.getPaimonTable()).thenReturn(paimonTable);
+        Mockito.when(paimonTable.partitionKeys()).thenReturn(Collections.emptyList());
         node.setSource(source);
 
         Map<String, String> backendOptions = new HashMap<>();
@@ -537,6 +545,27 @@ public class PaimonScanNodeTest {
                 new Class<?>[] {TFileRangeDesc.class, PaimonSplit.class},
                 rangeDesc, new PaimonSplit(createDataSplit("scan_level.parquet")));
         Assert.assertFalse(rangeDesc.getTableFormatParams().getPaimonParams().isSetPaimonOptions());
+    }
+
+    @Test
+    public void testSetPartitionValuesBuildsAlignedMetadata() {
+        PaimonScanNode node = new PaimonScanNode(new PlanNodeId(0), new TupleDescriptor(new TupleId(0)),
+                false, sv, ScanContext.EMPTY);
+        PaimonSource source = Mockito.mock(PaimonSource.class);
+        Table paimonTable = Mockito.mock(Table.class);
+        Mockito.when(source.getPaimonTable()).thenReturn(paimonTable);
+        Mockito.when(paimonTable.partitionKeys()).thenReturn(Arrays.asList("region", "dt"));
+        node.setSource(source);
+
+        Map<String, String> partitionValues = new HashMap<>();
+        partitionValues.put("dt", null);
+        partitionValues.put("region", "cn");
+        TFileRangeDesc rangeDesc = new TFileRangeDesc();
+        node.setPartitionValues(rangeDesc, partitionValues);
+
+        Assert.assertEquals(Arrays.asList("region", "dt"), rangeDesc.getColumnsFromPathKeys());
+        Assert.assertEquals(Arrays.asList("cn", ""), rangeDesc.getColumnsFromPath());
+        Assert.assertEquals(Arrays.asList(false, true), rangeDesc.getColumnsFromPathIsNull());
     }
 
     private void mockJniReader(PaimonScanNode spyNode) {

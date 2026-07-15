@@ -75,6 +75,7 @@
 #include "format/table/paimon_jni_reader.h"
 #include "format/table/paimon_predicate_converter.h"
 #include "format/table/paimon_reader.h"
+#include "format/table/partition_column_filler.h"
 #include "format/table/remote_doris_reader.h"
 #include "format/table/transactional_hive_reader.h"
 #include "format/table/trino_connector_jni_reader.h"
@@ -357,33 +358,12 @@ Status FileScanner::_process_runtime_filters_partition_prune(bool& can_filter_al
     for (auto const& partition_col_desc : _partition_col_descs) {
         const auto& [partition_value, partition_slot_desc] = partition_col_desc.second;
         auto data_type = partition_slot_desc->get_data_type_ptr();
-        auto test_serde = data_type->get_serde();
         auto partition_value_column = data_type->create_column();
-        auto* col_ptr = static_cast<IColumn*>(partition_value_column.get());
-        Slice slice(partition_value.data(), partition_value.size());
-        uint64_t num_deserialized = 0;
-        DataTypeSerDe::FormatOptions options {};
-        if (_partition_value_is_null.contains(partition_slot_desc->col_name())) {
-            // for iceberg/paimon table
-            // NOTICE: column is always be nullable for iceberg/paimon table now
-            DCHECK(data_type->is_nullable());
-            test_serde = test_serde->get_nested_serdes()[0];
-            auto* null_column = assert_cast<ColumnNullable*>(col_ptr);
-            if (_partition_value_is_null[partition_slot_desc->col_name()]) {
-                null_column->insert_many_defaults(partition_value_column_size);
-            } else {
-                // If the partition value is not null, we set null map to 0 and deserialize it normally.
-                null_column->get_null_map_column().insert_many_vals(0, partition_value_column_size);
-                RETURN_IF_ERROR(test_serde->deserialize_column_from_fixed_json(
-                        null_column->get_nested_column(), slice, partition_value_column_size,
-                        &num_deserialized, options));
-            }
-        } else {
-            // for hive/hudi table, the null value is set as "\\N"
-            // TODO: this will be unified as iceberg/paimon table in the future
-            RETURN_IF_ERROR(test_serde->deserialize_column_from_fixed_json(
-                    *col_ptr, slice, partition_value_column_size, &num_deserialized, options));
-        }
+        auto null_it = _partition_value_is_null.find(partition_slot_desc->col_name());
+        RETURN_IF_ERROR(fill_partition_column_from_path_value(
+                *partition_value_column, *partition_slot_desc, partition_value,
+                partition_value_column_size, null_it != _partition_value_is_null.end(),
+                null_it != _partition_value_is_null.end() && null_it->second));
 
         partition_slot_id_to_column[partition_slot_desc->id()] = std::move(partition_value_column);
     }
@@ -395,20 +375,9 @@ Status FileScanner::_process_runtime_filters_partition_prune(bool& can_filter_al
     for (auto const* slot_desc : _real_tuple_desc->slots()) {
         if (partition_slot_id_to_column.find(slot_desc->id()) !=
             partition_slot_id_to_column.end()) {
-            auto data_type = slot_desc->get_data_type_ptr();
             auto partition_value_column = std::move(partition_slot_id_to_column[slot_desc->id()]);
-            if (data_type->is_nullable()) {
-                _runtime_filter_partition_prune_block.insert(
-                        index, ColumnWithTypeAndName(
-                                       ColumnNullable::create(
-                                               std::move(partition_value_column),
-                                               ColumnUInt8::create(partition_value_column_size, 0)),
-                                       data_type, slot_desc->col_name()));
-            } else {
-                _runtime_filter_partition_prune_block.insert(
-                        index, ColumnWithTypeAndName(std::move(partition_value_column), data_type,
-                                                     slot_desc->col_name()));
-            }
+            _runtime_filter_partition_prune_block.replace_by_position(
+                    index, std::move(partition_value_column));
             if (index == 0) {
                 first_column_filled = true;
             }
@@ -767,22 +736,10 @@ Status FileScanner::_fill_columns_from_path(size_t rows) {
         auto column_guard = _src_block_ptr->mutate_column_scoped(_src_block_name_to_idx[kv.first]);
         IColumn* col_ptr = column_guard.mutable_column().get();
         auto& [value, slot_desc] = kv.second;
-        auto _text_serde = slot_desc->get_data_type_ptr()->get_serde();
-        Slice slice(value.data(), value.size());
-        uint64_t num_deserialized = 0;
-        if (_text_serde->deserialize_column_from_fixed_json(*col_ptr, slice, rows,
-                                                            &num_deserialized,
-                                                            _text_formatOptions) != Status::OK()) {
-            return Status::InternalError("Failed to fill partition column: {}={}",
-                                         slot_desc->col_name(), value);
-        }
-        if (num_deserialized != rows) {
-            return Status::InternalError(
-                    "Failed to fill partition column: {}={} ."
-                    "Number of rows expected to be written : {}, number of rows actually written : "
-                    "{}",
-                    slot_desc->col_name(), value, num_deserialized, rows);
-        }
+        auto null_it = _partition_value_is_null.find(kv.first);
+        RETURN_IF_ERROR(fill_partition_column_from_path_value(
+                *col_ptr, *slot_desc, value, rows, null_it != _partition_value_is_null.end(),
+                null_it != _partition_value_is_null.end() && null_it->second, _text_formatOptions));
     }
     return Status::OK();
 }
@@ -1630,7 +1587,8 @@ Status FileScanner::_set_fill_or_truncate_columns(bool need_to_get_parsed_schema
 
     RETURN_IF_ERROR(_generate_missing_columns());
     if (_fill_partition_from_path) {
-        RETURN_IF_ERROR(_cur_reader->set_fill_columns(_partition_col_descs, _missing_col_descs));
+        RETURN_IF_ERROR(_cur_reader->set_fill_columns(_partition_col_descs, _missing_col_descs,
+                                                      _partition_value_is_null));
     } else {
         // If the partition columns are not from path, we only fill the missing columns.
         RETURN_IF_ERROR(_cur_reader->set_fill_columns({}, _missing_col_descs));
@@ -1766,12 +1724,21 @@ Status FileScanner::_generate_partition_columns() {
     _partition_value_is_null.clear();
     const TFileRangeDesc& range = _current_range;
     if (range.__isset.columns_from_path && !_partition_slot_descs.empty()) {
+        if (range.__isset.columns_from_path_is_null) {
+            DORIS_CHECK(range.columns_from_path_is_null.size() == range.columns_from_path.size());
+        }
         for (const auto& slot_desc : _partition_slot_descs) {
             if (slot_desc) {
                 auto it = _partition_slot_index_map.find(slot_desc->id());
                 if (it == std::end(_partition_slot_index_map)) {
                     return Status::InternalError("Unknown source slot descriptor, slot_id={}",
                                                  slot_desc->id());
+                }
+                if (it->second < 0 ||
+                    static_cast<size_t>(it->second) >= range.columns_from_path.size()) {
+                    return Status::InternalError(
+                            "Invalid partition value index {}, value count {} for column {}",
+                            it->second, range.columns_from_path.size(), slot_desc->col_name());
                 }
                 const std::string& column_from_path = range.columns_from_path[it->second];
                 _partition_col_descs.emplace(slot_desc->col_name(),
