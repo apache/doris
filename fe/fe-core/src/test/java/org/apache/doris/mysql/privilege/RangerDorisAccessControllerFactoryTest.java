@@ -19,21 +19,25 @@ package org.apache.doris.mysql.privilege;
 
 import org.apache.doris.catalog.authorizer.ranger.doris.RangerDorisAccessController;
 
-import java.util.Map;
+import org.junit.Assert;
+import org.junit.Test;
+import org.mockito.MockedConstruction;
+import org.mockito.Mockito;
 
-public class RangerDorisAccessControllerFactory implements AccessControllerFactory {
-    private static class SingletonHolder {
-        // Every controller starts a Ranger policy refresher, so all Env instances must share one controller.
-        private static final RangerDorisAccessController INSTANCE = new RangerDorisAccessController("doris");
-    }
+import java.util.Collections;
 
-    @Override
-    public String factoryIdentifier() {
-        return "ranger-doris";
-    }
+public class RangerDorisAccessControllerFactoryTest {
+    @Test
+    public void testCreateAccessControllerReturnsSingleton() {
+        try (MockedConstruction<RangerDorisAccessController> mockedConstruction =
+                Mockito.mockConstruction(RangerDorisAccessController.class)) {
+            RangerDorisAccessController first = new RangerDorisAccessControllerFactory()
+                    .createAccessController(Collections.emptyMap());
+            RangerDorisAccessController second = new RangerDorisAccessControllerFactory()
+                    .createAccessController(Collections.emptyMap());
 
-    @Override
-    public RangerDorisAccessController createAccessController(Map<String, String> prop) {
-        return SingletonHolder.INSTANCE;
+            Assert.assertEquals(1, mockedConstruction.constructed().size());
+            Assert.assertSame(first, second);
+        }
     }
 }
