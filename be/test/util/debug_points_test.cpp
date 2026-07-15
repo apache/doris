@@ -121,6 +121,29 @@ TEST(DebugPointsTest, PredicateDoesNotConsumeExecuteLimit) {
     EXPECT_FALSE(DebugPoints::instance()->is_enable("conditional"));
 }
 
+TEST(DebugPointsTest, PeekDoesNotConsumeExecuteLimit) {
+    config::enable_debug_points = true;
+    DebugPoints::instance()->clear();
+
+    auto debug_point = std::make_shared<DebugPoint>();
+    debug_point->execute_limit = 1;
+    DebugPoints::instance()->add("peek", debug_point);
+
+    EXPECT_NE(nullptr, DebugPoints::instance()->get_debug_point("peek"));
+    EXPECT_EQ(1, debug_point->execute_num.load());
+    EXPECT_EQ(debug_point, DebugPoints::instance()->peek_debug_point("peek"));
+    EXPECT_EQ(debug_point, DebugPoints::instance()->peek_debug_point("peek"));
+    EXPECT_EQ(1, debug_point->execute_num.load());
+
+    std::string response;
+    HttpClient client;
+    ASSERT_TRUE(client.init(global_test_http_host + "/api/debug_point/status/peek").ok());
+    ASSERT_TRUE(client.execute(&response).ok());
+    EXPECT_NE(std::string::npos, response.find("\"exists\":true"));
+    EXPECT_NE(std::string::npos, response.find("\"execute_num\":1"));
+    EXPECT_EQ(1, debug_point->execute_num.load());
+}
+
 void demo_callback() {
     int a = 0;
 

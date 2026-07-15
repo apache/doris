@@ -37,6 +37,24 @@ std::shared_ptr<DebugPoint> DebugPoints::get_debug_point(const std::string& name
     return get_debug_point_impl(name, nullptr);
 }
 
+std::shared_ptr<DebugPoint> DebugPoints::peek_debug_point(const std::string& name) {
+    if (!config::enable_debug_points) {
+        return nullptr;
+    }
+    auto map_ptr = _debug_points.load();
+    auto it = map_ptr->find(name);
+    if (it == map_ptr->end()) {
+        return nullptr;
+    }
+
+    auto debug_point = it->second;
+    if (debug_point->expire_ms > 0 && MonotonicMillis() >= debug_point->expire_ms) {
+        remove(name);
+        return nullptr;
+    }
+    return debug_point;
+}
+
 std::shared_ptr<DebugPoint> DebugPoints::get_debug_point_if(const std::string& name,
                                                             const DebugPointPredicate& predicate) {
     return get_debug_point_impl(name, &predicate);

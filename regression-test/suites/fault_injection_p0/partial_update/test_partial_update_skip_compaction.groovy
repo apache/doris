@@ -24,6 +24,10 @@ import org.apache.doris.regression.util.NodeType
 suite("test_partial_update_skip_compaction", "nonConcurrent") {
 
     def table1 = "test_partial_update_skip_compaction"
+    def cloudSpinWaitPoint = "CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.enable_spin_wait"
+    def cloudBlockPoint = "CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.block"
+    def beSpinWaitPoint = "EnginePublishVersionTask::execute.enable_spin_wait"
+    def beBlockPoint = "EnginePublishVersionTask::execute.block"
     sql "DROP TABLE IF EXISTS ${table1} FORCE;"
     sql """ CREATE TABLE IF NOT EXISTS ${table1} (
             `k1` int NOT NULL,
@@ -97,38 +101,50 @@ suite("test_partial_update_skip_compaction", "nonConcurrent") {
 
     def enable_publish_spin_wait = {
         if (isCloudMode()) {
-            GetDebugPoint().enableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.enable_spin_wait")
+            GetDebugPoint().enableDebugPointForAllFEs(cloudSpinWaitPoint, [execute: "1"])
         } else {
             DebugPoint.enableDebugPoint(tabletBackend.Host, tabletBackend.HttpPort as int, NodeType.BE,
-                    "EnginePublishVersionTask::execute.enable_spin_wait", [partition_id: "${partitionId}"])
+                    beSpinWaitPoint, [partition_id: "${partitionId}", execute: "1"])
         }
     }
 
     def disable_publish_spin_wait = {
         if (isCloudMode()) {
-            GetDebugPoint().disableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.enable_spin_wait")
+            GetDebugPoint().disableDebugPointForAllFEs(cloudSpinWaitPoint)
         } else {
             DebugPoint.disableDebugPoint(tabletBackend.Host, tabletBackend.HttpPort as int, NodeType.BE,
-                    "EnginePublishVersionTask::execute.enable_spin_wait")
+                    beSpinWaitPoint)
         }
     }
 
     def enable_block_in_publish = {
         if (isCloudMode()) {
-            GetDebugPoint().enableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.block")
+            GetDebugPoint().enableDebugPointForAllFEs(cloudBlockPoint, [execute: "1"])
         } else {
             DebugPoint.enableDebugPoint(tabletBackend.Host, tabletBackend.HttpPort as int, NodeType.BE,
-                    "EnginePublishVersionTask::execute.block")
+                    beBlockPoint, [execute: "1"])
         }
     }
 
     def disable_block_in_publish = {
         if (isCloudMode()) {
-            GetDebugPoint().disableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.block")
+            GetDebugPoint().disableDebugPointForAllFEs(cloudBlockPoint)
         } else {
             DebugPoint.disableDebugPoint(tabletBackend.Host, tabletBackend.HttpPort as int, NodeType.BE,
-                    "EnginePublishVersionTask::execute.block")
+                    beBlockPoint)
         }
+    }
+
+    def wait_publish_block_hit = {
+        Awaitility.await().atMost(30, TimeUnit.SECONDS).pollInterval(100, TimeUnit.MILLISECONDS).until(
+            {
+                if (isCloudMode()) {
+                    return GetDebugPoint().isDebugPointHitOnAnyFE(cloudBlockPoint)
+                }
+                return DebugPoint.isDebugPointHit(tabletBackend.Host, tabletBackend.HttpPort as int,
+                        NodeType.BE, beBlockPoint)
+            }
+        )
     }
 
     try {
@@ -144,7 +160,8 @@ suite("test_partial_update_skip_compaction", "nonConcurrent") {
             sql "insert into ${table1}(k1,c1,c2) values(1,999,999),(2,888,888),(3,777,777);"
         }
 
-        Thread.sleep(500)
+        // Do not start compaction until the load has reached and is blocked in the publish hook.
+        wait_publish_block_hit()
 
         // trigger full compaction on tablet
         logger.info("trigger compaction on another BE ${tabletBackend.Host} with backendId=${tabletBackend.BackendId}")

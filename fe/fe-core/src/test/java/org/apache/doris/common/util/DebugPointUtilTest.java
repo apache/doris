@@ -72,6 +72,18 @@ public class DebugPointUtilTest extends DorisHttpTestCase {
 
         sendRequest("/api/debug_point/add/dbug6?value=100");
         Assert.assertEquals(100, (int) DebugPointUtil.getDebugParamOrDefault("dbug6", 0));
+
+        sendRequest("/api/debug_point/add/dbug7?execute=1");
+        DebugPoint executeLimited = DebugPointUtil.getDebugPoint("dbug7");
+        Assert.assertNotNull(executeLimited);
+        Assert.assertEquals(1, executeLimited.executeNum.get());
+        Assert.assertSame(executeLimited, DebugPointUtil.peekDebugPoint("dbug7"));
+        Assert.assertSame(executeLimited, DebugPointUtil.peekDebugPoint("dbug7"));
+        Assert.assertEquals(1, executeLimited.executeNum.get());
+        String status = sendGetRequest("/api/debug_point/status/dbug7");
+        Assert.assertTrue(status.contains("\"exists\":true"));
+        Assert.assertTrue(status.contains("\"execute_num\":1"));
+        Assert.assertEquals(1, executeLimited.executeNum.get());
     }
 
     private void sendRequest(String uri) throws Exception {
@@ -84,5 +96,18 @@ public class DebugPointUtilTest extends DorisHttpTestCase {
         Response response = networkClient.newCall(request).execute();
         Assert.assertNotNull(response.body());
         Assert.assertEquals(200, response.code());
+    }
+
+    private String sendGetRequest(String uri) throws Exception {
+        Request request = new Request.Builder()
+                .get()
+                .addHeader("Authorization", rootAuth)
+                .url("http://localhost:" + HTTP_PORT + uri)
+                .build();
+
+        Response response = networkClient.newCall(request).execute();
+        Assert.assertNotNull(response.body());
+        Assert.assertEquals(200, response.code());
+        return response.body().string();
     }
 }
