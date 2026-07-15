@@ -90,6 +90,32 @@ public class IcebergScanRange implements ConnectorScanRange {
     // data-file ranges set them; system-table / count-pushdown ranges keep -1 (legacy parity: standard()).
     private final long selfSplitWeight;
     private final long targetSplitSize;
+    // ===== $position_deletes native sys-table range (the THIRD range shape) =====
+    // When true this range is a native (parquet/orc) $position_deletes metadata-table split and
+    // populateRangeParams emits the position-delete shape instead of the data-file or JNI ones. Unlike every
+    // other system table (which rides the JNI serializedSplit path), BE reads this one with its native
+    // iceberg_position_delete_sys_table_reader. Mirrors legacy IcebergSplit.positionDeleteSystemTableSplit /
+    // IcebergScanNode.setIcebergPositionDeleteSysTableParams (upstream #65135).
+    private final boolean positionDeleteSystemTableSplit;
+    // FORMAT_PARQUET or FORMAT_ORC. NOTE: a PUFFIN deletion vector also travels as FORMAT_PARQUET (legacy
+    // getNativePositionDeleteFileFormat) — BE distinguishes DV purely by content==3, never by file format.
+    // This must be set: populateRangeParams' data-path default would leave FORMAT_JNI and misroute the range
+    // to IcebergSysTableJniReader.
+    private final TFileFormatType positionDeleteFileFormat;
+    // 1 = POSITION_DELETES (parquet/orc delete file), 3 = DELETION_VECTOR (puffin blob). Emitted BOTH as the
+    // TOP-LEVEL TIcebergFileDesc.content (BE's sole routing key into the native reader) and on the single
+    // delete-file descriptor (which reader kind to run). Both must be set and agree.
+    private final int positionDeleteContent;
+    // The RAW delete-file path (pre storage-path normalization); surfaces as the delete_file_path output
+    // column. Deliberately NOT reusing `originalPath`, whose meaning on the data path is "raw DATA-file path"
+    // and which feeds the rewritable-delete stash.
+    private final String positionDeleteOriginalPath;
+    // DV (content==3) only: the referenced data file whose deleted positions the puffin blob encodes. BE
+    // expands one output row per set bit, with file_path = this path.
+    private final String positionDeleteReferencedDataFilePath;
+    // DV (content==3) only: the blob's offset/size within the puffin file.
+    private final Long positionDeleteContentOffset;
+    private final Long positionDeleteContentSizeInBytes;
 
     private IcebergScanRange(Builder builder) {
         this.path = builder.path;
@@ -115,6 +141,13 @@ public class IcebergScanRange implements ConnectorScanRange {
         this.serializedSplit = builder.serializedSplit;
         this.selfSplitWeight = builder.selfSplitWeight;
         this.targetSplitSize = builder.targetSplitSize;
+        this.positionDeleteSystemTableSplit = builder.positionDeleteSystemTableSplit;
+        this.positionDeleteFileFormat = builder.positionDeleteFileFormat;
+        this.positionDeleteContent = builder.positionDeleteContent;
+        this.positionDeleteOriginalPath = builder.positionDeleteOriginalPath;
+        this.positionDeleteReferencedDataFilePath = builder.positionDeleteReferencedDataFilePath;
+        this.positionDeleteContentOffset = builder.positionDeleteContentOffset;
+        this.positionDeleteContentSizeInBytes = builder.positionDeleteContentSizeInBytes;
     }
 
     @Override
@@ -279,6 +312,49 @@ public class IcebergScanRange implements ConnectorScanRange {
     @Override
     public void populateRangeParams(TTableFormatFileDesc formatDesc, TFileRangeDesc rangeDesc) {
         TIcebergFileDesc fileDesc = new TIcebergFileDesc();
+        if (positionDeleteSystemTableSplit) {
+            // Native $position_deletes sys-table range. Mirrors legacy
+            // IcebergScanNode.setIcebergPositionDeleteSysTableParams (upstream #65135) field for field.
+            //
+            // BE routes into iceberg_position_delete_sys_table_reader iff table_format_type=="iceberg" AND the
+            // TOP-LEVEL iceberg_params.content is set to 1 or 3 AND the range format_type is PARQUET/ORC
+            // (file_scanner.cpp:103-113, file_scanner_v2.cpp:75-125). The top-level content field is otherwise
+            // deprecated and unset on ordinary data ranges — which is exactly what keeps them out of this
+            // reader. Consequently the data path MUST NEVER set content to 1 or 3.
+            rangeDesc.setFormatType(positionDeleteFileFormat);
+            formatDesc.setTableLevelRowCount(-1);
+            fileDesc.setContent(positionDeleteContent);
+            if (partitionSpecId != null) {
+                fileDesc.setPartitionSpecId(partitionSpecId);
+            }
+            if (partitionDataJson != null) {
+                fileDesc.setPartitionDataJson(partitionDataJson);
+            }
+            // EXACTLY one delete descriptor: BE asserts delete_files.size()==1
+            // (iceberg_position_delete_sys_table_reader.cpp:179), unlike the data path's N-element list.
+            // path = the normalized delete file (what BE opens); original_path = the raw one (output column).
+            TIcebergDeleteFileDesc deleteFileDesc = new TIcebergDeleteFileDesc();
+            deleteFileDesc.setPath(rangeDesc.getPath());
+            deleteFileDesc.setOriginalPath(positionDeleteOriginalPath);
+            deleteFileDesc.setFileFormat(positionDeleteFileFormat);
+            deleteFileDesc.setContent(positionDeleteContent);
+            if (positionDeleteContentOffset != null) {
+                deleteFileDesc.setContentOffset(positionDeleteContentOffset);
+            }
+            if (positionDeleteContentSizeInBytes != null) {
+                deleteFileDesc.setContentSizeInBytes(positionDeleteContentSizeInBytes);
+            }
+            if (positionDeleteReferencedDataFilePath != null) {
+                deleteFileDesc.setReferencedDataFilePath(positionDeleteReferencedDataFilePath);
+            }
+            fileDesc.setDeleteFiles(Collections.singletonList(deleteFileDesc));
+            formatDesc.setIcebergParams(fileDesc);
+            // A path-parsed "partition" key would collide with the metadata table's own `partition` slot.
+            rangeDesc.unsetColumnsFromPath();
+            rangeDesc.unsetColumnsFromPathKeys();
+            rangeDesc.unsetColumnsFromPathIsNull();
+            return;
+        }
         if (serializedSplit != null) {
             // System-table (JNI) split: mirror legacy IcebergScanNode.setIcebergParams isSystemTable branch —
             // emit ONLY the serialized FileScanTask + FORMAT_JNI + table_level_row_count=-1, and NONE of the
@@ -385,9 +461,40 @@ public class IcebergScanRange implements ConnectorScanRange {
         // data-file path sets these (legacy IcebergSplit.selfSplitWeight / IcebergScanNode.targetSplitSize).
         private long selfSplitWeight = -1;
         private long targetSplitSize = -1;
+        private boolean positionDeleteSystemTableSplit;
+        private TFileFormatType positionDeleteFileFormat;
+        private int positionDeleteContent;
+        private String positionDeleteOriginalPath;
+        private String positionDeleteReferencedDataFilePath;
+        private Long positionDeleteContentOffset;
+        private Long positionDeleteContentSizeInBytes;
 
         public Builder path(String path) {
             this.path = path;
+            return this;
+        }
+
+        /**
+         * Marks this range as a native {@code $position_deletes} sys-table split and sets the two fields BE
+         * routes on. {@code content} is 1 (parquet/orc position-delete file) or 3 (puffin deletion vector);
+         * {@code fileFormat} is FORMAT_PARQUET or FORMAT_ORC (a DV also travels as FORMAT_PARQUET).
+         * {@code originalPath} is the raw delete-file path, surfaced as the delete_file_path output column.
+         */
+        public Builder positionDeleteSysTableSplit(int content, TFileFormatType fileFormat,
+                String originalPath) {
+            this.positionDeleteSystemTableSplit = true;
+            this.positionDeleteContent = content;
+            this.positionDeleteFileFormat = fileFormat;
+            this.positionDeleteOriginalPath = originalPath;
+            return this;
+        }
+
+        /** Deletion-vector (content==3) only: the puffin blob's location and the data file it refers to. */
+        public Builder positionDeleteDeletionVector(String referencedDataFilePath, Long contentOffset,
+                Long contentSizeInBytes) {
+            this.positionDeleteReferencedDataFilePath = referencedDataFilePath;
+            this.positionDeleteContentOffset = contentOffset;
+            this.positionDeleteContentSizeInBytes = contentSizeInBytes;
             return this;
         }
 
@@ -496,9 +603,11 @@ public class IcebergScanRange implements ConnectorScanRange {
 
         // Iceberg file type (TIcebergDeleteFileDesc.content): 1 = position delete, 2 = equality delete,
         // 3 = deletion vector (legacy IcebergDeleteFileFilter.{PositionDelete,EqualityDelete,DeletionVector}.type()).
-        private static final int CONTENT_POSITION_DELETE = 1;
+        // Package-private: the $position_deletes scan path emits the same two values, both as the delete-file
+        // content and as the TOP-LEVEL routing content (see the outer populateRangeParams).
+        static final int CONTENT_POSITION_DELETE = 1;
         private static final int CONTENT_EQUALITY_DELETE = 2;
-        private static final int CONTENT_DELETION_VECTOR = 3;
+        static final int CONTENT_DELETION_VECTOR = 3;
 
         private final String path;
         private final int content;

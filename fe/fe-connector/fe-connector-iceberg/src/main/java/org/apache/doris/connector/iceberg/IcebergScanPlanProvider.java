@@ -38,6 +38,8 @@ import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import org.apache.iceberg.BaseFileScanTask;
 import org.apache.iceberg.BaseTable;
+import org.apache.iceberg.BatchScan;
+import org.apache.iceberg.ContentScanTask;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.DeleteFileIndex;
@@ -52,9 +54,12 @@ import org.apache.iceberg.MetadataTableUtils;
 import org.apache.iceberg.PartitionData;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.PartitionSpecParser;
+import org.apache.iceberg.PositionDeletesScanTask;
+import org.apache.iceberg.ScanTask;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.SchemaParser;
 import org.apache.iceberg.Snapshot;
+import org.apache.iceberg.SplittableScanTask;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableOperations;
 import org.apache.iceberg.TableProperties;
@@ -72,6 +77,8 @@ import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.io.StorageCredential;
 import org.apache.iceberg.io.SupportsStorageCredentials;
 import org.apache.iceberg.types.Conversions;
+import org.apache.iceberg.types.Types.NestedField;
+import org.apache.iceberg.util.ScanTaskUtil;
 import org.apache.iceberg.util.SerializationUtil;
 import org.apache.iceberg.util.TableScanUtil;
 import org.apache.logging.log4j.LogManager;
@@ -488,10 +495,10 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             boolean countPushdown) {
         IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
         if (iceHandle.isSystemTable()) {
-            // System tables ($snapshots/$history/...) take the JNI serialized-split path, never the data-file
-            // path below (no count pushdown, no data-file ranges) — mirrors legacy IcebergScanNode branching on
-            // isSystemTable. Dormant until P6.6 (the table is still IcebergExternalTable pre-flip).
-            return planSystemTableScan(iceHandle, filter, session);
+            // System tables take a metadata-table path, never the data-file path below (no count pushdown, no
+            // data-file ranges) — mirrors legacy IcebergScanNode branching on isSystemTable. $position_deletes
+            // then splits off again inside, onto BE's NATIVE reader; every other sys table stays on JNI.
+            return planSystemTableScan(iceHandle, columns, filter, session);
         }
         Table table = resolveTable(session, iceHandle);
         TableScan scan = buildScan(table, iceHandle, filter, session);
@@ -643,17 +650,18 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      * the cross-version byte compatibility is covered by the P6.8 docker e2e. Dormant until P6.6.
      */
     private List<ConnectorScanRange> planSystemTableScan(IcebergTableHandle handle,
-            Optional<ConnectorExpression> filter, ConnectorSession session) {
+            List<ConnectorColumnHandle> columns, Optional<ConnectorExpression> filter,
+            ConnectorSession session) {
         // Thread-level auth wrap (legacy parity: preExecutionAuthenticator.execute around doGetSplits), ONE
         // scope spanning the base-table load (resolveSysTable) plus the metadata-table planFiles — whose
         // manifest-list read for the $files family happens on THIS thread. Deliberately NOT the
         // wrapTableForScan object-level wrap — the planned FileScanTasks are Java-serialized to the BE JNI
         // reader and the authenticator-bearing FileIO wrapper is not serializable.
         if (context == null) {
-            return doPlanSystemTableScan(handle, filter, session);
+            return doPlanSystemTableScan(handle, columns, filter, session);
         }
         try {
-            return context.executeAuthenticated(() -> doPlanSystemTableScan(handle, filter, session));
+            return context.executeAuthenticated(() -> doPlanSystemTableScan(handle, columns, filter, session));
         } catch (RuntimeException e) {
             throw e;
         } catch (Exception e) {
@@ -663,8 +671,12 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     }
 
     private List<ConnectorScanRange> doPlanSystemTableScan(IcebergTableHandle handle,
-            Optional<ConnectorExpression> filter, ConnectorSession session) {
+            List<ConnectorColumnHandle> columns, Optional<ConnectorExpression> filter,
+            ConnectorSession session) {
         Table metadataTable = resolveSysTable(session, handle);
+        if (isPositionDeletesSysTable(handle)) {
+            return doPlanPositionDeletesSystemTableScan(handle, metadataTable, columns, filter, session);
+        }
         TableScan scan = buildScan(metadataTable, handle, filter, session);
         List<ConnectorScanRange> ranges = new ArrayList<>();
         try (CloseableIterable<FileScanTask> tasks = scan.planFiles()) {
@@ -681,6 +693,184 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         LOG.debug("Iceberg planScan produced {} system-table splits for {}.{}${}", ranges.size(),
                 handle.getDbName(), handle.getTableName(), handle.getSysTableName());
         return ranges;
+    }
+
+    /** Whether {@code handle} is the {@code $position_deletes} metadata table (the one native-reader sys table). */
+    private static boolean isPositionDeletesSysTable(IcebergTableHandle handle) {
+        return handle.isSystemTable()
+                && MetadataTableType.POSITION_DELETES.name().equalsIgnoreCase(handle.getSysTableName());
+    }
+
+    /**
+     * Plan a {@code $position_deletes} scan. Port of legacy
+     * {@code IcebergScanNode.doGetPositionDeletesSystemTableSplits} (upstream #65135).
+     *
+     * <p>This is the ONE system table that does not ride the JNI serialized-split path: BE reads it with a
+     * native parquet/orc/puffin reader, so FE must emit real file ranges (see
+     * {@link IcebergScanRange#populateRangeParams} for the wire shape).
+     *
+     * <p>Deviations from the JNI sys path above, each forced:
+     * <ul>
+     *   <li>{@code newBatchScan()}, not {@link #buildScan}'s {@code newScan()} —
+     *       {@code PositionDeletesTable.newScan()} THROWS {@code UnsupportedOperationException}. The
+     *       time-travel pin and predicate conversion are therefore replicated onto the BatchScan here.</li>
+     *   <li>Predicates convert against the METADATA table's schema (file_path/pos/partition/...), best-effort:
+     *       an unconvertible conjunct is dropped to a BE residual, mirroring legacy (NOT the fail-loud
+     *       all-or-nothing of the write path's WHERE lowering).</li>
+     * </ul>
+     *
+     * <p>Legacy's {@code metricsReporter} + {@code planWith(threadPool)} are dropped, the same documented
+     * deviation {@link #buildScan} already makes for every other scan (profile-only; identical file set).
+     * Legacy's smooth-upgrade backend guard is deliberately NOT ported (design doc D1: implement the final
+     * form; the engine owns BE-compat and the SPI exposes no backends).
+     */
+    private List<ConnectorScanRange> doPlanPositionDeletesSystemTableScan(IcebergTableHandle handle,
+            Table metadataTable, List<ConnectorColumnHandle> columns, Optional<ConnectorExpression> filter,
+            ConnectorSession session) {
+        BatchScan scan = metadataTable.newBatchScan();
+        if (handle.hasSnapshotPin()) {
+            if (handle.getRef() != null) {
+                scan = scan.useRef(handle.getRef());
+            } else {
+                scan = scan.useSnapshot(handle.getSnapshotId());
+            }
+        }
+        if (filter.isPresent()) {
+            List<Expression> predicates = new IcebergPredicateConverter(
+                    metadataTable.schema(), resolveSessionZone(session)).convert(filter.get());
+            for (Expression predicate : predicates) {
+                scan = scan.filter(predicate);
+            }
+        }
+
+        List<PositionDeletesScanTask> tasks = new ArrayList<>();
+        try (CloseableIterable<ScanTask> scanTasks = scan.planFiles()) {
+            for (ScanTask task : scanTasks) {
+                if (!(task instanceof PositionDeletesScanTask)) {
+                    throw new DorisConnectorException(
+                            "Unexpected Iceberg position_deletes scan task: " + task);
+                }
+                tasks.add((PositionDeletesScanTask) task);
+            }
+        } catch (IOException e) {
+            throw new DorisConnectorException(
+                    "Failed to enumerate iceberg position_deletes scan tasks, error message is:"
+                            + e.getMessage(), e);
+        }
+
+        // Split sizing mirrors legacy determinePositionDeleteTargetSplitSize: an explicit file_split_size wins,
+        // else the shared per-table heuristic. PUFFIN is non-splittable in iceberg 1.10.1, so
+        // BaseContentScanTask.split() hands a DV task straight back — DVs are never fragmented.
+        long fileSplitSize = sessionLong(session, FILE_SPLIT_SIZE, 0L);
+        long targetSplitSize = fileSplitSize > 0 ? fileSplitSize
+                : determineTargetFileSplitSize(tasks, session);
+
+        boolean partitionRequested = isPositionDeletesPartitionColumnRequested(columns);
+        List<NestedField> outputPartitionFields = partitionRequested
+                ? getPositionDeletesOutputPartitionFields(metadataTable) : Collections.emptyList();
+        boolean enableMappingVarbinary = Boolean.parseBoolean(
+                properties.getOrDefault(IcebergConnectorProperties.ENABLE_MAPPING_VARBINARY, "false"));
+        ZoneId zone = resolveSessionZone(session);
+        Map<String, String> vendedToken = context != null
+                ? extractVendedToken(metadataTable, restVendedCredentialsEnabled()) : Collections.emptyMap();
+
+        List<ConnectorScanRange> ranges = new ArrayList<>();
+        for (PositionDeletesScanTask task : tasks) {
+            for (PositionDeletesScanTask splitTask : splitPositionDeleteScanTask(task, targetSplitSize)) {
+                ranges.add(buildPositionDeleteRange(splitTask, metadataTable, outputPartitionFields,
+                        enableMappingVarbinary, zone, vendedToken));
+            }
+        }
+        LOG.debug("Iceberg planScan produced {} position_deletes splits for {}.{}", ranges.size(),
+                handle.getDbName(), handle.getTableName());
+        return ranges;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Iterable<PositionDeletesScanTask> splitPositionDeleteScanTask(PositionDeletesScanTask task,
+            long targetSplitSize) {
+        return ((SplittableScanTask<PositionDeletesScanTask>) task).split(targetSplitSize);
+    }
+
+    /**
+     * One native range per position-delete split. Port of legacy
+     * {@code IcebergScanNode.createIcebergPositionDeleteSysSplit}.
+     */
+    private IcebergScanRange buildPositionDeleteRange(PositionDeletesScanTask task, Table metadataTable,
+            List<NestedField> outputPartitionFields, boolean enableMappingVarbinary, ZoneId zone,
+            Map<String, String> vendedToken) {
+        DeleteFile deleteFile = task.file();
+        String originalPath = deleteFile.path().toString();
+        IcebergScanRange.Builder builder = new IcebergScanRange.Builder()
+                .path(normalizeUri(originalPath, vendedToken))
+                .start(task.start())
+                .length(task.length())
+                .fileSize(deleteFile.fileSizeInBytes())
+                // The split's own scheduling weight, mirroring legacy newPositionDeleteSysTableSplit
+                // (selfSplitWeight = max(length, 1)).
+                .selfSplitWeight(Math.max(task.length(), 1L))
+                .targetSplitSize(task.length());
+
+        // DV vs plain position-delete file is decided by content ALONE (BE never looks at the file format):
+        // a puffin DV still travels as FORMAT_PARQUET, exactly as legacy getNativePositionDeleteFileFormat does.
+        TFileFormatType fileFormat = getNativePositionDeleteFileFormat(deleteFile.format());
+        if (deleteFile.format() == FileFormat.PUFFIN) {
+            builder.positionDeleteSysTableSplit(
+                    IcebergScanRange.DeleteFile.CONTENT_DELETION_VECTOR, fileFormat, originalPath);
+            builder.positionDeleteDeletionVector(deleteFile.referencedDataFile(),
+                    deleteFile.contentOffset(), deleteFile.contentSizeInBytes());
+        } else {
+            builder.positionDeleteSysTableSplit(
+                    IcebergScanRange.DeleteFile.CONTENT_POSITION_DELETE, fileFormat, originalPath);
+        }
+
+        builder.partitionSpecId(deleteFile.specId());
+        PartitionSpec partitionSpec = metadataTable.specs().get(deleteFile.specId());
+        if (partitionSpec == null) {
+            throw new DorisConnectorException("Partition spec with specId " + deleteFile.specId()
+                    + " not found for table " + metadataTable.name());
+        }
+        // Only render the partition struct when the query actually projects `partition` — legacy parity, and it
+        // keeps the (throwing) binary guard off queries that never asked for it.
+        if (partitionSpec.isPartitioned() && deleteFile.partition() != null && !outputPartitionFields.isEmpty()) {
+            builder.partitionDataJson(IcebergPartitionUtils.getPartitionDataObjectJson(
+                    (PartitionData) deleteFile.partition(), partitionSpec, outputPartitionFields,
+                    enableMappingVarbinary, zone));
+        }
+        return builder.build();
+    }
+
+    /**
+     * PARQUET and PUFFIN both read through BE's parquet path; ORC through the orc one. AVRO position-delete
+     * files have no native reader — fail loud rather than mis-route. Message text mirrors legacy exactly.
+     */
+    private static TFileFormatType getNativePositionDeleteFileFormat(FileFormat fileFormat) {
+        if (fileFormat == FileFormat.PARQUET || fileFormat == FileFormat.PUFFIN) {
+            return TFileFormatType.FORMAT_PARQUET;
+        } else if (fileFormat == FileFormat.ORC) {
+            return TFileFormatType.FORMAT_ORC;
+        }
+        throw new UnsupportedOperationException(
+                "Unsupported Iceberg position delete file format: " + fileFormat);
+    }
+
+    /**
+     * The {@code partition} struct's fields on the {@code $position_deletes} metadata table, in output order.
+     * These carry the metadata table's REASSIGNED field ids (BaseMetadataTable.transformSpec), which is why
+     * {@code getPartitionDataObjectJson} must map values by field id and not by spec position.
+     */
+    private static List<NestedField> getPositionDeletesOutputPartitionFields(Table metadataTable) {
+        NestedField partitionField = metadataTable.schema().findField("partition");
+        if (partitionField == null) {
+            throw new DorisConnectorException(
+                    "Partition field not found in Iceberg position_deletes metadata table schema");
+        }
+        return partitionField.type().asNestedType().fields();
+    }
+
+    /** Whether the query projects the {@code partition} column (legacy read the tuple's slots). */
+    private static boolean isPositionDeletesPartitionColumnRequested(List<ConnectorColumnHandle> columns) {
+        return requestedLowerNames(columns).stream().anyMatch("partition"::equalsIgnoreCase);
     }
 
     /**
@@ -1106,6 +1296,33 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                         table, table.schema(), requestedLowerNames(columns), appendRowLineage);
             }
             props.put(SCHEMA_EVOLUTION_PROP, dict);
+        } else if (isPositionDeletesSysTable(iceHandle)) {
+            // [D-065] narrowed: $position_deletes is the ONE system table BE reads with a NATIVE reader, so
+            // the "schema rides inside the serialized FileScanTask" rationale above does not hold for it — no
+            // FileScanTask is serialized on this path. Both native readers resolve the `row` column through
+            // params.history_schema_info: without the dict, scanner v1 hard-errors ("Iceberg position delete
+            // system table row schema is missing") and scanner v2 SILENTLY degrades to name matching, which
+            // mis-reads a renamed column under schema evolution. Skipping the dict here would be silent wrong
+            // data, so emit it.
+            //
+            // Built from the METADATA table (its own schema keyed by its own requested columns) — feeding the
+            // BASE schema keyed off META columns is exactly what makes IcebergSchemaUtils throw "requested
+            // column not found", per the comment above. The metadata table delegates properties() to the base
+            // table, so the name mapping resolved inside is the base table's, matching legacy.
+            //
+            // appendRowLineage=false: that flag exists for the DATA-file ParquetReader's unconditional
+            // children.at("_row_id") lookup; the position-delete reader opens the DELETE file, whose schema
+            // carries no row-lineage columns.
+            //
+            // Built from the base table ALREADY resolved above, not via resolveSysTable: that helper does a
+            // second loadTable and — by its own contract — carries NO auth wrap, because its only other caller
+            // (planSystemTableScan) supplies one. This method has no such scope, so calling it here would fail
+            // a kerberized catalog at plan time. createMetadataTableInstance is a pure local construction over
+            // an already-loaded table, so this is also one fewer remote round-trip.
+            Table metadataTable = MetadataTableUtils.createMetadataTableInstance(
+                    table, MetadataTableType.POSITION_DELETES);
+            props.put(SCHEMA_EVOLUTION_PROP, IcebergSchemaUtils.encodeSchemaEvolutionProp(
+                    metadataTable, metadataTable.schema(), requestedLowerNames(columns), false));
         }
         // Pushed-predicate EXPLAIN prop (explain gap): serialize the iceberg Expression form of each pushed
         // conjunct so appendExplainInfo can re-emit the legacy `icebergPredicatePushdown=` block. Same converter
@@ -1480,10 +1697,16 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      * (non-batch path), reading the split-size knobs from the session-property channel. Start at
      * {@code max_initial_file_split_size}, escalate to {@code max_file_split_size} once total content exceeds
      * {@code max_file_split_size * max_initial_file_split_num}, then raise the size so the split count stays
-     * under {@code max_file_split_num}. Uses {@code DataFile.fileSizeInBytes()} (== content size for data
-     * files; T02 is the no-delete path) since iceberg 1.10.1 omits {@code ScanTaskUtil.contentSizeInBytes}.
+     * under {@code max_file_split_num}.
+     *
+     * <p>Accumulates {@code ScanTaskUtil.contentSizeInBytes(task.file())}, matching legacy. For a data file
+     * that is just {@code fileSizeInBytes()} — but for a PUFFIN deletion vector the two differ sharply
+     * ({@code fileSizeInBytes()} is the whole puffin file, which packs many DV blobs, so summing it would
+     * over-count ~N-fold and prematurely escalate the target size). Widened to {@code ContentScanTask} so the
+     * {@code $position_deletes} path can share it, exactly as legacy widened the same method.
      */
-    private long determineTargetFileSplitSize(List<FileScanTask> tasks, ConnectorSession session) {
+    private long determineTargetFileSplitSize(List<? extends ContentScanTask<?>> tasks,
+            ConnectorSession session) {
         long maxInitialSplitSize = sessionLong(session, MAX_INITIAL_FILE_SPLIT_SIZE,
                 DEFAULT_MAX_INITIAL_FILE_SPLIT_SIZE);
         long maxSplitSize = sessionLong(session, MAX_FILE_SPLIT_SIZE, DEFAULT_MAX_FILE_SPLIT_SIZE);
@@ -1492,8 +1715,8 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         long maxFileSplitNum = sessionLong(session, MAX_FILE_SPLIT_NUM, DEFAULT_MAX_FILE_SPLIT_NUM);
         long total = 0;
         boolean exceedInitialThreshold = false;
-        for (FileScanTask task : tasks) {
-            total += task.file().fileSizeInBytes();
+        for (ContentScanTask<?> task : tasks) {
+            total += ScanTaskUtil.contentSizeInBytes(task.file());
             if (!exceedInitialThreshold && total >= maxSplitSize * maxInitialSplitNum) {
                 exceedInitialThreshold = true;
             }
