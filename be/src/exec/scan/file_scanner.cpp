@@ -1942,25 +1942,7 @@ bool FileScanner::_should_enable_condition_cache() {
         return false;
     }
 
-    // Runtime filters are query-local dynamic predicates. Some ready RF implementations can hash
-    // their payload into get_digest(), but FileScanner cannot rely on that for all RFs reaching the
-    // native reader. In particular, ScanLocalState computes _condition_cache_digest during open(),
-    // while FileScanner may append late-arrival RFs in _process_late_arrival_conjuncts()
-    // immediately before initializing Parquet/ORC readers.
-    //
-    // Reading a weaker cache entry would be safe by itself: if a cached bitmap only represented
-    // static predicate P, false granules for P are also false for P AND RF. The unsafe part is
-    // writing. On cache miss, native readers mark survivor granules using all pushed-down
-    // predicates, including late RFs. Without a read-only cache mode, this would insert a bitmap for
-    // P AND RF under a digest that only represents P.
-    //
-    // Example:
-    //   Q1 static predicate: k = 1, late RF payload: partition_key IN ('2024-02-01')
-    //   Q2 static predicate: k = 1, late RF payload: partition_key IN ('2024-03-01')
-    // If both scans share the same file/range/digest, reusing Q1's bitmap for Q2 can skip row
-    // ranges according to the wrong RF payload. Keep RF predicate pushdown enabled for reader-side
-    // filtering, but do not persist its result in condition cache.
-    return !_contains_runtime_filter(_conjuncts) && !_contains_runtime_filter(_push_down_conjuncts);
+    return true;
 }
 
 bool FileScanner::_should_enable_condition_cache_for_load() const {
@@ -1989,6 +1971,12 @@ bool FileScanner::_should_push_down_predicates_for_query(TFileFormatType::type f
 void FileScanner::_init_reader_condition_cache() {
     _condition_cache = nullptr;
     _condition_cache_ctx = nullptr;
+
+    // _process_late_arrival_conjuncts() runs before the Parquet/ORC reader is initialized. Rebuild
+    // the key here so a newly arrived cache-safe RF is represented by both its semantics and its
+    // payload. If any current conjunct cannot produce a reliable digest, this becomes zero and the
+    // existing safety gate below disables condition cache.
+    _condition_cache_digest = _current_condition_cache_digest();
 
     if (!_should_enable_condition_cache() || !_cur_reader) {
         return;

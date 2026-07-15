@@ -655,6 +655,12 @@ void ParquetScanScheduler::reset_current_row_group() {
     _current_selected_ranges.clear();
     _current_range_idx = 0;
     _current_range_rows_read = 0;
+    // Readers are row-group scoped. If every remaining row was filtered, no future output can
+    // observe the non-predicate readers' position, so dropping them together with their pending lag
+    // avoids a useless end-of-row-group SkipRecords call. Example: predicate readers advance from 0
+    // to 10,000 while lazy readers stay at 0; clearing both readers here is sufficient because the
+    // next row group constructs a new set starting at its own row 0.
+    _pending_non_predicate_skip_rows = 0;
     _current_predicate_prefetched = false;
     _current_non_predicate_prefetched = false;
     _current_merge_range_active = false;
@@ -787,10 +793,23 @@ Status ParquetScanScheduler::skip_current_row_group_rows(int64_t rows) {
     for (const auto& column_reader : _current_predicate_columns | std::views::values) {
         RETURN_IF_ERROR(column_reader->skip(rows));
     }
-    for (const auto& column_reader : _current_non_predicate_columns | std::views::values) {
-        RETURN_IF_ERROR(column_reader->skip(rows));
-    }
+    // Keep page-index/condition-cache gaps pending for lazy columns as well. For example, after a
+    // fully filtered [0, 32) batch and a pruned [32, 96) gap, predicate readers are at 96 while lazy
+    // readers remain at 0; one later skip(96) is cheaper than skip(32) followed by skip(64).
+    DORIS_CHECK(_pending_non_predicate_skip_rows <= std::numeric_limits<int64_t>::max() - rows);
+    _pending_non_predicate_skip_rows += rows;
     _current_row_group_rows_read += rows;
+    return Status::OK();
+}
+
+Status ParquetScanScheduler::flush_pending_non_predicate_skip_rows() {
+    if (_pending_non_predicate_skip_rows == 0) {
+        return Status::OK();
+    }
+    for (const auto& column_reader : _current_non_predicate_columns | std::views::values) {
+        RETURN_IF_ERROR(column_reader->skip(_pending_non_predicate_skip_rows));
+    }
+    _pending_non_predicate_skip_rows = 0;
     return Status::OK();
 }
 
@@ -1395,6 +1414,18 @@ Status ParquetScanScheduler::read_current_row_group_batch(
                                             .column->filter(output_filter, selected_rows)));
         }
     }
+    if (selected_rows == 0) {
+        // Predicate readers have consumed this physical batch, but touching every lazy column here
+        // turns a long rejected prefix into `empty_batches * lazy_columns` Arrow calls. Record only
+        // the positional lag. If [0, 32), [32, 64), and [64, 96) are empty, the first surviving
+        // batch performs one skip(96) per lazy column. If the row group ends instead, reset drops the
+        // lazy readers without flushing because no value from them can be observed.
+        DORIS_CHECK(_pending_non_predicate_skip_rows <=
+                    std::numeric_limits<int64_t>::max() - batch_rows);
+        _pending_non_predicate_skip_rows += batch_rows;
+        *rows = 0;
+        return Status::OK();
+    }
     if (!_current_merge_range_active && selected_rows > 0 &&
         !_current_non_predicate_columns.empty()) {
         // Do not prefetch lazy output columns until at least one row survives filtering. This is
@@ -1406,6 +1437,9 @@ Status ParquetScanScheduler::read_current_row_group_batch(
 
     {
         SCOPED_TIMER(_scan_profile.column_read_time);
+        // Bring lazy readers to the first row of the current physical batch before interpreting its
+        // selection vector. This also merges pending range gaps with fully filtered batches.
+        RETURN_IF_ERROR(flush_pending_non_predicate_skip_rows());
         for (const auto& [fid, column_reader] : _current_non_predicate_columns) {
             auto position_it = request.local_positions.find(format::LocalColumnId(fid));
             DORIS_CHECK(position_it != request.local_positions.end());

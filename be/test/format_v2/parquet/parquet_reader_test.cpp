@@ -2545,7 +2545,10 @@ TEST_F(NewParquetReaderTest, NestedStructPredicateDoesNotNarrowRowRangesByPageIn
     EXPECT_EQ(plan.pruning_stats.selected_row_ranges, plan.row_groups[0].selected_ranges.size());
 }
 
-TEST_F(NewParquetReaderTest, PageIndexFilteredPagesDoNotDoubleSkipOutputColumns) {
+// Scenario: the selected range starts after page-index-pruned rows. The scheduler defers that range
+// gap for the non-predicate payload reader, then flushes it exactly once before materialization. The
+// page skip plan advances the reader without calling Arrow SkipRecords or double-skipping row 64.
+TEST_F(NewParquetReaderTest, PageIndexFilteredGapFlushesPendingOutputSkipOnce) {
     write_page_index_filter_pair_parquet_file(_file_path);
     RuntimeProfile profile("new_parquet_reader_page_skip");
     auto reader = create_reader(0, -1, &profile);
@@ -2586,6 +2589,7 @@ TEST_F(NewParquetReaderTest, PageIndexFilteredPagesDoNotDoubleSkipOutputColumns)
     ASSERT_NE(profile.get_counter("SelectedRows"), nullptr);
     ASSERT_NE(profile.get_counter("RangeGapSkippedRows"), nullptr);
     ASSERT_NE(profile.get_counter("ReaderSkipRows"), nullptr);
+    ASSERT_NE(profile.get_counter("ArrowSkipRecordsTime"), nullptr);
     ASSERT_NE(profile.get_counter("RowGroupFilterTime"), nullptr);
     ASSERT_NE(profile.get_counter("PageIndexFilterTime"), nullptr);
     ASSERT_NE(profile.get_counter("PageIndexReadTime"), nullptr);
@@ -2595,6 +2599,7 @@ TEST_F(NewParquetReaderTest, PageIndexFilteredPagesDoNotDoubleSkipOutputColumns)
     EXPECT_EQ(profile.get_counter("SelectedRows")->value(), 64);
     EXPECT_GT(profile.get_counter("RangeGapSkippedRows")->value(), 0);
     EXPECT_EQ(profile.get_counter("ReaderSkipRows")->value(), 0);
+    EXPECT_EQ(profile.get_counter("ArrowSkipRecordsTime")->value(), 0);
     EXPECT_GT(profile.get_counter("RowGroupFilterTime")->value(), 0);
     EXPECT_GT(profile.get_counter("PageIndexFilterTime")->value(), 0);
     EXPECT_GT(profile.get_counter("PageIndexReadTime")->value(), 0);

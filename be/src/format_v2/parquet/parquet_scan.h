@@ -152,6 +152,7 @@ private:
                                const format::FileScanRequest& request, bool* has_row_group);
 
     Status skip_current_row_group_rows(int64_t rows);
+    Status flush_pending_non_predicate_skip_rows();
 
     Status read_filter_columns(int64_t batch_rows, const format::FileScanRequest& request,
                                Block* file_block, SelectionVector* selection,
@@ -203,6 +204,10 @@ private:
             _current_selected_ranges; // selected ranges for the current row group after page-index pruning
     size_t _current_range_idx = 0;        // current selected_range index
     int64_t _current_range_rows_read = 0; // rows read in the current range
+    // Predicate readers move immediately because they decide which rows survive. Non-predicate
+    // readers can lag behind across fully filtered batches and range gaps; the lag is flushed once
+    // before the next surviving batch is materialized, or discarded with the row group.
+    int64_t _pending_non_predicate_skip_rows = 0;
 
     bool _current_predicate_prefetched = false;
     bool _current_non_predicate_prefetched = false;
