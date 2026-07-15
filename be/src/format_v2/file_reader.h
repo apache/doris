@@ -77,12 +77,18 @@ struct FileScanRequest {
     // Delete predicates converted to file-local expressions. A TRUE result means that the row is
     // deleted, so readers must invert each result when building their keep filter.
     VExprContextSPtrs delete_conjuncts;
-    // True only when TableReader has proved that an explicit COUNT(*) can be answered by the
-    // physical reader's aggregate metadata path. Nereids still retains one scan slot after column
-    // pruning, but every non-predicate column in this request is then a row-producing placeholder,
-    // not a user-requested value. Readers may skip semantic validation of those placeholders before
-    // aggregate materialization; predicate columns must always be validated normally.
-    bool non_predicate_columns_are_count_star_placeholders = false;
+    // File-local ids retained only because Nereids keeps a minimum-width output tuple for an
+    // explicit COUNT(*). These columns have no semantic value: for example, after pruning a scan
+    // may retain an unsupported TIME_MILLIS leaf even though COUNT(*) only needs one row per
+    // surviving input row. A reader may synthesize defaults instead of reading a marked column
+    // while it remains non-predicate. If filters or equality deletes promote the same id to
+    // predicate_columns, the value is semantically required and must still be validated and read.
+    std::vector<LocalColumnId> count_star_placeholder_columns;
+
+    bool is_count_star_placeholder(LocalColumnId column_id) const {
+        return std::ranges::find(count_star_placeholder_columns, column_id) !=
+               count_star_placeholder_columns.end();
+    }
 };
 
 // Helper for constructing the scan-column layout in FileScanRequest.

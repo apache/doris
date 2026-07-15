@@ -402,6 +402,20 @@ protected:
             RETURN_IF_ERROR(close_current_reader());
             return Status::OK();
         }
+        // COUNT(*) has no semantic column argument, but Nereids retains a minimum-width scan slot
+        // so the scan node still has an output tuple. Record only the current non-predicate file
+        // columns before table-format hooks add row-position or equality-delete dependencies. This
+        // marker is independent of aggregate eligibility: with position deletes, for example,
+        // metadata COUNT must fall back to reading rows, but an arbitrary unsupported TIME_MILLIS
+        // placeholder still must not be validated or decoded merely to carry the surviving count.
+        if (_push_down_agg_type == TPushAggOp::type::COUNT &&
+            _push_down_count_columns.has_value() && _push_down_count_columns->empty()) {
+            file_request->count_star_placeholder_columns.reserve(
+                    file_request->non_predicate_columns.size());
+            for (const auto& column : file_request->non_predicate_columns) {
+                file_request->count_star_placeholder_columns.push_back(column.column_id());
+            }
+        }
         RETURN_IF_ERROR(customize_file_scan_request(file_request.get()));
         RETURN_IF_ERROR(_open_local_filter_exprs(*file_request));
         _data_reader.file_block_layout.clear();
@@ -453,16 +467,6 @@ protected:
             VLOG_DEBUG << "TableReader debug: " << debug_string();
         }
         RETURN_IF_ERROR(_open_mapping_exprs());
-        // COUNT(*) has no semantic column argument, but Nereids retains one minimum-width scan
-        // slot so the scan node still has an output tuple. For example, in a Parquet file whose
-        // first and only column is unsupported TIME_MILLIS, validating that arbitrary placeholder
-        // would fail before the empty aggregate request can count rows from footer metadata. Mark
-        // placeholders only after the same safety gate used by aggregate materialization succeeds;
-        // COUNT(col), filters, deletes and pending runtime filters keep normal column validation.
-        file_request->non_predicate_columns_are_count_star_placeholders =
-                _push_down_agg_type == TPushAggOp::type::COUNT &&
-                _push_down_count_columns.has_value() && _push_down_count_columns->empty() &&
-                _supports_aggregate_pushdown(_push_down_agg_type);
         RETURN_IF_ERROR(_data_reader.reader->open(file_request));
         RETURN_IF_ERROR(_init_reader_condition_cache(*file_request));
         return Status::OK();

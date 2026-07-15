@@ -114,7 +114,9 @@ void collect_request_leaf_column_ids(
         collect_scan_column(column);
     }
     for (const auto& column : request.non_predicate_columns) {
-        collect_scan_column(column);
+        if (!request.is_count_star_placeholder(column.column_id())) {
+            collect_scan_column(column);
+        }
     }
 }
 
@@ -166,8 +168,8 @@ Status validate_requested_columns_supported(
     for (const auto& column : request.predicate_columns) {
         RETURN_IF_ERROR(validate_scan_column(column));
     }
-    if (!request.non_predicate_columns_are_count_star_placeholders) {
-        for (const auto& column : request.non_predicate_columns) {
+    for (const auto& column : request.non_predicate_columns) {
+        if (!request.is_count_star_placeholder(column.column_id())) {
             RETURN_IF_ERROR(validate_scan_column(column));
         }
     }

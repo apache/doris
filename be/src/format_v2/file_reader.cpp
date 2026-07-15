@@ -63,8 +63,13 @@ std::string FileScanRequest::debug_string() const {
     }
     out << "}, conjunct_count=" << conjuncts.size()
         << ", delete_conjunct_count=" << delete_conjuncts.size()
-        << ", non_predicate_columns_are_count_star_placeholders="
-        << non_predicate_columns_are_count_star_placeholders << "}";
+        << ", count_star_placeholder_columns={";
+    const char* delimiter = "";
+    for (const auto column_id : count_star_placeholder_columns) {
+        out << delimiter << column_id.value();
+        delimiter = ",";
+    }
+    out << "}}";
     return out.str();
 }
 

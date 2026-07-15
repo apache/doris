@@ -1573,6 +1573,10 @@ TEST(TableReaderTest, PendingRuntimeFilterDisablesTableLevelCount) {
     ASSERT_TRUE(reader.get_block(&block, &eos).ok());
     EXPECT_EQ(fake_state->open_count, 1);
     EXPECT_EQ(block.rows(), 2);
+    ASSERT_NE(fake_state->last_request, nullptr);
+    // Aggregate pushdown is disabled while a runtime filter is pending, but COUNT(*) semantics do
+    // not change. The retained output slot remains a value-less placeholder during row fallback.
+    EXPECT_TRUE(fake_state->last_request->is_count_star_placeholder(LocalColumnId(0)));
     ASSERT_TRUE(reader.close().ok());
 }
 
@@ -1762,7 +1766,7 @@ TEST(TableReaderTest, PushDownCountRecordsReaderRowsBeforeClosingReader) {
     EXPECT_EQ(file_reader_stats.read_rows, 3);
     EXPECT_EQ(fake_state->close_count, 1);
     ASSERT_TRUE(fake_state->last_request != nullptr);
-    EXPECT_FALSE(fake_state->last_request->non_predicate_columns_are_count_star_placeholders);
+    EXPECT_TRUE(fake_state->last_request->count_star_placeholder_columns.empty());
     ASSERT_TRUE(fake_state->last_aggregate_request.has_value());
     ASSERT_EQ(fake_state->last_aggregate_request->columns.size(), 1);
     // A primitive COUNT(col) projection must reach the file reader just like a complex one.
@@ -1808,7 +1812,8 @@ TEST(TableReaderTest, PushDownCountStarIgnoresProjectedPlaceholderColumn) {
     EXPECT_FALSE(eos);
     EXPECT_EQ(block.rows(), 3);
     ASSERT_TRUE(fake_state->last_request != nullptr);
-    EXPECT_TRUE(fake_state->last_request->non_predicate_columns_are_count_star_placeholders);
+    ASSERT_EQ(fake_state->last_request->count_star_placeholder_columns.size(), 1);
+    EXPECT_TRUE(fake_state->last_request->is_count_star_placeholder(LocalColumnId(0)));
     ASSERT_TRUE(fake_state->last_aggregate_request.has_value());
     // Passing nullable_id here would implement COUNT(nullable_id) and reproduce the external ORC
     // and Parquet failures where footer row counts were reduced by null values.
