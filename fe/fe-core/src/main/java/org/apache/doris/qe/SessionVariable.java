@@ -3841,6 +3841,10 @@ public class SessionVariable implements Serializable, Writable {
         this.enableLocalExchange = random.nextBoolean();
         this.enableSharedExchangeSinkBuffer = random.nextBoolean();
         this.useSerialExchange = random.nextBoolean();
+        // Randomize the external file scanner engine (FileScannerV2 vs the legacy V1 path). Kept
+        // here rather than in setFuzzyForCatalog() so it also runs in the external regression
+        // pipeline, which enables fuzzy sessions with fuzzy_test_type=p1 (not "external").
+        this.enableFileScannerV2 = random.nextBoolean();
         this.disableStreamPreaggregations = random.nextBoolean();
         this.enableStreamingAggHashJoinForcePassthrough = random.nextBoolean();
         this.enableLocalExchangeBeforeAgg = random.nextBoolean();
@@ -3991,9 +3995,6 @@ public class SessionVariable implements Serializable, Writable {
         if (!Config.fuzzy_test_type.equals("external")) {
             return;
         }
-        // file scanner
-        this.enableFileScannerV2 = random.nextBoolean();
-
         // parquet
         this.enableParquetFilterByMinMax = random.nextBoolean();
         this.enableParquetFilterByBloomFilter = random.nextBoolean();
