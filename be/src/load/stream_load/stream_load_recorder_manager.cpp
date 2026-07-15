@@ -89,7 +89,9 @@ void StreamLoadRecorderManager::stop() {
 void StreamLoadRecorderManager::_worker_thread_func() {
     SCOPED_ATTACH_TASK(_mem_tracker);
     while (!_stop) {
-        _fetch_and_buffer_records();
+        if (!_has_pending_batch()) {
+            _fetch_and_buffer_records();
+        }
         _load_if_necessary();
         std::this_thread::sleep_for(std::chrono::seconds(1));
     }
@@ -232,17 +234,31 @@ std::string StreamLoadRecorderManager::_parse_and_format_record(const std::strin
 
 void StreamLoadRecorderManager::_load_if_necessary() {
     int64_t current_time = UnixMillis();
-    bool should_load = _buffer.size() >= config::stream_load_record_batch_bytes ||
+    bool should_load = _has_pending_batch() ||
+                       _buffer.size() >= config::stream_load_record_batch_bytes ||
                        (current_time - _last_load_time) >=
                                config::stream_load_record_batch_interval_secs * 1000;
     if (!should_load || _buffer.size() == 0) {
         return;
     }
 
-    Status st = _send_stream_load(_buffer.ToString());
+    if (!_has_pending_batch()) {
+        _pending_label = _generate_label();
+    }
+
+    Status st;
+#ifdef BE_TEST
+    if (_stream_load_sender_for_test) {
+        st = _stream_load_sender_for_test(_buffer.ToString(), _pending_label);
+    } else {
+        st = _send_stream_load(_buffer.ToString(), _pending_label);
+    }
+#else
+    st = _send_stream_load(_buffer.ToString(), _pending_label);
+#endif
     if (!st.ok()) {
         LOG(WARNING) << "Failed to load stream load records to audit log table: " << st
-                     << ", keep current batch for retry";
+                     << ", keep pending batch with label " << _pending_label << " for retry";
         return;
     }
 
@@ -251,12 +267,12 @@ void StreamLoadRecorderManager::_load_if_necessary() {
     _reset_batch(current_time);
 }
 
-Status StreamLoadRecorderManager::_send_stream_load(const std::string& data) {
+Status StreamLoadRecorderManager::_send_stream_load(const std::string& data,
+                                                    const std::string& label) {
     std::string url = _generate_url();
     if (url.empty()) {
         return Status::InternalError("FE address is not available yet");
     }
-    std::string label = _generate_label();
 
     HttpClient client;
     Status st = client.init(url);
@@ -288,17 +304,33 @@ Status StreamLoadRecorderManager::_send_stream_load(const std::string& data) {
         return Status::InternalError("Stream load failed with HTTP status {}: {}", http_status,
                                      response);
     }
+    return _parse_stream_load_response(response);
+}
+
+Status StreamLoadRecorderManager::_parse_stream_load_response(const std::string& response) {
     rapidjson::Document doc;
-    if (!doc.Parse(response.data(), response.length()).HasParseError()) {
-        if (doc.HasMember("Status") && doc["Status"].IsString()) {
-            std::string status = doc["Status"].GetString();
-            if (status != "Success") {
-                return Status::InternalError("Stream load status is not Success: {}", response);
-            }
-        }
+    if (doc.Parse(response.data(), response.length()).HasParseError() || !doc.IsObject()) {
+        return Status::InternalError("Failed to parse stream load response: {}", response);
+    }
+    if (!doc.HasMember("Status") || !doc["Status"].IsString()) {
+        return Status::InternalError("Stream load response has no valid Status: {}", response);
     }
 
-    return Status::OK();
+    std::string status = doc["Status"].GetString();
+    // PUBLISH_TIMEOUT means the transaction was committed but did not become visible before the
+    // response timeout. The stream load path does not roll it back.
+    if (status == "Success" || status == "Publish Timeout") {
+        return Status::OK();
+    }
+    // A retry after an unknown HTTP outcome reuses the pending label. FINISHED means the original
+    // transaction is already COMMITTED or VISIBLE, so the batch must not be submitted again.
+    if (status == "Label Already Exists" && doc.HasMember("ExistingJobStatus") &&
+        doc["ExistingJobStatus"].IsString() &&
+        std::string(doc["ExistingJobStatus"].GetString()) == "FINISHED") {
+        return Status::OK();
+    }
+
+    return Status::InternalError("Stream load batch is not accepted: {}", response);
 }
 
 std::string StreamLoadRecorderManager::_generate_label() {
@@ -322,6 +354,7 @@ void StreamLoadRecorderManager::_reset_batch(int64_t current_time) {
     _buffer.clear();
     _last_load_time = current_time;
     _record_num = 0;
+    _pending_label.clear();
 }
 
 } // namespace doris

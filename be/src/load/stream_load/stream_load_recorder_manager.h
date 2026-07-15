@@ -19,9 +19,11 @@
 
 #include <atomic>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <string>
 #include <thread>
+#include <utility>
 
 #include "util/faststring.h"
 
@@ -59,6 +61,15 @@ public:
 
     void stop();
 
+#ifdef BE_TEST
+    using StreamLoadSender =
+            std::function<Status(const std::string& data, const std::string& label)>;
+
+    void set_stream_load_sender_for_test(StreamLoadSender sender) {
+        _stream_load_sender_for_test = std::move(sender);
+    }
+#endif
+
 private:
     void _load_last_fetch_key();
 
@@ -72,7 +83,11 @@ private:
 
     void _load_if_necessary();
 
-    Status _send_stream_load(const std::string& data);
+    Status _send_stream_load(const std::string& data, const std::string& label);
+
+    static Status _parse_stream_load_response(const std::string& response);
+
+    bool _has_pending_batch() const { return !_pending_label.empty(); }
 
     std::string _generate_label();
 
@@ -93,6 +108,11 @@ private:
     int64_t _record_num;
 
     std::string _last_fetch_key;
+    std::string _pending_label;
+
+#ifdef BE_TEST
+    StreamLoadSender _stream_load_sender_for_test;
+#endif
 };
 
 } // namespace doris
