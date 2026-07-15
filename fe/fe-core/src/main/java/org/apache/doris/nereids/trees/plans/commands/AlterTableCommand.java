@@ -152,21 +152,21 @@ public class AlterTableCommand extends Command implements ForwardWithSync {
                     throw new AnalysisException(
                             "DEFAULT and ON UPDATE are not supported for Iceberg MODIFY COLUMN");
                 }
-                ColumnPath columnPath = getNestedColumnPath(alterTableOp);
-                if (columnPath == null) {
+                if (!isIcebergColumnSchemaOperation(alterTableOp)) {
                     continue;
                 }
                 if (getRollupName(alterTableOp) != null) {
-                    throw new AnalysisException("Rollup is not supported for nested Iceberg column operation: "
-                            + columnPath.getFullPath());
+                    throw new AnalysisException("Rollup is not supported for Iceberg column operations");
                 }
-                if (columnDefinition != null && columnDefinition.isKey()) {
-                    throw new AnalysisException("KEY is not supported for nested Iceberg ADD/MODIFY COLUMN: "
-                            + columnPath.getFullPath());
+                Map<String, String> properties = alterTableOp.getProperties();
+                if (properties != null && !properties.isEmpty()) {
+                    throw new AnalysisException("PROPERTIES are not supported for Iceberg column operations");
                 }
-                if (columnDefinition != null && columnDefinition.getGeneratedColumnDesc().isPresent()) {
-                    throw new AnalysisException("Generated columns are not supported for nested Iceberg "
-                            + "ADD/MODIFY COLUMN: " + columnPath.getFullPath());
+                checkIcebergColumnDefinition(columnDefinition);
+                if (alterTableOp instanceof AddColumnsOp) {
+                    for (ColumnDefinition definition : ((AddColumnsOp) alterTableOp).getColumnDefinitions()) {
+                        checkIcebergColumnDefinition(definition);
+                    }
                 }
             }
             return;
@@ -206,15 +206,42 @@ public class AlterTableCommand extends Command implements ForwardWithSync {
         return null;
     }
 
+    private static boolean isIcebergColumnSchemaOperation(AlterTableOp alterTableOp) {
+        return alterTableOp instanceof AddColumnOp
+                || alterTableOp instanceof AddColumnsOp
+                || alterTableOp instanceof DropColumnOp
+                || alterTableOp instanceof ModifyColumnOp
+                || alterTableOp instanceof ReorderColumnsOp;
+    }
+
+    private static void checkIcebergColumnDefinition(ColumnDefinition columnDefinition)
+            throws AnalysisException {
+        if (columnDefinition == null) {
+            return;
+        }
+        if (columnDefinition.isKey()) {
+            throw new AnalysisException("KEY is not supported for Iceberg ADD/MODIFY COLUMN");
+        }
+        if (columnDefinition.getGeneratedColumnDesc().isPresent()) {
+            throw new AnalysisException("Generated columns are not supported for Iceberg ADD/MODIFY COLUMN");
+        }
+    }
+
     private static String getRollupName(AlterTableOp alterTableOp) {
         if (alterTableOp instanceof AddColumnOp) {
             return ((AddColumnOp) alterTableOp).getRollupName();
+        }
+        if (alterTableOp instanceof AddColumnsOp) {
+            return ((AddColumnsOp) alterTableOp).getRollupName();
         }
         if (alterTableOp instanceof DropColumnOp) {
             return ((DropColumnOp) alterTableOp).getRollupName();
         }
         if (alterTableOp instanceof ModifyColumnOp) {
             return ((ModifyColumnOp) alterTableOp).getRollupName();
+        }
+        if (alterTableOp instanceof ReorderColumnsOp) {
+            return ((ReorderColumnsOp) alterTableOp).getRollupName();
         }
         return null;
     }

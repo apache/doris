@@ -85,7 +85,7 @@ suite("test_iceberg_nested_schema_evolution_ddl", "p0,external,doris,external_do
 
     test {
         sql """ALTER TABLE ${tableName} ADD COLUMN s.required_field INT NOT NULL"""
-        exception "Field 'required_field' doesn't have a default value"
+        exception "New nested field 's.required_field' must be nullable"
     }
 
     sql """ALTER TABLE ${tableName} MODIFY COLUMN s.a BIGINT"""

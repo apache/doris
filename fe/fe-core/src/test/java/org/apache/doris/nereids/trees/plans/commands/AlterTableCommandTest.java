@@ -23,6 +23,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.commands.info.AddColumnsOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionFieldOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterTableOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropPartitionFieldOp;
@@ -218,44 +219,84 @@ public class AlterTableCommandTest {
     }
 
     @Test
-    void testRejectRollupForNestedIcebergColumnOperations() {
+    void testRejectRollupForIcebergColumnOperations() {
         IcebergExternalTable table = Mockito.mock(IcebergExternalTable.class);
         for (String sql : Arrays.asList(
+                "ALTER TABLE t ADD COLUMN c STRING NULL TO r1",
                 "ALTER TABLE t ADD COLUMN s.c STRING NULL TO r1",
-                "ALTER TABLE t ADD COLUMN s.c STRING NULL IN r1",
+                "ALTER TABLE t ADD COLUMN (c1 STRING NULL, c2 INT NULL) IN r1",
+                "ALTER TABLE t DROP COLUMN c FROM r1",
                 "ALTER TABLE t DROP COLUMN s.c FROM r1",
-                "ALTER TABLE t MODIFY COLUMN s.c STRING FROM r1")) {
+                "ALTER TABLE t MODIFY COLUMN c STRING FROM r1",
+                "ALTER TABLE t MODIFY COLUMN s.c STRING FROM r1",
+                "ALTER TABLE t ORDER BY (c1, c2) FROM r1")) {
             AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
                     () -> AlterTableCommand.checkColumnOperationsSupported(table, parseAlter(sql).getOps()));
             Assertions.assertTrue(exception.getMessage()
-                    .contains("Rollup is not supported for nested Iceberg column operation"));
+                    .contains("Rollup is not supported for Iceberg column operations"));
         }
     }
 
     @Test
-    void testRejectKeyForNestedIcebergAddAndModify() {
+    void testRejectPropertiesForIcebergColumnOperations() {
         IcebergExternalTable table = Mockito.mock(IcebergExternalTable.class);
         for (String sql : Arrays.asList(
+                "ALTER TABLE t ADD COLUMN c STRING NULL PROPERTIES ('k' = 'v')",
+                "ALTER TABLE t ADD COLUMN s.c STRING NULL PROPERTIES ('k' = 'v')",
+                "ALTER TABLE t ADD COLUMN (c1 STRING NULL, c2 INT NULL) PROPERTIES ('k' = 'v')",
+                "ALTER TABLE t DROP COLUMN c PROPERTIES ('k' = 'v')",
+                "ALTER TABLE t DROP COLUMN s.c PROPERTIES ('k' = 'v')",
+                "ALTER TABLE t MODIFY COLUMN c STRING PROPERTIES ('k' = 'v')",
+                "ALTER TABLE t MODIFY COLUMN s.c STRING PROPERTIES ('k' = 'v')",
+                "ALTER TABLE t ORDER BY (c1, c2) PROPERTIES ('k' = 'v')")) {
+            AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                    () -> AlterTableCommand.checkColumnOperationsSupported(table, parseAlter(sql).getOps()));
+            Assertions.assertTrue(exception.getMessage()
+                    .contains("PROPERTIES are not supported for Iceberg column operations"));
+        }
+    }
+
+    @Test
+    void testRejectKeyForIcebergAddAndModify() {
+        IcebergExternalTable table = Mockito.mock(IcebergExternalTable.class);
+        for (String sql : Arrays.asList(
+                "ALTER TABLE t ADD COLUMN c INT KEY NULL",
                 "ALTER TABLE t ADD COLUMN s.c INT KEY NULL",
+                "ALTER TABLE t ADD COLUMN (c1 INT KEY NULL, c2 INT NULL)",
+                "ALTER TABLE t MODIFY COLUMN c BIGINT KEY",
                 "ALTER TABLE t MODIFY COLUMN s.c BIGINT KEY")) {
             AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
                     () -> AlterTableCommand.checkColumnOperationsSupported(table, parseAlter(sql).getOps()));
             Assertions.assertTrue(exception.getMessage()
-                    .contains("KEY is not supported for nested Iceberg ADD/MODIFY COLUMN"));
+                    .contains("KEY is not supported for Iceberg ADD/MODIFY COLUMN"));
         }
     }
 
     @Test
-    void testRejectGeneratedColumnForNestedIcebergAddAndModify() {
+    void testRejectGeneratedColumnForIcebergAddAndModify() {
         IcebergExternalTable table = Mockito.mock(IcebergExternalTable.class);
         for (String sql : Arrays.asList(
+                "ALTER TABLE t ADD COLUMN c INT AS (id + 1) NULL",
                 "ALTER TABLE t ADD COLUMN s.c INT AS (id + 1) NULL",
+                "ALTER TABLE t ADD COLUMN (c1 INT AS (id + 1) NULL, c2 INT NULL)",
+                "ALTER TABLE t MODIFY COLUMN c BIGINT AS (id + 1)",
                 "ALTER TABLE t MODIFY COLUMN s.c BIGINT AS (id + 1)")) {
             AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
                     () -> AlterTableCommand.checkColumnOperationsSupported(table, parseAlter(sql).getOps()));
             Assertions.assertTrue(exception.getMessage()
-                    .contains("Generated columns are not supported for nested Iceberg ADD/MODIFY COLUMN"));
+                    .contains("Generated columns are not supported for Iceberg ADD/MODIFY COLUMN"));
         }
+    }
+
+    @Test
+    void testPreserveEmptyAddColumnsValidationForIcebergTable() throws AnalysisException {
+        IcebergExternalTable table = Mockito.mock(IcebergExternalTable.class);
+        AddColumnsOp addColumnsOp = new AddColumnsOp(null, null, new HashMap<>());
+
+        AlterTableCommand.checkColumnOperationsSupported(table, Arrays.asList(addColumnsOp));
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> addColumnsOp.validate(null));
+        Assertions.assertTrue(exception.getMessage().contains("Columns is empty in add columns clause"));
     }
 
     @Test
