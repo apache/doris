@@ -61,7 +61,7 @@
 #include "exprs/vruntimefilter_wrapper.h"
 #include "exprs/vslot_ref.h"
 #include "format/format_common.h"
-#include "format/table/deletion_vector_reader.h"
+#include "format_v2/deletion_vector_reader.h"
 #include "format_v2/table_reader.h"
 #include "gen_cpp/Exprs_types.h"
 #include "gen_cpp/ExternalTableSchema_types.h"

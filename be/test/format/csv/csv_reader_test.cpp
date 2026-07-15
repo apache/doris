@@ -19,11 +19,8 @@
 
 #include <gtest/gtest.h>
 
-#include <filesystem>
-#include <fstream>
 #include <memory>
 
-#include "runtime/runtime_profile.h"
 #include "testutil/mock/mock_runtime_state.h"
 
 namespace doris {
@@ -86,51 +83,6 @@ TEST(CsvReaderSetBatchSizeTest, SetBatchSizeViaGenericInterface) {
     GenericReader* base_reader = reader.get();
     base_reader->set_batch_size(128);
     base_reader->set_batch_size(4096);
-}
-
-TEST(CsvReaderSchemaTest, InitWithoutRuntimeStateUsesDefaultQueryOptions) {
-    const auto test_dir =
-            std::filesystem::temp_directory_path() / "doris_csv_reader_schema_without_state_test";
-    std::filesystem::remove_all(test_dir);
-    std::filesystem::create_directories(test_dir);
-    const auto file_path = test_dir / "schema.csv";
-    {
-        std::ofstream output(file_path, std::ios::binary);
-        ASSERT_TRUE(output.is_open());
-        output << "alpha,beta\n";
-    }
-
-    TFileScanRangeParams params;
-    params.__set_format_type(TFileFormatType::FORMAT_CSV_PLAIN);
-    params.__set_file_type(TFileType::FILE_LOCAL);
-    TFileAttributes attributes;
-    TFileTextScanRangeParams text_params;
-    text_params.__set_column_separator(",");
-    text_params.__set_line_delimiter("\n");
-    attributes.__set_text_params(std::move(text_params));
-    params.__set_file_attributes(std::move(attributes));
-
-    const auto file_size = static_cast<int64_t>(std::filesystem::file_size(file_path));
-    TFileRangeDesc range;
-    range.__set_path(file_path.string());
-    range.__set_start_offset(0);
-    range.__set_size(file_size);
-    range.__set_file_size(file_size);
-    range.__set_file_type(TFileType::FILE_LOCAL);
-
-    std::vector<SlotDescriptor*> file_slot_descs;
-    RuntimeProfile profile("csv_schema_reader_without_state_test");
-    auto reader = CsvReader::create_unique(nullptr, &profile, nullptr, params, range,
-                                           file_slot_descs, 1, nullptr);
-    ASSERT_TRUE(reader->init_schema_reader().ok());
-
-    std::vector<std::string> column_names;
-    std::vector<DataTypePtr> column_types;
-    ASSERT_TRUE(reader->get_parsed_schema(&column_names, &column_types).ok());
-    EXPECT_EQ(column_names, (std::vector<std::string> {"c1", "c2"}));
-    EXPECT_EQ(column_types.size(), 2);
-    EXPECT_TRUE(reader->close().ok());
-    std::filesystem::remove_all(test_dir);
 }
 
 } // namespace doris

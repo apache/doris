@@ -81,9 +81,7 @@ TEST_F(HiveTextFieldSplitterTest, OverlappingPatterns) {
 // Test escape character functionality
 TEST_F(HiveTextFieldSplitterTest, EscapeCharacter) {
     verify_field_split("a\\,b,c", ",", {"a\\,b", "c"}, '\\');
-    verify_field_split(R"(a\\,b)", ",", {R"(a\\)", "b"}, '\\');
     verify_field_split("a\\||b||c", "||", {"a\\||b", "c"}, '\\');
-    verify_field_split(R"(a\\||b)", "||", {R"(a\\)", "b"}, '\\');
     verify_field_split("field1\\|+|field2|+|field3", "|+|", {"field1\\|+|field2", "field3"}, '\\');
 }
 

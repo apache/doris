@@ -727,7 +727,7 @@ TEST_F(NativeReaderWriterTest, transformer_writes_header_and_reader_handles_it) 
 
 // Verify get_columns and get_parsed_schema can probe schema without scanning
 // the whole file.
-TEST_F(NativeReaderWriterTest, get_columns_and_parsed_schema_without_runtime_state) {
+TEST_F(NativeReaderWriterTest, get_columns_and_parsed_schema) {
     auto fs = io::global_local_filesystem();
 
     UniqueId uid = UniqueId::gen_uid();
@@ -755,9 +755,7 @@ TEST_F(NativeReaderWriterTest, get_columns_and_parsed_schema_without_runtime_sta
     TFileRangeDesc scan_range;
     scan_range.__set_path(file_path);
     scan_range.__set_file_type(TFileType::FILE_LOCAL);
-    NativeReader reader_impl(nullptr, scan_params, scan_range, nullptr, nullptr);
-    st = reader_impl.init_schema_reader();
-    ASSERT_TRUE(st.ok()) << st;
+    NativeReader reader_impl(nullptr, scan_params, scan_range, nullptr, &state);
 
     std::unordered_map<std::string, DataTypePtr> name_to_type;
     std::unordered_set<std::string> missing_cols;

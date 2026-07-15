@@ -32,13 +32,15 @@
 
 namespace doris {
 class Block;
-struct DeleteFileDesc;
 namespace io {
 struct FileDescription;
 struct FileSystemProperties;
 } // namespace io
 } // namespace doris
 
+namespace doris::format {
+struct DeleteFileDesc;
+}
 namespace doris::format::iceberg {
 
 // Iceberg table-level reader.

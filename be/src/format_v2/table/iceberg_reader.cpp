@@ -36,7 +36,7 @@
 #include "core/field.h"
 #include "exprs/vliteral.h"
 #include "exprs/vslot_ref.h"
-#include "format/table/deletion_vector_reader.h"
+#include "format_v2/deletion_vector_reader.h"
 #include "format_v2/expr/cast.h"
 #include "format_v2/expr/equality_delete_predicate.h"
 #include "format_v2/orc/orc_reader.h"

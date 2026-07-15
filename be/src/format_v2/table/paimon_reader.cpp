@@ -23,9 +23,9 @@
 #include <utility>
 
 #include "exprs/vexpr_context.h"
-#include "format/table/deletion_vector_reader.h"
 #include "format/table/paimon_reader.h"
 #include "format_v2/column_mapper.h"
+#include "format_v2/deletion_vector_reader.h"
 #include "format_v2/jni/paimon_jni_reader.h"
 #include "format_v2/table/schema_history_util.h"
 #include "gen_cpp/PlanNodes_types.h"

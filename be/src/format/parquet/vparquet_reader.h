@@ -35,7 +35,6 @@
 #include "format/parquet/parquet_predicate.h"
 #include "format/parquet/vparquet_column_reader.h"
 #include "format/parquet/vparquet_group_reader.h"
-#include "format/table/deletion_vector.h"
 #include "format/table/table_format_reader.h"
 #include "io/file_factory.h"
 #include "io/fs/file_meta_cache.h"
@@ -154,12 +153,6 @@ public:
 
     // set the delete rows in current parquet file
     void set_delete_rows(const std::vector<int64_t>* delete_rows) { _delete_rows = delete_rows; }
-
-    // Keep DVs compressed in the query cache and expand only the current row group's row ids for
-    // the legacy RowGroupReader position-delete interface.
-    void set_deletion_vector(const DeletionVector* deletion_vector) {
-        _deletion_vector = deletion_vector;
-    }
 
     int64_t size() const { return _file_reader->size(); }
 
@@ -351,8 +344,6 @@ private:
     // Deleted rows will be marked by Iceberg/Paimon. So we should filter deleted rows when reading it.
     const std::vector<int64_t>* _delete_rows = nullptr;
     int64_t _delete_rows_index = 0;
-    const DeletionVector* _deletion_vector = nullptr;
-    std::vector<int64_t> _row_group_deletion_vector_rows;
 
     // Used for column lazy read.
     RowGroupReader::LazyReadContext _lazy_read_ctx;

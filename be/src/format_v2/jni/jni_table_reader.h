@@ -23,7 +23,7 @@
 
 #include "common/status.h"
 #include "core/data_type/data_type.h"
-#include "format/jni/jni_data_bridge.h"
+#include "format_v2/jni/jni_data_bridge.h"
 #include "format_v2/table_reader.h"
 #include "runtime/runtime_profile.h"
 #include "util/jni-util.h"

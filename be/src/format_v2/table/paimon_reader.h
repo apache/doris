@@ -21,7 +21,7 @@
 
 #include "format_v2/table_reader.h"
 
-namespace doris {
+namespace doris::format {
 struct DeleteFileDesc;
 }
 namespace doris::format::paimon {

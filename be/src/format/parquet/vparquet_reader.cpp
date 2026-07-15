@@ -322,8 +322,8 @@ Status ParquetReader::_open_file() {
         ++_reader_statistics.open_file_num;
         _file_description.mtime =
                 _scan_range.__isset.modification_time ? _scan_range.modification_time : 0;
-        io::FileReaderOptions reader_options = FileFactory::get_reader_options(
-                _state ? _state->query_options() : _default_query_options, _file_description);
+        io::FileReaderOptions reader_options =
+                FileFactory::get_reader_options(_state, _file_description);
         _file_reader = DORIS_TRY(io::DelegateReader::create_file_reader(
                 _profile, _system_properties, _file_description, reader_options,
                 io::DelegateReader::AccessMode::RANDOM, _io_ctx));
@@ -776,33 +776,6 @@ Status ParquetReader::get_next_block(Block* block, size_t* read_rows, bool* eof)
 
 RowGroupReader::PositionDeleteContext ParquetReader::_get_position_delete_ctx(
         const tparquet::RowGroup& row_group, const RowGroupReader::RowGroupIndex& row_group_index) {
-    if (_deletion_vector != nullptr) {
-        _row_group_deletion_vector_rows.clear();
-        auto it = _deletion_vector->begin();
-        it.move(cast_set<uint64_t>(row_group_index.first_row));
-        const auto end = _deletion_vector->end();
-        while (it != end && *it < cast_set<uint64_t>(row_group_index.last_row)) {
-            _row_group_deletion_vector_rows.push_back(cast_set<int64_t>(*it));
-            ++it;
-        }
-        // Iceberg may plan a DV together with older position delete files. Preserve both sources
-        // while keeping only the current row group's temporary expansion.
-        if (_delete_rows != nullptr) {
-            const auto position_begin = std::lower_bound(_delete_rows->begin(), _delete_rows->end(),
-                                                         row_group_index.first_row);
-            const auto position_end =
-                    std::lower_bound(position_begin, _delete_rows->end(), row_group_index.last_row);
-            _row_group_deletion_vector_rows.insert(_row_group_deletion_vector_rows.end(),
-                                                   position_begin, position_end);
-            std::ranges::sort(_row_group_deletion_vector_rows);
-            auto unique_end = std::ranges::unique(_row_group_deletion_vector_rows).begin();
-            _row_group_deletion_vector_rows.erase(unique_end,
-                                                  _row_group_deletion_vector_rows.end());
-        }
-        return RowGroupReader::PositionDeleteContext(
-                _row_group_deletion_vector_rows, row_group.num_rows, row_group_index.first_row, 0,
-                cast_set<int64_t>(_row_group_deletion_vector_rows.size()));
-    }
     if (_delete_rows == nullptr) {
         return RowGroupReader::PositionDeleteContext(row_group.num_rows, row_group_index.first_row);
     }

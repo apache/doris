@@ -88,6 +88,8 @@ class FileFactory {
 public:
     static io::FileReaderOptions get_reader_options(const TQueryOptions& option,
                                                     const io::FileDescription& fd);
+    static io::FileReaderOptions get_reader_options(RuntimeState* state,
+                                                    const io::FileDescription& fd);
 
     /// Create a temporary FileSystem for accessing file corresponding to `file_description`
     /// FIXME(plat1ko): Declare the path formats supported by each file system

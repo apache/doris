@@ -42,7 +42,6 @@
 #include "format/column_type_convert.h"
 #include "format/format_common.h"
 #include "format/generic_reader.h"
-#include "format/table/deletion_vector.h"
 #include "format/table/table_format_reader.h"
 #include "format/table/transactional_hive_reader.h"
 #include "io/file_factory.h"
@@ -198,10 +197,6 @@ public:
 
     void set_position_delete_rowids(const std::vector<int64_t>* delete_rows) {
         _position_delete_ordered_rowids = delete_rows;
-    }
-
-    void set_deletion_vector(const DeletionVector* deletion_vector) {
-        _deletion_vector = deletion_vector;
     }
 
     void set_delete_rows(const TransactionalHiveReader::AcidRowIDSet* delete_rows) {
@@ -760,7 +755,6 @@ private:
 
     //support iceberg position delete .
     const std::vector<int64_t>* _position_delete_ordered_rowids = nullptr;
-    const DeletionVector* _deletion_vector = nullptr;
     std::unordered_map<const VSlotRef*, orc::PredicateDataType>
             _vslot_ref_to_orc_predicate_data_type;
     std::unordered_map<const VLiteral*, orc::Literal> _vliteral_to_orc_literal;

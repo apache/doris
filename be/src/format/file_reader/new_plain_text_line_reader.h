@@ -213,11 +213,9 @@ private:
     ReaderStateWrapper _state;
     const char _enclose;
     const char _escape;
-    // Only V2 readers starting at file offset zero enable this. The line reader must recognize the
-    // BOM before deciding whether the first field is enclosed; the format reader later removes the
-    // same bytes from the returned Slice and adjusts the recorded separator positions.
     const bool _skip_utf8_bom;
     bool _first_record_prefix_checked = false;
+
     const uint8_t* _result = nullptr;
 
     size_t _total_len;

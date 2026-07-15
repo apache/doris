@@ -115,10 +115,6 @@ protected:
     // Cache to save some common part such as file footer.
     // Maybe null if not used
     FileMetaCache* _meta_cache = nullptr;
-
-    // Schema discovery does not create a RuntimeState. V1 readers use these defaults when
-    // constructing the underlying file reader for that path.
-    const TQueryOptions _default_query_options;
 };
 
 #include "common/compile_check_end.h"

@@ -25,7 +25,7 @@
 #include "core/data_type/data_type_string.h"
 #include "core/data_type_serde/data_type_string_serde.h"
 #include "format/file_reader/new_plain_text_line_reader.h"
-#include "format/hive_text_util.h"
+#include "format_v2/delimited_text/hive_text_util.h"
 #include "runtime/descriptors.h"
 #include "util/decompressor.h"
 

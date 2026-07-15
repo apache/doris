@@ -54,9 +54,9 @@
 #include "exprs/vexpr_context.h"
 #include "exprs/vexpr_fwd.h"
 #include "exprs/vslot_ref.h"
-#include "format/table/deletion_vector.h"
 #include "format_v2/column_data.h"
 #include "format_v2/column_mapper.h"
+#include "format_v2/deletion_vector.h"
 #include "format_v2/expr/cast.h"
 #include "format_v2/expr/delete_predicate.h"
 #include "format_v2/file_reader.h"
@@ -69,11 +69,11 @@
 
 namespace doris {
 class Block;
-struct DeleteFileDesc;
 class RuntimeState;
 } // namespace doris
 
 namespace doris::format {
+struct DeleteFileDesc;
 
 using DeleteRows = std::vector<int64_t>;
 

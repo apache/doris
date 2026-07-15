@@ -20,19 +20,12 @@
 #include <memory>
 #include <vector>
 
-#include "common/status.h"
 #include "format/orc/vorc_reader.h"
 #include "format/parquet/vparquet_reader.h"
-#include "format/table/deletion_vector.h"
 #include "format/table/table_format_reader.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
-std::string build_paimon_deletion_vector_cache_key(const TPaimonDeletionFileDesc& deletion_file);
-
-Status decode_paimon_deletion_vector_buffer(const char* buf, size_t buffer_size,
-                                            DeletionVector* deletion_vector);
-
 class PaimonReader : public TableFormatReader, public TableSchemaChangeHelper {
 public:
     PaimonReader(std::unique_ptr<GenericReader> file_format_reader, RuntimeProfile* profile,
@@ -51,19 +44,14 @@ protected:
         RuntimeProfile::Counter* num_delete_rows;
         RuntimeProfile::Counter* delete_files_read_time;
         RuntimeProfile::Counter* parse_deletion_vector_time;
-        RuntimeProfile::Counter* decoded_cache_hit_count;
-        RuntimeProfile::Counter* decoded_cache_miss_count;
-        RuntimeProfile::Counter* file_cache_hit_count;
-        RuntimeProfile::Counter* file_cache_miss_count;
-        RuntimeProfile::Counter* file_cache_peer_read_count;
     };
-    // Deletion vector retained in compressed form by the query-local cache.
-    const DeletionVector* _deletion_vector = nullptr;
+    // _delete_rows from kv_cache.
+    const std::vector<int64_t>* _delete_rows = nullptr;
     // owned by scan node
     ShardedKVCache* _kv_cache;
     PaimonProfile _paimon_profile;
 
-    virtual void set_deletion_vector() = 0;
+    virtual void set_delete_rows() = 0;
 };
 
 class PaimonOrcReader final : public PaimonReader {
@@ -77,9 +65,9 @@ public:
                            io_ctx, meta_cache) {};
     ~PaimonOrcReader() final = default;
 
-    void set_deletion_vector() final {
+    void set_delete_rows() final {
         (reinterpret_cast<OrcReader*>(_file_format_reader.get()))
-                ->set_deletion_vector(_deletion_vector);
+                ->set_position_delete_rowids(_delete_rows);
     }
 
     Status init_reader(
@@ -114,9 +102,9 @@ public:
                            io_ctx, meta_cache) {};
     ~PaimonParquetReader() final = default;
 
-    void set_deletion_vector() final {
+    void set_delete_rows() final {
         (reinterpret_cast<ParquetReader*>(_file_format_reader.get()))
-                ->set_deletion_vector(_deletion_vector);
+                ->set_delete_rows(_delete_rows);
     }
 
     Status init_reader(

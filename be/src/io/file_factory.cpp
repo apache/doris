@@ -76,6 +76,12 @@ io::FileReaderOptions FileFactory::get_reader_options(const TQueryOptions& optio
     return opts;
 }
 
+io::FileReaderOptions FileFactory::get_reader_options(RuntimeState* state,
+                                                      const io::FileDescription& fd) {
+    return state == nullptr ? get_reader_options(TQueryOptions {}, fd)
+                            : get_reader_options(state->query_options(), fd);
+}
+
 int32_t get_broker_index(const std::vector<TNetworkAddress>& brokers, const std::string& path) {
     if (brokers.empty()) {
         return -1;
