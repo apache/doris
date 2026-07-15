@@ -47,7 +47,18 @@
 1. **`iceberg/source/IcebergScanNodeTest.java` 不在冲突列表**（我方 23 commit 从未碰它 → 静默停在 upstream 的 329 行版本），却在 `:313/:323` **直接静态调用** `IcebergScanNode.checkPositionDeletesBackendCompatibility` + 4 处反射 `isSystemTable` 等 → 取 P6 侧必炸 **fe-core test 编译**。修=`git checkout f052d9da44e -- <file>` 还原到 pre-#65135 的 192 行（BASE==我方版，我方从未碰过）。**教训第 3 次复现：git 说没冲突 ≠ 语义没坏**（见 [[doris-build-verify-gotchas]]）。
 2. **groovy 冲突区外**的 `expectedPositionDeleteColumns.addAll(...)`/`assertEquals(...)`/权限段两条 `$position_deletes` 断言**已被自动合并进来** → 盲取 P6 侧会得到引用未定义变量的坏 Groovy。整取 upstream 后此坑消解。
 
-## ⏭ 下个 session 起步 = **实施 `$position_deletes` 连接器移植（研究+设计已完成，T0 实证已过，直接从 T3 开写）**
+## ✅ `$position_deletes` 连接器移植 **DONE**（commit `2e49827ecdd`，未 push）= 该 blocker **解除，仅差 e2e**
+
+> 权威 = `plan-doc/tasks/designs/P6.6-position-deletes-connector-port-design.md`（Status=IMPLEMENTED，§9 复审结论 / §10 follow-up）。
+- **fe-core + SPI 零改动**（用户裁定不移植 smooth-upgrade 守卫）；全部落在 `fe-connector-iceberg` 内：`IcebergConnectorMetadata` 暴露 + `IcebergScanRange` 第三形状 + `IcebergPartitionUtils.getPartitionDataObjectJson` + `IcebergScanPlanProvider` 规划分支 + [D-065] 收窄。
+- **验证**：连接器 **977/977**（+11 新测）、checkstyle 0、`build.sh --fe` **BUILD SUCCESS 61 模块**（禁 cache 真编译）。
+- **对抗复审（`wf_08359fe4-611`，4 lens）抓到 2 个真缺陷，已修**：① 我引入的 **auth bug**（`resolveSysTable` 无 auth wrap，被第二个调用方在无 scope 处调用 → kerberos plan 期 GSS 失败）；② 既有**假注释**导致 split-size 对 puffin DV 失真（`fileSizeInBytes` → `ScanTaskUtil.contentSizeInBytes`）。第 3 条被另一 lens 推翻（权重 1.0 与 upstream 等价，非缺陷）。
+- **⛔ 唯一剩余 = e2e**（本地无 iceberg REST+MinIO+**Spark** compose，两套件数据由 Spark 写）：`test_iceberg_position_deletes_sys_table.groovy`(659 行) + `test_iceberg_sys_table.groovy`。**这是翻闸门。**
+- **follow-up（非阻塞，upstream 同源缺陷勿在此分叉修）**：STRING 分区值含 `"`/`\`/换行 → Jackson 转义但 BE STRUCT 文本 serde 从不反转义（`escape_char=0` 恒真）→ 字面量落库、**静默**。upstream #65135 行为完全相同，应向 upstream 报。
+
+---
+
+## （历史）原计划 = 实施 `$position_deletes` 连接器移植（研究+设计，T0 实证）
 
 > **权威文档 = [`plan-doc/tasks/designs/P6.6-position-deletes-connector-port-design.md`](./tasks/designs/P6.6-position-deletes-connector-port-design.md)（commit `af0f0582bdf`）+ 同名 `-research-notes.md`。起步只读这两份 + 本段，勿重跑侦察（已烧两个工作流）。**
 
