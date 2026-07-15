@@ -19,12 +19,13 @@ toy	east	0	0	0	1	30
 \N	\N	1	1	3	3	60
 
 -- !repeat_join_sales_incr --
-\N	\N	1	1	3	3	60
+\N	\N	1	1	3	4	100
 book	\N	0	1	1	2	30
 book	east	0	0	0	1	10
 book	west	0	0	0	1	20
-toy	\N	0	1	1	1	30
+toy	\N	0	1	1	2	70
 toy	east	0	0	0	1	30
+toy	west	0	0	0	1	40
 
 -- !repeat_join_sales_incr_source --
 \N	\N	1	1	3	4	100
@@ -36,7 +37,7 @@ toy	east	0	0	0	1	30
 toy	west	0	0	0	1	40
 
 -- !repeat_join_sales_incr_empty_group --
-\N	\N	1	1	3	3	60
+\N	\N	1	1	3	4	100
 
 -- !repeat_join_complete2 --
 \N	\N	1	1	3	4	100
@@ -60,10 +61,12 @@ toy	west	0	0	0	1	40
 \N	\N	1	1	3	4	100
 
 -- !repeat_join_product_incr --
-\N	\N	1	1	3	4	100
+\N	\N	1	1	3	5	150
 book	\N	0	1	1	2	30
 book	east	0	0	0	1	10
 book	west	0	0	0	1	20
+game	\N	0	1	1	1	50
+game	east	0	0	0	1	50
 toy	\N	0	1	1	2	70
 toy	east	0	0	0	1	30
 toy	west	0	0	0	1	40
@@ -80,7 +83,7 @@ toy	east	0	0	0	1	30
 toy	west	0	0	0	1	40
 
 -- !repeat_join_product_incr_empty_group --
-\N	\N	1	1	3	4	100
+\N	\N	1	1	3	5	150
 
 -- !repeat_join_complete3 --
 \N	\N	1	1	3	5	150

@@ -90,6 +90,7 @@ suite("test_ivm_repeat_join_1") {
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_repeat_join_1_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("test_ivm_repeat_join_1_mv")
+    advance_ivm_stream_offset("test_ivm_repeat_join_1_mv")
     order_qt_repeat_join_complete """
         SELECT category, region, g_category, g_region, gid, cnt, total_amount
         FROM test_ivm_repeat_join_1_mv
@@ -152,6 +153,7 @@ suite("test_ivm_repeat_join_1") {
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_repeat_join_1_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("test_ivm_repeat_join_1_mv")
+    advance_ivm_stream_offset("test_ivm_repeat_join_1_mv")
     order_qt_repeat_join_complete2 """
         SELECT category, region, g_category, g_region, gid, cnt, total_amount
         FROM test_ivm_repeat_join_1_mv
@@ -215,6 +217,7 @@ suite("test_ivm_repeat_join_1") {
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_repeat_join_1_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("test_ivm_repeat_join_1_mv")
+    advance_ivm_stream_offset("test_ivm_repeat_join_1_mv")
     order_qt_repeat_join_complete3 """
         SELECT category, region, g_category, g_region, gid, cnt, total_amount
         FROM test_ivm_repeat_join_1_mv

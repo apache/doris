@@ -74,15 +74,15 @@ suite("test_ivm_agg_join_3") {
 
     sql """REFRESH MATERIALIZED VIEW ivm_aj3_p11_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("ivm_aj3_p11_mv")
+    advance_ivm_stream_offset("ivm_aj3_p11_mv")
     order_qt_p11_complete """SELECT category, fact_cnt, total_amount FROM ivm_aj3_p11_mv"""
 
-    // Mock binlog scans the full base table as delta. Keep the joined key as delete and add a
-    // non-joined insert row to trigger incremental refresh.
+    // Delete the joined key on the MOW side and add a non-joined insert row to trigger
+    // incremental refresh.
     sql """INSERT INTO ivm_aj3_p11_dim VALUES (3,'B');"""
     sql """DELETE FROM ivm_aj3_p11_dim WHERE dim_id = 1;"""
     sql """REFRESH MATERIALIZED VIEW ivm_aj3_p11_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("ivm_aj3_p11_mv")
-    // This output follows the current mock binlog behavior. Refresh it with real binlog data after
-    // delete/retract support is available.
+    // The joined key is removed and the inserted dim row is unmatched, so the MV becomes empty.
     order_qt_p11_after_unique_delete """SELECT category, fact_cnt, total_amount FROM ivm_aj3_p11_mv"""
 }
