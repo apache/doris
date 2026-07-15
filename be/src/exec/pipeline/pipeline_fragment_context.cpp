@@ -2535,12 +2535,10 @@ void PipelineFragmentContext::_coordinator_callback(const ReportStatusRequest& r
     try {
         try {
             (*coord)->reportExecStatus(res, params);
-        } catch ([[maybe_unused]] apache::thrift::transport::TTransportException& e) {
-#ifndef ADDRESS_SANITIZER
+        } catch (apache::thrift::transport::TTransportException& e) {
             LOG(WARNING) << "Retrying ReportExecStatus. query id: " << print_id(req.query_id)
                          << ", instance id: " << print_id(req.fragment_instance_id) << " to "
                          << req.coord_addr << ", err: " << e.what();
-#endif
             rpc_status = coord->reopen();
 
             if (!rpc_status.ok()) {

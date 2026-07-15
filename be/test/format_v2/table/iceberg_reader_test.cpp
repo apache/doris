@@ -31,8 +31,10 @@
 #include <optional>
 #include <string>
 #include <typeinfo>
+#include <utility>
 #include <vector>
 
+#include "common/config.h"
 #include "common/consts.h"
 #include "core/assert_cast.h"
 #include "core/block/block.h"
@@ -44,11 +46,14 @@
 #include "core/column/column_struct.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_date_or_datetime_v2.h"
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
+#include "core/data_type/data_type_timestamptz.h"
+#include "core/data_type/data_type_varbinary.h"
 #include "exec/common/endian.h"
 #include "exprs/runtime_filter_expr.h"
 #include "exprs/vectorized_fn_call.h"
@@ -59,12 +64,14 @@
 #include "format/table/deletion_vector_reader.h"
 #include "format_v2/table_reader.h"
 #include "gen_cpp/Exprs_types.h"
+#include "gen_cpp/ExternalTableSchema_types.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "io/io_common.h"
 #include "roaring/roaring64map.hh"
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
 #include "storage/segment/condition_cache.h"
+#include "util/debug_points.h"
 
 namespace doris::format {
 namespace {
@@ -206,6 +213,12 @@ public:
         return customize_file_scan_request(request);
     }
 
+    bool current_data_file_is_immutable() const {
+        DORIS_CHECK(_current_task != nullptr);
+        DORIS_CHECK(_current_task->data_file != nullptr);
+        return _current_task->data_file->is_immutable;
+    }
+
 private:
     std::unique_ptr<TQueryOptions> _query_options;
     std::unique_ptr<TQueryGlobals> _query_globals;
@@ -257,6 +270,19 @@ std::shared_ptr<arrow::Array> build_nullable_int64_array(
     return finish_array(&builder);
 }
 
+std::shared_ptr<arrow::Array> build_nullable_string_array(
+        const std::vector<std::optional<std::string>>& values) {
+    arrow::StringBuilder builder;
+    for (const auto& value : values) {
+        if (value.has_value()) {
+            EXPECT_TRUE(builder.Append(*value).ok());
+        } else {
+            EXPECT_TRUE(builder.AppendNull().ok());
+        }
+    }
+    return finish_array(&builder);
+}
+
 std::shared_ptr<arrow::Array> build_string_array(const std::vector<std::string>& values) {
     arrow::StringBuilder builder;
     for (const auto& value : values) {
@@ -265,12 +291,61 @@ std::shared_ptr<arrow::Array> build_string_array(const std::vector<std::string>&
     return finish_array(&builder);
 }
 
+schema::external::TFieldPtr external_schema_field(
+        std::string name, int32_t id, std::vector<std::string> aliases = {},
+        std::optional<std::string> initial_default = std::nullopt,
+        std::optional<TColumnType> type = std::nullopt, bool initial_default_is_base64 = false) {
+    auto field = std::make_shared<schema::external::TField>();
+    field->__set_name(name);
+    field->__set_id(id);
+    if (!aliases.empty()) {
+        field->__set_name_mapping(aliases);
+    }
+    if (initial_default.has_value()) {
+        field->__set_initial_default_value(*initial_default);
+        if (initial_default_is_base64) {
+            field->__set_initial_default_value_is_base64(true);
+        }
+    }
+    if (type.has_value()) {
+        field->__set_type(*type);
+    }
+    schema::external::TFieldPtr field_ptr;
+    field_ptr.field_ptr = std::move(field);
+    field_ptr.__isset.field_ptr = true;
+    return field_ptr;
+}
+
+TColumnType external_primitive_type(TPrimitiveType::type type, int32_t len = -1,
+                                    int32_t scale = -1) {
+    TColumnType result;
+    result.__set_type(type);
+    if (len >= 0) {
+        result.__set_len(len);
+    }
+    if (scale >= 0) {
+        result.__set_scale(scale);
+    }
+    return result;
+}
+
+schema::external::TSchema external_schema(int64_t schema_id,
+                                          std::vector<schema::external::TFieldPtr> fields) {
+    schema::external::TStructField root_field;
+    root_field.__set_fields(fields);
+    schema::external::TSchema schema;
+    schema.__set_schema_id(schema_id);
+    schema.__set_root_field(root_field);
+    return schema;
+}
+
 void write_iceberg_equality_delete_parquet_file(const std::string& file_path, int32_t field_id,
-                                                int32_t value) {
+                                                int32_t value,
+                                                const std::string& field_name = "id") {
     const auto metadata =
             arrow::key_value_metadata({"PARQUET:field_id"}, {std::to_string(field_id)});
     auto schema = arrow::schema({
-            arrow::field("id", arrow::int32(), false)->WithMetadata(metadata),
+            arrow::field(field_name, arrow::int32(), false)->WithMetadata(metadata),
     });
     auto table = arrow::Table::Make(schema, {build_int32_array({value})});
 
@@ -283,6 +358,168 @@ void write_iceberg_equality_delete_parquet_file(const std::string& file_path, in
     builder.data_page_version(::parquet::ParquetDataPageVersion::V2);
     builder.compression(::parquet::Compression::UNCOMPRESSED);
     PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), out, 1,
+                                                      builder.build()));
+}
+
+void write_iceberg_timestamp_equality_delete_parquet_file(const std::string& file_path,
+                                                          int32_t field_id, int64_t value,
+                                                          const std::string& field_name,
+                                                          bool adjusted_to_utc = false) {
+    const auto metadata =
+            arrow::key_value_metadata({"PARQUET:field_id"}, {std::to_string(field_id)});
+    const auto timestamp_type = adjusted_to_utc ? arrow::timestamp(arrow::TimeUnit::MICRO, "UTC")
+                                                : arrow::timestamp(arrow::TimeUnit::MICRO);
+    arrow::TimestampBuilder value_builder(timestamp_type, arrow::default_memory_pool());
+    ASSERT_TRUE(value_builder.Append(value).ok());
+    auto value_result = value_builder.Finish();
+    ASSERT_TRUE(value_result.ok()) << value_result.status();
+    auto schema = arrow::schema({
+            arrow::field(field_name, timestamp_type, false)->WithMetadata(metadata),
+    });
+    auto table = arrow::Table::Make(schema, {*value_result});
+
+    auto file_result = arrow::io::FileOutputStream::Open(file_path);
+    ASSERT_TRUE(file_result.ok()) << file_result.status();
+    std::shared_ptr<arrow::io::FileOutputStream> out = *file_result;
+    ::parquet::WriterProperties::Builder builder;
+    builder.version(::parquet::ParquetVersion::PARQUET_2_6);
+    builder.data_page_version(::parquet::ParquetDataPageVersion::V2);
+    builder.compression(::parquet::Compression::UNCOMPRESSED);
+    PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), out, 1,
+                                                      builder.build()));
+}
+
+void write_iceberg_binary_equality_delete_parquet_file(const std::string& file_path,
+                                                       int32_t field_id, const std::string& value,
+                                                       const std::string& field_name) {
+    const auto metadata =
+            arrow::key_value_metadata({"PARQUET:field_id"}, {std::to_string(field_id)});
+    arrow::BinaryBuilder value_builder;
+    ASSERT_TRUE(value_builder.Append(value).ok());
+    auto value_result = value_builder.Finish();
+    ASSERT_TRUE(value_result.ok()) << value_result.status();
+    auto schema = arrow::schema({
+            arrow::field(field_name, arrow::binary(), false)->WithMetadata(metadata),
+    });
+    auto table = arrow::Table::Make(schema, {*value_result});
+
+    auto file_result = arrow::io::FileOutputStream::Open(file_path);
+    ASSERT_TRUE(file_result.ok()) << file_result.status();
+    std::shared_ptr<arrow::io::FileOutputStream> out = *file_result;
+    ::parquet::WriterProperties::Builder builder;
+    builder.version(::parquet::ParquetVersion::PARQUET_2_6);
+    builder.data_page_version(::parquet::ParquetDataPageVersion::V2);
+    builder.compression(::parquet::Compression::UNCOMPRESSED);
+    PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), out, 1,
+                                                      builder.build()));
+}
+
+void write_iceberg_null_equality_delete_parquet_file(const std::string& file_path, int32_t field_id,
+                                                     const std::string& field_name) {
+    const auto metadata =
+            arrow::key_value_metadata({"PARQUET:field_id"}, {std::to_string(field_id)});
+    auto schema = arrow::schema({
+            arrow::field(field_name, arrow::int32(), true)->WithMetadata(metadata),
+    });
+    arrow::Int32Builder value_builder;
+    ASSERT_TRUE(value_builder.AppendNull().ok());
+    auto value_result = value_builder.Finish();
+    ASSERT_TRUE(value_result.ok()) << value_result.status();
+    auto table = arrow::Table::Make(schema, {*value_result});
+
+    auto file_result = arrow::io::FileOutputStream::Open(file_path);
+    ASSERT_TRUE(file_result.ok()) << file_result.status();
+    std::shared_ptr<arrow::io::FileOutputStream> out = *file_result;
+
+    ::parquet::WriterProperties::Builder builder;
+    builder.version(::parquet::ParquetVersion::PARQUET_2_6);
+    builder.data_page_version(::parquet::ParquetDataPageVersion::V2);
+    builder.compression(::parquet::Compression::UNCOMPRESSED);
+    PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), out, 1,
+                                                      builder.build()));
+}
+
+void write_single_int_parquet_file(const std::string& file_path, const std::string& field_name,
+                                   const std::vector<int32_t>& values,
+                                   std::optional<int32_t> field_id) {
+    auto field = arrow::field(field_name, arrow::int32(), false);
+    if (field_id.has_value()) {
+        field = field->WithMetadata(
+                arrow::key_value_metadata({"PARQUET:field_id"}, {std::to_string(*field_id)}));
+    }
+    auto table = arrow::Table::Make(arrow::schema({field}), {build_int32_array(values)});
+
+    auto file_result = arrow::io::FileOutputStream::Open(file_path);
+    ASSERT_TRUE(file_result.ok()) << file_result.status();
+    std::shared_ptr<arrow::io::FileOutputStream> out = *file_result;
+
+    ::parquet::WriterProperties::Builder builder;
+    builder.version(::parquet::ParquetVersion::PARQUET_2_6);
+    builder.data_page_version(::parquet::ParquetDataPageVersion::V2);
+    builder.compression(::parquet::Compression::UNCOMPRESSED);
+    PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), out,
+                                                      static_cast<int64_t>(values.size()),
+                                                      builder.build()));
+}
+
+void write_two_int_parquet_file(const std::string& file_path, const std::string& first_name,
+                                const std::vector<int32_t>& first_values,
+                                std::optional<int32_t> first_field_id,
+                                const std::string& second_name,
+                                const std::vector<int32_t>& second_values,
+                                std::optional<int32_t> second_field_id) {
+    ASSERT_EQ(first_values.size(), second_values.size());
+    auto first_field = arrow::field(first_name, arrow::int32(), false);
+    if (first_field_id.has_value()) {
+        first_field = first_field->WithMetadata(
+                arrow::key_value_metadata({"PARQUET:field_id"}, {std::to_string(*first_field_id)}));
+    }
+    auto second_field = arrow::field(second_name, arrow::int32(), false);
+    if (second_field_id.has_value()) {
+        second_field = second_field->WithMetadata(arrow::key_value_metadata(
+                {"PARQUET:field_id"}, {std::to_string(*second_field_id)}));
+    }
+    auto schema = arrow::schema({first_field, second_field});
+    auto table = arrow::Table::Make(
+            schema, {build_int32_array(first_values), build_int32_array(second_values)});
+
+    auto file_result = arrow::io::FileOutputStream::Open(file_path);
+    ASSERT_TRUE(file_result.ok()) << file_result.status();
+    std::shared_ptr<arrow::io::FileOutputStream> out = *file_result;
+    ::parquet::WriterProperties::Builder builder;
+    builder.version(::parquet::ParquetVersion::PARQUET_2_6);
+    builder.data_page_version(::parquet::ParquetDataPageVersion::V2);
+    builder.compression(::parquet::Compression::UNCOMPRESSED);
+    PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), out,
+                                                      static_cast<int64_t>(first_values.size()),
+                                                      builder.build()));
+}
+
+void write_timestamp_int_parquet_file(const std::string& file_path,
+                                      const std::vector<int64_t>& timestamps,
+                                      const std::vector<int32_t>& ids) {
+    ASSERT_EQ(timestamps.size(), ids.size());
+    const auto timestamp_metadata = arrow::key_value_metadata({"PARQUET:field_id"}, {"0"});
+    const auto id_metadata = arrow::key_value_metadata({"PARQUET:field_id"}, {"1"});
+    const auto timestamp_type = arrow::timestamp(arrow::TimeUnit::MICRO, "UTC");
+    arrow::TimestampBuilder timestamp_builder(timestamp_type, arrow::default_memory_pool());
+    ASSERT_TRUE(timestamp_builder.AppendValues(timestamps).ok());
+    auto timestamp_result = timestamp_builder.Finish();
+    ASSERT_TRUE(timestamp_result.ok()) << timestamp_result.status();
+    auto schema = arrow::schema(
+            {arrow::field("event_time", timestamp_type, false)->WithMetadata(timestamp_metadata),
+             arrow::field("id", arrow::int32(), false)->WithMetadata(id_metadata)});
+    auto table = arrow::Table::Make(schema, {*timestamp_result, build_int32_array(ids)});
+
+    auto file_result = arrow::io::FileOutputStream::Open(file_path);
+    ASSERT_TRUE(file_result.ok()) << file_result.status();
+    std::shared_ptr<arrow::io::FileOutputStream> out = *file_result;
+    ::parquet::WriterProperties::Builder builder;
+    builder.version(::parquet::ParquetVersion::PARQUET_2_6);
+    builder.data_page_version(::parquet::ParquetDataPageVersion::V2);
+    builder.compression(::parquet::Compression::UNCOMPRESSED);
+    PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), out,
+                                                      static_cast<int64_t>(timestamps.size()),
                                                       builder.build()));
 }
 
@@ -402,6 +639,31 @@ void write_position_delete_parquet_file(const std::string& file_path,
                                                       builder.build()));
 }
 
+void write_nullable_position_delete_parquet_file(
+        const std::string& file_path,
+        const std::vector<std::optional<std::string>>& data_file_paths,
+        const std::vector<std::optional<int64_t>>& positions) {
+    ASSERT_EQ(data_file_paths.size(), positions.size());
+    auto schema = arrow::schema({
+            arrow::field("file_path", arrow::utf8(), true),
+            arrow::field("pos", arrow::int64(), true),
+    });
+    auto table = arrow::Table::Make(schema, {build_nullable_string_array(data_file_paths),
+                                             build_nullable_int64_array(positions)});
+
+    auto file_result = arrow::io::FileOutputStream::Open(file_path);
+    ASSERT_TRUE(file_result.ok()) << file_result.status();
+    std::shared_ptr<arrow::io::FileOutputStream> out = *file_result;
+
+    ::parquet::WriterProperties::Builder builder;
+    builder.version(::parquet::ParquetVersion::PARQUET_2_6);
+    builder.data_page_version(::parquet::ParquetDataPageVersion::V2);
+    builder.compression(::parquet::Compression::UNCOMPRESSED);
+    PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), out,
+                                                      static_cast<int64_t>(positions.size()),
+                                                      builder.build()));
+}
+
 int64_t write_iceberg_deletion_vector_file(const std::string& file_path,
                                            const std::vector<uint64_t>& deleted_positions) {
     roaring::Roaring64Map rows;
@@ -425,6 +687,24 @@ int64_t write_iceberg_deletion_vector_file(const std::string& file_path,
     EXPECT_TRUE(output.good());
     return static_cast<int64_t>(blob.size());
 }
+
+class ScopedDebugPoint {
+public:
+    explicit ScopedDebugPoint(std::string name)
+            : _name(std::move(name)), _enable_debug_points(config::enable_debug_points) {
+        config::enable_debug_points = true;
+        DebugPoints::instance()->add(_name);
+    }
+
+    ~ScopedDebugPoint() {
+        DebugPoints::instance()->remove(_name);
+        config::enable_debug_points = _enable_debug_points;
+    }
+
+private:
+    std::string _name;
+    bool _enable_debug_points;
+};
 
 Block build_table_block(const std::vector<ColumnDefinition>& columns) {
     Block block;
@@ -538,6 +818,7 @@ void expect_int32_column_values(const IColumn& column,
 
 SplitReadOptions build_split_options(const std::string& file_path) {
     SplitReadOptions options;
+    EXPECT_EQ(options.cache, nullptr);
     options.current_range.__set_path(file_path);
     options.current_range.__set_file_size(
             static_cast<int64_t>(std::filesystem::file_size(file_path)));
@@ -648,6 +929,23 @@ std::vector<int32_t> read_iceberg_ids(doris::format::iceberg::IcebergTableReader
         }
     }
     return ids;
+}
+
+void init_iceberg_reader(doris::format::iceberg::IcebergTableReader* reader,
+                         const std::vector<ColumnDefinition>& projected_columns,
+                         TFileScanRangeParams* scan_params,
+                         const std::shared_ptr<io::IOContext>& io_ctx, RuntimeState* state,
+                         RuntimeProfile* profile) {
+    ASSERT_TRUE(reader->init({
+                                     .projected_columns = projected_columns,
+                                     .conjuncts = {},
+                                     .format = FileFormat::PARQUET,
+                                     .scan_params = scan_params,
+                                     .io_ctx = io_ctx,
+                                     .runtime_state = state,
+                                     .scanner_profile = profile,
+                             })
+                        .ok());
 }
 
 DataTypePtr make_table_test_type(const DataTypePtr& type, bool nullable_root = true) {
@@ -1258,6 +1556,28 @@ TEST(IcebergV2ReaderTest, IcebergDeletionVectorRejectsMultipleDeleteFiles) {
     EXPECT_FALSE(status.ok());
 }
 
+TEST(IcebergV2ReaderTest, IcebergDeletionVectorRejectsMissingRange) {
+    TIcebergDeleteFileDesc delete_file;
+    delete_file.__set_content(3);
+    delete_file.__set_path("dv.bin");
+
+    TTableFormatFileDesc table_format_desc;
+    TIcebergFileDesc iceberg_desc;
+    iceberg_desc.__set_format_version(2);
+    iceberg_desc.__set_delete_files({delete_file});
+    table_format_desc.__set_iceberg_params(iceberg_desc);
+
+    IcebergTableReaderDeleteFileTestHelper reader;
+    DeleteFileDesc desc;
+    bool has_delete_file = false;
+    auto status = reader.parse_deletion_vector_file(table_format_desc, &desc, &has_delete_file);
+
+    EXPECT_FALSE(status.ok());
+    EXPECT_TRUE(status.is<ErrorCode::INTERNAL_ERROR>());
+    EXPECT_NE(status.to_string().find("missing content offset or length"), std::string::npos);
+    EXPECT_FALSE(has_delete_file);
+}
+
 TEST(IcebergV2ReaderTest, IcebergTableReaderAppliesDeletionVectorFile) {
     const auto test_dir =
             std::filesystem::temp_directory_path() / "doris_iceberg_deletion_vector_file_test";
@@ -1301,6 +1621,155 @@ TEST(IcebergV2ReaderTest, IcebergTableReaderAppliesDeletionVectorFile) {
 
     EXPECT_EQ(read_iceberg_ids(&reader, projected_columns), std::vector<int32_t>({2, 3, 4}));
 
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
+TEST(IcebergV2ReaderTest, IcebergTableReaderReportsInjectedDeletionVectorReadError) {
+    const auto test_dir = std::filesystem::temp_directory_path() /
+                          "doris_iceberg_v2_deletion_vector_injected_read_error_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+
+    const auto file_path = (test_dir / "split.parquet").string();
+    const auto dv_path = (test_dir / "delete-vector.bin").string();
+    write_int_pair_parquet_file(file_path, {1, 2, 3}, {10, 20, 30}, {"one", "two", "three"});
+    const auto dv_size = write_iceberg_deletion_vector_file(dv_path, {0});
+
+    std::vector<ColumnDefinition> projected_columns;
+    projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+
+    RuntimeProfile profile("test_profile");
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto scan_params = make_local_parquet_scan_params();
+    io::FileReaderStats file_reader_stats;
+    io::FileCacheStatistics file_cache_stats;
+    auto io_ctx = make_io_context(&file_reader_stats, &file_cache_stats);
+    ShardedKVCache cache(1);
+    doris::format::iceberg::IcebergTableReader reader;
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .conjuncts = {},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = &scan_params,
+                                    .io_ctx = io_ctx,
+                                    .runtime_state = &state,
+                                    .scanner_profile = &profile,
+                            })
+                        .ok());
+
+    auto split_options = build_split_options(file_path);
+    split_options.cache = &cache;
+    split_options.current_range.__set_table_format_params(make_iceberg_table_format_desc(
+            file_path, {make_iceberg_deletion_vector(dv_path, 0, dv_size)}));
+
+    ScopedDebugPoint debug_point("TableReader.parse_deletion_vector.io_error");
+    auto status = reader.prepare_split(split_options);
+
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("injected format v2 deletion vector read failure"),
+              std::string::npos);
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
+TEST(IcebergV2ReaderTest, IcebergTableReaderStopsDuringDeletionVectorRead) {
+    const auto test_dir = std::filesystem::temp_directory_path() /
+                          "doris_iceberg_v2_deletion_vector_should_stop_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+
+    const auto file_path = (test_dir / "split.parquet").string();
+    const auto dv_path = (test_dir / "delete-vector.bin").string();
+    write_int_pair_parquet_file(file_path, {1, 2, 3}, {10, 20, 30}, {"one", "two", "three"});
+    const auto dv_size = write_iceberg_deletion_vector_file(dv_path, {0});
+
+    std::vector<ColumnDefinition> projected_columns;
+    projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+
+    RuntimeProfile profile("test_profile");
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto scan_params = make_local_parquet_scan_params();
+    io::FileReaderStats file_reader_stats;
+    io::FileCacheStatistics file_cache_stats;
+    auto io_ctx = make_io_context(&file_reader_stats, &file_cache_stats);
+    ShardedKVCache cache(1);
+    doris::format::iceberg::IcebergTableReader reader;
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .conjuncts = {},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = &scan_params,
+                                    .io_ctx = io_ctx,
+                                    .runtime_state = &state,
+                                    .scanner_profile = &profile,
+                            })
+                        .ok());
+
+    auto split_options = build_split_options(file_path);
+    split_options.cache = &cache;
+    split_options.current_range.__set_table_format_params(make_iceberg_table_format_desc(
+            file_path, {make_iceberg_deletion_vector(dv_path, 0, dv_size)}));
+
+    ScopedDebugPoint debug_point("TableReader.parse_deletion_vector.should_stop");
+    auto status = reader.prepare_split(split_options);
+
+    EXPECT_TRUE(status.is<ErrorCode::END_OF_FILE>());
+    EXPECT_NE(status.to_string().find("stop read"), std::string::npos);
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
+TEST(IcebergV2ReaderTest, IcebergTableReaderRejectsCorruptDeletionVectorPayload) {
+    const auto test_dir =
+            std::filesystem::temp_directory_path() / "doris_iceberg_v2_corrupt_dv_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+
+    const auto file_path = (test_dir / "split.parquet").string();
+    const auto dv_path = (test_dir / "delete-vector.bin").string();
+    write_int_pair_parquet_file(file_path, {1, 2, 3}, {10, 20, 30}, {"one", "two", "three"});
+    std::vector<char> corrupted(12, 0);
+    BigEndian::Store32(corrupted.data(), 4);
+    memcpy(corrupted.data() + 4, "BAD!", 4);
+    {
+        std::ofstream output(dv_path, std::ios::binary);
+        ASSERT_TRUE(output.is_open());
+        output.write(corrupted.data(), static_cast<std::streamsize>(corrupted.size()));
+        ASSERT_TRUE(output.good());
+    }
+
+    std::vector<ColumnDefinition> projected_columns;
+    projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+
+    RuntimeProfile profile("test_profile");
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto scan_params = make_local_parquet_scan_params();
+    io::FileReaderStats file_reader_stats;
+    io::FileCacheStatistics file_cache_stats;
+    auto io_ctx = make_io_context(&file_reader_stats, &file_cache_stats);
+    ShardedKVCache cache(1);
+    doris::format::iceberg::IcebergTableReader reader;
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .conjuncts = {},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = &scan_params,
+                                    .io_ctx = io_ctx,
+                                    .runtime_state = &state,
+                                    .scanner_profile = &profile,
+                            })
+                        .ok());
+
+    auto split_options = build_split_options(file_path);
+    split_options.cache = &cache;
+    split_options.current_range.__set_table_format_params(make_iceberg_table_format_desc(
+            file_path,
+            {make_iceberg_deletion_vector(dv_path, 0, static_cast<int64_t>(corrupted.size()))}));
+    auto status = reader.prepare_split(split_options);
+
+    EXPECT_TRUE(status.is<ErrorCode::DATA_QUALITY_ERROR>());
+    EXPECT_NE(status.to_string().find("magic number mismatch"), std::string::npos);
     ASSERT_TRUE(reader.close().ok());
     std::filesystem::remove_all(test_dir);
 }
@@ -1640,6 +2109,516 @@ TEST(IcebergV2ReaderTest, IcebergEqualityDeleteCastsDataColumnToDeleteKeyType) {
     std::filesystem::remove_all(test_dir);
 }
 
+TEST(IcebergV2ReaderTest, IcebergEqualityDeleteMatchesNullForMissingDataColumn) {
+    const auto test_dir = std::filesystem::temp_directory_path() /
+                          "doris_iceberg_equality_delete_missing_column_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+
+    const auto file_path = (test_dir / "split.parquet").string();
+    const auto delete_file_path = (test_dir / "equality-delete.parquet").string();
+    write_single_int_parquet_file(file_path, "id", {1, 2, 3}, 0);
+    write_iceberg_null_equality_delete_parquet_file(delete_file_path, 1, "added_column");
+
+    std::vector<ColumnDefinition> projected_columns;
+    projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+
+    RuntimeProfile profile("test_profile");
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto scan_params = make_local_parquet_scan_params();
+    io::FileReaderStats file_reader_stats;
+    io::FileCacheStatistics file_cache_stats;
+    auto io_ctx = make_io_context(&file_reader_stats, &file_cache_stats);
+    ShardedKVCache cache(1);
+    doris::format::iceberg::IcebergTableReader reader;
+    init_iceberg_reader(&reader, projected_columns, &scan_params, io_ctx, &state, &profile);
+
+    auto split_options = build_split_options(file_path);
+    split_options.cache = &cache;
+    split_options.current_range.__set_table_format_params(make_iceberg_table_format_desc(
+            file_path, {make_iceberg_equality_delete_file(delete_file_path, {1})}));
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+
+    // Iceberg treats a field missing from an older data file as NULL. The NULL equality-delete
+    // key therefore matches every row in this file.
+    EXPECT_TRUE(read_iceberg_ids(&reader, projected_columns).empty());
+
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
+TEST(IcebergV2ReaderTest, IcebergEqualityDeleteMatchesInitialDefaultForMissingDataColumn) {
+    const auto test_dir = std::filesystem::temp_directory_path() /
+                          "doris_iceberg_equality_delete_missing_default_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+
+    const auto file_path = (test_dir / "split.parquet").string();
+    const auto delete_file_path = (test_dir / "equality-delete.parquet").string();
+    write_single_int_parquet_file(file_path, "id", {1, 2, 3}, 0);
+    write_iceberg_equality_delete_parquet_file(delete_file_path, 1, 7, "added_column");
+
+    std::vector<ColumnDefinition> projected_columns;
+    projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+
+    RuntimeProfile profile("test_profile");
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto scan_params = make_local_parquet_scan_params();
+    scan_params.__set_current_schema_id(100);
+    scan_params.__set_history_schema_info(
+            {external_schema(100, {external_schema_field("id", 0),
+                                   external_schema_field("added_column", 1, {}, "7")})});
+    io::FileReaderStats file_reader_stats;
+    io::FileCacheStatistics file_cache_stats;
+    auto io_ctx = make_io_context(&file_reader_stats, &file_cache_stats);
+    ShardedKVCache cache(1);
+    doris::format::iceberg::IcebergTableReader reader;
+    init_iceberg_reader(&reader, projected_columns, &scan_params, io_ctx, &state, &profile);
+
+    auto split_options = build_split_options(file_path);
+    split_options.cache = &cache;
+    split_options.current_range.__set_table_format_params(make_iceberg_table_format_desc(
+            file_path, {make_iceberg_equality_delete_file(delete_file_path, {1})}));
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+
+    // The old file has no physical added_column, but Iceberg defines every row as the initial
+    // default 7. The equality delete key 7 therefore removes the entire file.
+    EXPECT_TRUE(read_iceberg_ids(&reader, projected_columns).empty());
+
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
+TEST(IcebergV2ReaderTest, IcebergEqualityDeleteMatchesTimestampInitialDefaultForMissingColumn) {
+    const auto test_dir = std::filesystem::temp_directory_path() /
+                          "doris_iceberg_equality_delete_missing_timestamp_default_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+
+    const auto file_path = (test_dir / "split.parquet").string();
+    const auto delete_file_path = (test_dir / "equality-delete.parquet").string();
+    write_single_int_parquet_file(file_path, "id", {1, 2, 3}, 0);
+    write_iceberg_timestamp_equality_delete_parquet_file(delete_file_path, 1,
+                                                         1'704'067'200'123'456L, "added_timestamp");
+
+    std::vector<ColumnDefinition> projected_columns;
+    projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+    auto scan_params = make_local_parquet_scan_params();
+    scan_params.__set_current_schema_id(100);
+    scan_params.__set_history_schema_info({external_schema(
+            100,
+            {external_schema_field("id", 0),
+             external_schema_field("added_timestamp", 1, {}, "2024-01-01 00:00:00.123456",
+                                   external_primitive_type(TPrimitiveType::DATETIMEV2, -1, 6))})});
+
+    RuntimeProfile profile("test_profile");
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    io::FileReaderStats file_reader_stats;
+    io::FileCacheStatistics file_cache_stats;
+    auto io_ctx = make_io_context(&file_reader_stats, &file_cache_stats);
+    ShardedKVCache cache(1);
+    doris::format::iceberg::IcebergTableReader reader;
+    init_iceberg_reader(&reader, projected_columns, &scan_params, io_ctx, &state, &profile);
+
+    auto split_options = build_split_options(file_path);
+    split_options.cache = &cache;
+    split_options.current_range.__set_table_format_params(make_iceberg_table_format_desc(
+            file_path, {make_iceberg_equality_delete_file(delete_file_path, {1})}));
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+    EXPECT_TRUE(read_iceberg_ids(&reader, projected_columns).empty());
+
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
+TEST(IcebergV2ReaderTest, IcebergEqualityDeleteMatchesVarbinaryInitialDefaultForMissingColumn) {
+    const auto test_dir = std::filesystem::temp_directory_path() /
+                          "doris_iceberg_equality_delete_missing_varbinary_default_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+
+    const auto file_path = (test_dir / "split.parquet").string();
+    const auto delete_file_path = (test_dir / "equality-delete.parquet").string();
+    write_single_int_parquet_file(file_path, "id", {1, 2, 3}, 0);
+    const std::string binary_default("\x00\x01\x02\xff", 4);
+    write_iceberg_binary_equality_delete_parquet_file(delete_file_path, 1, binary_default,
+                                                      "added_binary");
+
+    std::vector<ColumnDefinition> projected_columns;
+    projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+    auto scan_params = make_local_parquet_scan_params();
+    scan_params.__set_current_schema_id(100);
+    scan_params.__set_history_schema_info({external_schema(
+            100,
+            {external_schema_field("id", 0),
+             external_schema_field("added_binary", 1, {}, "AAEC/w==",
+                                   external_primitive_type(TPrimitiveType::VARBINARY, 4), true)})});
+
+    RuntimeProfile profile("test_profile");
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    io::FileReaderStats file_reader_stats;
+    io::FileCacheStatistics file_cache_stats;
+    auto io_ctx = make_io_context(&file_reader_stats, &file_cache_stats);
+    ShardedKVCache cache(1);
+    doris::format::iceberg::IcebergTableReader reader;
+    init_iceberg_reader(&reader, projected_columns, &scan_params, io_ctx, &state, &profile);
+
+    auto split_options = build_split_options(file_path);
+    split_options.cache = &cache;
+    split_options.current_range.__set_table_format_params(make_iceberg_table_format_desc(
+            file_path, {make_iceberg_equality_delete_file(delete_file_path, {1})}));
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+    EXPECT_TRUE(read_iceberg_ids(&reader, projected_columns).empty());
+
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
+TEST(IcebergV2ReaderTest, IcebergEqualityDeleteMatchesStringMappedBinaryInitialDefault) {
+    const auto test_dir = std::filesystem::temp_directory_path() /
+                          "doris_iceberg_equality_delete_missing_binary_string_default_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+
+    const auto file_path = (test_dir / "split.parquet").string();
+    const auto delete_file_path = (test_dir / "equality-delete.parquet").string();
+    write_single_int_parquet_file(file_path, "id", {1, 2, 3}, 0);
+    const std::string binary_default("\x00\x01\x02\xff", 4);
+    write_iceberg_binary_equality_delete_parquet_file(delete_file_path, 1, binary_default,
+                                                      "added_binary");
+
+    std::vector<ColumnDefinition> projected_columns;
+    projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+    auto scan_params = make_local_parquet_scan_params();
+    scan_params.__set_current_schema_id(100);
+    scan_params.__set_history_schema_info({external_schema(
+            100, {external_schema_field("id", 0),
+                  external_schema_field("added_binary", 1, {}, "AAEC/w==",
+                                        external_primitive_type(TPrimitiveType::STRING), true)})});
+
+    RuntimeProfile profile("test_profile");
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    io::FileReaderStats file_reader_stats;
+    io::FileCacheStatistics file_cache_stats;
+    auto io_ctx = make_io_context(&file_reader_stats, &file_cache_stats);
+    ShardedKVCache cache(1);
+    doris::format::iceberg::IcebergTableReader reader;
+    init_iceberg_reader(&reader, projected_columns, &scan_params, io_ctx, &state, &profile);
+
+    auto split_options = build_split_options(file_path);
+    split_options.cache = &cache;
+    split_options.current_range.__set_table_format_params(make_iceberg_table_format_desc(
+            file_path, {make_iceberg_equality_delete_file(delete_file_path, {1})}));
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+    EXPECT_TRUE(read_iceberg_ids(&reader, projected_columns).empty());
+
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
+TEST(IcebergV2ReaderTest, IcebergEqualityDeleteDecodesBinaryDefaultMappedToString) {
+    const auto test_dir = std::filesystem::temp_directory_path() /
+                          "doris_iceberg_equality_delete_missing_string_binary_default_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+
+    const auto file_path = (test_dir / "split.parquet").string();
+    const auto delete_file_path = (test_dir / "equality-delete.parquet").string();
+    write_single_int_parquet_file(file_path, "id", {1, 2, 3}, 0);
+    const std::string binary_default("\x00\x01\x02\xff", 4);
+    write_iceberg_binary_equality_delete_parquet_file(delete_file_path, 1, binary_default,
+                                                      "added_binary");
+
+    std::vector<ColumnDefinition> projected_columns;
+    projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+    auto scan_params = make_local_parquet_scan_params();
+    scan_params.__set_current_schema_id(100);
+    scan_params.__set_history_schema_info({external_schema(
+            100, {external_schema_field("id", 0),
+                  external_schema_field("added_binary", 1, {}, "AAEC/w==",
+                                        external_primitive_type(TPrimitiveType::STRING), true)})});
+
+    RuntimeProfile profile("test_profile");
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    io::FileReaderStats file_reader_stats;
+    io::FileCacheStatistics file_cache_stats;
+    auto io_ctx = make_io_context(&file_reader_stats, &file_cache_stats);
+    ShardedKVCache cache(1);
+    doris::format::iceberg::IcebergTableReader reader;
+    init_iceberg_reader(&reader, projected_columns, &scan_params, io_ctx, &state, &profile);
+
+    auto split_options = build_split_options(file_path);
+    split_options.cache = &cache;
+    split_options.current_range.__set_table_format_params(make_iceberg_table_format_desc(
+            file_path, {make_iceberg_equality_delete_file(delete_file_path, {1})}));
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+    EXPECT_TRUE(read_iceberg_ids(&reader, projected_columns).empty());
+
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
+TEST(IcebergV2ReaderTest, IcebergEqualityDeletePreservesTimestampTzAcrossDstFold) {
+    const auto test_dir = std::filesystem::temp_directory_path() /
+                          "doris_iceberg_equality_delete_timestamp_tz_dst_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+
+    const auto file_path = (test_dir / "split.parquet").string();
+    const auto delete_file_path = (test_dir / "equality-delete.parquet").string();
+    // These instants are the two occurrences of 01:30 during the 2024 New York DST fall-back.
+    constexpr int64_t FIRST_0130_MICROS = 1'730'611'800'000'000L;
+    constexpr int64_t SECOND_0130_MICROS = 1'730'615'400'000'000L;
+    write_timestamp_int_parquet_file(file_path, {FIRST_0130_MICROS, SECOND_0130_MICROS}, {1, 2});
+    write_iceberg_timestamp_equality_delete_parquet_file(delete_file_path, 0, FIRST_0130_MICROS,
+                                                         "event_time", true);
+
+    std::vector<ColumnDefinition> projected_columns;
+    projected_columns.push_back(make_table_column(1, "id", std::make_shared<DataTypeInt32>()));
+    auto scan_params = make_local_parquet_scan_params();
+    scan_params.__set_enable_mapping_timestamp_tz(true);
+    scan_params.__set_current_schema_id(100);
+    scan_params.__set_history_schema_info({external_schema(
+            100,
+            {external_schema_field("event_time", 0, {}, std::nullopt,
+                                   external_primitive_type(TPrimitiveType::TIMESTAMPTZ, -1, 6)),
+             external_schema_field("id", 1)})});
+
+    RuntimeProfile profile("test_profile");
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    state.set_timezone("America/New_York");
+    io::FileReaderStats file_reader_stats;
+    io::FileCacheStatistics file_cache_stats;
+    auto io_ctx = make_io_context(&file_reader_stats, &file_cache_stats);
+    ShardedKVCache cache(1);
+    doris::format::iceberg::IcebergTableReader reader;
+    init_iceberg_reader(&reader, projected_columns, &scan_params, io_ctx, &state, &profile);
+
+    auto split_options = build_split_options(file_path);
+    split_options.cache = &cache;
+    split_options.current_range.__set_table_format_params(make_iceberg_table_format_desc(
+            file_path, {make_iceberg_equality_delete_file(delete_file_path, {0})}));
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+    EXPECT_EQ(read_iceberg_ids(&reader, projected_columns), std::vector<int32_t>({2}));
+
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
+TEST(IcebergV2ReaderTest, IcebergEqualityDeleteUsesNameMappingWithoutFileFieldIds) {
+    const auto test_dir = std::filesystem::temp_directory_path() /
+                          "doris_iceberg_equality_delete_name_mapping_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+
+    const auto file_path = (test_dir / "split.parquet").string();
+    const auto delete_file_path = (test_dir / "equality-delete.parquet").string();
+    write_single_int_parquet_file(file_path, "legacy_id", {1, 2, 3}, std::nullopt);
+    write_iceberg_equality_delete_parquet_file(delete_file_path, 0, 2, "current_id");
+
+    std::vector<ColumnDefinition> projected_columns;
+    auto id_column = make_table_column(0, "current_id", std::make_shared<DataTypeInt32>());
+    id_column.name_mapping.push_back("legacy_id");
+    projected_columns.push_back(std::move(id_column));
+
+    RuntimeProfile profile("test_profile");
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto scan_params = make_local_parquet_scan_params();
+    io::FileReaderStats file_reader_stats;
+    io::FileCacheStatistics file_cache_stats;
+    auto io_ctx = make_io_context(&file_reader_stats, &file_cache_stats);
+    ShardedKVCache cache(1);
+    doris::format::iceberg::IcebergTableReader reader;
+    init_iceberg_reader(&reader, projected_columns, &scan_params, io_ctx, &state, &profile);
+
+    auto split_options = build_split_options(file_path);
+    split_options.cache = &cache;
+    split_options.current_range.__set_table_format_params(make_iceberg_table_format_desc(
+            file_path, {make_iceberg_equality_delete_file(delete_file_path, {0})}));
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+
+    EXPECT_EQ(read_iceberg_ids(&reader, projected_columns), std::vector<int32_t>({1, 3}));
+
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
+TEST(IcebergV2ReaderTest, IcebergEqualityDeleteByNameIgnoresStaleFileFieldId) {
+    const auto test_dir = std::filesystem::temp_directory_path() /
+                          "doris_iceberg_equality_delete_stale_field_id_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+
+    const auto file_path = (test_dir / "split.parquet").string();
+    const auto delete_file_path = (test_dir / "equality-delete.parquet").string();
+    // The real key has no id and is mapped by its historical name. A different physical column
+    // carries the stale id 0, forcing the entire split into BY_NAME mode.
+    write_two_int_parquet_file(file_path, "legacy_id", {1, 2, 3}, std::nullopt, "stale_key",
+                               {100, 200, 300}, 0);
+    write_iceberg_equality_delete_parquet_file(delete_file_path, 0, 2, "current_id");
+
+    std::vector<ColumnDefinition> projected_columns;
+    auto id_column = make_table_column(0, "current_id", std::make_shared<DataTypeInt32>());
+    id_column.name_mapping.push_back("legacy_id");
+    projected_columns.push_back(std::move(id_column));
+
+    RuntimeProfile profile("test_profile");
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto scan_params = make_local_parquet_scan_params();
+    io::FileReaderStats file_reader_stats;
+    io::FileCacheStatistics file_cache_stats;
+    auto io_ctx = make_io_context(&file_reader_stats, &file_cache_stats);
+    ShardedKVCache cache(1);
+    doris::format::iceberg::IcebergTableReader reader;
+    init_iceberg_reader(&reader, projected_columns, &scan_params, io_ctx, &state, &profile);
+
+    auto split_options = build_split_options(file_path);
+    split_options.cache = &cache;
+    split_options.current_range.__set_table_format_params(make_iceberg_table_format_desc(
+            file_path, {make_iceberg_equality_delete_file(delete_file_path, {0})}));
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+    EXPECT_EQ(read_iceberg_ids(&reader, projected_columns), std::vector<int32_t>({1, 3}));
+
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
+TEST(IcebergV2ReaderTest, IcebergEqualityDeleteUsesUnprojectedTableSchemaNameMapping) {
+    const auto test_dir = std::filesystem::temp_directory_path() /
+                          "doris_iceberg_equality_delete_hidden_name_mapping_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+
+    const auto file_path = (test_dir / "split.parquet").string();
+    const auto delete_file_path = (test_dir / "equality-delete.parquet").string();
+    write_two_int_parquet_file(file_path, "LEGACY_ID", {1, 2, 3}, std::nullopt, "data",
+                               {10, 20, 30}, std::nullopt);
+    write_iceberg_equality_delete_parquet_file(delete_file_path, 0, 2, "current_id");
+
+    // Model SELECT data: the equality key is deliberately absent from the query projection.
+    std::vector<ColumnDefinition> projected_columns;
+    projected_columns.push_back(make_table_column(1, "data", std::make_shared<DataTypeInt32>()));
+
+    RuntimeProfile profile("test_profile");
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto scan_params = make_local_parquet_scan_params();
+    scan_params.__set_current_schema_id(100);
+    scan_params.__set_history_schema_info(
+            {external_schema(100, {external_schema_field("current_id", 0, {"legacy_id"}),
+                                   external_schema_field("data", 1)})});
+    io::FileReaderStats file_reader_stats;
+    io::FileCacheStatistics file_cache_stats;
+    auto io_ctx = make_io_context(&file_reader_stats, &file_cache_stats);
+    ShardedKVCache cache(1);
+    doris::format::iceberg::IcebergTableReader reader;
+    init_iceberg_reader(&reader, projected_columns, &scan_params, io_ctx, &state, &profile);
+
+    auto split_options = build_split_options(file_path);
+    split_options.cache = &cache;
+    split_options.current_range.__set_table_format_params(make_iceberg_table_format_desc(
+            file_path, {make_iceberg_equality_delete_file(delete_file_path, {0})}));
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+
+    EXPECT_EQ(read_iceberg_ids(&reader, projected_columns), std::vector<int32_t>({10, 30}));
+
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
+TEST(IcebergV2ReaderTest, IcebergEqualityDeleteFileIsReusedAcrossSplits) {
+    const auto test_dir = std::filesystem::temp_directory_path() /
+                          "doris_iceberg_equality_delete_split_cache_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+
+    const auto first_file_path = (test_dir / "first.parquet").string();
+    const auto second_file_path = (test_dir / "second.parquet").string();
+    const auto delete_file_path = (test_dir / "equality-delete.parquet").string();
+    write_single_int_parquet_file(first_file_path, "id", {1, 2, 3}, 0);
+    write_single_int_parquet_file(second_file_path, "id", {1, 2, 3}, 0);
+    write_iceberg_equality_delete_parquet_file(delete_file_path, 0, 2);
+
+    std::vector<ColumnDefinition> projected_columns;
+    projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+
+    RuntimeProfile profile("test_profile");
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto scan_params = make_local_parquet_scan_params();
+    io::FileReaderStats file_reader_stats;
+    io::FileCacheStatistics file_cache_stats;
+    auto io_ctx = make_io_context(&file_reader_stats, &file_cache_stats);
+    ShardedKVCache cache(1);
+    doris::format::iceberg::IcebergTableReader reader;
+    init_iceberg_reader(&reader, projected_columns, &scan_params, io_ctx, &state, &profile);
+
+    auto first_split = build_split_options(first_file_path);
+    first_split.cache = &cache;
+    first_split.current_range.__set_table_format_params(make_iceberg_table_format_desc(
+            first_file_path, {make_iceberg_equality_delete_file(delete_file_path, {0})}));
+    ASSERT_TRUE(reader.prepare_split(first_split).ok());
+    EXPECT_EQ(read_iceberg_ids(&reader, projected_columns), std::vector<int32_t>({1, 3}));
+
+    // Removing the source after the first split proves that the second split consumes the parsed
+    // delete block from SplitReadOptions.cache instead of reopening the delete file.
+    ASSERT_TRUE(std::filesystem::remove(delete_file_path));
+    auto second_split = build_split_options(second_file_path);
+    second_split.cache = &cache;
+    second_split.current_range.__set_table_format_params(make_iceberg_table_format_desc(
+            second_file_path, {make_iceberg_equality_delete_file(delete_file_path, {0})}));
+    ASSERT_TRUE(reader.prepare_split(second_split).ok());
+    EXPECT_EQ(read_iceberg_ids(&reader, projected_columns), std::vector<int32_t>({1, 3}));
+
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
+TEST(IcebergV2ReaderTest, IcebergEqualityDeleteCacheIsScopedByFileSystem) {
+    const auto test_dir = std::filesystem::temp_directory_path() /
+                          "doris_iceberg_equality_delete_filesystem_cache_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+
+    const auto first_file_path = (test_dir / "first.parquet").string();
+    const auto second_file_path = (test_dir / "second.parquet").string();
+    const auto delete_file_path = (test_dir / "equality-delete.parquet").string();
+    write_single_int_parquet_file(first_file_path, "id", {1, 2, 3}, 0);
+    write_single_int_parquet_file(second_file_path, "id", {1, 2, 3}, 0);
+    write_iceberg_equality_delete_parquet_file(delete_file_path, 0, 2);
+
+    std::vector<ColumnDefinition> projected_columns;
+    projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+    RuntimeProfile profile("test_profile");
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto scan_params = make_local_parquet_scan_params();
+    io::FileReaderStats file_reader_stats;
+    io::FileCacheStatistics file_cache_stats;
+    auto io_ctx = make_io_context(&file_reader_stats, &file_cache_stats);
+    ShardedKVCache cache(1);
+    doris::format::iceberg::IcebergTableReader reader;
+    init_iceberg_reader(&reader, projected_columns, &scan_params, io_ctx, &state, &profile);
+
+    auto first_split = build_split_options(first_file_path);
+    first_split.cache = &cache;
+    first_split.current_range.__set_fs_name("filesystem-a");
+    first_split.current_range.__set_table_format_params(make_iceberg_table_format_desc(
+            first_file_path, {make_iceberg_equality_delete_file(delete_file_path, {0})}));
+    ASSERT_TRUE(reader.prepare_split(first_split).ok());
+    EXPECT_EQ(read_iceberg_ids(&reader, projected_columns), std::vector<int32_t>({1, 3}));
+
+    // The same descriptor path resolves to different content in another filesystem namespace.
+    write_iceberg_equality_delete_parquet_file(delete_file_path, 0, 3);
+    auto second_split = build_split_options(second_file_path);
+    second_split.cache = &cache;
+    second_split.current_range.__set_fs_name("filesystem-b");
+    second_split.current_range.__set_table_format_params(make_iceberg_table_format_desc(
+            second_file_path, {make_iceberg_equality_delete_file(delete_file_path, {0})}));
+    ASSERT_TRUE(reader.prepare_split(second_split).ok());
+    EXPECT_EQ(read_iceberg_ids(&reader, projected_columns), std::vector<int32_t>({1, 2}));
+
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
 TEST(IcebergV2ReaderTest, IcebergPositionDeleteOnlyMatchesOriginalDataFilePath) {
     const auto test_dir = std::filesystem::temp_directory_path() /
                           "doris_iceberg_position_delete_path_match_test";
@@ -1788,6 +2767,282 @@ TEST(IcebergV2ReaderTest, IcebergTableReaderAppliesPositionDeleteFile) {
     std::filesystem::remove_all(test_dir);
 }
 
+TEST(IcebergV2ReaderTest, IcebergPositionDeleteHonorsPositionBounds) {
+    const auto test_dir =
+            std::filesystem::temp_directory_path() / "doris_iceberg_position_delete_bounds_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+
+    const auto file_path = (test_dir / "split.parquet").string();
+    const auto delete_file_path = (test_dir / "position-delete.parquet").string();
+    write_int_pair_parquet_file(file_path, {1, 2, 3, 4, 5}, {10, 20, 30, 40, 50},
+                                {"one", "two", "three", "four", "five"});
+    write_position_delete_parquet_file(delete_file_path, {file_path, file_path, file_path},
+                                       {0, 2, 4});
+
+    std::vector<ColumnDefinition> projected_columns;
+    projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+
+    RuntimeProfile profile("test_profile");
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto scan_params = make_local_parquet_scan_params();
+    io::FileReaderStats file_reader_stats;
+    io::FileCacheStatistics file_cache_stats;
+    auto io_ctx = make_io_context(&file_reader_stats, &file_cache_stats);
+    ShardedKVCache cache(1);
+    doris::format::iceberg::IcebergTableReader reader;
+    init_iceberg_reader(&reader, projected_columns, &scan_params, io_ctx, &state, &profile);
+
+    auto delete_file = make_iceberg_position_delete_file(delete_file_path);
+    delete_file.__set_position_lower_bound(1);
+    delete_file.__set_position_upper_bound(3);
+    auto split_options = build_split_options(file_path);
+    split_options.cache = &cache;
+    split_options.current_range.__set_table_format_params(
+            make_iceberg_table_format_desc(file_path, {delete_file}));
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+
+    EXPECT_EQ(read_iceberg_ids(&reader, projected_columns), std::vector<int32_t>({1, 2, 4, 5}));
+
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
+TEST(IcebergV2ReaderTest, IcebergPositionDeleteFileIsReusedAcrossSplits) {
+    const auto test_dir = std::filesystem::temp_directory_path() /
+                          "doris_iceberg_position_delete_split_cache_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+
+    const auto first_file_path = (test_dir / "first.parquet").string();
+    const auto second_file_path = (test_dir / "second.parquet").string();
+    const auto delete_file_path = (test_dir / "position-delete.parquet").string();
+    write_single_int_parquet_file(first_file_path, "id", {1, 2, 3}, 0);
+    write_single_int_parquet_file(second_file_path, "id", {1, 2, 3}, 0);
+    write_position_delete_parquet_file(delete_file_path, {first_file_path, second_file_path},
+                                       {1, 0});
+
+    std::vector<ColumnDefinition> projected_columns;
+    projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+
+    RuntimeProfile profile("test_profile");
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto scan_params = make_local_parquet_scan_params();
+    io::FileReaderStats file_reader_stats;
+    io::FileCacheStatistics file_cache_stats;
+    auto io_ctx = make_io_context(&file_reader_stats, &file_cache_stats);
+    ShardedKVCache cache(1);
+    doris::format::iceberg::IcebergTableReader reader;
+    init_iceberg_reader(&reader, projected_columns, &scan_params, io_ctx, &state, &profile);
+
+    auto first_split = build_split_options(first_file_path);
+    first_split.cache = &cache;
+    first_split.current_range.__set_table_format_params(make_iceberg_table_format_desc(
+            first_file_path, {make_iceberg_position_delete_file(delete_file_path)}));
+    ASSERT_TRUE(reader.prepare_split(first_split).ok());
+    EXPECT_EQ(read_iceberg_ids(&reader, projected_columns), std::vector<int32_t>({1, 3}));
+
+    // The cached delete file contains entries for every referenced data file, so another split can
+    // select its own positions without rescanning the shared delete file.
+    ASSERT_TRUE(std::filesystem::remove(delete_file_path));
+    auto second_split = build_split_options(second_file_path);
+    second_split.cache = &cache;
+    second_split.current_range.__set_table_format_params(make_iceberg_table_format_desc(
+            second_file_path, {make_iceberg_position_delete_file(delete_file_path)}));
+    ASSERT_TRUE(reader.prepare_split(second_split).ok());
+    EXPECT_EQ(read_iceberg_ids(&reader, projected_columns), std::vector<int32_t>({2, 3}));
+
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
+TEST(IcebergV2ReaderTest, IcebergPositionDeleteCacheIsScopedByFileSystem) {
+    const auto test_dir = std::filesystem::temp_directory_path() /
+                          "doris_iceberg_position_delete_filesystem_cache_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+
+    const auto first_file_path = (test_dir / "first.parquet").string();
+    const auto second_file_path = (test_dir / "second.parquet").string();
+    const auto delete_file_path = (test_dir / "position-delete.parquet").string();
+    write_single_int_parquet_file(first_file_path, "id", {1, 2, 3}, 0);
+    write_single_int_parquet_file(second_file_path, "id", {1, 2, 3}, 0);
+    write_position_delete_parquet_file(delete_file_path, {first_file_path}, {1});
+
+    std::vector<ColumnDefinition> projected_columns;
+    projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+    RuntimeProfile profile("test_profile");
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto scan_params = make_local_parquet_scan_params();
+    io::FileReaderStats file_reader_stats;
+    io::FileCacheStatistics file_cache_stats;
+    auto io_ctx = make_io_context(&file_reader_stats, &file_cache_stats);
+    ShardedKVCache cache(1);
+    doris::format::iceberg::IcebergTableReader reader;
+    init_iceberg_reader(&reader, projected_columns, &scan_params, io_ctx, &state, &profile);
+
+    auto first_split = build_split_options(first_file_path);
+    first_split.cache = &cache;
+    first_split.current_range.__set_fs_name("filesystem-a");
+    first_split.current_range.__set_table_format_params(make_iceberg_table_format_desc(
+            first_file_path, {make_iceberg_position_delete_file(delete_file_path)}));
+    ASSERT_TRUE(reader.prepare_split(first_split).ok());
+    EXPECT_EQ(read_iceberg_ids(&reader, projected_columns), std::vector<int32_t>({1, 3}));
+
+    write_position_delete_parquet_file(delete_file_path, {second_file_path}, {0});
+    auto second_split = build_split_options(second_file_path);
+    second_split.cache = &cache;
+    second_split.current_range.__set_fs_name("filesystem-b");
+    second_split.current_range.__set_table_format_params(make_iceberg_table_format_desc(
+            second_file_path, {make_iceberg_position_delete_file(delete_file_path)}));
+    ASSERT_TRUE(reader.prepare_split(second_split).ok());
+    EXPECT_EQ(read_iceberg_ids(&reader, projected_columns), std::vector<int32_t>({2, 3}));
+
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
+TEST(IcebergV2ReaderTest, IcebergTableReaderAppliesNullablePositionDeleteFileWithoutNulls) {
+    const auto test_dir = std::filesystem::temp_directory_path() /
+                          "doris_iceberg_nullable_position_delete_file_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+
+    const auto file_path = (test_dir / "split.parquet").string();
+    const auto delete_file_path = (test_dir / "position-delete.parquet").string();
+    write_int_pair_parquet_file(file_path, {1, 2, 3, 4, 5}, {10, 20, 30, 40, 50},
+                                {"one", "two", "three", "four", "five"});
+    write_nullable_position_delete_parquet_file(delete_file_path, {file_path, file_path},
+                                                {int64_t {1}, int64_t {3}});
+
+    std::vector<ColumnDefinition> projected_columns;
+    projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+
+    RuntimeProfile profile("test_profile");
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto scan_params = make_local_parquet_scan_params();
+    io::FileReaderStats file_reader_stats;
+    io::FileCacheStatistics file_cache_stats;
+    auto io_ctx = make_io_context(&file_reader_stats, &file_cache_stats);
+    ShardedKVCache cache(1);
+    doris::format::iceberg::IcebergTableReader reader;
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .conjuncts = {},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = &scan_params,
+                                    .io_ctx = io_ctx,
+                                    .runtime_state = &state,
+                                    .scanner_profile = &profile,
+                            })
+                        .ok());
+
+    auto split_options = build_split_options(file_path);
+    split_options.cache = &cache;
+    split_options.current_range.__set_table_format_params(make_iceberg_table_format_desc(
+            file_path, {make_iceberg_position_delete_file(delete_file_path)}));
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+
+    EXPECT_EQ(read_iceberg_ids(&reader, projected_columns), std::vector<int32_t>({1, 3, 5}));
+
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
+TEST(IcebergV2ReaderTest, IcebergTableReaderRejectsNullablePositionDeleteFileWithActualNulls) {
+    const auto test_dir = std::filesystem::temp_directory_path() /
+                          "doris_iceberg_nullable_position_delete_actual_null_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+
+    const auto file_path = (test_dir / "split.parquet").string();
+    const auto delete_file_path = (test_dir / "position-delete.parquet").string();
+    write_int_pair_parquet_file(file_path, {1, 2, 3}, {10, 20, 30}, {"one", "two", "three"});
+    write_nullable_position_delete_parquet_file(delete_file_path, {file_path, std::nullopt},
+                                                {int64_t {1}, int64_t {2}});
+
+    std::vector<ColumnDefinition> projected_columns;
+    projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+
+    RuntimeProfile profile("test_profile");
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto scan_params = make_local_parquet_scan_params();
+    io::FileReaderStats file_reader_stats;
+    io::FileCacheStatistics file_cache_stats;
+    auto io_ctx = make_io_context(&file_reader_stats, &file_cache_stats);
+    ShardedKVCache cache(1);
+    doris::format::iceberg::IcebergTableReader reader;
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .conjuncts = {},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = &scan_params,
+                                    .io_ctx = io_ctx,
+                                    .runtime_state = &state,
+                                    .scanner_profile = &profile,
+                            })
+                        .ok());
+
+    auto split_options = build_split_options(file_path);
+    split_options.cache = &cache;
+    split_options.current_range.__set_table_format_params(make_iceberg_table_format_desc(
+            file_path, {make_iceberg_position_delete_file(delete_file_path)}));
+    auto status = reader.prepare_split(split_options);
+    ASSERT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("file_path contains null values"), std::string::npos)
+            << status.to_string();
+
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
+TEST(IcebergV2ReaderTest, IcebergTableReaderRejectsNullablePositionDeletePosWithActualNulls) {
+    const auto test_dir = std::filesystem::temp_directory_path() /
+                          "doris_iceberg_nullable_position_delete_pos_null_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+
+    const auto file_path = (test_dir / "split.parquet").string();
+    const auto delete_file_path = (test_dir / "position-delete.parquet").string();
+    write_int_pair_parquet_file(file_path, {1, 2, 3}, {10, 20, 30}, {"one", "two", "three"});
+    write_nullable_position_delete_parquet_file(delete_file_path, {file_path, file_path},
+                                                {int64_t {1}, std::nullopt});
+
+    std::vector<ColumnDefinition> projected_columns;
+    projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+
+    RuntimeProfile profile("test_profile");
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto scan_params = make_local_parquet_scan_params();
+    io::FileReaderStats file_reader_stats;
+    io::FileCacheStatistics file_cache_stats;
+    auto io_ctx = make_io_context(&file_reader_stats, &file_cache_stats);
+    ShardedKVCache cache(1);
+    doris::format::iceberg::IcebergTableReader reader;
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .conjuncts = {},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = &scan_params,
+                                    .io_ctx = io_ctx,
+                                    .runtime_state = &state,
+                                    .scanner_profile = &profile,
+                            })
+                        .ok());
+
+    auto split_options = build_split_options(file_path);
+    split_options.cache = &cache;
+    split_options.current_range.__set_table_format_params(make_iceberg_table_format_desc(
+            file_path, {make_iceberg_position_delete_file(delete_file_path)}));
+    auto status = reader.prepare_split(split_options);
+    ASSERT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("pos contains null values"), std::string::npos)
+            << status.to_string();
+
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
 TEST(IcebergV2ReaderTest, IcebergTableReaderIgnoresPositionDeleteFilesWhenDeletionVectorPresent) {
     const auto test_dir =
             std::filesystem::temp_directory_path() / "doris_iceberg_delete_files_merge_test";
@@ -1860,6 +3115,16 @@ TEST(IcebergV2ReaderTest, RowPositionDeletePredicateColumnIsNotRepeatedAsOutputC
     ASSERT_TRUE(request.conjuncts.empty());
     ASSERT_EQ(request.delete_conjuncts.size(), 1);
     EXPECT_NE(request.delete_conjuncts[0], nullptr);
+}
+
+TEST(IcebergV2ReaderTest, DataFileIsMarkedImmutableForPageCache) {
+    std::vector<ColumnDefinition> projected_columns;
+    projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+
+    IcebergTableReaderScanRequestTestHelper reader;
+    ASSERT_TRUE(reader.init_for_scan_request_test(std::move(projected_columns)).ok());
+
+    EXPECT_TRUE(reader.current_data_file_is_immutable());
 }
 
 } // namespace

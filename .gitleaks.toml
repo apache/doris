@@ -35,6 +35,16 @@ paths = ['''^tools/release-tools/release\.env$''']
 regexes = ['''SIGNING_KEY="[A-F0-9]{40}"''']
 
 [[rules]]
+id = "jwt"
+
+[[rules.allowlists]]
+description = "Ignore the fake JWT fixture in DelegatedCredentialTest"
+condition = "AND"
+regexTarget = "line"
+paths = ['''^fe/fe-core/src/test/java/org/apache/doris/datasource/DelegatedCredentialTest\.java$''']
+regexes = ['''"eyJhbGciOiJub25lIn0\.eyJleHAiOjE3MDAwMDAwMDB9\."''']
+
+[[rules]]
 id = "private-key"
 
 [[rules.allowlists]]

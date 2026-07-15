@@ -24,6 +24,7 @@
 #include <fstream>
 #include <memory>
 
+#include "common/config.h"
 #include "common/consts.h"
 #include "common/object_pool.h"
 #include "core/assert_cast.h"
@@ -45,6 +46,8 @@
 #include "runtime/runtime_profile.h"
 #include "testutil/desc_tbl_builder.h"
 #include "testutil/mock/mock_runtime_state.h"
+#include "util/debug_points.h"
+#include "util/defer_op.h"
 
 namespace doris::format::csv {
 namespace {
@@ -780,6 +783,187 @@ TEST_F(CsvV2ReaderTest, EnclosedFieldKeepsSeparatorInsideStringValue) {
     EXPECT_EQ(nullable_string_at(*block.get_by_position(0).column, 0), "alice,team");
 }
 
+// Bare quotes and escapes outside enclosed fields stay in NORMAL state in
+// EncloseCsvLineReaderCtx. Field slicing must reuse those exact separator positions.
+TEST_F(CsvV2ReaderTest, EncloseFieldSplittingMatchesLineReaderStateMachine) {
+    const auto quoted_path = (_test_dir / "enclose_state.csv").string();
+    std::ofstream output(quoted_path, std::ios::binary);
+    output << "id,name,score\n";
+    output << "1,ab\"cd,20\n";
+    output << "2,C:\\dir\\,30,40\n";
+    output.close();
+
+    _params.file_attributes.text_params.__set_enclose('"');
+    _params.file_attributes.text_params.__set_escape('\\');
+    auto reader = create_reader(quoted_path, &_params, _slots, &_state, &_profile);
+    std::vector<ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+
+    auto request = std::make_shared<FileScanRequest>();
+    request->non_predicate_columns = {LocalColumnIndex::top_level(LocalColumnId(1)),
+                                      LocalColumnIndex::top_level(LocalColumnId(2))};
+    request->local_positions.emplace(LocalColumnId(1), LocalIndex(0));
+    request->local_positions.emplace(LocalColumnId(2), LocalIndex(1));
+    ASSERT_TRUE(reader->open(request).ok());
+
+    auto block = make_block(schema, {1, 2});
+    size_t rows = 0;
+    bool eof = false;
+    ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+    ASSERT_EQ(rows, 2);
+    EXPECT_EQ(nullable_string_at(*block.get_by_position(0).column, 0), "ab\"cd");
+    EXPECT_EQ(nullable_int_at(*block.get_by_position(1).column, 0), 20);
+    EXPECT_EQ(nullable_int_at(*block.get_by_position(1).column, 1), 30);
+}
+
+// OpenCSV permits escape and enclose to use the same character. The shared line-reader state
+// machine handles doubled quotes without treating every quote as a generic escape.
+TEST_F(CsvV2ReaderTest, MatchingEscapeAndEncloseStillSplitQuotedFields) {
+    const auto quoted_path = (_test_dir / "matching_escape_enclose.csv").string();
+    std::ofstream output(quoted_path, std::ios::binary);
+    output << "id,name,score\n";
+    output << "\"1\",\"alice\",\"10\"\n";
+    output.close();
+
+    _params.file_attributes.text_params.__set_enclose('"');
+    _params.file_attributes.text_params.__set_escape('"');
+    auto reader = create_reader(quoted_path, &_params, _slots, &_state, &_profile);
+    std::vector<ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+
+    auto request = std::make_shared<FileScanRequest>();
+    request->non_predicate_columns = {LocalColumnIndex::top_level(LocalColumnId(0)),
+                                      LocalColumnIndex::top_level(LocalColumnId(1)),
+                                      LocalColumnIndex::top_level(LocalColumnId(2))};
+    request->local_positions.emplace(LocalColumnId(0), LocalIndex(0));
+    request->local_positions.emplace(LocalColumnId(1), LocalIndex(1));
+    request->local_positions.emplace(LocalColumnId(2), LocalIndex(2));
+    ASSERT_TRUE(reader->open(request).ok());
+
+    auto block = make_block(schema, {0, 1, 2});
+    size_t rows = 0;
+    bool eof = false;
+    ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+    ASSERT_EQ(rows, 1);
+    EXPECT_EQ(nullable_int_at(*block.get_by_position(0).column, 0), 1);
+    EXPECT_EQ(nullable_string_at(*block.get_by_position(1).column, 0), "alice");
+    EXPECT_EQ(nullable_int_at(*block.get_by_position(2).column, 0), 10);
+}
+
+// OpenCSV custom quote characters only remove that configured enclosure. Literal double quotes in
+// a field must remain when the configured enclosure is a single quote.
+TEST_F(CsvV2ReaderTest, CustomEnclosePreservesLiteralDoubleQuotes) {
+    const auto quoted_path = (_test_dir / "custom_enclose.csv").string();
+    std::ofstream output(quoted_path, std::ios::binary);
+    output << R"("Project Manager")" << '\n';
+    output.close();
+
+    auto value_slot = make_test_slot(&_pool, 10, 0,
+                                     make_nullable(std::make_shared<DataTypeString>()), "value");
+    std::vector<SlotDescriptor*> slots {value_slot};
+    _params.__set_column_idxs({0});
+    _params.file_attributes.__isset.header_type = false;
+    _params.file_attributes.text_params.__set_column_separator("\t");
+    _params.file_attributes.text_params.__set_enclose('\'');
+    _params.file_attributes.text_params.__set_escape('|');
+    auto reader = create_reader(quoted_path, &_params, slots, &_state, &_profile);
+    std::vector<ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+
+    auto request = std::make_shared<FileScanRequest>();
+    request->non_predicate_columns = {LocalColumnIndex::top_level(LocalColumnId(0))};
+    request->local_positions.emplace(LocalColumnId(0), LocalIndex(0));
+    ASSERT_TRUE(reader->open(request).ok());
+
+    auto block = make_block(schema, {0});
+    size_t rows = 0;
+    bool eof = false;
+    ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+    ASSERT_EQ(rows, 1);
+    EXPECT_EQ(nullable_string_at(*block.get_by_position(0).column, 0), R"("Project Manager")");
+}
+
+// A column separator that overlaps the line delimiter must not be recorded because CsvReader
+// splits a Slice that excludes the line delimiter bytes.
+TEST_F(CsvV2ReaderTest, ColumnSeparatorOverlappingLineDelimiterStaysOutsideReturnedLine) {
+    const auto overlap_path = (_test_dir / "overlapping_delimiters.csv").string();
+    std::ofstream output(overlap_path, std::ios::binary);
+    output << "value|\n";
+    output.close();
+
+    auto value_slot = make_test_slot(&_pool, 10, 0,
+                                     make_nullable(std::make_shared<DataTypeString>()), "value");
+    std::vector<SlotDescriptor*> slots {value_slot};
+    _params.__set_column_idxs({0});
+    _params.file_attributes.__isset.header_type = false;
+    _params.file_attributes.text_params.__set_column_separator("|\n");
+    _params.file_attributes.text_params.__set_enclose('"');
+    _params.file_attributes.text_params.__set_escape('\\');
+    auto reader = create_reader(overlap_path, &_params, slots, &_state, &_profile);
+    std::vector<ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+
+    auto request = std::make_shared<FileScanRequest>();
+    request->non_predicate_columns = {LocalColumnIndex::top_level(LocalColumnId(0))};
+    request->local_positions.emplace(LocalColumnId(0), LocalIndex(0));
+    ASSERT_TRUE(reader->open(request).ok());
+
+    auto block = make_block(schema, {0});
+    size_t rows = 0;
+    bool eof = false;
+    ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+    ASSERT_EQ(rows, 1);
+    EXPECT_EQ(nullable_string_at(*block.get_by_position(0).column, 0), "value|");
+}
+
+// When a logical row is refilled, partial-separator backtracking must not cross the end of a
+// separator that was already accepted from the previous buffer contents.
+TEST_F(CsvV2ReaderTest, MultiCharacterSeparatorAcrossOutputBufferRefill) {
+    const auto refill_path = (_test_dir / "separator_refill.csv").string();
+    std::ofstream output(refill_path, std::ios::binary);
+    output << std::string(28, 'a') << "|||||b\n";
+    output.close();
+
+    auto first_slot = make_test_slot(&_pool, 10, 0,
+                                     make_nullable(std::make_shared<DataTypeString>()), "first");
+    auto second_slot = make_test_slot(&_pool, 11, 1,
+                                      make_nullable(std::make_shared<DataTypeString>()), "second");
+    std::vector<SlotDescriptor*> slots {first_slot, second_slot};
+    _params.__set_column_idxs({0, 1});
+    _params.file_attributes.__isset.header_type = false;
+    _params.file_attributes.text_params.__set_column_separator("|||");
+    _params.file_attributes.text_params.__set_enclose('"');
+    _params.file_attributes.text_params.__set_escape('\\');
+
+    const bool enable_debug_points = config::enable_debug_points;
+    config::enable_debug_points = true;
+    DebugPoints::instance()->add_with_params("NewPlainTextLineReader.shrink_output_buf",
+                                             {{"output_buf_size", "32"}});
+    Defer restore_debug_point([enable_debug_points]() {
+        DebugPoints::instance()->remove("NewPlainTextLineReader.shrink_output_buf");
+        config::enable_debug_points = enable_debug_points;
+    });
+
+    auto reader = create_reader(refill_path, &_params, slots, &_state, &_profile);
+    std::vector<ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+
+    auto request = std::make_shared<FileScanRequest>();
+    request->non_predicate_columns = {LocalColumnIndex::top_level(LocalColumnId(0)),
+                                      LocalColumnIndex::top_level(LocalColumnId(1))};
+    request->local_positions.emplace(LocalColumnId(0), LocalIndex(0));
+    request->local_positions.emplace(LocalColumnId(1), LocalIndex(1));
+    ASSERT_TRUE(reader->open(request).ok());
+
+    auto block = make_block(schema, {0, 1});
+    size_t rows = 0;
+    bool eof = false;
+    ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+    ASSERT_EQ(rows, 1);
+    EXPECT_EQ(nullable_string_at(*block.get_by_position(0).column, 0), std::string(28, 'a'));
+    EXPECT_EQ(nullable_string_at(*block.get_by_position(1).column, 0), "||b");
+}
+
 // Scenario: when the CSV row has fewer fields than the FE-provided file slot list, v2 fills the
 // missing requested field with NULL instead of failing or shifting later columns.
 TEST_F(CsvV2ReaderTest, MissingRequestedFieldUsesNullFormat) {
@@ -845,6 +1029,8 @@ TEST_F(CsvV2ReaderTest, BomIsRemovedFromFirstDataLineWithoutHeader) {
     output.close();
 
     _params.file_attributes.__isset.header_type = false;
+    _params.file_attributes.text_params.__set_enclose('"');
+    _params.file_attributes.text_params.__set_escape('\\');
     auto reader = create_reader(bom_path, &_params, _slots, &_state, &_profile);
     std::vector<ColumnDefinition> schema;
     ASSERT_TRUE(reader->get_schema(&schema).ok());
@@ -860,6 +1046,83 @@ TEST_F(CsvV2ReaderTest, BomIsRemovedFromFirstDataLineWithoutHeader) {
     ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
     ASSERT_EQ(rows, 1);
     EXPECT_EQ(nullable_int_at(*block.get_by_position(0).column, 0), 5);
+}
+
+// The enclosed line reader sees bytes before DelimitedTextReader removes the BOM. It must skip the
+// BOM structurally so the quote immediately after it still starts an enclosed first field and the
+// comma inside that field is not recorded as a column separator.
+TEST_F(CsvV2ReaderTest, BomBeforeQuotedFirstFieldWithComma) {
+    const auto bom_path = (_test_dir / "bom_quoted_comma.csv").string();
+    std::ofstream output(bom_path, std::ios::binary);
+    output.write("\xEF\xBB\xBF", 3);
+    output << "\"alice,team\",20\n";
+    output.close();
+
+    auto string_slot = make_test_slot(&_pool, 10, 0,
+                                      make_nullable(std::make_shared<DataTypeString>()), "name");
+    auto score_slot = make_test_slot(&_pool, 11, 1,
+                                     make_nullable(std::make_shared<DataTypeInt32>()), "score");
+    std::vector<SlotDescriptor*> slots {string_slot, score_slot};
+    _params.__set_column_idxs({0, 1});
+    _params.file_attributes.__isset.header_type = false;
+    _params.file_attributes.text_params.__set_enclose('"');
+    _params.file_attributes.text_params.__set_escape('\\');
+    auto reader = create_reader(bom_path, &_params, slots, &_state, &_profile);
+    std::vector<ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+
+    auto request = std::make_shared<FileScanRequest>();
+    request->non_predicate_columns = {LocalColumnIndex::top_level(LocalColumnId(0)),
+                                      LocalColumnIndex::top_level(LocalColumnId(1))};
+    request->local_positions.emplace(LocalColumnId(0), LocalIndex(0));
+    request->local_positions.emplace(LocalColumnId(1), LocalIndex(1));
+    ASSERT_TRUE(reader->open(request).ok());
+
+    auto block = make_block(schema, {0, 1});
+    size_t rows = 0;
+    bool eof = false;
+    ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+    ASSERT_EQ(rows, 1);
+    EXPECT_EQ(nullable_string_at(*block.get_by_position(0).column, 0), "alice,team");
+    EXPECT_EQ(nullable_int_at(*block.get_by_position(1).column, 0), 20);
+}
+
+// The same ordering matters before logical-row detection: a newline inside the first enclosed
+// field belongs to the field, even when the opening quote follows a file BOM.
+TEST_F(CsvV2ReaderTest, BomBeforeQuotedFirstFieldWithNewline) {
+    const auto bom_path = (_test_dir / "bom_quoted_newline.csv").string();
+    std::ofstream output(bom_path, std::ios::binary);
+    output.write("\xEF\xBB\xBF", 3);
+    output << "\"alice\nteam\",20\n";
+    output.close();
+
+    auto string_slot = make_test_slot(&_pool, 10, 0,
+                                      make_nullable(std::make_shared<DataTypeString>()), "name");
+    auto score_slot = make_test_slot(&_pool, 11, 1,
+                                     make_nullable(std::make_shared<DataTypeInt32>()), "score");
+    std::vector<SlotDescriptor*> slots {string_slot, score_slot};
+    _params.__set_column_idxs({0, 1});
+    _params.file_attributes.__isset.header_type = false;
+    _params.file_attributes.text_params.__set_enclose('"');
+    _params.file_attributes.text_params.__set_escape('\\');
+    auto reader = create_reader(bom_path, &_params, slots, &_state, &_profile);
+    std::vector<ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+
+    auto request = std::make_shared<FileScanRequest>();
+    request->non_predicate_columns = {LocalColumnIndex::top_level(LocalColumnId(0)),
+                                      LocalColumnIndex::top_level(LocalColumnId(1))};
+    request->local_positions.emplace(LocalColumnId(0), LocalIndex(0));
+    request->local_positions.emplace(LocalColumnId(1), LocalIndex(1));
+    ASSERT_TRUE(reader->open(request).ok());
+
+    auto block = make_block(schema, {0, 1});
+    size_t rows = 0;
+    bool eof = false;
+    ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+    ASSERT_EQ(rows, 1);
+    EXPECT_EQ(nullable_string_at(*block.get_by_position(0).column, 0), "alice\nteam");
+    EXPECT_EQ(nullable_int_at(*block.get_by_position(1).column, 0), 20);
 }
 
 // Scenario: when FE does not set header_type, CSV v2 must honor skip_lines exactly as the old
@@ -949,6 +1212,37 @@ TEST_F(CsvV2ReaderTest, NullFormatAndEmptyFieldAsNullProduceNullableValues) {
     ASSERT_EQ(rows, 1);
     EXPECT_TRUE(is_null_at(*block.get_by_position(0).column, 0));
     EXPECT_TRUE(is_null_at(*block.get_by_position(1).column, 0));
+}
+
+// trim_double_quotes preserves quoted null literals as strings while an unquoted marker remains
+// NULL, matching the V1 CSV reader's converted-from-string behavior.
+TEST_F(CsvV2ReaderTest, QuotedNullFormatIsAStringLiteral) {
+    const auto null_path = (_test_dir / "quoted_null_format.csv").string();
+    std::ofstream output(null_path, std::ios::binary);
+    output << "id,name,score\n";
+    output << "1,\"\\N\",10\n";
+    output << "2,\\N,20\n";
+    output.close();
+
+    _params.file_attributes.__set_trim_double_quotes(true);
+    _params.file_attributes.text_params.__set_null_format("\\N");
+    auto reader = create_reader(null_path, &_params, _slots, &_state, &_profile);
+    std::vector<ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+
+    auto request = std::make_shared<FileScanRequest>();
+    request->non_predicate_columns = {LocalColumnIndex::top_level(LocalColumnId(1))};
+    request->local_positions.emplace(LocalColumnId(1), LocalIndex(0));
+    ASSERT_TRUE(reader->open(request).ok());
+
+    auto block = make_block(schema, {1});
+    size_t rows = 0;
+    bool eof = false;
+    ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+    ASSERT_EQ(rows, 2);
+    EXPECT_FALSE(is_null_at(*block.get_by_position(0).column, 0));
+    EXPECT_EQ(nullable_string_at(*block.get_by_position(0).column, 0), "\\N");
+    EXPECT_TRUE(is_null_at(*block.get_by_position(0).column, 1));
 }
 
 // Scenario: OpenCSV keeps an empty field as an empty string when empty_field_as_null is false,

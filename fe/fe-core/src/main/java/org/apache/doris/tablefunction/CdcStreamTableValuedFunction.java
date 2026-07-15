@@ -91,6 +91,7 @@ public class CdcStreamTableValuedFunction extends ExternalFileTableValuedFunctio
     }
 
     private String generateParams(Map<String, String> properties) throws AnalysisException {
+        properties.put(DataSourceConfigKeys.SCHEMA_CHANGE_ENABLED, "false");
         FetchRecordRequest recordRequest = new FetchRecordRequest();
         recordRequest.setJobId(properties.get(JOB_ID_KEY));
         recordRequest.setDataSource(properties.get(DataSourceConfigKeys.TYPE));

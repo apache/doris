@@ -34,14 +34,17 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/field.h"
+#include "exprs/vliteral.h"
 #include "exprs/vslot_ref.h"
 #include "format/table/deletion_vector_reader.h"
 #include "format_v2/expr/cast.h"
 #include "format_v2/expr/equality_delete_predicate.h"
+#include "format_v2/orc/orc_reader.h"
 #include "format_v2/parquet/parquet_reader.h"
 #include "format_v2/parquet/reader/column_reader.h"
 #include "format_v2/table_reader.h"
 #include "io/file_factory.h"
+#include "util/url_coding.h"
 
 namespace doris::format::iceberg {
 
@@ -74,6 +77,54 @@ static bool is_projected_row_lineage_row_id(const format::ColumnDefinition& colu
 
 static bool is_projected_iceberg_rowid(const format::ColumnDefinition& column) {
     return column.name == BeConsts::ICEBERG_ROWID_COL;
+}
+
+static Status build_missing_equality_delete_key_expr(const format::ColumnDefinition& table_field,
+                                                     const DataTypePtr& delete_key_type,
+                                                     VExprSPtr* key_expr) {
+    DORIS_CHECK(delete_key_type != nullptr);
+    DORIS_CHECK(key_expr != nullptr);
+    if (!table_field.initial_default_value.has_value()) {
+        // A newly added optional field without an initial default is logically NULL in older
+        // files. EqualityDeletePredicate treats NULL == NULL as a match.
+        *key_expr = VLiteral::create_shared(make_nullable(delete_key_type), Field());
+        return Status::OK();
+    }
+
+    Field initial_default;
+    if (table_field.initial_default_value_is_base64 ||
+        table_field.type->get_primitive_type() == TYPE_VARBINARY) {
+        // New FE versions mark every Iceberg UUID/BINARY/FIXED default as Base64 regardless of its
+        // Doris mapping. Keep the VARBINARY fallback for scan descriptors produced before that
+        // marker existed. Decode before parsing so STRING/CHAR and VARBINARY all compare against
+        // the raw bytes stored in equality-delete files.
+        std::string decoded_default;
+        if (!base64_decode(*table_field.initial_default_value, &decoded_default)) {
+            return Status::InvalidArgument("Invalid Base64 Iceberg initial default for field {}",
+                                           table_field.name);
+        }
+        if (table_field.type->get_primitive_type() == TYPE_VARBINARY) {
+            initial_default = Field::create_field<TYPE_VARBINARY>(StringView(decoded_default));
+        } else {
+            DORIS_CHECK(is_string_type(table_field.type->get_primitive_type()));
+            initial_default = Field::create_field<TYPE_STRING>(decoded_default);
+        }
+    } else {
+        // An added field's initial default is its logical value in every older data file that lacks
+        // the physical column. FE normalizes the string for the current Doris table type.
+        RETURN_IF_ERROR(table_field.type->get_serde()->from_fe_string(
+                *table_field.initial_default_value, initial_default));
+    }
+
+    auto literal = VLiteral::create_shared(table_field.type, initial_default);
+    if (table_field.type->equals(*delete_key_type)) {
+        *key_expr = std::move(literal);
+        return Status::OK();
+    }
+    auto cast_expr = Cast::create_shared(delete_key_type);
+    cast_expr->add_child(std::move(literal));
+    *key_expr = std::move(cast_expr);
+    return Status::OK();
 }
 
 static std::string iceberg_delete_file_debug_string(const TIcebergDeleteFileDesc& delete_file) {
@@ -142,23 +193,33 @@ static std::string iceberg_params_debug_string(const std::optional<TIcebergFileD
 }
 
 IcebergTableReader::PositionDeleteRowsCollector::PositionDeleteRowsCollector(
-        std::string data_file_path, format::DeleteRows* rows)
-        : _data_file_path(std::move(data_file_path)), _rows(rows) {}
+        PositionDeleteFile* rows_by_data_file)
+        : _rows_by_data_file(rows_by_data_file) {
+    DORIS_CHECK(_rows_by_data_file != nullptr);
+}
 
 Status IcebergTableReader::PositionDeleteRowsCollector::collect(const Block& block,
                                                                 size_t read_rows) {
     if (read_rows == 0) {
         return Status::OK();
     }
-    const auto& file_path_column = assert_cast<const ColumnString&>(
-            *remove_nullable((block.get_by_position(ICEBERG_FILE_PATH_BLOCK_POSITION).column)));
-    const auto& pos_column = assert_cast<const ColumnInt64&>(
-            *remove_nullable(block.get_by_position(ICEBERG_ROW_POS_BLOCK_POSITION).column));
+    const auto& file_path_column_ptr =
+            block.get_by_position(ICEBERG_FILE_PATH_BLOCK_POSITION).column;
+    const auto& pos_column_ptr = block.get_by_position(ICEBERG_ROW_POS_BLOCK_POSITION).column;
+    if (const auto* nullable_column = check_and_get_column<ColumnNullable>(*file_path_column_ptr);
+        nullable_column != nullptr && nullable_column->has_null(0, read_rows)) {
+        return Status::Corruption("Iceberg position delete column file_path contains null values");
+    }
+    if (const auto* nullable_column = check_and_get_column<ColumnNullable>(*pos_column_ptr);
+        nullable_column != nullptr && nullable_column->has_null(0, read_rows)) {
+        return Status::Corruption("Iceberg position delete column pos contains null values");
+    }
+    const auto& file_path_column =
+            assert_cast<const ColumnString&>(*remove_nullable(file_path_column_ptr));
+    const auto& pos_column = assert_cast<const ColumnInt64&>(*remove_nullable(pos_column_ptr));
     for (size_t row = 0; row < read_rows; ++row) {
         const auto file_path = file_path_column.get_data_at(row).to_string();
-        if (file_path == _data_file_path) {
-            _rows->push_back(pos_column.get_element(row));
-        }
+        (*_rows_by_data_file)[file_path].push_back(pos_column.get_element(row));
     }
     return Status::OK();
 }
@@ -169,6 +230,7 @@ Status IcebergTableReader::prepare_split(const format::SplitReadOptions& options
     _delete_predicates_initialized = false;
     _position_delete_rows_storage.clear();
     _equality_delete_filters.clear();
+    _split_cache = options.cache;
     if (options.current_range.__isset.table_format_params &&
         options.current_range.table_format_params.__isset.iceberg_params) {
         const auto& iceberg_params = options.current_range.table_format_params.iceberg_params;
@@ -182,6 +244,14 @@ Status IcebergTableReader::prepare_split(const format::SplitReadOptions& options
         }
     }
     RETURN_IF_ERROR(TableReader::prepare_split(options));
+    if (current_split_pruned()) {
+        return Status::OK();
+    }
+    // Iceberg data files are immutable once referenced by a snapshot; updates create new data files
+    // at new paths instead of overwriting existing files. This lets the Parquet V2 reader use page
+    // cache when the scan range does not carry an mtime, without extending V1's path::0 behavior to
+    // mutable Hive/local files.
+    mark_current_data_file_immutable();
     if (_is_table_level_count_active()) {
         return Status::OK();
     }
@@ -360,11 +430,10 @@ Status IcebergTableReader::_init_delete_predicates(const TTableFormatFileDesc& t
             equality_delete_files.push_back(delete_file);
         }
     }
-    // `_delete_rows != nullptr` means a deletion vector is parsed. Per Iceberg scan planning,
-    // position delete files apply only when there is no deletion vector for the data file.
-    if (_delete_rows != nullptr) {
-        _position_delete_rows_storage = *_delete_rows;
-        _delete_rows = &_position_delete_rows_storage;
+    // Per Iceberg scan planning, position delete files apply only when there is no deletion vector
+    // for the data file. DVs and position deletes now intentionally use different in-memory
+    // representations, so use the Roaring pointer as the DV sentinel.
+    if (_deletion_vector != nullptr) {
         position_delete_files.clear();
     }
     // Initialize position and equality delete predicates. Position delete files contain row
@@ -403,6 +472,9 @@ std::unique_ptr<io::FileDescription> IcebergTableReader::_delete_file_descriptio
     file_description->file_size = range.__isset.file_size ? range.file_size : -1;
     file_description->range_start_offset = range.__isset.start_offset ? range.start_offset : 0;
     file_description->range_size = range.__isset.size ? range.size : -1;
+    // Iceberg delete files follow the same immutable-file contract as data files: a snapshot
+    // references a fixed object and later changes publish a new file rather than replacing it.
+    file_description->is_immutable = true;
     if (range.__isset.fs_name) {
         file_description->fs_name = range.fs_name;
     }
@@ -425,31 +497,114 @@ Status IcebergTableReader::_append_row_position_output_column(format::FileScanRe
     return Status::OK();
 }
 
+const format::ColumnDefinition* IcebergTableReader::_find_equality_delete_data_field(
+        const EqualityDeleteFilter& filter, size_t key_idx) const {
+    DORIS_CHECK(key_idx < filter.field_ids.size());
+    DORIS_CHECK(key_idx < filter.field_names.size());
+    if (mapping_mode() != format::TableColumnMappingMode::BY_NAME) {
+        const int field_id = filter.field_ids[key_idx];
+        const auto field_it = std::ranges::find_if(
+                _data_reader.file_schema, [field_id](const format::ColumnDefinition& field) {
+                    return field.has_identifier_field_id() &&
+                           field.get_identifier_field_id() == field_id;
+                });
+        return field_it == _data_reader.file_schema.end() ? nullptr : &*field_it;
+    }
+
+    // Equality keys are hidden scan dependencies and need not appear in the query projection.
+    // Resolve their current name and aliases from the full table schema supplied by FE, falling
+    // back to the delete-file name when history metadata is unavailable. Reuse ColumnMapper's
+    // exact BY_NAME rules so case, string identifiers, and aliases on either side stay consistent.
+    auto table_field = _find_equality_delete_table_field(filter, key_idx);
+    return format::find_column_by_name(*table_field, _data_reader.file_schema);
+}
+
+std::optional<format::ColumnDefinition> IcebergTableReader::_find_equality_delete_table_field(
+        const EqualityDeleteFilter& filter, size_t key_idx) const {
+    DORIS_CHECK(key_idx < filter.field_ids.size());
+    DORIS_CHECK(key_idx < filter.field_names.size());
+    const int field_id = filter.field_ids[key_idx];
+    auto table_field = _find_current_table_column_by_field_id(field_id, filter.key_types[key_idx]);
+    if (!table_field.has_value()) {
+        const auto projected_field = std::ranges::find_if(
+                _projected_columns, [field_id](const format::ColumnDefinition& field) {
+                    return field.has_identifier_field_id() &&
+                           field.get_identifier_field_id() == field_id;
+                });
+        if (projected_field != _projected_columns.end()) {
+            // Older scan descriptors and focused unit tests may omit history_schema_info. Keep the
+            // projected metadata as a compatibility fallback, but never require projection when
+            // the complete current schema is available.
+            table_field = *projected_field;
+        }
+    }
+    if (!table_field.has_value()) {
+        table_field = format::ColumnDefinition {
+                .identifier = {},
+                .name = filter.field_names[key_idx],
+                .type = filter.key_types[key_idx],
+        };
+    }
+    return table_field;
+}
+
+std::string IcebergTableReader::_delete_file_cache_key(const char* prefix,
+                                                       const std::string& path) const {
+    DORIS_CHECK(prefix != nullptr);
+    std::string fs_name;
+    if (_current_task != nullptr && _current_task->data_file != nullptr) {
+        fs_name = _current_task->data_file->fs_name;
+    }
+    // Delete descriptors can reuse the same path text in different filesystem namespaces. Encode
+    // both variable-length strings so neither an fs/path boundary nor equality field-id suffixes
+    // can be reinterpreted as path content; scan-level credentials/properties are shared here.
+    std::ostringstream key;
+    key << prefix << fs_name.size() << ':' << fs_name << ':' << path.size() << ':' << path;
+    return key.str();
+}
+
+void IcebergTableReader::_append_equality_delete_row_count_carrier(
+        format::FileScanRequest* request) {
+    DORIS_CHECK(request != nullptr);
+    // Columnar readers establish a filter batch's row count from predicate columns. If all
+    // equality keys are missing, the predicate consists only of NULL literals and the filter block
+    // would otherwise have zero rows. Read one physical column eagerly as a row-count carrier;
+    // normal final materialization ignores this hidden dependency.
+    const auto carrier_it = std::ranges::find_if(
+            _data_reader.file_schema, [](const format::ColumnDefinition& field) {
+                return field.column_type == format::ColumnType::DATA_COLUMN;
+            });
+    DORIS_CHECK(carrier_it != _data_reader.file_schema.end());
+    _append_file_scan_column(request, format::LocalColumnId(carrier_it->file_local_id()),
+                             &request->predicate_columns);
+}
+
 Status IcebergTableReader::_append_equality_delete_predicates(format::FileScanRequest* request) {
     DORIS_CHECK(request != nullptr);
     for (const auto& filter : _equality_delete_filters) {
         auto delete_predicate =
                 std::make_shared<EqualityDeletePredicate>(filter.delete_block, filter.field_ids);
         DCHECK_EQ(filter.field_ids.size(), filter.key_types.size());
+        bool has_missing_key = false;
         for (size_t idx = 0; idx < filter.field_ids.size(); ++idx) {
-            const int field_id = filter.field_ids[idx];
-            auto field_it = std::ranges::find_if(
-                    _data_reader.file_schema, [field_id](const format::ColumnDefinition& field) {
-                        return field.has_identifier_field_id() &&
-                               field.get_identifier_field_id() == field_id;
-                    });
-            if (field_it == _data_reader.file_schema.end()) {
-                return Status::InternalError(
-                        "Can not find equality delete column field id {} in data file schema",
-                        field_id);
+            const auto* field = _find_equality_delete_data_field(filter, idx);
+            if (field == nullptr) {
+                auto table_field = _find_equality_delete_table_field(filter, idx);
+                DORIS_CHECK(table_field.has_value());
+                VExprSPtr key_expr;
+                RETURN_IF_ERROR(build_missing_equality_delete_key_expr(
+                        *table_field, filter.key_types[idx], &key_expr));
+                delete_predicate->add_child(key_expr);
+                has_missing_key = true;
+                continue;
             }
-            const auto field_column_id = format::LocalColumnId(field_it->file_local_id());
+            const auto field_column_id = format::LocalColumnId(field->file_local_id());
             _append_file_scan_column(request, field_column_id, &request->predicate_columns);
             const auto block_position = request->local_positions.at(field_column_id).value();
             auto slot = VSlotRef::create_shared(cast_set<int>(block_position),
-                                                cast_set<int>(block_position), -1, field_it->type,
-                                                field_it->name);
-            if (field_it->type->equals(*filter.key_types[idx])) {
+                                                cast_set<int>(block_position), -1, field->type,
+                                                field->name);
+            if (field->type->equals(*filter.key_types[idx])) {
                 delete_predicate->add_child(std::move(slot));
             } else {
                 auto cast_expr = Cast::create_shared(filter.key_types[idx]);
@@ -457,26 +612,29 @@ Status IcebergTableReader::_append_equality_delete_predicates(format::FileScanRe
                 delete_predicate->add_child(std::move(cast_expr));
             }
         }
+        if (has_missing_key && request->predicate_columns.empty()) {
+            _append_equality_delete_row_count_carrier(request);
+        }
         request->delete_conjuncts.push_back(
                 VExprContext::create_shared(std::move(delete_predicate)));
     }
     return Status::OK();
 }
 
-Status IcebergTableReader::_read_parquet_position_delete_file(
-        const TIcebergDeleteFileDesc& delete_file, const TFileScanRangeParams& scan_params,
-        IcebergDeleteFileIOContext* delete_io_ctx, PositionDeleteRowsCollector* collector) {
+Status IcebergTableReader::_create_delete_file_reader(const TIcebergDeleteFileDesc& delete_file,
+                                                      const TFileScanRangeParams& scan_params,
+                                                      IcebergDeleteFileIOContext* delete_io_ctx,
+                                                      std::unique_ptr<format::FileReader>* reader) {
+    DORIS_CHECK(delete_io_ctx != nullptr);
+    DORIS_CHECK(reader != nullptr);
     if (!delete_file.__isset.file_format) {
-        return Status::InternalError("Iceberg position delete file is missing file format");
+        return Status::InternalError("Iceberg delete file is missing file format");
     }
-    if (delete_file.file_format == TFileFormatType::FORMAT_ORC) {
-        return Status::NotSupported("Iceberg ORC position delete file is not supported");
-    }
-    if (delete_file.file_format != TFileFormatType::FORMAT_PARQUET) {
+    if (delete_file.file_format != TFileFormatType::FORMAT_PARQUET &&
+        delete_file.file_format != TFileFormatType::FORMAT_ORC) {
         return Status::NotSupported("Unsupported Iceberg delete file format {}",
                                     delete_file.file_format);
     }
-
     auto delete_range = build_iceberg_delete_file_range(delete_file.path);
     if (_current_task != nullptr && _current_task->data_file != nullptr &&
         !_current_task->data_file->fs_name.empty()) {
@@ -485,12 +643,32 @@ Status IcebergTableReader::_read_parquet_position_delete_file(
     auto system_properties = _delete_file_system_properties(scan_params);
     auto file_description = _delete_file_description(delete_range);
     std::shared_ptr<io::IOContext> io_ctx(&delete_io_ctx->io_ctx, [](io::IOContext*) {});
-    format::parquet::ParquetReader reader(system_properties, file_description, io_ctx,
-                                          _scanner_profile);
-    RETURN_IF_ERROR(reader.init(_runtime_state));
+    const bool enable_mapping_timestamp_tz = scan_params.__isset.enable_mapping_timestamp_tz &&
+                                             scan_params.enable_mapping_timestamp_tz;
+    if (delete_file.file_format == TFileFormatType::FORMAT_PARQUET) {
+        *reader = std::make_unique<format::parquet::ParquetReader>(
+                system_properties, file_description, io_ctx, _scanner_profile, std::nullopt,
+                enable_mapping_timestamp_tz);
+    } else {
+        *reader = std::make_unique<format::orc::OrcReader>(system_properties, file_description,
+                                                           io_ctx, _scanner_profile, std::nullopt,
+                                                           enable_mapping_timestamp_tz);
+    }
+    RETURN_IF_ERROR((*reader)->init(_runtime_state));
+    return Status::OK();
+}
+
+Status IcebergTableReader::_read_position_delete_file(const TIcebergDeleteFileDesc& delete_file,
+                                                      const TFileScanRangeParams& scan_params,
+                                                      IcebergDeleteFileIOContext* delete_io_ctx,
+                                                      PositionDeleteRowsCollector* collector) {
+    DORIS_CHECK(collector != nullptr);
+    std::unique_ptr<format::FileReader> reader;
+    RETURN_IF_ERROR(_create_delete_file_reader(delete_file, scan_params, delete_io_ctx, &reader));
+    DORIS_CHECK(reader != nullptr);
 
     std::vector<format::ColumnDefinition> schema;
-    RETURN_IF_ERROR(reader.get_schema(&schema));
+    RETURN_IF_ERROR(reader->get_schema(&schema));
     format::ColumnDefinition* file_path_field = nullptr;
     format::ColumnDefinition* pos_field = nullptr;
     for (auto& field : schema) {
@@ -501,7 +679,7 @@ Status IcebergTableReader::_read_parquet_position_delete_file(
         }
     }
     if (file_path_field == nullptr || pos_field == nullptr) {
-        return Status::InternalError("Position delete parquet file is missing required columns");
+        return Status::InternalError("Position delete file is missing required columns");
     }
 
     auto request = std::make_shared<format::FileScanRequest>();
@@ -515,7 +693,7 @@ Status IcebergTableReader::_read_parquet_position_delete_file(
             {format::LocalColumnId(pos_field->file_local_id()),
              format::LocalIndex(ICEBERG_ROW_POS_BLOCK_POSITION)},
     };
-    RETURN_IF_ERROR(reader.open(request));
+    RETURN_IF_ERROR(reader->open(request));
 
     bool eof = false;
     auto build_position_delete_block = [](const format::ColumnDefinition& file_path_field,
@@ -529,22 +707,58 @@ Status IcebergTableReader::_read_parquet_position_delete_file(
     while (!eof) {
         Block block = build_position_delete_block(*file_path_field, *pos_field);
         size_t read_rows = 0;
-        RETURN_IF_ERROR(reader.get_block(&block, &read_rows, &eof));
+        RETURN_IF_ERROR(reader->get_block(&block, &read_rows, &eof));
         RETURN_IF_ERROR(collector->collect(block, read_rows));
     }
-    return reader.close();
+    return reader->close();
 }
 
 Status IcebergTableReader::_init_position_delete_rows(
         const std::vector<TIcebergDeleteFileDesc>& delete_files) {
+    DORIS_CHECK(_split_cache != nullptr);
     TFileScanRangeParams delete_scan_params =
             _scan_params == nullptr ? TFileScanRangeParams() : *_scan_params;
     format::DeleteRows position_delete_rows;
     IcebergDeleteFileIOContext delete_io_ctx(_runtime_state);
-    PositionDeleteRowsCollector collector(_data_file_path(), &position_delete_rows);
     for (const auto& delete_file : delete_files) {
-        RETURN_IF_ERROR(_read_parquet_position_delete_file(delete_file, delete_scan_params,
-                                                           &delete_io_ctx, &collector));
+        Status read_status = Status::OK();
+        // A position delete file normally references many data files. Cache the complete
+        // path-to-position map once; caching only the current data file would still rescan the
+        // shared delete file for every subsequent split.
+        auto* rows_by_data_file =
+                _split_cache->get<PositionDeleteRowsCollector::PositionDeleteFile>(
+                        _delete_file_cache_key("iceberg_v2_position_delete_", delete_file.path),
+                        [&]() -> PositionDeleteRowsCollector::PositionDeleteFile* {
+                            auto result = std::make_unique<
+                                    PositionDeleteRowsCollector::PositionDeleteFile>();
+                            PositionDeleteRowsCollector collector(result.get());
+                            read_status = _read_position_delete_file(
+                                    delete_file, delete_scan_params, &delete_io_ctx, &collector);
+                            if (!read_status.ok()) {
+                                return nullptr;
+                            }
+                            for (auto& [_, rows] : *result) {
+                                std::ranges::sort(rows);
+                            }
+                            return result.release();
+                        });
+        RETURN_IF_ERROR(read_status);
+        DORIS_CHECK(rows_by_data_file != nullptr);
+        const auto rows_it = rows_by_data_file->find(_data_file_path());
+        if (rows_it == rows_by_data_file->end()) {
+            continue;
+        }
+        auto first = rows_it->second.begin();
+        auto last = rows_it->second.end();
+        // Bounds are inclusive Iceberg position statistics supplied by FE. Apply them after the
+        // cached per-data-file vector is sorted so irrelevant positions are sliced without a scan.
+        if (delete_file.__isset.position_lower_bound) {
+            first = std::lower_bound(first, last, delete_file.position_lower_bound);
+        }
+        if (delete_file.__isset.position_upper_bound) {
+            last = std::upper_bound(first, last, delete_file.position_upper_bound);
+        }
+        position_delete_rows.insert(position_delete_rows.end(), first, last);
     }
     if (position_delete_rows.empty()) {
         return Status::OK();
@@ -564,53 +778,29 @@ Status IcebergTableReader::_init_position_delete_rows(
 
 Status IcebergTableReader::_init_equality_delete_predicates(
         const std::vector<TIcebergDeleteFileDesc>& delete_files) {
+    DORIS_CHECK(_split_cache != nullptr);
     TFileScanRangeParams delete_scan_params =
             _scan_params == nullptr ? TFileScanRangeParams() : *_scan_params;
     IcebergDeleteFileIOContext delete_io_ctx(_runtime_state);
     for (const auto& delete_file : delete_files) {
-        RETURN_IF_ERROR(_read_parquet_equality_delete_file(delete_file, delete_scan_params,
-                                                           &delete_io_ctx));
+        RETURN_IF_ERROR(
+                _read_equality_delete_file(delete_file, delete_scan_params, &delete_io_ctx));
     }
     return Status::OK();
 }
 
-Status IcebergTableReader::_read_parquet_equality_delete_file(
-        const TIcebergDeleteFileDesc& delete_file, const TFileScanRangeParams& scan_params,
-        IcebergDeleteFileIOContext* delete_io_ctx) {
-    if (!delete_file.__isset.file_format) {
-        return Status::InternalError("Iceberg equality delete file is missing file format");
-    }
-    if (delete_file.file_format != TFileFormatType::FORMAT_PARQUET) {
-        return Status::NotSupported("Unsupported Iceberg equality delete file format {}",
-                                    delete_file.file_format);
-    }
-    if (!delete_file.__isset.field_ids || delete_file.field_ids.empty()) {
-        return Status::InternalError("Iceberg equality delete file is missing field ids");
-    }
-
-    auto delete_range = build_iceberg_delete_file_range(delete_file.path);
-    if (_current_task != nullptr && _current_task->data_file != nullptr &&
-        !_current_task->data_file->fs_name.empty()) {
-        delete_range.__set_fs_name(_current_task->data_file->fs_name);
-    }
-    auto system_properties = _delete_file_system_properties(scan_params);
-    auto file_description = _delete_file_description(delete_range);
-    std::shared_ptr<io::IOContext> io_ctx(&delete_io_ctx->io_ctx, [](io::IOContext*) {});
-    format::parquet::ParquetReader reader(system_properties, file_description, io_ctx,
-                                          _scanner_profile);
-    RETURN_IF_ERROR(reader.init(_runtime_state));
-
-    std::vector<format::ColumnDefinition> schema;
-    RETURN_IF_ERROR(reader.get_schema(&schema));
-    std::vector<format::ColumnDefinition> delete_fields;
-    std::vector<int> delete_field_ids;
-    std::vector<DataTypePtr> delete_key_types;
+Status IcebergTableReader::_resolve_equality_delete_fields(
+        const TIcebergDeleteFileDesc& delete_file,
+        const std::vector<format::ColumnDefinition>& schema,
+        std::vector<format::ColumnDefinition>* delete_fields, EqualityDeleteFilter* result) const {
+    DORIS_CHECK(delete_fields != nullptr);
+    DORIS_CHECK(result != nullptr);
     for (const auto field_id : delete_file.field_ids) {
-        auto field_it = std::find_if(schema.begin(), schema.end(),
-                                     [field_id](const format::ColumnDefinition& field) {
-                                         return field.has_identifier_field_id() &&
-                                                field_id == field.get_identifier_field_id();
-                                     });
+        const auto field_it =
+                std::ranges::find_if(schema, [field_id](const format::ColumnDefinition& field) {
+                    return field.has_identifier_field_id() &&
+                           field_id == field.get_identifier_field_id();
+                });
         if (field_it == schema.end()) {
             return Status::InternalError("Can not find field id {} in equality delete file {}",
                                          field_id, delete_file.path);
@@ -619,45 +809,88 @@ Status IcebergTableReader::_read_parquet_equality_delete_file(
             return Status::NotSupported(
                     "Iceberg equality delete does not support complex column {}", field_it->name);
         }
-        delete_fields.push_back(*field_it);
-        delete_field_ids.push_back(field_id);
-        delete_key_types.push_back(field_it->type);
+        delete_fields->push_back(*field_it);
+        result->field_ids.push_back(field_id);
+        result->field_names.push_back(field_it->name);
+        result->key_types.push_back(field_it->type);
     }
+    return Status::OK();
+}
+
+Status IcebergTableReader::_load_equality_delete_file(const TIcebergDeleteFileDesc& delete_file,
+                                                      const TFileScanRangeParams& scan_params,
+                                                      IcebergDeleteFileIOContext* delete_io_ctx,
+                                                      EqualityDeleteFilter* result) {
+    DORIS_CHECK(result != nullptr);
+    std::unique_ptr<format::FileReader> reader;
+    RETURN_IF_ERROR(_create_delete_file_reader(delete_file, scan_params, delete_io_ctx, &reader));
+    DORIS_CHECK(reader != nullptr);
+
+    std::vector<format::ColumnDefinition> schema;
+    RETURN_IF_ERROR(reader->get_schema(&schema));
+    std::vector<format::ColumnDefinition> delete_fields;
+    RETURN_IF_ERROR(_resolve_equality_delete_fields(delete_file, schema, &delete_fields, result));
 
     auto request = std::make_shared<format::FileScanRequest>();
-    for (size_t idx = 0; idx < delete_fields.size(); ++idx) {
-        const auto local_column_id = format::LocalColumnId(delete_fields[idx].file_local_id());
-        request->non_predicate_columns.push_back(
-                format::LocalColumnIndex::top_level(local_column_id));
-        request->local_positions.emplace(local_column_id, format::LocalIndex(idx));
-    }
-    RETURN_IF_ERROR(reader.open(request));
-
-    auto build_equality_delete_block =
-            [](const std::vector<format::ColumnDefinition> fields) -> Block {
+    auto build_block = [](const std::vector<format::ColumnDefinition>& fields) -> Block {
         Block block;
         for (const auto& field : fields) {
             block.insert({field.type->create_column(), field.type, field.name});
         }
         return block;
     };
-    Block delete_block = build_equality_delete_block(delete_fields);
-    MutableBlock mutable_delete_block(std::move(delete_block));
+    for (size_t idx = 0; idx < delete_fields.size(); ++idx) {
+        const auto local_column_id = format::LocalColumnId(delete_fields[idx].file_local_id());
+        request->non_predicate_columns.push_back(
+                format::LocalColumnIndex::top_level(local_column_id));
+        request->local_positions.emplace(local_column_id, format::LocalIndex(idx));
+    }
+    RETURN_IF_ERROR(reader->open(request));
+
+    MutableBlock mutable_delete_block(build_block(delete_fields));
     bool eof = false;
     while (!eof) {
-        Block block = build_equality_delete_block(delete_fields);
+        Block block = build_block(delete_fields);
         size_t read_rows = 0;
-        RETURN_IF_ERROR(reader.get_block(&block, &read_rows, &eof));
+        RETURN_IF_ERROR(reader->get_block(&block, &read_rows, &eof));
         if (read_rows > 0) {
             RETURN_IF_ERROR(mutable_delete_block.merge(block));
         }
     }
-    RETURN_IF_ERROR(reader.close());
-    delete_block = mutable_delete_block.to_block();
-    _equality_delete_filters.push_back(
-            EqualityDeleteFilter {.field_ids = std::move(delete_field_ids),
-                                  .key_types = std::move(delete_key_types),
-                                  .delete_block = std::move(delete_block)});
+    RETURN_IF_ERROR(reader->close());
+    result->delete_block = mutable_delete_block.to_block();
+    return Status::OK();
+}
+
+Status IcebergTableReader::_read_equality_delete_file(const TIcebergDeleteFileDesc& delete_file,
+                                                      const TFileScanRangeParams& scan_params,
+                                                      IcebergDeleteFileIOContext* delete_io_ctx) {
+    if (!delete_file.__isset.field_ids || delete_file.field_ids.empty()) {
+        return Status::InternalError("Iceberg equality delete file is missing field ids");
+    }
+    std::ostringstream cache_key;
+    cache_key << _delete_file_cache_key("iceberg_v2_equality_delete_", delete_file.path);
+    cache_key << ':' << delete_file.field_ids.size();
+    for (const auto field_id : delete_file.field_ids) {
+        cache_key << ':' << field_id;
+    }
+    Status read_status = Status::OK();
+    // Include the ordered equality ids in the key because the same physical delete file can be
+    // projected with different key layouts. The cached block and its key metadata are immutable
+    // after construction and therefore safe to copy into each split-local predicate.
+    auto* cached_filter = _split_cache->get<EqualityDeleteFilter>(
+            cache_key.str(), [&]() -> EqualityDeleteFilter* {
+                auto result = std::make_unique<EqualityDeleteFilter>();
+                read_status = _load_equality_delete_file(delete_file, scan_params, delete_io_ctx,
+                                                         result.get());
+                if (!read_status.ok()) {
+                    return nullptr;
+                }
+                return result.release();
+            });
+    RETURN_IF_ERROR(read_status);
+    DORIS_CHECK(cached_filter != nullptr);
+    _equality_delete_filters.push_back(*cached_filter);
     return Status::OK();
 }
 

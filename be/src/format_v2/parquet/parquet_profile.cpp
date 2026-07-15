@@ -71,6 +71,8 @@ void ParquetProfile::init(RuntimeProfile* profile) {
                                                       parquet_profile, 1);
     arrow_read_records_time =
             ADD_CHILD_TIMER_WITH_LEVEL(profile, "ArrowReadRecordsTime", parquet_profile, 1);
+    arrow_skip_records_time =
+            ADD_CHILD_TIMER_WITH_LEVEL(profile, "ArrowSkipRecordsTime", parquet_profile, 1);
     materialization_time =
             ADD_CHILD_TIMER_WITH_LEVEL(profile, "MaterializationTime", parquet_profile, 1);
     lazy_read_filtered_rows = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "FilteredRowsByLazyRead",
@@ -139,6 +141,22 @@ void ParquetProfile::init(RuntimeProfile* profile) {
             ADD_CHILD_TIMER_WITH_LEVEL(profile, "PredicateFilterTime", parquet_profile, 1);
     dict_filter_rewrite_time =
             ADD_CHILD_TIMER_WITH_LEVEL(profile, "DictFilterRewriteTime", parquet_profile, 1);
+    dict_filter_expr_rewrite_time =
+            ADD_CHILD_TIMER_WITH_LEVEL(profile, "DictFilterExprRewriteTime", parquet_profile, 1);
+    dict_filter_read_dict_time =
+            ADD_CHILD_TIMER_WITH_LEVEL(profile, "DictFilterReadDictTime", parquet_profile, 1);
+    dict_filter_build_time =
+            ADD_CHILD_TIMER_WITH_LEVEL(profile, "DictFilterBuildTime", parquet_profile, 1);
+    dict_filter_candidate_columns = ADD_CHILD_COUNTER_WITH_LEVEL(
+            profile, "DictFilterCandidateColumns", TUnit::UNIT, parquet_profile, 1);
+    dict_filter_columns = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "DictFilterColumns", TUnit::UNIT,
+                                                       parquet_profile, 1);
+    dict_filter_unsupported_columns = ADD_CHILD_COUNTER_WITH_LEVEL(
+            profile, "DictFilterUnsupportedColumns", TUnit::UNIT, parquet_profile, 1);
+    dict_filter_read_failures = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "DictFilterReadFailures",
+                                                             TUnit::UNIT, parquet_profile, 1);
+    rows_filtered_by_dict_filter = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "RowsFilteredByDictFilter",
+                                                                TUnit::UNIT, parquet_profile, 1);
     convert_time = ADD_CHILD_TIMER_WITH_LEVEL(profile, "ConvertTime", parquet_profile, 1);
     bloom_filter_read_time =
             ADD_CHILD_TIMER_WITH_LEVEL(profile, "BloomFilterReadTime", parquet_profile, 1);
@@ -182,6 +200,7 @@ ParquetColumnReaderProfile ParquetProfile::column_reader_profile() const {
             .reader_skip_rows = reader_skip_rows,
             .reader_select_rows = reader_select_rows,
             .arrow_read_records_time = arrow_read_records_time,
+            .arrow_skip_records_time = arrow_skip_records_time,
             .materialization_time = materialization_time,
     };
 }
@@ -197,6 +216,15 @@ ParquetScanProfile ParquetProfile::scan_profile() const {
             .range_gap_skipped_rows = range_gap_skipped_rows,
             .column_read_time = column_read_time,
             .predicate_filter_time = predicate_filter_time,
+            .dict_filter_rewrite_time = dict_filter_rewrite_time,
+            .dict_filter_expr_rewrite_time = dict_filter_expr_rewrite_time,
+            .dict_filter_read_dict_time = dict_filter_read_dict_time,
+            .dict_filter_build_time = dict_filter_build_time,
+            .dict_filter_candidate_columns = dict_filter_candidate_columns,
+            .dict_filter_columns = dict_filter_columns,
+            .dict_filter_unsupported_columns = dict_filter_unsupported_columns,
+            .dict_filter_read_failures = dict_filter_read_failures,
+            .rows_filtered_by_dict_filter = rows_filtered_by_dict_filter,
             .column_reader_profile = column_reader_profile(),
     };
 }

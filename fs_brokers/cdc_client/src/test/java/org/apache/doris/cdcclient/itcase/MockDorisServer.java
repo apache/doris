@@ -55,10 +55,13 @@ final class MockDorisServer implements AutoCloseable {
     private final HttpServer server;
     private final List<String> loadedRecords = Collections.synchronizedList(new ArrayList<>());
     private final List<String> executedDdls = Collections.synchronizedList(new ArrayList<>());
+    private final List<String> ddlResponses = Collections.synchronizedList(new ArrayList<>());
     private final Set<String> schemaColumns = Collections.synchronizedSet(new LinkedHashSet<>());
     private final AtomicInteger ddlRequestCount = new AtomicInteger();
     private final AtomicInteger schemaRequestCount = new AtomicInteger();
+    private final AtomicInteger failedCommitOffsetCount = new AtomicInteger();
     private final AtomicBoolean blockNextDdlResponse = new AtomicBoolean();
+    private final AtomicBoolean failCommitOffset = new AtomicBoolean();
     private volatile String committedOffset;
     private volatile boolean partialDdlRetryScenario;
     private volatile CountDownLatch ddlRequestArrived;
@@ -88,8 +91,13 @@ final class MockDorisServer implements AutoCloseable {
                                     + "\"NumberFilteredRows\":0,\"LoadBytes\":%d}",
                             rows, rows, body.length);
         } else if (path.endsWith("/commit_offset")) {
-            this.committedOffset = new String(body, StandardCharsets.UTF_8);
-            response = "{\"code\":0,\"msg\":\"ok\"}";
+            if (failCommitOffset.get()) {
+                failedCommitOffsetCount.incrementAndGet();
+                response = "{\"code\":1,\"msg\":\"injected commit offset failure\"}";
+            } else {
+                this.committedOffset = new String(body, StandardCharsets.UTF_8);
+                response = "{\"code\":0,\"msg\":\"ok\"}";
+            }
         } else if (path.endsWith("/_schema")) {
             schemaRequestCount.incrementAndGet();
             List<String> properties = new ArrayList<>();
@@ -130,8 +138,9 @@ final class MockDorisServer implements AutoCloseable {
                 schemaColumns.add("city");
                 response = "{\"code\":1,\"msg\":\"unrecognized DDL response\"}";
             } else {
-                response = "{\"code\":0,\"msg\":\"ok\"}";
+                response = applyDdlToMockSchema(node.path("stmt").asText(""));
             }
+            ddlResponses.add(response);
         } else {
             response = "{\"code\":-1,\"msg\":\"unknown path " + path + "\"}";
         }
@@ -166,6 +175,15 @@ final class MockDorisServer implements AutoCloseable {
         return new ArrayList<>(executedDdls);
     }
 
+    /** FE query endpoint responses for schema-change DDLs, in arrival order. */
+    List<String> ddlResponses() {
+        return new ArrayList<>(ddlResponses);
+    }
+
+    int failedCommitOffsetCount() {
+        return failedCommitOffsetCount.get();
+    }
+
     int schemaRequestCount() {
         return schemaRequestCount.get();
     }
@@ -176,6 +194,16 @@ final class MockDorisServer implements AutoCloseable {
         ddlRequestCount.set(0);
         schemaRequestCount.set(0);
         schemaColumns.clear();
+    }
+
+    /** Force commit_offset to fail without updating the committed payload. */
+    void failCommitOffset() {
+        failCommitOffset.set(true);
+    }
+
+    /** Allow commit_offset to succeed again. */
+    void allowCommitOffset() {
+        failCommitOffset.set(false);
     }
 
     /** Block the next DDL response until the test explicitly releases it. */
@@ -196,5 +224,39 @@ final class MockDorisServer implements AutoCloseable {
     @Override
     public void close() {
         server.stop(0);
+    }
+
+    private String applyDdlToMockSchema(String ddl) {
+        String upper = ddl.toUpperCase();
+        String column;
+        if (upper.contains("ADD COLUMN")) {
+            column = extractColumnName(ddl, "ADD COLUMN");
+            if (column != null && !schemaColumns.add(column)) {
+                return "{\"code\":1,\"msg\":\"Can not add column which already exists\"}";
+            }
+            return "{\"code\":0,\"msg\":\"ok\"}";
+        }
+        if (upper.contains("DROP COLUMN")) {
+            column = extractColumnName(ddl, "DROP COLUMN");
+            if (column != null && !schemaColumns.remove(column)) {
+                return "{\"code\":1,\"msg\":\"Column does not exists\"}";
+            }
+            return "{\"code\":0,\"msg\":\"ok\"}";
+        }
+        return "{\"code\":0,\"msg\":\"ok\"}";
+    }
+
+    private String extractColumnName(String ddl, String keyword) {
+        int idx = ddl.toUpperCase().indexOf(keyword);
+        if (idx < 0) {
+            return null;
+        }
+        String tail = ddl.substring(idx + keyword.length()).trim();
+        if (tail.startsWith("`")) {
+            int end = tail.indexOf('`', 1);
+            return end > 1 ? tail.substring(1, end) : null;
+        }
+        int end = tail.indexOf(' ');
+        return end > 0 ? tail.substring(0, end) : tail;
     }
 }
