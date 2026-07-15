@@ -24,15 +24,25 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
+import org.apache.doris.job.cdc.request.JobBaseConfig;
 
 import com.github.shyiko.mysql.binlog.GtidSet;
 import org.apache.flink.cdc.connectors.mysql.source.config.MySqlSourceConfig;
 import org.apache.flink.cdc.connectors.mysql.source.offset.BinlogOffset;
+import org.apache.flink.cdc.connectors.mysql.source.split.MySqlSnapshotSplit;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Method;
+import java.sql.Types;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+
+import io.debezium.relational.Column;
+import io.debezium.relational.Table;
+import io.debezium.relational.TableEditor;
+import io.debezium.relational.TableId;
+import io.debezium.relational.history.TableChanges;
 
 public class MySqlSourceReaderTest {
 
@@ -115,6 +125,44 @@ public class MySqlSourceReaderTest {
         assertFalse(config.isIncludeSchemaChanges());
     }
 
+    @Test
+    void snapshotSplitContainsOnlyCurrentTableSchema() throws Exception {
+        TableId tableId = TableId.parse("testdb.orders");
+        TableId otherTableId = TableId.parse("testdb.other_orders");
+        TableChanges.TableChange tableChange = tableChange(tableId, "pk");
+        Map<TableId, TableChanges.TableChange> tableSchemas = new HashMap<>();
+        tableSchemas.put(tableId, tableChange);
+        tableSchemas.put(otherTableId, tableChange(otherTableId, "other_id"));
+
+        MySqlSourceReader reader =
+                new MySqlSourceReader() {
+                    @Override
+                    protected Class<?> probeSplitKeyClass(
+                            TableId ignoredTableId,
+                            Column ignoredSplitColumn,
+                            JobBaseConfig ignoredJobConfig) {
+                        return Integer.class;
+                    }
+                };
+        reader.setTableSchemas(tableSchemas);
+
+        Method method =
+                MySqlSourceReader.class.getDeclaredMethod(
+                        "createSnapshotSplit", Map.class, JobBaseConfig.class);
+        method.setAccessible(true);
+        MySqlSnapshotSplit split =
+                (MySqlSnapshotSplit)
+                        method.invoke(
+                                reader,
+                                snapshotOffset("testdb.orders", "pk"),
+                                new JobBaseConfig("job-1", "MYSQL", Map.of(), null));
+
+        assertEquals(tableId, split.getTableId());
+        assertEquals(Map.of(tableId, tableChange), split.getTableSchemas());
+        assertFalse(split.getTableSchemas().containsKey(otherTableId));
+        assertEquals(tableSchemas, reader.getTableSchemas());
+    }
+
     // Drive the real generateMySqlConfig JSON-offset path and return the rebuilt startup offset.
     private BinlogOffset startupBinlogOffset(String offsetJson) throws Exception {
         return sourceConfig(offsetJson).getStartupOptions().binlogOffset;
@@ -139,5 +187,28 @@ public class MySqlSourceReaderTest {
                         "generateMySqlConfig", Map.class, String.class, int.class);
         m.setAccessible(true);
         return (MySqlSourceConfig) m.invoke(new MySqlSourceReader(), cfg, "job-1", 0);
+    }
+
+    private static Map<String, Object> snapshotOffset(String tableId, String splitKey) {
+        Map<String, Object> offset = new HashMap<>();
+        offset.put("splitId", tableId + ":0");
+        offset.put("tableId", tableId);
+        offset.put("splitKey", List.of(splitKey));
+        offset.put("splitStart", new Object[] {1});
+        offset.put("splitEnd", new Object[] {10});
+        return offset;
+    }
+
+    private static TableChanges.TableChange tableChange(TableId tableId, String splitKey) {
+        TableEditor editor = Table.editor().tableId(tableId);
+        editor.addColumns(
+                Column.editor()
+                        .name(splitKey)
+                        .type("INT")
+                        .jdbcType(Types.INTEGER)
+                        .optional(false)
+                        .create());
+        editor.setPrimaryKeyNames(splitKey);
+        return new TableChanges.TableChange(TableChanges.TableChangeType.CREATE, editor.create());
     }
 }

@@ -18,6 +18,7 @@
 
 import org.awaitility.Awaitility
 
+import static java.util.concurrent.TimeUnit.MILLISECONDS
 import static java.util.concurrent.TimeUnit.SECONDS
 
 // Multi-table from-to snapshot + concurrent DML: with >=2 tables each snapshot split flips the
@@ -31,6 +32,7 @@ suite("test_streaming_postgres_job_snapshot_with_concurrent_dml_multi_table",
     def table1 = "streaming_snapshot_dml_multi_pg_t1"
     def table2 = "streaming_snapshot_dml_multi_pg_t2"
     def tables = [table1, table2]
+    def primaryKeys = [(table1): "pk", (table2): "other_id"]
     def pgDB = "postgres"
     def pgSchema = "cdc_test"
     def pgUser = "postgres"
@@ -51,21 +53,22 @@ suite("test_streaming_postgres_job_snapshot_with_concurrent_dml_multi_table",
         // ===== Prepare PG side: two tables, each 1000 snapshot rows =====
         connect("${pgUser}", "${pgPassword}", "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}") {
             tables.each { t ->
+                def primaryKey = primaryKeys[t]
                 sql """DROP TABLE IF EXISTS ${pgDB}.${pgSchema}.${t}"""
                 sql """
                 create table ${pgDB}.${pgSchema}.${t} (
-                    id      integer PRIMARY KEY,
+                    ${primaryKey} integer PRIMARY KEY,
                     tag     varchar(64),
                     version integer
                 );
                 """
-                sql """INSERT INTO ${pgDB}.${pgSchema}.${t} (id, tag, version)
+                sql """INSERT INTO ${pgDB}.${pgSchema}.${t} (${primaryKey}, tag, version)
                        SELECT g, 'snap', 0 FROM generate_series(1, ${totalRows}) g"""
             }
         }
 
-        // snapshot_split_size=10 + snapshot_parallelism=1 -> 100 serial splits per table, slow
-        // enough that the concurrent DML overlaps snapshot while the publication keeps flipping.
+        // Different primary-key names make a foreign-table record incompatible with the current
+        // split key. Serial small splits keep the snapshot active during concurrent DML.
         sql """CREATE JOB ${jobName}
                 ON STREAMING
                 FROM POSTGRES (
@@ -79,7 +82,8 @@ suite("test_streaming_postgres_job_snapshot_with_concurrent_dml_multi_table",
                     "include_tables" = "${table1},${table2}",
                     "offset" = "initial",
                     "snapshot_split_size" = "10",
-                    "snapshot_parallelism" = "1"
+                    "snapshot_parallelism" = "1",
+                    "skip_snapshot_backfill" = "false"
                 )
                 TO DATABASE ${currentDb} (
                   "table.create.properties.replication_num" = "1"
@@ -88,19 +92,40 @@ suite("test_streaming_postgres_job_snapshot_with_concurrent_dml_multi_table",
 
         // Wait until the first snapshot split commits (slot created, snapshot in progress) so the
         // DML below lands inside the snapshot window and overlaps the publication flipping.
-        Awaitility.await().atMost(120, SECONDS).pollInterval(1, SECONDS).until({
-            def c = sql """select SucceedTaskCount from jobs("type"="insert") where Name='${jobName}' and ExecuteType='STREAMING'"""
-            c.size() == 1 && (c.get(0).get(0).toString() as long) >= 1
+        def succeedTaskCount = {
+            def rows = sql """select SucceedTaskCount from jobs("type"="insert") where Name='${jobName}' and ExecuteType='STREAMING'"""
+            rows.size() == 1 ? (rows.get(0).get(0).toString() as long) : 0L
+        }
+        Awaitility.await().atMost(120, SECONDS).pollInterval(100, MILLISECONDS).until({
+            succeedTaskCount() >= 1
         })
 
-        // Concurrent DML on BOTH tables while still snapshotting. Same DML shape on each table.
+        def writeProbeDml = {
+            connect("${pgUser}", "${pgPassword}",
+                    "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}") {
+                sql """UPDATE ${pgDB}.${pgSchema}.${table1} SET version=version+1 WHERE pk=500"""
+                sql """UPDATE ${pgDB}.${pgSchema}.${table2} SET version=version+1 WHERE other_id=500"""
+            }
+        }
+
+        writeProbeDml()
+        long probeStartTaskCount = succeedTaskCount()
+        long probeTargetTaskCount = probeStartTaskCount + 10
+        Awaitility.await().atMost(120, SECONDS).pollInterval(200, MILLISECONDS).until({
+            writeProbeDml()
+            succeedTaskCount() >= probeTargetTaskCount
+        })
+        log.info("PostgreSQL probe DML covered tasks ${probeStartTaskCount}..${succeedTaskCount()}")
+
+        // Apply deterministic DML after the probe updates so final results remain stable.
         connect("${pgUser}", "${pgPassword}", "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}") {
             tables.each { t ->
+                def primaryKey = primaryKeys[t]
                 for (int i = 1; i <= 10; i++) {
-                    sql """INSERT INTO ${pgDB}.${pgSchema}.${t} (id, tag, version) VALUES (${totalRows + i}, 'concurrent_ins', 1)"""
+                    sql """INSERT INTO ${pgDB}.${pgSchema}.${t} (${primaryKey}, tag, version) VALUES (${totalRows + i}, 'concurrent_ins', 1)"""
                 }
-                sql """UPDATE ${pgDB}.${pgSchema}.${t} SET version=99 WHERE id IN (1, 100, 500, 999)"""
-                sql """DELETE FROM ${pgDB}.${pgSchema}.${t} WHERE id IN (2, 200, 800)"""
+                sql """UPDATE ${pgDB}.${pgSchema}.${t} SET version=99 WHERE ${primaryKey} IN (1, 100, 500, 999)"""
+                sql """DELETE FROM ${pgDB}.${pgSchema}.${t} WHERE ${primaryKey} IN (2, 200, 800)"""
             }
         }
 
@@ -112,17 +137,18 @@ suite("test_streaming_postgres_job_snapshot_with_concurrent_dml_multi_table",
                     {
                         boolean allOk = true
                         for (def t : tables) {
+                            def primaryKey = primaryKeys[t]
                             def showTbl = sql """show tables from ${currentDb} like '${t}'"""
                             if (showTbl.size() == 0) {
                                 allOk = false
                                 break
                             }
                             def cnt = sql """select count(1) from ${currentDb}.${t}"""
-                            def upd1 = sql """select version from ${currentDb}.${t} where id=1"""
-                            def upd999 = sql """select version from ${currentDb}.${t} where id=999"""
-                            def del2 = sql """select count(1) from ${currentDb}.${t} where id=2"""
-                            def del800 = sql """select count(1) from ${currentDb}.${t} where id=800"""
-                            def ins = sql """select count(1) from ${currentDb}.${t} where id=${totalRows + 10}"""
+                            def upd1 = sql """select version from ${currentDb}.${t} where ${primaryKey}=1"""
+                            def upd999 = sql """select version from ${currentDb}.${t} where ${primaryKey}=999"""
+                            def del2 = sql """select count(1) from ${currentDb}.${t} where ${primaryKey}=2"""
+                            def del800 = sql """select count(1) from ${currentDb}.${t} where ${primaryKey}=800"""
+                            def ins = sql """select count(1) from ${currentDb}.${t} where ${primaryKey}=${totalRows + 10}"""
                             def v1 = upd1.size() == 0 ? null : upd1.get(0).get(0)
                             def v999 = upd999.size() == 0 ? null : upd999.get(0).get(0)
                             log.info("table=${t} cnt=${cnt} v1=${v1} v999=${v999} del2=${del2} del800=${del800} ins=${ins}")
@@ -150,10 +176,10 @@ suite("test_streaming_postgres_job_snapshot_with_concurrent_dml_multi_table",
 
         qt_select_count_t1 """select count(1) from ${currentDb}.${table1}"""
         qt_select_count_t2 """select count(1) from ${currentDb}.${table2}"""
-        qt_select_updates_t1 """select id, version from ${currentDb}.${table1} where id in (1, 100, 500, 999) order by id"""
-        qt_select_updates_t2 """select id, version from ${currentDb}.${table2} where id in (1, 100, 500, 999) order by id"""
-        qt_select_inserts_t1 """select id, tag, version from ${currentDb}.${table1} where id > ${totalRows} order by id"""
-        qt_select_inserts_t2 """select id, tag, version from ${currentDb}.${table2} where id > ${totalRows} order by id"""
+        qt_select_updates_t1 """select pk, version from ${currentDb}.${table1} where pk in (1, 100, 500, 999) order by pk"""
+        qt_select_updates_t2 """select other_id, version from ${currentDb}.${table2} where other_id in (1, 100, 500, 999) order by other_id"""
+        qt_select_inserts_t1 """select pk, tag, version from ${currentDb}.${table1} where pk > ${totalRows} order by pk"""
+        qt_select_inserts_t2 """select other_id, tag, version from ${currentDb}.${table2} where other_id > ${totalRows} order by other_id"""
 
         sql """DROP JOB IF EXISTS where jobname = '${jobName}'"""
 

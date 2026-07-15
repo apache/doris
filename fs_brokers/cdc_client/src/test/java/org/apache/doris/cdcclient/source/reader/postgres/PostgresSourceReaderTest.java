@@ -17,22 +17,33 @@
 
 package org.apache.doris.cdcclient.source.reader.postgres;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import org.apache.doris.cdcclient.source.reader.JdbcIncrementalSourceReader;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
+import org.apache.doris.job.cdc.request.JobBaseConfig;
 
 import io.debezium.config.Configuration;
 import io.debezium.connector.postgresql.connection.PostgresConnection;
 import io.debezium.jdbc.JdbcConfiguration;
 import io.debezium.jdbc.JdbcConnection;
+import io.debezium.relational.Column;
+import io.debezium.relational.Table;
+import io.debezium.relational.TableEditor;
+import io.debezium.relational.TableId;
+import io.debezium.relational.history.TableChanges;
+import org.apache.flink.cdc.connectors.base.source.meta.split.SnapshotSplit;
 import org.apache.flink.cdc.connectors.postgres.source.config.PostgresSourceConfig;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.sql.Types;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 class PostgresSourceReaderTest {
@@ -72,6 +83,44 @@ class PostgresSourceReaderTest {
         assertFalse(config.isIncludeSchemaChanges());
     }
 
+    @Test
+    void snapshotSplitContainsOnlyCurrentTableSchema() throws Exception {
+        TableId tableId = TableId.parse("public.orders", false);
+        TableId otherTableId = TableId.parse("public.other_orders", false);
+        TableChanges.TableChange tableChange = tableChange(tableId, "pk");
+        Map<TableId, TableChanges.TableChange> tableSchemas = new HashMap<>();
+        tableSchemas.put(tableId, tableChange);
+        tableSchemas.put(otherTableId, tableChange(otherTableId, "other_id"));
+
+        PostgresSourceReader reader =
+                new PostgresSourceReader() {
+                    @Override
+                    protected Class<?> probeSplitKeyClass(
+                            TableId ignoredTableId,
+                            Column ignoredSplitColumn,
+                            JobBaseConfig ignoredJobConfig) {
+                        return Integer.class;
+                    }
+                };
+        reader.setTableSchemas(tableSchemas);
+
+        Method method =
+                JdbcIncrementalSourceReader.class.getDeclaredMethod(
+                        "createSnapshotSplit", Map.class, JobBaseConfig.class);
+        method.setAccessible(true);
+        SnapshotSplit split =
+                (SnapshotSplit)
+                        method.invoke(
+                                reader,
+                                snapshotOffset("public.orders", "pk"),
+                                new JobBaseConfig("job-1", "POSTGRES", Map.of(), null));
+
+        assertEquals(tableId, split.getTableId());
+        assertEquals(Map.of(tableId, tableChange), split.getTableSchemas());
+        assertFalse(split.getTableSchemas().containsKey(otherTableId));
+        assertEquals(tableSchemas, reader.getTableSchemas());
+    }
+
     private static PostgresSourceConfig sourceConfig(Map<String, String> overrides)
             throws Exception {
         Map<String, String> cfg = new HashMap<>();
@@ -96,5 +145,28 @@ class PostgresSourceReaderTest {
         Field field = JdbcConnection.class.getDeclaredField("factory");
         field.setAccessible(true);
         return field.get(connection);
+    }
+
+    private static Map<String, Object> snapshotOffset(String tableId, String splitKey) {
+        Map<String, Object> offset = new HashMap<>();
+        offset.put("splitId", tableId + ":0");
+        offset.put("tableId", tableId);
+        offset.put("splitKey", List.of(splitKey));
+        offset.put("splitStart", new Object[] {1});
+        offset.put("splitEnd", new Object[] {10});
+        return offset;
+    }
+
+    private static TableChanges.TableChange tableChange(TableId tableId, String splitKey) {
+        TableEditor editor = Table.editor().tableId(tableId);
+        editor.addColumns(
+                Column.editor()
+                        .name(splitKey)
+                        .type("int4")
+                        .jdbcType(Types.INTEGER)
+                        .optional(false)
+                        .create());
+        editor.setPrimaryKeyNames(splitKey);
+        return new TableChanges.TableChange(TableChanges.TableChangeType.CREATE, editor.create());
     }
 }
