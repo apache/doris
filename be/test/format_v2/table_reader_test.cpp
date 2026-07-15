@@ -3680,13 +3680,13 @@ TEST(TableReaderTest, CreateScanRequestDeduplicatesSharedPredicateColumns) {
 
     std::vector<TableFilter> table_filters;
     table_filters.push_back({
-            .conjunct = VExprContext::create_shared(
-                    table_int32_sum_greater_than_expr(0, 0, 1, 1, 1)),
+            .conjunct =
+                    VExprContext::create_shared(table_int32_sum_greater_than_expr(0, 0, 1, 1, 1)),
             .global_indices = {GlobalIndex(0), GlobalIndex(1)},
     });
     table_filters.push_back({
-            .conjunct = VExprContext::create_shared(
-                    table_int32_sum_greater_than_expr(0, 0, 2, 2, 1)),
+            .conjunct =
+                    VExprContext::create_shared(table_int32_sum_greater_than_expr(0, 0, 2, 2, 1)),
             .global_indices = {GlobalIndex(0), GlobalIndex(2)},
     });
 
