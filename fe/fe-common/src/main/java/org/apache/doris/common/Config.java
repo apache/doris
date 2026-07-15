@@ -3071,7 +3071,7 @@ public class Config extends ConfigBase {
     public static int drop_rpc_retry_num = 200;
 
     @ConfField
-    public static int default_get_version_from_ms_timeout_second = 3;
+    public static int default_get_version_from_ms_timeout_second = 30;
 
     @ConfField(mutable = true)
     public static boolean enable_cloud_multi_replica = false;
