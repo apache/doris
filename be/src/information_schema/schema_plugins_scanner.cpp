@@ -74,7 +74,8 @@ Status SchemaPluginsScanner::_get_plugins_block_from_fe() {
 
     Status status(Status::create(result.status));
     if (!status.ok()) {
-        LOG(WARNING) << "fetch plugins from FE(" << _fe_addr.hostname << ") failed, errmsg=" << status;
+        LOG(WARNING) << "fetch plugins from FE(" << _fe_addr.hostname
+                     << ") failed, errmsg=" << status;
         return status;
     }
 
