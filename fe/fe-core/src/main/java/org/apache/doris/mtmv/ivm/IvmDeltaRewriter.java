@@ -164,7 +164,13 @@ public class IvmDeltaRewriter {
         if (rewrittenPlans.size() == 1) {
             mergedPlan = rewrittenPlans.get(0);
         } else {
-            mergedPlan = helper.buildUnionAll(rewrittenPlans);
+            List<Plan> unionChildren = new ArrayList<>(rewrittenPlans.size());
+            for (Plan rewrittenPlan : rewrittenPlans) {
+                // Fresh copy each finalized child right before UNION ALL so different branches never
+                // reuse ExprIds, while earlier rewrite stages still see the original slot mappings.
+                unionChildren.add(helper.freshPlan(rewrittenPlan).first);
+            }
+            mergedPlan = helper.buildUnionAll(unionChildren);
         }
 
         if (isAgg) {
