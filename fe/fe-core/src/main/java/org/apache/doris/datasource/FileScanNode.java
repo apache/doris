@@ -105,6 +105,21 @@ public abstract class FileScanNode extends ExternalScanNode {
         tableLevelRowCount = count;
     }
 
+    /**
+     * Return whether FE may replace real table-format splits with metadata COUNT splits.
+     *
+     * <p>The aggregate opcode alone is insufficient because both {@code COUNT(*)} and
+     * {@code COUNT(col)} use {@link TPushAggOp#COUNT}. The semantic argument list distinguishes
+     * them: it is empty only for {@code COUNT(*)}/{@code COUNT(1)}. For example, if an Iceberg
+     * table has 100 data files, retaining one representative split is correct for a snapshot
+     * {@code COUNT(*)}. Doing that for {@code COUNT(required_col)} is unsafe: BE deliberately
+     * falls back to reading the column, but it would then see only the representative file and
+     * undercount the table.
+     */
+    protected boolean isTableLevelCountStarPushdown() {
+        return pushDownAggNoGroupingOp == TPushAggOp.COUNT && pushDownCountSlotIds.isEmpty();
+    }
+
     private long getPushDownCount() {
         return tableLevelRowCount;
     }

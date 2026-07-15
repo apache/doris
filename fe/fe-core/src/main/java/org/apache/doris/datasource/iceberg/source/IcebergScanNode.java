@@ -63,7 +63,6 @@ import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TIcebergDeleteFileDesc;
 import org.apache.doris.thrift.TIcebergFileDesc;
 import org.apache.doris.thrift.TPlanNode;
-import org.apache.doris.thrift.TPushAggOp;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -1338,8 +1337,7 @@ public class IcebergScanNode extends FileQueryScanNode {
         if (cached != null) {
             return cached;
         }
-        TPushAggOp aggOp = getPushDownAggNoGroupingOp();
-        if (aggOp.equals(TPushAggOp.COUNT)) {
+        if (isTableLevelCountStarPushdown()) {
             try {
                 countFromSnapshot = getCountFromSnapshot();
             } catch (UserException e) {
