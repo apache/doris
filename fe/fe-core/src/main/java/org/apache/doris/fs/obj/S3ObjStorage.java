@@ -75,6 +75,7 @@ import java.nio.file.FileSystems;
 import java.nio.file.PathMatcher;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -633,7 +634,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
                             listPrefix, adjustedPrefix);
                 }
                 finalPrefix = adjustedPrefix;
-                listPrefixes = List.of(adjustedPrefix);
+                listPrefixes = Collections.singletonList(adjustedPrefix);
             } else {
                 listPrefixes = S3Util.getGlobListPrefixes(globPath);
             }

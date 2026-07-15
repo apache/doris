@@ -59,6 +59,7 @@ import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
@@ -578,7 +579,7 @@ public class S3ObjStorageTest {
                 "s3://bucket/data/date=2025-0[3-4]-01/*.parquet", result, false);
 
         Assertions.assertEquals(Status.OK, status);
-        Assertions.assertEquals(List.of(
+        Assertions.assertEquals(Arrays.asList(
                 "data/date=2025-03-01/", "data/date=2025-04-01/"), requestedPrefixes);
         Assertions.assertEquals(2, result.size());
     }
