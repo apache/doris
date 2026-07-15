@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector.trino;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.util.concurrent.MoreExecutors;
@@ -101,8 +102,10 @@ public class TrinoBootstrap {
     // dir must be duplicated here as a literal. Keep in sync with FE Config.trino_connector_plugin_dir
     // and BE config trino_connector_plugin_dir: resolvePluginDir() decides whether the user set the
     // config explicitly by comparing against this value, so any drift silently misreads an untouched
-    // config as an explicit override.
-    private static final String DEFAULT_PLUGIN_SUBDIR = "/plugins/trino_plugins";
+    // config as an explicit override. Package-private so TrinoBootstrapTest can assert it against
+    // FE Config; the BE copy is out of reach from there and rides on the comments alone.
+    @VisibleForTesting
+    static final String DEFAULT_PLUGIN_SUBDIR = "/plugins/trino_plugins";
 
     // Legacy dirs to fall back to when the config is left at its default, oldest first. The default
     // moved DORIS_HOME/connectors -> DORIS_HOME/plugins/connectors (2.1.8) -> DEFAULT_PLUGIN_SUBDIR;
