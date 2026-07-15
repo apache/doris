@@ -50,6 +50,12 @@ public class PartitionDesc {
             .add("minute_floor").add("hour_floor").add("day_floor").add("month_floor").add("year_floor")
             .add("second_ceil").add("minute_ceil").add("hour_ceil").add("day_ceil").add("month_ceil").add("year_ceil")
             .build();
+    // Auto LIST partition supports a smaller set of functions than RANGE:
+    // LIST only needs "deterministic, idempotent value mapping". Range-only helpers
+    // like date_floor/date_ceil that return an interval are excluded.
+    public static final ImmutableSet<String> LIST_PARTITION_FUNCTIONS = new ImmutableSortedSet.Builder<String>(
+            String.CASE_INSENSITIVE_ORDER).add("date_trunc").add("from_unixtime")
+            .build();
 
     public PartitionDesc() {}
 
@@ -99,33 +105,45 @@ public class PartitionDesc {
         return partitionColNames;
     }
 
-    // 1. partition by list (column) : now support one slotRef
-    // 2. partition by range(column/function(column)) : support slotRef and some
-    // special function eg: date_trunc, date_floor/ceil
+    // 1. partition by list (col/function(col), ...): support slotRef and whitelisted
+    //    functions (see LIST_PARTITION_FUNCTIONS) mixed in any position.
+    // 2. partition by range(col/function(col)): support slotRef and whitelisted
+    //    functions (see RANGE_PARTITION_FUNCTIONS).
     public static List<String> getColNamesFromExpr(ArrayList<Expr> exprs, boolean isListPartition,
             boolean isAutoPartition)
             throws AnalysisException {
         List<String> colNames = new ArrayList<>();
         for (Expr expr : exprs) {
-            if ((expr instanceof FunctionCallExpr) && (isListPartition == false)) {
+            if (expr instanceof FunctionCallExpr) {
                 FunctionCallExpr functionCallExpr = (FunctionCallExpr) expr;
                 List<Expr> paramsExpr = functionCallExpr.getParams().exprs();
                 String name = functionCallExpr.getFnName().getFunction();
-                if (RANGE_PARTITION_FUNCTIONS.contains(name)) {
+                ImmutableSet<String> whitelist = isListPartition
+                        ? LIST_PARTITION_FUNCTIONS : RANGE_PARTITION_FUNCTIONS;
+                if (whitelist.contains(name)) {
+                    String foundCol = null;
                     for (Expr param : paramsExpr) {
                         if (param instanceof SlotRef) {
-                            if (colNames.isEmpty()) {
-                                colNames.add(((SlotRef) param).getColumnName());
-                            } else {
+                            if (foundCol != null) {
                                 throw new AnalysisException(
                                         "auto create partition only support one slotRef in function expr. "
                                                 + expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
                             }
+                            foundCol = ((SlotRef) param).getColumnName();
                         }
                     }
+                    if (foundCol == null) {
+                        throw new AnalysisException(
+                                "auto create partition function expr must reference exactly one column. "
+                                        + expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
+                    }
+                    colNames.add(foundCol);
                 } else {
                     throw new AnalysisException(
-                            "auto create partition only support function call expr is date_trunc/date_floor/date_ceil. "
+                            "auto create partition only support function call expr is "
+                                    + (isListPartition ? "date_trunc/from_unixtime"
+                                            : "date_trunc/date_floor/date_ceil")
+                                    + ". "
                                     + expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
                 }
             } else if (expr instanceof SlotRef) {
@@ -143,7 +161,8 @@ public class PartitionDesc {
                                     + expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
                 } else {
                     throw new AnalysisException(
-                            "auto create partition only support slotRef in list partitions. "
+                            "auto create partition only support slotRef or date_trunc/from_unixtime"
+                                    + " function in list partitions. "
                                     + expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
                 }
             }
@@ -154,6 +173,10 @@ public class PartitionDesc {
                             + exprs.get(0).accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
         }
         return colNames;
+    }
+
+    public void checkPartitionKeyValueType(PartitionKeyDesc partitionKeyDesc) throws AnalysisException {
+
     }
 
     public PartitionType getType() {

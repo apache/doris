@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.rules.expression.rules;
 
+import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.RangePartitionItem;
@@ -143,7 +145,7 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
             Map<K, PartitionItem> idToPartitions, CascadesContext cascadesContext,
             PartitionTableType partitionTableType) {
         PartitionPruneResult<K> result = pruneWithResult(partitionSlots, partitionPredicate, idToPartitions,
-                cascadesContext, partitionTableType, Optional.empty());
+                cascadesContext, partitionTableType, Optional.empty(), null);
         return Pair.of(result.partitions, result.prunedPartitionPredicate);
     }
 
@@ -155,7 +157,7 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
             Map<K, PartitionItem> idToPartitions, CascadesContext cascadesContext,
             PartitionTableType partitionTableType, Optional<SortedPartitionRanges<K>> sortedPartitionRanges) {
         PartitionPruneResult<K> result = pruneWithResult(partitionSlots, partitionPredicate, idToPartitions,
-                cascadesContext, partitionTableType, sortedPartitionRanges);
+                cascadesContext, partitionTableType, sortedPartitionRanges, null);
         return Pair.of(result.partitions, result.prunedPartitionPredicate);
     }
 
@@ -164,11 +166,25 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
             Expression partitionPredicate,
             Map<K, PartitionItem> idToPartitions, CascadesContext cascadesContext,
             PartitionTableType partitionTableType, Optional<SortedPartitionRanges<K>> sortedPartitionRanges) {
+        return pruneWithResult(partitionSlots, partitionPredicate, idToPartitions,
+                cascadesContext, partitionTableType, sortedPartitionRanges, null);
+    }
+
+    /**
+     * prune partition with `idToPartitions` and per-slot partition expressions.
+     * partitionExprs is position-aligned with partitionSlots; a FunctionCallExpr entry means
+     * that slot's partition key is the function's output, not the raw column value.
+     */
+    public static <K extends Comparable<K>> PartitionPruneResult<K> pruneWithResult(List<Slot> partitionSlots,
+            Expression partitionPredicate,
+            Map<K, PartitionItem> idToPartitions, CascadesContext cascadesContext,
+            PartitionTableType partitionTableType, Optional<SortedPartitionRanges<K>> sortedPartitionRanges,
+            List<Expr> partitionExprs) {
         long startAt = System.currentTimeMillis();
         try {
             return pruneInternal(partitionSlots, partitionPredicate, idToPartitions, cascadesContext,
                     partitionTableType,
-                    sortedPartitionRanges);
+                    sortedPartitionRanges, partitionExprs);
         } finally {
             SummaryProfile profile = SummaryProfile.getSummaryProfile(cascadesContext.getConnectContext());
             if (profile != null) {
@@ -181,7 +197,8 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
             List<Slot> partitionSlots,
             Expression partitionPredicate,
             Map<K, PartitionItem> idToPartitions, CascadesContext cascadesContext,
-            PartitionTableType partitionTableType, Optional<SortedPartitionRanges<K>> sortedPartitionRanges) {
+            PartitionTableType partitionTableType, Optional<SortedPartitionRanges<K>> sortedPartitionRanges,
+            List<Expr> partitionExprs) {
         partitionPredicate = PartitionPruneExpressionExtractor.extract(
                 partitionPredicate, ImmutableSet.copyOf(partitionSlots), cascadesContext);
         Expression originalPartitionPredicate = partitionPredicate;
@@ -201,13 +218,28 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
             return new PartitionPruneResult<>(ImmutableList.<K>of(), Optional.empty(), true);
         }
 
-        if (sortedPartitionRanges.isPresent()) {
+        // Binary-search filtering compares raw predicate values against stored partition
+        // key literals. When any partition slot's key is the output of a function expression
+        // (e.g. from_unixtime(bigint) -> varchar), the partition key type differs from the
+        // raw column type; direct comparison would throw a "cannot compare different types"
+        // error. Fall back to sequential filtering, which drives per-position evaluator
+        // logic that safely skips function-expression positions.
+        boolean hasPartitionFunction = false;
+        if (partitionExprs != null) {
+            for (Expr e : partitionExprs) {
+                if (e instanceof FunctionCallExpr) {
+                    hasPartitionFunction = true;
+                    break;
+                }
+            }
+        }
+        if (!hasPartitionFunction && sortedPartitionRanges.isPresent()) {
             RangeSet<MultiColumnBound> predicateRanges = partitionPredicate.accept(
                     new PartitionPredicateToRange(partitionSlots), null);
             if (predicateRanges != null) {
                 Pair<List<K>, Boolean> res = binarySearchFiltering(
                         sortedPartitionRanges.get(), partitionSlots, partitionPredicate, cascadesContext,
-                        expandThreshold, predicateRanges
+                        expandThreshold, predicateRanges, partitionExprs
                 );
                 boolean hasPartitionPredicate = hasEffectivePartitionPredicate(res.first, idToPartitions.size());
                 if (res.second) {
@@ -220,7 +252,7 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
         }
 
         Pair<List<K>, Boolean> res = sequentialFiltering(
-                idToPartitions, partitionSlots, partitionPredicate, cascadesContext, expandThreshold
+                idToPartitions, partitionSlots, partitionPredicate, cascadesContext, expandThreshold, partitionExprs
         );
         boolean hasPartitionPredicate = hasEffectivePartitionPredicate(res.first, idToPartitions.size());
         if (res.second) {
@@ -241,9 +273,21 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
      */
     public static <K> OnePartitionEvaluator<K> toPartitionEvaluator(K id, PartitionItem partitionItem,
             List<Slot> partitionSlots, CascadesContext cascadesContext, int expandThreshold) {
+        return toPartitionEvaluator(id, partitionItem, partitionSlots, cascadesContext, expandThreshold, null);
+    }
+
+    /**
+     * convert partition item to partition evaluator, with per-slot partition expressions.
+     * When partitionExprs[i] is a FunctionCallExpr, the i-th stored partition key is the
+     * function's output rather than the raw column value, and the evaluator will conservatively
+     * keep the partition instead of doing literal equality on the function output.
+     */
+    public static <K> OnePartitionEvaluator<K> toPartitionEvaluator(K id, PartitionItem partitionItem,
+            List<Slot> partitionSlots, CascadesContext cascadesContext, int expandThreshold,
+            List<Expr> partitionExprs) {
         if (partitionItem instanceof ListPartitionItem) {
             return new OneListPartitionEvaluator<>(
-                    id, partitionSlots, (ListPartitionItem) partitionItem, cascadesContext);
+                    id, partitionSlots, (ListPartitionItem) partitionItem, cascadesContext, partitionExprs);
         } else if (partitionItem instanceof RangePartitionItem) {
             return new OneRangePartitionEvaluator<>(
                     id, partitionSlots, (RangePartitionItem) partitionItem, cascadesContext, expandThreshold);
@@ -255,7 +299,7 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
     private static <K extends Comparable<K>> Pair<List<K>, Boolean> binarySearchFiltering(
             SortedPartitionRanges<K> sortedPartitionRanges, List<Slot> partitionSlots,
             Expression partitionPredicate, CascadesContext cascadesContext, int expandThreshold,
-            RangeSet<MultiColumnBound> predicateRanges) {
+            RangeSet<MultiColumnBound> predicateRanges, List<Expr> partitionExprs) {
         List<PartitionItemAndRange<K>> sortedPartitions = sortedPartitionRanges.sortedPartitions;
 
         Set<K> selectedIdSets = Sets.newTreeSet();
@@ -300,7 +344,8 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
                 }
 
                 OnePartitionEvaluator<K> partitionEvaluator = toPartitionEvaluator(
-                        partitionId, partition.partitionItem, partitionSlots, cascadesContext, expandThreshold);
+                        partitionId, partition.partitionItem, partitionSlots, cascadesContext,
+                        expandThreshold, partitionExprs);
                 Pair<Boolean, Boolean> res = canBePrunedOut(partitionPredicate, partitionEvaluator);
                 if (!res.first) {
                     selectedIdSets.add(partitionId);
@@ -312,7 +357,8 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
         for (PartitionItemAndId<K> defaultPartition : sortedPartitionRanges.defaultPartitions) {
             K partitionId = defaultPartition.id;
             OnePartitionEvaluator<K> partitionEvaluator = toPartitionEvaluator(
-                    partitionId, defaultPartition.partitionItem, partitionSlots, cascadesContext, expandThreshold);
+                    partitionId, defaultPartition.partitionItem, partitionSlots, cascadesContext,
+                    expandThreshold, partitionExprs);
             Pair<Boolean, Boolean> res = canBePrunedOut(partitionPredicate, partitionEvaluator);
             if (!res.first) {
                 selectedIdSets.add(partitionId);
@@ -325,11 +371,12 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
 
     private static <K extends Comparable<K>> Pair<List<K>, Boolean> sequentialFiltering(
             Map<K, PartitionItem> idToPartitions, List<Slot> partitionSlots,
-            Expression partitionPredicate, CascadesContext cascadesContext, int expandThreshold) {
+            Expression partitionPredicate, CascadesContext cascadesContext, int expandThreshold,
+            List<Expr> partitionExprs) {
         List<OnePartitionEvaluator<?>> evaluators = Lists.newArrayListWithCapacity(idToPartitions.size());
         for (Entry<K, PartitionItem> kv : idToPartitions.entrySet()) {
             evaluators.add(toPartitionEvaluator(
-                    kv.getKey(), kv.getValue(), partitionSlots, cascadesContext, expandThreshold));
+                    kv.getKey(), kv.getValue(), partitionSlots, cascadesContext, expandThreshold, partitionExprs));
         }
         PartitionPruner partitionPruner = new PartitionPruner(evaluators, partitionPredicate);
         //TODO: we keep default partition because it's too hard to prune it, we return false in canPrune().

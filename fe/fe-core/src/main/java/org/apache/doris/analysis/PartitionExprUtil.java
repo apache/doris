@@ -24,6 +24,7 @@ import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.AutoBucketCalculator;
@@ -50,6 +51,118 @@ public class PartitionExprUtil {
     private static final Logger LOG = LogManager.getLogger(PartitionExprUtil.class);
     private static final PartitionExprUtil partitionExprUtil = new PartitionExprUtil();
     private static final int MAX_PARTITION_NAME_LENGTH = 50;
+
+    /**
+     * The effective storage type of a partition column when a function expression wraps it.
+     * For AUTO LIST partitioning we store the function output as the partition key literal,
+     * so the partition column type must match the function return type.
+     * - date_trunc: DATETIME -> DATETIME (raw column type unchanged)
+     * - from_unixtime: BIGINT -> VARCHAR(64) (function outputs a formatted date string)
+     * Non-function expressions preserve their raw column type.
+     */
+    public static Type getEffectivePartitionColumnType(Expr expr, Type rawColType) throws AnalysisException {
+        if (!(expr instanceof FunctionCallExpr)) {
+            return rawColType;
+        }
+        String fn = ((FunctionCallExpr) expr).getFnName().getFunction().toLowerCase();
+        if ("date_trunc".equals(fn)) {
+            return rawColType;
+        }
+        if ("from_unixtime".equals(fn)) {
+            return ScalarType.createVarcharType(64);
+        }
+        // Any other function is handled by the RANGE path (date_floor/date_ceil etc.);
+        // it does NOT need column type rewrite because the RANGE branch reads column type
+        // via createPartitionKeyDescWithRange and expects the raw column type.
+        return rawColType;
+    }
+
+    /**
+     * Reject partition function calls whose granularity is second or minute, which would
+     * create thousands of partitions per hour and blow up metadata. Accepted granularities
+     * are hour / day / month / year.
+     *
+     * date_trunc: rejects unit 'second' and 'minute'.
+     * from_unixtime: rejects any format string that contains sub-hour components (%s, %i,
+     *   :ss, :mm, mm, ss). Format must be a StringLiteral; wildcards / dynamic formats
+     *   are rejected. When the format has no time component at all we treat it as day/month
+     *   granularity and accept.
+     */
+    public static void assertPartitionFormatAcceptable(Expr expr) throws AnalysisException {
+        if (!(expr instanceof FunctionCallExpr)) {
+            return;
+        }
+        FunctionCallExpr fce = (FunctionCallExpr) expr;
+        String fn = fce.getFnName().getFunction().toLowerCase();
+        List<Expr> params = fce.getParams().exprs();
+
+        if ("date_trunc".equals(fn)) {
+            // date_trunc's signature (col, unit_literal) is already enforced by Doris function
+            // resolution: 1-arg calls fail as "illegal" and non-literal unit is rejected.
+            // We only need to guard the granularity value here.
+            String unit = ((StringLiteral) params.get(1)).getStringValue().toLowerCase();
+            if ("second".equals(unit) || "minute".equals(unit)) {
+                throw new AnalysisException(
+                        "date_trunc granularity '" + unit + "' is not allowed for auto partition "
+                                + "(would create up to 86400 partitions per day). "
+                                + "Use 'hour', 'day', 'month' or 'year' instead.");
+            }
+            return;
+        }
+
+        if ("from_unixtime".equals(fn)) {
+            if (params.size() < 2) {
+                throw new AnalysisException(
+                        "from_unixtime in auto partition requires an explicit format literal "
+                                + "(e.g. 'yyyy-MM-dd' or '%Y-%m-%d').");
+            }
+            Expr fmtExpr = params.get(1);
+            if (!(fmtExpr instanceof StringLiteral)) {
+                throw new AnalysisException(
+                        "from_unixtime in auto partition requires a string literal format.");
+            }
+            String fmt = ((StringLiteral) fmtExpr).getStringValue();
+            String norm = fmt.toLowerCase();
+            // MySQL-style seconds/minutes markers
+            if (norm.contains("%s") || norm.contains("%i")) {
+                throw new AnalysisException(
+                        "from_unixtime format '" + fmt + "' contains sub-hour granularity "
+                                + "(%s / %i); would create too many partitions. "
+                                + "Use hour or coarser granularity.");
+            }
+            // Java-style seconds/minutes: look for ss or mm as time components
+            // Only check when a time component 'HH' / 'hh' is present, because
+            // 'mm' as month can appear standalone in date-only formats like 'yyyy-MM'
+            boolean hasHour = norm.contains("hh");
+            if (hasHour && (norm.contains(":ss") || norm.contains(":mm") || norm.endsWith("ss"))) {
+                throw new AnalysisException(
+                        "from_unixtime format '" + fmt + "' contains sub-hour granularity "
+                                + "(minute/second); would create too many partitions. "
+                                + "Use hour or coarser granularity.");
+            }
+        }
+    }
+
+    /**
+     * Walk the expression AST and return the first SlotRef encountered, or null if none.
+     * Used to locate which schema column a partition expression references
+     * (e.g. date_trunc(dt, 'day') -> SlotRef(dt)).
+     */
+    public static SlotRef findFirstSlotRef(Expr expr) {
+        if (expr == null) {
+            return null;
+        }
+        if (expr instanceof SlotRef) {
+            return (SlotRef) expr;
+        }
+        for (Expr child : expr.getChildren()) {
+            SlotRef found = findFirstSlotRef(child);
+            if (found != null) {
+                return found;
+            }
+        }
+        return null;
+    }
 
     public static FunctionIntervalInfo getFunctionIntervalInfo(ArrayList<Expr> partitionExprs,
             PartitionType partitionType) throws AnalysisException {
@@ -179,7 +292,14 @@ public class PartitionExprUtil {
                 }
                 listValues.add(inValues);
                 partitionKeyDesc = PartitionKeyDesc.createIn(listValues);
-                partitionName += getFormatPartitionValue(filterStr);
+                // For multi-column LIST, build a readable partition name by joining
+                // sanitized per-value tokens with underscores. Collision uniqueness is
+                // already guaranteed by filterStr (which appends per-value length).
+                StringBuilder suffix = new StringBuilder();
+                for (String v : curPartitionValues) {
+                    suffix.append("_").append(v == null ? "null" : getFormatPartitionValue(v));
+                }
+                partitionName += suffix.toString();
                 if (hasStringType) {
                     if (partitionName.length() > MAX_PARTITION_NAME_LENGTH) {
                         partitionName = partitionName.substring(0, MAX_PARTITION_NAME_LENGTH)

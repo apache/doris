@@ -1690,8 +1690,11 @@ public class CreateTableInfo {
         for (Expression expr : paritionExprs) {
             if (expr instanceof UnboundFunction) {
                 if (!partitionTableInfo.isAutoPartition()
-                        || partitionTableInfo.getPartitionType() != PartitionType.RANGE.name()) {
-                    throw new AnalysisException("only Auto Range Partition support UnboundFunction");
+                        || (!Objects.equals(partitionTableInfo.getPartitionType(), PartitionType.RANGE.name())
+                                && !Objects.equals(partitionTableInfo.getPartitionType(),
+                                        PartitionType.LIST.name()))) {
+                    throw new AnalysisException(
+                            "only Auto Range/List Partition support UnboundFunction");
                 }
                 UnboundFunction func = (UnboundFunction) expr;
                 List<Expression> children = func.children();
@@ -1703,6 +1706,7 @@ public class CreateTableInfo {
                             func.getExpressionName(), i));
                     }
                 }
+                assertPartitionFormatAcceptable(func);
             } else if (expr instanceof UnboundSlot) {
                 if (partitionTableInfo.isAutoPartition() && Objects.equals(partitionTableInfo.getPartitionType(),
                         PartitionType.RANGE.name())) {
@@ -1710,6 +1714,67 @@ public class CreateTableInfo {
                 }
             } else {
                 throw new AnalysisException("partition expression " + expr.getExpressionName() + " is illegal!");
+            }
+        }
+    }
+
+    /**
+     * Reject partition function calls whose granularity is second or minute, which would
+     * create thousands of partitions per hour and blow up metadata. Accepted granularities
+     * are hour / day / month / year.
+     *
+     * date_trunc: rejects unit 'second' and 'minute'.
+     * from_unixtime: rejects any format string that contains sub-hour components (%s, %i,
+     *   :ss, :mm, ss). Format must be a literal; wildcards / dynamic formats are rejected.
+     */
+    private static void assertPartitionFormatAcceptable(UnboundFunction func) {
+        String fn = func.getName().toLowerCase();
+        List<Expression> args = func.children();
+
+        if ("date_trunc".equals(fn)) {
+            // date_trunc(col, unit_literal): 1-arg / non-literal unit is rejected by
+            // function resolution. Only guard the granularity value here.
+            if (args.size() < 2 || !(args.get(1) instanceof Literal)) {
+                return;
+            }
+            String unit = ((Literal) args.get(1)).getStringValue().toLowerCase();
+            if ("second".equals(unit) || "minute".equals(unit)) {
+                throw new AnalysisException(
+                        "date_trunc granularity '" + unit + "' is not allowed for auto partition "
+                                + "(would create up to 86400 partitions per day). "
+                                + "Use 'hour', 'day', 'month' or 'year' instead.");
+            }
+            return;
+        }
+
+        if ("from_unixtime".equals(fn)) {
+            if (args.size() < 2) {
+                throw new AnalysisException(
+                        "from_unixtime in auto partition requires an explicit format literal "
+                                + "(e.g. 'yyyy-MM-dd' or '%Y-%m-%d').");
+            }
+            Expression fmtExpr = args.get(1);
+            if (!(fmtExpr instanceof Literal)) {
+                throw new AnalysisException(
+                        "from_unixtime in auto partition requires a string literal format.");
+            }
+            String fmt = ((Literal) fmtExpr).getStringValue();
+            String norm = fmt.toLowerCase();
+            // MySQL-style seconds/minutes markers
+            if (norm.contains("%s") || norm.contains("%i")) {
+                throw new AnalysisException(
+                        "from_unixtime format '" + fmt + "' contains sub-hour granularity "
+                                + "(%s / %i); would create too many partitions. "
+                                + "Use hour or coarser granularity.");
+            }
+            // Java-style seconds/minutes: only flag when a time component 'HH' is present,
+            // because 'mm' as month can appear standalone in date-only formats like 'yyyy-MM'.
+            boolean hasHour = norm.contains("hh");
+            if (hasHour && (norm.contains(":ss") || norm.contains(":mm") || norm.endsWith("ss"))) {
+                throw new AnalysisException(
+                        "from_unixtime format '" + fmt + "' contains sub-hour granularity "
+                                + "(minute/second); would create too many partitions. "
+                                + "Use hour or coarser granularity.");
             }
         }
     }
