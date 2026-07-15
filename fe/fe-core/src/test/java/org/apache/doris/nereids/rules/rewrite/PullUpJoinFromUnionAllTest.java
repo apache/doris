@@ -137,12 +137,14 @@ class PullUpJoinFromUnionAllTest {
 
     @Test
     void comparatorRejectsDifferentStreamReadModes() {
-        LogicalOlapTableStreamScan incrementalScan = newStreamScan(15, "common_stream");
-        LogicalOlapTableStreamScan snapshotScan = incrementalScan.withReadMode(StreamReadMode.SNAPSHOT);
+        LogicalOlapTableStreamScan snapshotScan = newStreamScanWithOffsets(15, "common_stream", 1000L, 2000L,
+                KeysType.UNIQUE_KEYS, ImmutableMap.of(1L, Pair.of(10L, 20L)))
+                .withReadMode(StreamReadMode.SNAPSHOT);
+        LogicalOlapTableStreamScan resetScan = snapshotScan.withReadMode(StreamReadMode.RESET);
 
         PullUpJoinFromUnionAll.LogicalPlanComparator comparator =
                 new PullUpJoinFromUnionAll().new LogicalPlanComparator();
-        Assertions.assertFalse(comparator.isLogicalEqual(incrementalScan, snapshotScan));
+        Assertions.assertFalse(comparator.isLogicalEqual(snapshotScan, resetScan));
     }
 
     @Test
