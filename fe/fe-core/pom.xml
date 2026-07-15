@@ -437,7 +437,9 @@ under the License.
             <groupId>com.ibm.icu</groupId>
             <artifactId>icu4j</artifactId>
         </dependency>
-        <!-- Fix it-->
+        <!-- Must stay: the parent pom declares awaitility test-scoped, so this scope-less
+             redeclaration is what keeps it on fe-core's compile classpath for
+             InsertOverwriteTableCommand. Do not delete as a "duplicate of the parent". -->
         <dependency>
             <groupId>org.awaitility</groupId>
             <artifactId>awaitility</artifactId>
