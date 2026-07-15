@@ -68,6 +68,17 @@ io::FileCacheStatistics make_file_cache_stats(int64_t multiplier) {
     stats.inverted_index_read_bytes = multiplier * 42;
     stats.inverted_index_range_read_count = multiplier * 43;
     stats.inverted_index_serial_read_rounds = multiplier * 44;
+    stats.async_cache_write_submitted = multiplier * 45;
+    stats.async_cache_write_rejected = multiplier * 46;
+    stats.async_cache_write_buffer_alloc_fail = multiplier * 47;
+    stats.async_cache_write_drop_stale_epoch = multiplier * 48;
+    stats.inflight_write_buffer_index_hit = multiplier * 49;
+    stats.inflight_write_buffer_index_miss = multiplier * 50;
+    stats.probe_downloaded_hit = multiplier * 51;
+    stats.probe_downloading_hit = multiplier * 52;
+    stats.probe_miss = multiplier * 53;
+    stats.block_wait_success = multiplier * 54;
+    stats.block_wait_timeout = multiplier * 55;
     return stats;
 }
 
@@ -122,6 +133,19 @@ void expect_file_cache_stats_eq(const io::FileCacheStatistics& actual,
     EXPECT_EQ(actual.inverted_index_read_bytes, expected.inverted_index_read_bytes);
     EXPECT_EQ(actual.inverted_index_range_read_count, expected.inverted_index_range_read_count);
     EXPECT_EQ(actual.inverted_index_serial_read_rounds, expected.inverted_index_serial_read_rounds);
+    EXPECT_EQ(actual.async_cache_write_submitted, expected.async_cache_write_submitted);
+    EXPECT_EQ(actual.async_cache_write_rejected, expected.async_cache_write_rejected);
+    EXPECT_EQ(actual.async_cache_write_buffer_alloc_fail,
+              expected.async_cache_write_buffer_alloc_fail);
+    EXPECT_EQ(actual.async_cache_write_drop_stale_epoch,
+              expected.async_cache_write_drop_stale_epoch);
+    EXPECT_EQ(actual.inflight_write_buffer_index_hit, expected.inflight_write_buffer_index_hit);
+    EXPECT_EQ(actual.inflight_write_buffer_index_miss, expected.inflight_write_buffer_index_miss);
+    EXPECT_EQ(actual.probe_downloaded_hit, expected.probe_downloaded_hit);
+    EXPECT_EQ(actual.probe_downloading_hit, expected.probe_downloading_hit);
+    EXPECT_EQ(actual.probe_miss, expected.probe_miss);
+    EXPECT_EQ(actual.block_wait_success, expected.block_wait_success);
+    EXPECT_EQ(actual.block_wait_timeout, expected.block_wait_timeout);
 }
 
 } // namespace
@@ -179,6 +203,15 @@ TEST(FileCacheProfileReporterTest, ReporterAggregatesDeltaReportsToExactFinalTot
               after_second_report.inverted_index_range_read_count);
     EXPECT_EQ(profile->get_counter("InvertedIndexSerialReadRounds")->value(),
               after_second_report.inverted_index_serial_read_rounds);
+    EXPECT_EQ(profile->get_counter("AsyncCacheWriteSubmitted")->value(),
+               after_second_report.async_cache_write_submitted);
+    EXPECT_EQ(profile->get_counter("AsyncCacheWriteRejected")->value(),
+              after_second_report.async_cache_write_rejected);
+    EXPECT_EQ(profile->get_counter("InflightWriteBufferIndexHit")->value(),
+              after_second_report.inflight_write_buffer_index_hit);
+    EXPECT_EQ(profile->get_counter("ProbeMiss")->value(), after_second_report.probe_miss);
+    EXPECT_EQ(profile->get_counter("BlockWaitTimeout")->value(),
+               after_second_report.block_wait_timeout);
 }
 
 } // namespace doris
