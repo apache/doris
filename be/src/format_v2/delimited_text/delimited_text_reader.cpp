@@ -624,6 +624,10 @@ bool DelimitedTextReader::_can_split() const {
     return _file_compress_type == TFileCompressType::PLAIN;
 }
 
+void DelimitedTextReader::_on_bom_removed(size_t bom_size) {
+    (void)bom_size;
+}
+
 Status DelimitedTextReader::_append_null(IColumn* output) {
     DORIS_CHECK(output != nullptr);
     auto* nullable = assert_cast<ColumnNullable*>(output);
@@ -635,8 +639,10 @@ const uint8_t* DelimitedTextReader::_remove_bom(const uint8_t* ptr, size_t* size
     DORIS_CHECK(size != nullptr);
     if (ptr != nullptr && *size >= 3 && static_cast<uint8_t>(ptr[0]) == 0xEF &&
         static_cast<uint8_t>(ptr[1]) == 0xBB && static_cast<uint8_t>(ptr[2]) == 0xBF) {
-        *size -= 3;
-        return ptr + 3;
+        constexpr size_t BOM_SIZE = 3;
+        *size -= BOM_SIZE;
+        _on_bom_removed(BOM_SIZE);
+        return ptr + BOM_SIZE;
     }
     return ptr;
 }

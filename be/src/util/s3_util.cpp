@@ -363,6 +363,7 @@ std::shared_ptr<io::ObjStorageClient> S3ClientFactory::_create_azure_client(
     }
 
     Azure::Storage::Blobs::BlobClientOptions options;
+    options.Retry.StatusCodes.insert(Azure::Core::Http::HttpStatusCode::TooManyRequests);
     options.Retry.MaxRetries = config::max_s3_client_retry;
     options.PerRetryPolicies.emplace_back(std::make_unique<AzureRetryRecordPolicy>());
     if (_ca_cert_file_path.empty()) {
@@ -547,7 +548,7 @@ std::shared_ptr<io::ObjStorageClient> S3ClientFactory::_create_s3_client(
     }
 
     aws_config.retryStrategy = std::make_shared<S3CustomRetryStrategy>(
-            config::max_s3_client_retry /*scaleFactor = 25*/, /*retry_slow_down=*/false);
+            config::max_s3_client_retry /*scaleFactor = 25*/, /*retry_slow_down=*/true);
 
     std::shared_ptr<Aws::S3::S3Client> new_client = std::make_shared<Aws::S3::S3Client>(
             get_aws_credentials_provider(s3_conf), std::move(aws_config),

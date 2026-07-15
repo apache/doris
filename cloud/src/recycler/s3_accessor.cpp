@@ -412,9 +412,6 @@ int S3Accessor::init() {
     case S3Conf::AZURE: {
 #ifdef USE_AZURE
         Azure::Storage::Blobs::BlobClientOptions options;
-        if (config::s3_client_retry_slow_down) {
-            options.Retry.StatusCodes.insert(Azure::Core::Http::HttpStatusCode::TooManyRequests);
-        }
         options.Retry.MaxRetries = config::max_s3_client_retry;
         auto cred =
                 std::make_shared<Azure::Storage::StorageSharedKeyCredential>(conf_.ak, conf_.sk);
@@ -462,8 +459,9 @@ int S3Accessor::init() {
         if (conf_.cred_provider_type == CredProviderType::GcpWorkloadIdentity) {
             aws_config.scheme = Aws::Http::Scheme::HTTPS;
         }
+        // Recycler should fail fast on S3 SlowDown instead of retrying and blocking worker threads.
         aws_config.retryStrategy = std::make_shared<S3CustomRetryStrategy>(
-                config::max_s3_client_retry, config::s3_client_retry_slow_down);
+                config::max_s3_client_retry, /*retry_slow_down=*/false);
 
         if (_ca_cert_file_path.empty()) {
             _ca_cert_file_path =

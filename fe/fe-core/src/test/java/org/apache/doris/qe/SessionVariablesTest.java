@@ -27,6 +27,7 @@ import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.rules.rewrite.eageraggregation.EagerAggHints.Action;
+import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.utframe.TestWithFeService;
 
 import org.junit.jupiter.api.Assertions;
@@ -169,6 +170,16 @@ public class SessionVariablesTest extends TestWithFeService {
                         + "the Nereids distributed planner. Values less than or equal to 0 disable the limit. "
                         + "The legacy Coordinator path keeps the existing behavior."
         }, varAttr.description());
+    }
+
+    @Test
+    public void testExternalTableBatchModeDefaultsAndFuzzyAttribute() throws Exception {
+        SessionVariable sessionVar = new SessionVariable();
+        Assertions.assertTrue(sessionVar.getEnableExternalTableBatchMode());
+
+        Field field = SessionVariable.class.getDeclaredField("enableExternalTableBatchMode");
+        VarAttrDef.VarAttr varAttr = field.getAnnotation(VarAttrDef.VarAttr.class);
+        Assertions.assertTrue(varAttr.fuzzy());
     }
 
     @Test
@@ -344,5 +355,17 @@ public class SessionVariablesTest extends TestWithFeService {
                         SessionVariable.IVF_NPROBE, new IntLiteral(0))));
         Assertions.assertTrue(nprobeException.getMessage().contains("ivf_nprobe must be >= 1"));
         Assertions.assertEquals(2, sv.ivfNprobe);
+    }
+
+    @Test
+    public void testFileCacheQueryLimitBytesToThrift() throws Exception {
+        SessionVariable variable = new SessionVariable();
+        VariableMgr.setVar(variable, new SetVar(SetType.SESSION,
+                SessionVariable.FILE_CACHE_QUERY_LIMIT_BYTES,
+                new IntLiteral(262144)));
+
+        TQueryOptions queryOptions = variable.toThrift();
+        Assertions.assertTrue(queryOptions.isSetFileCacheQueryLimitBytes());
+        Assertions.assertEquals(262144L, queryOptions.getFileCacheQueryLimitBytes());
     }
 }

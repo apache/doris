@@ -568,6 +568,35 @@ public class CacheHotspotManagerTableFilterTest {
     }
 
     @Test
+    public void testCreateJobRejectsClusterLevelWhenTableLevelLoadEventExistsAndLogsConflict() throws Exception {
+        databases.add(mockDb("ods", mockTable(1001, "orders")));
+
+        WarmUpClusterCommand tableLevel = buildEventDrivenStmt("write_cg", "read_cg",
+                new TableFilterRule(RuleType.INCLUDE, "ods.*"));
+        WarmUpClusterCommand clusterLevel = buildEventDrivenStmt("write_cg", "read_cg");
+
+        long tableJobId = manager.createJob(tableLevel);
+        RecordingAppender appender = new RecordingAppender("warmup-conflict-log-test");
+        Logger logger = (Logger) LogManager.getLogger(CacheHotspotManager.class);
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                    () -> manager.createJob(clusterLevel));
+            Assertions.assertTrue(exception.getMessage().contains("Cannot create cluster-level load-event warm up job"));
+        } finally {
+            logger.removeAppender(appender);
+            appender.stop();
+        }
+
+        String logs = appender.messagesAsString();
+        Assertions.assertTrue(logs.contains("warmup-conflict detect"), logs);
+        Assertions.assertTrue(logs.contains("existingJobId=" + tableJobId), logs);
+        Assertions.assertTrue(logs.contains("srcCluster=write_cg"), logs);
+        Assertions.assertTrue(logs.contains("dstCluster=read_cg"), logs);
+    }
+
+    @Test
     public void testVirtualComputeGroupCancelsExistingTableLevelLoadEvent() throws Exception {
         databases.add(mockDb("ods", mockTable(1001, "orders")));
 
@@ -662,6 +691,38 @@ public class CacheHotspotManagerTableFilterTest {
         Assertions.assertFalse(cancelReasons.containsKey(clusterLevelJob.getJobId()));
         Assertions.assertFalse(cancelReasons.containsKey(unrelatedJob.getJobId()));
         Assertions.assertFalse(cancelReasons.containsKey(finishedJob.getJobId()));
+    }
+
+    @Test
+    public void testCancelTableFilterJobsForClusterChangeLogsAffectedJobs() throws Exception {
+        databases.add(mockDb("ods", mockTable(1001, "orders")));
+
+        CloudWarmUpJob srcMatchedJob = createEventDrivenJob("write_cg", "read_cg",
+                new TableFilterRule(RuleType.INCLUDE, "ods.*"));
+        CloudWarmUpJob dstMatchedJob = createEventDrivenJob("other_write_cg", "write_cg",
+                new TableFilterRule(RuleType.INCLUDE, "ods.*"));
+        createEventDrivenJob("other_write_cg", "other_read_cg",
+                new TableFilterRule(RuleType.INCLUDE, "ods.*"));
+
+        CacheHotspotManager spyManager = Mockito.spy(manager);
+        Mockito.doAnswer(invocation -> null).when(spyManager).cancel(Mockito.anyLong(), Mockito.anyString());
+
+        RecordingAppender appender = new RecordingAppender("warmup-system-cancel-log-test");
+        Logger logger = (Logger) LogManager.getLogger(CacheHotspotManager.class);
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            spyManager.cancelTableFilterJobsForClusterChange("write_cg",
+                    "system cancel: compute group write_cg renamed to write_cg_new");
+        } finally {
+            logger.removeAppender(appender);
+            appender.stop();
+        }
+
+        String logs = appender.messagesAsString();
+        Assertions.assertTrue(logs.contains("write_cg"), logs);
+        Assertions.assertTrue(logs.contains(String.valueOf(srcMatchedJob.getJobId())), logs);
+        Assertions.assertTrue(logs.contains(String.valueOf(dstMatchedJob.getJobId())), logs);
     }
 
     // ===== Async materialized view (MTMV) matching =====

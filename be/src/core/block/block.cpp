@@ -354,6 +354,20 @@ Status Block::check_column_and_type_not_null() const {
     return Status::OK();
 }
 
+Status Block::check_no_column_string64() const {
+    for (size_t i = 0; i != data.size(); ++i) {
+        const auto& elem = data[i];
+        DCHECK(elem.column);
+        if (elem.column->contains_column_string64()) {
+            return Status::InternalError(
+                    "ColumnString64 is not allowed at operator boundaries, column index: {}, "
+                    "name: {}, structure: {}",
+                    i, elem.name, elem.column->dump_structure());
+        }
+    }
+    return Status::OK();
+}
+
 size_t Block::rows() const {
     for (const auto& elem : data) {
         if (elem.column) {

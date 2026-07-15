@@ -66,12 +66,12 @@ Status CloudDeltaWriter::batch_init(std::vector<CloudDeltaWriter*> writers) {
     return cloud::bthread_fork_join(tasks, 10);
 }
 
-Status CloudDeltaWriter::write(const Block* block, const DorisVector<uint32_t>& row_idxs,
+Status CloudDeltaWriter::write(const Block* block, const TabletAddRowsPayload& rows,
                                bool* memtable_flushed) {
     if (memtable_flushed != nullptr) {
         *memtable_flushed = false;
     }
-    if (row_idxs.empty()) [[unlikely]] {
+    if (rows.row_idxs.empty()) [[unlikely]] {
         return Status::OK();
     }
     if (_req.enable_table_memtable_backpressure && !_req.is_high_priority) {
@@ -91,7 +91,7 @@ Status CloudDeltaWriter::write(const Block* block, const DorisVector<uint32_t>& 
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
     }
-    return _memtable_writer->write(block, row_idxs, memtable_flushed);
+    return _memtable_writer->write(block, rows, memtable_flushed);
 }
 
 Status CloudDeltaWriter::close() {

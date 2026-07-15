@@ -72,19 +72,41 @@ public:
     virtual Status select(const SelectionVector& sel, uint16_t selected_rows, int64_t batch_rows,
                           MutableColumnPtr& column);
 
+    virtual Status select_with_dictionary_filter(const SelectionVector& sel, uint16_t selected_rows,
+                                                 int64_t batch_rows,
+                                                 const IColumn::Filter& dictionary_filter,
+                                                 MutableColumnPtr& column,
+                                                 IColumn::Filter* row_filter, bool* used_filter);
+
     virtual Status load_nested_batch(int64_t rows);
 
-    // Shape-only load interface for COUNT(col). Implementations only guarantee that
-    // nested_definition_levels(), nested_repetition_levels(), and nested_levels_written() are available;
-    // value_indices and values_column are not guaranteed, so callers must not call build_nested_column() afterwards.
-    // This protocol lets the V2 aggregation path avoid Doris-side value materialization even when
-    // the representative ARRAY/STRUCT leaf is STRING/BINARY; normal scans still use load_nested_batch().
+    // Shape-only load interface for COUNT(col) and skip. Implementations guarantee only that
+    // nested_definition_levels(), nested_repetition_levels(), and nested_levels_written() are
+    // available; value indices and payload columns may be absent. Callers may inspect the levels or
+    // call consume_nested_column(), but must not call build_nested_column() afterwards. For example,
+    // skipping ARRAY<STRING> uses this method to find ARRAY boundaries without constructing a
+    // ColumnString. The underlying Arrow reader may still decode a page because it has no public
+    // levels-only API. Normal scans that need output values use load_nested_batch() instead.
     virtual Status load_nested_levels_batch(int64_t rows);
 
     virtual Status build_nested_column(int64_t length_upper_bound, MutableColumnPtr& column,
                                        int64_t* values_read);
 
-    virtual Status skip_nested_column(int64_t rows);
+    // Consume logical values from a batch previously loaded by load_nested_batch() or
+    // load_nested_levels_batch() without appending them to an output Column. Implementations must
+    // advance exactly the same nested level cursors and perform the same shape/null/alignment
+    // validation as build_nested_column(). The levels-only form is preferred for skip paths because
+    // it avoids transferring leaf payloads into Doris Columns when they will be discarded.
+    //
+    // `length_upper_bound` is expressed at this reader's logical level, not in physical leaf
+    // values. For example, consuming two rows from ARRAY [[1, 2], []] consumes two parent ARRAY
+    // rows but only two element values. A MAP implementation must also consume key/value streams
+    // in lockstep, while a nullable STRUCT consumes no child value for a null parent.
+    //
+    // Callers must not use the ordinary skip() after either load call: the leaf stream has already
+    // advanced into an in-memory nested batch, and doing so would advance it twice.
+    // `values_consumed` may be smaller than the requested bound only when the loaded batch ends.
+    virtual Status consume_nested_column(int64_t length_upper_bound, int64_t* values_consumed);
 
     virtual const std::vector<int16_t>& nested_definition_levels() const;
     virtual const std::vector<int16_t>& nested_repetition_levels() const;
@@ -103,6 +125,10 @@ protected:
     ParquetColumnReader(const ParquetColumnSchema& schema, const DataTypePtr type,
                         ParquetColumnReaderProfile profile = {});
     ParquetColumnReader() = default;
+    // Load shape levels and consume skipped parent rows in bounded batches. The bound limits level
+    // memory when a parent expands to many children; the levels-only load plus
+    // consume_nested_column() avoids payload materialization and output Columns.
+    Status skip_nested_rows(int64_t rows);
     void update_reader_read_rows(int64_t rows) const;
     void update_reader_skip_rows(int64_t rows) const;
 
@@ -134,7 +160,7 @@ public:
 
     Status create(const ParquetColumnSchema& column_schema,
                   const format::LocalColumnIndex* projection,
-                  std::unique_ptr<ParquetColumnReader>* reader) const;
+                  std::unique_ptr<ParquetColumnReader>* reader, bool read_dictionary = false) const;
 
     // Create a scalar reader for one representative leaf that carries the top-level column shape.
     // This is used by COUNT(col): the caller needs definition/repetition levels to decide whether
@@ -156,6 +182,7 @@ public:
 
 private:
     Status create_scalar_column_reader(const ParquetColumnSchema& column_schema, bool is_nested,
+                                       bool read_dictionary,
                                        std::unique_ptr<ParquetColumnReader>* reader) const;
 
     Status create_struct_column_reader(const ParquetColumnSchema& column_schema,
@@ -172,6 +199,7 @@ private:
 
     Status create_column_reader(const ParquetColumnSchema& column_schema,
                                 const format::LocalColumnIndex* projection, bool is_nested,
+                                bool read_dictionary,
                                 std::unique_ptr<ParquetColumnReader>* reader) const;
     Status create_count_shape_reader_impl(const ParquetColumnSchema& column_schema,
                                           const format::LocalColumnIndex* projection,
@@ -180,6 +208,7 @@ private:
 
     Status get_record_reader(int leaf_column_id, const ::parquet::ColumnDescriptor* descriptor,
                              const std::string& name, bool install_page_filter,
+                             bool read_dictionary,
                              std::shared_ptr<::parquet::internal::RecordReader>* reader) const;
 
     Status make_scalar_column_reader(
@@ -190,6 +219,8 @@ private:
     std::shared_ptr<::parquet::RowGroupReader> _row_group; // Arrow RowGroup reader
     mutable std::vector<std::shared_ptr<::parquet::internal::RecordReader>>
             _record_readers; // RecordReader cache by leaf_column_id
+    mutable std::vector<std::shared_ptr<::parquet::internal::RecordReader>>
+            _dictionary_record_readers; // dictionary-exposing RecordReader cache by leaf_column_id
     const std::map<int, ParquetPageSkipPlan>* _page_skip_plans =
             nullptr;                                   // page-index pruning result
     ParquetPageSkipProfile _page_skip_profile;         // page skip profile

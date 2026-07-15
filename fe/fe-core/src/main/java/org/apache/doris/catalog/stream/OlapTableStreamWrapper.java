@@ -34,6 +34,7 @@ import com.google.common.collect.Maps;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 // runtime-only class for unified query/insert experience, created when bind relation with OlapTableStream
@@ -174,7 +175,12 @@ public class OlapTableStreamWrapper extends OlapTable {
     }
 
     @Override
-    public List<Long> selectNonEmptyPartitionIds(Collection<Long> partitionIds) {
+    public List<Long> selectNonEmptyPartitionIds(Collection<Long> partitionIds,
+            Optional<StreamReadMode> streamReadMode) {
+        StreamReadMode readMode = streamReadMode.orElse(StreamReadMode.INCREMENTAL);
+        if (readMode == StreamReadMode.SNAPSHOT || readMode == StreamReadMode.RESET) {
+            return baseTable.selectNonEmptyPartitionIds(partitionIds, Optional.of(readMode));
+        }
         List<Long> nonEmptyIds = Lists.newArrayListWithCapacity(partitionIds.size());
         for (Long partitionId : partitionIds) {
             if (stream.hasData(getPartition(partitionId))) {

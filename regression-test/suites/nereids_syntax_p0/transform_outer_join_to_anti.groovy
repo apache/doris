@@ -66,6 +66,21 @@ suite("transform_outer_join_to_anti") {
     }
 
     explain {
+        sql("select eliminate_outer_join_A.* from eliminate_outer_join_A left outer join eliminate_outer_join_B on eliminate_outer_join_B.null_b = eliminate_outer_join_A.a where eliminate_outer_join_B.null_b is null")
+        contains "ANTI JOIN"
+    }
+
+    explain {
+        sql("select eliminate_outer_join_B.* from eliminate_outer_join_A right outer join eliminate_outer_join_B on eliminate_outer_join_B.b = eliminate_outer_join_A.null_a where eliminate_outer_join_A.null_a is null")
+        contains "ANTI JOIN"
+    }
+
+    explain {
+        sql("select eliminate_outer_join_A.* from eliminate_outer_join_A left outer join eliminate_outer_join_B on eliminate_outer_join_B.null_b <=> eliminate_outer_join_A.null_a where eliminate_outer_join_B.null_b is null")
+        contains "OUTER JOIN"
+    }
+
+    explain {
         sql("select eliminate_outer_join_A.* from eliminate_outer_join_A left outer join eliminate_outer_join_B on eliminate_outer_join_B.b = eliminate_outer_join_A.a where eliminate_outer_join_B.b is null or eliminate_outer_join_A.null_a is null")
         contains "OUTER JOIN"
     }

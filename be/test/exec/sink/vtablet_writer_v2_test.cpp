@@ -235,7 +235,7 @@ TEST_F(TestVTabletWriterV2, shared_delta_writer_should_not_access_destroyed_crea
     Rows rows;
     rows.partition_id = 1;
     rows.index_id = index_id;
-    rows.row_idxes.push_back(0);
+    rows.row_payload.row_idxs.push_back(0);
 
     const auto first_write_status = creator_writer->_write_memtable(block, 100, rows);
     ASSERT_TRUE(first_write_status.ok()) << first_write_status;

@@ -37,6 +37,7 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "exec/common/endian.h"
+#include "exec/scan/file_scan_io_context.h"
 #include "format/orc/vorc_reader.h"
 #include "format/parquet/vparquet_column_chunk_reader.h"
 #include "format/parquet/vparquet_reader.h"
@@ -205,7 +206,7 @@ IcebergDeleteFileIOContext::IcebergDeleteFileIOContext(RuntimeState* state) {
     io_ctx.file_cache_stats = &file_cache_stats;
     io_ctx.file_reader_stats = &file_reader_stats;
     if (state != nullptr) {
-        io_ctx.query_id = &state->query_id();
+        init_file_scan_io_context(state, &io_ctx);
     }
 }
 
@@ -312,7 +313,7 @@ Status read_iceberg_position_delete_file(const TIcebergDeleteFileDesc& delete_fi
 
 Status read_iceberg_deletion_vector(const TIcebergDeleteFileDesc& delete_file,
                                     const IcebergDeleteFileReaderOptions& options,
-                                    roaring::Roaring64Map* rows_to_delete) {
+                                    DeletionVector* rows_to_delete) {
     if (options.state == nullptr || options.profile == nullptr || options.scan_params == nullptr ||
         options.io_ctx == nullptr || rows_to_delete == nullptr) {
         return Status::InvalidArgument("invalid deletion vector reader options");
@@ -337,13 +338,17 @@ Status read_iceberg_deletion_vector(const TIcebergDeleteFileDesc& delete_file,
     RETURN_IF_ERROR(dv_reader.open());
 
     std::vector<char> buf(delete_range.size);
-    RETURN_IF_ERROR(dv_reader.read_at(delete_range.start_offset,
-                                      {buf.data(), cast_set<size_t>(delete_range.size)}));
+    const auto read_status = dv_reader.read_at(delete_range.start_offset,
+                                               {buf.data(), cast_set<size_t>(delete_range.size)});
+    if (options.deletion_vector_file_cache_stats != nullptr) {
+        options.deletion_vector_file_cache_stats->merge_from(dv_reader.file_cache_statistics());
+    }
+    RETURN_IF_ERROR(read_status);
     return decode_deletion_vector_buffer(buf.data(), delete_range.size, rows_to_delete);
 }
 
 Status decode_iceberg_deletion_vector_buffer(const char* buf, size_t buffer_size,
-                                             roaring::Roaring64Map* rows_to_delete) {
+                                             DeletionVector* rows_to_delete) {
     return decode_deletion_vector_buffer(buf, buffer_size, rows_to_delete);
 }
 

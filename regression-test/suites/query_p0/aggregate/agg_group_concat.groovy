@@ -123,4 +123,13 @@ suite("agg_group_concat") {
     insert into test_distinct_multi values(1,2,3,'abc','2024-01-02'),(1,2,4,'abc','2024-01-03'),(2,2,4,'abcd','2024-01-02'),(1,2,3,'abcd','2024-01-04'),(1,2,4,'eee','2024-02-02'),(2,2,4,'abc','2024-01-02'); 
     """
     qt_test "select group_concat( distinct d order by d) from test_distinct_multi order by 1; "
+
+    test {
+        sql "select multi_distinct_GROUP_CONCAT(a, c) from test_distinct_multi group by b; "
+        exception "separator must be a constant"
+    }
+    test {
+        sql "select GROUP_CONCAT(a, c order by c) from test_distinct_multi group by b; "
+        exception "separator must be a constant"
+    }
 }

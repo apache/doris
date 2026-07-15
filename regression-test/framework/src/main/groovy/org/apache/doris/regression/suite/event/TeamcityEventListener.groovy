@@ -50,10 +50,12 @@ class TeamcityEventListener implements EventListener {
 
     @Override
     void onSuiteFailed(SuiteContext suiteContext, Throwable t) {
-        def (Integer errorLine, String errorInfo) = LoggerUtils.getErrorInfo(t, suiteContext.scriptContext.file)
+        File errorFile = LoggerUtils.findErrorFile(t, new File(suiteContext.config.suitePath), suiteContext.scriptContext.file)
+        String errorFileName = new File(suiteContext.config.suitePath).relativePath(errorFile)
+        def (Integer errorLine, String errorInfo) = LoggerUtils.getErrorInfo(t, errorFile)
         String errorMsg = errorInfo == null
-                ? "Exception in ${suiteContext.scriptContext.name}:"
-                : "Exception in ${suiteContext.scriptContext.name}(line ${errorLine}):\n\n${errorInfo}\n\nException:"
+                ? "Exception in ${errorFileName}:"
+                : "Exception in ${errorFileName}(line ${errorLine}):\n\n${errorInfo}\n\nException:"
         def stackTrace = Throwables.getStackTraceAsString(t)
         TeamcityUtils.testFailed(suiteContext, errorMsg, stackTrace)
     }

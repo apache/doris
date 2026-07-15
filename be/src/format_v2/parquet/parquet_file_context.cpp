@@ -192,10 +192,12 @@ std::string build_page_cache_file_key(const io::FileReader& file_reader,
                                       const io::FileDescription& file_description) {
     const int64_t mtime =
             file_description.mtime != 0 ? file_description.mtime : file_reader.mtime();
-    if (mtime == 0) {
-        // StoragePageCache is process-global. A key with only path + unknown mtime can outlive a
-        // rewritten local test file, or any external file whose version was not propagated. Disable
-        // v2 parquet page cache until the scan descriptor carries a stable object version.
+    if (mtime == 0 && !file_description.is_immutable) {
+        // mtime == 0 means "unknown version", not the Unix epoch. V1 historically caches such a
+        // file under path::0, but copying that behavior for every V2 file is unsafe: a mutable file
+        // can be overwritten with different bytes while retaining both its path and size, causing
+        // process-global page cache entries to return stale data. Only callers that explicitly
+        // guarantee path immutability may use the mtime=0 cache key below.
         return {};
     }
     const int64_t file_size = file_description.file_size >= 0
@@ -352,6 +354,8 @@ public:
                 profile, _base_file_reader, random_access_ranges, merge_read_slice_size));
         return true;
     }
+
+    void reset_random_access_ranges() { reset_active_file_reader(); }
 
     ParquetPageCacheStats page_cache_stats() const {
         std::lock_guard lock(_page_cache_mutex);
@@ -582,6 +586,11 @@ bool ParquetFileContext::set_random_access_ranges(const std::vector<ParquetPageC
     DORIS_CHECK(arrow_file != nullptr);
     return static_cast<DorisRandomAccessFile*>(arrow_file.get())
             ->set_random_access_ranges(ranges, avg_io_size, profile, merge_read_slice_size);
+}
+
+void ParquetFileContext::reset_random_access_ranges() {
+    DORIS_CHECK(arrow_file != nullptr);
+    static_cast<DorisRandomAccessFile*>(arrow_file.get())->reset_random_access_ranges();
 }
 
 ParquetPageCacheStats ParquetFileContext::page_cache_stats() const {
