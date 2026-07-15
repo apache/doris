@@ -497,6 +497,8 @@ struct TQueryOptions {
   // Candidate row ratio threshold against segment rows. Existing default is 0.3.
   220: optional double ann_index_candidate_rows_percent_threshold = 0.3
   221: optional i64 runtime_filter_tree_publish_max_send_bytes = 268435456
+  // Experimental POC: schedule local scalar lazy reads according to page cache residency.
+  222: optional bool enable_cache_aware_lazy_read = false
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
   // In read path, read from file cache or remote storage when execute query.

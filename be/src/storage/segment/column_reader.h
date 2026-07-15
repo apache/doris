@@ -342,6 +342,20 @@ public:
         return Status::NotSupported("read_by_rowids not implement");
     }
 
+    // Hooks for the scalar-only cache-aware lazy-read POC. Complex column iterators keep the
+    // default no-op implementation so their existing read path is unchanged.
+    virtual Status collect_data_pages_by_rowids(const rowid_t* rowids, size_t count,
+                                                std::vector<PagePointer>* pages) {
+        return Status::OK();
+    }
+
+    virtual bool try_pin_data_page(const PagePointer& page, PageHandle* handle) { return false; }
+
+    virtual Status preload_data_page(const PagePointer& page, PageHandle* handle,
+                                     OlapReaderStatistics* stats) {
+        return Status::NotSupported("preload_data_page not implemented");
+    }
+
     virtual ordinal_t get_current_ordinal() const = 0;
 
     virtual Status get_row_ranges_by_zone_map(
@@ -438,6 +452,14 @@ public:
 
     Status read_by_rowids(const rowid_t* rowids, const size_t count,
                           MutableColumnPtr& dst) override;
+
+    Status collect_data_pages_by_rowids(const rowid_t* rowids, size_t count,
+                                        std::vector<PagePointer>* pages) override;
+
+    bool try_pin_data_page(const PagePointer& page, PageHandle* handle) override;
+
+    Status preload_data_page(const PagePointer& page, PageHandle* handle,
+                             OlapReaderStatistics* stats) override;
 
     ordinal_t get_current_ordinal() const override { return _current_ordinal; }
 

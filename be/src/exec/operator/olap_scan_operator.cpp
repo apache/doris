@@ -216,6 +216,21 @@ Status OlapScanLocalState::_init_profile() {
     _lazy_read_timer = ADD_TIMER(_segment_profile, "LazyReadTime");
     _lazy_read_seek_timer = ADD_TIMER(_segment_profile, "LazyReadSeekTime");
     _lazy_read_seek_counter = ADD_COUNTER(_segment_profile, "LazyReadSeekCount", TUnit::UNIT);
+    _cache_aware_lazy_read_timer = ADD_TIMER(_segment_profile, "CacheAwareLazyReadTime");
+    _cache_aware_lazy_read_planned_pages =
+            ADD_COUNTER(_segment_profile, "CacheAwareLazyReadPlannedPages", TUnit::UNIT);
+    _cache_aware_lazy_read_doris_cache_hit_pages =
+            ADD_COUNTER(_segment_profile, "CacheAwareLazyReadDorisCacheHitPages", TUnit::UNIT);
+    _cache_aware_lazy_read_os_cache_hit_pages =
+            ADD_COUNTER(_segment_profile, "CacheAwareLazyReadOsCacheHitPages", TUnit::UNIT);
+    _cache_aware_lazy_read_cold_pages =
+            ADD_COUNTER(_segment_profile, "CacheAwareLazyReadColdPages", TUnit::UNIT);
+    _cache_aware_lazy_read_probe_unsupported_pages =
+            ADD_COUNTER(_segment_profile, "CacheAwareLazyReadProbeUnsupportedPages", TUnit::UNIT);
+    _cache_aware_lazy_read_prefetch_ranges =
+            ADD_COUNTER(_segment_profile, "CacheAwareLazyReadPrefetchRanges", TUnit::UNIT);
+    _cache_aware_lazy_read_prefetch_bytes =
+            ADD_COUNTER(_segment_profile, "CacheAwareLazyReadPrefetchBytes", TUnit::BYTES);
 
     _output_col_timer = ADD_TIMER(_segment_profile, "OutputColumnTime");
 

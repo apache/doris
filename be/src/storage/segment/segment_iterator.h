@@ -54,6 +54,7 @@
 #include "storage/schema.h"
 #include "storage/segment/adaptive_block_size_predictor.h"
 #include "storage/segment/common.h"
+#include "storage/segment/page_handle.h"
 #include "storage/segment/segment.h"
 #include "util/slice.h"
 
@@ -225,6 +226,10 @@ private:
                                                  uint16_t* sel_rowid_idx, size_t select_size,
                                                  MutableColumns* mutable_columns,
                                                  bool init_condition_cache = false);
+
+    Status _prepare_cache_aware_lazy_read(const std::vector<ColumnId>& read_column_ids,
+                                          const std::vector<rowid_t>& rowids,
+                                          std::vector<PageHandle>* pinned_pages);
 
     Status copy_column_data_by_selector(IColumn* input_col_ptr, MutableColumnPtr& output_col,
                                         uint16_t* sel_rowid_idx, uint16_t select_size,

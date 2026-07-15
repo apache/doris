@@ -48,6 +48,7 @@
 #include "core/value/decimalv2_value.h"
 #include "core/value/vdatetime_value.h" //for VecDateTime
 #include "io/fs/file_reader.h"
+#include "storage/cache/page_cache.h"
 #include "storage/index/ann/ann_index_reader.h"
 #include "storage/index/bloom_filter/bloom_filter.h"
 #include "storage/index/bloom_filter/bloom_filter_index_reader.h"
@@ -2017,6 +2018,57 @@ Status FileColumnIterator::_load_next_page(bool* eos) {
     RETURN_IF_ERROR(_seek_to_pos_in_page(&_page, 0));
     *eos = false;
     return Status::OK();
+}
+
+Status FileColumnIterator::collect_data_pages_by_rowids(const rowid_t* rowids, size_t count,
+                                                        std::vector<PagePointer>* pages) {
+    if (_reading_flag == ReadingFlag::SKIP_READING || count == 0) {
+        return Status::OK();
+    }
+
+    OrdinalIndexReader* ordinal_index = nullptr;
+    RETURN_IF_ERROR(_reader->get_ordinal_index_reader(ordinal_index, _opts.stats));
+    int32_t previous_page_index = -1;
+    for (size_t i = 0; i < count; ++i) {
+        auto iter = ordinal_index->seek_at_or_before(rowids[i]);
+        if (!iter.valid()) {
+            return Status::NotFound("failed to find data page for ordinal {}", rowids[i]);
+        }
+        if (iter.page_index() != previous_page_index) {
+            pages->push_back(iter.page());
+            previous_page_index = iter.page_index();
+        }
+    }
+    return Status::OK();
+}
+
+bool FileColumnIterator::try_pin_data_page(const PagePointer& page, PageHandle* handle) {
+    if (!_opts.use_page_cache) {
+        return false;
+    }
+    auto* cache = StoragePageCache::instance();
+    if (cache == nullptr) {
+        return false;
+    }
+
+    PageCacheHandle cache_handle;
+    StoragePageCache::CacheKey cache_key(_opts.file_reader->path().native(),
+                                         _opts.file_reader->size(), page.offset);
+    if (!cache->lookup(cache_key, &cache_handle, PageTypePB::DATA_PAGE)) {
+        return false;
+    }
+    *handle = PageHandle(std::move(cache_handle));
+    return true;
+}
+
+Status FileColumnIterator::preload_data_page(const PagePointer& page, PageHandle* handle,
+                                             OlapReaderStatistics* stats) {
+    auto preload_opts = _opts;
+    preload_opts.stats = stats;
+    preload_opts.type = PageTypePB::DATA_PAGE;
+    Slice page_body;
+    PageFooterPB footer;
+    return _reader->read_page(preload_opts, page, handle, &page_body, &footer, _compress_codec);
 }
 
 Status FileColumnIterator::_read_data_page(const OrdinalPageIndexIterator& iter) {

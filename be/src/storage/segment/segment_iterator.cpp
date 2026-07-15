@@ -2462,6 +2462,125 @@ uint16_t SegmentIterator::_evaluate_short_circuit_predicate(uint16_t* vec_sel_ro
     return selected_size;
 }
 
+Status SegmentIterator::_prepare_cache_aware_lazy_read(const std::vector<ColumnId>& read_column_ids,
+                                                       const std::vector<rowid_t>& rowids,
+                                                       std::vector<PageHandle>* pinned_pages) {
+    if (rowids.empty() || _opts.runtime_state == nullptr || !_opts.use_page_cache ||
+        _opts.io_ctx.reader_type != ReaderType::READER_QUERY || _file_reader == nullptr ||
+        !_file_reader->supports_cache_aware_read() ||
+        !_opts.runtime_state->enable_cache_aware_lazy_read()) {
+        return Status::OK();
+    }
+
+    SCOPED_RAW_TIMER(&_opts.stats->cache_aware_lazy_read_ns);
+    struct PageRequest {
+        ColumnIterator* iterator;
+        PagePointer page;
+    };
+    std::vector<PageRequest> requests;
+    std::set<std::pair<uint64_t, uint32_t>> seen_pages;
+    for (auto cid : read_column_ids) {
+        std::vector<PagePointer> pages;
+        Status st = _column_iterators[cid]->collect_data_pages_by_rowids(rowids.data(),
+                                                                         rowids.size(), &pages);
+        if (!st.ok()) {
+            VLOG_DEBUG << "cache-aware lazy-read page collection failed: " << st;
+            continue;
+        }
+        for (const auto& page : pages) {
+            if (seen_pages.emplace(page.offset, page.size).second) {
+                requests.push_back(PageRequest {_column_iterators[cid].get(), page});
+            }
+        }
+    }
+    _opts.stats->cache_aware_lazy_read_planned_pages += requests.size();
+    if (requests.empty()) {
+        return Status::OK();
+    }
+
+    size_t max_page_size = 0;
+    for (const auto& request : requests) {
+        max_page_size = std::max(max_page_size, static_cast<size_t>(request.page.size));
+    }
+    std::vector<char> probe_buffer(max_page_size);
+    std::vector<PageRequest> cold_pages;
+    cold_pages.reserve(requests.size());
+    pinned_pages->reserve(pinned_pages->size() + requests.size());
+    bool probe_supported = true;
+    OlapReaderStatistics preload_stats;
+
+    for (const auto& request : requests) {
+        PageHandle handle;
+        if (request.iterator->try_pin_data_page(request.page, &handle)) {
+            pinned_pages->push_back(std::move(handle));
+            ++_opts.stats->cache_aware_lazy_read_doris_cache_hit_pages;
+            continue;
+        }
+
+        if (probe_supported) {
+            auto probe_result = _file_reader->probe_page_cache(
+                    request.page.offset, Slice(probe_buffer.data(), request.page.size));
+            if (probe_result == io::PageCacheProbeResult::RESIDENT) {
+                Status st =
+                        request.iterator->preload_data_page(request.page, &handle, &preload_stats);
+                if (st.ok()) {
+                    pinned_pages->push_back(std::move(handle));
+                    ++_opts.stats->cache_aware_lazy_read_os_cache_hit_pages;
+                    continue;
+                }
+                VLOG_DEBUG << "cache-aware lazy-read hot page preload failed: " << st;
+            } else if (probe_result == io::PageCacheProbeResult::UNSUPPORTED) {
+                probe_supported = false;
+            }
+        }
+        if (!probe_supported) {
+            ++_opts.stats->cache_aware_lazy_read_probe_unsupported_pages;
+        }
+        cold_pages.push_back(request);
+    }
+    _opts.stats->cache_aware_lazy_read_cold_pages += cold_pages.size();
+
+    std::sort(cold_pages.begin(), cold_pages.end(),
+              [](const auto& lhs, const auto& rhs) { return lhs.page.offset < rhs.page.offset; });
+    struct PrefetchRange {
+        uint64_t offset;
+        uint64_t end;
+        uint64_t requested_bytes;
+    };
+    std::vector<PrefetchRange> ranges;
+    constexpr uint64_t MAX_MERGE_GAP = 64 * 1024;
+    constexpr uint64_t MAX_PREFETCH_RANGE = 1024 * 1024;
+    constexpr uint64_t MAX_READ_AMPLIFICATION_PERCENT = 125;
+    for (const auto& request : cold_pages) {
+        const uint64_t page_end = request.page.offset + request.page.size;
+        if (ranges.empty()) {
+            ranges.push_back(PrefetchRange {request.page.offset, page_end, request.page.size});
+            continue;
+        }
+        auto& range = ranges.back();
+        const uint64_t merged_end = std::max(range.end, page_end);
+        const uint64_t merged_span = merged_end - range.offset;
+        const uint64_t merged_requested = range.requested_bytes + request.page.size;
+        const uint64_t gap = request.page.offset > range.end ? request.page.offset - range.end : 0;
+        if (gap <= MAX_MERGE_GAP && merged_span <= MAX_PREFETCH_RANGE &&
+            merged_span * 100 <= merged_requested * MAX_READ_AMPLIFICATION_PERCENT) {
+            range.end = merged_end;
+            range.requested_bytes = merged_requested;
+        } else {
+            ranges.push_back(PrefetchRange {request.page.offset, page_end, request.page.size});
+        }
+    }
+
+    for (const auto& range : ranges) {
+        const size_t length = range.end - range.offset;
+        if (_file_reader->prefetch(range.offset, length)) {
+            ++_opts.stats->cache_aware_lazy_read_prefetch_ranges;
+            _opts.stats->cache_aware_lazy_read_prefetch_bytes += length;
+        }
+    }
+    return Status::OK();
+}
+
 Status SegmentIterator::_read_columns_by_rowids(std::vector<ColumnId>& read_column_ids,
                                                 std::vector<rowid_t>& rowid_vector,
                                                 uint16_t* sel_rowid_idx, size_t select_size,
@@ -2482,6 +2601,10 @@ Status SegmentIterator::_read_columns_by_rowids(std::vector<ColumnId>& read_colu
             rowids[i] = rowid_vector[sel_rowid_idx[i]];
         }
     }
+
+    std::vector<PageHandle> cache_aware_pinned_pages;
+    RETURN_IF_ERROR(
+            _prepare_cache_aware_lazy_read(read_column_ids, rowids, &cache_aware_pinned_pages));
 
     for (auto cid : read_column_ids) {
         auto& colunm = (*mutable_columns)[cid];

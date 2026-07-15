@@ -199,6 +199,14 @@ private:
     RuntimeProfile::Counter* _lazy_read_timer = nullptr;
     RuntimeProfile::Counter* _lazy_read_seek_timer = nullptr;
     RuntimeProfile::Counter* _lazy_read_seek_counter = nullptr;
+    RuntimeProfile::Counter* _cache_aware_lazy_read_timer = nullptr;
+    RuntimeProfile::Counter* _cache_aware_lazy_read_planned_pages = nullptr;
+    RuntimeProfile::Counter* _cache_aware_lazy_read_doris_cache_hit_pages = nullptr;
+    RuntimeProfile::Counter* _cache_aware_lazy_read_os_cache_hit_pages = nullptr;
+    RuntimeProfile::Counter* _cache_aware_lazy_read_cold_pages = nullptr;
+    RuntimeProfile::Counter* _cache_aware_lazy_read_probe_unsupported_pages = nullptr;
+    RuntimeProfile::Counter* _cache_aware_lazy_read_prefetch_ranges = nullptr;
+    RuntimeProfile::Counter* _cache_aware_lazy_read_prefetch_bytes = nullptr;
 
     // total pages read
     // used by segment v2

@@ -357,6 +357,15 @@ struct OlapReaderStatistics {
     int64_t total_pages_num = 0;
     int64_t cached_pages_num = 0;
 
+    int64_t cache_aware_lazy_read_ns = 0;
+    int64_t cache_aware_lazy_read_planned_pages = 0;
+    int64_t cache_aware_lazy_read_doris_cache_hit_pages = 0;
+    int64_t cache_aware_lazy_read_os_cache_hit_pages = 0;
+    int64_t cache_aware_lazy_read_cold_pages = 0;
+    int64_t cache_aware_lazy_read_probe_unsupported_pages = 0;
+    int64_t cache_aware_lazy_read_prefetch_ranges = 0;
+    int64_t cache_aware_lazy_read_prefetch_bytes = 0;
+
     int64_t rows_inverted_index_filtered = 0;
     int64_t inverted_index_filter_timer = 0;
     int64_t inverted_index_query_timer = 0;

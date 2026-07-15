@@ -65,6 +65,12 @@ struct FileReaderOptions {
 
 inline const FileReaderOptions FileReaderOptions::DEFAULT;
 
+enum class PageCacheProbeResult {
+    RESIDENT,
+    NON_RESIDENT,
+    UNSUPPORTED,
+};
+
 class FileReader : public doris::ProfileCollector {
 public:
     FileReader() = default;
@@ -92,6 +98,17 @@ public:
 
     // File modification time (seconds since epoch). Default to 0 meaning unknown.
     virtual int64_t mtime() const = 0;
+
+    // Best-effort interfaces used by the local cache-aware lazy-read POC. The probe must not
+    // initiate storage IO. Implementations that cannot provide these semantics return
+    // UNSUPPORTED and the caller falls back to ordinary reads.
+    virtual PageCacheProbeResult probe_page_cache(size_t offset, Slice result) {
+        return PageCacheProbeResult::UNSUPPORTED;
+    }
+
+    virtual bool supports_cache_aware_read() const { return false; }
+
+    virtual bool prefetch(size_t offset, size_t length) { return false; }
 
 protected:
     virtual Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,

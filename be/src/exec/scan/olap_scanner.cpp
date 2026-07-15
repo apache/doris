@@ -728,6 +728,21 @@ void OlapScanner::_collect_profile_before_close() {
     COUNTER_UPDATE(local_state->_lazy_read_timer, stats.lazy_read_ns);
     COUNTER_UPDATE(local_state->_lazy_read_seek_timer, stats.block_lazy_read_seek_ns);
     COUNTER_UPDATE(local_state->_lazy_read_seek_counter, stats.block_lazy_read_seek_num);
+    COUNTER_UPDATE(local_state->_cache_aware_lazy_read_timer, stats.cache_aware_lazy_read_ns);
+    COUNTER_UPDATE(local_state->_cache_aware_lazy_read_planned_pages,
+                   stats.cache_aware_lazy_read_planned_pages);
+    COUNTER_UPDATE(local_state->_cache_aware_lazy_read_doris_cache_hit_pages,
+                   stats.cache_aware_lazy_read_doris_cache_hit_pages);
+    COUNTER_UPDATE(local_state->_cache_aware_lazy_read_os_cache_hit_pages,
+                   stats.cache_aware_lazy_read_os_cache_hit_pages);
+    COUNTER_UPDATE(local_state->_cache_aware_lazy_read_cold_pages,
+                   stats.cache_aware_lazy_read_cold_pages);
+    COUNTER_UPDATE(local_state->_cache_aware_lazy_read_probe_unsupported_pages,
+                   stats.cache_aware_lazy_read_probe_unsupported_pages);
+    COUNTER_UPDATE(local_state->_cache_aware_lazy_read_prefetch_ranges,
+                   stats.cache_aware_lazy_read_prefetch_ranges);
+    COUNTER_UPDATE(local_state->_cache_aware_lazy_read_prefetch_bytes,
+                   stats.cache_aware_lazy_read_prefetch_bytes);
     COUNTER_UPDATE(local_state->_output_col_timer, stats.output_col_ns);
     COUNTER_UPDATE(local_state->_rows_vec_cond_filtered_counter, stats.rows_vec_cond_filtered);
     COUNTER_UPDATE(local_state->_rows_short_circuit_cond_filtered_counter,

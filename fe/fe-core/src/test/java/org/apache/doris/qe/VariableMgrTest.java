@@ -204,6 +204,17 @@ public class VariableMgrTest {
     }
 
     @Test
+    public void testCacheAwareLazyReadSessionVariableToThrift() throws Exception {
+        SessionVariable var = new SessionVariable();
+        Assert.assertFalse(var.toThrift().isEnableCacheAwareLazyRead());
+
+        VariableMgr.setVar(var,
+                new SetVar(SetType.SESSION, SessionVariable.ENABLE_CACHE_AWARE_LAZY_READ,
+                        new StringLiteral("true")));
+        Assert.assertTrue(var.toThrift().isEnableCacheAwareLazyRead());
+    }
+
+    @Test
     public void testAdaptiveBatchSizeSessionVariables() throws Exception {
         SessionVariable var = new SessionVariable();
 
