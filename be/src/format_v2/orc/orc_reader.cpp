@@ -30,6 +30,7 @@
 #include <list>
 #include <map>
 #include <memory>
+#include <new>
 #include <optional>
 #include <orc/OrcFile.hh>
 #include <orc/Vector.hh>
@@ -47,6 +48,7 @@
 #include "common/config.h"
 #include "common/consts.h"
 #include "common/exception.h"
+#include "common/logging.h"
 #include "core/block/block.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
@@ -78,6 +80,7 @@
 #include "storage/index/zone_map/zone_map_index.h"
 #include "storage/segment/condition_cache.h"
 #include "storage/utils.h"
+#include "util/debug_points.h"
 #include "util/slice.h"
 #include "util/timezone_utils.h"
 
@@ -137,6 +140,27 @@ uint64_t orc_read_row_count(const ::orc::ReaderMetrics& metrics) {
 
 bool is_orc_stop(const io::IOContext* io_ctx, const std::exception& e) {
     return io_ctx != nullptr && io_ctx->should_stop && std::string_view(e.what()) == "stop";
+}
+
+Status fall_back_without_orc_sarg(const char* operation, const std::string& file_path,
+                                  ::orc::RowReaderOptions* row_reader_options,
+                                  const std::exception& e) {
+    LOG(WARNING) << "Failed to " << operation << " ORC search argument for file " << file_path
+                 << "; falling back to scan without SARG: " << e.what();
+    row_reader_options->searchArgument(nullptr);
+    return Status::OK();
+}
+
+Status handle_orc_sarg_exception(const char* operation, const std::string& file_path,
+                                 ::orc::RowReaderOptions* row_reader_options, const Exception& e) {
+    if (e.code() == ErrorCode::MEM_ALLOC_FAILED) {
+        return Status::MemoryLimitExceeded("Failed to {} ORC search argument: {}", operation,
+                                           e.what());
+    }
+    if (e.code() == ErrorCode::MEM_LIMIT_EXCEEDED) {
+        return e.to_status();
+    }
+    return fall_back_without_orc_sarg(operation, file_path, row_reader_options, e);
 }
 
 bool is_hour_offset_timezone(std::string_view timezone) {
@@ -605,8 +629,12 @@ bool build_zone_map_from_orc_statistics(const ::orc::Type& type,
         return set_string_zone_map(type, statistics, zone_map);
     case ::orc::TypeKind::DATE:
         return set_date_zone_map(statistics, zone_map);
-    case ::orc::TypeKind::TIMESTAMP:
-        return set_timestamp_zone_map(statistics, timezone, false, zone_map);
+    case ::orc::TypeKind::TIMESTAMP: {
+        // ORC stores timestamp statistics as wall-clock values in UTC coordinates. Restore them
+        // with UTC so the session timezone does not shift the civil time.
+        static const auto utc_time_zone = cctz::utc_time_zone();
+        return set_timestamp_zone_map(statistics, utc_time_zone, false, zone_map);
+    }
     case ::orc::TypeKind::TIMESTAMP_INSTANT:
         return set_timestamp_zone_map(statistics, timezone, enable_mapping_timestamp_tz, zone_map);
     case ::orc::TypeKind::DECIMAL:
@@ -720,6 +748,7 @@ struct OrcReaderScanState {
     bool enable_filter_by_min_max = true;
     bool orc_lazy_read_enabled = false;
     bool orc_lazy_selection_valid = false;
+    OrcSargBuildOptions sarg_build_options;
 
     std::vector<StripeRange> selected_stripe_ranges;
     size_t current_stripe_range = 0;
@@ -853,6 +882,10 @@ Status OrcReader::init(RuntimeState* state) {
         _state->enable_filter_by_min_max = state->query_options().enable_orc_filter_by_min_max;
         _state->timezone = state->timezone();
         _state->timezone_obj = state->timezone_obj();
+        if (state->query_options().__isset.max_pushdown_conditions_per_column) {
+            _state->sarg_build_options.max_pushdown_conditions_per_column =
+                    state->query_options().max_pushdown_conditions_per_column;
+        }
     }
 
     ::orc::ReaderOptions options;
@@ -1350,18 +1383,26 @@ Status OrcReader::_init_search_argument_from_local_filters() {
             if (conjunct == nullptr) {
                 continue;
             }
-            has_pushdown =
-                    build_orc_search_argument(*_request, *_state->root_type, _state->timezone_obj,
-                                              conjunct->root(), builder) ||
-                    has_pushdown;
+            has_pushdown = build_orc_search_argument(
+                                   *_request, *_state->root_type, _state->timezone_obj,
+                                   _state->sarg_build_options, conjunct->root(), builder) ||
+                           has_pushdown;
         }
         if (!has_pushdown) {
             return Status::OK();
         }
         builder->end();
+        DBUG_EXECUTE_IF("OrcReader._init_search_argument_from_local_filters.inject_failure",
+                        DBUG_RUN_CALLBACK());
         _state->row_reader_options.searchArgument(builder->build());
+    } catch (const Exception& e) {
+        return handle_orc_sarg_exception("build", _file_description->path,
+                                         &_state->row_reader_options, e);
+    } catch (const std::bad_alloc& e) {
+        return Status::MemoryLimitExceeded("Failed to build ORC search argument: {}", e.what());
     } catch (const std::exception& e) {
-        return Status::InternalError("Failed to build ORC search argument: {}", e.what());
+        return fall_back_without_orc_sarg("build", _file_description->path,
+                                          &_state->row_reader_options, e);
     }
     return Status::OK();
 }
@@ -1421,6 +1462,8 @@ void OrcReader::_apply_split_range() {
 
 // ORC RowReader ranges are continuous, so non-adjacent surviving stripes are
 // compacted into separate ranges.
+// Keep stripe selection and range state transitions atomic.
+// NOLINTNEXTLINE(readability-function-size)
 Status OrcReader::_select_stripe_ranges_by_statistics() {
     _state->selected_stripe_ranges.clear();
     _state->current_stripe_range = 0;
@@ -1439,8 +1482,20 @@ Status OrcReader::_select_stripe_ranges_by_statistics() {
     std::vector<int> sarg_needed_stripes;
     try {
         sarg_needed_stripes = _state->reader->getNeedReadStripes(_state->row_reader_options);
+    } catch (const Exception& e) {
+        if (is_orc_stop(_io_ctx.get(), e)) {
+            return Status::EndOfFile("stop");
+        }
+        return handle_orc_sarg_exception("evaluate", _file_description->path,
+                                         &_state->row_reader_options, e);
+    } catch (const std::bad_alloc& e) {
+        return Status::MemoryLimitExceeded("Failed to evaluate ORC search argument: {}", e.what());
     } catch (const std::exception& e) {
-        return Status::InternalError("Failed to evaluate ORC search argument: {}", e.what());
+        if (is_orc_stop(_io_ctx.get(), e)) {
+            return Status::EndOfFile("stop");
+        }
+        return fall_back_without_orc_sarg("evaluate", _file_description->path,
+                                          &_state->row_reader_options, e);
     }
 
     std::vector<uint64_t> selected_stripes;
@@ -1941,6 +1996,8 @@ Status OrcReader::get_block(Block* file_block, size_t* rows, bool* eof) {
     return Status::OK();
 }
 
+// COUNT and MIN/MAX share selected-stripe metadata and the same conservative fallback contract.
+// NOLINTNEXTLINE(readability-function-size)
 Status OrcReader::get_aggregate_result(const format::FileAggregateRequest& request,
                                        format::FileAggregateResult* result) {
     DORIS_CHECK(result != nullptr);
@@ -2049,6 +2106,11 @@ Status OrcReader::get_aggregate_result(const format::FileAggregateRequest& reque
         RETURN_IF_ERROR(find_projected_minmax_leaf(*_state->root_type, request_column.projection,
                                                    &leaf_type));
         DORIS_CHECK(leaf_type != nullptr);
+        if (leaf_type->getKind() == ::orc::TypeKind::TIMESTAMP &&
+            _state->reader->getWriterVersion() < ::orc::WriterVersion_ORC_135) {
+            return Status::NotSupported(
+                    "ORC TIMESTAMP min/max statistics are unsafe before writer version ORC-135");
+        }
 
         auto& aggregate_column = result->columns[column_idx];
         aggregate_column.projection = request_column.projection;
