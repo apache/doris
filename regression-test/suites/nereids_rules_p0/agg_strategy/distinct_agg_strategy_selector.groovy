@@ -62,4 +62,43 @@ suite("distinct_agg_strategy_selector") {
     // test
     order_qt_count_distinct_group "select count(distinct a_1,b_5), count(distinct b_5,a_1) from t1000;"
     order_qt_count_distinct_group_with_gby "select count(distinct a_1,b_5), count(distinct b_5,a_1) from t1000 group by c_10;"
+
+    sql """
+    SET enable_nereids_planner = true;
+    
+    DROP VIEW IF EXISTS v_distinct_guard_repro;
+    DROP TABLE IF EXISTS t_distinct_guard_repro;
+    
+    CREATE TABLE t_distinct_guard_repro (
+        id INT,
+        a DECIMAL(20, 2),
+        b INT
+    )
+    ENGINE = OLAP
+    DUPLICATE KEY(id)
+    DISTRIBUTED BY HASH(id) BUCKETS 1
+    PROPERTIES (
+        "replication_num" = "1"
+    );
+    
+    INSERT INTO t_distinct_guard_repro VALUES
+        (1, 1.00, 10),
+        (2, 1.00, 10),
+        (3, 2.00, 20),
+        (4, 3.00, 30);
+    """
+    sql "SET enable_decimal256 = false;"
+
+    sql """CREATE VIEW v_distinct_guard_repro AS
+    SELECT
+        SUM(DISTINCT a) AS distinct_sum_a,
+        ARRAY_AGG(DISTINCT b) AS distinct_b_values
+    FROM t_distinct_guard_repro;"""
+
+    sql "SET enable_decimal256 = true;"
+
+    sql """SELECT
+        distinct_sum_a,
+        array_sort(distinct_b_values)
+    FROM v_distinct_guard_repro;"""
 }

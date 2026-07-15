@@ -41,7 +41,6 @@ import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AnyValue;
 import org.apache.doris.nereids.trees.expressions.functions.generator.Unnest;
-import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
@@ -183,7 +182,7 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
                 for (Expression arg : aggFunc.children()) {
                     // should not push down literal under aggregate
                     // e.g. group_concat(distinct xxx, ','), the ',' literal show stay in aggregate
-                    if (arg instanceof Literal) {
+                    if (arg.isConstant()) {
                         continue;
                     }
                     if (arg.containsType(SubqueryExpr.class, WindowExpression.class, Unnest.class,
@@ -201,7 +200,7 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
                 for (Expression arg : aggFunc.children()) {
                     // should not push down literal under aggregate
                     // e.g. group_concat(distinct xxx, ','), the ',' literal show stay in aggregate
-                    if (arg instanceof Literal) {
+                    if (arg.isConstant()) {
                         continue;
                     }
 
