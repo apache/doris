@@ -22,13 +22,43 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <string>
 
+#include "exec/common/arithmetic_overflow.h"
 #include "exec/operator/operator.h"
 #include "exprs/vectorized_agg_fn.h"
 #include "runtime/runtime_state.h"
 
 namespace doris {
+
+namespace {
+
+int64_t saturating_add(int64_t lhs, int64_t rhs) {
+    int64_t result = 0;
+    if (!common::add_overflow(lhs, rhs, result)) {
+        return result;
+    }
+    return rhs > 0 ? std::numeric_limits<int64_t>::max() : std::numeric_limits<int64_t>::min();
+}
+
+int64_t signed_rows_offset(const TAnalyticWindowBoundary& boundary) {
+    DCHECK(boundary.type == TAnalyticWindowBoundaryType::PRECEDING ||
+           boundary.type == TAnalyticWindowBoundaryType::FOLLOWING);
+    // Older FEs converted the ROWS offset through double. Values at or above Long.MAX_VALUE
+    // could wrap to a negative value when serialized. Preserve their intended saturating semantics.
+    int64_t rows_offset = boundary.rows_offset_value;
+    if (rows_offset < 0) {
+        rows_offset = std::numeric_limits<int64_t>::max();
+    }
+    return boundary.type == TAnalyticWindowBoundaryType::PRECEDING ? -rows_offset : rows_offset;
+}
+
+int64_t rows_frame_end(int64_t current_row, int64_t end_offset) {
+    return saturating_add(saturating_add(current_row, end_offset), 1);
+}
+
+} // namespace
 
 Status AnalyticSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(PipelineXSinkLocalState<AnalyticSharedState>::init(state, info));
@@ -76,10 +106,7 @@ Status AnalyticSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
         if (p._has_window_start) { //calculate start boundary
             TAnalyticWindowBoundary b = p._window.window_start;
             if (b.__isset.rows_offset_value) { //[offset     ,   ]
-                _rows_start_offset = b.rows_offset_value;
-                if (b.type == TAnalyticWindowBoundaryType::PRECEDING) {
-                    _rows_start_offset *= -1;
-                }
+                _rows_start_offset = signed_rows_offset(b);
             } else {
                 DCHECK_EQ(b.type, TAnalyticWindowBoundaryType::CURRENT_ROW); //[current row,   ]
                 _rows_start_offset = 0;
@@ -89,10 +116,7 @@ Status AnalyticSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
         if (p._has_window_end) { //calculate end boundary
             TAnalyticWindowBoundary b = p._window.window_end;
             if (b.__isset.rows_offset_value) { //[       , offset]
-                _rows_end_offset = b.rows_offset_value;
-                if (b.type == TAnalyticWindowBoundaryType::PRECEDING) {
-                    _rows_end_offset *= -1;
-                }
+                _rows_end_offset = signed_rows_offset(b);
             } else {
                 DCHECK_EQ(b.type, TAnalyticWindowBoundaryType::CURRENT_ROW); //[   ,current row]
                 _rows_end_offset = 0;
@@ -191,8 +215,8 @@ bool AnalyticSinkLocalState::_get_next_for_sliding_rows(int64_t current_block_ro
                                                         int64_t current_block_base_pos) {
     const bool is_n_following_frame = _rows_end_offset > 0;
     while (_current_row_position < _partition_by_pose.end) {
-        int64_t current_row_start = _current_row_position + _rows_start_offset;
-        int64_t current_row_end = _current_row_position + _rows_end_offset + 1;
+        int64_t current_row_start = saturating_add(_current_row_position, _rows_start_offset);
+        int64_t current_row_end = rows_frame_end(_current_row_position, _rows_end_offset);
 
         if (is_n_following_frame && !_partition_by_pose.is_ended &&
             current_row_end > _partition_by_pose.end) {
@@ -226,7 +250,7 @@ bool AnalyticSinkLocalState::_get_next_for_unbounded_rows(int64_t current_block_
                                                           int64_t current_block_base_pos) {
     const bool is_n_following_frame = _rows_end_offset > 0;
     while (_current_row_position < _partition_by_pose.end) {
-        int64_t current_row_end = _current_row_position + _rows_end_offset + 1;
+        int64_t current_row_end = rows_frame_end(_current_row_position, _rows_end_offset);
         // [preceding, current_row], [current_row, following] rewrite it's same
         // as could reuse the previous calculate result, so don't call _reset_agg_status function
         // going on calculate, add up data, no need to reset state
@@ -237,10 +261,10 @@ bool AnalyticSinkLocalState::_get_next_for_unbounded_rows(int64_t current_block_
         }
         if (is_n_following_frame && _current_row_position == _partition_by_pose.start) {
             _execute_for_function(_partition_by_pose.start, _partition_by_pose.end,
-                                  _partition_by_pose.start, current_row_end - 1);
+                                  _partition_by_pose.start, saturating_add(current_row_end, -1));
         }
-        _execute_for_function(_partition_by_pose.start, _partition_by_pose.end, current_row_end - 1,
-                              current_row_end);
+        _execute_for_function(_partition_by_pose.start, _partition_by_pose.end,
+                              saturating_add(current_row_end, -1), current_row_end);
         int64_t pos = current_pos_in_block();
         _insert_result_info(pos, pos + 1);
         _current_row_position++;

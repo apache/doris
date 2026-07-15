@@ -20,6 +20,7 @@
 #include <gtest/gtest.h>
 
 #include <cstdint>
+#include <limits>
 #include <memory>
 #include <string>
 
@@ -97,11 +98,13 @@ struct AnalyticSinkOperatorTest : public ::testing::Test {
     }
 
     void create_operator(bool has_window, size_t agg_functions_size, std::string function_name,
-                         DataTypes args_types, DataTypePtr result_type) {
+                         DataTypes args_types, DataTypePtr result_type,
+                         bool result_nullable = false) {
         sink->_agg_functions_size = agg_functions_size;
         sink->_has_window = has_window;
         if (agg_functions_size == 1) {
-            create_agg_function(agg_functions_size, function_name, args_types, result_type);
+            create_agg_function(agg_functions_size, function_name, args_types, result_type,
+                                result_nullable);
         }
         EXPECT_TRUE(sink->set_child(_child_op));
     }
@@ -114,14 +117,14 @@ struct AnalyticSinkOperatorTest : public ::testing::Test {
     }
 
     void create_agg_function(size_t agg_functions_size, std::string function_name,
-                             DataTypes args_types, DataTypePtr result_type) {
+                             DataTypes args_types, DataTypePtr result_type, bool result_nullable) {
         sink->_agg_functions.resize(agg_functions_size);
         sink->_num_agg_input.resize(agg_functions_size);
         sink->_offsets_of_aggregate_states.resize(agg_functions_size);
         sink->_change_to_nullable_flags.resize(agg_functions_size);
         sink->_agg_functions[0] =
-                create_agg_fn(pool, function_name, args_types, result_type, false, true);
-        sink->_num_agg_input[0] = 1;
+                create_agg_fn(pool, function_name, args_types, result_type, result_nullable, true);
+        sink->_num_agg_input[0] = args_types.size();
         sink->_offsets_of_aggregate_states[0] = 0;
         sink->_total_size_of_aggregate_states = 100;
     }
@@ -259,6 +262,49 @@ TEST_F(AnalyticSinkOperatorTest, withoutAggFunction) {
         EXPECT_EQ(block2.rows(), 0);
     }
     std::cout << "######### withoutAggFunction test end #########" << std::endl;
+}
+
+TEST_F(AnalyticSinkOperatorTest, LagWithLegacyWrappedRowsOffset) {
+    constexpr int batch_size = 2;
+    Initialize(batch_size);
+
+    auto int64_type = std::make_shared<DataTypeInt64>();
+    auto nullable_int64_type = make_nullable(int64_type);
+    DataTypes argument_types {int64_type, int64_type, nullable_int64_type};
+    create_operator(true, 1, "lag", argument_types, nullable_int64_type, true);
+    sink->_agg_expr_ctxs.resize(1);
+    sink->_agg_expr_ctxs[0] = MockSlotRef::create_mock_contexts(argument_types);
+
+    TAnalyticWindow window;
+    window.type = TAnalyticWindowType::ROWS;
+    TAnalyticWindowBoundary window_end;
+    window_end.type = TAnalyticWindowBoundaryType::PRECEDING;
+    // Older FEs rounded Long.MAX_VALUE to 2^63 through double and serialized it as
+    // Long.MIN_VALUE.
+    window_end.__set_rows_offset_value(std::numeric_limits<int64_t>::min());
+    window.__set_window_end(window_end);
+    create_window_type(false, true, window);
+    create_local_state();
+
+    Block input_block;
+    input_block.insert(ColumnHelper::create_column_with_name<DataTypeInt64>({1, 2}));
+    input_block.insert(ColumnHelper::create_column_with_name<DataTypeInt64>(
+            {std::numeric_limits<int64_t>::max(), std::numeric_limits<int64_t>::max()}));
+    input_block.insert(
+            ColumnHelper::create_nullable_column_with_name<DataTypeInt64>({0, 0}, {1, 1}));
+    auto status = sink->sink(state.get(), &input_block, true);
+    EXPECT_TRUE(status.ok()) << status.to_string();
+
+    Block output_block;
+    bool eos = false;
+    status = source->get_block(state.get(), &output_block, &eos);
+    EXPECT_TRUE(status.ok()) << status.to_string();
+    ASSERT_EQ(output_block.columns(), 4);
+    const auto* result =
+            assert_cast<const ColumnNullable*>(output_block.get_by_position(3).column.get());
+    ASSERT_EQ(result->size(), batch_size);
+    EXPECT_TRUE(result->is_null_at(0));
+    EXPECT_TRUE(result->is_null_at(1));
 }
 
 TEST_F(AnalyticSinkOperatorTest, AggFunction) {
