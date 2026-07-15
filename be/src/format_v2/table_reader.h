@@ -453,6 +453,16 @@ protected:
             VLOG_DEBUG << "TableReader debug: " << debug_string();
         }
         RETURN_IF_ERROR(_open_mapping_exprs());
+        // COUNT(*) has no semantic column argument, but Nereids retains one minimum-width scan
+        // slot so the scan node still has an output tuple. For example, in a Parquet file whose
+        // first and only column is unsupported TIME_MILLIS, validating that arbitrary placeholder
+        // would fail before the empty aggregate request can count rows from footer metadata. Mark
+        // placeholders only after the same safety gate used by aggregate materialization succeeds;
+        // COUNT(col), filters, deletes and pending runtime filters keep normal column validation.
+        file_request->non_predicate_columns_are_count_star_placeholders =
+                _push_down_agg_type == TPushAggOp::type::COUNT &&
+                _push_down_count_columns.has_value() && _push_down_count_columns->empty() &&
+                _supports_aggregate_pushdown(_push_down_agg_type);
         RETURN_IF_ERROR(_data_reader.reader->open(file_request));
         RETURN_IF_ERROR(_init_reader_condition_cache(*file_request));
         return Status::OK();

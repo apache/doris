@@ -166,8 +166,10 @@ Status validate_requested_columns_supported(
     for (const auto& column : request.predicate_columns) {
         RETURN_IF_ERROR(validate_scan_column(column));
     }
-    for (const auto& column : request.non_predicate_columns) {
-        RETURN_IF_ERROR(validate_scan_column(column));
+    if (!request.non_predicate_columns_are_count_star_placeholders) {
+        for (const auto& column : request.non_predicate_columns) {
+            RETURN_IF_ERROR(validate_scan_column(column));
+        }
     }
     return Status::OK();
 }

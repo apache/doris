@@ -1761,6 +1761,8 @@ TEST(TableReaderTest, PushDownCountRecordsReaderRowsBeforeClosingReader) {
     EXPECT_EQ(block.rows(), 3);
     EXPECT_EQ(file_reader_stats.read_rows, 3);
     EXPECT_EQ(fake_state->close_count, 1);
+    ASSERT_TRUE(fake_state->last_request != nullptr);
+    EXPECT_FALSE(fake_state->last_request->non_predicate_columns_are_count_star_placeholders);
     ASSERT_TRUE(fake_state->last_aggregate_request.has_value());
     ASSERT_EQ(fake_state->last_aggregate_request->columns.size(), 1);
     // A primitive COUNT(col) projection must reach the file reader just like a complex one.
@@ -1805,6 +1807,8 @@ TEST(TableReaderTest, PushDownCountStarIgnoresProjectedPlaceholderColumn) {
     ASSERT_TRUE(reader.get_block(&block, &eos).ok());
     EXPECT_FALSE(eos);
     EXPECT_EQ(block.rows(), 3);
+    ASSERT_TRUE(fake_state->last_request != nullptr);
+    EXPECT_TRUE(fake_state->last_request->non_predicate_columns_are_count_star_placeholders);
     ASSERT_TRUE(fake_state->last_aggregate_request.has_value());
     // Passing nullable_id here would implement COUNT(nullable_id) and reproduce the external ORC
     // and Parquet failures where footer row counts were reduced by null values.

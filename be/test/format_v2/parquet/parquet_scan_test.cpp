@@ -806,6 +806,38 @@ TEST_F(ParquetScanTest, AggregateCountRejectsRequiredUnsupportedScalarProjection
               std::string::npos);
 }
 
+TEST_F(ParquetScanTest, CountStarIgnoresUnsupportedPlannerPlaceholder) {
+    write_required_adjusted_time_parquet_file(_file_path);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+
+    // A normal projection still requests the TIME_MILLIS value and must fail at open, before
+    // row-group pruning or physical INT32 statistics can hide the unsupported logical type.
+    auto projected_reader = create_reader();
+    ASSERT_TRUE(projected_reader->init(&state).ok());
+    auto projected_request = std::make_shared<format::FileScanRequest>();
+    format::FileScanRequestBuilder projected_builder(projected_request.get());
+    ASSERT_TRUE(projected_builder.add_non_predicate_column(format::LocalColumnId(0)).ok());
+    const auto projected_status = projected_reader->open(projected_request);
+    EXPECT_TRUE(projected_status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) << projected_status;
+
+    // COUNT(*) carries the same retained scan slot, but TableReader marks it as a planner
+    // placeholder after proving metadata aggregate pushdown is safe. The empty aggregate request
+    // counts both rows without interpreting or materializing the unsupported TIME_MILLIS values.
+    auto count_star_reader = create_reader();
+    ASSERT_TRUE(count_star_reader->init(&state).ok());
+    auto count_star_request = std::make_shared<format::FileScanRequest>();
+    format::FileScanRequestBuilder count_star_builder(count_star_request.get());
+    ASSERT_TRUE(count_star_builder.add_non_predicate_column(format::LocalColumnId(0)).ok());
+    count_star_request->non_predicate_columns_are_count_star_placeholders = true;
+    ASSERT_TRUE(count_star_reader->open(count_star_request).ok());
+
+    format::FileAggregateRequest aggregate_request;
+    aggregate_request.agg_type = TPushAggOp::COUNT;
+    format::FileAggregateResult aggregate_result;
+    ASSERT_TRUE(count_star_reader->get_aggregate_result(aggregate_request, &aggregate_result).ok());
+    EXPECT_EQ(aggregate_result.count, 2);
+}
+
 TEST_F(ParquetScanTest, AggregateMinMaxRejectsInexactBinaryStatistics) {
     write_binary_minmax_parquet_file(_file_path);
     auto reader = create_reader();
