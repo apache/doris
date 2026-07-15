@@ -15,27 +15,17 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_variant_count_distinct") {
-    sql "DROP TABLE IF EXISTS test_variant_count_distinct_array_subcolumn"
-
-    sql """
-        CREATE TABLE test_variant_count_distinct_array_subcolumn (
-            id INT,
-            v VARIANT
-        ) DUPLICATE KEY(id)
-        DISTRIBUTED BY HASH(id) BUCKETS 1
-        PROPERTIES("replication_num" = "1")
-    """
-
-    sql """
-        INSERT INTO test_variant_count_distinct_array_subcolumn VALUES
-        (1, '{"arr":[1,2,3]}'),
-        (2, '{"arr":[4,5]}'),
-        (3, '{"arr":[1,2,3]}')
-    """
-
-    test {
-        sql "SELECT COUNT(DISTINCT v['arr']) FROM test_variant_count_distinct_array_subcolumn"
-        exception "COUNT DISTINCT could not process type"
+suite("test_variant_count_distinct", "p0,nonConcurrent") {
+    setBeConfigTemporary([enable_variant_v2: true]) {
+        qt_count_distinct_array_subcolumn """
+            SELECT COUNT(DISTINCT v['arr']), multi_distinct_count(v['arr'])
+            FROM (
+                SELECT parse_to_variant('{"arr":[1,2,3]}') v
+                UNION ALL
+                SELECT parse_to_variant('{"arr":[4,5]}')
+                UNION ALL
+                SELECT parse_to_variant('{"arr":[1,2,3]}')
+            ) t
+        """
     }
 }

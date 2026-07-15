@@ -21,6 +21,7 @@ import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
@@ -62,6 +63,7 @@ public final class ParquetVariantGolden {
             byte[] value) {}
 
     public static void main(String[] args) throws Exception {
+        verifyArtifact();
         if (args.length == 2 && args[0].equals("generate")) {
             knownIncompatibilityCheck();
             Path output = Path.of(args[1]);
@@ -98,6 +100,42 @@ public final class ParquetVariantGolden {
                         "primitive_int64", "int64:2147483648", b -> b.appendLong(2147483648L)));
         vectors.add(
                 builderVector(
+                        "primitive_int8_min", "int8:-128", b -> b.appendByte(Byte.MIN_VALUE)));
+        vectors.add(
+                builderVector(
+                        "primitive_int8_max", "int8:127", b -> b.appendByte(Byte.MAX_VALUE)));
+        vectors.add(
+                builderVector(
+                        "primitive_int16_min",
+                        "int16:-32768",
+                        b -> b.appendShort(Short.MIN_VALUE)));
+        vectors.add(
+                builderVector(
+                        "primitive_int16_max",
+                        "int16:32767",
+                        b -> b.appendShort(Short.MAX_VALUE)));
+        vectors.add(
+                builderVector(
+                        "primitive_int32_min",
+                        "int32:-2147483648",
+                        b -> b.appendInt(Integer.MIN_VALUE)));
+        vectors.add(
+                builderVector(
+                        "primitive_int32_max",
+                        "int32:2147483647",
+                        b -> b.appendInt(Integer.MAX_VALUE)));
+        vectors.add(
+                builderVector(
+                        "primitive_int64_min",
+                        "int64:-9223372036854775808",
+                        b -> b.appendLong(Long.MIN_VALUE)));
+        vectors.add(
+                builderVector(
+                        "primitive_int64_max",
+                        "int64:9223372036854775807",
+                        b -> b.appendLong(Long.MAX_VALUE)));
+        vectors.add(
+                builderVector(
                         "primitive_double",
                         "double:400921fb54442d18",
                         b -> b.appendDouble(Math.PI)));
@@ -116,6 +154,52 @@ public final class ParquetVariantGolden {
                         "primitive_decimal16",
                         "decimal16:12345678901234567891234567890:10",
                         b -> b.appendDecimal(new BigDecimal("1234567890123456789.1234567890"))));
+        vectors.add(
+                builderVector(
+                        "primitive_decimal4_precision9_max",
+                        "decimal4:999999999:2",
+                        b -> b.appendDecimal(new BigDecimal("9999999.99"))));
+        vectors.add(
+                builderVector(
+                        "primitive_decimal4_precision9_min",
+                        "decimal4:-999999999:2",
+                        b -> b.appendDecimal(new BigDecimal("-9999999.99"))));
+        vectors.add(
+                builderVector(
+                        "primitive_decimal8_precision10_min",
+                        "decimal8:1000000000:0",
+                        b -> b.appendDecimal(new BigDecimal("1000000000"))));
+        vectors.add(
+                builderVector(
+                        "primitive_decimal8_precision18_max",
+                        "decimal8:999999999999999999:0",
+                        b -> b.appendDecimal(new BigDecimal("999999999999999999"))));
+        vectors.add(
+                builderVector(
+                        "primitive_decimal16_precision19_min",
+                        "decimal16:1000000000000000000:0",
+                        b -> b.appendDecimal(new BigDecimal("1000000000000000000"))));
+        vectors.add(
+                builderVector(
+                        "primitive_decimal16_precision38_max",
+                        "decimal16:99999999999999999999999999999999999999:0",
+                        b ->
+                                b.appendDecimal(
+                                        new BigDecimal(
+                                                "99999999999999999999999999999999999999"))));
+        vectors.add(
+                builderVector(
+                        "primitive_decimal4_scale38_min_unit",
+                        "decimal4:-1:38",
+                        b ->
+                                b.appendDecimal(
+                                        new BigDecimal(
+                                                "-0.00000000000000000000000000000000000001"))));
+        vectors.add(
+                builderVector(
+                        "primitive_decimal4_trailing_zero",
+                        "decimal4:12300:4",
+                        b -> b.appendDecimal(new BigDecimal("1.2300"))));
         vectors.add(builderVector("primitive_date", "date:-12345", b -> b.appendDate(-12345)));
         vectors.add(
                 builderVector(
@@ -244,6 +328,54 @@ public final class ParquetVariantGolden {
                         b -> b.appendLong(2147483648L)));
         vectors.add(
                 canonicalVector(
+                        "doris_int8_min",
+                        "int8:-128",
+                        List.of(),
+                        b -> b.appendByte(Byte.MIN_VALUE)));
+        vectors.add(
+                canonicalVector(
+                        "doris_int8_max",
+                        "int8:127",
+                        List.of(),
+                        b -> b.appendByte(Byte.MAX_VALUE)));
+        vectors.add(
+                canonicalVector(
+                        "doris_int16_min",
+                        "int16:-32768",
+                        List.of(),
+                        b -> b.appendShort(Short.MIN_VALUE)));
+        vectors.add(
+                canonicalVector(
+                        "doris_int16_max",
+                        "int16:32767",
+                        List.of(),
+                        b -> b.appendShort(Short.MAX_VALUE)));
+        vectors.add(
+                canonicalVector(
+                        "doris_int32_min",
+                        "int32:-2147483648",
+                        List.of(),
+                        b -> b.appendInt(Integer.MIN_VALUE)));
+        vectors.add(
+                canonicalVector(
+                        "doris_int32_max",
+                        "int32:2147483647",
+                        List.of(),
+                        b -> b.appendInt(Integer.MAX_VALUE)));
+        vectors.add(
+                canonicalVector(
+                        "doris_int64_min",
+                        "int64:-9223372036854775808",
+                        List.of(),
+                        b -> b.appendLong(Long.MIN_VALUE)));
+        vectors.add(
+                canonicalVector(
+                        "doris_int64_max",
+                        "int64:9223372036854775807",
+                        List.of(),
+                        b -> b.appendLong(Long.MAX_VALUE)));
+        vectors.add(
+                canonicalVector(
                         "doris_double",
                         "double:400921fb54442d18",
                         List.of(),
@@ -266,6 +398,60 @@ public final class ParquetVariantGolden {
                         "decimal16:12345678901234567891234567890:10",
                         List.of(),
                         b -> b.appendDecimal(new BigDecimal("1234567890123456789.1234567890"))));
+        vectors.add(
+                canonicalVector(
+                        "doris_decimal4_precision9_max",
+                        "decimal4:999999999:2",
+                        List.of(),
+                        b -> b.appendDecimal(new BigDecimal("9999999.99"))));
+        vectors.add(
+                canonicalVector(
+                        "doris_decimal4_precision9_min",
+                        "decimal4:-999999999:2",
+                        List.of(),
+                        b -> b.appendDecimal(new BigDecimal("-9999999.99"))));
+        vectors.add(
+                canonicalVector(
+                        "doris_decimal8_precision10_min",
+                        "decimal8:1000000000:0",
+                        List.of(),
+                        b -> b.appendDecimal(new BigDecimal("1000000000"))));
+        vectors.add(
+                canonicalVector(
+                        "doris_decimal8_precision18_max",
+                        "decimal8:999999999999999999:0",
+                        List.of(),
+                        b -> b.appendDecimal(new BigDecimal("999999999999999999"))));
+        vectors.add(
+                canonicalVector(
+                        "doris_decimal16_precision19_min",
+                        "decimal16:1000000000000000000:0",
+                        List.of(),
+                        b -> b.appendDecimal(new BigDecimal("1000000000000000000"))));
+        vectors.add(
+                canonicalVector(
+                        "doris_decimal16_precision38_max",
+                        "decimal16:99999999999999999999999999999999999999:0",
+                        List.of(),
+                        b ->
+                                b.appendDecimal(
+                                        new BigDecimal(
+                                                "99999999999999999999999999999999999999"))));
+        vectors.add(
+                canonicalVector(
+                        "doris_decimal4_scale38_min_unit",
+                        "decimal4:-1:38",
+                        List.of(),
+                        b ->
+                                b.appendDecimal(
+                                        new BigDecimal(
+                                                "-0.00000000000000000000000000000000000001"))));
+        vectors.add(
+                canonicalVector(
+                        "doris_decimal4_trailing_zero",
+                        "decimal4:12300:4",
+                        List.of(),
+                        b -> b.appendDecimal(new BigDecimal("1.2300"))));
         vectors.add(
                 canonicalVector(
                         "doris_date", "date:-12345", List.of(), b -> b.appendDate(-12345)));
@@ -357,6 +543,32 @@ public final class ParquetVariantGolden {
         return vector;
     }
 
+    private static void verifyArtifact() throws Exception {
+        Path artifact =
+                Path.of(
+                        Variant.class
+                                .getProtectionDomain()
+                                .getCodeSource()
+                                .getLocation()
+                                .toURI());
+        if (!Files.isRegularFile(artifact)) {
+            throw new IllegalStateException(
+                    "parquet-java Variant classes were not loaded from a jar: " + artifact);
+        }
+        byte[] digest =
+                MessageDigest.getInstance("SHA-256").digest(Files.readAllBytes(artifact));
+        String actual = HEX.formatHex(digest);
+        if (!actual.equals(JAR_SHA256)) {
+            throw new IllegalStateException(
+                    "parquet-java jar SHA-256 mismatch: expected "
+                            + JAR_SHA256
+                            + ", got "
+                            + actual
+                            + " from "
+                            + artifact);
+        }
+    }
+
     private static GoldenVector canonicalVector(
             String name, String expected, List<String> keys, Appender append) {
         List<String> sortedKeys = new ArrayList<>(keys);
@@ -377,7 +589,7 @@ public final class ParquetVariantGolden {
         if (!Arrays.equals(encodedMetadata, bytes(variant.getMetadataBuffer()))) {
             throw new IllegalStateException("Canonical metadata changed for " + name);
         }
-        return checkedVector(name, "doris-canonical-java-validated", expected, variant);
+        return checkedVector(name, "doris-block-builder-java-validated", expected, variant);
     }
 
     private static GoldenVector checkedVector(

@@ -18,6 +18,7 @@
 suite("test_variant_equality_contexts", "p0,nonConcurrent") {
     sql "SET enable_nereids_planner = true"
     sql "SET enable_fallback_to_original_planner = false"
+    sql "SET enable_decimal256 = true"
 
     setBeConfigTemporary([enable_variant_v2: true]) {
     explain {
@@ -138,8 +139,8 @@ suite("test_variant_equality_contexts", "p0,nonConcurrent") {
         ORDER BY 1 DESC, 2
     """
 
-    qt_count_distinct_canonical """
-        SELECT COUNT(DISTINCT v)
+    qt_count_distinct_canonical_et_nulls """
+        SELECT COUNT(DISTINCT v), multi_distinct_count(v)
         FROM (
             SELECT parse_to_variant('{"b":2,"a":1}') v
             UNION ALL
@@ -152,8 +153,21 @@ suite("test_variant_equality_contexts", "p0,nonConcurrent") {
             SELECT parse_to_variant('1')
             UNION ALL
             SELECT parse_to_variant('1.0')
+            UNION ALL
+            SELECT CAST(CAST(1 AS BIGINT) AS VARIANT)
+            UNION ALL
+            SELECT CAST(CAST(1.00 AS DECIMAL(9, 2)) AS VARIANT)
+            UNION ALL
+            SELECT parse_to_variant('null')
+            UNION ALL
+            SELECT CAST(NULL AS VARIANT)
         ) t
     """
+
+    test {
+        sql "SELECT CAST(CAST(1.23 AS DECIMAL(76, 2)) AS VARIANT)"
+        exception "to Variant V2 is not supported"
+    }
 
     order_qt_intersect_encoded_canonical_numeric """
         SELECT CAST(v AS STRING)

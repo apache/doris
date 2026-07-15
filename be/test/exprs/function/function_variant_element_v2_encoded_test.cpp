@@ -29,6 +29,7 @@
 #include "util/variant/variant_encoding.h"
 #include "util/variant/variant_field.h"
 #include "util/variant/variant_json.h"
+#include "util/variant/variant_test_utils.h"
 
 namespace doris {
 namespace {
@@ -46,7 +47,7 @@ VariantField encode_json(std::string_view json) {
 
 void append_json(ColumnVariantV2& column, std::string_view json) {
     const VariantField field = encode_json(json);
-    column.insert_variant_field(field);
+    insert_encoded_field(column, field);
 }
 
 std::unique_ptr<ResolvedVariantElementV2Path> resolve(std::vector<Segment> segments) {
@@ -225,7 +226,7 @@ TEST(VariantElementV2EncodedTest, OuterMissingAndPrimitiveNullAreDistinct) {
 TEST(VariantElementV2EncodedTest, LegalNoncanonicalMetadataIsCopiedWithoutCanonicalizing) {
     const VariantField field = legal_noncanonical_object();
     auto source = ColumnVariantV2::create();
-    source->insert_variant_field(field);
+    insert_encoded_field(*source, field);
     auto path = resolve({Segment::object_key(StringRef("a"))});
 
     ColumnPtr result = extract(*source, *path);

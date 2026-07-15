@@ -53,7 +53,6 @@ enum class PhysicalTypeCode : uint16_t {
     DECIMAL32 = 10,
     DECIMAL64 = 11,
     DECIMAL128I = 12,
-    DECIMAL256 = 13,
     DATE = 14,
     DATEV2 = 15,
     DATETIME = 16,

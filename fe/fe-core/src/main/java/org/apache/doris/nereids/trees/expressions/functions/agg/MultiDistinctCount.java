@@ -71,15 +71,6 @@ public class MultiDistinctCount extends NotNullableAggregateFunction
     }
 
     @Override
-    public void checkLegalityAfterRewrite() {
-        for (Expression argument : getArguments()) {
-            if (argument.getDataType().isVariantType()) {
-                throw new AnalysisException("COUNT DISTINCT could not process type " + toSql());
-            }
-        }
-    }
-
-    @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitMultiDistinctCount(this, context);
     }

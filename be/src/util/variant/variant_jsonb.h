@@ -26,16 +26,10 @@
 
 namespace doris {
 
-class VariantBuilder;
 class JsonbOutStream;
 template <class OS_TYPE>
 class JsonbWriterT;
 using JsonbWriter = JsonbWriterT<JsonbOutStream>;
-
-// Converts exactly one complete JSONB document into a fresh row builder. The document carries its
-// available byte size so the converter can deep-validate every nested value. On failure the row
-// builder is aborted and must be discarded by the caller.
-void jsonb_to_variant(StringRef document, VariantBuilder& builder);
 
 // Appends exactly one complete JSONB value to an active block-builder row. This is the storage
 // assembler adapter over the same bounded parser; failure aborts the active row.

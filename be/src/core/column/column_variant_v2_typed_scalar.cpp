@@ -41,48 +41,6 @@ size_t format_int128(__int128 value, char* const output) noexcept {
     return position;
 }
 
-size_t format_decimal256(wide::Int256 value, uint32_t scale, char* const output) noexcept {
-    // The signed Int256 physical minimum is -2^255, whose magnitude has 77 decimal digits even
-    // though Doris Decimal256's declared precision is capped at 76.
-    constexpr size_t INT256_PHYSICAL_DECIMAL_DIGITS = 77;
-    std::array<char, INT256_PHYSICAL_DECIMAL_DIGITS> reversed {};
-    DCHECK_LE(scale, reversed.size());
-    auto remaining = static_cast<wide::UInt256>(value);
-    if (value < 0) {
-        remaining = ~remaining + wide::UInt256(1);
-    }
-    size_t digits = 0;
-    do {
-        DCHECK_LT(digits, reversed.size());
-        const auto digit = static_cast<uint8_t>(static_cast<uint64_t>(remaining % 10));
-        reversed[digits++] = static_cast<char>('0' + digit);
-        remaining /= 10;
-    } while (remaining != 0);
-
-    size_t position = 0;
-    if (value < 0) {
-        output[position++] = '-';
-    }
-    if (digits > scale) {
-        for (size_t index = digits; index != scale; --index) {
-            output[position++] = reversed[index - 1];
-        }
-    } else {
-        output[position++] = '0';
-    }
-    if (scale != 0) {
-        output[position++] = '.';
-        for (size_t padding = digits; padding < scale; ++padding) {
-            output[position++] = '0';
-        }
-        const size_t fractional_digits = std::min<size_t>(digits, scale);
-        for (size_t index = fractional_digits; index != 0; --index) {
-            output[position++] = reversed[index - 1];
-        }
-    }
-    return position;
-}
-
 } // namespace detail
 
 bool is_supported_typed_identity(PrimitiveType type) {
@@ -99,7 +57,6 @@ bool is_supported_typed_identity(PrimitiveType type) {
     case TYPE_DECIMAL32:
     case TYPE_DECIMAL64:
     case TYPE_DECIMAL128I:
-    case TYPE_DECIMAL256:
     case TYPE_DATE:
     case TYPE_DATEV2:
     case TYPE_DATETIME:
@@ -142,9 +99,6 @@ void validate_typed_decimal_scale(const IColumn& nested, PrimitiveType type, uin
         break;
     case TYPE_DECIMAL128I:
         column_scale = assert_cast<const ColumnDecimal128V3&>(nested).get_scale();
-        break;
-    case TYPE_DECIMAL256:
-        column_scale = assert_cast<const ColumnDecimal256&>(nested).get_scale();
         break;
     default:
         return;

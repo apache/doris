@@ -13,8 +13,8 @@ false	0	3
 false	1	2
 false	null	1
 
--- !count_distinct_canonical --
-4
+-- !count_distinct_canonical_et_nulls --
+5	5
 
 -- !intersect_encoded_canonical_numeric --
 0

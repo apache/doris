@@ -725,26 +725,6 @@ public abstract class DataType {
         return this instanceof VariantType;
     }
 
-    /** Whether this type or any nested container leaf is Variant. */
-    public boolean containsVariantType() {
-        if (isVariantType()) {
-            return true;
-        }
-        if (this instanceof ArrayType) {
-            return ((ArrayType) this).getItemType().containsVariantType();
-        }
-        if (this instanceof MapType) {
-            MapType mapType = (MapType) this;
-            return mapType.getKeyType().containsVariantType()
-                    || mapType.getValueType().containsVariantType();
-        }
-        if (this instanceof StructType) {
-            return ((StructType) this).getFields().stream()
-                    .anyMatch(field -> field.getDataType().containsVariantType());
-        }
-        return false;
-    }
-
     public boolean isStructType() {
         return this instanceof StructType;
     }

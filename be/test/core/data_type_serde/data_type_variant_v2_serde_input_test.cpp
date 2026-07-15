@@ -81,7 +81,7 @@ ColumnVariantV2::MutablePtr typed_int(int32_t value) {
     nested->insert_value(value);
     auto nulls = ColumnUInt8::create();
     nulls->insert_value(0);
-    return ColumnVariantV2::create_typed_from_cast(
+    return ColumnVariantV2::create_typed(
             ColumnNullable::create(std::move(nested), std::move(nulls)),
             std::make_shared<DataTypeInt32>());
 }

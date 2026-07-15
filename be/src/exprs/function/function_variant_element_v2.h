@@ -93,15 +93,3 @@ Status extract_variant_element_v2(const ColumnVariantV2& source,
                                   std::span<const uint8_t> outer_nulls, ColumnPtr* output);
 
 } // namespace doris
-#include "core/column/column_variant_v2.h"
-#include "exprs/function/function_variant_element_v2.h"
-
-namespace doris::variant_element_v2_internal {
-
-Status extract_encoded_variant_element(const ColumnVariantV2& source,
-                                       const ResolvedVariantElementV2Path& path,
-                                       std::span<const uint8_t> outer_nulls, ColumnPtr* output);
-
-Status make_all_null_variant_element_result(size_t rows, ColumnPtr* output);
-
-} // namespace doris::variant_element_v2_internal

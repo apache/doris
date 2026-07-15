@@ -62,7 +62,7 @@ Status mask_and_encode_typed_variant(const ColumnVariantV2& source, ForcedNulls 
     ColumnPtr masked =
             ColumnNullable::create(typed.get_nested_column_ptr(), std::move(combined_nulls));
     ColumnPtr masked_variant =
-            ColumnVariantV2::create_typed_from_cast(std::move(masked), source.typed_type());
+            ColumnVariantV2::create_typed(std::move(masked), source.typed_type());
     return clone_as_encoded(assert_cast<const ColumnVariantV2&>(*masked_variant), output);
 }
 

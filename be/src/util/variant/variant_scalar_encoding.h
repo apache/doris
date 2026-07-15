@@ -28,7 +28,7 @@ namespace doris {
 // A validated, stack-only plan for one physical Variant scalar. The plan either owns a small
 // inline textual fallback or borrows a StringRef until write() returns; it never allocates.
 // Callers can therefore preflight a complete batch, reserve its final buffer once, and write
-// directly into that buffer without constructing a VariantBuilder per row.
+// directly into that buffer without constructing a temporary value tree per row.
 class VariantScalarEncodingPlan {
 public:
     static VariantScalarEncodingPlan null_value() noexcept;

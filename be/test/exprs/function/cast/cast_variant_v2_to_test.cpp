@@ -20,11 +20,13 @@
 #include "core/assert_cast.h"
 #include "core/column/column_array.h"
 #include "core/column/column_const.h"
+#include "core/column/column_decimal.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/column/column_variant_v2.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_date_or_datetime_v2.h"
+#include "core/data_type/data_type_decimal.h"
 #include "core/data_type/data_type_jsonb.h"
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nothing.h"
@@ -88,6 +90,20 @@ TEST(CastVariantV2ToTest, UnsupportedSourceReturnsAnError) {
     source->insert_default();
     CastResult cast = execute_to_variant(source->get_ptr(), type);
     EXPECT_TRUE(cast.status.is<ErrorCode::INVALID_ARGUMENT>()) << cast.status;
+    EXPECT_EQ(cast.column.get(), cast.initial_result.get());
+}
+
+TEST(CastVariantV2ToTest, Decimal256ReturnsAnErrorInsteadOfStringifying) {
+    auto type = std::make_shared<DataTypeDecimal256>(76, 2);
+    auto source = ColumnDecimal256::create(0, 2);
+    source->insert_value(Decimal256 {wide::Int256(-12345)});
+
+    CastResult cast = execute_to_variant(source->get_ptr(), type);
+
+    EXPECT_TRUE(cast.status.is<ErrorCode::INVALID_ARGUMENT>()) << cast.status;
+    EXPECT_NE(cast.status.to_string().find(
+                      "Conversion from Decimal(76, 2) to Variant V2 is not supported"),
+              std::string::npos);
     EXPECT_EQ(cast.column.get(), cast.initial_result.get());
 }
 
@@ -202,7 +218,7 @@ TEST(CastVariantV2ToTest, NullArrayRowDoesNotEncodeHiddenTypedVariantValue) {
     ASSERT_FALSE(invalid_date_value.is_valid_date());
     invalid_date->insert_value(invalid_date_value);
     auto internal_nulls = ColumnUInt8::create(1, 0);
-    auto typed_variant = ColumnVariantV2::create_typed_from_cast(
+    auto typed_variant = ColumnVariantV2::create_typed(
             ColumnNullable::create(std::move(invalid_date), std::move(internal_nulls)),
             std::make_shared<DataTypeDateV2>());
     const ColumnVariantV2* const typed_identity = typed_variant.get();

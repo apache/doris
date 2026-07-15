@@ -381,7 +381,6 @@ bool is_supported_scalar_source(const DataTypePtr& type) {
     case TYPE_DECIMAL32:
     case TYPE_DECIMAL64:
     case TYPE_DECIMAL128I:
-    case TYPE_DECIMAL256:
     case TYPE_DATE:
     case TYPE_DATEV2:
     case TYPE_DATETIME:
@@ -434,7 +433,7 @@ Status cast_scalar_to_variant(const ColumnPtr& source, const DataTypePtr& source
         std::ranges::copy(forced_nulls, nulls->get_data().begin());
     }
     ColumnPtr nullable = ColumnNullable::create(std::move(nested), std::move(nulls));
-    *output = ColumnVariantV2::create_typed_from_cast(std::move(nullable), source_type);
+    *output = ColumnVariantV2::create_typed(std::move(nullable), source_type);
     return Status::OK();
 }
 

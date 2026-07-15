@@ -283,7 +283,7 @@ std::string json_at(const ColumnVariantV2& column, size_t row) {
 }
 
 void append_json_row(ColumnVariantV2& column, ColumnString& reference, std::string_view json) {
-    column.insert_variant_field(encode_json(json));
+    insert_encoded_field(column, encode_json(json));
     reference.insert_data(json.data(), json.size());
 }
 
@@ -304,18 +304,18 @@ void expect_values_match(const ColumnVariantV2& column, const ColumnString& refe
 }
 
 void fill_equivalent_columns(ColumnVariantV2& canonical, ColumnVariantV2& external) {
-    canonical.insert_variant_field(encode_json("42"));
-    canonical.insert_variant_field(encode_json(R"({"a":true,"b":null})"));
-    canonical.insert_variant_field(encode_json("[42]"));
-    canonical.insert_variant_field(encode_json("42"));
-    canonical.insert_variant_field(encode_json("42"));
+    insert_encoded_field(canonical, encode_json("42"));
+    insert_encoded_field(canonical, encode_json(R"({"a":true,"b":null})"));
+    insert_encoded_field(canonical, encode_json("[42]"));
+    insert_encoded_field(canonical, encode_json("42"));
+    insert_encoded_field(canonical, encode_json("42"));
 
-    external.insert_variant_field(encoded_integer(42, sizeof(int64_t)));
+    insert_encoded_field(external, encoded_integer(42, sizeof(int64_t)));
     const std::string object = noncanonical_object_field_bytes();
-    external.insert_variant_field(VariantField::decode({object.data(), object.size()}));
-    external.insert_variant_field(encoded_integer_array(42, sizeof(int64_t)));
-    external.insert_variant_field(encoded_decimal(42, 0));
-    external.insert_variant_field(encoded_double(42.0));
+    insert_encoded_field(external, VariantField::decode({object.data(), object.size()}));
+    insert_encoded_field(external, encoded_integer_array(42, sizeof(int64_t)));
+    insert_encoded_field(external, encoded_decimal(42, 0));
+    insert_encoded_field(external, encoded_double(42.0));
 }
 
 uint64_t canonical_xx_hash(VariantValueRef value, uint64_t seed) {
@@ -340,22 +340,6 @@ void replace_subcolumn(ColumnVariantV2& column, size_t target, ColumnPtr replace
     ColumnVariantV2::TestAccess::replace_encoded_subcolumn(column, target, std::move(replacement));
 }
 
-enum class TypedFactory { SCAN, ELEMENT_AT, CAST };
-
-ColumnVariantV2::MutablePtr create_typed(ColumnPtr nullable, DataTypePtr scalar_type,
-                                         TypedFactory factory) {
-    switch (factory) {
-    case TypedFactory::SCAN:
-        return ColumnVariantV2::create_typed_from_scan(std::move(nullable), std::move(scalar_type));
-    case TypedFactory::ELEMENT_AT:
-        return ColumnVariantV2::create_typed_from_element_at(std::move(nullable),
-                                                             std::move(scalar_type));
-    case TypedFactory::CAST:
-        return ColumnVariantV2::create_typed_from_cast(std::move(nullable), std::move(scalar_type));
-    }
-    __builtin_unreachable();
-}
-
 ColumnPtr nullable_int32(std::span<const int32_t> values, std::span<const uint8_t> null_map) {
     EXPECT_EQ(values.size(), null_map.size());
     auto nested = ColumnInt32::create();
@@ -366,10 +350,9 @@ ColumnPtr nullable_int32(std::span<const int32_t> values, std::span<const uint8_
 }
 
 ColumnVariantV2::MutablePtr typed_int32(std::span<const int32_t> values,
-                                        std::span<const uint8_t> null_map,
-                                        TypedFactory factory = TypedFactory::SCAN) {
-    return create_typed(nullable_int32(values, null_map), std::make_shared<DataTypeInt32>(),
-                        factory);
+                                        std::span<const uint8_t> null_map) {
+    return ColumnVariantV2::create_typed(nullable_int32(values, null_map),
+                                         std::make_shared<DataTypeInt32>());
 }
 
 ColumnPtr nullable_strings(std::span<const std::string_view> values,
@@ -386,8 +369,8 @@ ColumnPtr nullable_strings(std::span<const std::string_view> values,
 
 ColumnVariantV2::MutablePtr typed_strings(std::span<const std::string_view> values,
                                           std::span<const uint8_t> null_map) {
-    return ColumnVariantV2::create_typed_from_scan(nullable_strings(values, null_map),
-                                                   std::make_shared<DataTypeString>());
+    return ColumnVariantV2::create_typed(nullable_strings(values, null_map),
+                                         std::make_shared<DataTypeString>());
 }
 
 ColumnPtr wrap_nullable(MutableColumnPtr nested, std::span<const uint8_t> null_map) {
@@ -429,10 +412,8 @@ constexpr uint32_t pack_olap_date(uint32_t year, uint32_t month, uint32_t day) {
     return (year << 9) | (month << 5) | day;
 }
 
-void expect_stats(const ColumnVariantV2::TypedEncodingStats& stats, size_t largeint,
-                  size_t decimal256, size_t ip) {
+void expect_stats(const ColumnVariantV2::TypedEncodingStats& stats, size_t largeint, size_t ip) {
     EXPECT_EQ(stats.largeint_string_fallback_rows, largeint);
-    EXPECT_EQ(stats.decimal256_string_fallback_rows, decimal256);
     EXPECT_EQ(stats.ip_string_fallback_rows, ip);
 }
 
@@ -445,14 +426,13 @@ void validate_encoded_column(const ColumnVariantV2& column) {
 
 template <typename CheckValue>
 void expect_single_typed_encoding(ColumnPtr nullable, DataTypePtr type, CheckValue&& check_value,
-                                  size_t largeint_fallback = 0, size_t decimal256_fallback = 0,
-                                  size_t ip_fallback = 0) {
-    auto column = ColumnVariantV2::create_typed_from_scan(std::move(nullable), std::move(type));
+                                  size_t largeint_fallback = 0, size_t ip_fallback = 0) {
+    auto column = ColumnVariantV2::create_typed(std::move(nullable), std::move(type));
     const ColumnVariantV2::TypedEncodingStats stats = column->ensure_encoded();
     EXPECT_FALSE(column->is_typed());
     ASSERT_EQ(column->size(), 1);
     EXPECT_EQ(metadata_count(*column), 1);
-    expect_stats(stats, largeint_fallback, decimal256_fallback, ip_fallback);
+    expect_stats(stats, largeint_fallback, ip_fallback);
     check_value(column->get_value_ref(0));
     validate_encoded_column(*column);
 }
@@ -521,9 +501,34 @@ VariantField encoded_timestamp(int64_t value, bool utc_adjusted, bool nanos) {
 ColumnVariantV2::MutablePtr encoded_rows(std::span<const VariantField> values) {
     auto column = ColumnVariantV2::create();
     for (const VariantField& value : values) {
-        column->insert_variant_field(value);
+        insert_encoded_field(*column, value);
     }
     return column;
+}
+
+void expect_canonical_rows_equal(const ColumnVariantV2& left, const ColumnVariantV2& right) {
+    ASSERT_EQ(left.size(), right.size());
+    for (size_t row = 0; row < left.size(); ++row) {
+        std::string left_cell(left.serialize_size_at(row), '\0');
+        std::string right_cell(right.serialize_size_at(row), '\0');
+        EXPECT_EQ(left.serialize_impl(left_cell.data(), row), left_cell.size());
+        EXPECT_EQ(right.serialize_impl(right_cell.data(), row), right_cell.size());
+        EXPECT_EQ(left_cell, right_cell) << row;
+    }
+}
+
+struct MixedNumericColumns {
+    ColumnVariantV2::MutablePtr typed;
+    ColumnVariantV2::MutablePtr encoded;
+};
+
+MixedNumericColumns mixed_numeric_columns() {
+    constexpr std::array<int32_t, 4> VALUES {1, 2, 3, 4};
+    constexpr std::array<uint8_t, 4> NULLS {0, 1, 0, 0};
+    const std::array<VariantField, 4> encoded_values {encoded_integer(1, sizeof(int8_t)),
+                                                      encoded_null(), encoded_decimal(30, 1),
+                                                      encoded_double(4.0)};
+    return {.typed = typed_int32(VALUES, NULLS), .encoded = encoded_rows(encoded_values)};
 }
 
 template <typename ColumnType, typename Value>
@@ -767,11 +772,11 @@ TEST(ColumnVariantV2Test, EncodedScalarObjectAndArray) {
     const VariantField object_a_again = encode_json(R"({"a":[2]})");
     const VariantField object_b = encode_json(R"({"b":3})");
 
-    column->insert_variant_field(scalar);
-    column->insert_variant_field(object_a);
-    column->insert_variant_field(array);
-    column->insert_variant_field(object_a_again);
-    column->insert_variant_field(object_b);
+    insert_encoded_field(*column, scalar);
+    insert_encoded_field(*column, object_a);
+    insert_encoded_field(*column, array);
+    insert_encoded_field(*column, object_a_again);
+    insert_encoded_field(*column, object_b);
 
     ASSERT_EQ(column->size(), 5);
     EXPECT_EQ(column->get_value_ref(0).get_int(), 7);
@@ -804,8 +809,8 @@ TEST(ColumnVariantV2Test, PreservesLegalNoncanonicalBytes) {
     const std::string raw = noncanonical_object_field_bytes();
     const VariantField noncanonical = VariantField::decode({raw.data(), raw.size()});
     auto column = ColumnVariantV2::create();
-    column->insert_variant_field(noncanonical);
-    column->insert_variant_field(noncanonical);
+    insert_encoded_field(*column, noncanonical);
+    insert_encoded_field(*column, noncanonical);
 
     VariantField round_trip = VariantField::encode(column->get_value_ref(0));
     EXPECT_EQ(as_view(round_trip.bytes()), raw);
@@ -856,8 +861,8 @@ TEST(ColumnVariantV2Test, ReadViewRejectsMalformedMetadataAndTrailingValueBytes)
 
 TEST(ColumnVariantV2Test, ReadViewBorrowsEncodedStateAndCachesDenseMetadata) {
     auto column = ColumnVariantV2::create();
-    column->insert_variant_field(encode_json(R"({"a":1})"));
-    column->insert_variant_field(encode_json(R"({"a":2})"));
+    insert_encoded_field(*column, encode_json(R"({"a":1})"));
+    insert_encoded_field(*column, encode_json(R"({"a":2})"));
     const std::vector<ColumnPtr> original_children = subcolumns(*column);
 
     const auto view = column->read_view();
@@ -881,9 +886,9 @@ TEST(ColumnVariantV2Test, ReadViewBorrowsEncodedStateAndCachesDenseMetadata) {
 
 TEST(ColumnVariantV2Test, CopyInterfacesUseSharedMetadataFastPath) {
     auto source = ColumnVariantV2::create();
-    source->insert_variant_field(encode_json(R"({"a":1})"));
-    source->insert_variant_field(encode_json(R"({"b":2})"));
-    source->insert_variant_field(encode_json(R"({"a":3})"));
+    insert_encoded_field(*source, encode_json(R"({"a":1})"));
+    insert_encoded_field(*source, encode_json(R"({"b":2})"));
+    insert_encoded_field(*source, encode_json(R"({"a":3})"));
 
     auto destination = ColumnVariantV2::create();
     destination->insert_range_from(*source, 0, source->size());
@@ -924,7 +929,7 @@ TEST(ColumnVariantV2Test, CopyInterfacesUseSharedMetadataFastPath) {
     EXPECT_EQ(value.get_int(), 1);
 
     auto different_source = ColumnVariantV2::create();
-    different_source->insert_variant_field(encode_json(R"({"c":4})"));
+    insert_encoded_field(*different_source, encode_json(R"({"c":4})"));
     destination->insert_from(*different_source, 0);
     EXPECT_NE(subcolumn_address(*destination, 0), subcolumn_address(*source, 0));
     EXPECT_EQ(metadata_count(*source), dictionaries);
@@ -946,7 +951,7 @@ TEST(ColumnVariantV2Test, RemapsDistinctAndDuplicateMetadataBlobs) {
     const VariantField object_b = encode_json(R"({"b":3})");
 
     auto destination = ColumnVariantV2::create();
-    destination->insert_variant_field(object_a_one);
+    insert_encoded_field(*destination, object_a_one);
 
     OwnedEncodedData encoded;
     const uint32_t b_first = encoded.add_metadata(object_b.ref().metadata);
@@ -979,7 +984,7 @@ TEST(ColumnVariantV2Test, RemapsDistinctAndDuplicateMetadataBlobs) {
     EXPECT_EQ(a_id, a_again);
 
     auto accounting = ColumnVariantV2::create();
-    accounting->insert_variant_field(object_a_one);
+    insert_encoded_field(*accounting, object_a_one);
     ColumnVariantV2::TestAccess::reset_metadata_index(*accounting);
     const size_t without_index = accounting->allocated_bytes();
     EXPECT_EQ(ColumnVariantV2::TestAccess::find_or_insert_metadata(
@@ -1102,31 +1107,31 @@ TEST(ColumnVariantV2Test, InsertsCodecOwnedBlockAtLeast64KRows) {
 
 TEST(ColumnVariantV2Test, CowCloneForEachAndClearRebuildMetadataIndex) {
     auto column = ColumnVariantV2::create();
-    column->insert_variant_field(encode_json(R"({"a":1})"));
-    column->insert_variant_field(encode_json(R"({"b":2})"));
+    insert_encoded_field(*column, encode_json(R"({"a":1})"));
+    insert_encoded_field(*column, encode_json(R"({"b":2})"));
     constexpr size_t ORIGINAL_METADATA_COUNT = 2;
 
     ColumnPtr original = column->get_ptr();
     MutableColumnPtr detached_base = IColumn::mutate(original);
     auto& detached = assert_cast<ColumnVariantV2&>(*detached_base);
-    detached.insert_variant_field(encode_json(R"({"a":3})"));
+    insert_encoded_field(detached, encode_json(R"({"a":3})"));
     EXPECT_EQ(metadata_count(detached), ORIGINAL_METADATA_COUNT);
     EXPECT_EQ(original->size(), 2);
 
     ColumnVariantV2::TestAccess::reset_metadata_index(detached);
-    detached.insert_variant_field(encode_json(R"({"b":4})"));
+    insert_encoded_field(detached, encode_json(R"({"b":4})"));
     EXPECT_EQ(metadata_count(detached), ORIGINAL_METADATA_COUNT);
     detached.clear();
-    detached.insert_variant_field(encode_json(R"({"c":5})"));
+    insert_encoded_field(detached, encode_json(R"({"c":5})"));
     EXPECT_EQ(detached.size(), 1);
     EXPECT_EQ(metadata_count(detached), 1);
 }
 
 TEST(ColumnVariantV2Test, SelfInsertRangeAndIndicesSnapshotAliases) {
     auto column = ColumnVariantV2::create();
-    column->insert_variant_field(encode_json("1"));
-    column->insert_variant_field(encode_json("2"));
-    column->insert_variant_field(encode_json("3"));
+    insert_encoded_field(*column, encode_json("1"));
+    insert_encoded_field(*column, encode_json("2"));
+    insert_encoded_field(*column, encode_json("3"));
 
     column->insert_from(*column, 1);
     column->insert_range_from(*column, 0, 3);
@@ -1867,7 +1872,7 @@ TEST(ColumnVariantV2Test, RejectsInvalidBulkOffsetsAndMetadataIds) {
     EXPECT_DEATH(
             {
                 auto source = ColumnVariantV2::create();
-                source->insert_variant_field(encode_json("1"));
+                insert_encoded_field(*source, encode_json("1"));
                 auto invalid_ids = MetaIdsColumn::create();
                 invalid_ids->insert_value(9);
                 replace_subcolumn(*source, 1, invalid_ids->get_ptr());
@@ -1879,7 +1884,7 @@ TEST(ColumnVariantV2Test, RejectsInvalidBulkOffsetsAndMetadataIds) {
 
 TEST(ColumnVariantV2Test, CowDetachAndClear) {
     auto column = ColumnVariantV2::create();
-    column->insert_variant_field(encode_json(R"({"a":[1,2]})"));
+    insert_encoded_field(*column, encode_json(R"({"a":[1,2]})"));
     ColumnPtr original = column->get_ptr();
 
     MutableColumnPtr detached = IColumn::mutate(original);
@@ -1898,7 +1903,7 @@ TEST(ColumnVariantV2Test, EncodedRowCountInvariant) {
     EXPECT_DEATH(
             {
                 auto column = ColumnVariantV2::create();
-                column->insert_variant_field(encode_json("1"));
+                insert_encoded_field(*column, encode_json("1"));
                 replace_subcolumn(*column, 2, ColumnString::create());
                 column->sanity_check();
             },
@@ -1909,7 +1914,7 @@ TEST(ColumnVariantV2Test, MetadataIdInvariant) {
     EXPECT_DEATH(
             {
                 auto column = ColumnVariantV2::create();
-                column->insert_variant_field(encode_json("1"));
+                insert_encoded_field(*column, encode_json("1"));
                 auto invalid_ids = MetaIdsColumn::create();
                 invalid_ids->insert_value(9);
                 replace_subcolumn(*column, 1, invalid_ids->get_ptr());
@@ -1918,25 +1923,22 @@ TEST(ColumnVariantV2Test, MetadataIdInvariant) {
             "metadata id is out of range");
 }
 
-// NOLINTNEXTLINE(readability-function-cognitive-complexity) -- factory/precondition invariant matrix.
-TEST(ColumnVariantV2Test, TypedFactoriesAndNullableInvariant) {
+// NOLINTNEXTLINE(readability-function-cognitive-complexity) -- construction invariant matrix.
+TEST(ColumnVariantV2Test, TypedConstructionAndNullableInvariant) {
     constexpr std::array<int32_t, 3> VALUES {7, 0, -9};
     constexpr std::array<uint8_t, 3> NULLS {0, 1, 0};
-    for (TypedFactory factory :
-         {TypedFactory::SCAN, TypedFactory::ELEMENT_AT, TypedFactory::CAST}) {
-        auto column = typed_int32(VALUES, NULLS, factory);
-        EXPECT_TRUE(column->is_typed());
-        EXPECT_EQ(column->size(), VALUES.size());
-        EXPECT_EQ(column->get_name(), "variant_v2(typed=INT)");
-        EXPECT_EQ(subcolumns(*column).size(), 1);
-        EXPECT_EQ(&column->typed_column(), subcolumns(*column).front().get());
-        EXPECT_EQ(column->typed_type()->get_primitive_type(), PrimitiveType::TYPE_INT);
-        EXPECT_EQ(column->byte_size(), subcolumns(*column).front()->byte_size());
-        column->sanity_check();
-        column->clear();
-        EXPECT_TRUE(column->is_typed());
-        EXPECT_EQ(column->size(), 0);
-    }
+    auto column = typed_int32(VALUES, NULLS);
+    EXPECT_TRUE(column->is_typed());
+    EXPECT_EQ(column->size(), VALUES.size());
+    EXPECT_EQ(column->get_name(), "variant_v2(typed=INT)");
+    EXPECT_EQ(subcolumns(*column).size(), 1);
+    EXPECT_EQ(&column->typed_column(), subcolumns(*column).front().get());
+    EXPECT_EQ(column->typed_type()->get_primitive_type(), PrimitiveType::TYPE_INT);
+    EXPECT_EQ(column->byte_size(), subcolumns(*column).front()->byte_size());
+    column->sanity_check();
+    column->clear();
+    EXPECT_TRUE(column->is_typed());
+    EXPECT_EQ(column->size(), 0);
 
     auto state_api = typed_int32(VALUES, NULLS);
     auto same_structure = typed_int32(VALUES, NULLS);
@@ -1959,14 +1961,14 @@ TEST(ColumnVariantV2Test, TypedFactoriesAndNullableInvariant) {
             {
                 auto non_nullable = ColumnInt32::create();
                 non_nullable->insert_value(1);
-                static_cast<void>(ColumnVariantV2::create_typed_from_scan(
-                        std::move(non_nullable), std::make_shared<DataTypeInt32>()));
+                static_cast<void>(ColumnVariantV2::create_typed(std::move(non_nullable),
+                                                                std::make_shared<DataTypeInt32>()));
             },
             "ColumnNullable");
     EXPECT_DEATH(
             {
-                static_cast<void>(ColumnVariantV2::create_typed_from_scan(
-                        nullable_int32(VALUES, NULLS), std::make_shared<DataTypeInt64>()));
+                static_cast<void>(ColumnVariantV2::create_typed(nullable_int32(VALUES, NULLS),
+                                                                std::make_shared<DataTypeInt64>()));
             },
             "does not match");
     constexpr std::array<int32_t, 1> CONST_VALUE {7};
@@ -1975,18 +1977,18 @@ TEST(ColumnVariantV2Test, TypedFactoriesAndNullableInvariant) {
             {
                 ColumnPtr nullable = nullable_int32(CONST_VALUE, CONST_NULL);
                 ColumnPtr constant = ColumnConst::create(nullable, 2);
-                static_cast<void>(ColumnVariantV2::create_typed_from_scan(
-                        std::move(constant), std::make_shared<DataTypeInt32>()));
+                static_cast<void>(ColumnVariantV2::create_typed(std::move(constant),
+                                                                std::make_shared<DataTypeInt32>()));
             },
             "ColumnConst");
 
-    EXPECT_DEATH(static_cast<void>(ColumnVariantV2::create_typed_from_scan(
+    EXPECT_DEATH(static_cast<void>(ColumnVariantV2::create_typed(
                          ColumnPtr {}, std::make_shared<DataTypeInt32>())),
                  "column must not be null");
-    EXPECT_DEATH(static_cast<void>(ColumnVariantV2::create_typed_from_scan(
-                         nullable_int32(VALUES, NULLS), DataTypePtr {})),
+    EXPECT_DEATH(static_cast<void>(ColumnVariantV2::create_typed(nullable_int32(VALUES, NULLS),
+                                                                 DataTypePtr {})),
                  "type must not be null");
-    EXPECT_DEATH(static_cast<void>(ColumnVariantV2::create_typed_from_scan(
+    EXPECT_DEATH(static_cast<void>(ColumnVariantV2::create_typed(
                          nullable_int32(VALUES, NULLS),
                          std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>()))),
                  "non-nullable scalar type");
@@ -1995,12 +1997,12 @@ TEST(ColumnVariantV2Test, TypedFactoriesAndNullableInvariant) {
     time_nested->insert_value(1.0);
     constexpr std::array<uint8_t, 1> ONE_NOT_NULL {0};
     ColumnPtr time_nullable = wrap_nullable(std::move(time_nested), ONE_NOT_NULL);
-    EXPECT_DEATH(static_cast<void>(ColumnVariantV2::create_typed_from_scan(
+    EXPECT_DEATH(static_cast<void>(ColumnVariantV2::create_typed(
                          time_nullable, std::make_shared<DataTypeTimeV2>(6))),
                  "unsupported typed identity");
     const std::array<std::string_view, 1> JSONB_VALUE {"{}"};
     ColumnPtr jsonb_nullable = nullable_strings(JSONB_VALUE, ONE_NOT_NULL);
-    EXPECT_DEATH(static_cast<void>(ColumnVariantV2::create_typed_from_scan(
+    EXPECT_DEATH(static_cast<void>(ColumnVariantV2::create_typed(
                          jsonb_nullable, std::make_shared<DataTypeJsonb>())),
                  "unsupported typed identity");
 
@@ -2015,7 +2017,7 @@ TEST(ColumnVariantV2Test, TypedFactoriesAndNullableInvariant) {
 
     ColumnPtr decimal_scale_two =
             nullable_decimal<ColumnDecimal32, Decimal32>(2, {Decimal32 {123}}, {0});
-    EXPECT_DEATH(static_cast<void>(ColumnVariantV2::create_typed_from_scan(
+    EXPECT_DEATH(static_cast<void>(ColumnVariantV2::create_typed(
                          decimal_scale_two, std::make_shared<DataTypeDecimal32>(9, 3))),
                  "decimal scale");
 }
@@ -2038,13 +2040,13 @@ TEST(ColumnVariantV2Test, ReadViewBorrowsTypedStateWithoutMaterializingIt) {
 
 // NOLINTNEXTLINE(readability-function-cognitive-complexity) -- exhaustive typed mapping matrix.
 TEST(ColumnVariantV2Test, TypedEnsureEncodedAllScalarMappings) {
-    auto booleans = ColumnVariantV2::create_typed_from_scan(
+    auto booleans = ColumnVariantV2::create_typed(
             nullable_fixed<ColumnUInt8, UInt8>({0, 1}, {0, 0}), std::make_shared<DataTypeBool>());
-    expect_stats(booleans->ensure_encoded(), 0, 0, 0);
+    expect_stats(booleans->ensure_encoded(), 0, 0);
     EXPECT_EQ(booleans->get_value_ref(0).primitive_id(), VariantPrimitiveId::FALSE_VALUE);
     EXPECT_EQ(booleans->get_value_ref(1).primitive_id(), VariantPrimitiveId::TRUE_VALUE);
     validate_encoded_column(*booleans);
-    expect_stats(booleans->ensure_encoded(), 0, 0, 0);
+    expect_stats(booleans->ensure_encoded(), 0, 0);
     validate_encoded_column(*booleans);
 
     expect_single_typed_encoding(nullable_fixed<ColumnInt8, Int8>({-7}, {0}),
@@ -2074,11 +2076,11 @@ TEST(ColumnVariantV2Test, TypedEnsureEncodedAllScalarMappings) {
 
     const __int128 decimal38_max = power_of_ten_i128(38) - 1;
     const __int128 outside_decimal38 = power_of_ten_i128(38);
-    auto largeints = ColumnVariantV2::create_typed_from_scan(
+    auto largeints = ColumnVariantV2::create_typed(
             nullable_fixed<ColumnInt128, Int128>(
                     {decimal38_max, outside_decimal38, -outside_decimal38}, {0, 0, 0}),
             std::make_shared<DataTypeInt128>());
-    expect_stats(largeints->ensure_encoded(), 2, 0, 0);
+    expect_stats(largeints->ensure_encoded(), 2, 0);
     EXPECT_EQ(largeints->get_value_ref(0).primitive_id(), VariantPrimitiveId::DECIMAL16);
     EXPECT_EQ(largeints->get_value_ref(0).get_decimal(), (VariantDecimal {decimal38_max, 0, 16}));
     EXPECT_EQ(largeints->get_value_ref(1).get_string(),
@@ -2127,32 +2129,6 @@ TEST(ColumnVariantV2Test, TypedEnsureEncodedAllScalarMappings) {
                 EXPECT_EQ(value.get_decimal(),
                           (VariantDecimal {1'234'567'890'123'456'789LL, 4, 16}));
             });
-    auto decimal256_scale_two = ColumnVariantV2::create_typed_from_scan(
-            nullable_decimal<ColumnDecimal256, Decimal256>(
-                    2, {Decimal256 {wide::Int256(-12345)}, Decimal256 {wide::Int256(0)}}, {0, 0}),
-            std::make_shared<DataTypeDecimal256>(76, 2));
-    expect_stats(decimal256_scale_two->ensure_encoded(), 0, 2, 0);
-    EXPECT_EQ(decimal256_scale_two->get_value_ref(0).get_string(), StringRef("-123.45"));
-    EXPECT_EQ(decimal256_scale_two->get_value_ref(1).get_string(), StringRef("0.00"));
-    validate_encoded_column(*decimal256_scale_two);
-    expect_single_typed_encoding(
-            nullable_decimal<ColumnDecimal256, Decimal256>(3, {Decimal256 {wide::Int256(5)}}, {0}),
-            std::make_shared<DataTypeDecimal256>(76, 3),
-            [](VariantValueRef value) { EXPECT_EQ(value.get_string(), StringRef("0.005")); }, 0, 1,
-            0);
-    expect_single_typed_encoding(
-            nullable_decimal<ColumnDecimal256, Decimal256>(
-                    0, {Decimal256 {std::numeric_limits<wide::Int256>::min()}}, {0}),
-            std::make_shared<DataTypeDecimal256>(76, 0),
-            [](VariantValueRef value) {
-                EXPECT_EQ(
-                        value.get_string(),
-                        StringRef(
-                                "-5789604461865809771178549250434395392663499233282028201972879200"
-                                "3956564819968"));
-            },
-            0, 1, 0);
-
     const VecDateTimeValue date =
             VecDateTimeValue::create_from_olap_date(pack_olap_date(1970, 1, 2));
     expect_single_typed_encoding(nullable_fixed<ColumnDate, VecDateTimeValue>({date}, {0}),
@@ -2200,10 +2176,10 @@ TEST(ColumnVariantV2Test, TypedEnsureEncodedAllScalarMappings) {
     constexpr std::array<uint8_t, 2> STRING_NULLS {0, 0};
     for (PrimitiveType primitive :
          {PrimitiveType::TYPE_CHAR, PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_STRING}) {
-        auto strings = ColumnVariantV2::create_typed_from_scan(
-                nullable_strings(STRINGS, STRING_NULLS),
-                std::make_shared<DataTypeString>(64, primitive));
-        expect_stats(strings->ensure_encoded(), 0, 0, 0);
+        auto strings =
+                ColumnVariantV2::create_typed(nullable_strings(STRINGS, STRING_NULLS),
+                                              std::make_shared<DataTypeString>(64, primitive));
+        expect_stats(strings->ensure_encoded(), 0, 0);
         EXPECT_EQ(strings->get_value_ref(0).basic_type(), VariantBasicType::SHORT_STRING);
         EXPECT_EQ(strings->get_value_ref(0).get_string(), StringRef(short_text));
         EXPECT_EQ(strings->get_value_ref(1).primitive_id(), VariantPrimitiveId::STRING);
@@ -2216,13 +2192,13 @@ TEST(ColumnVariantV2Test, TypedEnsureEncodedAllScalarMappings) {
     expect_single_typed_encoding(
             nullable_fixed<ColumnIPv4, IPv4>({ipv4}, {0}), std::make_shared<DataTypeIPv4>(),
             [](VariantValueRef value) { EXPECT_EQ(value.get_string(), StringRef("192.0.2.1")); }, 0,
-            0, 1);
+            1);
     IPv6 ipv6 {};
     ASSERT_TRUE(IPv6Value::from_string(ipv6, "2001:db8::1"));
     expect_single_typed_encoding(
             nullable_fixed<ColumnIPv6, IPv6>({ipv6}, {0}), std::make_shared<DataTypeIPv6>(),
             [](VariantValueRef value) { EXPECT_EQ(value.get_string(), StringRef("2001:db8::1")); },
-            0, 0, 1);
+            0, 1);
 
     constexpr std::array<int32_t, 3> NULL_VALUES {1, 0, -2};
     constexpr std::array<uint8_t, 3> INNER_NULLS {0, 0, 1};
@@ -2240,7 +2216,7 @@ TEST(ColumnVariantV2Test, TypedEnsureEncodedAllScalarMappings) {
     EXPECT_FALSE(empty->is_typed());
     EXPECT_EQ(empty->size(), 0);
     EXPECT_EQ(metadata_count(*empty), 0);
-    expect_stats(empty->ensure_encoded(), 0, 0, 0);
+    expect_stats(empty->ensure_encoded(), 0, 0);
 
     auto zero_date_nested = ColumnDateV2::create();
     const ColumnDateV2::value_type valid_date =
@@ -2251,7 +2227,7 @@ TEST(ColumnVariantV2Test, TypedEnsureEncodedAllScalarMappings) {
     auto zero_date_nulls = ColumnUInt8::create();
     zero_date_nulls->insert_value(0);
     zero_date_nulls->insert_value(0);
-    auto zero_date = ColumnVariantV2::create_typed_from_scan(
+    auto zero_date = ColumnVariantV2::create_typed(
             ColumnNullable::create(std::move(zero_date_nested), std::move(zero_date_nulls)),
             std::make_shared<DataTypeDateV2>());
     const IColumn* zero_date_storage = &zero_date->typed_column();
@@ -2426,7 +2402,7 @@ TEST(ColumnVariantV2Test, TypedEncodedInsertMatrixKeepsConstSource) {
     expect_int32_rows(*zero_length, DESTINATION_VALUES, DESTINATION_NULLS);
 
     auto encoded_destination = ColumnVariantV2::create();
-    encoded_destination->insert_variant_field(encode_json("7"));
+    insert_encoded_field(*encoded_destination, encode_json("7"));
     encoded_destination->insert_range_from(*source, 0, source->size());
     EXPECT_FALSE(encoded_destination->is_typed());
     EXPECT_EQ(encoded_destination->size(), 4);
@@ -2450,7 +2426,7 @@ TEST(ColumnVariantV2Test, TypedEncodedInsertMatrixKeepsConstSource) {
     EXPECT_EQ(different_type->get_value_ref(0).get_int(), 9);
     EXPECT_EQ(different_type->get_value_ref(1).get_string(), StringRef("x"));
 
-    auto chars = ColumnVariantV2::create_typed_from_scan(
+    auto chars = ColumnVariantV2::create_typed(
             nullable_strings(TEXT, DESTINATION_NULLS),
             std::make_shared<DataTypeString>(1, PrimitiveType::TYPE_CHAR));
     auto string_identity = typed_strings(TEXT, DESTINATION_NULLS);
@@ -2482,15 +2458,90 @@ TEST(ColumnVariantV2Test, TypedEncodedInsertMatrixKeepsConstSource) {
     expect_int32_rows(*source, SOURCE_VALUES, SOURCE_NULLS);
 }
 
+TEST(ColumnVariantV2Test, MixedEncodedTypedFilterAndRangePreserveCanonicalRows) {
+    constexpr std::array<int32_t, 4> VALUES {1, 2, 3, 4};
+    constexpr std::array<uint8_t, 4> NULLS {0, 1, 0, 0};
+    auto [typed, encoded] = mixed_numeric_columns();
+    expect_canonical_rows_equal(*typed, *encoded);
+
+    IColumn::Filter keep {0, 1, 1, 1};
+    ColumnPtr typed_filtered = std::as_const(*typed).filter(keep, 3);
+    ColumnPtr encoded_filtered = std::as_const(*encoded).filter(keep, 3);
+    const auto& typed_filtered_variant = assert_cast<const ColumnVariantV2&>(*typed_filtered);
+    const auto& encoded_filtered_variant = assert_cast<const ColumnVariantV2&>(*encoded_filtered);
+    EXPECT_TRUE(typed_filtered_variant.is_typed());
+    EXPECT_FALSE(encoded_filtered_variant.is_typed());
+    expect_canonical_rows_equal(typed_filtered_variant, encoded_filtered_variant);
+
+    auto typed_inplace = typed_int32(VALUES, NULLS);
+    auto encoded_inplace = mixed_numeric_columns().encoded;
+    EXPECT_EQ(typed_inplace->filter(keep), 3);
+    EXPECT_EQ(encoded_inplace->filter(keep), 3);
+    expect_canonical_rows_equal(*typed_inplace, *encoded_inplace);
+
+    auto encoded_range = ColumnVariantV2::create();
+    encoded_range->insert_range_from(*typed, 0, typed->size());
+    EXPECT_FALSE(encoded_range->is_typed());
+    expect_canonical_rows_equal(*encoded_range, *encoded);
+
+    constexpr std::array<int32_t, 0> NO_VALUES {};
+    constexpr std::array<uint8_t, 0> NO_NULLS {};
+    auto typed_range = typed_int32(NO_VALUES, NO_NULLS);
+    typed_range->insert_range_from(*encoded, 0, encoded->size());
+    EXPECT_FALSE(typed_range->is_typed());
+    expect_canonical_rows_equal(*typed_range, *encoded);
+
+    EXPECT_TRUE(typed->is_typed());
+    EXPECT_FALSE(encoded->is_typed());
+    expect_canonical_rows_equal(*typed, *encoded);
+}
+
+TEST(ColumnVariantV2Test, MixedEncodedTypedInsertAndGatherPreserveCanonicalRows) {
+    auto [typed, encoded] = mixed_numeric_columns();
+
+    constexpr std::array<uint32_t, 4> SELECTED {3, 1, 0, 3};
+    const std::array<VariantField, 1> PREFIX {encoded_integer(9, sizeof(int8_t))};
+    auto encoded_indices = encoded_rows(PREFIX);
+    encoded_indices->insert_from(*typed, 1);
+    encoded_indices->insert_indices_from(*typed, SELECTED.data(),
+                                         SELECTED.data() + SELECTED.size());
+    constexpr std::array<int32_t, 6> EXPECTED_VALUES {9, 0, 4, 0, 1, 4};
+    constexpr std::array<uint8_t, 6> EXPECTED_NULLS {0, 1, 0, 1, 0, 0};
+    expect_int32_rows(*encoded_indices, EXPECTED_VALUES, EXPECTED_NULLS);
+
+    constexpr std::array<int32_t, 1> PREFIX_VALUE {9};
+    constexpr std::array<uint8_t, 1> PREFIX_NULL {0};
+    auto typed_indices = typed_int32(PREFIX_VALUE, PREFIX_NULL);
+    typed_indices->insert_from(*encoded, 1);
+    typed_indices->insert_indices_from(*encoded, SELECTED.data(),
+                                       SELECTED.data() + SELECTED.size());
+    EXPECT_FALSE(typed_indices->is_typed());
+    expect_canonical_rows_equal(*typed_indices, *encoded_indices);
+
+    auto gathered = ColumnVariantV2::create();
+    const std::vector<const IColumn*> sources {typed.get(), encoded.get(), typed.get(),
+                                               encoded.get()};
+    const std::vector<size_t> positions {3, 1, 0, 2};
+    gathered->insert_from_multi_column(sources, positions);
+    constexpr std::array<int32_t, 4> GATHERED_VALUES {4, 0, 1, 3};
+    constexpr std::array<uint8_t, 4> GATHERED_NULLS {0, 1, 0, 0};
+    auto gathered_expected = typed_int32(GATHERED_VALUES, GATHERED_NULLS);
+    expect_canonical_rows_equal(*gathered, *gathered_expected);
+
+    EXPECT_TRUE(typed->is_typed());
+    EXPECT_FALSE(encoded->is_typed());
+    expect_canonical_rows_equal(*typed, *encoded);
+}
+
 // NOLINTNEXTLINE(readability-function-cognitive-complexity) -- exhaustive E/T adapter matrix.
 TEST(ColumnVariantV2Test, TypedCanonicalHashCrcAndArenaMatchEncoded) {
     constexpr std::array<int32_t, 3> VALUES {42, 0, -7};
     constexpr std::array<uint8_t, 3> NULLS {0, 1, 0};
     auto typed = typed_int32(VALUES, NULLS);
     auto encoded = ColumnVariantV2::create();
-    encoded->insert_variant_field(encoded_integer(42, 4));
-    encoded->insert_variant_field(encode_json("null"));
-    encoded->insert_variant_field(encoded_integer(-7, 4));
+    insert_encoded_field(*encoded, encoded_integer(42, 4));
+    insert_encoded_field(*encoded, encode_json("null"));
+    insert_encoded_field(*encoded, encoded_integer(-7, 4));
 
     for (size_t row = 0; row < typed->size(); ++row) {
         SipHash typed_sip;
@@ -2644,17 +2695,18 @@ TEST(ColumnVariantV2Test, ETCrossCheckNumericCrossKindMatrix) {
     representations.push_back({"E/decimal16-scale2", encoded_rows(decimal16_fields)});
     representations.push_back({"E/integral-double", encoded_rows(double_fields)});
     representations.push_back(
-            {"T/int8", create_typed(nullable_fixed_values<ColumnInt8, Int8>(INTEGERS, NOT_NULL),
-                                    std::make_shared<DataTypeInt8>(), TypedFactory::SCAN)});
+            {"T/int8", ColumnVariantV2::create_typed(
+                               nullable_fixed_values<ColumnInt8, Int8>(INTEGERS, NOT_NULL),
+                               std::make_shared<DataTypeInt8>())});
     representations.push_back(
             {"T/decimal32-scale2",
-             create_typed(
+             ColumnVariantV2::create_typed(
                      nullable_decimal_values<ColumnDecimal32, Decimal32>(2, DECIMALS, NOT_NULL),
-                     std::make_shared<DataTypeDecimal32>(9, 2), TypedFactory::ELEMENT_AT)});
+                     std::make_shared<DataTypeDecimal32>(9, 2))});
     representations.push_back(
-            {"T/float64",
-             create_typed(nullable_fixed_values<ColumnFloat64, double>(DOUBLES, NOT_NULL),
-                          std::make_shared<DataTypeFloat64>(), TypedFactory::CAST)});
+            {"T/float64", ColumnVariantV2::create_typed(
+                                  nullable_fixed_values<ColumnFloat64, double>(DOUBLES, NOT_NULL),
+                                  std::make_shared<DataTypeFloat64>())});
 
     ETCrossCheckCoverage coverage;
     expect_et_cross_check_group("numeric-cross-kind", representations, coverage);
@@ -2685,13 +2737,14 @@ TEST(ColumnVariantV2Test, ETCrossCheckFloatingStringAndNullMatrix) {
             {"E/double-positive-zero-nan-b", encoded_rows(encoded_floating_b)});
     floating_representations.push_back(
             {"T/float32-negative-zero-nan",
-             create_typed(nullable_fixed_values<ColumnFloat32, float>(FLOAT_VALUES, FLOAT_NOT_NULL),
-                          std::make_shared<DataTypeFloat32>(), TypedFactory::SCAN)});
+             ColumnVariantV2::create_typed(
+                     nullable_fixed_values<ColumnFloat32, float>(FLOAT_VALUES, FLOAT_NOT_NULL),
+                     std::make_shared<DataTypeFloat32>())});
     floating_representations.push_back(
             {"T/float64-positive-zero-nan",
-             create_typed(
+             ColumnVariantV2::create_typed(
                      nullable_fixed_values<ColumnFloat64, double>(DOUBLE_VALUES, FLOAT_NOT_NULL),
-                     std::make_shared<DataTypeFloat64>(), TypedFactory::CAST)});
+                     std::make_shared<DataTypeFloat64>())});
     ETCrossCheckCoverage floating_coverage;
     expect_et_cross_check_group("signed-zero-and-nan", floating_representations, floating_coverage);
 
@@ -2710,13 +2763,13 @@ TEST(ColumnVariantV2Test, ETCrossCheckFloatingStringAndNullMatrix) {
     string_representations.push_back({"E/raw-short-long-string", encoded_rows(encoded_strings)});
     string_representations.push_back(
             {"T/string-scan",
-             create_typed(nullable_strings(TEXTS, STRING_NOT_NULL),
-                          std::make_shared<DataTypeString>(), TypedFactory::SCAN)});
+             ColumnVariantV2::create_typed(nullable_strings(TEXTS, STRING_NOT_NULL),
+                                           std::make_shared<DataTypeString>())});
     string_representations.push_back(
             {"T/varchar-cast",
-             create_typed(nullable_strings(TEXTS, STRING_NOT_NULL),
-                          std::make_shared<DataTypeString>(257, PrimitiveType::TYPE_VARCHAR),
-                          TypedFactory::CAST)});
+             ColumnVariantV2::create_typed(
+                     nullable_strings(TEXTS, STRING_NOT_NULL),
+                     std::make_shared<DataTypeString>(257, PrimitiveType::TYPE_VARCHAR))});
     ETCrossCheckCoverage string_coverage;
     expect_et_cross_check_group("short-and-long-string", string_representations, string_coverage);
 
@@ -2728,12 +2781,13 @@ TEST(ColumnVariantV2Test, ETCrossCheckFloatingStringAndNullMatrix) {
     null_representations.push_back({"E/json-null", encoded_rows(encoded_nulls)});
     null_representations.push_back(
             {"T/null-int32",
-             create_typed(nullable_fixed_values<ColumnInt32, Int32>(IGNORED_INTEGER, IS_NULL),
-                          std::make_shared<DataTypeInt32>(), TypedFactory::SCAN)});
+             ColumnVariantV2::create_typed(
+                     nullable_fixed_values<ColumnInt32, Int32>(IGNORED_INTEGER, IS_NULL),
+                     std::make_shared<DataTypeInt32>())});
     null_representations.push_back(
             {"T/null-string",
-             create_typed(nullable_strings(IGNORED_STRING, IS_NULL),
-                          std::make_shared<DataTypeString>(), TypedFactory::ELEMENT_AT)});
+             ColumnVariantV2::create_typed(nullable_strings(IGNORED_STRING, IS_NULL),
+                                           std::make_shared<DataTypeString>())});
     ETCrossCheckCoverage null_coverage;
     expect_et_cross_check_group("json-null", null_representations, null_coverage);
 }
@@ -2751,14 +2805,15 @@ TEST(ColumnVariantV2Test, ETCrossCheckTemporalClassMatrix) {
     std::vector<ETCrossCheckRepresentation> date_representations;
     date_representations.push_back({"E/date", encoded_rows(encoded_dates)});
     date_representations.push_back(
-            {"T/legacy-date", create_typed(nullable_fixed_values<ColumnDate, VecDateTimeValue>(
-                                                   legacy_dates, NOT_NULL),
-                                           std::make_shared<DataTypeDate>(), TypedFactory::SCAN)});
+            {"T/legacy-date",
+             ColumnVariantV2::create_typed(
+                     nullable_fixed_values<ColumnDate, VecDateTimeValue>(legacy_dates, NOT_NULL),
+                     std::make_shared<DataTypeDate>())});
     date_representations.push_back(
-            {"T/date-v2",
-             create_typed(nullable_fixed_values<ColumnDateV2, DateV2Value<DateV2ValueType>>(
-                                  date_v2_values, NOT_NULL),
-                          std::make_shared<DataTypeDateV2>(), TypedFactory::CAST)});
+            {"T/date-v2", ColumnVariantV2::create_typed(
+                                  nullable_fixed_values<ColumnDateV2, DateV2Value<DateV2ValueType>>(
+                                          date_v2_values, NOT_NULL),
+                                  std::make_shared<DataTypeDateV2>())});
     ETCrossCheckCoverage date_coverage;
     expect_et_cross_check_group("date", date_representations, date_coverage);
 
@@ -2781,14 +2836,15 @@ TEST(ColumnVariantV2Test, ETCrossCheckTemporalClassMatrix) {
     ntz_representations.push_back({"E/timestamp-ntz-nanos", encoded_rows(encoded_ntz_nanos)});
     ntz_representations.push_back(
             {"T/legacy-datetime",
-             create_typed(nullable_fixed_values<ColumnDateTime, VecDateTimeValue>(legacy_datetimes,
-                                                                                  NOT_NULL),
-                          std::make_shared<DataTypeDateTime>(), TypedFactory::SCAN)});
+             ColumnVariantV2::create_typed(nullable_fixed_values<ColumnDateTime, VecDateTimeValue>(
+                                                   legacy_datetimes, NOT_NULL),
+                                           std::make_shared<DataTypeDateTime>())});
     ntz_representations.push_back(
             {"T/datetime-v2",
-             create_typed(nullable_fixed_values<ColumnDateTimeV2, DateV2Value<DateTimeV2ValueType>>(
-                                  datetime_v2_values, NOT_NULL),
-                          std::make_shared<DataTypeDateTimeV2>(6), TypedFactory::ELEMENT_AT)});
+             ColumnVariantV2::create_typed(
+                     nullable_fixed_values<ColumnDateTimeV2, DateV2Value<DateTimeV2ValueType>>(
+                             datetime_v2_values, NOT_NULL),
+                     std::make_shared<DataTypeDateTimeV2>(6))});
     ETCrossCheckCoverage ntz_coverage;
     expect_et_cross_check_group("timestamp-ntz", ntz_representations, ntz_coverage);
 
@@ -2809,14 +2865,16 @@ TEST(ColumnVariantV2Test, ETCrossCheckTemporalClassMatrix) {
     tz_representations.push_back({"E/timestamp-tz-nanos", encoded_rows(encoded_tz_nanos)});
     tz_representations.push_back(
             {"T/timestamp-tz-scan",
-             create_typed(nullable_fixed_values<ColumnTimeStampTz, TimestampTzValue>(
-                                  timestamp_tz_values, NOT_NULL),
-                          std::make_shared<DataTypeTimeStampTz>(6), TypedFactory::SCAN)});
+             ColumnVariantV2::create_typed(
+                     nullable_fixed_values<ColumnTimeStampTz, TimestampTzValue>(timestamp_tz_values,
+                                                                                NOT_NULL),
+                     std::make_shared<DataTypeTimeStampTz>(6))});
     tz_representations.push_back(
             {"T/timestamp-tz-cast",
-             create_typed(nullable_fixed_values<ColumnTimeStampTz, TimestampTzValue>(
-                                  timestamp_tz_values, NOT_NULL),
-                          std::make_shared<DataTypeTimeStampTz>(6), TypedFactory::CAST)});
+             ColumnVariantV2::create_typed(
+                     nullable_fixed_values<ColumnTimeStampTz, TimestampTzValue>(timestamp_tz_values,
+                                                                                NOT_NULL),
+                     std::make_shared<DataTypeTimeStampTz>(6))});
     ETCrossCheckCoverage tz_coverage;
     expect_et_cross_check_group("timestamp-tz", tz_representations, tz_coverage);
 
@@ -2854,9 +2912,9 @@ TEST(ColumnVariantV2Test, TypedUnsupportedInterfacesStayUnsupported) {
 
 TEST(ColumnVariantV2Test, ReplaceNullPayloadsWithCanonicalDefault) {
     auto encoded = ColumnVariantV2::create();
-    encoded->insert_variant_field(encode_json("1"));
-    encoded->insert_variant_field(encode_json(R"({"hidden":2})"));
-    encoded->insert_variant_field(encode_json("3"));
+    insert_encoded_field(*encoded, encode_json("1"));
+    insert_encoded_field(*encoded, encode_json(R"({"hidden":2})"));
+    insert_encoded_field(*encoded, encode_json("3"));
     constexpr std::array<uint8_t, 3> ENCODED_NULLS {0, 1, 0};
     encoded->replace_column_null_data(ENCODED_NULLS.data());
     EXPECT_EQ(json_at(*encoded, 0), "1");
@@ -2877,7 +2935,7 @@ TEST(ColumnVariantV2Test, ReplaceNullPayloadsWithCanonicalDefault) {
 TEST(ColumnVariantV2Test, DeferredAndUnsupportedInterfaces) {
     auto column = ColumnVariantV2::create();
     auto source = ColumnVariantV2::create();
-    source->insert_variant_field(encode_json("1"));
+    insert_encoded_field(*source, encode_json("1"));
     Field field;
 
     expect_not_implemented([&] { static_cast<void>((*column)[0]); }, "T1.7b");
