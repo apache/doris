@@ -95,7 +95,7 @@ public class PruneFileScanPartition extends OneRewriteRuleFactory {
         boolean enableBinarySearch = ctx.getConnectContext() == null
                 || ctx.getConnectContext().getSessionVariable().enableBinarySearchFilteringPartitions;
         if (enableBinarySearch) {
-            sortedPartitionRanges = (Optional) externalTable.getSortedPartitionRanges(scan);
+            sortedPartitionRanges = scan.getSelectedPartitions().sortedPartitionRanges;
         }
         PartitionPruneResult<String> result = PartitionPruner.pruneWithResult(
                 partitionSlots, filter.getPredicate(), nameToPartitionItem, ctx,
@@ -103,7 +103,10 @@ public class PruneFileScanPartition extends OneRewriteRuleFactory {
         List<String> prunedPartitions = new ArrayList<>(result.partitions);
 
         for (String name : prunedPartitions) {
-            selectedPartitionItems.put(name, nameToPartitionItem.get(name));
+            PartitionItem item = nameToPartitionItem.get(name);
+            if (item != null) {
+                selectedPartitionItems.put(name, item);
+            }
         }
         return new SelectedPartitions(nameToPartitionItem.size(), selectedPartitionItems, true,
                 result.hasPartitionPredicate);

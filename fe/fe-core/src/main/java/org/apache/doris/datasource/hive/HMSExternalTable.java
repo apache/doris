@@ -482,7 +482,10 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
             nameToPartitionItems.put(idToNameMap.get(entry.getKey()), entry.getValue());
         }
 
-        return new SelectedPartitions(nameToPartitionItems.size(), nameToPartitionItems, false);
+        Optional<SortedPartitionRanges<String>> sortedPartitionRanges = Optional.ofNullable(
+                SortedPartitionRanges.build(nameToPartitionItems));
+        return new SelectedPartitions(nameToPartitionItems.size(), nameToPartitionItems, false, false,
+                sortedPartitionRanges);
     }
 
     @Override
