@@ -108,8 +108,7 @@ TEST(DebugPointsTest, PredicateDoesNotConsumeExecuteLimit) {
     auto does_not_match = [](const DebugPoint& point) {
         return point.param<int64_t>("partition_id") == 456;
     };
-    EXPECT_EQ(nullptr,
-              DebugPoints::instance()->get_debug_point_if("conditional", does_not_match));
+    EXPECT_EQ(nullptr, DebugPoints::instance()->get_debug_point_if("conditional", does_not_match));
     EXPECT_EQ(0, debug_point->execute_num.load());
 
     auto matches = [](const DebugPoint& point) {

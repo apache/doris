@@ -37,8 +37,8 @@ std::shared_ptr<DebugPoint> DebugPoints::get_debug_point(const std::string& name
     return get_debug_point_impl(name, nullptr);
 }
 
-std::shared_ptr<DebugPoint> DebugPoints::get_debug_point_if(
-        const std::string& name, const DebugPointPredicate& predicate) {
+std::shared_ptr<DebugPoint> DebugPoints::get_debug_point_if(const std::string& name,
+                                                            const DebugPointPredicate& predicate) {
     return get_debug_point_impl(name, &predicate);
 }
 
