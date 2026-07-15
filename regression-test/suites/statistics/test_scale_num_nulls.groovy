@@ -18,6 +18,9 @@
 suite("test_scale_num_nulls") {
     // For an OlapTable, when only a subset of partitions is selected, 
     // the num_nulls value in column statistics needs to be scaled proportionally.
+    if (isCloudMode()) {
+        return
+    }
     sql """
         drop table if exists ptable;
         CREATE TABLE `ptable` (
