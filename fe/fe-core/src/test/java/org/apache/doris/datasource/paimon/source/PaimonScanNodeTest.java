@@ -570,9 +570,12 @@ public class PaimonScanNodeTest {
         Assert.assertEquals(backendOptions, node.getFileScanRangeParams().getPaimonOptions());
 
         TFileRangeDesc rangeDesc = new TFileRangeDesc();
+        PaimonSplit jniSplit = new PaimonSplit(createDataSplit("scan_level.parquet"));
+        Assert.assertNotNull(jniSplit.getPartitionValues());
+        Assert.assertTrue(jniSplit.getPartitionValues().isEmpty());
         invokePrivateMethod(node, "setPaimonParams",
                 new Class<?>[] {TFileRangeDesc.class, PaimonSplit.class},
-                rangeDesc, new PaimonSplit(createDataSplit("scan_level.parquet")));
+                rangeDesc, jniSplit);
         Assert.assertFalse(rangeDesc.getTableFormatParams().getPaimonParams().isSetPaimonOptions());
     }
 
@@ -642,7 +645,7 @@ public class PaimonScanNodeTest {
         rangeDesc.setColumnsFromPath(Collections.singletonList("old"));
         rangeDesc.setColumnsFromPathIsNull(Collections.singletonList(false));
         Map<String, String> partitionValues = new HashMap<>();
-        partitionValues.put("Dt", "2025-01-01");
+        partitionValues.put("Dt", null);
         partitionValues.put("Pt", "p1");
         PaimonSplit split = new PaimonSplit(createDataSplit("ordered.parquet"));
         split.setPaimonPartitionValues(partitionValues);
@@ -651,8 +654,8 @@ public class PaimonScanNodeTest {
                 new Class<?>[] {TFileRangeDesc.class, PaimonSplit.class}, rangeDesc, split);
 
         Assert.assertEquals(Arrays.asList("Pt", "Dt"), rangeDesc.getColumnsFromPathKeys());
-        Assert.assertEquals(Arrays.asList("p1", "2025-01-01"), rangeDesc.getColumnsFromPath());
-        Assert.assertEquals(Arrays.asList(false, false), rangeDesc.getColumnsFromPathIsNull());
+        Assert.assertEquals(Arrays.asList("p1", ""), rangeDesc.getColumnsFromPath());
+        Assert.assertEquals(Arrays.asList(false, true), rangeDesc.getColumnsFromPathIsNull());
     }
 
     @Test

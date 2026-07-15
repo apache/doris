@@ -463,27 +463,31 @@ static VExprSPtr unwrap_literal_for_file_cast(const VExprSPtr& expr, const DataT
     if (expr == nullptr) {
         return nullptr;
     }
+
+    VExprSPtr literal;
     if (expr->is_literal()) {
-        return expr;
-    }
-    if (!is_cast_expr(expr) || expr->get_num_children() != 1 ||
-        !expr->children()[0]->is_literal()) {
+        literal = expr;
+    } else if (is_cast_expr(expr) && expr->get_num_children() == 1 &&
+               expr->children()[0]->is_literal() && expr->data_type()->equals(*table_type)) {
+        literal = expr->children()[0];
+    } else {
         return nullptr;
     }
 
-    const auto& child = expr->children()[0];
-    if (child->data_type()->equals(*table_type)) {
-        return child;
+    if (literal->data_type()->equals(*table_type)) {
+        return literal;
     }
-    if (!expr->data_type()->equals(*table_type) ||
-        !is_lossless_file_to_table_numeric_cast(child->data_type(), table_type)) {
+    // Nereids may leave a narrow numeric literal directly under a comparison and rely on the
+    // comparison's implicit type coercion, for example `INT slot = TINYINT 1`. Materialize that
+    // coercion before localizing the predicate so metadata readers still see slot-literal form.
+    if (!is_lossless_file_to_table_numeric_cast(literal->data_type(), table_type)) {
         return nullptr;
     }
 
     Field table_field;
     try {
-        convert_field_to_type(literal_field_from_expr(*child), *table_type, &table_field,
-                              child->data_type().get());
+        convert_field_to_type(literal_field_from_expr(*literal), *table_type, &table_field,
+                              literal->data_type().get());
     } catch (const Exception&) {
         return nullptr;
     }
@@ -491,9 +495,9 @@ static VExprSPtr unwrap_literal_for_file_cast(const VExprSPtr& expr, const DataT
         table_field.get_type() != remove_nullable(table_type)->get_primitive_type()) {
         return nullptr;
     }
-    auto literal = VLiteral::create_shared(table_type, std::move(table_field));
-    rewrite_context->add_created_expr(literal);
-    return literal;
+    auto normalized_literal = VLiteral::create_shared(table_type, std::move(table_field));
+    rewrite_context->add_created_expr(normalized_literal);
+    return normalized_literal;
 }
 
 // Table filter localization clones an already-prepared table expr and then rewrites it to file

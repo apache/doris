@@ -3593,6 +3593,39 @@ TEST_F(ColumnMapperCastTest, ColumnMapperLocalizesImplicitlyCastLiteral) {
     conjunct->close();
 }
 
+// Scenario: Nereids may keep a narrow literal directly under an implicitly coerced comparison,
+// for example `nullable INT value = TINYINT 1`. Normalize the literal to the table type so the
+// file predicate remains recognizable to Parquet zone-map pruning.
+TEST_F(ColumnMapperCastTest, ColumnMapperLocalizesImplicitlyTypedLiteral) {
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_NAME});
+    auto column_type = make_nullable(i32());
+    auto table_column = name_col("value", column_type);
+    std::vector<ColumnDefinition> projected_columns {table_column};
+    auto file_field = name_col("value", column_type, 0);
+    std::vector<ColumnDefinition> file_schema {file_field};
+
+    auto status = mapper.create_mapping(projected_columns, {}, file_schema);
+    ASSERT_TRUE(status.ok()) << status;
+
+    auto predicate = std::make_shared<Int64BinaryPredicateExpr>(TExprOpcode::GT);
+    predicate->add_child(VSlotRef::create_shared(0, 0, -1, table_column.type, "value"));
+    predicate->add_child(
+            VLiteral::create_shared(std::make_shared<DataTypeInt8>(),
+                                    Field::create_field<TYPE_TINYINT>(static_cast<int8_t>(1))));
+    TableFilter table_filter;
+    table_filter.conjunct = VExprContext::create_shared(predicate);
+    table_filter.global_indices = {GlobalIndex(0)};
+
+    FileScanRequest file_request;
+    ASSERT_TRUE(mapper.create_scan_request({table_filter}, projected_columns, &file_request, &state)
+                        .ok());
+    ASSERT_EQ(file_request.conjuncts.size(), 1);
+    const auto& localized_expr = file_request.conjuncts[0]->root();
+    ASSERT_EQ(localized_expr->get_num_children(), 2);
+    EXPECT_TRUE(localized_expr->children()[1]->is_literal());
+    EXPECT_TRUE(localized_expr->children()[1]->data_type()->equals(*file_field.type));
+}
+
 // Scenario: a fractional table literal cannot be localized to an integral file type without
 // changing the predicate boundary, so the mapper must cast the file slot instead.
 TEST_F(ColumnMapperCastTest, ColumnMapperRejectsLossyBinaryLiteralConversion) {
