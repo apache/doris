@@ -448,19 +448,32 @@ public class PluginDrivenMvccExternalTableTest {
     // ==================== isPartitionInvalid -> UNPARTITIONED ====================
 
     @Test
-    public void testValueCountMismatchFailsLoud() {
-        // A connector supplying 2 values for a table with 1 partition column (dt) is mis-wired.
-        // The size check sits OUTSIDE the per-partition try/catch, so it must surface: swallowing it
-        // would leave the built-item set short of the listed-name set and the table would silently
-        // mis-report as UNPARTITIONED (partition=0/0) instead of naming the bug.
+    public void testValueCountMismatchDegradesToUnpartitioned() {
+        // A value/column count mismatch is LEGITIMATE under iceberg partition spec evolution: the column
+        // list comes from the CURRENT spec while a row's values come from the spec its data file was
+        // written under. It must degrade to UNPARTITIONED (parity master / PaimonUtil.generatePartitionInfo)
+        // rather than fail the query -- cfb0958e607 hoisted the size check out of the per-partition
+        // try/catch to "fail loud", and every real-world hit turned out to be a legitimate evolution,
+        // taking down 6 suites (CI 996541).
         Fixture f = Fixture.with(Arrays.asList(
                 cpi("dt=2024-01-01/region=cn", TS_2024_01_01)));
-        // MUTATION: moving the checkState back inside the try/catch (or dropping it) makes this red.
-        IllegalStateException e = Assertions.assertThrows(IllegalStateException.class,
-                () -> f.table.getPartitionType(Optional.empty()),
-                "a value/column count mismatch must fail loud, not degrade to UNPARTITIONED");
-        Assertions.assertTrue(e.getMessage().contains("connector supplied 2 partition values"),
-                "the error must name the offending count and partition, got: " + e.getMessage());
+        // MUTATION: hoisting the checkState back out of the per-partition try/catch makes this red.
+        Assertions.assertEquals(PartitionType.UNPARTITIONED, f.table.getPartitionType(Optional.empty()),
+                "a value/column count mismatch must degrade to UNPARTITIONED, not fail the query");
+    }
+
+    @Test
+    public void testZeroValuesFromUnpartitionedOriginDegradeToUnpartitioned() {
+        // The spec-0 shape: rows written before the table's first ADD PARTITION KEY render to an empty
+        // partition name and carry ZERO values while the table now has 1 partition column. This is the
+        // shape behind test_iceberg_table_cache / _partition_evolution_ddl / _partition_evolution_query_write.
+        // Supplied explicitly (not via cpi()) because orderedValuesOf("") derives [""] -- size 1 -- which
+        // would exercise the type-parse degrade instead of the arity one.
+        Fixture f = Fixture.with(Arrays.asList(
+                cpiValues("", TS_2024_01_01, Collections.emptyList())));
+        // MUTATION: hoisting the checkState back out of the per-partition try/catch makes this red.
+        Assertions.assertEquals(PartitionType.UNPARTITIONED, f.table.getPartitionType(Optional.empty()),
+                "a zero-value partition from an unpartitioned-origin spec must degrade, not fail the query");
     }
 
     @Test
@@ -1147,6 +1160,19 @@ public class PluginDrivenMvccExternalTableTest {
         return new ConnectorPartitionInfo(name, Collections.emptyMap(), Collections.emptyMap(),
                 ConnectorPartitionInfo.UNKNOWN, ConnectorPartitionInfo.UNKNOWN, lastModifiedMillis,
                 ConnectorPartitionInfo.UNKNOWN, orderedValuesOf(name), Collections.emptyList());
+    }
+
+    /**
+     * Like {@link #cpi} but with the ordered values supplied EXPLICITLY rather than derived from the
+     * rendered name — needed for the spec-evolution shapes, where a row's value count legitimately
+     * differs from the current spec's field count (see
+     * {@code testZeroValuesFromUnpartitionedOriginDegradeToUnpartitioned}).
+     */
+    private static ConnectorPartitionInfo cpiValues(String name, long lastModifiedMillis,
+            List<String> orderedValues) {
+        return new ConnectorPartitionInfo(name, Collections.emptyMap(), Collections.emptyMap(),
+                ConnectorPartitionInfo.UNKNOWN, ConnectorPartitionInfo.UNKNOWN, lastModifiedMillis,
+                ConnectorPartitionInfo.UNKNOWN, orderedValues, Collections.emptyList());
     }
 
     /** Like {@link #cpi} but with connector-supplied per-value SQL-NULL flags (the opt-in path). */
