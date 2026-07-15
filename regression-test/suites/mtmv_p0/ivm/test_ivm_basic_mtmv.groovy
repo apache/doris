@@ -21,8 +21,8 @@ suite("test_ivm_basic_mtmv") {
 
     // 1. Create base table (MOW — UNIQUE_KEYS with merge-on-write)
     //    IVM generates row_id = hash(unique_keys) for MOW base tables,
-    //    which is deterministic across refreshes, so the mock
-    //    (reading full base table) correctly upserts existing rows.
+    //    which is deterministic across refreshes, so repeated upserts
+    //    can still target the same logical rows correctly.
     sql """
         CREATE TABLE t_ivm_basic_base (
             k1 INT,
@@ -83,8 +83,8 @@ suite("test_ivm_basic_mtmv") {
             (5, 50, 'eee');
     """
 
-    // 9. Second refresh via IVM incremental path (mock reads full base table,
-    //    deterministic row_id upserts correctly for MOW base table)
+    // 9. Second refresh via IVM incremental path.
+    //    Deterministic row_id upserts correctly for the MOW base table.
     sql """REFRESH MATERIALIZED VIEW mv_ivm_basic INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("mv_ivm_basic")
 
@@ -175,7 +175,7 @@ suite("test_ivm_basic_mtmv") {
     order_qt_op_after_complete """SELECT k1, v1, v2 FROM mv_ivm_basic_op"""
 
     // Step 2: Insert a new row (binlog_op=0) to dirty the partition, then INCREMENTAL refresh.
-    // The mock delta reads all 4 rows. The dml_factor logic:
+    // The incremental input at this step exercises the dml_factor logic:
     //   k1=1 (binlog_op=0): dml_factor=1  → delete_sign=0 → kept
     //   k1=2 (binlog_op=0): dml_factor=1  → delete_sign=0 → kept
     //   k1=3 (binlog_op=1): dml_factor=-1 → delete_sign=1 → deleted (hidden)
@@ -265,7 +265,7 @@ suite("test_ivm_basic_mtmv") {
     order_qt_filter_after_complete """SELECT k1, v1 FROM mv_ivm_basic_filter"""
 
     // Step 2: Insert a new row that passes the filter (dirty the partition), then INCREMENTAL.
-    // Mock delta reads all 5 rows. After filter v1 > 15, the delta contains:
+    // After filter v1 > 15, the incremental input contains:
     //   k1=2(op=0, dml_factor=1)  → kept
     //   k1=3(op=1, dml_factor=-1) → delete_sign=1 → deleted
     //   k1=4(op=0, dml_factor=1)  → kept

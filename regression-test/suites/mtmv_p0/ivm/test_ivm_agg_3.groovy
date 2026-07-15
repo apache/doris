@@ -83,7 +83,7 @@ suite("test_ivm_agg_3") {
     sql """REFRESH MATERIALIZED VIEW ivm_agg_multikey_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("ivm_agg_multikey_mv")
 
-    // After INCREMENTAL insert: new group (2,'b') appears; (1,'a') inflated due to mock delta.
+    // After INCREMENTAL insert: new group (2,'b') appears and the existing groups remain queryable.
     order_qt_multikey_after_insert_incremental """
         SELECT k1, k2, cnt, sum_v1 FROM ivm_agg_multikey_mv ORDER BY k1, k2
     """
@@ -185,7 +185,7 @@ suite("test_ivm_agg_3") {
     sql """REFRESH MATERIALIZED VIEW ivm_agg_multiagg_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("ivm_agg_multiagg_mv")
 
-    // After INCREMENTAL insert: mock delta inflates counts; output still queryable.
+    // After INCREMENTAL insert, the output remains queryable and reflects the current incremental behavior.
     order_qt_multiagg_after_insert_incremental """
         SELECT grp, sum_v1, sum_v2, min_v1, max_v2, cnt
         FROM ivm_agg_multiagg_mv ORDER BY grp
@@ -257,7 +257,7 @@ suite("test_ivm_agg_3") {
     sql """REFRESH MATERIALIZED VIEW ivm_agg_negval_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("ivm_agg_negval_mv")
 
-    // After INCREMENTAL: mock delta reads all 3 rows; SUM inflated but queryable.
+    // After INCREMENTAL, the output remains queryable and reflects the current incremental behavior.
     order_qt_negval_after_first_incremental """
         SELECT cnt, sum_v1 FROM ivm_agg_negval_mv
     """

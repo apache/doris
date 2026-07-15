@@ -474,7 +474,7 @@ suite("test_ivm_agg_1") {
     """
 
     // Step 2: INCREMENTAL — insert a NULL value into grp=1 and a non-NULL into grp=3
-    // Mock delta reads all rows (all op=0), no deletes, so INCREMENTAL should succeed.
+    // The incremental input here contains only new inserts (all op=0), so INCREMENTAL should succeed.
     sql """INSERT INTO test_ivm_agg_mtmv_null_base VALUES (6, 1, NULL);"""
     sql """INSERT INTO test_ivm_agg_mtmv_null_base VALUES (7, 3, 50);"""
 

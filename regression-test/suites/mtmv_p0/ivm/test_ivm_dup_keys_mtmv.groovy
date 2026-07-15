@@ -21,9 +21,8 @@ suite("test_ivm_dup_keys_mtmv") {
 
     // 1. Create base table (DUPLICATE KEY)
     //    For DUP_KEYS base tables, IVM generates row_id = uuid_numeric() (non-deterministic).
-    //    With the current mock (read full base table), INCREMENTAL refresh on a simple scan MV
-    //    would accumulate duplicates because row_ids change each time.
-    //    However, COMPLETE refresh always works correctly (INSERT OVERWRITE replaces all data).
+    //    This case validates COMPLETE refresh on a simple scan MV, where INSERT OVERWRITE
+    //    replaces all MV data and preserves the correct DUP_KEYS rows.
     sql """
         CREATE TABLE test_ivm_dup_keys_mtmv_base (
             k1 INT,

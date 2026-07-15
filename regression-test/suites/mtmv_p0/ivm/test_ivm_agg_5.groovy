@@ -24,7 +24,7 @@ suite("test_ivm_agg_5") {
     // Part 1: Bare GROUP BY without aggregate functions (SELECT DISTINCT)
     // Covers: insert new group, partial delete (group survives), full group deletion.
     // Each scenario starts from a fresh COMPLETE to keep group counts at exactly 1 or 2,
-    // preventing mock full-table delta inflation from masking correct delete behavior.
+    // so delete-related behavior is checked against a clean baseline.
     // =========================================================
 
     sql """drop materialized view if exists test_ivm_agg_bare_grpby_mv;"""
