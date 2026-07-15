@@ -47,7 +47,22 @@
 1. **`iceberg/source/IcebergScanNodeTest.java` 不在冲突列表**（我方 23 commit 从未碰它 → 静默停在 upstream 的 329 行版本），却在 `:313/:323` **直接静态调用** `IcebergScanNode.checkPositionDeletesBackendCompatibility` + 4 处反射 `isSystemTable` 等 → 取 P6 侧必炸 **fe-core test 编译**。修=`git checkout f052d9da44e -- <file>` 还原到 pre-#65135 的 192 行（BASE==我方版，我方从未碰过）。**教训第 3 次复现：git 说没冲突 ≠ 语义没坏**（见 [[doris-build-verify-gotchas]]）。
 2. **groovy 冲突区外**的 `expectedPositionDeleteColumns.addAll(...)`/`assertEquals(...)`/权限段两条 `$position_deletes` 断言**已被自动合并进来** → 盲取 P6 侧会得到引用未定义变量的坏 Groovy。整取 upstream 后此坑消解。
 
-## 🚨 新增翻闸 BLOCKER = `$position_deletes` 未在 iceberg 连接器实现（用户 2026-07-15 拍板"方案 A：机械对齐 + 登记 blocker"）
+## ⏭ 下个 session 起步 = **实施 `$position_deletes` 连接器移植（研究+设计已完成，T0 实证已过，直接从 T3 开写）**
+
+> **权威文档 = [`plan-doc/tasks/designs/P6.6-position-deletes-connector-port-design.md`](./tasks/designs/P6.6-position-deletes-connector-port-design.md)（commit `af0f0582bdf`）+ 同名 `-research-notes.md`。起步只读这两份 + 本段，勿重跑侦察（已烧两个工作流）。**
+
+- **用户裁定（2026-07-15）**：① rebase 阶段 = 方案 A（机械对齐 + 登记 blocker）；② 移植阶段 = **不考虑 smooth-upgrade 兼容，按最终形态实现** ⇒ **fe-core 零改动、SPI 零改动，全部落在 iceberg 连接器内部**（原 T1/T2 取消）。
+- **T0 实证 DONE，证伪了 2 处设计假设**（细节见设计文档 §2/D3/D6，**勿重新发明**）：
+  1. **`partition_data_json` 不是 JSON 解析**——喂给 Doris STRUCT **文本** serde；且 `DataTypeNullableSerDe::from_string` **吞掉一切解析错误 → 静默 NULL + Status::OK()**。连接器现有 `getPartitionDataJson` 发 `["42"]` 数组会正中此坑 ⇒ **必须写第二个渲染器**。
+  2. **BigDecimal**：jackson stock `valueToTree` 与 gson **两向皆异**（`1.50`→`1.5`；`10`→**`1E+1`** 语法变了）⇒ 用 `JsonUtil.mapper().copy().setNodeFactory(JsonNodeFactory.withExactBigDecimals(true))` **hoist static final**；🚨 **绝不可改 `JsonUtil.mapper()` 单例**（iceberg 进程级共享）。Float/Double **无风险**（已实证，勿加投机代码）。
+  3. **[D-065] 是 blocker**：跳 `iceberg.schema_evolution` 字典的理由"schema 随 serialized FileScanTask 走"**只对 JNI 路径成立**；position_deletes 是**第一个走原生 BE reader 的系统表**，需 `history_schema_info` 解析 `row` 列（**v1 硬报错 / v2 静默按名匹配读错**）⇒ 须把 `IcebergScanPlanProvider:1090` 的 `if (!systemTable)` **收窄为"仅 JNI sys 表跳过"**，字典由**元数据表 schema** 构建；连带 `IcebergScanPlanProviderTest:627/651/685` 断言须**收窄范围而非整删**。
+- **剩余 TODO = 设计文档 §8 的 T3→T4→T5→T6→T7→T8**（单层连接器 commit stack）。
+- **两个易踩死的实现点**：① `PositionDeletesTable.newScan()` **直接抛**，必须 `newBatchScan()`，且分叉要在 `buildScan` **之前**；② 连接器 `populateRangeParams:328-332` 默认发 **FORMAT_JNI**，而 position-delete range 必须 FORMAT_PARQUET/ORC（**PUFFIN 也发 FORMAT_PARQUET**）。
+- **另记（超范围、登记翻闸清单）**：连接器**完全没有** initial-defaults 传输（`fe-connector` 全库 0 处 `setInitialDefaultValue`），是相对 upstream #65502 在**普通 iceberg 数据读路径**的既有更大缺口。勿把"position_deletes 不需要"读成"连接器不需要"。
+
+---
+
+## 🚨 翻闸 BLOCKER = `$position_deletes` 未在 iceberg 连接器实现（rebase 阶段登记；**移植已进行中**，见上段）
 - **缺口**：我方 `SPI_READY_TYPES` 已含 `iceberg`（翻闸就在 `ec3a0cd55f4` 里），iceberg catalog 一律走连接器；而 `IcebergConnectorMetadata.listSupportedSysTables` / `isSupportedSysTable`（P6.5 的 **Q2 决策**）**刻意排除 `POSITION_DELETES`**，理由是"legacy fe-core 当时也不支持（抛 not supported yet）"——**该前提已被 #65135 推翻**。
 - **后果**（agent 独立复现 high confidence，无任何 fallback：`findSysTable` 只查 `PluginDrivenExternalTable.getSupportedSysTables()`→连接器 list，无第二注册表、无 TVF、无 legacy catalog 分支）：`select * from t$position_deletes` 在我方报 `Unknown sys table`，在 upstream master **端到端可用** = **相对 upstream 的能力缺失**（非"rebase 弄坏原本能用的"，BASE 时两边都不支持；是**未能继承新功能**）。
 - **已知红**（有意 fail loud，勿改测试掩盖）：① `test_iceberg_sys_table.groovy`（upstream 正向断言 + 权限段）；② **`test_iceberg_position_deletes_sys_table.groovy`（#65135 新增 659 行，不冲突、干净落地、整体红）**。
