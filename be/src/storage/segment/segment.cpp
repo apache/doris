@@ -113,7 +113,7 @@ std::optional<Field> get_read_time_constant_value(int32_t col_uid,
     const int64_t commit_tso = read_options.commit_tso.end_tso();
     if ((reader_type == ReaderType::READER_BINLOG ||
          reader_type == ReaderType::READER_BINLOG_COMPACTION) &&
-        matches_column(tablet_schema.binlog_timestamp_col_idx())) {
+        matches_column(tablet_schema.binlog_tso_col_idx())) {
         DCHECK_EQ(read_options.commit_tso.start_tso(), commit_tso);
         return Field::create_field<TYPE_BIGINT>(commit_tso == -1 ? 0 : commit_tso);
     }
