@@ -242,7 +242,8 @@ void StreamLoadRecorderManager::_load_if_necessary() {
     Status st = _send_stream_load(_buffer.ToString());
     if (!st.ok()) {
         LOG(WARNING) << "Failed to load stream load records to audit log table: " << st
-                     << ", discard current batch";
+                     << ", keep current batch for retry";
+        return;
     }
 
     _save_last_fetch_key();
