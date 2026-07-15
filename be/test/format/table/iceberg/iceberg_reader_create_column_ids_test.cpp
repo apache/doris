@@ -28,6 +28,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "common/consts.h"
 #include "common/object_pool.h"
 #include "core/block/block.h"
 #include "core/block/column_with_type_and_name.h"
@@ -1164,6 +1165,77 @@ TEST_F(IcebergReaderCreateColumnIdsTest, test_create_column_ids_6) {
         run_orc_test(table_column_names, access_configs, expected_column_ids,
                      expected_filter_column_ids);
     }
+}
+
+// Regression: a synthesized/metadata slot (e.g. the TopN global row-id column) is projected but
+// is never serialized into the Iceberg schema tree, so it is absent from the schema-mapping
+// StructNode. Before the get_children().contains() guard, _create_column_ids() called
+// StructNode::children_column_exists() on that unregistered name, which hits
+// DCHECK(children.contains(name)) and aborts in debug/ASAN builds (and throws std::out_of_range
+// from .at() in release builds). These tests core without the guard and pass with it: the
+// synthesized slot is skipped and only the real column contributes a column id.
+TEST_F(IcebergReaderCreateColumnIdsTest, parquet_synthesized_slot_is_skipped_not_crash) {
+    // Physical Parquet schema: a single real column "id" (Iceberg field id 1).
+    FieldDescriptor field_desc;
+    FieldSchema id_field;
+    id_field.name = "id";
+    id_field.data_type =
+            DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_BIGINT, true);
+    id_field.field_id = 1;
+    field_desc._fields.emplace_back(id_field);
+
+    // Schema-mapping node registers only the real table column "id" (mapped to file column "id").
+    // The synthesized global row-id column is intentionally NOT registered as a child.
+    auto struct_node = std::make_shared<TableSchemaChangeHelper::StructNode>();
+    struct_node->add_children("id", "id", TableSchemaChangeHelper::ConstNode::get_instance());
+    std::shared_ptr<TableSchemaChangeHelper::Node> table_info_node = struct_node;
+
+    // Projected tuple: the real column plus a synthesized global-row-id slot absent from the node.
+    SlotDescriptor id_slot;
+    id_slot._type = DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_BIGINT, true);
+    id_slot._col_name = "id";
+
+    SlotDescriptor row_id_slot;
+    row_id_slot._type =
+            DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_BIGINT, true);
+    row_id_slot._col_name = BeConsts::GLOBAL_ROWID_COL;
+
+    TupleDescriptor tuple_desc;
+    tuple_desc.add_slot(&id_slot);
+    tuple_desc.add_slot(&row_id_slot);
+
+    const ColumnIdResult result =
+            IcebergParquetReader::_create_column_ids(&field_desc, &tuple_desc, table_info_node);
+    EXPECT_EQ(result.column_ids, (std::set<uint64_t> {1}));
+    EXPECT_TRUE(result.filter_column_ids.empty());
+}
+
+TEST_F(IcebergReaderCreateColumnIdsTest, orc_synthesized_slot_is_skipped_not_crash) {
+    // Physical ORC schema: a single real column "id" carrying Iceberg field id 1.
+    std::unique_ptr<orc::Type> orc_type(orc::Type::buildTypeFromString("struct<id:bigint>"));
+    orc_type->getSubtype(0)->setAttribute(IcebergOrcReader::ICEBERG_ORC_ATTRIBUTE, "1");
+
+    auto struct_node = std::make_shared<TableSchemaChangeHelper::StructNode>();
+    struct_node->add_children("id", "id", TableSchemaChangeHelper::ConstNode::get_instance());
+    std::shared_ptr<TableSchemaChangeHelper::Node> table_info_node = struct_node;
+
+    SlotDescriptor id_slot;
+    id_slot._type = DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_BIGINT, true);
+    id_slot._col_name = "id";
+
+    SlotDescriptor row_id_slot;
+    row_id_slot._type =
+            DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_BIGINT, true);
+    row_id_slot._col_name = BeConsts::GLOBAL_ROWID_COL;
+
+    TupleDescriptor tuple_desc;
+    tuple_desc.add_slot(&id_slot);
+    tuple_desc.add_slot(&row_id_slot);
+
+    const ColumnIdResult result =
+            IcebergOrcReader::_create_column_ids(orc_type.get(), &tuple_desc, table_info_node);
+    EXPECT_EQ(result.column_ids, (std::set<uint64_t> {1}));
+    EXPECT_TRUE(result.filter_column_ids.empty());
 }
 
 } // namespace doris
