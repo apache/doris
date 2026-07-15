@@ -82,7 +82,7 @@ suite("test_ivm_agg_2") {
     sql """REFRESH MATERIALIZED VIEW ivm_agg_allnull_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("ivm_agg_allnull_mv")
 
-    // After INCREMENTAL: mock delta reads all 3 rows; output queryable (may be inflated).
+    // After INCREMENTAL, the output remains queryable and reflects the current incremental behavior.
     order_qt_allnull_after_insert_incremental """
         SELECT sum_v1, avg_v1, cnt_v1, min_v1, max_v1, cnt_all
         FROM ivm_agg_allnull_mv
@@ -104,7 +104,7 @@ suite("test_ivm_agg_2") {
     sql """REFRESH MATERIALIZED VIEW ivm_agg_allnull_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("ivm_agg_allnull_mv")
 
-    // After inserting another NULL: mock delta increments cnt_all but sum/min/max unchanged.
+    // After inserting another NULL, cnt_all advances while sum/min/max stay unchanged.
     order_qt_allnull_after_null_insert_incremental """
         SELECT sum_v1, avg_v1, cnt_v1, min_v1, max_v1, cnt_all
         FROM ivm_agg_allnull_mv
