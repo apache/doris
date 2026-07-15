@@ -1065,24 +1065,6 @@ public:
         return orig;
     }
 
-    bool move_equalorlarger(const value_type& x) {
-        map_iter = p.lower_bound(Roaring64Map::highBytes(x));
-        if (map_iter != p.cend()) {
-            roaring_init_iterator(&map_iter->second.roaring, &i);
-            if (map_iter->first == Roaring64Map::highBytes(x)) {
-                if (roaring_move_uint32_iterator_equalorlarger(&i, Roaring64Map::lowBytes(x)))
-                    return true;
-                map_iter++;
-                if (map_iter == map_end) return false;
-                roaring_init_iterator(&map_iter->second.roaring, &i);
-            }
-            return true;
-        }
-        return false;
-    }
-
-    bool move(const value_type& x) { return move_equalorlarger(x); }
-
     bool operator==(const Roaring64MapSetBitForwardIterator& o) const {
         if (map_iter == map_end && o.map_iter == o.map_end) return true;
         if (o.map_iter == o.map_end) return false;
@@ -2161,9 +2143,6 @@ public:
         return false;
     }
 
-    // true if contains a value that belongs to the range [left, right].
-    bool contains_any(uint64_t left, uint64_t right) const;
-
     uint64_t cardinality() const {
         switch (_type) {
         case EMPTY:
@@ -2847,7 +2826,6 @@ public:
 
     b_iterator begin() const;
     b_iterator end() const;
-    b_iterator lower_bound(uint64_t val) const;
 
 private:
     void _convert_to_smaller_type() {
@@ -3067,30 +3045,6 @@ public:
 
     bool operator!=(const BitmapValueIterator& other) const { return !(*this == other); }
 
-    /**
-    * Move the iterator to the first value >= `val`.
-    */
-    BitmapValueIterator& move(uint64_t val) {
-        switch (_bitmap._type) {
-        case BitmapValue::BitmapDataType::SINGLE:
-            if (_sv < val) {
-                _end = true;
-            }
-            break;
-        case BitmapValue::BitmapDataType::BITMAP:
-            if (!_iter->move(val)) {
-                _end = true;
-            }
-            break;
-        case BitmapValue::BitmapDataType::SET: {
-            throw Exception(Status::FatalError("BitmapValue with set do not support move"));
-        }
-        default:
-            break;
-        }
-        return *this;
-    }
-
 private:
     const BitmapValue& _bitmap;
     detail::Roaring64MapSetBitForwardIterator* _iter = nullptr;
@@ -3105,27 +3059,6 @@ inline BitmapValueIterator BitmapValue::begin() const {
 
 inline BitmapValueIterator BitmapValue::end() const {
     return {*this, true};
-}
-
-inline BitmapValueIterator BitmapValue::lower_bound(uint64_t val) const {
-    return BitmapValueIterator(*this).move(val);
-}
-
-inline bool BitmapValue::contains_any(uint64_t left, uint64_t right) const {
-    if (left > right) {
-        return false;
-    }
-
-    if (_type == SET) {
-        for (auto v : _set) {
-            if (v >= left && v <= right) {
-                return true;
-            }
-        }
-        return false;
-    }
-    auto it = lower_bound(left);
-    return it != end() && *it <= right;
 }
 
 } // namespace doris
