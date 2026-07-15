@@ -4880,6 +4880,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             jobInfo.setLag(job.getLag());
             jobInfo.setReasonOfStateChanged(job.getStateReason());
             jobInfo.setErrorLogUrls(Joiner.on(", ").join(job.getErrorLogUrls()));
+            jobInfo.setFirstErrorMsg(job.getFirstErrorMsg());
             jobInfo.setUserName(job.getUserIdentity().getQualifiedUser());
             jobInfo.setCurrentAbortTaskNum(job.getJobStatistic().currentAbortedTaskNum);
             jobInfo.setIsAbnormalPause(job.isAbnormalPause());
