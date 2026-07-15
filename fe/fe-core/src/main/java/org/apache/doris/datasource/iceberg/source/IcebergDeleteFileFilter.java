@@ -29,6 +29,9 @@ import java.util.OptionalLong;
 
 @Data
 public class IcebergDeleteFileFilter {
+    // Keep in sync with doris::MAX_DELETION_VECTOR_BYTES in deletion_vector_reader.h.
+    static final long MAX_DELETION_VECTOR_BYTES = 1L << 30;
+
     private String deleteFilePath;
     private long filesize;
     private FileFormat fileformat;
@@ -54,13 +57,49 @@ public class IcebergDeleteFileFilter {
         String deleteFilePath = deleteFile.path().toString();
 
         if (deleteFile.format() == FileFormat.PUFFIN) {
+            long fileSize = deleteFile.fileSizeInBytes();
+            Long contentOffset = deleteFile.contentOffset();
+            Long contentLength = deleteFile.contentSizeInBytes();
+            validateDeletionVectorMetadata(deleteFilePath, fileSize, contentOffset, contentLength);
             // The content_offset and content_size_in_bytes fields are used to reference
             // a specific blob for direct access to a deletion vector.
             return new DeletionVector(deleteFilePath, positionLowerBound.orElse(-1L), positionUpperBound.orElse(-1L),
-                    deleteFile.fileSizeInBytes(), deleteFile.contentOffset(), deleteFile.contentSizeInBytes());
+                    fileSize, contentOffset, contentLength);
         } else {
             return new PositionDelete(deleteFilePath, positionLowerBound.orElse(-1L), positionUpperBound.orElse(-1L),
                     deleteFile.fileSizeInBytes(), deleteFile.format());
+        }
+    }
+
+    static void validateDeletionVectorMetadata(
+            String deleteFilePath, long fileSize, Long contentOffset, Long contentLength) {
+        if (contentOffset == null || contentLength == null) {
+            throw new IllegalArgumentException(String.format(
+                    "Iceberg deletion vector metadata misses content offset or length: %s", deleteFilePath));
+        }
+        if (fileSize < 0 || contentOffset < 0 || contentLength < 0) {
+            throw new IllegalArgumentException(String.format(
+                    "Iceberg deletion vector metadata must be non-negative, file: %s, file size: %d, "
+                            + "content offset: %d, content length: %d",
+                    deleteFilePath, fileSize, contentOffset, contentLength));
+        }
+        if (contentLength > MAX_DELETION_VECTOR_BYTES) {
+            throw new IllegalArgumentException(String.format(
+                    "Iceberg deletion vector content length exceeds limit, file: %s, content length: %d, "
+                            + "limit: %d",
+                    deleteFilePath, contentLength, MAX_DELETION_VECTOR_BYTES));
+        }
+        if (contentOffset > Long.MAX_VALUE - contentLength) {
+            throw new IllegalArgumentException(String.format(
+                    "Iceberg deletion vector metadata range overflows, file: %s, content offset: %d, "
+                            + "content length: %d",
+                    deleteFilePath, contentOffset, contentLength));
+        }
+        if (contentOffset + contentLength > fileSize) {
+            throw new IllegalArgumentException(String.format(
+                    "Iceberg deletion vector metadata range exceeds file size, file: %s, file size: %d, "
+                            + "content offset: %d, content length: %d",
+                    deleteFilePath, fileSize, contentOffset, contentLength));
         }
     }
 

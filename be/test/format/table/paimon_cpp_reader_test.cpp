@@ -21,12 +21,14 @@
 #include <gtest/gtest.h>
 
 #include <cstring>
+#include <limits>
 #include <string>
 #include <vector>
 
 #include "core/block/block.h"
 #include "exec/common/endian.h"
 #include "format/format_common.h"
+#include "format/table/deletion_vector_reader.h"
 #include "format/table/paimon_reader.h"
 #include "io/fs/file_meta_cache.h"
 #include "io/io_common.h"
@@ -172,7 +174,17 @@ TEST(PaimonDeletionVectorTest, RejectShortBuffer) {
             decode_paimon_deletion_vector_buffer(buffer.data(), buffer.size(), &deletion_vector);
 
     ASSERT_FALSE(status.ok());
+    EXPECT_TRUE(status.is<ErrorCode::DATA_QUALITY_ERROR>());
     EXPECT_NE(status.to_string().find("file size too small"), std::string::npos);
+}
+
+TEST(PaimonDeletionVectorTest, RejectNullBuffer) {
+    DeletionVector deletion_vector;
+    const auto status = decode_paimon_deletion_vector_buffer(nullptr, 8, &deletion_vector);
+
+    ASSERT_FALSE(status.ok());
+    EXPECT_TRUE(status.is<ErrorCode::DATA_QUALITY_ERROR>());
+    EXPECT_NE(status.to_string().find("blob is null"), std::string::npos);
 }
 
 TEST(PaimonDeletionVectorTest, RejectLengthMismatch) {
@@ -185,7 +197,8 @@ TEST(PaimonDeletionVectorTest, RejectLengthMismatch) {
             decode_paimon_deletion_vector_buffer(buffer.data(), buffer.size(), &deletion_vector);
 
     ASSERT_FALSE(status.ok());
-    EXPECT_NE(status.to_string().find("length not match"), std::string::npos);
+    EXPECT_TRUE(status.is<ErrorCode::DATA_QUALITY_ERROR>());
+    EXPECT_NE(status.to_string().find("length mismatch"), std::string::npos);
 }
 
 TEST(PaimonDeletionVectorTest, RejectMagicMismatch) {
@@ -198,7 +211,8 @@ TEST(PaimonDeletionVectorTest, RejectMagicMismatch) {
             decode_paimon_deletion_vector_buffer(buffer.data(), buffer.size(), &deletion_vector);
 
     ASSERT_FALSE(status.ok());
-    EXPECT_NE(status.to_string().find("invalid magic number"), std::string::npos);
+    EXPECT_TRUE(status.is<ErrorCode::DATA_QUALITY_ERROR>());
+    EXPECT_NE(status.to_string().find("magic number mismatch"), std::string::npos);
 }
 
 TEST(PaimonDeletionVectorTest, RejectCorruptRoaringBitmap) {
@@ -232,6 +246,36 @@ TEST(PaimonDeletionVectorTest, CacheKeyIncludesOffsetAndLength) {
     const auto first_key = build_paimon_deletion_vector_cache_key(first_deletion_file);
     EXPECT_NE(first_key, build_paimon_deletion_vector_cache_key(different_offset));
     EXPECT_NE(first_key, build_paimon_deletion_vector_cache_key(different_length));
+}
+
+TEST(PaimonDeletionVectorTest, ValidateDescriptorRejectsInvalidRange) {
+    size_t bytes_read = 0;
+
+    TPaimonDeletionFileDesc missing_path;
+    missing_path.__set_offset(0);
+    missing_path.__set_length(4);
+    EXPECT_FALSE(validate_paimon_deletion_vector_descriptor(missing_path, bytes_read).ok());
+
+    TPaimonDeletionFileDesc deletion_file;
+    deletion_file.__set_path("dv.bin");
+    deletion_file.__set_offset(-1);
+    deletion_file.__set_length(4);
+    EXPECT_FALSE(validate_paimon_deletion_vector_descriptor(deletion_file, bytes_read).ok());
+
+    deletion_file.__set_offset(0);
+    deletion_file.__set_length(-1);
+    EXPECT_FALSE(validate_paimon_deletion_vector_descriptor(deletion_file, bytes_read).ok());
+
+    deletion_file.__set_length(std::numeric_limits<int64_t>::max());
+    EXPECT_FALSE(validate_paimon_deletion_vector_descriptor(deletion_file, bytes_read).ok());
+
+    deletion_file.__set_length(MAX_DELETION_VECTOR_BYTES);
+    EXPECT_FALSE(validate_paimon_deletion_vector_descriptor(deletion_file, bytes_read).ok());
+
+    deletion_file.__set_offset(3);
+    deletion_file.__set_length(4);
+    EXPECT_TRUE(validate_paimon_deletion_vector_descriptor(deletion_file, bytes_read).ok());
+    EXPECT_EQ(bytes_read, 8);
 }
 
 TEST(PaimonDeletionVectorTest, DecodedCacheReportsHitSeparatelyFromFileCache) {

@@ -17,11 +17,62 @@
 
 #include "format/table/deletion_vector_reader.h"
 
+#include <limits>
+
 #include "rapidjson/document.h"
 #include "rapidjson/stringbuffer.h"
 #include "util/block_compression.h"
 
 namespace doris {
+namespace {
+
+constexpr int64_t ICEBERG_DELETION_VECTOR_MIN_BYTES = 12;
+constexpr int64_t PAIMON_DELETION_VECTOR_MIN_BYTES = 8;
+constexpr int64_t PAIMON_LENGTH_PREFIX_BYTES = 4;
+
+Status validate_deletion_vector_read_range(const char* description, int64_t offset, int64_t size,
+                                           int64_t min_size, size_t& bytes_read) {
+    if (offset < 0) {
+        return Status::DataQualityError("{} offset must be non-negative: {}", description, offset);
+    }
+    if (size < min_size) {
+        return Status::DataQualityError("{} size too small: {}, minimum: {}", description, size,
+                                        min_size);
+    }
+    if (size > MAX_DELETION_VECTOR_BYTES) {
+        return Status::DataQualityError("{} size exceeds limit: {}, limit: {}", description, size,
+                                        MAX_DELETION_VECTOR_BYTES);
+    }
+    if (offset > std::numeric_limits<int64_t>::max() - size) {
+        return Status::DataQualityError("{} offset plus size overflows: offset {}, size {}",
+                                        description, offset, size);
+    }
+    bytes_read = static_cast<size_t>(size);
+    return Status::OK();
+}
+
+} // namespace
+
+Status validate_iceberg_deletion_vector_read_range(int64_t offset, int64_t size,
+                                                   size_t& bytes_read) {
+    return validate_deletion_vector_read_range("Iceberg deletion vector", offset, size,
+                                               ICEBERG_DELETION_VECTOR_MIN_BYTES, bytes_read);
+}
+
+Status validate_paimon_deletion_vector_read_range(int64_t offset, int64_t length,
+                                                  size_t& bytes_read) {
+    if (length < 0) {
+        return Status::DataQualityError("Paimon deletion vector length must be non-negative: {}",
+                                        length);
+    }
+    if (length > std::numeric_limits<int64_t>::max() - PAIMON_LENGTH_PREFIX_BYTES) {
+        return Status::DataQualityError("Paimon deletion vector length overflows: {}", length);
+    }
+    return validate_deletion_vector_read_range("Paimon deletion vector", offset,
+                                               length + PAIMON_LENGTH_PREFIX_BYTES,
+                                               PAIMON_DELETION_VECTOR_MIN_BYTES, bytes_read);
+}
+
 DeletionVectorReader::~DeletionVectorReader() {
     // The file reader may retain the child IOContext. Destroy it before merging and before the
     // child statistics storage goes away.

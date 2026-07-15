@@ -996,6 +996,9 @@ Status IcebergReaderMixin<BaseReader>::_gen_position_delete_file_range(
 template <typename BaseReader>
 Status IcebergReaderMixin<BaseReader>::read_deletion_vector(
         const std::string& data_file_path, const TIcebergDeleteFileDesc& delete_file_desc) {
+    size_t bytes_read = 0;
+    RETURN_IF_ERROR(validate_iceberg_deletion_vector_descriptor(delete_file_desc, bytes_read));
+
     Status create_status = Status::OK();
     SCOPED_TIMER(_iceberg_profile.delete_files_read_time);
     bool decoded_cache_hit = false;

@@ -27,6 +27,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include <optional>
 #include <string>
 #include <thread>
@@ -36,12 +37,14 @@
 #include "cloud/config.h"
 #include "common/config.h"
 #include "exec/common/endian.h"
+#include "format/table/deletion_vector_reader.h"
 #include "io/fs/file_meta_cache.h"
 #include "roaring/roaring64map.hh"
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "testutil/mock/mock_runtime_state.h"
+#include "util/hash_util.hpp"
 
 namespace doris {
 
@@ -112,8 +115,8 @@ TIcebergDeleteFileDesc make_iceberg_deletion_vector(const std::string& path, int
     return delete_file;
 }
 
-int64_t write_iceberg_deletion_vector_file(const std::string& file_path,
-                                           const std::vector<uint64_t>& deleted_positions) {
+std::vector<char> build_iceberg_deletion_vector_blob(
+        const std::vector<uint64_t>& deleted_positions) {
     roaring::Roaring64Map rows;
     for (const auto position : deleted_positions) {
         rows.add(position);
@@ -127,7 +130,14 @@ int64_t write_iceberg_deletion_vector_file(const std::string& file_path,
     BigEndian::Store32(blob.data(), total_length);
     constexpr char DV_MAGIC[] = {'\xD1', '\xD3', '\x39', '\x64'};
     memcpy(blob.data() + 4, DV_MAGIC, 4);
-    BigEndian::Store32(blob.data() + 8 + bitmap_size, 0);
+    const uint32_t crc = HashUtil::zlib_crc_hash(blob.data() + 4, total_length, 0);
+    BigEndian::Store32(blob.data() + 8 + bitmap_size, crc);
+    return blob;
+}
+
+int64_t write_iceberg_deletion_vector_file(const std::string& file_path,
+                                           const std::vector<uint64_t>& deleted_positions) {
+    const auto blob = build_iceberg_deletion_vector_blob(deleted_positions);
 
     std::ofstream output(file_path, std::ios::binary);
     EXPECT_TRUE(output.is_open());
@@ -271,6 +281,37 @@ TEST(IcebergDeleteFileReaderHelperTest, DeletionVectorCacheKeyEscapesPathBoundar
               build_iceberg_deletion_vector_cache_key(second_data_file_path, second_delete_file));
 }
 
+TEST(IcebergDeleteFileReaderHelperTest, ValidateDeletionVectorDescriptor) {
+    size_t bytes_read = 0;
+
+    TIcebergDeleteFileDesc missing_path;
+    missing_path.__set_content_offset(0);
+    missing_path.__set_content_size_in_bytes(12);
+    EXPECT_FALSE(validate_iceberg_deletion_vector_descriptor(missing_path, bytes_read).ok());
+
+    EXPECT_FALSE(validate_iceberg_deletion_vector_descriptor(
+                         make_iceberg_deletion_vector("dv.puffin", -1, 12), bytes_read)
+                         .ok());
+    EXPECT_FALSE(validate_iceberg_deletion_vector_descriptor(
+                         make_iceberg_deletion_vector("dv.puffin", 0, 11), bytes_read)
+                         .ok());
+    EXPECT_FALSE(
+            validate_iceberg_deletion_vector_descriptor(
+                    make_iceberg_deletion_vector("dv.puffin", 0, MAX_DELETION_VECTOR_BYTES + 1),
+                    bytes_read)
+                    .ok());
+    EXPECT_FALSE(validate_iceberg_deletion_vector_descriptor(
+                         make_iceberg_deletion_vector("dv.puffin",
+                                                      std::numeric_limits<int64_t>::max() - 10, 12),
+                         bytes_read)
+                         .ok());
+
+    EXPECT_TRUE(validate_iceberg_deletion_vector_descriptor(
+                        make_iceberg_deletion_vector("dv.puffin", 7, 12), bytes_read)
+                        .ok());
+    EXPECT_EQ(bytes_read, 12);
+}
+
 TEST(IcebergDeleteFileReaderHelperTest, ReadDeletionVectorReportsMissingFile) {
     const auto test_dir =
             std::filesystem::temp_directory_path() / "doris_iceberg_deletion_vector_missing_test";
@@ -359,6 +400,19 @@ TEST(IcebergDeleteFileReaderHelperTest, DecodeDeletionVectorRejectsCorruptPayloa
 
     EXPECT_TRUE(status.is<ErrorCode::DATA_QUALITY_ERROR>());
     EXPECT_NE(status.to_string().find("magic number mismatch"), std::string::npos);
+    EXPECT_EQ(rows_to_delete.cardinality(), 0);
+}
+
+TEST(IcebergDeleteFileReaderHelperTest, DecodeDeletionVectorRejectsCrcMismatch) {
+    auto corrupted = build_iceberg_deletion_vector_blob({1, 3});
+    corrupted.back() ^= 1;
+
+    roaring::Roaring64Map rows_to_delete;
+    auto status = decode_iceberg_deletion_vector_buffer(corrupted.data(), corrupted.size(),
+                                                        &rows_to_delete);
+
+    EXPECT_TRUE(status.is<ErrorCode::DATA_QUALITY_ERROR>());
+    EXPECT_NE(status.to_string().find("CRC32 mismatch"), std::string::npos);
     EXPECT_EQ(rows_to_delete.cardinality(), 0);
 }
 
