@@ -32,7 +32,27 @@ BE **单次启动、优雅退出**（`be.INFO:593309` `doris_main.cpp:747] All s
 
 ---
 
-# ⏭ 唯一剩余的失败用例（`iceberg_query_tag_branch`）= **改走版本感知重构，设计待批准**
+# ✅ 版本感知绑定 **已实现并提交 `4f8b35c2126`** —— 只剩 e2e 验证
+
+> **2026-07-16**：用户批准设计后已施工完毕。**TODO 0–8 全绿，只剩 TODO 9（e2e）。**
+> 权威文档 = [`tasks/designs/version-aware-schema-binding-design.md`](./tasks/designs/version-aware-schema-binding-design.md)
+> （顶部「施工实况」记录了与设计的 **4 处偏差**，其中 2 条是坑，照设计原文施工会踩）。
+>
+> **单测实况**：新增 2 条（schema 解析层 + 计划层）均先红后绿；计划层那条变异（换回 blind 调用）红在
+> `expected: <[c1]> but was: <[c1, c2]>` = **CI 里 guard 报警的那个幽灵列**。既有 **156/156 绿**、checkstyle 绿。
+> **「零既有单测被推翻」由推演升级为实测**（`StatementContextMvccSnapshotTest` 5/5 保持绿）。
+>
+> ## ⏭ 下一个 session 只需做 e2e（TODO 9）
+> `iceberg_query_tag_branch`（**闸门**，`.out` 零改动）、`iceberg_tag_retention_and_consistency`、
+> `test_iceberg_time_travel`、`paimon_time_travel`、`iceberg_branch_complex_queries`、
+> `iceberg_branch_partition_operations`。
+> **⚠️「修完就绿」仍未证**：该 suite 在 `:132` 第一个 tag-join 就 abort ⇒ 其后的
+> `sub_join_tag_with_tag_2/3/4`、`sub_join_tag_with_branch_1/2/3`、`sub_with_tag_1..4` 及第二轮
+> (`num_files_in_batch_mode=1024`) 的断言**在本分支从未执行过**。本改动只保证抛出机制被消除。以真实 CI 为准。
+
+---
+
+# 🗄 背景（已解决，留作上下文）：该失败用例的机制与方案演进
 
 > **2026-07-15 用户拍板**：**拒绝**接受 C1-a 的语义收窄（「删列形状」从碰巧能跑变成 fail-loud 报错），
 > **直接做版本感知重构**。⇒ **C1-a 作废**，`T4-mvcc-version-aware-binding-design.md` 已标 **SUPERSEDED**（保留作史料）。

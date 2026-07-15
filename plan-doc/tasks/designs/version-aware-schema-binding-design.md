@@ -1,6 +1,36 @@
 # 版本感知的 schema 绑定（research note + design）
 
-> 状态：**研究完成 + 设计待用户批准**，未施工。
+> 状态：**用户已批准（2026-07-16）；TODO 0–8 已完成并提交 `4f8b35c2126`；剩 TODO 9（e2e）。**
+>
+> ## 🔧 施工实况：与设计的 4 处偏差（**照设计原文施工会踩坑**）
+>
+> 1. **TODO 0 闸门：`INSERT INTO t@branch(b1)` 确实支持，但设计【不需要】扩。** 语法 `optSpecBranch`
+>    (`DorisParser.g4:132-134`) → `LogicalPlanBuilder:1460-1461` → `InsertIntoTableCommand.branchName` →
+>    `IcebergInsertCommandContext.setBranchName`。**分支名从不进 `snapshots` 表**：`loadSnapshots` 全仓只有
+>    2 个调用者（`BindRelation:733` 按引用、`PreloadExternalMetadata:107` 只写默认键）。且写入端
+>    (`PhysicalPlanTranslator:639,698`) 用 blind 查找是**有意为之**（`:690-696` 注释：让 DML 的写锚定在其读
+>    所用的同一快照）。本设计不动写入端 ⇒ **逐字节不变**。R4 担心的「sink 要加版本字段」是**既存的独立缺口**
+>    （写分支时不为分支钉快照），非本设计引入，**不并入**。
+> 2. **🔴 `getFullSchema()` 0-arg【绝不能】委派给 `getFullSchema(Optional.empty())`**（施工时踩到）。
+>    `empty` 有歧义：「本引用无 pin」(=> latest) vs 「无引用，走环境查找」。合并二者会**剥掉所有
+>    statement-global 调用者（物化视图/预加载/写入端）的环境解析**。0-arg 与 1-arg 必须是**兄弟**。
+>    同理 `PluginDrivenMvccExternalTable` 的两个 override 亦为兄弟（共用私有 `schemaAt(snapshot)`）。
+> 3. **触点 5 的 `PluginDrivenExternalTable:710`（`rawTableProperties()`）【不可执行】，已跳过。**
+>    它**作用域里没有任何引用**（6 个调用者全在本类内，喂能力位 CSV / SHOW PARTITION 子句 / 分布列 =
+>    表级显示与能力元数据，不在按引用绑定的路径上）。穿 snapshot 需改签名 + 6 个调用者，属另一件事。
+>    实做 = `:631`(getPartitionColumns) + `:780`(getNameToPartitionItems) + `:842`(getNameToPartitionValues)
+>    + **设计未列的** `PluginDrivenMvccExternalTable:604,610` 的两处 `super.getPartitionColumns()`（R2 的真身）。
+> 4. **触点 4 有既有单测覆盖，设计说「无」是错的。** `LogicalFileScanTest` 存在，且其
+>    `testComputeOutputIncludesInvisibleRowLineageColumnsForIcebergTable` **会被本改动打挂**（mock 打的是
+>    0-arg 桩）—— 这反而证明触点 4 被覆盖。已把桩对齐为 `getFullSchema(Mockito.any())`，并**新增**
+>    `computeOutputBindsThisReferencesOwnVersionNotLatest` 直接守触点 4。
+>
+> **验证实况**：新增 2 条测试（schema 解析层 + 计划层各一）均**先红后绿**；计划层那条的变异（换回
+> version-blind 调用）红在 `expected: <[c1]> but was: <[c1, c2]>` —— **`c2` 正是 CI 996541 里 guard 报警的
+> 幽灵列**。相关既有单测 **156/156 绿**（含 `StatementContextMvccSnapshotTest` 5/5 —— 「零既有单测被推翻」
+> 由推演升级为实测），checkstyle 绿。
+
+> 原始状态：研究完成 + 设计待用户批准，未施工。
 > 缘起：用户 2026-07-15 拍板 —— 不接受「回退 LATEST 碰巧能跑」的现状，直接做版本感知重构。
 > 取代：`T4-mvcc-version-aware-binding-design.md` 的 C1-a（「blind 读取第一个 pin」兜底方案）。**C1-a 作废**，理由见 §3。
 
