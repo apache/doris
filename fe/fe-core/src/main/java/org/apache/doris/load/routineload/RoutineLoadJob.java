@@ -470,6 +470,12 @@ public abstract class RoutineLoadJob
     }
 
     public void validateTargetTable(Database db, OlapTable targetTable) throws UserException {
+        validateTargetTable(db, targetTable, Maps.newHashMap(), uniqueKeyUpdateMode);
+    }
+
+    public void validateTargetTable(Database db, OlapTable targetTable,
+            Map<String, String> alteredJobProperties, TUniqueKeyUpdateMode effectiveUniqueKeyUpdateMode)
+            throws UserException {
         if (isMultiTable) {
             throw new AnalysisException("ALTER ROUTINE LOAD target table change only supports single-table job");
         }
@@ -479,15 +485,73 @@ public abstract class RoutineLoadJob
         }
         checkMeta(targetTable, new RoutineLoadDesc(columnSeparator, lineDelimiter, columnsInfo, precedingFilter,
                 whereExpr, partitionNamesInfo, deleteCondition, mergeType, sequenceCol));
+        validateAlterJobProperties(targetTable, alteredJobProperties, effectiveUniqueKeyUpdateMode);
 
         targetTable.readLock();
         try {
-            NereidsStreamLoadPlanner planner = new NereidsStreamLoadPlanner(db, targetTable,
-                    toNereidsRoutineLoadTaskInfo());
+            NereidsRoutineLoadTaskInfo taskInfo = toNereidsRoutineLoadTaskInfo();
+            taskInfo.applyAlterPropertiesForValidation(alteredJobProperties, effectiveUniqueKeyUpdateMode);
+            NereidsStreamLoadPlanner planner = new NereidsStreamLoadPlanner(db, targetTable, taskInfo);
             planner.plan(new TUniqueId(0, 0));
         } finally {
             targetTable.readUnlock();
         }
+    }
+
+    public void validateAlterJobProperties(OlapTable targetTable, Map<String, String> alteredJobProperties,
+            TUniqueKeyUpdateMode effectiveUniqueKeyUpdateMode) throws UserException {
+        if (effectiveUniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPSERT) {
+            return;
+        }
+        if (isMultiTable) {
+            throw new AnalysisException("Partial update is not supported in multi-table load.");
+        }
+        if (effectiveUniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS) {
+            if (!targetTable.getEnableUniqueKeyMergeOnWrite()) {
+                throw new AnalysisException("load by PARTIAL_COLUMNS is only supported in unique table MoW");
+            }
+            return;
+        }
+        Preconditions.checkState(effectiveUniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS,
+                effectiveUniqueKeyUpdateMode);
+        validateFlexiblePartialUpdateForAlter(targetTable, alteredJobProperties);
+    }
+
+    public static TUniqueKeyUpdateMode getEffectiveUniqueKeyUpdateMode(TUniqueKeyUpdateMode currentUniqueKeyUpdateMode,
+            Map<String, String> alteredJobProperties) {
+        if (alteredJobProperties.containsKey(CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE)) {
+            return TUniqueKeyUpdateMode.valueOf(
+                    alteredJobProperties.get(CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE));
+        }
+        if (alteredJobProperties.containsKey(CreateRoutineLoadInfo.PARTIAL_COLUMNS)
+                && Boolean.parseBoolean(alteredJobProperties.get(CreateRoutineLoadInfo.PARTIAL_COLUMNS))
+                && currentUniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPSERT) {
+            return TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS;
+        }
+        return currentUniqueKeyUpdateMode;
+    }
+
+    protected void validateAlterJobPropertiesForMutation(AlterRoutineLoadCommand command) throws UserException {
+        Map<String, String> alteredJobProperties = command.getAnalyzedJobProperties();
+        TUniqueKeyUpdateMode effectiveUniqueKeyUpdateMode = getEffectiveUniqueKeyUpdateMode(
+                uniqueKeyUpdateMode, alteredJobProperties);
+        if (effectiveUniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPSERT) {
+            return;
+        }
+
+        Database db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
+        if (db == null) {
+            throw new DdlException("Database not found: " + dbId);
+        }
+        long effectiveTableId = command.hasTargetTable() ? command.getTargetTableId() : tableId;
+        Table table = db.getTableNullable(effectiveTableId);
+        if (table == null) {
+            throw new DdlException("Table not found: " + effectiveTableId);
+        }
+        if (!(table instanceof OlapTable)) {
+            throw new DdlException("Partial update is only supported for OLAP tables");
+        }
+        validateAlterJobProperties((OlapTable) table, alteredJobProperties, effectiveUniqueKeyUpdateMode);
     }
 
     @Override
@@ -2093,10 +2157,6 @@ public abstract class RoutineLoadJob
         if (hasExplicitUniqueKeyUpdateMode) {
             String modeStr = jobProperties.remove(CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE);
             TUniqueKeyUpdateMode newMode = CreateRoutineLoadInfo.parseAndValidateUniqueKeyUpdateMode(modeStr);
-            // Validate flexible partial update constraints when changing to UPDATE_FLEXIBLE_COLUMNS
-            if (newMode == TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS) {
-                validateFlexiblePartialUpdateForAlter();
-            }
             this.uniqueKeyUpdateMode = newMode;
             this.isPartialUpdate = (uniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS);
             this.jobProperties.put(CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE, uniqueKeyUpdateMode.name());
@@ -2120,43 +2180,27 @@ public abstract class RoutineLoadJob
     /**
      * Validate flexible partial update constraints when altering routine load job.
      */
-    private void validateFlexiblePartialUpdateForAlter() throws UserException {
-        // Multi-table load does not support flexible partial update
-        if (isMultiTable) {
-            throw new DdlException("Flexible partial update is not supported in multi-table load");
-        }
-
-        // Get the table to check table-level constraints
-        Database db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
-        if (db == null) {
-            throw new DdlException("Database not found: " + dbId);
-        }
-        Table table = db.getTableNullable(tableId);
-        if (table == null) {
-            throw new DdlException("Table not found: " + tableId);
-        }
-        if (!(table instanceof OlapTable)) {
-            throw new DdlException("Flexible partial update is only supported for OLAP tables");
-        }
-        OlapTable olapTable = (OlapTable) table;
-
+    private void validateFlexiblePartialUpdateForAlter(OlapTable targetTable,
+            Map<String, String> alteredJobProperties) throws UserException {
         // Validate table-level constraints (MoW, skip_bitmap, light_schema_change, variant columns)
-        olapTable.validateForFlexiblePartialUpdate();
+        targetTable.validateForFlexiblePartialUpdate();
+        Map<String, String> effectiveJobProperties = Maps.newHashMap(jobProperties);
+        effectiveJobProperties.putAll(alteredJobProperties);
 
         // Routine load specific validations
         // Must use JSON format
-        String format = this.jobProperties.getOrDefault(FileFormatProperties.PROP_FORMAT, "csv");
+        String format = effectiveJobProperties.getOrDefault(FileFormatProperties.PROP_FORMAT, "csv");
         if (!"json".equalsIgnoreCase(format)) {
             throw new DdlException("Flexible partial update only supports JSON format, but current job uses: "
                     + format);
         }
         // Cannot use fuzzy_parse
-        if (Boolean.parseBoolean(this.jobProperties.getOrDefault(
+        if (Boolean.parseBoolean(effectiveJobProperties.getOrDefault(
                 JsonFileFormatProperties.PROP_FUZZY_PARSE, "false"))) {
             throw new DdlException("Flexible partial update does not support fuzzy_parse");
         }
         // Cannot use jsonpaths
-        String jsonPaths = getJsonPaths();
+        String jsonPaths = effectiveJobProperties.get(JsonFileFormatProperties.PROP_JSON_PATHS);
         if (jsonPaths != null && !jsonPaths.isEmpty()) {
             throw new DdlException("Flexible partial update does not support jsonpaths");
         }

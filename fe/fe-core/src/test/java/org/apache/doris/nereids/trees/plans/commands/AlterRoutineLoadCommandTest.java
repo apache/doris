@@ -25,8 +25,11 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.load.loadv2.LoadTask;
+import org.apache.doris.load.routineload.LoadDataSourceType;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.load.routineload.RoutineLoadManager;
+import org.apache.doris.load.routineload.kafka.KafkaDataSourceProperties;
+import org.apache.doris.load.routineload.kinesis.KinesisDataSourceProperties;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.parser.NereidsParser;
@@ -93,6 +96,8 @@ public class AlterRoutineLoadCommandTest {
         Mockito.when(routineLoadJob.getTableId()).thenReturn(2000L);
         Mockito.when(routineLoadJob.isMultiTable()).thenReturn(false);
         Mockito.when(routineLoadJob.getMergeType()).thenReturn(LoadTask.MergeType.APPEND);
+        Mockito.when(routineLoadJob.getDataSourceType()).thenReturn(LoadDataSourceType.KAFKA);
+        Mockito.when(routineLoadJob.getTimezone()).thenReturn("UTC");
         Mockito.when(routineLoadJob.isLoadToSingleTablet()).thenReturn(false);
         Mockito.when(routineLoadJob.getUniqueKeyUpdateMode()).thenReturn(TUniqueKeyUpdateMode.UPSERT);
         Mockito.when(currentTable.getType()).thenReturn(Table.TableType.OLAP);
@@ -152,9 +157,21 @@ public class AlterRoutineLoadCommandTest {
     }
 
     @Test
-    public void testParseAlterRoutineLoadOnTargetTable() {
+    public void testLegacyConstructorInfersDataSourceType() {
+        runBefore();
+        Map<String, String> dataSourceProperties = Maps.newHashMap();
+        dataSourceProperties.put("property.client.id", "alter-client");
+        AlterRoutineLoadCommand command = new AlterRoutineLoadCommand(
+                new LabelNameInfo("testDb", "label1"), Maps.newHashMap(), dataSourceProperties);
+
+        Assertions.assertDoesNotThrow(() -> command.validate(connectContext));
+        Assertions.assertInstanceOf(KafkaDataSourceProperties.class, command.getDataSourceProperties());
+    }
+
+    @Test
+    public void testParseAlterRoutineLoadSetTargetTable() {
         AlterRoutineLoadCommand command = (AlterRoutineLoadCommand) PARSER.parseSingle(
-                "ALTER ROUTINE LOAD FOR testDb.label1 ON testTable2");
+                "ALTER ROUTINE LOAD FOR testDb.label1 SET TARGET TABLE = \"testTable2\"");
         Assertions.assertEquals("testDb", command.getDbName());
         Assertions.assertEquals("label1", command.getJobName());
         Assertions.assertTrue(command.hasTargetTable());
@@ -162,13 +179,91 @@ public class AlterRoutineLoadCommandTest {
     }
 
     @Test
-    public void testParseAlterRoutineLoadOnTargetTableRejectMixedProperties() {
+    public void testParseAlterRoutineLoadDecodesTargetTableString() {
+        AlterRoutineLoadCommand command = (AlterRoutineLoadCommand) PARSER.parseSingle(
+                "ALTER ROUTINE LOAD FOR testDb.label1 SET TARGET TABLE = \"test\"\"Table2\"");
+
+        Assertions.assertEquals("test\"Table2", command.getTargetTableName());
+    }
+
+    @Test
+    public void testParseAlterRoutineLoadSetTargetTableRejectsUnsupportedSyntax() {
         Assertions.assertThrows(ParseException.class, () -> PARSER.parseSingle(
-                "ALTER ROUTINE LOAD FOR testDb.label1 ON testTable2 PROPERTIES(\"max_error_number\"=\"1\")"));
+                "ALTER ROUTINE LOAD FOR testDb.label1 ON testTable2"));
         Assertions.assertThrows(ParseException.class, () -> PARSER.parseSingle(
-                "ALTER ROUTINE LOAD FOR testDb.label1 ON testTable2 FROM KAFKA(\"kafka_offsets\"=\"100\")"));
+                "ALTER ROUTINE LOAD FOR testDb.label1 SET TARGET TABLE = testTable2"));
         Assertions.assertThrows(ParseException.class, () -> PARSER.parseSingle(
-                "ALTER ROUTINE LOAD FOR testDb.label1 ON testTable2 COLUMNS(k1)"));
+                "ALTER ROUTINE LOAD FOR testDb.label1 SET TARGET TABLE = \"testTable2\" COLUMNS(k1)"));
+    }
+
+    @Test
+    public void testValidateTargetTableWithJobAndDataSourceProperties() throws Exception {
+        runBefore();
+        Mockito.when(currentTable.getId()).thenReturn(3000L);
+        mockTargetTable(currentTable);
+
+        AlterRoutineLoadCommand command = (AlterRoutineLoadCommand) PARSER.parseSingle(
+                "ALTER ROUTINE LOAD FOR testDb.label1 SET TARGET TABLE = \"testTable2\" "
+                        + "PROPERTIES(\"max_error_number\"=\"1\", \"timezone\"=\"Asia/Shanghai\") "
+                        + "FROM `KAFKA`(\"property.client.id\"=\"target-switch\")");
+
+        Assertions.assertDoesNotThrow(() -> command.validate(connectContext));
+        Assertions.assertEquals("1", command.getAnalyzedJobProperties()
+                .get(CreateRoutineLoadInfo.MAX_ERROR_NUMBER_PROPERTY));
+        Assertions.assertInstanceOf(KafkaDataSourceProperties.class, command.getDataSourceProperties());
+        Assertions.assertEquals("target-switch", command.getDataSourceProperties()
+                .getOriginalDataSourceProperties().get("property.client.id"));
+        Assertions.assertEquals("Asia/Shanghai", command.getDataSourceProperties().getTimezone());
+        Assertions.assertEquals(3000L, command.getTargetTableId());
+    }
+
+    @Test
+    public void testValidateTargetTableWithKinesisProperties() throws Exception {
+        runBefore();
+        Mockito.when(currentTable.getId()).thenReturn(3000L);
+        Mockito.when(routineLoadJob.getDataSourceType()).thenReturn(LoadDataSourceType.KINESIS);
+        mockTargetTable(currentTable);
+        AlterRoutineLoadCommand command = (AlterRoutineLoadCommand) PARSER.parseSingle(
+                "ALTER ROUTINE LOAD FOR testDb.label1 SET TARGET TABLE = \"testTable2\" "
+                        + "FROM KINESIS(\"property.max_connections\"=\"10\")");
+
+        Assertions.assertDoesNotThrow(() -> command.validate(connectContext));
+        Assertions.assertInstanceOf(KinesisDataSourceProperties.class, command.getDataSourceProperties());
+        Assertions.assertEquals(3000L, command.getTargetTableId());
+    }
+
+    @Test
+    public void testValidateTargetTableRejectsDataSourceTypeChange() throws Exception {
+        runBefore();
+        mockTargetTable(currentTable);
+        AlterRoutineLoadCommand command = (AlterRoutineLoadCommand) PARSER.parseSingle(
+                "ALTER ROUTINE LOAD FOR testDb.label1 SET TARGET TABLE = \"testTable2\" "
+                        + "FROM KINESIS(\"kinesis_region\"=\"us-east-1\")");
+
+        Assertions.assertTrue(Assertions.assertThrows(AnalysisException.class,
+                () -> command.validate(connectContext)).getMessage().contains("KINESIS"));
+    }
+
+    @Test
+    public void testValidateTargetTableRejectsInvalidProperties() throws Exception {
+        runBefore();
+        mockTargetTable(currentTable);
+        AlterRoutineLoadCommand invalidJobProperty = (AlterRoutineLoadCommand) PARSER.parseSingle(
+                "ALTER ROUTINE LOAD FOR testDb.label1 SET TARGET TABLE = \"testTable2\" "
+                        + "PROPERTIES(\"format\"=\"json\")");
+        AlterRoutineLoadCommand invalidDataSourceProperty = (AlterRoutineLoadCommand) PARSER.parseSingle(
+                "ALTER ROUTINE LOAD FOR testDb.label1 SET TARGET TABLE = \"testTable2\" "
+                        + "FROM KAFKA(\"invalid_key\"=\"value\")");
+        AlterRoutineLoadCommand createOnlyDataSourceProperty = (AlterRoutineLoadCommand) PARSER.parseSingle(
+                "ALTER ROUTINE LOAD FOR testDb.label1 SET TARGET TABLE = \"testTable2\" "
+                        + "FROM KAFKA(\"kafka_table_name_location\"=\"key\")");
+
+        Assertions.assertTrue(Assertions.assertThrows(AnalysisException.class,
+                () -> invalidJobProperty.validate(connectContext)).getMessage().contains("invalid property"));
+        Assertions.assertTrue(Assertions.assertThrows(AnalysisException.class,
+                () -> invalidDataSourceProperty.validate(connectContext)).getMessage().contains("invalid kafka"));
+        Assertions.assertTrue(Assertions.assertThrows(AnalysisException.class,
+                () -> createOnlyDataSourceProperty.validate(connectContext)).getMessage().contains("only be set"));
     }
 
     @Test
@@ -177,7 +272,7 @@ public class AlterRoutineLoadCommandTest {
         mockTargetTable(currentTable);
 
         AlterRoutineLoadCommand command = (AlterRoutineLoadCommand) PARSER.parseSingle(
-                "ALTER ROUTINE LOAD FOR testDb.label1 ON testTable2");
+                "ALTER ROUTINE LOAD FOR testDb.label1 SET TARGET TABLE = \"testTable2\"");
         Assertions.assertDoesNotThrow(() -> command.validate(connectContext));
         Assertions.assertEquals("testTable2", command.getTargetTableName());
     }
@@ -187,7 +282,7 @@ public class AlterRoutineLoadCommandTest {
         runBefore();
         Mockito.when(routineLoadJob.isMultiTable()).thenReturn(true);
         AlterRoutineLoadCommand command = (AlterRoutineLoadCommand) PARSER.parseSingle(
-                "ALTER ROUTINE LOAD FOR testDb.label1 ON testTable2");
+                "ALTER ROUTINE LOAD FOR testDb.label1 SET TARGET TABLE = \"testTable2\"");
 
         Assertions.assertTrue(Assertions.assertThrows(Exception.class, () -> command.validate(connectContext))
                 .getMessage().contains("single-table"));
@@ -200,7 +295,7 @@ public class AlterRoutineLoadCommandTest {
         Mockito.when(accessManager.checkTblPriv(Mockito.any(ConnectContext.class), Mockito.anyString(),
                 Mockito.eq("testDb"), Mockito.eq("testTable2"), Mockito.any())).thenReturn(false);
         AlterRoutineLoadCommand command = (AlterRoutineLoadCommand) PARSER.parseSingle(
-                "ALTER ROUTINE LOAD FOR testDb.label1 ON testTable2");
+                "ALTER ROUTINE LOAD FOR testDb.label1 SET TARGET TABLE = \"testTable2\"");
 
         Assertions.assertTrue(Assertions.assertThrows(Exception.class, () -> command.validate(connectContext))
                 .getMessage().contains("LOAD"));
@@ -214,7 +309,7 @@ public class AlterRoutineLoadCommandTest {
         Mockito.when(tempTable.isTemporary()).thenReturn(true);
         mockTargetTable(tempTable);
         AlterRoutineLoadCommand command = (AlterRoutineLoadCommand) PARSER.parseSingle(
-                "ALTER ROUTINE LOAD FOR testDb.label1 ON testTable2");
+                "ALTER ROUTINE LOAD FOR testDb.label1 SET TARGET TABLE = \"testTable2\"");
 
         Assertions.assertTrue(Assertions.assertThrows(Exception.class, () -> command.validate(connectContext))
                 .getMessage().contains("temporary table"));
@@ -230,7 +325,7 @@ public class AlterRoutineLoadCommandTest {
         mockTargetTable(newTable);
         Mockito.when(routineLoadJob.isLoadToSingleTablet()).thenReturn(true);
         AlterRoutineLoadCommand command = (AlterRoutineLoadCommand) PARSER.parseSingle(
-                "ALTER ROUTINE LOAD FOR testDb.label1 ON testTable2");
+                "ALTER ROUTINE LOAD FOR testDb.label1 SET TARGET TABLE = \"testTable2\"");
 
         Assertions.assertTrue(Assertions.assertThrows(Exception.class, () -> command.validate(connectContext))
                 .getMessage().contains("load_to_single_tablet"));
@@ -247,7 +342,7 @@ public class AlterRoutineLoadCommandTest {
         mockTargetTable(newTable);
         Mockito.when(routineLoadJob.isLoadToSingleTablet()).thenReturn(true);
         AlterRoutineLoadCommand command = (AlterRoutineLoadCommand) PARSER.parseSingle(
-                "ALTER ROUTINE LOAD FOR testDb.label1 ON testTable2");
+                "ALTER ROUTINE LOAD FOR testDb.label1 SET TARGET TABLE = \"testTable2\"");
 
         Assertions.assertDoesNotThrow(() -> command.validate(connectContext));
     }
@@ -260,14 +355,22 @@ public class AlterRoutineLoadCommandTest {
         Mockito.when(targetTable.isTemporary()).thenReturn(false);
         Mockito.doReturn(targetTable).when(db).getTableOrAnalysisException("testTable2");
         Mockito.when(routineLoadJob.isLoadToSingleTablet()).thenReturn(false);
+        Mockito.when(routineLoadJob.getUniqueKeyUpdateMode())
+                .thenReturn(TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS);
         Mockito.doAnswer(invocation -> {
             Assertions.assertSame(db, invocation.getArgument(0));
             Assertions.assertSame(targetTable, invocation.getArgument(1));
+            Map<String, String> alteredJobProperties = invocation.getArgument(2);
+            Assertions.assertEquals("UPSERT",
+                    alteredJobProperties.get(CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE));
+            Assertions.assertEquals(TUniqueKeyUpdateMode.UPSERT, invocation.getArgument(3));
             return null;
-        }).when(routineLoadJob).validateTargetTable(Mockito.any(Database.class), Mockito.any(OlapTable.class));
+        }).when(routineLoadJob).validateTargetTable(Mockito.any(Database.class), Mockito.any(OlapTable.class),
+                Mockito.anyMap(), Mockito.any(TUniqueKeyUpdateMode.class));
 
         AlterRoutineLoadCommand command = (AlterRoutineLoadCommand) PARSER.parseSingle(
-                "ALTER ROUTINE LOAD FOR testDb.label1 ON testTable2");
+                "ALTER ROUTINE LOAD FOR testDb.label1 SET TARGET TABLE = \"testTable2\" "
+                        + "PROPERTIES(\"unique_key_update_mode\"=\"UPSERT\")");
 
         Assertions.assertDoesNotThrow(() -> command.validate(connectContext));
     }
@@ -282,10 +385,11 @@ public class AlterRoutineLoadCommandTest {
         Mockito.doReturn(targetTable).when(db).getTableOrAnalysisException("testTable2");
         Mockito.when(routineLoadJob.getUniqueKeyUpdateMode()).thenReturn(TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS);
         Mockito.doThrow(new AnalysisException("Only unique key merge on write support partial update"))
-                .when(routineLoadJob).validateTargetTable(Mockito.any(Database.class), Mockito.any(OlapTable.class));
+                .when(routineLoadJob).validateTargetTable(Mockito.any(Database.class), Mockito.any(OlapTable.class),
+                        Mockito.anyMap(), Mockito.any(TUniqueKeyUpdateMode.class));
 
         AlterRoutineLoadCommand command = (AlterRoutineLoadCommand) PARSER.parseSingle(
-                "ALTER ROUTINE LOAD FOR testDb.label1 ON testTable2");
+                "ALTER ROUTINE LOAD FOR testDb.label1 SET TARGET TABLE = \"testTable2\"");
 
         Assertions.assertTrue(Assertions.assertThrows(Exception.class, () -> command.validate(connectContext))
                 .getMessage().contains("partial update"));
@@ -322,7 +426,7 @@ public class AlterRoutineLoadCommandTest {
     }
 
     @Test
-    public void testValidateAllowsFlexibleAlterToReachFlexibleValidation() {
+    public void testValidateAllowsFlexibleAlterToReachFlexibleValidation() throws Exception {
         runBefore();
         Mockito.when(routineLoadJob.getUniqueKeyUpdateMode()).thenReturn(TUniqueKeyUpdateMode.UPSERT);
         Mockito.when(currentTable.getEnableUniqueKeyMergeOnWrite()).thenReturn(false);
@@ -333,5 +437,7 @@ public class AlterRoutineLoadCommandTest {
                 new LabelNameInfo("testDb", "label1"), jobProperties, Maps.newHashMap());
 
         Assertions.assertDoesNotThrow(() -> command.validate(connectContext));
+        Mockito.verify(routineLoadJob).validateAlterJobProperties(Mockito.eq(currentTable), Mockito.anyMap(),
+                Mockito.eq(TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS));
     }
 }

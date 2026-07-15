@@ -336,11 +336,11 @@ supportedAlterStatement
     | ALTER REPOSITORY name=identifier properties=propertyClause?                           #alterRepository
     | ALTER ROUTINE LOAD FOR name=multipartIdentifier
             (
-                ON table=identifier
+                SET TARGET TABLE EQ targetTable=STRING_LITERAL
                 | (loadProperty (COMMA loadProperty)*)?
-                  properties=propertyClause?
-                  (FROM type=identifier LEFT_PAREN propertyItemList RIGHT_PAREN)?
-            )                                                                               #alterRoutineLoad
+            )
+            properties=propertyClause?
+            (FROM type=identifier LEFT_PAREN propertyItemList RIGHT_PAREN)?                 #alterRoutineLoad
     | ALTER COLOCATE GROUP name=multipartIdentifier
         SET LEFT_PAREN propertyItemList RIGHT_PAREN                                         #alterColocateGroup
     | ALTER USER (IF EXISTS)? grantUserIdentify
@@ -2348,6 +2348,7 @@ nonReserved
     | SUM
     | TABLES
     | TAG
+    | TARGET
     | TASK
     | TASKS
     | TDE

@@ -25,11 +25,15 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.info.PartitionNamesInfo;
+import org.apache.doris.cloud.proto.Cloud;
+import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.common.util.SmallFileMgr;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.kafka.KafkaUtil;
 import org.apache.doris.load.RoutineLoadDesc;
@@ -40,16 +44,19 @@ import org.apache.doris.load.routineload.kafka.KafkaProgress;
 import org.apache.doris.load.routineload.kafka.KafkaRoutineLoadJob;
 import org.apache.doris.load.routineload.kafka.KafkaTaskInfo;
 import org.apache.doris.mysql.privilege.MockedAuth;
+import org.apache.doris.nereids.trees.plans.commands.AlterRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateRoutineLoadInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.LabelNameInfo;
 import org.apache.doris.nereids.trees.plans.commands.load.LoadProperty;
 import org.apache.doris.nereids.trees.plans.commands.load.LoadSeparator;
 import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
+import org.apache.doris.persist.EditLog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TResourceInfo;
 import org.apache.doris.thrift.TUniqueKeyUpdateMode;
 
 import com.google.common.base.Joiner;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.kafka.common.PartitionInfo;
@@ -68,6 +75,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class KafkaRoutineLoadJobTest {
     private static final Logger LOG = LogManager.getLogger(KafkaRoutineLoadJobTest.class);
@@ -215,6 +223,244 @@ public class KafkaRoutineLoadJobTest {
 
         Assert.assertEquals(TUniqueKeyUpdateMode.UPSERT, routineLoadJob.getUniqueKeyUpdateMode());
         Assert.assertFalse(routineLoadJob.isFixedPartialUpdate());
+    }
+
+    @Test
+    public void testModifyPropertiesRevalidatesWhileHoldingWriteLock() throws Exception {
+        KafkaRoutineLoadJob routineLoadJob = Mockito.spy(new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", 1L,
+                1L, "127.0.0.1:9020", "topic1", UserIdentity.ADMIN));
+        Deencapsulation.setField(routineLoadJob, "state", RoutineLoadJob.JobState.PAUSED);
+        AlterRoutineLoadCommand command = Mockito.mock(AlterRoutineLoadCommand.class);
+        Mockito.when(command.getAnalyzedJobProperties()).thenReturn(Maps.newHashMap());
+
+        Mockito.doAnswer(invocation -> {
+            ReentrantReadWriteLock lock = Deencapsulation.getField(routineLoadJob, "lock");
+            Assert.assertTrue(lock.isWriteLockedByCurrentThread());
+            throw new DdlException("stop after validation");
+        }).when(routineLoadJob).validateAlterJobPropertiesForMutation(command);
+
+        try {
+            routineLoadJob.modifyProperties(command);
+            Assert.fail("Expected mutation-time validation to fail");
+        } catch (DdlException e) {
+            Assert.assertTrue(e.getMessage().contains("stop after validation"));
+        }
+    }
+
+    @Test
+    public void testModifyPropertiesKeepsKafkaPropertiesWhenFileConversionFails() throws Exception {
+        KafkaRoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", 1L,
+                1L, "127.0.0.1:9020", "topic1", UserIdentity.ADMIN);
+        Deencapsulation.setField(routineLoadJob, "state", RoutineLoadJob.JobState.PAUSED);
+        Map<String, String> originalCustomProperties = Maps.newHashMap();
+        originalCustomProperties.put("client.id", "original-client");
+        Map<String, String> originalConvertedProperties = Maps.newHashMap(originalCustomProperties);
+        Deencapsulation.setField(routineLoadJob, "customProperties", originalCustomProperties);
+        Deencapsulation.setField(routineLoadJob, "convertedCustomProperties", originalConvertedProperties);
+
+        Map<String, String> alteredSourceProperties = Maps.newHashMap();
+        alteredSourceProperties.put("property.ssl.ca.location", "FILE:missing.pem");
+        KafkaDataSourceProperties dataSourceProperties = analyzedAlterDataSourceProperties(alteredSourceProperties);
+        AlterRoutineLoadCommand command = mockAlterCommand(dataSourceProperties);
+        Env env = Mockito.mock(Env.class);
+        SmallFileMgr smallFileMgr = Mockito.mock(SmallFileMgr.class);
+        Mockito.when(env.getSmallFileMgr()).thenReturn(smallFileMgr);
+        Mockito.when(smallFileMgr.getSmallFile(1L, KafkaRoutineLoadJob.KAFKA_FILE_CATALOG,
+                "missing.pem", true)).thenThrow(new DdlException("missing file"));
+
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            try {
+                routineLoadJob.modifyProperties(command);
+                Assert.fail("Expected missing small file to reject ALTER");
+            } catch (DdlException e) {
+                Assert.assertTrue(e.getMessage().contains("missing file"));
+            }
+        }
+
+        Assert.assertEquals(Maps.newHashMap(ImmutableMap.of("client.id", "original-client")),
+                Deencapsulation.getField(routineLoadJob, "customProperties"));
+        Assert.assertEquals(Maps.newHashMap(ImmutableMap.of("client.id", "original-client")),
+                routineLoadJob.getConvertedCustomProperties());
+    }
+
+    @Test
+    public void testModifyPropertiesKeepsKafkaPropertiesWhenPartitionValidationFails() throws Exception {
+        KafkaRoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", 1L,
+                1L, "127.0.0.1:9020", "topic1", UserIdentity.ADMIN);
+        Deencapsulation.setField(routineLoadJob, "state", RoutineLoadJob.JobState.PAUSED);
+        Deencapsulation.setField(routineLoadJob, "progress",
+                new KafkaProgress(Maps.newHashMap(ImmutableMap.of(1, 10L))));
+        Deencapsulation.setField(routineLoadJob, "customProperties",
+                Maps.newHashMap(ImmutableMap.of("client.id", "original-client")));
+        Deencapsulation.setField(routineLoadJob, "convertedCustomProperties",
+                Maps.newHashMap(ImmutableMap.of("client.id", "original-client")));
+
+        Map<String, String> alteredSourceProperties = Maps.newHashMap();
+        alteredSourceProperties.put("property.client.id", "new-client");
+        alteredSourceProperties.put(KafkaConfiguration.KAFKA_PARTITIONS.getName(), "2");
+        alteredSourceProperties.put(KafkaConfiguration.KAFKA_OFFSETS.getName(), "100");
+        KafkaDataSourceProperties dataSourceProperties = analyzedAlterDataSourceProperties(alteredSourceProperties);
+
+        try {
+            routineLoadJob.modifyProperties(mockAlterCommand(dataSourceProperties));
+            Assert.fail("Expected unknown partition to reject ALTER");
+        } catch (DdlException e) {
+            Assert.assertTrue(e.getMessage().contains("2"));
+        }
+
+        Assert.assertEquals("original-client",
+                Deencapsulation.<Map<String, String>>getField(routineLoadJob, "customProperties").get("client.id"));
+        Assert.assertEquals("original-client", routineLoadJob.getConvertedCustomProperties().get("client.id"));
+    }
+
+    @Test
+    public void testModifyTopicRejectsPartitionOutsidePinnedSet() throws Exception {
+        KafkaRoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", 1L,
+                1L, "127.0.0.1:9020", "topic1", UserIdentity.ADMIN);
+        Deencapsulation.setField(routineLoadJob, "state", RoutineLoadJob.JobState.PAUSED);
+        KafkaProgress progress = new KafkaProgress(Maps.newHashMap(ImmutableMap.of(1, 10L)));
+        Deencapsulation.setField(routineLoadJob, "progress", progress);
+        Deencapsulation.setField(routineLoadJob, "customKafkaPartitions", Lists.newArrayList(1));
+
+        Map<String, String> alteredSourceProperties = Maps.newHashMap();
+        alteredSourceProperties.put(KafkaConfiguration.KAFKA_TOPIC.getName(), "topic2");
+        alteredSourceProperties.put(KafkaConfiguration.KAFKA_PARTITIONS.getName(), "2");
+        alteredSourceProperties.put(KafkaConfiguration.KAFKA_OFFSETS.getName(), "100");
+        KafkaDataSourceProperties dataSourceProperties = analyzedAlterDataSourceProperties(alteredSourceProperties);
+
+        DdlException exception = Assert.assertThrows(DdlException.class,
+                () -> routineLoadJob.modifyProperties(mockAlterCommand(dataSourceProperties)));
+        Assert.assertTrue(exception.getMessage().contains("2"));
+        Assert.assertEquals("topic1", routineLoadJob.getTopic());
+        Assert.assertSame(progress, routineLoadJob.getProgress());
+        Assert.assertEquals(Lists.newArrayList(1),
+                Deencapsulation.getField(routineLoadJob, "customKafkaPartitions"));
+    }
+
+    @Test
+    public void testModifyPropertiesResolvesOffsetsWithEffectiveKafkaConfiguration() throws Exception {
+        KafkaRoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", 1L,
+                1L, "old-broker:9092", "old-topic", UserIdentity.ADMIN);
+        Deencapsulation.setField(routineLoadJob, "state", RoutineLoadJob.JobState.PAUSED);
+        Map<String, String> alteredSourceProperties = Maps.newHashMap();
+        alteredSourceProperties.put(KafkaConfiguration.KAFKA_BROKER_LIST.getName(), "new-broker:9092");
+        alteredSourceProperties.put(KafkaConfiguration.KAFKA_TOPIC.getName(), "new-topic");
+        alteredSourceProperties.put(KafkaConfiguration.KAFKA_PARTITIONS.getName(), "7");
+        alteredSourceProperties.put(KafkaConfiguration.KAFKA_OFFSETS.getName(), "2026-01-01 00:00:00");
+        alteredSourceProperties.put("property.client.id", "new-client");
+        KafkaDataSourceProperties dataSourceProperties = analyzedAlterDataSourceProperties(alteredSourceProperties);
+        AlterRoutineLoadCommand command = mockAlterCommand(dataSourceProperties);
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getEditLog()).thenReturn(Mockito.mock(EditLog.class));
+
+        String originalCloudUniqueId = Config.cloud_unique_id;
+        String originalDeployMode = Config.deploy_mode;
+        Config.cloud_unique_id = "";
+        Config.deploy_mode = "";
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class);
+                MockedStatic<KafkaUtil> kafkaUtilStatic = Mockito.mockStatic(KafkaUtil.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            kafkaUtilStatic.when(() -> KafkaUtil.getOffsetsForTimes(Mockito.eq("new-broker:9092"),
+                    Mockito.eq("new-topic"), Mockito.anyMap(), Mockito.anyList())).thenAnswer(invocation -> {
+                        Map<String, String> effectiveCustomProperties = invocation.getArgument(2);
+                        Assert.assertEquals("new-client", effectiveCustomProperties.get("client.id"));
+                        return Lists.newArrayList(Pair.of(7, 700L));
+                    });
+
+            routineLoadJob.modifyProperties(command);
+        } finally {
+            Config.cloud_unique_id = originalCloudUniqueId;
+            Config.deploy_mode = originalDeployMode;
+        }
+
+        Assert.assertEquals("new-broker:9092", routineLoadJob.getBrokerList());
+        Assert.assertEquals("new-topic", routineLoadJob.getTopic());
+        Assert.assertEquals(Long.valueOf(700L), ((KafkaProgress) routineLoadJob.getProgress()).getOffsetByPartition(7));
+        Assert.assertEquals("new-client", routineLoadJob.getCustomProperties().get("property.client.id"));
+    }
+
+    @Test
+    public void testModifyCustomKafkaPropertiesDoesNotResetCloudProgress() throws Exception {
+        KafkaRoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", 1L,
+                1L, "127.0.0.1:9020", "topic1", UserIdentity.ADMIN);
+        Deencapsulation.setField(routineLoadJob, "state", RoutineLoadJob.JobState.PAUSED);
+        KafkaProgress progress = new KafkaProgress(Maps.newHashMap(ImmutableMap.of(1, 123L)));
+        Deencapsulation.setField(routineLoadJob, "progress", progress);
+        Deencapsulation.setField(routineLoadJob, "customProperties", Maps.newHashMap(
+                ImmutableMap.of(KafkaConfiguration.KAFKA_DEFAULT_OFFSETS.getName(), KafkaProgress.OFFSET_BEGINNING)));
+        Deencapsulation.setField(routineLoadJob, "kafkaDefaultOffSet", KafkaProgress.OFFSET_BEGINNING);
+
+        KafkaDataSourceProperties dataSourceProperties = analyzedAlterDataSourceProperties(
+                Maps.newHashMap(ImmutableMap.of("property.client.id", "new-client")));
+        Assert.assertFalse(dataSourceProperties.getCustomKafkaProperties()
+                .containsKey(KafkaConfiguration.KAFKA_DEFAULT_OFFSETS.getName()));
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getEditLog()).thenReturn(Mockito.mock(EditLog.class));
+        MetaServiceProxy metaServiceProxy = Mockito.mock(MetaServiceProxy.class);
+
+        String originalCloudUniqueId = Config.cloud_unique_id;
+        Config.cloud_unique_id = "test-cloud";
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class);
+                MockedStatic<MetaServiceProxy> metaServiceProxyStatic = Mockito.mockStatic(MetaServiceProxy.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            metaServiceProxyStatic.when(MetaServiceProxy::getInstance).thenReturn(metaServiceProxy);
+
+            routineLoadJob.modifyProperties(mockAlterCommand(dataSourceProperties));
+        } finally {
+            Config.cloud_unique_id = originalCloudUniqueId;
+        }
+
+        Mockito.verifyNoInteractions(metaServiceProxy);
+        Assert.assertSame(progress, routineLoadJob.getProgress());
+        Assert.assertEquals(Long.valueOf(123L), ((KafkaProgress) routineLoadJob.getProgress()).getOffsetByPartition(1));
+        Assert.assertEquals(KafkaProgress.OFFSET_BEGINNING,
+                routineLoadJob.getCustomProperties().get("property.kafka_default_offsets"));
+    }
+
+    @Test
+    public void testAlterRejectsEmptyKafkaDefaultOffset() {
+        Map<String, String> alteredSourceProperties = Maps.newHashMap();
+        alteredSourceProperties.put("property.kafka_default_offsets", "");
+
+        Assert.assertThrows(UserException.class,
+                () -> analyzedAlterDataSourceProperties(alteredSourceProperties));
+    }
+
+    @Test
+    public void testModifyKafkaTopicResetsCloudProgressWithoutOffsets() throws Exception {
+        KafkaRoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", 1L,
+                1L, "127.0.0.1:9020", "topic1", UserIdentity.ADMIN);
+        Deencapsulation.setField(routineLoadJob, "state", RoutineLoadJob.JobState.PAUSED);
+        Deencapsulation.setField(routineLoadJob, "progress",
+                new KafkaProgress(Maps.newHashMap(ImmutableMap.of(1, 123L))));
+
+        KafkaDataSourceProperties dataSourceProperties = analyzedAlterDataSourceProperties(
+                Maps.newHashMap(ImmutableMap.of(KafkaConfiguration.KAFKA_TOPIC.getName(), "topic2")));
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getEditLog()).thenReturn(Mockito.mock(EditLog.class));
+        MetaServiceProxy metaServiceProxy = Mockito.mock(MetaServiceProxy.class);
+        Cloud.ResetRLProgressResponse response = Cloud.ResetRLProgressResponse.newBuilder()
+                .setStatus(Cloud.MetaServiceResponseStatus.newBuilder().setCode(Cloud.MetaServiceCode.OK))
+                .build();
+        Mockito.when(metaServiceProxy.resetRLProgress(Mockito.any())).thenReturn(response);
+
+        String originalCloudUniqueId = Config.cloud_unique_id;
+        Config.cloud_unique_id = "test-cloud";
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class);
+                MockedStatic<MetaServiceProxy> metaServiceProxyStatic = Mockito.mockStatic(MetaServiceProxy.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            metaServiceProxyStatic.when(MetaServiceProxy::getInstance).thenReturn(metaServiceProxy);
+
+            routineLoadJob.modifyProperties(mockAlterCommand(dataSourceProperties));
+        } finally {
+            Config.cloud_unique_id = originalCloudUniqueId;
+        }
+
+        Mockito.verify(metaServiceProxy).resetRLProgress(Mockito.argThat(
+                request -> request.getPartitionToOffsetMap().isEmpty()));
+        Assert.assertEquals("topic2", routineLoadJob.getTopic());
+        Assert.assertTrue(((KafkaProgress) routineLoadJob.getProgress()).getPartitionOffsetPairs(false).isEmpty());
     }
 
     @Test
@@ -436,7 +682,7 @@ public class KafkaRoutineLoadJobTest {
     }
 
     @Test
-    public void testReplayModifyPropertiesSwitchesTargetTableWithoutResettingProgress() {
+    public void testReplayModifyPropertiesWithDataSourceSwitchesTargetTableInCloudMode() throws Exception {
         KafkaRoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", 1L,
                 101L, "127.0.0.1:9020", "topic1", UserIdentity.ADMIN);
         Map<Integer, Long> partitionToOffset = Maps.newHashMap();
@@ -444,13 +690,39 @@ public class KafkaRoutineLoadJobTest {
         KafkaProgress progress = new KafkaProgress(partitionToOffset);
         Deencapsulation.setField(routineLoadJob, "progress", progress);
 
+        KafkaDataSourceProperties dataSourceProperties = analyzedAlterDataSourceProperties(
+                Maps.newHashMap(ImmutableMap.of("property.client.id", "replayed-client")));
         AlterRoutineLoadJobOperationLog log = new AlterRoutineLoadJobOperationLog(1L,
-                Maps.newHashMap(), null, 202L);
-        routineLoadJob.replayModifyProperties(log);
+                Maps.newHashMap(), dataSourceProperties, 202L);
+
+        String originalCloudUniqueId = Config.cloud_unique_id;
+        Config.cloud_unique_id = "replay-cloud";
+        try {
+            routineLoadJob.replayModifyProperties(log);
+        } finally {
+            Config.cloud_unique_id = originalCloudUniqueId;
+        }
 
         Assert.assertEquals(202L, routineLoadJob.getTableId());
         Assert.assertSame(progress, routineLoadJob.getProgress());
         Assert.assertEquals(Long.valueOf(123L), ((KafkaProgress) routineLoadJob.getProgress()).getOffsetByPartition(1));
+        Assert.assertEquals("replayed-client", routineLoadJob.getCustomProperties().get("property.client.id"));
+    }
+
+    private KafkaDataSourceProperties analyzedAlterDataSourceProperties(Map<String, String> properties)
+            throws UserException {
+        KafkaDataSourceProperties dataSourceProperties = new KafkaDataSourceProperties(properties);
+        dataSourceProperties.setAlter(true);
+        dataSourceProperties.setTimezone("UTC");
+        dataSourceProperties.analyze();
+        return dataSourceProperties;
+    }
+
+    private AlterRoutineLoadCommand mockAlterCommand(KafkaDataSourceProperties dataSourceProperties) {
+        AlterRoutineLoadCommand command = Mockito.mock(AlterRoutineLoadCommand.class);
+        Mockito.when(command.getAnalyzedJobProperties()).thenReturn(Maps.newHashMap());
+        Mockito.when(command.getDataSourceProperties()).thenReturn(dataSourceProperties);
+        return command;
     }
 
     private CreateRoutineLoadInfo initCreateRoutineLoadInfo() {

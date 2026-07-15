@@ -424,11 +424,20 @@ suite("test_routine_load_alter","p0") {
             assertEquals(srcTableName, showBeforeAlter[0][6].toString())
             def progressBeforeAlter = showBeforeAlter[0][15].toString()
 
-            sql "ALTER ROUTINE LOAD FOR ${alterTargetJob} ON ${dstTableName}"
+            sql """
+                ALTER ROUTINE LOAD FOR ${alterTargetJob}
+                SET TARGET TABLE = "${dstTableName}"
+                PROPERTIES("max_error_number" = "10")
+                FROM KAFKA("property.client.id" = "target-switch")
+            """
 
             def showAfterAlter = sql "show routine load for ${alterTargetJob}"
             assertEquals(dstTableName, showAfterAlter[0][6].toString())
             assertEquals(progressBeforeAlter, showAfterAlter[0][15].toString())
+            def alteredJobProperties = new groovy.json.JsonSlurper().parseText(showAfterAlter[0][11].toString())
+            def alteredCustomProperties = new groovy.json.JsonSlurper().parseText(showAfterAlter[0][13].toString())
+            assertEquals("10", alteredJobProperties.max_error_number.toString())
+            assertEquals("target-switch", alteredCustomProperties["client.id"].toString())
 
             def secondBatch = [
                 "4,eab,2023-07-16,def,2023-07-21:05:48:31,ghi",

@@ -20,6 +20,7 @@ package org.apache.doris.load.routineload;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.Pair;
@@ -27,6 +28,8 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.kafka.KafkaUtil;
+import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
+import org.apache.doris.datasource.property.fileformat.JsonFileFormatProperties;
 import org.apache.doris.load.routineload.kafka.KafkaProgress;
 import org.apache.doris.load.routineload.kafka.KafkaRoutineLoadJob;
 import org.apache.doris.load.routineload.kafka.KafkaTaskInfo;
@@ -457,6 +460,34 @@ public class RoutineLoadJobTest {
         Assert.assertEquals(TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS, uniqueKeyUpdateMode);
         // isPartialUpdate should be false for UPDATE_FLEXIBLE_COLUMNS
         Assert.assertFalse(isPartialUpdate);
+    }
+
+    @Test
+    public void testValidateFlexiblePartialUpdateUsesAlteredProperties() throws Exception {
+        KafkaRoutineLoadJob job = new KafkaRoutineLoadJob();
+        OlapTable targetTable = Mockito.mock(OlapTable.class);
+        Map<String, String> currentJobProperties = Maps.newHashMap();
+        currentJobProperties.put(FileFormatProperties.PROP_FORMAT, "json");
+        currentJobProperties.put(JsonFileFormatProperties.PROP_FUZZY_PARSE, "false");
+        currentJobProperties.put(JsonFileFormatProperties.PROP_JSON_PATHS, "$.value");
+        Deencapsulation.setField(job, "jobProperties", currentJobProperties);
+
+        Map<String, String> validAlterProperties = Maps.newHashMap();
+        validAlterProperties.put(JsonFileFormatProperties.PROP_JSON_PATHS, "");
+        job.validateAlterJobProperties(targetTable, validAlterProperties,
+                TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS);
+
+        Map<String, String> invalidAlterProperties = Maps.newHashMap();
+        invalidAlterProperties.put(JsonFileFormatProperties.PROP_JSON_PATHS, "");
+        invalidAlterProperties.put(JsonFileFormatProperties.PROP_FUZZY_PARSE, "true");
+        try {
+            job.validateAlterJobProperties(targetTable, invalidAlterProperties,
+                    TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS);
+            Assert.fail("Expected flexible partial update validation to reject fuzzy_parse");
+        } catch (UserException e) {
+            Assert.assertTrue(e.getMessage().contains("fuzzy_parse"));
+        }
+        Mockito.verify(targetTable, Mockito.times(2)).validateForFlexiblePartialUpdate();
     }
 
 }

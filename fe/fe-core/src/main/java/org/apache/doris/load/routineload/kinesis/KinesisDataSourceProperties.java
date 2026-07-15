@@ -212,23 +212,27 @@ public class KinesisDataSourceProperties extends AbstractDataSourceProperties {
         List<String> positions = KinesisConfiguration.KINESIS_POSITIONS.getParameterValue(
                 originalDataSourceProperties.get(KinesisConfiguration.KINESIS_POSITIONS.getName()));
         // Get default position from customKinesisProperties (already parsed from "property." prefix)
+        boolean hasDefaultPosition = customKinesisProperties.containsKey("kinesis_default_pos");
         String defaultPositionString = customKinesisProperties.get("kinesis_default_pos");
 
         // Validate that positions and default_position are not both set
-        if (CollectionUtils.isNotEmpty(positions) && StringUtils.isNotBlank(defaultPositionString)) {
+        if (CollectionUtils.isNotEmpty(positions) && hasDefaultPosition) {
             throw new AnalysisException("Only one of " + KinesisConfiguration.KINESIS_POSITIONS.getName()
                     + " and property.kinesis_default_pos can be set.");
         }
 
         // For alter operation, shards and positions must be set together
         if (isAlter() && CollectionUtils.isNotEmpty(shards) && CollectionUtils.isEmpty(positions)
-                && StringUtils.isBlank(defaultPositionString)) {
+                && !hasDefaultPosition) {
             throw new AnalysisException("Must set position or default position with shard property");
         }
 
         // Process positions
         if (CollectionUtils.isNotEmpty(positions)) {
             this.isPositionsForTimes = analyzeKinesisPositionProperty(positions);
+            return;
+        }
+        if (isAlter() && CollectionUtils.isEmpty(shards) && !hasDefaultPosition) {
             return;
         }
         this.isPositionsForTimes = analyzeKinesisDefaultPositionProperty();

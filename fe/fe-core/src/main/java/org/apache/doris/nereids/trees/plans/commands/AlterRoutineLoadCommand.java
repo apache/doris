@@ -58,6 +58,7 @@ import java.util.Optional;
 
 /**
  * ALTER ROUTINE LOAD db.label
+ * SET TARGET TABLE = "table"
  * PROPERTIES(
  * ...
  * )
@@ -95,6 +96,7 @@ public class AlterRoutineLoadCommand extends AlterCommand {
     private final Map<String, LoadProperty> loadPropertyMap;
     private RoutineLoadDesc routineLoadDesc;
     private final Map<String, String> jobProperties;
+    private final String dataSourceType;
     private final Map<String, String> dataSourceMapProperties;
     private long targetTableId;
     private boolean isPartialUpdate;
@@ -111,6 +113,7 @@ public class AlterRoutineLoadCommand extends AlterCommand {
                                    String targetTableName,
                                    Map<String, LoadProperty> loadPropertyMap,
                                    Map<String, String> jobProperties,
+                                   String dataSourceType,
                                    Map<String, String> dataSourceMapProperties) {
         super(PlanType.ALTER_ROUTINE_LOAD_COMMAND);
         Objects.requireNonNull(labelNameInfo, "labelNameInfo is null");
@@ -120,6 +123,7 @@ public class AlterRoutineLoadCommand extends AlterCommand {
         this.targetTableName = targetTableName;
         this.loadPropertyMap = loadPropertyMap == null ? Maps.newHashMap() : loadPropertyMap;
         this.jobProperties = jobProperties;
+        this.dataSourceType = dataSourceType;
         this.dataSourceMapProperties = dataSourceMapProperties;
         this.isPartialUpdate = this.jobProperties.getOrDefault(CreateRoutineLoadInfo.PARTIAL_COLUMNS, "false")
             .equalsIgnoreCase("true");
@@ -128,11 +132,11 @@ public class AlterRoutineLoadCommand extends AlterCommand {
     public AlterRoutineLoadCommand(LabelNameInfo labelNameInfo,
                                    Map<String, String> jobProperties,
                                    Map<String, String> dataSourceMapProperties) {
-        this(labelNameInfo, null, Maps.newHashMap(), jobProperties, dataSourceMapProperties);
+        this(labelNameInfo, null, Maps.newHashMap(), jobProperties, null, dataSourceMapProperties);
     }
 
     public AlterRoutineLoadCommand(LabelNameInfo labelNameInfo, String targetTableName) {
-        this(labelNameInfo, targetTableName, Maps.newHashMap(), Maps.newHashMap(), Maps.newHashMap());
+        this(labelNameInfo, targetTableName, Maps.newHashMap(), Maps.newHashMap(), null, Maps.newHashMap());
     }
 
     public String getDbName() {
@@ -148,7 +152,7 @@ public class AlterRoutineLoadCommand extends AlterCommand {
     }
 
     public boolean hasTargetTable() {
-        return !StringUtil.isEmpty(targetTableName);
+        return targetTableName != null;
     }
 
     public String getTargetTableName() {
@@ -187,10 +191,6 @@ public class AlterRoutineLoadCommand extends AlterCommand {
     public void validate(ConnectContext ctx) throws UserException {
         labelNameInfo.validate(ctx);
         FeNameFormat.checkCommonName(NAME_TYPE, labelNameInfo.getLabel());
-        if (hasTargetTable() && (MapUtils.isNotEmpty(loadPropertyMap) || MapUtils.isNotEmpty(jobProperties)
-                || MapUtils.isNotEmpty(dataSourceMapProperties))) {
-            throw new AnalysisException("ALTER ROUTINE LOAD target table change does not support other properties");
-        }
         // check routine load job properties include desired concurrent number etc.
         checkJobProperties();
         // check load properties
@@ -201,11 +201,13 @@ public class AlterRoutineLoadCommand extends AlterCommand {
                     job.getDbFullName(), job.getTableName(), job.isMultiTable(), job.getMergeType());
         }
         // check data source properties
-        checkDataSourceProperties();
+        checkDataSourceProperties(job);
+        TUniqueKeyUpdateMode effectiveUniqueKeyUpdateMode = getEffectiveUniqueKeyUpdateMode(job);
         if (hasTargetTable()) {
-            validateTargetTable(ctx, job);
+            validateTargetTable(ctx, job, effectiveUniqueKeyUpdateMode);
+        } else {
+            validateAlterJobProperties(job, effectiveUniqueKeyUpdateMode);
         }
-        checkPartialUpdate();
         if (analyzedJobProperties.isEmpty() && MapUtils.isEmpty(dataSourceMapProperties)
                 && MapUtils.isEmpty(loadPropertyMap) && !hasTargetTable()) {
             throw new AnalysisException("No properties are specified");
@@ -350,50 +352,46 @@ public class AlterRoutineLoadCommand extends AlterCommand {
         }
     }
 
-    private void checkDataSourceProperties() throws UserException {
+    private void checkDataSourceProperties(RoutineLoadJob job) throws UserException {
         if (MapUtils.isEmpty(dataSourceMapProperties)) {
             return;
         }
-        RoutineLoadJob job = Env.getCurrentEnv().getRoutineLoadManager()
-                .getJob(getDbName(), getJobName());
+        String effectiveDataSourceType = dataSourceType == null ? job.getDataSourceType().name() : dataSourceType;
+        if (!effectiveDataSourceType.equalsIgnoreCase(job.getDataSourceType().name())) {
+            throw new AnalysisException("The specified job type is not: " + effectiveDataSourceType);
+        }
         this.dataSourceProperties = RoutineLoadDataSourcePropertyFactory
-            .createDataSource(job.getDataSourceType().name(), dataSourceMapProperties, job.isMultiTable());
+            .createDataSource(effectiveDataSourceType, dataSourceMapProperties, job.isMultiTable());
         dataSourceProperties.setAlter(true);
-        dataSourceProperties.setTimezone(job.getTimezone());
+        dataSourceProperties.setTimezone(analyzedJobProperties.getOrDefault(
+                CreateRoutineLoadInfo.TIMEZONE, job.getTimezone()));
         dataSourceProperties.analyze();
     }
 
-    private void checkPartialUpdate() throws UserException {
-        RoutineLoadJob job = Env.getCurrentEnv().getRoutineLoadManager()
-                .getJob(getDbName(), getJobName());
-        TUniqueKeyUpdateMode uniqueKeyUpdateMode = getEffectiveUniqueKeyUpdateMode(job);
-        if (uniqueKeyUpdateMode != TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS) {
+    private void validateAlterJobProperties(RoutineLoadJob job,
+            TUniqueKeyUpdateMode effectiveUniqueKeyUpdateMode) throws UserException {
+        if (effectiveUniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPSERT) {
             return;
         }
         if (job.isMultiTable()) {
-            throw new AnalysisException("load by PARTIAL_COLUMNS is not supported in multi-table load.");
+            throw new AnalysisException("Partial update is not supported in multi-table load.");
         }
         Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException(job.getDbFullName());
-        String tableName = hasTargetTable() ? targetTableName : job.getTableName();
-        Table table = db.getTableOrAnalysisException(tableName);
-        if (!((OlapTable) table).getEnableUniqueKeyMergeOnWrite()) {
+        Table table = db.getTableOrAnalysisException(job.getTableName());
+        if (effectiveUniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS
+                && !((OlapTable) table).getEnableUniqueKeyMergeOnWrite()) {
             throw new AnalysisException("load by PARTIAL_COLUMNS is only supported in unique table MoW");
         }
+        job.validateAlterJobProperties((OlapTable) table, analyzedJobProperties, effectiveUniqueKeyUpdateMode);
     }
 
     private TUniqueKeyUpdateMode getEffectiveUniqueKeyUpdateMode(RoutineLoadJob job) {
-        if (analyzedJobProperties.containsKey(CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE)) {
-            return TUniqueKeyUpdateMode.valueOf(
-                    analyzedJobProperties.get(CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE));
-        }
-        if (analyzedJobProperties.containsKey(CreateRoutineLoadInfo.PARTIAL_COLUMNS) && isPartialUpdate
-                && job.getUniqueKeyUpdateMode() == TUniqueKeyUpdateMode.UPSERT) {
-            return TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS;
-        }
-        return job.getUniqueKeyUpdateMode();
+        return RoutineLoadJob.getEffectiveUniqueKeyUpdateMode(
+                job.getUniqueKeyUpdateMode(), analyzedJobProperties);
     }
 
-    private void validateTargetTable(ConnectContext ctx, RoutineLoadJob job) throws UserException {
+    private void validateTargetTable(ConnectContext ctx, RoutineLoadJob job,
+            TUniqueKeyUpdateMode effectiveUniqueKeyUpdateMode) throws UserException {
         if (job.isMultiTable()) {
             throw new AnalysisException("ALTER ROUTINE LOAD target table change only supports single-table job");
         }
@@ -416,7 +414,11 @@ public class AlterRoutineLoadCommand extends AlterCommand {
             throw new AnalysisException(
                     "if load_to_single_tablet set to true, the olap table must be with random distribution");
         }
-        job.validateTargetTable(db, olapTable);
+        if (effectiveUniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS
+                && !olapTable.getEnableUniqueKeyMergeOnWrite()) {
+            throw new AnalysisException("load by PARTIAL_COLUMNS is only supported in unique table MoW");
+        }
+        job.validateTargetTable(db, olapTable, analyzedJobProperties, effectiveUniqueKeyUpdateMode);
         this.targetTableId = olapTable.getId();
     }
 

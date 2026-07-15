@@ -687,6 +687,7 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
                 throw new DdlException("Only supports modification of PAUSED jobs");
             }
 
+            validateAlterJobPropertiesForMutation(command);
             modifyPropertiesInternal(jobProperties, dataSourceProperties);
             if (command.hasTargetTable()) {
                 this.tableId = command.getTargetTableId();
@@ -714,6 +715,10 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
                 customKinesisProperties = dataSourceProperties.getCustomKinesisProperties();
                 hasExplicitShardPositions = !shardPositions.isEmpty();
             }
+            resetProgress = !Strings.isNullOrEmpty(dataSourceProperties.getStream());
+            if (hasExplicitShardPositions && !resetProgress) {
+                ((KinesisProgress) progress).checkShards(shardPositions);
+            }
 
             // Update custom properties
             if (!customKinesisProperties.isEmpty()) {
@@ -724,7 +729,6 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
             // Modify stream if provided
             if (!Strings.isNullOrEmpty(dataSourceProperties.getStream())) {
                 this.stream = dataSourceProperties.getStream();
-                resetProgress = true;
             }
 
             // Modify region if provided
@@ -755,9 +759,6 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
             }
 
             if (!shardPositions.isEmpty()) {
-                if (!resetProgress) {
-                    ((KinesisProgress) progress).checkShards(shardPositions);
-                }
                 ((KinesisProgress) progress).modifyPosition(shardPositions);
             }
         }

@@ -3729,6 +3729,15 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public Literal visitStringLiteral(StringLiteralContext ctx) {
         String txt = ctx.STRING_LITERAL().getText();
+        String s = decodeStringLiteral(txt);
+        int strLength = Utils.containChinese(s) ? s.length() * StringLikeLiteral.CHINESE_CHAR_BYTE_LENGTH : s.length();
+        if (strLength > ScalarType.MAX_VARCHAR_LENGTH) {
+            return new StringLiteral(s);
+        }
+        return new VarcharLiteral(s, strLength);
+    }
+
+    private String decodeStringLiteral(String txt) {
         String s = txt.substring(1, txt.length() - 1);
         if (txt.charAt(0) == '\'') {
             // for single quote string, '' should be converted to '
@@ -3740,11 +3749,14 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         if (!SqlModeHelper.hasNoBackSlashEscapes()) {
             s = LogicalPlanBuilderAssistant.escapeBackSlash(s);
         }
-        int strLength = Utils.containChinese(s) ? s.length() * StringLikeLiteral.CHINESE_CHAR_BYTE_LENGTH : s.length();
-        if (strLength > ScalarType.MAX_VARCHAR_LENGTH) {
-            return new StringLiteral(s);
+        return s;
+    }
+
+    private String decodeIdentifier(String txt) {
+        if (txt.charAt(0) == '`' && txt.charAt(txt.length() - 1) == '`') {
+            return txt.substring(1, txt.length() - 1).replace("``", "`");
         }
-        return new VarcharLiteral(s, strLength);
+        return txt;
     }
 
     @Override
@@ -9283,12 +9295,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             throw new ParseException("only support [<db>.]<job_name>", ctx.name);
         }
         LabelNameInfo labelNameInfo = new LabelNameInfo(dbName, jobName);
-
-        // TODO: Phase 1 only supports altering the target table. Phase 2 will allow altering
-        // the target table and routine load properties in the same statement.
-        if (ctx.table != null) {
-            return new AlterRoutineLoadCommand(labelNameInfo, ctx.table.getText());
-        }
+        String targetTableName = ctx.targetTable == null ? null : decodeStringLiteral(ctx.targetTable.getText());
 
         Map<String, String> properties = new HashMap<>();
         if (ctx.properties != null) {
@@ -9315,8 +9322,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             }
         }
 
-        return new AlterRoutineLoadCommand(labelNameInfo, null,
-                loadPropertyMap, properties, dataSourceMapProperties);
+        String dataSourceType = ctx.type == null ? null : decodeIdentifier(ctx.type.getText());
+        return new AlterRoutineLoadCommand(labelNameInfo, targetTableName,
+                loadPropertyMap, properties, dataSourceType, dataSourceMapProperties);
     }
 
     @Override
