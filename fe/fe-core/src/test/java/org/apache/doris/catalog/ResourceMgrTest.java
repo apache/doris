@@ -19,23 +19,39 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.commands.CreateResourceCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateResourceInfo;
 import org.apache.doris.persist.EditLog;
+import org.apache.doris.persist.OperationType;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
+import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 public class ResourceMgrTest {
     // s3 resource
@@ -50,6 +66,7 @@ public class ResourceMgrTest {
     private String s3ReqTimeoutMs;
     private String s3ConnTimeoutMs;
     private Map<String, String> s3Properties;
+    private ExecutorService executor;
 
     @Before
     public void setUp() {
@@ -72,6 +89,12 @@ public class ResourceMgrTest {
         s3Properties.put("AWS_SECRET_KEY", s3SecretKey);
         s3Properties.put("AWS_BUCKET", "test-bucket");
         s3Properties.put("s3_validity_check", "false");
+        executor = Executors.newSingleThreadExecutor();
+    }
+
+    @After
+    public void tearDown() {
+        executor.shutdownNow();
     }
 
     @Test
@@ -128,6 +151,163 @@ public class ResourceMgrTest {
 
             // add again
             mgr.createResource(createResourceCommand);
+        }
+    }
+
+    @Test
+    public void testHdfsResourceUsesReadWriteLockForPropertyAccess() throws Exception {
+        HdfsResource resource = createHdfsResource("hdfs0", "hdfs://first");
+
+        resource.writeLock();
+        Future<Map<String, String>> copiedPropertiesFuture = null;
+        try {
+            copiedPropertiesFuture = submitAndWaitUntilStarted(resource::getCopiedProperties);
+            assertFutureBlocked(copiedPropertiesFuture);
+        } finally {
+            resource.writeUnlock();
+        }
+        Assert.assertEquals("hdfs://first",
+                copiedPropertiesFuture.get(5, TimeUnit.SECONDS).get(HdfsResource.HADOOP_FS_NAME));
+
+        resource.writeLock();
+        Future<Void> procFuture = null;
+        try {
+            procFuture = submitAndWaitUntilStarted(() -> {
+                resource.getProcNodeData(new BaseProcResult());
+                return null;
+            });
+            assertFutureBlocked(procFuture);
+        } finally {
+            resource.writeUnlock();
+        }
+        procFuture.get(5, TimeUnit.SECONDS);
+
+        resource.readLock();
+        Future<Void> modifyFuture = null;
+        try {
+            modifyFuture = submitAndWaitUntilStarted(() -> {
+                resource.modifyProperties(hdfsProperties("hdfs://second"));
+                return null;
+            });
+            assertFutureBlocked(modifyFuture);
+        } finally {
+            resource.readUnlock();
+        }
+        modifyFuture.get(5, TimeUnit.SECONDS);
+        Assert.assertEquals("hdfs://second", resource.getCopiedProperties().get(HdfsResource.HADOOP_FS_NAME));
+    }
+
+    @Test
+    public void testAlterResourceLogsDetachedSnapshots() throws Exception {
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            Env env = Mockito.mock(Env.class);
+            EditLog editLog = Mockito.mock(EditLog.class);
+            EditLog.EditLogItem logItem = Mockito.mock(EditLog.EditLogItem.class);
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            Mockito.when(env.getEditLog()).thenReturn(editLog);
+            Mockito.when(editLog.submitEdit(Mockito.eq(OperationType.OP_ALTER_RESOURCE), Mockito.any(Resource.class)))
+                    .thenReturn(logItem);
+
+            ResourceMgr mgr = new ResourceMgr();
+            mgr.createResource(createHdfsResource("hdfs0", "hdfs://initial"), false);
+            mgr.alterResource("hdfs0", hdfsProperties("hdfs://first"));
+            mgr.alterResource("hdfs0", hdfsProperties("hdfs://second"));
+
+            ArgumentCaptor<Resource> logResourceCaptor = ArgumentCaptor.forClass(Resource.class);
+            Mockito.verify(editLog, Mockito.times(2)).submitEdit(Mockito.eq(OperationType.OP_ALTER_RESOURCE),
+                    logResourceCaptor.capture());
+            Mockito.verify(logItem, Mockito.times(2)).await();
+            List<Resource> loggedResources = logResourceCaptor.getAllValues();
+
+            Assert.assertNotSame(mgr.getResource("hdfs0"), loggedResources.get(0));
+            Assert.assertNotSame(loggedResources.get(0), loggedResources.get(1));
+            Assert.assertEquals("hdfs://first",
+                    loggedResources.get(0).getCopiedProperties().get(HdfsResource.HADOOP_FS_NAME));
+            Assert.assertEquals("hdfs://second",
+                    loggedResources.get(1).getCopiedProperties().get(HdfsResource.HADOOP_FS_NAME));
+        }
+    }
+
+    @Test
+    public void testResourceMgrWriteUsesDetachedResourceSnapshots() throws Exception {
+        ResourceMgr mgr = new ResourceMgr();
+        HdfsResource resource = createHdfsResource("hdfs0", "hdfs://first");
+        mgr.createResource(resource, false);
+
+        resource.writeLock();
+        Future<ResourceMgr> copiedMgrFuture = null;
+        try {
+            copiedMgrFuture = submitAndWaitUntilStarted(() -> copyResourceMgr(mgr));
+            assertFutureBlocked(copiedMgrFuture);
+        } finally {
+            resource.writeUnlock();
+        }
+
+        ResourceMgr copiedMgr = copiedMgrFuture.get(5, TimeUnit.SECONDS);
+        resource.modifyProperties(hdfsProperties("hdfs://second"));
+
+        Assert.assertEquals("hdfs://first",
+                copiedMgr.getResource("hdfs0").getCopiedProperties().get(HdfsResource.HADOOP_FS_NAME));
+        Assert.assertEquals("hdfs://second",
+                resource.getCopiedProperties().get(HdfsResource.HADOOP_FS_NAME));
+    }
+
+    @Test
+    public void testCopiedResourceKeepsReferenceSnapshot() throws Exception {
+        HdfsResource resource = createHdfsResource("hdfs0", "hdfs://first");
+        resource.addReference("tbl", Resource.ReferenceType.POLICY);
+
+        Resource copied = resource.getCopiedResourceSnapshot();
+        resource.removeReference("tbl", Resource.ReferenceType.POLICY);
+
+        try {
+            copied.dropResource();
+            Assert.fail("copied resource should keep the original reference");
+        } catch (DdlException e) {
+            Assert.assertTrue(e.getMessage().contains("tbl"));
+        }
+        resource.dropResource();
+    }
+
+    private HdfsResource createHdfsResource(String name, String fsName) throws DdlException {
+        HdfsResource resource = new HdfsResource(name);
+        resource.modifyProperties(hdfsProperties(fsName));
+        return resource;
+    }
+
+    private Map<String, String> hdfsProperties(String fsName) {
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put(HdfsResource.HADOOP_FS_NAME, fsName);
+        return properties;
+    }
+
+    private ResourceMgr copyResourceMgr(ResourceMgr mgr) throws Exception {
+        ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
+        try (DataOutputStream dataOutputStream = new DataOutputStream(byteArrayOutputStream)) {
+            mgr.write(dataOutputStream);
+        }
+        try (DataInputStream dataInputStream = new DataInputStream(
+                new ByteArrayInputStream(byteArrayOutputStream.toByteArray()))) {
+            return ResourceMgr.read(dataInputStream);
+        }
+    }
+
+    private <T> Future<T> submitAndWaitUntilStarted(Callable<T> task) throws Exception {
+        CountDownLatch started = new CountDownLatch(1);
+        Future<T> future = executor.submit(() -> {
+            started.countDown();
+            return task.call();
+        });
+        Assert.assertTrue(started.await(5, TimeUnit.SECONDS));
+        return future;
+    }
+
+    private void assertFutureBlocked(Future<?> future) throws Exception {
+        try {
+            future.get(100, TimeUnit.MILLISECONDS);
+            Assert.fail("future should be blocked by the resource lock");
+        } catch (TimeoutException e) {
+            // The caller releases the lock before waiting for completion.
         }
     }
 }

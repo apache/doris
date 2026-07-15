@@ -100,6 +100,7 @@ public abstract class Resource implements Writable, GsonPostProcessable {
     protected long version = -1;
 
     private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
+    private final Object alterLock = new Object();
 
     public void writeLock() {
         lock.writeLock().lock();
@@ -115,6 +116,10 @@ public abstract class Resource implements Writable, GsonPostProcessable {
 
     public void readUnlock() {
         lock.readLock().unlock();
+    }
+
+    Object getAlterLock() {
+        return alterLock;
     }
 
     // https://programmerr47.medium.com/gson-unsafe-problem-d1ff29d4696f
@@ -243,9 +248,11 @@ public abstract class Resource implements Writable, GsonPostProcessable {
     public abstract Map<String, String> getCopiedProperties();
 
     public void dropResource() throws DdlException {
-        if (!references.isEmpty()) {
-            String msg = String.join(", ", references.keySet());
-            throw new DdlException(String.format("Resource %s is used by: %s", name, msg));
+        synchronized (this) {
+            if (!references.isEmpty()) {
+                String msg = String.join(", ", references.keySet());
+                throw new DdlException(String.format("Resource %s is used by: %s", name, msg));
+            }
         }
     }
 
@@ -258,13 +265,12 @@ public abstract class Resource implements Writable, GsonPostProcessable {
 
     @Override
     public String toString() {
-        return GsonUtils.GSON.toJson(this);
+        return toJson();
     }
 
     @Override
     public void write(DataOutput out) throws IOException {
-        String json = GsonUtils.GSON.toJson(this);
-        Text.writeString(out, json);
+        Text.writeString(out, toJson());
     }
 
     public static Resource read(DataInput in) throws IOException {
@@ -350,12 +356,31 @@ public abstract class Resource implements Writable, GsonPostProcessable {
         return copied;
     }
 
-    private void notifyUpdate(Map<String, String> properties) {
-        references.entrySet().stream().collect(Collectors.groupingBy(Entry::getValue)).forEach((type, refs) -> {
-            if (type == ReferenceType.CATALOG) {
-                // No longer support resource in Catalog.
+    final Resource getCopiedResourceSnapshot() {
+        return GsonUtils.GSON.fromJson(toJson(), Resource.class);
+    }
+
+    private String toJson() {
+        synchronized (alterLock) {
+            readLock();
+            try {
+                synchronized (this) {
+                    return GsonUtils.GSON.toJson(this);
+                }
+            } finally {
+                readUnlock();
             }
-        });
+        }
+    }
+
+    private void notifyUpdate(Map<String, String> properties) {
+        synchronized (this) {
+            references.entrySet().stream().collect(Collectors.groupingBy(Entry::getValue)).forEach((type, refs) -> {
+                if (type == ReferenceType.CATALOG) {
+                    // No longer support resource in Catalog.
+                }
+            });
+        }
     }
 
     public void applyDefaultProperties() {}
