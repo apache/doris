@@ -1938,6 +1938,9 @@ TEST(IcebergV2ReaderTest, IcebergTableLevelCountUsesAssignedRowCountWithPosition
                                     .runtime_state = &state,
                                     .scanner_profile = nullptr,
                                     .push_down_agg_type = TPushAggOp::type::COUNT,
+                                    // An explicit empty argument list is the new FE marker for
+                                    // COUNT(*)/COUNT(1); nullopt intentionally exercises fallback.
+                                    .push_down_count_columns = std::vector<GlobalIndex> {},
                             })
                         .ok());
 
