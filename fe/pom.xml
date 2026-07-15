@@ -506,6 +506,49 @@ under the License.
     </profiles>
     <dependencyManagement>
         <dependencies>
+            <!-- MUST stay ahead of the netty-bom import below: netty-bom declares each
+                 netty-codec-native-quic classifier with an explicit <scope>runtime</scope>, and
+                 dependencyManagement scope is force-applied to transitive nodes. Doris uses no
+                 QUIC/HTTP3 anywhere, so that dragged ~31MB of unused native libs into every
+                 artifact carrying netty (fe-core lib, every be-java-extensions fat jar, the
+                 plugin zips). provided keeps them on the compile classpath but out of every
+                 shipped package. dependencyManagement is first-match-wins, so moving these
+                 below the import silently restores the bloat. -->
+            <dependency>
+                <groupId>io.netty</groupId>
+                <artifactId>netty-codec-native-quic</artifactId>
+                <version>${netty-all.version}</version>
+                <classifier>linux-x86_64</classifier>
+                <scope>provided</scope>
+            </dependency>
+            <dependency>
+                <groupId>io.netty</groupId>
+                <artifactId>netty-codec-native-quic</artifactId>
+                <version>${netty-all.version}</version>
+                <classifier>linux-aarch_64</classifier>
+                <scope>provided</scope>
+            </dependency>
+            <dependency>
+                <groupId>io.netty</groupId>
+                <artifactId>netty-codec-native-quic</artifactId>
+                <version>${netty-all.version}</version>
+                <classifier>osx-x86_64</classifier>
+                <scope>provided</scope>
+            </dependency>
+            <dependency>
+                <groupId>io.netty</groupId>
+                <artifactId>netty-codec-native-quic</artifactId>
+                <version>${netty-all.version}</version>
+                <classifier>osx-aarch_64</classifier>
+                <scope>provided</scope>
+            </dependency>
+            <dependency>
+                <groupId>io.netty</groupId>
+                <artifactId>netty-codec-native-quic</artifactId>
+                <version>${netty-all.version}</version>
+                <classifier>windows-x86_64</classifier>
+                <scope>provided</scope>
+            </dependency>
             <dependency>
                 <groupId>io.netty</groupId>
                 <artifactId>netty-bom</artifactId>
