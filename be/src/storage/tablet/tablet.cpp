@@ -1596,8 +1596,6 @@ void Tablet::get_compaction_status(std::string* json_result) {
                                      root.GetAllocator());
     root.AddMember("cumulative policy type", cumulative_policy_type, root.GetAllocator());
     root.AddMember("cumulative point", _cumulative_point.load(), root.GetAllocator());
-    root.AddMember("cumulative compaction completed count", cumulative_compaction_completed_count(),
-                   root.GetAllocator());
 
 #define FORMAT_UNIXMILLIS_ADD_JSON_NODE(root, key, unixmillis_value)                 \
     {                                                                                \

@@ -954,8 +954,6 @@ void CloudTablet::get_compaction_status(std::string* json_result) {
     // get snapshot version path json_doc
     _timestamped_version_tracker.get_stale_version_path_json_doc(path_arr);
     root.AddMember("cumulative point", _cumulative_point.load(), root.GetAllocator());
-    root.AddMember("cumulative compaction completed count", cumulative_compaction_completed_count(),
-                   root.GetAllocator());
     rapidjson::Value cumu_value;
     std::string format_str = ToStringFromUnixMillis(_last_cumu_compaction_failure_millis.load());
     cumu_value.SetString(format_str.c_str(), cast_set<uint>(format_str.length()),

@@ -128,12 +128,6 @@ public:
     // this method just return the compaction sum on each rowset
     // note(tsy): we should unify the compaction score calculation finally
     uint32_t get_real_compaction_score() const;
-    uint64_t cumulative_compaction_completed_count() const {
-        return _cumulative_compaction_completed_count.load(std::memory_order_acquire);
-    }
-    void increment_cumulative_compaction_completed_count() {
-        _cumulative_compaction_completed_count.fetch_add(1, std::memory_order_release);
-    }
     // MUST hold shared `_meta_lock`. Use this variant when the caller already
     // holds the header lock to avoid recursively re-acquiring the (now
     // writer-preferring) `_meta_lock`, which would self-deadlock.
@@ -401,7 +395,6 @@ protected:
 
     // `_alter_failed` is used to indicate whether the tablet failed to perform a schema change
     std::atomic<bool> _alter_failed = false;
-    std::atomic<uint64_t> _cumulative_compaction_completed_count {0};
 
     // metrics of this tablet
     std::shared_ptr<MetricEntity> _metric_entity;

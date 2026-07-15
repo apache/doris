@@ -199,7 +199,6 @@ Status CloudCumulativeCompaction::execute_compact() {
         } else {
             cloud_tablet()->set_last_cumu_compaction_success_time(UnixMillis());
         }
-        cloud_tablet()->increment_cumulative_compaction_completed_count();
     });
     st = CloudCompactionMixin::execute_compact();
     if (!st.ok()) {

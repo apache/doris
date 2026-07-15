@@ -319,17 +319,7 @@ Status CompactionAction::_execute_compaction_callback(TabletSharedPtr tablet,
     Status res = Status::OK();
     auto* tracker = CompactionTaskTracker::instance();
     auto do_compact = [&](Compaction& compaction, CompactionProfileType profile_type) {
-        auto prepare_st = compaction.prepare_compact();
-        if (!prepare_st.ok()) {
-            // The HTTP request may have already returned Success after its two-second wait.
-            // Publish the terminal prepare result so polling can distinguish it from stale state.
-            if (profile_type == CompactionProfileType::CUMULATIVE) {
-                tablet->increment_cumulative_compaction_completed_count();
-            } else if (profile_type == CompactionProfileType::BINLOG) {
-                tablet->set_last_binlog_compaction_failure_time(UnixMillis());
-            }
-            return prepare_st;
-        }
+        RETURN_IF_ERROR(compaction.prepare_compact());
         // Register task as RUNNING with tracker (manual trigger, direct execution path)
         // Use compaction.compaction_id() which was allocated in constructor.
         int64_t compaction_id = compaction.compaction_id();
@@ -398,8 +388,6 @@ Status CompactionAction::_execute_compaction_callback(TabletSharedPtr tablet,
         if (prefer_compaction_level < 0) {
             res = Status::Error<BINLOG_COMPACTION_NO_SUITABLE_VERSION>(
                     "failed to init binlog compaction due to no suitable version");
-            tablet->set_last_binlog_compaction_status(res.to_string());
-            tablet->set_last_binlog_compaction_failure_time(UnixMillis());
         } else {
             BinlogCompaction binlog_compaction(_engine, tablet, prefer_compaction_level);
             res = do_compact(binlog_compaction, CompactionProfileType::BINLOG);

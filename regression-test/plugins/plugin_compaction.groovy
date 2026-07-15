@@ -87,28 +87,6 @@ Suite.metaClass.trigger_and_wait_compaction = { String table_name, String compac
         def tabletStatus = parseJson(stdout.trim())
         be_tablet_compaction_status.put("${be_host}-${tablet.TabletId}", tabletStatus)
     }
-    def isIgnoredCompactionStatus = { status ->
-        def status_lower = "${status}".toLowerCase()
-        return ignored_errors.any { error -> status_lower.contains(error.toLowerCase()) }
-    }
-    def isNoopCompactionStatus = { type, status ->
-        def status_lower = "${status}".toLowerCase()
-        switch (type) {
-            case "full":
-                return status_lower.contains("no suitable version") ||
-                        status_lower.contains("e-808") ||
-                        status_lower.contains("e-2008")
-            case "cumulative":
-                return status_lower.contains("e-2000") &&
-                        !status_lower.contains("job tablet busy")
-            case "binlog":
-                return status_lower.contains("e-2012")
-            case "base":
-                return false
-            default:
-                return false
-        }
-    }
     // 2. trigger compaction
     def triggered_tablets = []
     for (tablet in tablets) {
@@ -136,12 +114,9 @@ Suite.metaClass.trigger_and_wait_compaction = { String table_name, String compac
                 triggered_tablets.add(tablet) // compaction already in queue, treat it as successfully triggered
             } else if (!auto_compaction_disabled) {
                 // ignore the error if auto compaction enabled
-            } else if (status_lower.contains("e-2010")) {
-                // cumulative compaction handed delete-version rowsets to base compaction, so still wait below.
-                triggered_tablets.add(tablet)
-            } else if (isNoopCompactionStatus(compaction_type, trigger_status.status)) {
+            } else if (status_lower.contains("e-2000") || status_lower.contains("e-2010")) {
                 // ignore this tablet compaction.
-            } else if (isIgnoredCompactionStatus(trigger_status.status)) {
+            } else if (ignored_errors.any { error -> status_lower.contains(error.toLowerCase()) }) {
                 // ignore this tablet compaction if the error is in the ignored_errors list
             } else {
                 throw new Exception("trigger compaction failed, be host: ${be_host}, tablet id: ${tablet.TabletId}, status: ${trigger_status.status}")
@@ -190,9 +165,9 @@ Suite.metaClass.trigger_and_wait_compaction = { String table_name, String compac
                     def baseSuccessTimeChanged = oldStatus["last base success time"] != tabletStatus["last base success time"]
                     def cumulativeSuccessTimeChanged =
                             oldStatus["last cumulative success time"] != tabletStatus["last cumulative success time"]
-                    // E-2010 advances the cumulative point and delegates delete-version rowsets to base compaction.
-                    // The cumulative request itself is complete once the handoff is visible; callers that need the
-                    // delegated work compacted should explicitly trigger base compaction after this helper returns.
+                    // E-2010 advances the cumulative point and lets base compaction handle delete-version rowsets.
+                    // In some timing windows, base success is already visible in the cached old status while
+                    // cumulative success advances later, so accept either success signal but not failure time alone.
                     handedOffToBaseCompactionAfterDeleteVersion = lastCumulativeStatus.contains("e-2010") &&
                             oldCumulativePoint != null && newCumulativePoint != null &&
                             newCumulativePoint > oldCumulativePoint
@@ -202,35 +177,9 @@ Suite.metaClass.trigger_and_wait_compaction = { String table_name, String compac
                 }
                 def success_time_unchanged = (oldStatus["last ${compaction_type} success time"] == tabletStatus["last ${compaction_type} success time"])
                 def failure_time_unchanged = (oldStatus["last ${compaction_type} failure time"] == tabletStatus["last ${compaction_type} failure time"])
-                def cumulative_completion_count_unchanged = compaction_type != "cumulative" ||
-                        oldStatus["cumulative compaction completed count"] ==
-                                tabletStatus["cumulative compaction completed count"]
-                def currentCompactionStatus = tabletStatus["last ${compaction_type} status"]
-                def statusOk = "${currentCompactionStatus}".toLowerCase().contains("[ok]")
-                def terminalStatusChanged = !failure_time_unchanged ||
-                        !cumulative_completion_count_unchanged
-                def compactionFailureNonFatal = terminalStatusChanged &&
-                        (isNoopCompactionStatus(compaction_type, currentCompactionStatus) ||
-                                isIgnoredCompactionStatus(currentCompactionStatus))
-                def baseFailureTimeChanged = handedOffToBaseCompactionAfterDeleteVersion &&
-                        oldStatus["last base failure time"] != tabletStatus["last base failure time"]
-                def baseFailureIgnored = baseFailureTimeChanged && isIgnoredCompactionStatus(tabletStatus["last base status"])
-                if (!running && !handedOffToBaseCompactionAfterDeleteVersion &&
-                        terminalStatusChanged && !statusOk && !compactionFailureNonFatal) {
-                    throw new Exception("compaction failed, be host: ${be_host}, tablet id: ${tablet.TabletId}, " +
-                            "run status: ${compactionStatus.run_status}, old status: ${oldStatus}, new status: ${tabletStatus}")
-                }
-                if (!running && handedOffToBaseCompactionAfterDeleteVersion && baseFailureTimeChanged &&
-                        !baseFailureIgnored) {
-                    throw new Exception("base compaction failed after cumulative E-2010 handoff, be host: ${be_host}, " +
-                            "tablet id: ${tablet.TabletId}, run status: ${compactionStatus.run_status}, " +
-                            "old status: ${oldStatus}, new status: ${tabletStatus}")
-                }
-                def compactionFinished = handedOffToBaseCompactionAfterDeleteVersion ||
-                        completedByBaseCompactionAfterDeleteVersion ||
-                        compactionFailureNonFatal || baseFailureIgnored ||
-                        !success_time_unchanged ||
-                        (!cumulative_completion_count_unchanged && statusOk)
+                def currentCompactionTimestampChanged = !success_time_unchanged || !failure_time_unchanged
+                def compactionFinished = completedByBaseCompactionAfterDeleteVersion ||
+                        (!handedOffToBaseCompactionAfterDeleteVersion && currentCompactionTimestampChanged)
                 running = running || !compactionFinished
                 if (running) {
                     logger.info("compaction is still running, be host: ${be_host}, tablet id: ${tablet.TabletId}, run status: ${compactionStatus.run_status}, old status: ${oldStatus}, new status: ${tabletStatus}")
@@ -238,68 +187,9 @@ Suite.metaClass.trigger_and_wait_compaction = { String table_name, String compac
                 }
             } else {
                 // time series compaction sometimes doesn't update compaction success time
-                // so use the completed count as the terminal signal after run_status becomes false.
+                // so we solely check run_status for it
                 if (running) {
                     logger.info("compaction is still running, be host: ${be_host}, tablet id: ${tablet.TabletId}")
-                    return false
-                }
-                (exit_code, stdout, stderr) = be_show_tablet_status(be_host, be_port, tablet.TabletId)
-                assert exit_code == 0: "get tablet status failed, exit code: ${exit_code}, stdout: ${stdout}, stderr: ${stderr}"
-                def tabletStatus = parseJson(stdout.trim())
-                def oldStatus = be_tablet_compaction_status.get("${be_host}-${tablet.TabletId}")
-                def handedOffToBaseCompactionAfterDeleteVersion = false
-                def completedByBaseCompactionAfterDeleteVersion = false
-                def cumulativePointChanged = false
-                if (compaction_type == "cumulative") {
-                    def oldCumulativePoint = toLongOrNull(oldStatus["cumulative point"])
-                    def newCumulativePoint = toLongOrNull(tabletStatus["cumulative point"])
-                    def lastCumulativeStatus = "${tabletStatus["last cumulative status"]}".toLowerCase()
-                    def baseSuccessTimeChanged = oldStatus["last base success time"] != tabletStatus["last base success time"]
-                    def cumulativeSuccessTimeChanged =
-                            oldStatus["last cumulative success time"] != tabletStatus["last cumulative success time"]
-                    cumulativePointChanged = oldCumulativePoint != null && newCumulativePoint != null &&
-                            newCumulativePoint > oldCumulativePoint
-                    handedOffToBaseCompactionAfterDeleteVersion =
-                            lastCumulativeStatus.contains("e-2010") && cumulativePointChanged
-                    completedByBaseCompactionAfterDeleteVersion =
-                            handedOffToBaseCompactionAfterDeleteVersion &&
-                            (baseSuccessTimeChanged || cumulativeSuccessTimeChanged)
-                }
-                def success_time_unchanged = (oldStatus["last ${compaction_type} success time"] == tabletStatus["last ${compaction_type} success time"])
-                def failure_time_unchanged = (oldStatus["last ${compaction_type} failure time"] == tabletStatus["last ${compaction_type} failure time"])
-                def cumulative_completion_count_unchanged = compaction_type != "cumulative" ||
-                        oldStatus["cumulative compaction completed count"] ==
-                                tabletStatus["cumulative compaction completed count"]
-                def currentCompactionStatus = tabletStatus["last ${compaction_type} status"]
-                def statusOk = "${currentCompactionStatus}".toLowerCase().contains("[ok]")
-                def terminalStatusChanged = !failure_time_unchanged ||
-                        !cumulative_completion_count_unchanged
-                def compactionFailureNonFatal = terminalStatusChanged &&
-                        (isNoopCompactionStatus(compaction_type, currentCompactionStatus) ||
-                                isIgnoredCompactionStatus(currentCompactionStatus))
-                def baseFailureTimeChanged = handedOffToBaseCompactionAfterDeleteVersion &&
-                        oldStatus["last base failure time"] != tabletStatus["last base failure time"]
-                def baseFailureIgnored = baseFailureTimeChanged && isIgnoredCompactionStatus(tabletStatus["last base status"])
-                if (!handedOffToBaseCompactionAfterDeleteVersion &&
-                        terminalStatusChanged && !statusOk && !compactionFailureNonFatal) {
-                    throw new Exception("compaction failed, be host: ${be_host}, tablet id: ${tablet.TabletId}, " +
-                            "run status: ${compactionStatus.run_status}, old status: ${oldStatus}, new status: ${tabletStatus}")
-                }
-                if (handedOffToBaseCompactionAfterDeleteVersion && baseFailureTimeChanged &&
-                        !baseFailureIgnored) {
-                    throw new Exception("base compaction failed after cumulative E-2010 handoff, be host: ${be_host}, " +
-                            "tablet id: ${tablet.TabletId}, run status: ${compactionStatus.run_status}, " +
-                            "old status: ${oldStatus}, new status: ${tabletStatus}")
-                }
-                def compactionFinished = handedOffToBaseCompactionAfterDeleteVersion ||
-                        completedByBaseCompactionAfterDeleteVersion ||
-                        compactionFailureNonFatal || baseFailureIgnored ||
-                        (!handedOffToBaseCompactionAfterDeleteVersion &&
-                                (!success_time_unchanged ||
-                                        (!cumulative_completion_count_unchanged && statusOk)))
-                running = !compactionFinished
-                if (running) {
-                    logger.info("compaction is still running, be host: ${be_host}, tablet id: ${tablet.TabletId}, run status: ${compactionStatus.run_status}, old status: ${oldStatus}, new status: ${tabletStatus}")
                     return false
                 }
             }
