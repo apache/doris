@@ -76,6 +76,7 @@ suite("test_ivm_outer_join_1") {
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_outer_join_1_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("test_ivm_outer_join_1_mv")
+    advance_ivm_stream_offset("test_ivm_outer_join_1_mv")
     order_qt_after_complete """
         SELECT k1, left_v1, right_v2
         FROM test_ivm_outer_join_1_mv
@@ -100,9 +101,6 @@ suite("test_ivm_outer_join_1") {
         ORDER BY k1, left_v1, right_v2
     """
 
-    // TODO: Refresh this expected result after the real binlog delta scan is available.
-    // The current mock delta scan reads the full current base table and derives dml_factor = +1
-    // for ordinary tables, so it cannot produce the deleted right row needed to repair the null-side row.
     sql """DELETE FROM test_ivm_outer_join_1_t2 WHERE k1 = 1;"""
     sql """REFRESH MATERIALIZED VIEW test_ivm_outer_join_1_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("test_ivm_outer_join_1_mv")
@@ -173,6 +171,7 @@ suite("test_ivm_outer_join_1") {
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_outer_join_1_event_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("test_ivm_outer_join_1_event_mv")
+    advance_ivm_stream_offset("test_ivm_outer_join_1_event_mv")
     order_qt_event_after_complete """
         SELECT k1, left_v1, right_v2
         FROM test_ivm_outer_join_1_event_mv
@@ -248,6 +247,7 @@ suite("test_ivm_outer_join_1") {
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_outer_join_1_repair_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("test_ivm_outer_join_1_repair_mv")
+    advance_ivm_stream_offset("test_ivm_outer_join_1_repair_mv")
     order_qt_repair_after_complete """
         SELECT k1, left_v1, right_v2
         FROM test_ivm_outer_join_1_repair_mv

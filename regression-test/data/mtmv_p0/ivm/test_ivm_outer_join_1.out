@@ -8,16 +8,19 @@
 1	10	100
 2	20	\N
 3	30	300
+4	40	\N
 
 -- !after_right_insert_incremental --
 1	10	100
-2	20	\N
+2	20	200
 3	30	300
+4	40	\N
 
 -- !after_right_delete_incremental --
-1	10	100
-2	20	\N
+1	10	\N
+2	20	200
 3	30	300
+4	40	\N
 
 -- !event_after_complete --
 1	10	100
@@ -26,7 +29,7 @@
 
 -- !event_after_right_insert_incremental --
 1	10	100
-2	20	\N
+2	20	200
 3	30	300
 
 -- !repair_after_complete --
@@ -36,6 +39,6 @@
 
 -- !repair_after_right_insert_incremental --
 1	10	5
-2	20	\N
+2	20	15
 3	30	\N
 

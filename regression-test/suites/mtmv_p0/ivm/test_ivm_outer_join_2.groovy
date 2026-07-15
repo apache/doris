@@ -97,6 +97,7 @@ suite("test_ivm_outer_join_2") {
 
     sql """REFRESH MATERIALIZED VIEW ivm_oj2_chain_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("ivm_oj2_chain_mv")
+    advance_ivm_stream_offset("ivm_oj2_chain_mv")
     order_qt_chain_after_complete """
         SELECT k1, left_v1, mid_v2, right_v3
         FROM ivm_oj2_chain_mv
@@ -209,6 +210,7 @@ suite("test_ivm_outer_join_2") {
 
     sql """REFRESH MATERIALIZED VIEW ivm_oj2_inner_nested_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("ivm_oj2_inner_nested_mv")
+    advance_ivm_stream_offset("ivm_oj2_inner_nested_mv")
     order_qt_inner_nested_after_complete """
         SELECT k1, left_v1, inner_v2, right_v3
         FROM ivm_oj2_inner_nested_mv
@@ -294,6 +296,7 @@ suite("test_ivm_outer_join_2") {
 
     sql """REFRESH MATERIALIZED VIEW ivm_oj2_filter_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("ivm_oj2_filter_mv")
+    advance_ivm_stream_offset("ivm_oj2_filter_mv")
     order_qt_filter_after_complete """
         SELECT k1, left_v1, right_v2
         FROM ivm_oj2_filter_mv
