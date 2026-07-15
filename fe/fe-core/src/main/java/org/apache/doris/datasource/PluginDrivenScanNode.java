@@ -894,7 +894,12 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         // loaded, checks this reference's own pin), so it catches the latest-masked / @incr / MTMV-refresh
         // cases the version-blind analysis-time binding cannot. Per user decision 2026-07-13: throw for now;
         // the per-reference version-aware schema-binding refactor is tracked as D-MVCC-VERSION-SCHEMA. A
-        // latest / @incr / sys-table / hive scan carries a null pinnedSchema -> no-op.
+        // latest / @incr / hive scan carries a null pinnedSchema -> no-op; so does a sys-table scan on a
+        // connector that rejects sys-table time travel (resolveSysTableSnapshotPin returns empty).
+        // KNOWN GAP: a sys-table scan on a connector that DOES honor it (iceberg) resolves the SOURCE
+        // table's pin, whose pinnedSchema is the source's columns, while this tuple carries the SYS table's
+        // columns -> the check below is a category error and would throw a bogus "multiple versions" error.
+        // Latent (iceberg sys-table time travel has no e2e coverage today), pre-existing, and NOT fixed here.
         if (snapshot.isPresent() && snapshot.get() instanceof PluginDrivenMvccSnapshot) {
             List<Column> boundColumns = new ArrayList<>();
             for (SlotDescriptor slot : desc.getSlots()) {
@@ -1045,8 +1050,17 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
      * pinned SYSTEM handle (the connector's {@code planSystemTableScan} applies it).
      *
      * <p>Returns empty (no pin) when the target is not a sys table, when there is no time-travel selector,
-     * or — defensively — when the source is not MVCC-capable (the guard
-     * {@link #checkSysTableScanConstraints} already rejects that case for the relevant connectors).
+     * when the connector does not honor sys-table time travel ({@link #sysTableSupportsTimeTravel()} —
+     * paimon, the default), or — defensively — when the source is not MVCC-capable.
+     *
+     * <p><b>The capability check must stay here, not be left to {@link #checkSysTableScanConstraints}.</b>
+     * That guard is the one that produces the intended user-facing message, but it only runs at split
+     * generation ({@link #getSplits} / {@code startSplit}) — long AFTER this method runs at init. Resolving
+     * a pin for a connector that rejects sys-table time travel therefore hands the SOURCE table's snapshot
+     * (and its non-null pinned schema) to a scan whose tuple carries the SYS table's columns, and the
+     * failure surfaces first — as a bogus L17 "multiple versions" error, or as {@code loadSnapshot}'s own
+     * not-found {@link RuntimeException} (which is not a {@link UserException} and so escapes uncaught) —
+     * masking the intended message. Returning empty here lets the query reach the real guard.
      *
      * <p>Package-private + overridable so the resolution is unit-testable on a Mockito mock without a live
      * connector (mirrors {@link #applyMvccSnapshotPin} / {@link #checkSysTableScanConstraints}).
@@ -1056,6 +1070,12 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             return Optional.empty();
         }
         if (getQueryTableSnapshot() == null && getScanParams() == null) {
+            return Optional.empty();
+        }
+        if (!sysTableSupportsTimeTravel()) {
+            // Connector rejects sys-table time travel (paimon, the default). Do NOT resolve a pin: leave the
+            // rejection to checkSysTableScanConstraints, which owns the user-facing message. See the class
+            // note above on why deferring the capability check to that guard does not work.
             return Optional.empty();
         }
         PluginDrivenExternalTable source = ((PluginDrivenSysExternalTable) getTargetTable()).getSourceTable();
