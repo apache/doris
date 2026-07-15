@@ -1902,8 +1902,7 @@ int InstanceRecycler::abort_job_for_related_rowset(const RowsetMetaCloudPB& rows
             // rowset unrecyclable forever and pin the recycle_rowset queue
             // watermark on it.
             LOG(INFO) << "no abortable job for related rowset, proceed to recycle"
-                      << ", instance_id=" << instance_id_
-                      << " tablet_id=" << tablet_idx.tablet_id()
+                      << ", instance_id=" << instance_id_ << " tablet_id=" << tablet_idx.tablet_id()
                       << " rowset_id=" << rowset_meta.rowset_id_v2() << " code=" << code
                       << " msg=" << msg;
             return 0;
