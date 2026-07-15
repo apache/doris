@@ -623,7 +623,12 @@ public class PluginDrivenExternalTable extends ExternalTable {
 
     @Override
     public List<Column> getPartitionColumns(Optional<MvccSnapshot> snapshot) {
-        return getPartitionColumns();
+        makeSureInitialized();
+        // Resolve against the CALLER's pin, not the ambient context: a statement pinning this table at two
+        // versions cannot be disambiguated ambiently and would degrade to the LATEST partition columns.
+        return getSchemaCacheValue(snapshot)
+                .map(value -> ((PluginDrivenSchemaCacheValue) value).getPartitionColumns())
+                .orElse(Collections.emptyList());
     }
 
     public List<Column> getPartitionColumns() {
@@ -773,11 +778,11 @@ public class PluginDrivenExternalTable extends ExternalTable {
 
     @Override
     public Map<String, PartitionItem> getNameToPartitionItems(Optional<MvccSnapshot> snapshot) {
-        List<Column> partitionColumns = getPartitionColumns();
+        List<Column> partitionColumns = getPartitionColumns(snapshot);
         if (partitionColumns.isEmpty()) {
             return Collections.emptyMap();
         }
-        List<String> remoteNames = getSchemaCacheValue()
+        List<String> remoteNames = getSchemaCacheValue(snapshot)
                 .map(value -> ((PluginDrivenSchemaCacheValue) value).getPartitionColumnRemoteNames())
                 .orElse(Collections.emptyList());
         List<Type> types = partitionColumns.stream().map(Column::getType).collect(Collectors.toList());
@@ -836,10 +841,10 @@ public class PluginDrivenExternalTable extends ExternalTable {
      * pathological duplicate-partition-name case that the parallel-list build there tolerates.
      */
     public Map<String, List<String>> getNameToPartitionValues(Optional<MvccSnapshot> snapshot) {
-        if (getPartitionColumns().isEmpty()) {
+        if (getPartitionColumns(snapshot).isEmpty()) {
             return Collections.emptyMap();
         }
-        List<String> remoteNames = getSchemaCacheValue()
+        List<String> remoteNames = getSchemaCacheValue(snapshot)
                 .map(value -> ((PluginDrivenSchemaCacheValue) value).getPartitionColumnRemoteNames())
                 .orElse(Collections.emptyList());
 

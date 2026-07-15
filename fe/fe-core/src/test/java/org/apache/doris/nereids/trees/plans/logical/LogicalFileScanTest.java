@@ -17,12 +17,22 @@
 
 package org.apache.doris.nereids.trees.plans.logical;
 
+import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.PluginDrivenExternalTable;
+import org.apache.doris.datasource.PluginDrivenMvccExternalTable;
+import org.apache.doris.datasource.mvcc.MvccSnapshot;
+import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
+import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -53,7 +63,9 @@ public class LogicalFileScanTest {
 
         PluginDrivenExternalTable table = Mockito.mock(PluginDrivenExternalTable.class);
         Mockito.when(table.initSelectedPartitions(Mockito.any())).thenReturn(SelectedPartitions.NOT_PRUNED);
-        Mockito.when(table.getFullSchema()).thenReturn(schema);
+        // The snapshot-taking overload: computePluginDrivenOutput resolves THIS reference's version and
+        // asks for the schema AS OF it (empty here — this reference carries no selector).
+        Mockito.when(table.getFullSchema(Mockito.any())).thenReturn(schema);
         Mockito.when(table.getName()).thenReturn("iceberg_tbl");
 
         LogicalFileScan scan = new LogicalFileScan(new RelationId(1), table,
@@ -66,6 +78,62 @@ public class LogicalFileScanTest {
                 "id",
                 "_row_id",
                 "_last_updated_sequence_number"), outputNames);
+    }
+
+    @Test
+    public void computeOutputBindsThisReferencesOwnVersionNotLatest() {
+        // The tag_branch self-join shape: ONE table referenced at TWO tags, no bare reference. Each
+        // reference must bind the schema of the tag IT names. The version-BLIND lookup cannot tell the two
+        // references apart, gives up, and hands BOTH of them the LATEST schema — a schema NO reference
+        // asked for — which then makes the scan-time guard fire on a column the query never referenced.
+        List<Column> tagT1Schema = Collections.singletonList(new Column("c1", Type.INT, true));
+        List<Column> latestSchema = Arrays.asList(
+                new Column("c1", Type.INT, true),
+                new Column("c2", Type.INT, true));
+
+        PluginDrivenMvccExternalTable table = Mockito.mock(PluginDrivenMvccExternalTable.class);
+        ExternalDatabase<?> database = Mockito.mock(ExternalDatabase.class);
+        CatalogIf<?> catalog = Mockito.mock(CatalogIf.class);
+        Mockito.when(table.getName()).thenReturn("tag_branch_table");
+        Mockito.when(table.getDatabase()).thenReturn((ExternalDatabase) database);
+        Mockito.when(database.getFullName()).thenReturn("db");
+        Mockito.when(database.getCatalog()).thenReturn((CatalogIf) catalog);
+        Mockito.when(catalog.getName()).thenReturn("ctl");
+        Mockito.when(table.initSelectedPartitions(Mockito.any())).thenReturn(SelectedPartitions.NOT_PRUNED);
+
+        TableScanParams tagT1 = new TableScanParams("tag", ImmutableMap.of(), ImmutableList.of("t1"));
+        TableScanParams tagT2 = new TableScanParams("tag", ImmutableMap.of(), ImmutableList.of("t2"));
+        MvccSnapshot pinT1 = Mockito.mock(MvccSnapshot.class);
+        MvccSnapshot pinT2 = Mockito.mock(MvccSnapshot.class);
+        Mockito.when(table.loadSnapshot(Optional.empty(), Optional.of(tagT1))).thenReturn(pinT1);
+        Mockito.when(table.loadSnapshot(Optional.empty(), Optional.of(tagT2))).thenReturn(pinT2);
+        Mockito.when(table.getFullSchema(Optional.of(pinT1))).thenReturn(tagT1Schema);
+        // What a version-blind resolution yields once two versions are pinned: no pin resolved -> latest.
+        Mockito.when(table.getFullSchema(Optional.empty())).thenReturn(latestSchema);
+
+        ConnectContext ctx = new ConnectContext();
+        StatementContext stmtCtx = new StatementContext(ctx, null);
+        ctx.setStatementContext(stmtCtx);
+        ctx.setThreadLocalInfo();
+        try {
+            // Pin via loadSnapshots (not setSnapshot) so the version key is computed by the SAME function
+            // the lookup uses — the test must not hand-roll a key and accidentally agree with itself.
+            stmtCtx.loadSnapshots(table, Optional.empty(), Optional.of(tagT1));
+            stmtCtx.loadSnapshots(table, Optional.empty(), Optional.of(tagT2));
+
+            LogicalFileScan scan = new LogicalFileScan(new RelationId(3), table,
+                    Collections.singletonList("db"), Collections.emptyList(),
+                    Optional.empty(), Optional.empty(), Optional.of(tagT1), Optional.empty());
+
+            List<String> outputNames = scan.computeOutput().stream().map(Slot::getName)
+                    .collect(Collectors.toList());
+            // MUTATION: reverting computePluginDrivenOutput to the version-blind getFullSchema() makes this
+            // red with [c1, c2] — c2 being the phantom column that CI 996541's guard reported on.
+            Assertions.assertEquals(Collections.singletonList("c1"), outputNames,
+                    "a @tag(t1) reference must bind t1's schema even though the statement also pins t2");
+        } finally {
+            ConnectContext.remove();
+        }
     }
 
     @Test

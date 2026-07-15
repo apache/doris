@@ -488,16 +488,38 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
     // ──────────────────── schema (snapshot-aware) ────────────────────
 
     /**
-     * Returns the schema AS OF the context-pinned snapshot when an explicit time-travel pin carries a
-     * pinned schema (schema-at-snapshot under schema evolution), else the latest schema. Parity with
-     * legacy {@code PaimonExternalTable.getSchemaCacheValue}, which returns the schema of the
-     * context-pinned snapshot.
+     * Returns the schema AS OF the snapshot resolved from the AMBIENT context, else the latest schema.
+     *
+     * <p>Version-BLIND: it asks the statement "what is pinned for this table?" without saying WHICH
+     * reference is asking, so a statement pinning this table at two versions (e.g. a self-join of two
+     * {@code @tag} references) cannot be disambiguated and degrades to LATEST here — a schema no reference
+     * asked for. Correct only for statement-global callers (MTMV refresh, preload, the write sink) that
+     * genuinely have no reference to speak of. <b>The plan path must call {@link #getSchemaCacheValue(
+     * Optional)} with the reference's own pin instead.</b>
      */
     @Override
     public Optional<SchemaCacheValue> getSchemaCacheValue() {
-        Optional<MvccSnapshot> ctx = MvccUtil.getSnapshotFromContext(this);
-        if (ctx.isPresent() && ctx.get() instanceof PluginDrivenMvccSnapshot) {
-            SchemaCacheValue pinned = ((PluginDrivenMvccSnapshot) ctx.get()).getPinnedSchema();
+        return schemaAt(MvccUtil.getSnapshotFromContext(this));
+    }
+
+    /**
+     * Returns the schema AS OF {@code snapshot} — the pin resolved for ONE specific table reference — when
+     * it carries a pinned schema (schema-at-snapshot under schema evolution), else the latest schema.
+     * Parity with legacy {@code PaimonExternalTable.getSchemaCacheValue}, which returns the schema of the
+     * context-pinned snapshot.
+     *
+     * <p>Deliberately NOT delegated to/from the no-arg override: an empty {@code snapshot} means "this
+     * reference has no pin" (=> latest), whereas the no-arg form means "resolve from the ambient context".
+     * They are siblings; collapsing them would strip ambient resolution from the statement-global callers.
+     */
+    @Override
+    public Optional<SchemaCacheValue> getSchemaCacheValue(Optional<MvccSnapshot> snapshot) {
+        return schemaAt(snapshot);
+    }
+
+    private Optional<SchemaCacheValue> schemaAt(Optional<MvccSnapshot> snapshot) {
+        if (snapshot.isPresent() && snapshot.get() instanceof PluginDrivenMvccSnapshot) {
+            SchemaCacheValue pinned = ((PluginDrivenMvccSnapshot) snapshot.get()).getPinnedSchema();
             if (pinned != null) {
                 return Optional.of(pinned);     // time-travel: schema AS OF the pinned snapshot
             }
@@ -580,11 +602,11 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
         if (pin.getPartitionType() != null) {
             // Range-view path: do NOT empty the columns here (parity master getIcebergPartitionColumns, which
             // always returns the spec columns); UNPARTITIONED is enforced via getPartitionType above.
-            return super.getPartitionColumns();
+            return super.getPartitionColumns(snapshot);
         }
         // Legacy empties the partition columns on an invalid partition set so the table is treated
         // as UNPARTITIONED everywhere downstream.
-        return pin.isPartitionInvalid() ? Collections.emptyList() : super.getPartitionColumns();
+        return pin.isPartitionInvalid() ? Collections.emptyList() : super.getPartitionColumns(snapshot);
     }
 
     @Override

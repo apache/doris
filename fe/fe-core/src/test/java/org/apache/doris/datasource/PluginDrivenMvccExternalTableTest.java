@@ -876,6 +876,52 @@ public class PluginDrivenMvccExternalTableTest {
     }
 
     @Test
+    public void testGetSchemaCacheValueBindsOwnVersionWhenTwoVersionsPinned() {
+        Fixture f = Fixture.timeTravel();
+        PluginDrivenSchemaCacheValue schemaV5 = new PluginDrivenSchemaCacheValue(
+                Collections.singletonList(new Column("c1", Type.INT)),
+                Collections.emptyList(), Collections.emptyList());
+        PluginDrivenSchemaCacheValue schemaV6 = new PluginDrivenSchemaCacheValue(
+                Arrays.asList(new Column("c1", Type.INT), new Column("c2", Type.INT)),
+                Collections.emptyList(), Collections.emptyList());
+        PluginDrivenMvccSnapshot pinV5 = new PluginDrivenMvccSnapshot(f.resolvedSnapshot,
+                Collections.emptyMap(), Collections.emptyMap(), schemaV5);
+        PluginDrivenMvccSnapshot pinV6 = new PluginDrivenMvccSnapshot(f.resolvedSnapshot,
+                Collections.emptyMap(), Collections.emptyMap(), schemaV6);
+
+        ConnectContext ctx = new ConnectContext();
+        StatementContext stmtCtx = new StatementContext(ctx, null);
+        ctx.setStatementContext(stmtCtx);
+        ctx.setThreadLocalInfo();
+        try {
+            // ONE table, TWO version selectors, NO bare reference: exactly the shape a self-join of two
+            // @tag/FOR-VERSION references produces, and the only shape where the version-BLIND lookup
+            // gives up (StatementContext.getSnapshot(TableIf): two non-default pins and no default).
+            stmtCtx.setSnapshot(new MvccTableInfo(f.table, "v:VERSION:5"), pinV5);
+            stmtCtx.setSnapshot(new MvccTableInfo(f.table, "v:VERSION:6"), pinV6);
+
+            // Each reference must bind ITS OWN schema, resolved from the snapshot IT pinned. This is the
+            // whole point: a reference's schema may not depend on what OTHER references the statement has.
+            // MUTATION: dropping the snapshot-aware override (so this re-enters the ambient lookup) makes
+            // both of these red by returning f.latestCacheValue.
+            Assertions.assertSame(schemaV5, f.table.getSchemaCacheValue(Optional.of(pinV5)).orElse(null),
+                    "a reference pinned at v5 must bind v5's schema regardless of what else is pinned");
+            Assertions.assertSame(schemaV6, f.table.getSchemaCacheValue(Optional.of(pinV6)).orElse(null),
+                    "a reference pinned at v6 must bind v6's schema regardless of what else is pinned");
+
+            // ...and the version-BLIND path still degrades to LATEST here. That degradation is WHY the
+            // per-reference overload exists: LATEST is a schema NO reference asked for, so handing it to
+            // the binding layer manufactures a schema skew the scan-time guard then reports on a column
+            // the query never referenced. Kept as an assertion (not a comment) so that if the blind
+            // fallback is ever changed, this test says so instead of silently agreeing.
+            Assertions.assertSame(f.latestCacheValue, f.table.getSchemaCacheValue().orElse(null),
+                    "the version-blind lookup is ambiguous with two versions pinned and still yields LATEST");
+        } finally {
+            ConnectContext.remove();
+        }
+    }
+
+    @Test
     public void testGetSchemaCacheValueFallsBackToLatestWhenPinHasNullSchema() {
         Fixture f = Fixture.timeTravel();
         // A B5a latest pin (pinnedSchema == null).

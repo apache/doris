@@ -68,7 +68,10 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
             Optional<TableSample> tableSample, Optional<TableSnapshot> tableSnapshot,
             Optional<TableScanParams> scanParams, Optional<List<Slot>> cachedOutputs) {
         this(id, table, qualifier,
-                table.initSelectedPartitions(MvccUtil.getSnapshotFromContext(table)),
+                // This reference's OWN version, not the ambient one: the selectors are right here as ctor
+                // params, and the blind lookup degrades to LATEST once the table is pinned at two versions.
+                table.initSelectedPartitions(
+                        MvccUtil.getSnapshotFromContext(table, tableSnapshot, scanParams)),
                 operativeSlots, ImmutableList.of(),
                 tableSample, tableSnapshot,
                 scanParams, Optional.empty(), Optional.empty(), "",
@@ -210,7 +213,14 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
     private List<Slot> computePluginDrivenOutput() {
         IdGenerator<ExprId> exprIdGenerator = StatementScopeIdGenerator.getExprIdGenerator();
         Builder<Slot> slots = ImmutableList.builder();
-        table.getFullSchema()
+        // Resolve the schema AS OF THIS reference's own version. tableSnapshot/scanParams are final fields
+        // set in the ctor, so they are available even though computeOutput() is evaluated lazily
+        // (AbstractPlan.logicalPropertiesSupplier) -- and the version-aware lookup is key-exact, so the
+        // answer does not depend on how many versions the statement pins or on when this runs. The
+        // version-BLIND getFullSchema() would degrade to LATEST once this table is pinned at two versions
+        // (e.g. t@tag(a) JOIN t@tag(b)), binding a schema NO reference asked for and making the scan-time
+        // guard fire on a column the query never referenced.
+        getTable().getFullSchema(MvccUtil.getSnapshotFromContext(table, tableSnapshot, scanParams))
                 .stream()
                 .map(col -> SlotReference.fromColumn(exprIdGenerator.getNextId(), table, col, qualified()))
                 .forEach(slots::add);
