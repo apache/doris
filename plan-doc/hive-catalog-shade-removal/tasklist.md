@@ -77,14 +77,26 @@ mvn -o -f <abs>/fe/pom.xml -pl fe-core -am dependency:tree -Dincludes=org.apache
       - ✋ 同目录的 `ConfigurationAWSCredentialsProvider.java`（v1）与 `ConfigurationAWSCredentialsProviderFactory.java`
         **未动**，属 thrift 一代 → 随 T-30 删
 
-- [ ] **T-21** 🆕 **待用户拍板**：`create()` **静音丢弃 session token**（侦察挖出的既有 bug，非本次搬迁引入）。
-      `IcebergCatalogFactory.java:565-566` 发 `client.credentials-provider.glue.session_token`、单测 `:559` 也断言它，
-      但 `create()` 只读 `glue.access_key`/`glue.secret_key` 造 `AwsBasicCredentials`，**从不造 `AwsSessionCredentials`**
-      → 用 `aws.glue.session-token` 传临时 STS 凭证的用户**认证必失败**。
-      修法就一处：AK/SK/token 三者齐全时改造 `AwsSessionCredentials`（插件已 import 该类）。
-      ⚠️ 属**行为变更**（超出「纯搬迁」范围）→ **必须用户签字后再动**。
+- [ ] **T-21** 🔴 **下一个 session 第一件事（用户 2026-07-15 指定排序）· 方案待签字**：
+      Glue **session token 静默丢弃**（既有 bug，`867284b23c5`/2024-10 原始 Glue 支持就没处理过，
+      **不是** `2cd01ada8df` 那次搬迁引入）。
+      **完整 brief 见 `HANDOFF.md`**（3 路侦察 + 11 路对抗验证，全部 javap 字节码级 + 主 session 亲验）。
 
----
+      🔴 **原文「修法就一处」= 错。实际是两个模块、两处独立缺陷**：
+      - **A（iceberg 插件）** `glue/ConfigurationAWSCredentialsProvider2x.java:48-53`：`create(Map)` 只读
+        `glue.access_key`/`glue.secret_key` 造 `AwsBasicCredentials`，**token 就在 map 里没人读**
+        （iceberg 剥掉 `client.credentials-provider.` 前缀后，key = `glue.session_token`）。
+      - **B（`fe-filesystem`，原文完全没提）** `S3FileSystemProperties` 别名表**不对称**：
+        `accessKey`/`secretKey` **特意收了** glue 的三个别名，**`sessionToken` 一个 glue 别名都没有**
+        （`grep -rn 'glue.session' fe/fe-filesystem/` = **0**）⇒ token 到不了 S3 store ⇒ 发出
+        `s3.session-token=""` ⇒ iceberg 走空 token 分支 ⇒ 同样丢。
+      ⇒ **只修 A 不修 B，临时凭证的 glue catalog 仍是坏的**（Glue API 通了，读 metadata 文件仍 403）。
+      📌 BE 数据扫描不受影响（凭证走 `toBackendProperties()` 另一条路）。
+
+      要点：用户唯一输入别名是 **`aws.glue.session-token`**（单元素数组，`IcebergConnectorProperties.java:134`）·
+      判空必须 `isNotBlank`（实跑探针：`AwsSessionCredentials.create(ak,sk,"")` **不报错**，会造出空 token 凭证）·
+      模板已在库内（`IcebergConnector.java:854-863`）· 测试用**探针式**驱动真的
+      `new AwsClientProperties(opts).credentialsProvider(...)` 断言 token 存活（pom 零改动，agent 已实跑通过）。
 
 ## 阶段 2 — 删 Glue（thrift 一代）✅ **已完成**（commit `e43173eca67`）
 
