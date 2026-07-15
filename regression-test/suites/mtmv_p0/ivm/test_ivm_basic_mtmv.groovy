@@ -71,6 +71,7 @@ suite("test_ivm_basic_mtmv") {
     // 6. First COMPLETE refresh (full overwrite, skips IVM path)
     sql """REFRESH MATERIALIZED VIEW mv_ivm_basic COMPLETE"""
     waitingMTMVTaskFinishedByMvName("mv_ivm_basic")
+    advance_ivm_stream_offset("mv_ivm_basic")
 
     // 7. Verify data after first refresh (exclude __IVM_ROW_ID__ column)
     order_qt_after_first_refresh """SELECT k1, v1, v2 FROM mv_ivm_basic"""
@@ -165,9 +166,11 @@ suite("test_ivm_basic_mtmv") {
     def opMvInfos = sql """select State from mv_infos('database'='${context.dbName}') where Name = 'mv_ivm_basic_op'"""
     assertTrue(opMvInfos.toString().contains("INIT"))
 
-    // Step 1: COMPLETE refresh — all 3 rows visible (COMPLETE ignores binlog_op semantics)
+    // Step 1: COMPLETE refresh sees the current base-table snapshot.
+    // Only k1=1 and k1=2 exist at this point.
     sql """REFRESH MATERIALIZED VIEW mv_ivm_basic_op COMPLETE"""
     waitingMTMVTaskFinishedByMvName("mv_ivm_basic_op")
+    advance_ivm_stream_offset("mv_ivm_basic_op")
 
     order_qt_op_after_complete """SELECT k1, v1, v2 FROM mv_ivm_basic_op"""
 
@@ -185,9 +188,11 @@ suite("test_ivm_basic_mtmv") {
     // Only binlog_op=0 rows survive: k1=1, k1=2, k1=4 (k1=3 is deleted)
     order_qt_op_after_incremental """SELECT k1, v1, v2 FROM mv_ivm_basic_op"""
 
-    // Step 3: COMPLETE refresh restores all rows (including k1=3)
+    // Step 3: COMPLETE refresh sees the current base-table snapshot again.
+    // k1=3 still does not exist physically, so the result remains k1=1,2,4.
     sql """REFRESH MATERIALIZED VIEW mv_ivm_basic_op COMPLETE"""
     waitingMTMVTaskFinishedByMvName("mv_ivm_basic_op")
+    advance_ivm_stream_offset("mv_ivm_basic_op")
 
     order_qt_op_after_restore """SELECT k1, v1, v2 FROM mv_ivm_basic_op"""
 
@@ -251,10 +256,11 @@ suite("test_ivm_basic_mtmv") {
     def filterMvInfos = sql """select State from mv_infos('database'='${context.dbName}') where Name = 'mv_ivm_basic_filter'"""
     assertTrue(filterMvInfos.toString().contains("INIT"))
 
-    // Step 1: COMPLETE refresh — all rows passing the filter are visible (binlog_op semantics ignored)
-    // Visible: k1=2(v1=20), k1=3(v1=30), k1=4(v1=40) — note k1=1(v1=10) filtered out
+    // Step 1: COMPLETE refresh sees the current base-table snapshot after the filter.
+    // Visible: k1=2(v1=20), k1=4(v1=40) — note k1=1(v1=10) filtered out and k1=3 does not exist physically.
     sql """REFRESH MATERIALIZED VIEW mv_ivm_basic_filter COMPLETE"""
     waitingMTMVTaskFinishedByMvName("mv_ivm_basic_filter")
+    advance_ivm_stream_offset("mv_ivm_basic_filter")
 
     order_qt_filter_after_complete """SELECT k1, v1 FROM mv_ivm_basic_filter"""
 
@@ -272,9 +278,11 @@ suite("test_ivm_basic_mtmv") {
     // Only op=0 rows surviving the filter: k1=2, k1=4, k1=5 (k1=3 deleted, k1=1 filtered)
     order_qt_filter_after_incremental """SELECT k1, v1 FROM mv_ivm_basic_filter"""
 
-    // Step 3: COMPLETE refresh restores all filter-passing rows (including k1=3)
+    // Step 3: COMPLETE refresh sees the current filtered base-table snapshot again.
+    // k1=3 still does not exist physically, so only k1=2,4,5 remain.
     sql """REFRESH MATERIALIZED VIEW mv_ivm_basic_filter COMPLETE"""
     waitingMTMVTaskFinishedByMvName("mv_ivm_basic_filter")
+    advance_ivm_stream_offset("mv_ivm_basic_filter")
 
     order_qt_filter_after_restore """SELECT k1, v1 FROM mv_ivm_basic_filter"""
 
