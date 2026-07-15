@@ -1754,7 +1754,8 @@ TEST_F(NewParquetReaderTest, UnknownMtimeSkipsPageCacheForMutableFile) {
     write_parquet_file(_file_path);
 
     RuntimeProfile profile("new_parquet_reader_mutable_unknown_mtime");
-    auto reader = create_reader(0, -1, &profile);
+    auto reader =
+            create_reader(0, -1, &profile, false, nullptr, std::nullopt, false, nullptr, true, 0);
     TQueryOptions query_options;
     query_options.__set_enable_parquet_file_page_cache(true);
     RuntimeState state {query_options, TQueryGlobals()};
