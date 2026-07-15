@@ -18,6 +18,7 @@
 package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.connector.api.ConnectorPartitionInfo;
+import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.mvcc.ConnectorMvccPartition;
 import org.apache.doris.connector.api.mvcc.ConnectorMvccPartitionView;
 
@@ -40,6 +41,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
+import java.nio.ByteBuffer;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
@@ -51,6 +53,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 /**
@@ -228,6 +231,162 @@ public class IcebergPartitionUtilsTest {
 
         // A JSON array of the serialized partition values, in spec order. MUTATION: dropping a field -> red.
         Assertions.assertEquals("[\"5\",\"cn\"]", json);
+    }
+
+    // ---- getPartitionDataObjectJson ($position_deletes, upstream #65135) ----
+
+    /** The metadata table's `partition` struct fields, i.e. what {@code outputPartitionFields} carries. */
+    private static List<Types.NestedField> outputFields(Types.NestedField... fields) {
+        return Arrays.asList(fields);
+    }
+
+    @Test
+    public void partitionDataObjectJsonIsTypeNativeObjectNotStringArray() {
+        // WHY: the two renderers travel in the SAME thrift field (TIcebergFileDesc.partition_data_json) on
+        // different paths and are NOT interchangeable. BE does not parse this as JSON — it feeds it to the
+        // STRUCT text serde, which requires a leading '{' and matches keys by name; and
+        // DataTypeNullableSerDe::from_string SWALLOWS a parse failure into a NULL partition while returning
+        // OK. So handing it getPartitionDataJson's `["10"]` array would be silent wrong data, never an error.
+        // The int must also stay UNQUOTED (the regression suite's pd_int_partitioned pins "p":10, not "p":"10").
+        // MUTATION: delegating to getPartitionDataJson -> array -> red; quoting the int -> red.
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.required(2, "p", Types.IntegerType.get()));
+        PartitionSpec spec = PartitionSpec.builderFor(schema).identity("p").build();
+        PartitionData pd = new PartitionData(spec.partitionType());
+        pd.set(0, 10);
+        Types.NestedField out = Types.NestedField.optional(
+                spec.fields().get(0).fieldId(), "p", Types.IntegerType.get());
+
+        String json = IcebergPartitionUtils.getPartitionDataObjectJson(
+                pd, spec, outputFields(out), false, ZoneOffset.UTC);
+
+        Assertions.assertEquals("{\"p\":10}", json);
+    }
+
+    @Test
+    public void partitionDataObjectJsonKeysByOutputFieldIdNotSpecPosition() {
+        // WHY: the $position_deletes metadata table REASSIGNS partition field ids and rebuilds each spec via
+        // BaseMetadataTable.transformSpec, keeping the field ID but taking the OUTPUT (metadata-table) name.
+        // A rename therefore shows up as: same id, new name. Rendering by spec position (or by the writing
+        // spec's name) would emit the stale key, BE's struct serde would find no matching field, and the
+        // column would come back NULL — silently. This is the FE half of the suite's pd_partition_rename case.
+        // MUTATION: keying the JSON off the writing spec's field name -> {"p":10} -> red.
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.required(2, "p", Types.IntegerType.get()));
+        PartitionSpec spec = PartitionSpec.builderFor(schema).identity("p").build();
+        PartitionData pd = new PartitionData(spec.partitionType());
+        pd.set(0, 10);
+        // Same field id, renamed to p2 on the metadata table.
+        Types.NestedField renamed = Types.NestedField.optional(
+                spec.fields().get(0).fieldId(), "p2", Types.IntegerType.get());
+
+        Assertions.assertEquals("{\"p2\":10}", IcebergPartitionUtils.getPartitionDataObjectJson(
+                pd, spec, outputFields(renamed), false, ZoneOffset.UTC));
+    }
+
+    @Test
+    public void partitionDataObjectJsonRendersFieldMissingFromWritingSpecAsNull() {
+        // WHY: under partition evolution a delete file's own spec is a SUBSET of the metadata table's union
+        // partition type. The absent field must materialize as NULL, not shift the remaining values over.
+        // The suite pins exactly this: the old-spec row's JSON contains ":null", the new-spec row's does not.
+        // MUTATION: skipping unmatched output fields entirely and letting BE positionally bind the rest -> red.
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.required(2, "p", Types.IntegerType.get()));
+        PartitionSpec spec = PartitionSpec.builderFor(schema).identity("p").build();
+        PartitionData pd = new PartitionData(spec.partitionType());
+        pd.set(0, 10);
+        Types.NestedField present = Types.NestedField.optional(
+                spec.fields().get(0).fieldId(), "p", Types.IntegerType.get());
+        // A field only the LATER spec has (id 9999 is in no writing spec here).
+        Types.NestedField evolved = Types.NestedField.optional(9999, "id_bucket", Types.IntegerType.get());
+
+        String json = IcebergPartitionUtils.getPartitionDataObjectJson(
+                pd, spec, outputFields(present, evolved), false, ZoneOffset.UTC);
+
+        Assertions.assertEquals("{\"p\":10,\"id_bucket\":null}", json);
+    }
+
+    @Test
+    public void partitionDataObjectJsonKeepsDecimalScaleExact() {
+        // WHY: stock Jackson's JsonNodeFactory has bigDecimalExact=false, so valueToTree(new BigDecimal("10"))
+        // renders 1E+1 and BigDecimal("1.50") renders 1.5 — the first is a JSON *syntax* change, not just lost
+        // scale. Legacy fe-core rendered these through Gson, which is scale-exact. Verified empirically
+        // against gson 2.10.1 / jackson 2.16.0 (design doc T0.1). Whether BE's decimal text parser even
+        // accepts 1E+1 is untested — the point is to never emit it.
+        // MUTATION: using the stock JsonUtil.mapper() instead of the withExactBigDecimals copy -> red on both.
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.required(2, "p", Types.DecimalType.of(10, 2)));
+        PartitionSpec spec = PartitionSpec.builderFor(schema).identity("p").build();
+        PartitionData pd = new PartitionData(spec.partitionType());
+        pd.set(0, new BigDecimal("1.50"));
+        Types.NestedField out = Types.NestedField.optional(
+                spec.fields().get(0).fieldId(), "p", Types.DecimalType.of(10, 2));
+
+        Assertions.assertEquals("{\"p\":1.50}", IcebergPartitionUtils.getPartitionDataObjectJson(
+                pd, spec, outputFields(out), false, ZoneOffset.UTC));
+
+        PartitionData integral = new PartitionData(spec.partitionType());
+        integral.set(0, new BigDecimal("10"));
+        Assertions.assertEquals("{\"p\":10}", IcebergPartitionUtils.getPartitionDataObjectJson(
+                        integral, spec, outputFields(out), false, ZoneOffset.UTC),
+                "an integral decimal must not degrade to scientific notation (1E+1)");
+    }
+
+    @Test
+    public void partitionDataObjectJsonRejectsBinaryAndFixedPartitionValues() {
+        // WHY: this text transport cannot round-trip raw bytes. Legacy fails loud rather than let BE
+        // materialize a corrupted or silently-NULL partition value — and silent is exactly what would happen,
+        // since the struct serde swallows parse failures. MUTATION: emitting a utf8 rendering (or letting
+        // getPartitionValues' null-on-unsupported through) -> no throw -> red.
+        for (Types.NestedField field : outputFields(
+                Types.NestedField.required(2, "p", Types.BinaryType.get()),
+                Types.NestedField.required(2, "p", Types.FixedType.ofLength(2)))) {
+            Schema schema = new Schema(
+                    Types.NestedField.required(1, "id", Types.IntegerType.get()), field);
+            PartitionSpec spec = PartitionSpec.builderFor(schema).identity("p").build();
+            PartitionData pd = new PartitionData(spec.partitionType());
+            pd.set(0, ByteBuffer.wrap(new byte[] {0, (byte) 0xff}));
+            Types.NestedField out = Types.NestedField.optional(
+                    spec.fields().get(0).fieldId(), "p", field.type());
+
+            DorisConnectorException e = Assertions.assertThrows(DorisConnectorException.class,
+                    () -> IcebergPartitionUtils.getPartitionDataObjectJson(
+                            pd, spec, outputFields(out), false, ZoneOffset.UTC));
+            Assertions.assertTrue(e.getMessage().contains("partition field 'p'"), e.getMessage());
+            Assertions.assertTrue(e.getMessage().contains(field.type().toString()), e.getMessage());
+        }
+    }
+
+    @Test
+    public void partitionDataObjectJsonRejectsUuidOnlyWhenVarbinaryMappingIsOn() {
+        // WHY: enable.mapping.varbinary makes UUID a VARBINARY column, which this text transport cannot carry
+        // either — but with the flag OFF a UUID is a plain string and MUST still work. So the guard is
+        // conditional, and a test that only checks the throw would not catch over-rejection.
+        // MUTATION: rejecting UUID unconditionally -> the flag-off case -> red; never rejecting it -> the
+        // flag-on case -> red.
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.required(2, "p", Types.UUIDType.get()));
+        PartitionSpec spec = PartitionSpec.builderFor(schema).identity("p").build();
+        UUID uuid = UUID.fromString("00000000-0000-0000-0000-00000000002a");
+        PartitionData pd = new PartitionData(spec.partitionType());
+        pd.set(0, uuid);
+        Types.NestedField out = Types.NestedField.optional(
+                spec.fields().get(0).fieldId(), "p", Types.UUIDType.get());
+
+        DorisConnectorException e = Assertions.assertThrows(DorisConnectorException.class,
+                () -> IcebergPartitionUtils.getPartitionDataObjectJson(
+                        pd, spec, outputFields(out), true, ZoneOffset.UTC));
+        Assertions.assertTrue(e.getMessage().contains("partition field 'p'"), e.getMessage());
+        Assertions.assertTrue(e.getMessage().contains("uuid"), e.getMessage());
+
+        Assertions.assertEquals("{\"p\":\"" + uuid + "\"}", IcebergPartitionUtils.getPartitionDataObjectJson(
+                        pd, spec, outputFields(out), false, ZoneOffset.UTC),
+                "with varbinary mapping off a UUID partition is a plain string and must still render");
     }
 
     @Test
