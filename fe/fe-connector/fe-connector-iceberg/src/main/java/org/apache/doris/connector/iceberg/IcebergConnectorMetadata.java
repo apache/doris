@@ -1224,29 +1224,29 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     // ========== E7: System Tables (P6.5) ==========
 
     /**
-     * Lists the system-table names iceberg exposes. Connector-global: legacy
-     * {@code IcebergSysTable.SUPPORTED_SYS_TABLES} is built once from {@code MetadataTableType.values()}
-     * (minus {@code POSITION_DELETES}) and applies to every iceberg table, so this returns the same
-     * lower-cased names for any base handle — a defensive unmodifiable copy. {@code POSITION_DELETES} is
-     * NOT exposed (Q2): querying {@code t$position_deletes} degrades to the generic fe-core not-found path
-     * rather than legacy's bespoke "not supported yet" message.
+     * Lists the system-table names iceberg exposes. Connector-global: {@code IcebergSysTable.SUPPORTED_SYS_TABLES}
+     * is built once from {@code MetadataTableType.values()} and applies to every iceberg table, so this returns
+     * the same lower-cased names for any base handle — a defensive unmodifiable copy.
+     *
+     * <p>{@code POSITION_DELETES} IS exposed. The former Q2 exclusion mirrored legacy, which rejected it with
+     * "SysTable position_deletes is not supported yet"; upstream #65135 then implemented it natively, so
+     * excluding it here would be a capability regression vs master. Unlike every other entry, its scan takes
+     * BE's native reader rather than the JNI serialized-split path (see
+     * {@code IcebergScanPlanProvider.doPlanPositionDeletesSystemTableScan}).
      */
     @Override
     public List<String> listSupportedSysTables(ConnectorSession session,
             ConnectorTableHandle baseTableHandle) {
         List<String> names = new ArrayList<>();
         for (MetadataTableType type : MetadataTableType.values()) {
-            if (type != MetadataTableType.POSITION_DELETES) {
-                names.add(type.name().toLowerCase(Locale.ROOT));
-            }
+            names.add(type.name().toLowerCase(Locale.ROOT));
         }
         return Collections.unmodifiableList(names);
     }
 
     /**
      * Resolves a handle for the named system table of {@code baseTableHandle}, or empty when iceberg does
-     * not expose {@code sysName} (case-insensitive; includes a {@code null} name, an unknown name, and
-     * {@code position_deletes}, Q2).
+     * not expose {@code sysName} (case-insensitive; a {@code null} name and an unknown name).
      *
      * <p>Resolution is LAZY and pure — no catalog round-trip. Unlike paimon (whose handle stashes a
      * transient SDK {@code Table}, so {@code getSysTableHandle} eagerly loads it), the iceberg handle
@@ -1265,8 +1265,8 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     @Override
     public Optional<ConnectorTableHandle> getSysTableHandle(ConnectorSession session,
             ConnectorTableHandle baseTableHandle, String sysName) {
-        // Null-safe: a null / unknown / position_deletes sysName is "this connector does not expose that
-        // sys table" (Optional.empty per the contract), NOT an NPE/exception.
+        // Null-safe: a null / unknown sysName is "this connector does not expose that sys table"
+        // (Optional.empty per the contract), NOT an NPE/exception.
         if (!isSupportedSysTable(sysName)) {
             return Optional.empty();
         }
@@ -1281,18 +1281,16 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     }
 
     /**
-     * Whether iceberg exposes a system table named {@code sysName} (case-insensitive). Mirrors legacy
-     * {@code IcebergSysTable.SUPPORTED_SYS_TABLES}: every {@code MetadataTableType} except
-     * {@code POSITION_DELETES} (Q2). A {@code null} name is simply not exposed (returns false, not NPE).
+     * Whether iceberg exposes a system table named {@code sysName} (case-insensitive). Mirrors
+     * {@code IcebergSysTable.SUPPORTED_SYS_TABLES}: every {@code MetadataTableType}, {@code POSITION_DELETES}
+     * included (see {@link #listSupportedSysTables}). A {@code null} name is simply not exposed (returns
+     * false, not NPE).
      */
     private static boolean isSupportedSysTable(String sysName) {
         if (sysName == null) {
             return false;
         }
         for (MetadataTableType type : MetadataTableType.values()) {
-            if (type == MetadataTableType.POSITION_DELETES) {
-                continue;
-            }
             if (type.name().equalsIgnoreCase(sysName)) {
                 return true;
             }
