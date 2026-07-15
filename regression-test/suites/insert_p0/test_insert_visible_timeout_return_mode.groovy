@@ -15,6 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import org.apache.doris.regression.util.DebugPoint
+import org.apache.doris.regression.util.NodeType
+
 suite("test_insert_visible_timeout_return_mode", "nonConcurrent") {
     if (isCloudMode()) {
         return
@@ -36,10 +39,15 @@ suite("test_insert_visible_timeout_return_mode", "nonConcurrent") {
         )
     """
 
+    def masterFe = sql_return_maparray("SHOW FRONTENDS").find { it.IsMaster == "true" }
+    assertNotNull(masterFe, "Could not find master FE")
+    def masterFeHost = masterFe.Host as String
+    def masterFeHttpPort = masterFe.HttpPort as int
+
     try {
-        // PublishVersionDaemon only runs on the master FE. Enable the debug point on every FE so the
-        // case does not depend on whether the regression runner is connected to a master or follower FE.
-        GetDebugPoint().enableDebugPointForAllFEs(debugPoint)
+        // PublishVersionDaemon only runs on the master FE. Keep the SQL connection unchanged and
+        // inject the fault directly into the master identified by the same SHOW FRONTENDS snapshot.
+        DebugPoint.enableDebugPoint(masterFeHost, masterFeHttpPort, NodeType.FE, debugPoint)
 
         sql """ SET insert_visible_timeout_ms = 1000 """
 
@@ -55,7 +63,7 @@ suite("test_insert_visible_timeout_return_mode", "nonConcurrent") {
         }
     } finally {
         try {
-            GetDebugPoint().disableDebugPointForAllFEs(debugPoint)
+            DebugPoint.disableDebugPoint(masterFeHost, masterFeHttpPort, NodeType.FE, debugPoint)
         } catch (Throwable e) {
             logger.warn("Failed to disable debug point ${debugPoint}", e)
         }
