@@ -1,7 +1,7 @@
 # Trino 子插件目录改名设计（`plugins/connectors/` → `plugins/trino_plugins/`）
 
 日期：2026-07-15
-状态：设计已批准，**实现被并发构建阻塞**（见 §8）
+状态：**已实现并提交**（`3aebe84ec85`）。验证与欠账见 §8。
 
 ## 1. 问题
 
@@ -124,23 +124,29 @@ FE 与 BE 各自独立解析，但用同一套优先级。以 `TrinoBootstrap.re
 | fe.conf 显式设了值 | — | — | 配置值（第 2 步） | 行为不变（含回归环境） |
 | 显式设成旧默认字面量 | — | — | 该字面量（第 2 步，因 ≠ 新默认） | 正确 |
 
-## 8. 阻塞项（2026-07-15）
+## 8. 验证结果与欠账（2026-07-15）
 
-实现被并发构建阻塞，**代码一行未动**。探测结果：
+**已验**：
 
-- `sh build.sh --be`（PID 1515583，14:38:27 启动）在跑，子进程 `ninja -j 5` 正编 `src/exec/`，Release 模式。
-- HEAD 由 `aeb5f1dcf25` 变为 `fa2fcf4b246`（另一 session 提交，记录 rebase 到 `c0865b021b0`）。
+- `TrinoBootstrapTest` **9 个 case 全绿、0 skip**，覆盖 §7 兼容矩阵五行 + §5.1 常量守门。
+- **两条关键 case 各做了变异测试**（证明它们咬得住，而非只是碰巧通过）：
+  - 摘掉 `computeIfAbsent` → `legacyProbeIsMemoizedSoEveryCatalogInAProcessAgrees` 如期失败（第一次解析得 `plugins/trino_plugins`、第二次得 `plugins/connectors`，正是 §5.2 会触发 `IllegalStateException` 的分歧），其余 8 条不受影响。
+  - 把 `Config.java` 默认值改成 `/plugins/drifted_name` → `feConfigDefaultMatchesThePluginsHardcodedDefault` 如期失败，其余 8 条不受影响。
+- `build.sh` 过 `bash -n`；`be-java-extensions/trino-connector-scanner` 编译 + checkstyle 通过。
 
-§6 的四个源文件全在该构建必经之路上：
+**§10 第 3 条的落地结论**：`fe-connector-trino` 的 pom **确有** compile-scope 的 fe-common 依赖（为 `TrinoColumnMetadata` 引入），故按设计走"有则加断言测试"分支：`DEFAULT_PLUGIN_SUBDIR` 改为 package-private + `@VisibleForTesting`，测试双向断言它与 `Config.trino_connector_plugin_dir` 一致（改任一侧都会失败）。BE 的 `config.cpp` 是 Java 测试够不到的第三份副本，仍只靠三处交叉注释。
 
-- `build.sh` —— **正在被执行的脚本本体**。`sh` 按字节偏移边读边执行；1271 行的 `mkdir` 位于 BE 打包段（ninja 编完才走到），即构建尚未读到该处，此时改动会令其从错位偏移读入新字节。
-- `be/src/common/config.cpp` —— 正被 ninja 编译。已编过则产出二进制含旧默认值而源码写新值（部署后测 trino 得到旧行为，极其误导）；未编到则产出混合树。
-- `TrinoConnectorPluginLoader.java` —— `--be` 带 `BUILD_BE_JAVA_EXTENSIONS`，maven 正编 `trino-connector-scanner` 模块。
-- `Config.java` —— fe-common 在 be-java-extensions 依赖链上（`TrinoConnectorPluginLoader` import 了 `EnvUtils`）。
+**欠账**：
 
-**解除条件**：该构建结束（或用户确认可打断）后方可动手。
+1. **BE 未跑全量构建**。`config.cpp:1543` 仅改字符串字面量（既有 `DEFINE_String` 内），风险接近零，但严格说未经编译验证。
+2. **无 e2e**。三级 fallback 只有单测覆盖。真集群回归要跑到它需要构造"老部署遗留目录非空"的形态，而回归环境走的是显式配置（§6"不改"一节），天然绕开 fallback —— 即**现有回归跑绿不构成 fallback 的证据**。
+3. **需 release note**。默认值变更对用户可见：老部署靠 fallback 零感知，但新装的用户投放点从 `plugins/connectors/` 变为 `plugins/trino_plugins/`，文档（含 doris-website 的 trino-connector 安装说明）须同步。
 
-## 9. 验收标准
+## 9. 实现期的并发阻塞（已解除，留档）
+
+设计批准时探测到 `sh build.sh --be`（PID 1515583）正在跑，§6 的四个源文件全在其必经之路上 —— 含**正在被执行的 `build.sh` 本体**（`sh` 按字节偏移边读边执行，而 1271 行的 `mkdir` 位于 ninja 编完才走到的 BE 打包段，改动会令其从错位偏移读入新字节）。故当轮只写设计、代码一行未动，挂 Monitor 等该构建于 16:56:36 退出后才施改。留档理由：这是共享工作树上的复发型风险，下次改 `build.sh` 或 `be/src/` 前同样要先探。
+
+## 10. 验收标准（原始定义，逐条结果见 §8）
 
 1. `TrinoBootstrapTest` 覆盖 §7 兼容矩阵全部 5 行，且每个 case 断言的是"为什么这样解析"而非仅"解析成了什么"。
 2. memoize 后，同一 `doris_home` 下两次 `resolvePluginDir()` 在中途改变磁盘状态时返回同一结果（§5.2 的回归锁）。

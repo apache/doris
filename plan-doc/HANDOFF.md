@@ -43,6 +43,8 @@
 
 > P7.1–P7.4 + 翻闸（Phase 2）+ HIVEFS + hive e2e round-1/2 + #65185 复核修复（H/M/L 全系列）+ TeamCity #991951 均已 DONE，明细见 `git log` 与 `plan-doc/tasks/` 各设计文档。**各修的 live-gated e2e 仍欠用户真集群自跑**——完整 e2e 矩阵见 `hms-cutover-execution-plan-2026-07-10.md §4/§5`（memory `hms-iceberg-delegation-needs-e2e`）。删旧代码理论零行为差，e2e 欠账与本删除任务正交。
 
+> **🔀 旁支（非主线）：trino 子插件目录改名已完成 = `3aebe84ec85`**，设计 `plan-doc/trino-plugin-dir-rename-design.md`。Trino 自带插件的用户投放点 `plugins/connectors/` → `plugins/trino_plugins/`（FE+BE 对称）；新框架的 `plugins/connector/`（单数）**原地不动**。9 单测绿 + 两条关键 case 变异验证。**PR 收尾时必须捞起的两笔**：① **需 release note** —— 默认值变更用户可见（老部署靠三级 fallback 零感知，新装投放点改名，doris-website 的 trino-connector 安装文档须同步）；② **BE 未跑全量构建**（`config.cpp:1543` 仅改字面量）+ **fallback 无 e2e**（回归环境走显式配置，天然绕开 fallback → **现有回归跑绿不构成 fallback 的证据**）。
+
 ---
 
 # 📦 分支 / Commit 须知
