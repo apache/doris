@@ -176,7 +176,7 @@ public class AlterTableCommandTest {
                 "ALTER TABLE t DROP COLUMN s.c",
                 "ALTER TABLE t RENAME COLUMN s.c TO c2")) {
             AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
-                    () -> AlterTableCommand.checkNestedColumnPathSupported(table, parseAlter(sql).getOps()));
+                    () -> AlterTableCommand.checkColumnOperationsSupported(table, parseAlter(sql).getOps()));
             Assertions.assertTrue(exception.getMessage()
                     .contains("Nested column path is only supported for Iceberg tables"));
         }
@@ -185,27 +185,35 @@ public class AlterTableCommandTest {
     @Test
     void testAllowNestedColumnPathForIcebergTable() throws AnalysisException {
         IcebergExternalTable table = Mockito.mock(IcebergExternalTable.class);
-        AlterTableCommand.checkNestedColumnPathSupported(table,
+        AlterTableCommand.checkColumnOperationsSupported(table,
                 parseAlter("ALTER TABLE t ADD COLUMN s.c STRING NULL").getOps());
     }
 
     @Test
-    void testRejectDefaultMetadataForNestedIcebergModify() throws AnalysisException {
+    void testRejectDefaultMetadataForIcebergModify() throws AnalysisException {
         IcebergExternalTable table = Mockito.mock(IcebergExternalTable.class);
         for (String sql : Arrays.asList(
+                "ALTER TABLE t MODIFY COLUMN a BIGINT DEFAULT 7",
+                "ALTER TABLE t MODIFY COLUMN a BIGINT DEFAULT NULL",
+                "ALTER TABLE t MODIFY COLUMN ts DATETIME DEFAULT CURRENT_TIMESTAMP "
+                        + "ON UPDATE CURRENT_TIMESTAMP",
                 "ALTER TABLE t MODIFY COLUMN s.a BIGINT DEFAULT 7",
                 "ALTER TABLE t MODIFY COLUMN s.a BIGINT DEFAULT NULL",
                 "ALTER TABLE t MODIFY COLUMN s.ts DATETIME DEFAULT CURRENT_TIMESTAMP "
                         + "ON UPDATE CURRENT_TIMESTAMP")) {
             AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
-                    () -> AlterTableCommand.checkNestedColumnPathSupported(table, parseAlter(sql).getOps()));
+                    () -> AlterTableCommand.checkColumnOperationsSupported(table, parseAlter(sql).getOps()));
             Assertions.assertTrue(exception.getMessage()
-                    .contains("DEFAULT and ON UPDATE are not supported for nested Iceberg MODIFY COLUMN"));
+                    .contains("DEFAULT and ON UPDATE are not supported for Iceberg MODIFY COLUMN"));
         }
 
-        AlterTableCommand.checkNestedColumnPathSupported(table,
+        AlterTableCommand.checkColumnOperationsSupported(table,
+                parseAlter("ALTER TABLE t MODIFY COLUMN a BIGINT").getOps());
+        AlterTableCommand.checkColumnOperationsSupported(table,
                 parseAlter("ALTER TABLE t MODIFY COLUMN s.a BIGINT").getOps());
-        AlterTableCommand.checkNestedColumnPathSupported(table,
+        AlterTableCommand.checkColumnOperationsSupported(table,
+                parseAlter("ALTER TABLE t ADD COLUMN b BIGINT NULL DEFAULT 7").getOps());
+        AlterTableCommand.checkColumnOperationsSupported(table,
                 parseAlter("ALTER TABLE t ADD COLUMN s.b BIGINT NULL DEFAULT 7").getOps());
     }
 
@@ -218,7 +226,7 @@ public class AlterTableCommandTest {
                 "ALTER TABLE t DROP COLUMN s.c FROM r1",
                 "ALTER TABLE t MODIFY COLUMN s.c STRING FROM r1")) {
             AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
-                    () -> AlterTableCommand.checkNestedColumnPathSupported(table, parseAlter(sql).getOps()));
+                    () -> AlterTableCommand.checkColumnOperationsSupported(table, parseAlter(sql).getOps()));
             Assertions.assertTrue(exception.getMessage()
                     .contains("Rollup is not supported for nested Iceberg column operation"));
         }
@@ -231,7 +239,7 @@ public class AlterTableCommandTest {
                 "ALTER TABLE t ADD COLUMN s.c INT KEY NULL",
                 "ALTER TABLE t MODIFY COLUMN s.c BIGINT KEY")) {
             AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
-                    () -> AlterTableCommand.checkNestedColumnPathSupported(table, parseAlter(sql).getOps()));
+                    () -> AlterTableCommand.checkColumnOperationsSupported(table, parseAlter(sql).getOps()));
             Assertions.assertTrue(exception.getMessage()
                     .contains("KEY is not supported for nested Iceberg ADD/MODIFY COLUMN"));
         }
@@ -244,7 +252,7 @@ public class AlterTableCommandTest {
                 "ALTER TABLE t ADD COLUMN s.c INT AS (id + 1) NULL",
                 "ALTER TABLE t MODIFY COLUMN s.c BIGINT AS (id + 1)")) {
             AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
-                    () -> AlterTableCommand.checkNestedColumnPathSupported(table, parseAlter(sql).getOps()));
+                    () -> AlterTableCommand.checkColumnOperationsSupported(table, parseAlter(sql).getOps()));
             Assertions.assertTrue(exception.getMessage()
                     .contains("Generated columns are not supported for nested Iceberg ADD/MODIFY COLUMN"));
         }

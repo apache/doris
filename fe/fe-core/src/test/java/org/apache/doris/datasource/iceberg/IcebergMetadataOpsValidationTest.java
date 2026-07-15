@@ -350,23 +350,56 @@ public class IcebergMetadataOpsValidationTest {
         Mockito.when(icebergTable.schema()).thenReturn(schema);
         Mockito.when(icebergTable.updateSchema()).thenReturn(updateSchema);
 
-        Column defaultColumn = new Column("a", Type.BIGINT, false, null, true, "7", "");
-        Column onUpdateColumn = Mockito.spy(new Column("a", Type.BIGINT, true));
+        Column topLevelDefaultColumn = new Column("id", Type.BIGINT, false, null, true, "7", "");
+        Column nestedDefaultColumn = new Column("a", Type.BIGINT, false, null, true, "7", "");
+        Column topLevelOnUpdateColumn = Mockito.spy(new Column("id", Type.BIGINT, true));
+        Column nestedOnUpdateColumn = Mockito.spy(new Column("a", Type.BIGINT, true));
+        Mockito.doReturn(true).when(topLevelOnUpdateColumn).hasOnUpdateDefaultValue();
+        Mockito.doReturn(true).when(nestedOnUpdateColumn).hasOnUpdateDefaultValue();
+
+        try (MockedStatic<IcebergUtils> mockedIcebergUtils =
+                Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
+            mockedIcebergUtils.when(() -> IcebergUtils.getIcebergTable(dorisTable)).thenReturn(icebergTable);
+
+            assertUserException(() -> ops.modifyColumn(dorisTable, ColumnPath.of("id"),
+                            topLevelDefaultColumn, null, 1L),
+                    "Modifying default values is not supported for Iceberg columns: id");
+            assertUserException(() -> ops.modifyColumn(dorisTable, ColumnPath.of("id"),
+                            topLevelOnUpdateColumn, null, 1L),
+                    "Modifying default values is not supported for Iceberg columns: id");
+            assertUserException(() -> ops.modifyColumn(dorisTable, ColumnPath.fromDotName("s.a"),
+                            nestedDefaultColumn, null, 1L),
+                    "Modifying default values is not supported for Iceberg columns: s.a");
+            assertUserException(() -> ops.modifyColumn(dorisTable, ColumnPath.fromDotName("s.a"),
+                            nestedOnUpdateColumn, null, 1L),
+                    "Modifying default values is not supported for Iceberg columns: s.a");
+        }
+
+        Mockito.verifyNoInteractions(updateSchema);
+    }
+
+    @Test
+    public void testAddColumnRejectsOnUpdateMetadata() {
+        ExternalTable dorisTable = Mockito.mock(ExternalTable.class);
+        Table icebergTable = Mockito.mock(Table.class);
+        Column onUpdateColumn = Mockito.spy(new Column("new_col", Type.DATETIME, true));
         Mockito.doReturn(true).when(onUpdateColumn).hasOnUpdateDefaultValue();
 
         try (MockedStatic<IcebergUtils> mockedIcebergUtils =
                 Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
             mockedIcebergUtils.when(() -> IcebergUtils.getIcebergTable(dorisTable)).thenReturn(icebergTable);
 
-            assertUserException(() -> ops.modifyColumn(dorisTable, ColumnPath.fromDotName("s.a"),
-                            defaultColumn, null, 1L),
-                    "Modifying default values is not supported for Iceberg columns: s.a");
-            assertUserException(() -> ops.modifyColumn(dorisTable, ColumnPath.fromDotName("s.a"),
+            assertUserException(() -> ops.addColumn(dorisTable, ColumnPath.of("new_col"),
                             onUpdateColumn, null, 1L),
-                    "Modifying default values is not supported for Iceberg columns: s.a");
+                    "ON UPDATE is not supported for Iceberg ADD COLUMN: new_col");
+            assertUserException(() -> ops.addColumn(dorisTable, ColumnPath.fromDotName("s.new_col"),
+                            onUpdateColumn, null, 1L),
+                    "ON UPDATE is not supported for Iceberg ADD COLUMN: new_col");
+            assertUserException(() -> ops.addColumns(dorisTable, Collections.singletonList(onUpdateColumn), 1L),
+                    "ON UPDATE is not supported for Iceberg ADD COLUMN: new_col");
         }
 
-        Mockito.verifyNoInteractions(updateSchema);
+        Mockito.verify(icebergTable, Mockito.never()).updateSchema();
     }
 
     @Test

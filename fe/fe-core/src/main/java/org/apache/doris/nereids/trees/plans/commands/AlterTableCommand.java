@@ -128,7 +128,7 @@ public class AlterTableCommand extends Command implements ForwardWithSync {
         if (tableIf.isTemporary()) {
             throw new AnalysisException("Do not support alter temporary table[" + tableName + "]");
         }
-        checkNestedColumnPathSupported(tableIf, ops);
+        checkColumnOperationsSupported(tableIf, ops);
         for (AlterTableOp op : ops) {
             op.setTableName(tbl);
             op.validate(ctx);
@@ -140,10 +140,18 @@ public class AlterTableCommand extends Command implements ForwardWithSync {
         }
     }
 
-    static void checkNestedColumnPathSupported(TableIf table, List<AlterTableOp> alterTableOps)
+    static void checkColumnOperationsSupported(TableIf table, List<AlterTableOp> alterTableOps)
             throws AnalysisException {
         if (table instanceof IcebergExternalTable) {
             for (AlterTableOp alterTableOp : alterTableOps) {
+                ColumnDefinition columnDefinition = getColumnDefinition(alterTableOp);
+                // Column translation cannot distinguish an omitted default from an explicit DEFAULT NULL.
+                if (alterTableOp instanceof ModifyColumnOp && columnDefinition != null
+                        && (columnDefinition.hasDefaultValue()
+                            || columnDefinition.hasOnUpdateDefaultValue())) {
+                    throw new AnalysisException(
+                            "DEFAULT and ON UPDATE are not supported for Iceberg MODIFY COLUMN");
+                }
                 ColumnPath columnPath = getNestedColumnPath(alterTableOp);
                 if (columnPath == null) {
                     continue;
@@ -152,7 +160,6 @@ public class AlterTableCommand extends Command implements ForwardWithSync {
                     throw new AnalysisException("Rollup is not supported for nested Iceberg column operation: "
                             + columnPath.getFullPath());
                 }
-                ColumnDefinition columnDefinition = getColumnDefinition(alterTableOp);
                 if (columnDefinition != null && columnDefinition.isKey()) {
                     throw new AnalysisException("KEY is not supported for nested Iceberg ADD/MODIFY COLUMN: "
                             + columnPath.getFullPath());
@@ -160,12 +167,6 @@ public class AlterTableCommand extends Command implements ForwardWithSync {
                 if (columnDefinition != null && columnDefinition.getGeneratedColumnDesc().isPresent()) {
                     throw new AnalysisException("Generated columns are not supported for nested Iceberg "
                             + "ADD/MODIFY COLUMN: " + columnPath.getFullPath());
-                }
-                if (alterTableOp instanceof ModifyColumnOp && columnDefinition != null
-                        && (columnDefinition.hasDefaultValue()
-                            || columnDefinition.hasOnUpdateDefaultValue())) {
-                    throw new AnalysisException("DEFAULT and ON UPDATE are not supported for nested Iceberg "
-                            + "MODIFY COLUMN: " + columnPath.getFullPath());
                 }
             }
             return;

@@ -824,7 +824,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     @Override
     public void addColumn(ExternalTable dorisTable, Column column, ColumnPosition position, long updateTime)
             throws UserException {
-        validateCommonColumnInfo(column);
+        validateAddColumnMetadata(column);
         Table icebergTable = IcebergUtils.getIcebergTable(dorisTable);
         Schema schema = icebergTable.schema();
         validateNoCaseInsensitiveSiblingCollision(
@@ -850,7 +850,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
             addColumn(dorisTable, column, position, updateTime);
             return;
         }
-        validateCommonColumnInfo(column);
+        validateAddColumnMetadata(column);
         if (!column.isAllowNull()) {
             throw new UserException("New nested field '" + columnPath.getFullPath() + "' must be nullable");
         }
@@ -885,7 +885,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     public void addColumns(ExternalTable dorisTable, List<Column> columns, long updateTime) throws UserException {
         Table icebergTable = IcebergUtils.getIcebergTable(dorisTable);
         for (Column column : columns) {
-            validateCommonColumnInfo(column);
+            validateAddColumnMetadata(column);
         }
         validateNoCaseInsensitiveTopLevelCollisions(icebergTable.schema(), columns);
 
@@ -991,7 +991,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         ResolvedColumnPath columnPath = new ResolvedColumnPath(ColumnPath.of(currentCol.name()),
                 currentCol.type(), currentCol);
 
-        validateCommonColumnInfo(column);
+        validateModifyColumnMetadata(column, columnPath.getFullPath());
         UpdateSchema updateSchema = icebergTable.updateSchema();
 
         if (column.getType().isComplexType()) {
@@ -1033,10 +1033,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         ResolvedColumnPath resolvedPath = resolveColumnPath(icebergTable.schema(), columnPath, "modify");
         NestedField currentCol = resolvedPath.getField();
 
-        validateCommonColumnInfo(column);
-        if (column.hasDefaultValue() || column.hasOnUpdateDefaultValue()) {
-            throw new UserException("Modifying default values is not supported for Iceberg columns: " + columnPath);
-        }
+        validateModifyColumnMetadata(column, resolvedPath.getFullPath());
         UpdateSchema updateSchema = icebergTable.updateSchema();
 
         if (column.getType().isComplexType()) {
@@ -1435,6 +1432,20 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         } catch (UnsupportedOperationException | IllegalArgumentException e) {
             throw new UserException("Type " + column.getType().toSql()
                     + " is not supported for Iceberg column " + column.getName(), e);
+        }
+    }
+
+    private void validateAddColumnMetadata(Column column) throws UserException {
+        validateCommonColumnInfo(column);
+        if (column.hasOnUpdateDefaultValue()) {
+            throw new UserException("ON UPDATE is not supported for Iceberg ADD COLUMN: " + column.getName());
+        }
+    }
+
+    private void validateModifyColumnMetadata(Column column, String columnPath) throws UserException {
+        validateCommonColumnInfo(column);
+        if (column.hasDefaultValue() || column.hasOnUpdateDefaultValue()) {
+            throw new UserException("Modifying default values is not supported for Iceberg columns: " + columnPath);
         }
     }
 
