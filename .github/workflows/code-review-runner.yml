@@ -105,7 +105,13 @@ jobs:
           install -m 700 -d "$RUNNER_TEMP/codex-home"
           printf 'CODEX_HOME=%s\n' "$RUNNER_TEMP/codex-home" >> "$GITHUB_ENV"
 
-          ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" cp -f "$OSS_CODEX_AUTH_OBJECT" "$RUNNER_TEMP/codex-home/auth.json"
+          auth_object="$(printf '%s\n' \
+            'oss://doris-community-ci/codex/auth.json.1' \
+            'oss://doris-community-ci/codex/auth.json.2' \
+            | shuf -n 1)"
+          printf 'CODEX_AUTH_OSS_OBJECT=%s\n' "$auth_object" >> "$GITHUB_ENV"
+          echo "Selected Codex auth object: ${auth_object##*/}"
+          ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" cp -f "$auth_object" "$RUNNER_TEMP/codex-home/auth.json"
           chmod 600 "$RUNNER_TEMP/codex-home/auth.json"
           test -s "$RUNNER_TEMP/codex-home/auth.json"
           jq -e '
@@ -139,7 +145,6 @@ jobs:
           OSS_AK: ${{ secrets.OSS_AK }}
           OSS_SK: ${{ secrets.OSS_SK }}
           OSS_ENDPOINT: oss-cn-hongkong.aliyuncs.com
-          OSS_CODEX_AUTH_OBJECT: oss://doris-community-ci/codex/auth.json
 
       - name: Sync Codex memories from OSS
         run: |
@@ -643,6 +648,11 @@ jobs:
       - name: Sync Codex auth back to OSS
         if: ${{ always() }}
         run: |
+          if [ -z "$CODEX_AUTH_OSS_OBJECT" ]; then
+            echo "No selected Codex auth object found; skipping OSS auth sync."
+            exit 0
+          fi
+
           if [ ! -s "$CODEX_HOME/auth.json" ]; then
             echo "No Codex auth file found; skipping OSS auth sync."
             exit 0
@@ -653,12 +663,11 @@ jobs:
             and (.tokens.access_token | type == "string" and length > 0)
             and (.tokens.refresh_token | type == "string" and length > 0)
           ' "$CODEX_HOME/auth.json" >/dev/null
-          ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" cp -f "$CODEX_HOME/auth.json" "$OSS_CODEX_AUTH_OBJECT"
+          ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" cp -f "$CODEX_HOME/auth.json" "$CODEX_AUTH_OSS_OBJECT"
         env:
           OSS_AK: ${{ secrets.OSS_AK }}
           OSS_SK: ${{ secrets.OSS_SK }}
           OSS_ENDPOINT: oss-cn-hongkong.aliyuncs.com
-          OSS_CODEX_AUTH_OBJECT: oss://doris-community-ci/codex/auth.json
 
       - name: Comment PR on review failure
         if: ${{ always() && (steps.review_context.outcome != 'success' || steps.review.outcome != 'success') }}
