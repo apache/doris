@@ -197,13 +197,9 @@ Status rewrite_slot_refs_to_global_index(
         const auto* slot_ref = assert_cast<const VSlotRef*>(expr->get());
         const auto global_index_it = slot_id_to_global_index.find(slot_ref->slot_id());
         if (global_index_it == slot_id_to_global_index.end()) {
-            DORIS_CHECK(slot_ref->slot_id() >= 0);
-            const auto global_index = format::GlobalIndex(cast_set<size_t>(slot_ref->slot_id()));
-            *expr = VSlotRef::create_shared(cast_set<int>(global_index.value()),
-                                            cast_set<int>(global_index.value()), -1,
-                                            slot_ref->data_type(), slot_ref->column_name());
-            RETURN_IF_ERROR(expr->get()->prepare(nullptr, RowDescriptor(), nullptr));
-            return Status::OK();
+            return Status::InternalError(
+                    "Can not resolve source slot id {} to a table global index for column {}",
+                    slot_ref->slot_id(), slot_ref->column_name());
         }
         const auto global_index = global_index_it->second;
         *expr = VSlotRef::create_shared(cast_set<int>(global_index.value()),

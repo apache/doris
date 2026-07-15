@@ -3084,11 +3084,9 @@ TEST(ColumnMapperScanRequestTest, MapValuesStructChildConjunctStaysTableLevel) {
     ASSERT_TRUE(mapper.create_scan_request({filter}, {table_map}, &request).ok());
 
     EXPECT_TRUE(request.conjuncts.empty());
-    ASSERT_EQ(request.predicate_columns.size(), 1);
-    EXPECT_EQ(request.predicate_columns[0].column_id(), LocalColumnId(1));
-    ASSERT_FALSE(request.predicate_columns[0].project_all_children);
-    ASSERT_EQ(request.predicate_columns[0].children.size(), 1);
-    EXPECT_EQ(request.predicate_columns[0].children[0].local_id(), 1);
+    EXPECT_TRUE(request.predicate_columns.empty());
+    ASSERT_EQ(request.non_predicate_columns.size(), 1);
+    EXPECT_EQ(request.non_predicate_columns[0].column_id(), LocalColumnId(1));
 }
 
 // Scenario: MAP_KEYS only reads map keys, but localizing it by wrapping the evolved file map slot
@@ -3127,9 +3125,9 @@ TEST(ColumnMapperScanRequestTest, MapKeysConjunctWithEvolvedValueStructStaysTabl
     ASSERT_TRUE(mapper.create_scan_request({filter}, {table_map}, &request).ok());
 
     EXPECT_TRUE(request.conjuncts.empty());
-    EXPECT_TRUE(request.non_predicate_columns.empty());
-    ASSERT_EQ(request.predicate_columns.size(), 1);
-    EXPECT_EQ(request.predicate_columns[0].column_id(), LocalColumnId(1));
+    EXPECT_TRUE(request.predicate_columns.empty());
+    ASSERT_EQ(request.non_predicate_columns.size(), 1);
+    EXPECT_EQ(request.non_predicate_columns[0].column_id(), LocalColumnId(1));
 }
 
 // Scenario: an array element struct projection only contains missing/default children; the mapper

@@ -21,6 +21,7 @@
 #include <cstddef>
 #include <memory>
 #include <optional>
+#include <set>
 #include <sstream>
 #include <string_view>
 #include <utility>
@@ -1952,6 +1953,7 @@ ColumnMapping* TableColumnMapper::_find_filter_mapping(GlobalIndex global_index)
 Status TableColumnMapper::localize_filters(const std::vector<TableFilter>& table_filters,
                                            FileScanRequest* file_request,
                                            RuntimeState* runtime_state) {
+    std::set<LocalColumnId> localized_predicate_columns;
     FilterProjectionMap filter_projections;
     auto filter_mappings = _filter_visible_mappings();
     RETURN_IF_ERROR(build_nested_struct_filter_projection_map(table_filters, filter_mappings,
@@ -2038,7 +2040,39 @@ Status TableColumnMapper::localize_filters(const std::vector<TableFilter>& table
             auto localized_conjunct = VExprContext::create_shared(std::move(localized_root));
             RETURN_IF_ERROR(rewrite_context.prepare_created_exprs(localized_conjunct.get()));
             file_request->conjuncts.push_back(std::move(localized_conjunct));
+            for (const auto global_index : table_filter.global_indices) {
+                const auto* mapping = _find_filter_mapping(global_index);
+                if (mapping != nullptr && mapping->file_local_id.has_value() &&
+                    filter_conversion_has_local_source(mapping->filter_conversion)) {
+                    localized_predicate_columns.emplace(*mapping->file_local_id);
+                }
+            }
         }
+    }
+
+    // Candidate columns are added before expression rewriting because their file-block positions
+    // are needed to localize slot refs. If rewriting rejects every filter that references a visible
+    // column, restore that output column to the lazy non-predicate set instead of forcing it through
+    // the eager predicate path.
+    for (auto& mapping : _mappings) {
+        if (!mapping.file_local_id.has_value()) {
+            continue;
+        }
+        const auto local_id = LocalColumnId(*mapping.file_local_id);
+        if (localized_predicate_columns.contains(local_id)) {
+            continue;
+        }
+        const auto predicate_it = std::ranges::find_if(
+                file_request->predicate_columns, [local_id](const LocalColumnIndex& projection) {
+                    return projection.column_id() == local_id;
+                });
+        if (predicate_it == file_request->predicate_columns.end()) {
+            continue;
+        }
+        file_request->predicate_columns.erase(predicate_it);
+        RETURN_IF_ERROR(add_scan_column(file_request, &mapping, false,
+                                        force_full_complex_scan_projection()));
+        RETURN_IF_ERROR(apply_scan_projection_to_mapping_file_type(*file_request, &mapping));
     }
     return Status::OK();
 }

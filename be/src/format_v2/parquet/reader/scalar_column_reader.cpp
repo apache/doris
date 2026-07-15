@@ -265,6 +265,14 @@ Status ScalarColumnReader::select_with_dictionary_filter(const SelectionVector& 
     *used_filter = false;
     row_filter->clear();
     row_filter->reserve(selected_rows);
+    DORIS_CHECK(_record_reader != nullptr);
+    // A clean fallback is possible only before any range skip or read advances the record reader.
+    // Once dictionary selection starts, losing dictionary output is corruption rather than a
+    // reason to retry through the ordinary selected-read path with an already advanced stream.
+    if (!_record_reader->read_dictionary()) {
+        return Status::OK();
+    }
+    *used_filter = true;
 
     const auto ranges = selection_to_ranges(sel, selected_rows);
     int64_t cursor = 0;
@@ -306,8 +314,10 @@ Status ScalarColumnReader::read_range_with_dictionary_filter(
     DORIS_CHECK(used_filter != nullptr);
     DORIS_CHECK(_record_reader != nullptr);
     if (!_record_reader->read_dictionary()) {
-        *used_filter = false;
-        return Status::OK();
+        return Status::Corruption(
+                "Parquet dictionary reader became unavailable after selected reading started for "
+                "column {}",
+                _name);
     }
 
     ParquetLeafBatch leaf_batch;
@@ -365,10 +375,15 @@ Status ScalarColumnReader::append_dictionary_filtered_values(
             bool keep = false;
             if (!dict_array->IsNull(row)) {
                 const int64_t dictionary_index = dict_array->GetValueIndex(row);
-                if (dictionary_index >= 0 &&
-                    dictionary_index < static_cast<int64_t>(dictionary_filter.size())) {
-                    keep = dictionary_filter[static_cast<size_t>(dictionary_index)] != 0;
+                if (dictionary_index < 0 || dictionary_index >= dictionary->length() ||
+                    dictionary_index >= static_cast<int64_t>(dictionary_filter.size())) {
+                    return Status::Corruption(
+                            "Invalid parquet dictionary index {} for column {}: dictionary={}, "
+                            "filter={}",
+                            dictionary_index, _name, dictionary->length(),
+                            dictionary_filter.size());
                 }
+                keep = dictionary_filter[static_cast<size_t>(dictionary_index)] != 0;
                 if (keep) {
                     RETURN_IF_ERROR(append_arrow_binary_dictionary_value(
                             _name, *dictionary, dictionary_index, &selected_values));
