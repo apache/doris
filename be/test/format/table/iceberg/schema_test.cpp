@@ -66,5 +66,34 @@ TEST(SchemaTest, test_find_field) {
     EXPECT_EQ(found_field2->field_id(), 2);
 }
 
+TEST(SchemaTest, test_nested_field_lookup) {
+    std::vector<NestedField> struct_fields;
+    struct_fields.emplace_back(false, 2, "struct_int", std::make_unique<IntegerType>(),
+                               std::nullopt);
+    struct_fields.emplace_back(false, 3, "struct_list",
+                               ListType::of_required(4, std::make_unique<IntegerType>()),
+                               std::nullopt);
+
+    std::vector<NestedField> fields;
+    fields.emplace_back(false, 1, "struct_field",
+                        std::make_unique<StructType>(std::move(struct_fields)), std::nullopt);
+    fields.emplace_back(false, 5, "map_field",
+                        MapType::of_required(6, 7, std::make_unique<StringType>(),
+                                             std::make_unique<IntegerType>()),
+                        std::nullopt);
+    fields.emplace_back(false, 8, "root_int", std::make_unique<IntegerType>(), std::nullopt);
+
+    Schema schema(1, std::move(fields));
+
+    EXPECT_EQ(schema.find_type(2)->type_id(), TypeID::INTEGER);
+    EXPECT_EQ(schema.find_type(4)->type_id(), TypeID::INTEGER);
+    EXPECT_EQ(schema.find_type(7)->type_id(), TypeID::INTEGER);
+    EXPECT_FALSE(schema.is_nested_in_list_or_map(2));
+    EXPECT_TRUE(schema.is_nested_in_list_or_map(4));
+    EXPECT_TRUE(schema.is_nested_in_list_or_map(6));
+    EXPECT_TRUE(schema.is_nested_in_list_or_map(7));
+    EXPECT_FALSE(schema.is_nested_in_list_or_map(8));
+}
+
 } // namespace iceberg
 } // namespace doris

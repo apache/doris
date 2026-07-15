@@ -393,13 +393,13 @@ Status VParquetTransformer::collect_file_statistics_after_close(TIcebergColumnSt
 }
 
 Status VParquetTransformer::_can_write_iceberg_bounds(int32_t field_id, bool* can_write) const {
-    for (const auto& field : _iceberg_schema->root_struct().fields()) {
-        if (field.field_id() == field_id) {
-            *can_write = field.field_type()->is_primitive_type();
-            return Status::OK();
-        }
+    const iceberg::NestedField* field = _iceberg_schema->find_field(field_id);
+    if (field == nullptr) {
+        return Status::InternalError("Can not find Iceberg field for Parquet metrics: {}",
+                                     field_id);
     }
-    *can_write = false;
+    *can_write = field->field_type()->is_primitive_type() &&
+                 !_iceberg_schema->is_nested_in_list_or_map(field_id);
     return Status::OK();
 }
 } // namespace doris

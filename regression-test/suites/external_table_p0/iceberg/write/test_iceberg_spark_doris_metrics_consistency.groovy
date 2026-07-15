@@ -35,6 +35,7 @@ suite("test_iceberg_spark_doris_metrics_consistency", "p0,external") {
             id INT,
             name STRING,
             score BIGINT,
+            nested_struct STRUCT<c1: INT>,
             t_map_boolean MAP<BOOLEAN, BOOLEAN>,
             dt INT
         ) USING iceberg
@@ -44,13 +45,14 @@ suite("test_iceberg_spark_doris_metrics_consistency", "p0,external") {
             'write.orc.compression-codec'='zlib'
         );
         INSERT INTO demo.${dbName}.spark_doris_orc_map_bool_metrics
-        VALUES (1, 'alice', 7000000000, MAP(true, false), 20260702);
+        VALUES (1, 'alice', 7000000000, NAMED_STRUCT('c1', 42), MAP(true, false), 20260702);
 
         DROP TABLE IF EXISTS demo.${dbName}.spark_doris_parquet_map_bool_metrics;
         CREATE TABLE demo.${dbName}.spark_doris_parquet_map_bool_metrics (
             id INT,
             name STRING,
             score BIGINT,
+            nested_struct STRUCT<c1: INT>,
             t_map_boolean MAP<BOOLEAN, BOOLEAN>,
             dt INT
         ) USING iceberg
@@ -60,7 +62,7 @@ suite("test_iceberg_spark_doris_metrics_consistency", "p0,external") {
             'write.parquet.compression-codec'='zstd'
         );
         INSERT INTO demo.${dbName}.spark_doris_parquet_map_bool_metrics
-        VALUES (1, 'alice', 7000000000, MAP(true, false), 20260702);
+        VALUES (1, 'alice', 7000000000, NAMED_STRUCT('c1', 42), MAP(true, false), 20260702);
     """
 
     sql """drop catalog if exists ${catalogName}"""
@@ -81,7 +83,7 @@ suite("test_iceberg_spark_doris_metrics_consistency", "p0,external") {
     sql """create database if not exists ${dbName}"""
     sql """use ${dbName}"""
 
-    def assertSparkDorisMetricBoundsEqual = { String tableName, String complexFieldId ->
+    def assertSparkDorisMetricBoundsEqual = { String tableName ->
         sql """refresh table ${dbName}.${tableName}"""
         List<List<Object>> metricRows = sql """
             SELECT record_count, lower_bounds, upper_bounds
@@ -92,10 +94,16 @@ suite("test_iceberg_spark_doris_metrics_consistency", "p0,external") {
         assertEquals(1, metricSignatures.size(),
                 "${tableName} should have identical Spark and Doris bounds metrics: ${metricRows}")
         metricRows.each { row ->
-            assertTrue(!String.valueOf(row[1]).contains("${complexFieldId}:"),
-                    "${tableName} lower_bounds should not contain complex field ${complexFieldId}: ${row[1]}")
-            assertTrue(!String.valueOf(row[2]).contains("${complexFieldId}:"),
-                    "${tableName} upper_bounds should not contain complex field ${complexFieldId}: ${row[2]}")
+            assertTrue(String.valueOf(row[1]).contains("5:"),
+                    "${tableName} lower_bounds should contain nested struct field 5: ${row[1]}")
+            assertTrue(String.valueOf(row[2]).contains("5:"),
+                    "${tableName} upper_bounds should contain nested struct field 5: ${row[2]}")
+            ["4", "6", "7", "8"].each { excludedFieldId ->
+                assertTrue(!String.valueOf(row[1]).contains("${excludedFieldId}:"),
+                        "${tableName} lower_bounds should not contain field ${excludedFieldId}: ${row[1]}")
+                assertTrue(!String.valueOf(row[2]).contains("${excludedFieldId}:"),
+                        "${tableName} upper_bounds should not contain field ${excludedFieldId}: ${row[2]}")
+            }
         }
 
         sql """SELECT * FROM ${tableName}\$data_files"""
@@ -103,13 +111,13 @@ suite("test_iceberg_spark_doris_metrics_consistency", "p0,external") {
 
     sql """
         INSERT INTO spark_doris_orc_map_bool_metrics
-        VALUES (1, 'alice', 7000000000, MAP(true, false), 20260702)
+        VALUES (1, 'alice', 7000000000, NAMED_STRUCT('c1', 42), MAP(true, false), 20260702)
     """
-    assertSparkDorisMetricBoundsEqual("spark_doris_orc_map_bool_metrics", "4")
+    assertSparkDorisMetricBoundsEqual("spark_doris_orc_map_bool_metrics")
 
     sql """
         INSERT INTO spark_doris_parquet_map_bool_metrics
-        VALUES (1, 'alice', 7000000000, MAP(true, false), 20260702)
+        VALUES (1, 'alice', 7000000000, NAMED_STRUCT('c1', 42), MAP(true, false), 20260702)
     """
-    assertSparkDorisMetricBoundsEqual("spark_doris_parquet_map_bool_metrics", "4")
+    assertSparkDorisMetricBoundsEqual("spark_doris_parquet_map_bool_metrics")
 }

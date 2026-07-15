@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <unordered_set>
+
 #include "format/table/iceberg/types.h"
 
 namespace doris::iceberg {
@@ -40,7 +42,11 @@ public:
 
     const NestedField* find_field(int id) const;
 
+    bool is_nested_in_list_or_map(int id) const;
+
 private:
+    void _index_field(const NestedField& field, bool nested_in_list_or_map);
+
     static const char NEWLINE = '\n';
     static const std::string ALL_COLUMNS;
     static const int DEFAULT_SCHEMA_ID;
@@ -48,6 +54,7 @@ private:
     int _schema_id;
     StructType _root_struct;
     std::unordered_map<int, const NestedField*> _id_to_field;
+    std::unordered_set<int> _field_ids_nested_in_list_or_map;
 };
 
 } // namespace doris::iceberg

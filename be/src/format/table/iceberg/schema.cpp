@@ -26,11 +26,29 @@ Schema::Schema(int schema_id, std::vector<NestedField> columns)
         : _schema_id(schema_id), _root_struct(std::move(columns)) {
     _id_to_field.reserve(_root_struct.fields().size());
     for (const auto& field : _root_struct.fields()) {
-        int field_id = field.field_id();
-        _id_to_field[field_id] = &field;
+        _index_field(field, false);
     }
 }
 Schema::Schema(std::vector<NestedField> columns) : Schema(DEFAULT_SCHEMA_ID, std::move(columns)) {}
+
+void Schema::_index_field(const NestedField& field, bool nested_in_list_or_map) {
+    _id_to_field[field.field_id()] = &field;
+    if (nested_in_list_or_map) {
+        _field_ids_nested_in_list_or_map.insert(field.field_id());
+    }
+
+    Type* field_type = field.field_type();
+    if (field_type->is_struct_type()) {
+        for (const auto& child : field_type->as_struct_type()->fields()) {
+            _index_field(child, nested_in_list_or_map);
+        }
+    } else if (field_type->is_list_type()) {
+        _index_field(field_type->as_list_type()->element_field(), true);
+    } else if (field_type->is_map_type()) {
+        _index_field(field_type->as_map_type()->key_field(), true);
+        _index_field(field_type->as_map_type()->value_field(), true);
+    }
+}
 
 Type* Schema::find_type(int id) const {
     auto it = _id_to_field.find(id);
@@ -46,6 +64,10 @@ const NestedField* Schema::find_field(int id) const {
         return it->second;
     }
     return nullptr;
+}
+
+bool Schema::is_nested_in_list_or_map(int id) const {
+    return _field_ids_nested_in_list_or_map.contains(id);
 }
 
 } // namespace doris::iceberg

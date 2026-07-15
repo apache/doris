@@ -108,11 +108,14 @@ private:
                              orc::ColumnVectorBatch* orc_col_batch);
     const iceberg::NestedField* _iceberg_field_for_column(const std::string& column_name) const;
     Status _can_write_iceberg_bounds(int32_t field_id, bool* can_write) const;
+    Status _collect_iceberg_bounds(const orc::Statistics* file_stats,
+                                   std::map<int32_t, std::string>* lower_bounds,
+                                   std::map<int32_t, std::string>* upper_bounds) const;
     void _collect_primitive_column_bounds(const orc::ColumnStatistics* col_stats, int32_t field_id,
-                                          const DataTypePtr& data_type,
+                                          const iceberg::Type* field_type,
                                           std::map<int32_t, std::string>* lower_bounds,
-                                          std::map<int32_t, std::string>* upper_bounds);
-    std::string _decimal_to_bytes(const orc::Decimal& decimal);
+                                          std::map<int32_t, std::string>* upper_bounds) const;
+    std::string _decimal_to_bytes(const orc::Decimal& decimal) const;
     std::shared_ptr<io::FileSystem> _fs = nullptr;
     doris::io::FileWriter* _file_writer = nullptr;
     std::vector<std::string> _column_names;
